@@ -189,9 +189,11 @@ pub(super) fn rename_pi_session(path: &Path, name: &str) -> Result<(), String> {
             .as_str()
             .map(str::to_string)
     });
+    let mut id = uuid::Uuid::new_v4().simple().to_string();
+    id.truncate(8);
     let entry = serde_json::json!({
         "type": "session_info",
-        "id": uuid::Uuid::new_v4().simple().to_string()[..8],
+        "id": id,
         "parentId": parent,
         "timestamp": now_iso8601(),
         "name": name,

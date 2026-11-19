@@ -88,8 +88,8 @@ sikemux-repo = { path = "../sikemux-repo", features = ["testing"] }
 sikemux-serve = { path = "../sikemux-serve", features = ["testing"] }
 tempfile = "3"
 
-[lints.clippy]
-undocumented_unsafe_blocks = "deny"
+[lints]
+workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"

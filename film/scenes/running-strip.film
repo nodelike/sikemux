@@ -1,10 +1,15 @@
 # A chat with a subagent at work: the running strip above the composer names it, says what it
-# is doing and what it has cost, on a wide window.
+# is doing and what it has cost, on a wide window. Another chat's triggers make the project
+# listen, which the line under the composer says.
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir
 prefer paneImage null
 project storefront shop
+chat Rook
+title "Nightly chores"
+trigger "Daily docs pass" 86400
+trigger "Daily phone port" 86400
 chat Wren
 title "Cart total bug"
 say "delegate 600000"
@@ -12,3 +17,6 @@ settle 4
 front Wren
 settle 2
 snap running-strip
+move 650,855
+settle 1.5
+snap running-strip-listening

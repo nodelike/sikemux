@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Restores the stash's files and key from R2 into a scratch folder, checks them against the live
-# stash and deletes the folder again. Run as root on citadel; the age private key comes in on
-# stdin and never touches the disk:
+# Restores the stash's files and key, and the address proof key, from R2 into a scratch folder,
+# checks them against citadel's and deletes the folder again. Run as root on citadel; the age
+# private key comes in on stdin and never touches the disk:
 #   restore-stash [--dir PATH] [--keep]
-# --keep leaves the restored files in place and, when citadel has no stash key yet, writes the
-# restored one to /etc/sikemux/stash.key, for recovering instead of drilling.
+# --keep leaves the restored files in place and writes each restored key citadel has no copy
+# of yet to /etc/sikemux, for recovering instead of drilling.
 set -euo pipefail
 export LC_ALL=C
 # shellcheck source=lib.sh
@@ -14,6 +14,7 @@ backup_env="${BACKUP_ENV:-/etc/sikemux/backup.env}"
 recipients="${BACKUP_RECIPIENTS:-/etc/sikemux/backup-recipients.txt}"
 stash_dir="${STASH_DIR:-/var/lib/sikemux-stash}"
 key_file="${STASH_KEY_FILE:-/etc/sikemux/stash.key}"
+proof_key_file="${ADDRESS_PROOF_KEY_FILE:-/etc/sikemux/address-proof.key}"
 api="${SIKEMUX_API:-/srv/sikemux/current/api/dist/main.mjs}"
 live_os_user="${LIVE_OS_USER-sikemux-backup}"
 live_role="${LIVE_ROLE:-sikemux_backup}"
@@ -65,20 +66,27 @@ if [ -f "$recipients" ]; then
 fi
 
 failed=no
-key="$(rclone cat "r2:$R2_BUCKET/stash/key.age" | age --decrypt --identity <(printf '%s\n' "$identity"))"
-unset identity
-[[ "$key" =~ ^[0-9a-f]{64}$ ]] || { echo "stash/key.age does not hold a stash key" >&2; exit 1; }
-if [ -f "$key_file" ]; then
-  if [ "$(cat "$key_file")" = "$key" ]; then
-    echo "the backed-up key is $key_file's"
-  else
-    echo "FAIL: the backed-up key is not $key_file's" >&2
-    failed=yes
+# Opens a sealed key from the bucket into $key, and checks it against citadel's copy or writes it
+# with --keep.
+restore_key() {
+  local object="$1" file="$2"
+  key="$(rclone cat "r2:$R2_BUCKET/$object" | age --decrypt --identity <(printf '%s\n' "$identity"))"
+  [[ "$key" =~ ^[0-9a-f]{64}$ ]] || { echo "$object does not hold a key" >&2; exit 1; }
+  if [ -f "$file" ]; then
+    if [ "$(cat "$file")" = "$key" ]; then
+      echo "the backed-up key is $file's"
+    else
+      echo "FAIL: the backed-up key is not $file's" >&2
+      failed=yes
+    fi
+  elif [ "$keep" = yes ]; then
+    (umask 077 && printf '%s\n' "$key" >"$file")
+    echo "wrote the backed-up key to $file; setup-citadel.sh puts it in api.env"
   fi
-elif [ "$keep" = yes ]; then
-  (umask 077 && printf '%s\n' "$key" >"$key_file")
-  echo "wrote the backed-up key to $key_file; setup-citadel.sh puts it in api.env"
-fi
+}
+restore_key proofs/key.age "$proof_key_file"
+restore_key stash/key.age "$key_file"
+unset identity
 
 if [ -z "$dir" ]; then
   dir="$(mktemp -d /var/tmp/sikemux-stash-restore.XXXXXX)"

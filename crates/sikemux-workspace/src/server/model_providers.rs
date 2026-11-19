@@ -43,6 +43,15 @@ fn keyed(core: &Core, id: &str) -> CoreResult<Arc<Provider>> {
     Ok(provider)
 }
 
+/// A provider whose key the person keeps themselves, not one an org's admins added.
+fn own_keyed(core: &Core, id: &str) -> CoreResult<Arc<Provider>> {
+    let provider = keyed(core, id)?;
+    if let Some(org) = &provider.org {
+        return Err(format!("{}'s admins change the key of {}", org.name, provider.label).into());
+    }
+    Ok(provider)
+}
+
 fn known(core: &Core, id: &str) -> CoreResult<Arc<Provider>> {
     store(core)?
         .find(id)
@@ -118,6 +127,7 @@ fn entry(
         openai: provider.openai.clone(),
         anthropic: provider.anthropic.clone(),
         custom: provider.custom,
+        org: provider.org.clone(),
     }
 }
 
@@ -261,10 +271,60 @@ pub async fn list(core: &Arc<Core>) -> CoreResult<Vec<ModelProvider>> {
     let mut listed = Vec::with_capacity(asking.len());
     for (provider, asked) in all.into_iter().zip(asking) {
         let models = asked.await.ok().flatten();
-        let connected = models.is_some() || provider.custom || saved.contains(&provider.id);
+        let connected = models.is_some()
+            || provider.custom
+            || provider.org.is_some()
+            || saved.contains(&provider.id);
         listed.push(entry(core, provider, connected, &feed, models));
     }
     Ok(listed)
+}
+
+/// A connected provider as a lead is told of it: the agents that run on it and the models it
+/// is known to serve, the ones checked to work first.
+pub struct OnHand {
+    pub id: String,
+    pub kind: Kind,
+    pub agents: Vec<String>,
+    pub models: Vec<String>,
+}
+
+/// The connected providers, read from memory with none asked, so a runner on this computer
+/// counts only once the person added it.
+pub fn on_hand(core: &Core) -> Vec<OnHand> {
+    let Some(store) = core.workspaces().providers() else {
+        return Vec::new();
+    };
+    let (saved, feed) = (store.connected(), store.feed());
+    (store.all().into_iter())
+        .filter(|provider| {
+            provider.custom || provider.org.is_some() || saved.contains(&provider.id)
+        })
+        .map(|provider| {
+            let mut checked: Vec<_> = (core.workspaces().model_checks.of(&provider.id))
+                .into_iter()
+                .filter(|(_, check)| check.works)
+                .collect();
+            checked.sort_by_key(|(_, check)| std::cmp::Reverse(check.at));
+            let picked = choices(&provider, &feed, None);
+            let mut models: Vec<String> = checked.into_iter().map(|(model, _)| model).collect();
+            for model in (picked.model.iter()).chain(picked.defaults.values()) {
+                let model = api_model(model);
+                if !models.iter().any(|known| known == model) {
+                    models.push(model.to_owned());
+                }
+            }
+            OnHand {
+                agents: providers::routed_agents()
+                    .filter(|agent| provider.routes(agent))
+                    .map(str::to_owned)
+                    .collect(),
+                id: provider.id.clone(),
+                kind: provider.kind,
+                models,
+            }
+        })
+        .collect()
 }
 
 /// The models a connected provider serves, read with its key.
@@ -333,6 +393,7 @@ pub async fn routes(core: &Arc<Core>, params: RoutesParams) -> CoreResult<Vec<Mo
                 .collect(),
             id: provider.id,
             label: provider.label,
+            org: provider.org,
             models,
         });
     }
@@ -369,7 +430,7 @@ pub async fn set_helper(core: &Arc<Core>, params: HelperParams) -> CoreResult<()
 /// Saves the key once the provider accepts it. Agents already running keep
 /// the environment they started with.
 pub async fn connect(core: &Arc<Core>, params: ConnectParams) -> CoreResult<()> {
-    let provider = keyed(core, &params.id)?;
+    let provider = own_keyed(core, &params.id)?;
     if provider.custom {
         return Err(format!("{} keeps the key it was added with", provider.label).into());
     }
@@ -390,7 +451,7 @@ pub async fn resolved(entered: String) -> CoreResult<String> {
 }
 
 pub async fn disconnect(core: &Arc<Core>, params: ProviderParams) -> CoreResult<()> {
-    let provider = keyed(core, &params.id)?;
+    let provider = own_keyed(core, &params.id)?;
     if provider.custom {
         return Err(format!("Remove {} rather than disconnect it", provider.label).into());
     }

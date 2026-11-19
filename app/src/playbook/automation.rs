@@ -3,7 +3,8 @@
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, AnyElement, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
+    div, px, AnyElement, ClipboardItem, Context, Entity, IntoElement, ParentElement, SharedString,
+    Styled,
 };
 use sikemux_calls::call;
 use sikemux_calls::triggers::HoldTriggerParams;
@@ -11,15 +12,16 @@ use sikemux_calls::triggers::TriggerParams;
 use sikemux_view::chat::TriggerWhen;
 use sikemux_view::playbook::{Playbook, RunsAlone};
 
+use super::new_trigger;
 use super::said::{self, Moment};
 use crate::icons::Icon;
 use crate::settings::rows;
-use crate::theme::{Tokens, SPACE_1H};
+use crate::theme::{Tokens, SPACE_1H, TEXT_2XS};
 use crate::toast;
 use crate::ui::{self, Button, IconButton, Variant};
 use crate::workbench::Workbench;
 
-const WEEKDAYS: [&str; 7] = [
+pub(super) const WEEKDAYS: [&str; 7] = [
     n!("Sunday"),
     n!("Monday"),
     n!("Tuesday"),
@@ -30,7 +32,10 @@ const WEEKDAYS: [&str; 7] = [
 ];
 
 pub(super) fn page(
+    bench: &Workbench,
+    settings: &super::PlaybookTab,
     playbook: Option<&Playbook>,
+    folder: &str,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
@@ -57,14 +62,23 @@ pub(super) fn page(
             .collect(),
     };
     let count = playbook.automation.len();
-    vec![rows::section(
+    let section = rows::section_with(
         t!("Automation"),
         (count > 0).then(|| SharedString::from(count.to_string())),
+        Some(new_trigger::entry(bench, folder, this, cx)),
         Some(t!("What runs with nobody asking.").into()),
         false,
         div().children(lines),
         cx,
-    )]
+    );
+    let form = (settings.new_trigger.as_ref())
+        .map(|form| new_trigger::sheet(bench, form, folder, this, cx));
+    vec![div()
+        .relative()
+        .when(form.is_some(), |page| page.min_h(px(600.)))
+        .child(section)
+        .children(form)
+        .into_any_element()]
 }
 
 fn bolt(cx: &Context<Workbench>) -> AnyElement {
@@ -93,6 +107,9 @@ fn trigger_row(
     let t = Tokens::get(cx).clone();
     let (words, moment) = match (paused, set) {
         (Some(at), _) => (t!("Paused by you · {day}", day = said::day(*at)), None),
+        (None, Some(set)) if set.agent.is_none() => {
+            (new_trigger::said_by_you(set.at), Moment::of(set))
+        }
         (None, Some(set)) => (
             t!(
                 "{name} set this up · {day}",
@@ -111,10 +128,15 @@ fn trigger_row(
         this,
         cx,
     );
+    let address = match when {
+        TriggerWhen::Webhook { url } if !url.is_empty() => Some(address_chip(*id, url, this, cx)),
+        _ => None,
+    };
     let controls = div()
         .flex()
         .items_center()
         .gap(SPACE_1H)
+        .children(address)
         .child(hold_button(*id, paused.is_some(), this))
         .child(remove_button(*id, this));
     rows::row_parts(
@@ -129,9 +151,48 @@ fn trigger_row(
     .into_any_element()
 }
 
+/// A webhook's address, which its senders post to, and a button that copies it.
+fn address_chip(
+    id: u64,
+    url: &str,
+    this: &Entity<Workbench>,
+    cx: &Context<Workbench>,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let (copied, this) = (url.to_owned(), this.clone());
+    div()
+        .flex()
+        .items_center()
+        .gap(px(2.))
+        .pl(SPACE_1H)
+        .rounded(crate::theme::radius_2())
+        .border(crate::theme::border())
+        .border_color(t.border)
+        .child(
+            ui::mono(url.to_owned(), TEXT_2XS, cx)
+                .max_w(px(190.))
+                .truncate(),
+        )
+        .child(
+            IconButton::new(
+                SharedString::from(format!("playbook-trigger-{id}-copy")),
+                Icon::Copy,
+                t!("Copy address"),
+            )
+            .small()
+            .on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
+                this.update(cx, |bench, cx| {
+                    bench.notify(toast::success(t!("Address copied")), cx)
+                });
+            }),
+        )
+        .into_any_element()
+}
+
 /// The trigger as one sentence with its schedule first: "Every Monday at 9:00, update
 /// dependencies."
-fn sentence(when: &TriggerWhen, title: &str) -> String {
+pub(super) fn sentence(when: &TriggerWhen, title: &str) -> String {
     let what = {
         let mut letters = title.trim().chars();
         let first = letters.next().unwrap_or_default();

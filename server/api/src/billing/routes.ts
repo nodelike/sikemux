@@ -6,13 +6,14 @@ import type {
   Invoice,
   InvoiceList,
   PaddleCheckout,
+  SeatPause,
   Subscription,
 } from "@sikemux/protocol";
 import { Hono, type Context } from "hono";
 import { type Kysely, type Selectable } from "kysely";
 
-import { audit } from "../audit.ts";
-import { requireIdentity, type AuthEnv } from "../auth.ts";
+import { audit, type AuditAction } from "../audit.ts";
+import { holdStanding, requireIdentity, type AuthEnv } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import {
   ApiFailure,
@@ -46,6 +47,12 @@ import {
   refundPending,
   type PlanRefund,
 } from "./refunds.ts";
+import {
+  checkSeatPauses,
+  seatIncludesPro,
+  seatPauseOf,
+  seatsIncludingPro,
+} from "./seat-pause.ts";
 import { lockSeats, seatsHeld } from "./seats.ts";
 import { StandInProvider } from "./stand-in.ts";
 
@@ -114,13 +121,15 @@ export function billingProviderRoutes({
 function subscriptionBody(
   row: SubscriptionRow,
   refund: PlanRefund,
+  seatPause: SeatPause | undefined,
 ): Subscription {
   return {
     id: row.id,
     product: row.product,
     interval: row.interval,
     quantity: row.quantity,
-    status: row.status,
+    status:
+      row.status !== "paused" ? row.status : seatPause ? "active" : "lapsed",
     currentPeriodEnd: row.current_period_end.toISOString(),
     cancelAtPeriodEnd: row.cancel_at_period_end,
     startedAt: row.started_at.toISOString(),
@@ -141,6 +150,7 @@ function subscriptionBody(
     ...(refund.amount && (refund.until || refund.requestedAt)
       ? { refundAmount: refund.amount }
       : {}),
+    ...(seatPause ? { seatPause } : {}),
   };
 }
 
@@ -159,7 +169,7 @@ async function subscriptionWithRefund(
           row.customer_id,
           row.provider_subscription_id,
         );
-  return subscriptionBody(row, refund);
+  return subscriptionBody(row, refund, await seatPauseOf(db, row));
 }
 
 function customersOf(db: Kysely<Tables>, payer: Payer) {
@@ -464,11 +474,7 @@ export function billingRoutes({
       );
 
     const customer = await db.transaction().execute(async (trx) => {
-      await trx
-        .insertInto("users")
-        .values({ id: userId })
-        .onConflict((oc) => oc.column("id").doNothing())
-        .execute();
+      await holdStanding(trx, userId);
       const values =
         "userId" in payer
           ? { user_id: payer.userId, provider: ready.name }
@@ -528,19 +534,22 @@ export function billingRoutes({
       unit,
       returnUrl: `${appOrigin}/billing`,
     });
-    await db
-      .insertInto("billing_checkouts")
-      .values({
-        provider: ready.name,
-        provider_checkout_id: checkout.providerCheckoutId,
-        customer_id: customer.id,
-        opened_by: userId,
-        provider_customer_id: providerCustomerId,
-        product: sold.id,
-        interval: request.interval,
-        quantity: request.quantity,
-      })
-      .execute();
+    await db.transaction().execute(async (trx) => {
+      await holdStanding(trx, userId);
+      await trx
+        .insertInto("billing_checkouts")
+        .values({
+          provider: ready.name,
+          provider_checkout_id: checkout.providerCheckoutId,
+          customer_id: customer.id,
+          opened_by: userId,
+          provider_customer_id: providerCustomerId,
+          product: sold.id,
+          interval: request.interval,
+          quantity: request.quantity,
+        })
+        .execute();
+    });
     await audit(db, {
       userId,
       actor: `user:${userId}`,
@@ -568,6 +577,19 @@ export function billingRoutes({
     requirePayer(c, row);
     const change = await readBody(c, "SubscriptionChange");
     await refusePending(row);
+    if (row.status === "paused")
+      throw new ApiFailure(
+        409,
+        "conflict",
+        row.paused_for_seat_at
+          ? "This plan is paused while a seat includes Pro, so it can't change."
+          : "This plan is paused, so it can't change.",
+      );
+    if (row.user_id !== null && row.product === "pro") {
+      const seats = await seatsIncludingPro(db, row.user_id);
+      if (seats.length)
+        throw new ApiFailure(409, "conflict", seatIncludesPro(seats));
+    }
     const subscription = heldSubscription(row, row.provider_customer_id);
     const paid = await ready.paid(subscription);
     const next = {
@@ -749,20 +771,78 @@ export function billingRoutes({
           requirePayer(c, row);
           await refusePending(row);
         }
-        if (row.cancel_at_period_end !== cancel) {
-          const subscription = heldSubscription(row, row.provider_customer_id);
-          await (cancel
-            ? ready.cancel(subscription, "period_end")
-            : ready.resume(subscription));
-          const { userId } = c.get("identity");
-          await audit(db, {
+        const { userId } = c.get("identity");
+        const said = (action: AuditAction, detail?: Record<string, unknown>) =>
+          audit(db, {
             userId,
             actor: `user:${userId}`,
-            action: cancel
+            action,
+            subject: row.id,
+            ...(detail && { detail }),
+          });
+        if (row.cancel_at_period_end === cancel)
+          return c.json(await reread(row.id));
+        if (
+          row.paused_for_seat_at &&
+          (row.paid_left !== null || row.resumes_at !== null)
+        ) {
+          const firstDays =
+            cancel &&
+            (
+              await planRefund(
+                db,
+                ready.name,
+                row.customer_id,
+                row.provider_subscription_id,
+              )
+            ).covers.length > 0;
+          if (firstDays) await refundPlan(c, ready, row, row.id);
+          else {
+            await db.transaction().execute(async (trx) => {
+              await trx
+                .updateTable("subscriptions")
+                .set({ cancel_at_period_end: cancel })
+                .where("id", "=", row.id)
+                .execute();
+              if (row.user_id) await checkSeatPauses(trx, [row.user_id]);
+            });
+            await makeDueCalls(db, ready, c.get("log"));
+            await said(
+              cancel
+                ? "billing.subscription_canceled"
+                : "billing.subscription_resumed",
+              { why: "paused_for_seat" },
+            );
+          }
+        } else {
+          if (row.paused_for_seat_at && row.status === "paused")
+            throw new ApiFailure(
+              409,
+              "conflict",
+              "This plan is being paused for your seat. Try again in a minute.",
+            );
+          const subscription = heldSubscription(row, row.provider_customer_id);
+          const when = row.status === "paused" ? "now" : "period_end";
+          await (cancel
+            ? ready.cancel(subscription, when)
+            : ready.resume(subscription));
+          await db.transaction().execute(async (trx) => {
+            await trx
+              .updateTable("subscriptions")
+              .set({ cancel_at_period_end: cancel })
+              .where("id", "=", row.id)
+              .where("status", "<>", "ended")
+              .execute();
+            if (!cancel && row.user_id && row.product === "pro")
+              await checkSeatPauses(trx, [row.user_id]);
+          });
+          if (!cancel) await makeDueCalls(db, ready, c.get("log"));
+          await said(
+            cancel
               ? "billing.subscription_canceled"
               : "billing.subscription_resumed",
-            subject: row.id,
-          });
+            cancel && when === "now" ? { when } : undefined,
+          );
         }
         return c.json(await reread(row.id));
       },
@@ -869,6 +949,14 @@ function invoiceBody(
     at: row.at.toISOString(),
     ...(row.refund_requested_at && row.status !== "refunded"
       ? { refundRequestedAt: row.refund_requested_at.toISOString() }
+      : {}),
+    ...(row.kept_refunded_at && row.status !== "refunded"
+      ? {
+          partlyRefunded: {
+            amount: Number(row.kept_refund),
+            currency: row.currency,
+          },
+        }
       : {}),
     ...(refundableUntil
       ? { refundableUntil: refundableUntil.toISOString() }

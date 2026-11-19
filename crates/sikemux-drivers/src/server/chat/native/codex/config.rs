@@ -155,7 +155,9 @@ pub(super) fn session_config(cwd: &str, tools: &[McpServer], configured: &[Strin
         }
     }
     if !entries.is_empty() {
-        config["mcp_servers"] = Value::Object(entries);
+        if let Some(fields) = config.as_object_mut() {
+            fields.insert("mcp_servers".to_owned(), Value::Object(entries));
+        }
     }
     config
 }
@@ -163,8 +165,9 @@ pub(super) fn session_config(cwd: &str, tools: &[McpServer], configured: &[Strin
 /// The developer instructions a new thread is sent: the person's own from
 /// Codex's config, which sending any replaces, then `brief`.
 pub(super) fn developer_instructions(config: &Value, brief: &str) -> String {
-    match config["config"]["developer_instructions"]
-        .as_str()
+    match config
+        .pointer("/config/developer_instructions")
+        .and_then(Value::as_str)
         .map(str::trim)
         .filter(|own| !own.is_empty())
     {

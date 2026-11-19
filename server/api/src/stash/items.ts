@@ -107,27 +107,6 @@ export async function announce(
   await appendEvent(trx, { userId, type, subject: id });
 }
 
-/**
- * Makes sure the account has its row, since a web sign-in may stash before any device is added,
- * and holds it until the transaction ends, so two uploads cannot both fit its last space.
- */
-export async function holdAccount(
-  trx: Transaction<Tables>,
-  userId: string,
-): Promise<void> {
-  await trx
-    .insertInto("users")
-    .values({ id: userId })
-    .onConflict((oc) => oc.column("id").doNothing())
-    .execute();
-  await trx
-    .selectFrom("users")
-    .select("id")
-    .where("id", "=", userId)
-    .forUpdate()
-    .executeTakeFirstOrThrow();
-}
-
 export async function checkSpace(
   db: Kysely<Tables>,
   userId: string,

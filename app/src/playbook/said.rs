@@ -4,7 +4,6 @@
 use crate::ui::Clicks;
 use std::rc::Rc;
 
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, AnyElement, App, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     SharedString, Styled, Window,
@@ -72,11 +71,10 @@ pub(super) fn day(at: u64) -> String {
 type Act = Rc<dyn Fn(&mut Workbench, &mut Context<Workbench>)>;
 
 /// A quiet action at the end of the line.
+#[derive(Clone)]
 pub(super) struct Action {
     label: &'static str,
     act: Act,
-    /// It shows only while the pointer is over its row.
-    on_hover: bool,
 }
 
 impl Action {
@@ -87,13 +85,7 @@ impl Action {
         Self {
             label,
             act: Rc::new(act),
-            on_hover: false,
         }
-    }
-
-    pub(super) fn on_hover(mut self) -> Self {
-        self.on_hover = true;
-        self
     }
 }
 
@@ -106,8 +98,75 @@ pub(super) fn line(
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
+    drawn(
+        id.into(),
+        words.into(),
+        moment,
+        actions,
+        Form::Wrapped,
+        this,
+        cx,
+    )
+}
+
+/// The line as it looks at rest, with links that take no clicks, for a row that swaps it for
+/// [`one_line`] while the pointer is over it.
+pub(super) fn resting(
+    id: impl Into<SharedString>,
+    words: impl Into<SharedString>,
+    moment: Option<Moment>,
+    actions: Vec<Action>,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    drawn(
+        id.into(),
+        words.into(),
+        moment,
+        actions,
+        Form::Resting,
+        this,
+        cx,
+    )
+}
+
+/// The same line kept to one, its words cut short with an ellipsis where they don't fit.
+pub(super) fn one_line(
+    id: impl Into<SharedString>,
+    words: impl Into<SharedString>,
+    moment: Option<Moment>,
+    actions: Vec<Action>,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    drawn(
+        id.into(),
+        words.into(),
+        moment,
+        actions,
+        Form::OneLine,
+        this,
+        cx,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Form {
+    Wrapped,
+    Resting,
+    OneLine,
+}
+
+fn drawn(
+    id: SharedString,
+    words: SharedString,
+    moment: Option<Moment>,
+    actions: Vec<Action>,
+    form: Form,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let id: SharedString = id.into();
     let open = moment.map(|moment| {
         Action::new(t!("Open"), move |bench, cx| {
             open_moment(bench, moment.clone(), cx)
@@ -115,32 +174,33 @@ pub(super) fn line(
     });
     let link = |at: usize, action: Action| {
         let (this, act) = (this.clone(), action.act.clone());
-        div()
-            .flex()
-            .gap(SPACE_1)
-            .when(action.on_hover, |part| {
-                part.opacity(0.).group_hover(ROW, |part| part.opacity(1.))
-            })
-            .child("·")
-            .child(
-                div()
-                    .id(SharedString::from(format!("{id}-{at}")))
-                    .text_color(t.text_secondary)
-                    .hover(|word| word.text_color(t.text_primary))
-                    .child(action.label)
-                    .clicks(move |_, _: &mut Window, cx| {
-                        this.update(cx, |bench, cx| act(bench, cx));
-                    }),
-            )
+        let word = div().text_color(t.text_secondary).child(action.label);
+        let word = match form {
+            Form::Resting => word.into_any_element(),
+            Form::Wrapped | Form::OneLine => word
+                .id(SharedString::from(format!("{id}-{at}")))
+                .hover(|word| word.text_color(t.text_primary))
+                .clicks(move |_, _: &mut Window, cx| {
+                    this.update(cx, |bench, cx| act(bench, cx));
+                })
+                .into_any_element(),
+        };
+        div().flex().flex_none().gap(SPACE_1).child("·").child(word)
     };
-    div()
-        .flex()
-        .flex_wrap()
-        .gap(SPACE_1)
-        .text_size(theme::ui_text(TEXT_2XS_H))
+    let one_line = form == Form::OneLine;
+    let line = div().flex().gap(SPACE_1);
+    let line = match one_line {
+        true => line.overflow_x_hidden(),
+        false => line.flex_wrap(),
+    };
+    let words = div().min_w_0().child(words);
+    line.text_size(theme::ui_text(TEXT_2XS_H))
         .line_height(theme::ui_text(TEXT_LG))
         .text_color(t.text_tertiary)
-        .child(words.into())
+        .child(match one_line {
+            true => words.truncate(),
+            false => words,
+        })
         .children(
             open.into_iter()
                 .chain(actions)

@@ -49,7 +49,6 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
   }, [visible, getToken]);
   const provider = providerName(user?.externalAccounts[0]?.provider);
   const name = user?.fullName?.trim() || undefined;
-  const email = user?.primaryEmailAddress?.emailAddress;
   const version = versionLabel(INSTALLED, process.env.EXPO_PUBLIC_COMMIT ?? null, RUNNING, t);
   const how = provider ? t('Signed in with {provider}', { provider }) : t('Signed in with email');
 
@@ -86,13 +85,8 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
         <Avatar size={44} />
         <View style={{ flex: 1 }}>
           <Text style={styles.name} numberOfLines={1}>
-            {name ?? email ?? t('Signed in')}
+            {name ?? t('Your account')}
           </Text>
-          {name && email ? (
-            <Text style={type.meta} numberOfLines={1}>
-              {email}
-            </Text>
-          ) : null}
           <Text style={type.meta}>{how}</Text>
         </View>
       </View>

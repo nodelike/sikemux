@@ -1,10 +1,11 @@
 import type { StashList, StashSeen, StashTaken } from "@sikemux/protocol";
 import { sql, type Kysely } from "kysely";
 
+import { holdStanding } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
 import { badRequest } from "../http.ts";
-import { holdAccount, ITEM_ID, withAttachments } from "./items.ts";
+import { ITEM_ID, withAttachments } from "./items.ts";
 
 const PAGE = 50;
 const CURSOR_TIME =
@@ -75,7 +76,7 @@ export async function seeStash(
   at: string,
 ): Promise<StashSeen> {
   const seenAt = await db.transaction().execute(async (trx) => {
-    await holdAccount(trx, userId);
+    await holdStanding(trx, userId, { exclusive: true });
     const moved = await trx
       .updateTable("users")
       .set({ stash_seen_at: sql<Date>`least(${at}::timestamptz, now())` })

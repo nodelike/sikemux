@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { signedInToken } from "./api.ts";
 
 /**
- * Behind a signed-in page, the backdrop of the host the person used last, read from it end to end;
+ * Behind a signed-in page, the backdrop of the host the person was at last, read from it end to end;
  * otherwise, or while no host answers, the desktop app's grain.
  */
 export function Backdrop() {
@@ -33,7 +33,7 @@ export function Backdrop() {
           userId,
           await signedInToken(getToken, "read your host's look"),
         );
-        if (cancelled || reply?.result !== "look") return;
+        if (cancelled || !reply) return;
         if (!reply.texture) {
           disposeGrain?.();
           element.dataset.look = "none";

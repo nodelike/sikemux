@@ -396,6 +396,8 @@ pub fn offer_another_agent(chat: &super::Chat, launch: &sikemux_wire::protocol::
             "Every {from} account it may use is out of usage. Handing it to {to} takes your words with {from} along."
         )),
     );
-    update["carryOnWith"] = serde_json::json!(other);
+    if let Some(fields) = update.as_object_mut() {
+        fields.insert("carryOnWith".to_owned(), serde_json::json!(other));
+    }
     super::offers::tell_update(chat, update);
 }

@@ -330,11 +330,6 @@ pub struct ChatHead {
     /// person types here reaches the chief in its next digest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chief_hears: Option<String>,
-    /// On the chief's chat, what happened while the person was away, from when they come back
-    /// after an hour or more until every call in it is answered, or, with none in it, until they
-    /// next write to it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub away: Option<ChiefAway>,
     /// The pages its latest turns changed, as the core took them, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shown: Vec<crate::shown::TurnShown>,
@@ -933,7 +928,8 @@ pub const EARLIER_URI: &str = "sikemux://earlier/";
 pub const WOKEN_URI: &str = "sikemux://woken/";
 /// Something from the person's stash, by its id.
 pub const STASH_URI: &str = "sikemux://stash/";
-/// An earlier answer the person replies to, by its message id; its text is the words quoted.
+/// An earlier answer the person replies to, by its message id, with `#` and a part for one
+/// paragraph of it; its text is the words quoted.
 pub const REPLY_URI: &str = "sikemux://reply/";
 /// What a side chat is told about the chat it was opened beside, by that chat's agent id.
 pub const SIDE_URI: &str = "sikemux://side/";
@@ -1789,7 +1785,7 @@ pub struct AgentNotice {
     pub rule: Option<KeptRule>,
     /// The decision the person overruled, which Undo (`undoOverrule`) puts back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub overruled: Option<OverruledDecision>,
+    pub overruled: Option<Box<OverruledDecision>>,
     /// The chief's count of a week, as numbers the client words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub week: Option<ChiefWeek>,
@@ -1875,6 +1871,12 @@ pub struct RuleChange {
     /// The agent that brought it back, by name, as the person asked; none when the person did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub back_by: Option<String>,
+    /// The store the rule is kept in, or was before it was removed.
+    #[serde(default, skip_serializing_if = "crate::memory::Store::is_project")]
+    pub store: crate::memory::Store,
+    /// The person moved it into `store` from the other one; Undo moves it back.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub moved: bool,
 }
 
 /// A week in a chief's project, counted by the core.
@@ -1910,91 +1912,23 @@ pub struct OverruledDecision {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rule: Option<u64>,
+    /// The name of the org whose store the rule went to, for its members' agents too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org: Option<String>,
+    /// The rule waits on the org's list for an owner or admin to keep it there.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub waiting: bool,
     /// The person undid the Overrule: the decision stands again, and the line offers no Undo.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub undone: bool,
+    /// Undoing the Overrule could not remove the rule it kept, so decisions like it still come to
+    /// the person until they remove the rule themselves.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub still_kept: bool,
     /// The Overrule stopped Auto's run on a slice, which Undo cannot put back, so the line offers
     /// no Undo and says why.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stopped_auto: bool,
-}
-
-/// What happened while the person was away from their project's chief, as facts the client
-/// words: what needs them, what was decided for them and what landed.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChiefAway {
-    /// When the person was last with the chief, in Unix milliseconds.
-    pub since: u64,
-    /// When they came back and the block began: how long they were away is `back - since`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub back: Option<u64>,
-    /// The project's calls open now, by id, oldest first, as the device view lists them.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub calls: Vec<String>,
-    /// Its calls the person answered since it began, by id, oldest first.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub answered: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub decided: Vec<AwayDecision>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub landed: Vec<AwayLanded>,
-}
-
-/// A decision agents made while the person was away, which they can overrule.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AwayDecision {
-    pub project: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub goal: Option<u64>,
-    pub decision: u64,
-    pub text: String,
-    /// What it rested on.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub why: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub by: Option<AwayAgent>,
-    pub at: u64,
-    /// The person overruled it since the block began, so it is struck and offers no Overrule;
-    /// Undo clears it again.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub overruled: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AwayAgent {
-    pub agent_id: String,
-    pub name: String,
-}
-
-/// Work an agent landed while the person was away.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AwayLanded {
-    pub agent_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    pub title: String,
-    pub at: u64,
-    /// What its commit says it changed, in one sentence.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub change: Option<String>,
-    /// What all its landings since the card began added and removed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lines: Option<LinesChanged>,
-    /// Its turn offers Try it.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub try_it: bool,
-}
-
-/// How many lines a landing added and removed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LinesChanged {
-    pub adds: u64,
-    pub dels: u64,
 }
 
 /// A rule kept from what the person said in a chat.
@@ -2003,9 +1937,19 @@ pub struct LinesChanged {
 pub struct KeptRule {
     pub id: u64,
     pub project: String,
+    /// The rule's words on one line, which Undo sends so it never removes another entry that
+    /// has come to have the number.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub words: String,
     /// The person removed the rule again, from the line's Undo or the Playbook.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub undone: bool,
+    /// The name of the org whose store it went to, for its members' agents too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org: Option<String>,
+    /// It waits on the org's list for an owner or admin to keep it there.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub waiting: bool,
 }
 
 /// Where a goal began, passed a step or ended in a chat, and how it stood then.

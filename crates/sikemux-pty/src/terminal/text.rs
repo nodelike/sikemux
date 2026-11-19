@@ -248,8 +248,12 @@ impl Terminal {
                     Ok(index) => index,
                     Err(index) => index.saturating_sub(1),
                 };
-                let (_, start, _) = places[at(found.start())];
-                let (_, end, width) = places[at(found.end() - 1)];
+                let (Some(&(_, start, _)), Some(&(_, end, width))) = (
+                    places.get(at(found.start())),
+                    places.get(at(found.end() - 1)),
+                ) else {
+                    continue;
+                };
                 result.matches.push((
                     start,
                     GridPoint {

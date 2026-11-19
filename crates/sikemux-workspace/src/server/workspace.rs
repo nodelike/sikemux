@@ -37,7 +37,8 @@ use crate::sessions::recent::{self as saved_chats, RecentProvider, RecentRequest
 use sikemux_view::device::RecentInfo;
 use sikemux_view::prefs::{PreferenceChange, ProjectSort};
 use sikemux_view::workspace::{
-    Backdrop, LauncherInfo, PinnedChat, ProjectInfo, SpaceInfo, Workspace, WorkspaceAgent,
+    Backdrop, LauncherInfo, PinnedChat, ProjectInfo, RecentModel, SpaceInfo, Workspace,
+    WorkspaceAgent,
 };
 use sikemux_wire::protocol::{ChatAccount, ChatInfo, ChatLaunch, ChatState, SessionInfo};
 
@@ -158,6 +159,9 @@ pub struct Saved {
     /// chats start on.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     model_picks: BTreeMap<String, ModelPick>,
+    /// The models new chats of each kind of agent started on lately, newest first.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    recent_models: BTreeMap<String, Vec<RecentModel>>,
     /// The agents closed lately as they stood when they closed, newest first, so reopening one
     /// puts back what its session does not keep: its lead, checkout branch, mode and labels.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -408,9 +412,9 @@ fn dress(agent: &mut WorkspaceAgent, others: &[Kept]) {
             *score += if other.cwd == agent.cwd { 1000 } else { 1 };
         }
     }
-    let least = (0..BUDDY_COLOURS)
-        .min_by_key(|&slot| scores[slot])
-        .unwrap_or(0);
+    let least = (scores.iter().enumerate())
+        .min_by_key(|(_, score)| **score)
+        .map_or(0, |(slot, _)| slot);
     agent.buddy.get_or_insert_default().color = Some(least as u32);
 }
 
@@ -630,6 +634,7 @@ impl Workspaces {
                 standing: Default::default(),
                 calls: 0,
                 cloning: None,
+                shared: None,
             };
             check_project(&project, saved)?;
             saved.projects.push(project.clone());
@@ -690,20 +695,20 @@ impl Workspaces {
 
     fn update_project(&self, id: &str, patch: Map<String, Value>) -> CoreResult<ProjectInfo> {
         self.change(|saved| {
-            let index = saved
-                .projects
-                .iter()
-                .position(|project| project.id == id)
+            let current = (saved.projects.iter())
+                .find(|project| project.id == id)
                 .ok_or_else(|| CoreError::from("that project is not on this host"))?;
             let project = patched(
-                &saved.projects[index],
+                current,
                 patch,
                 &[
                     "id", "path", "identity", "copies", "chief", "agents", "standing", "calls",
                 ],
             )?;
             check_project(&project, saved)?;
-            saved.projects[index] = project.clone();
+            if let Some(kept) = saved.projects.iter_mut().find(|known| known.id == id) {
+                *kept = project.clone();
+            }
             Ok(project)
         })
     }
@@ -1835,6 +1840,7 @@ mod tests {
             standing: Default::default(),
             calls: 0,
             cloning: None,
+            shared: None,
         }
     }
 

@@ -224,7 +224,7 @@ pub(crate) fn tail(text: &str) -> String {
         .rev()
         .nth(STDERR_TAIL)
         .map_or(0, |(at, _)| at);
-    text[start..].to_owned()
+    text.get(start..).unwrap_or(text).to_owned()
 }
 
 /// Runs `script` on `alias` with `sh`, without a terminal, handing each line it prints to
@@ -387,7 +387,7 @@ fn read(ran: &Ran, owner: Option<&str>) -> (Answer, Option<Reached>) {
 /// The first JSON object in `text`, whatever a login banner put around it.
 fn first_object(text: &str) -> Option<Said> {
     let start = text.find('{')?;
-    serde_json::Deserializer::from_str(&text[start..])
+    serde_json::Deserializer::from_str(text.get(start..)?)
         .into_iter::<Said>()
         .next()?
         .ok()

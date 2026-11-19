@@ -42,8 +42,6 @@ pub struct Search {
     /// The commits of the failed run, oldest first.
     pub commits: Vec<Commit>,
     pub failing_took: u64,
-    /// Search in the merge queue's checkout, not the integration checkout.
-    pub in_queue: bool,
 }
 
 impl Search {
@@ -116,21 +114,11 @@ async fn passes(
     let Some(left) = HUNT_LIMIT.checked_sub(started.elapsed()) else {
         return Err("it ran out of time".to_owned());
     };
-    let checkout = match search.in_queue {
-        true => crate::server::worktree::agent::merge_queue(core, &search.dir, sha).await?,
-        false => crate::server::worktree::agent::integration(core, &search.dir, sha).await?,
-    };
-    let env = match search.in_queue {
-        true => (search.commits.iter())
-            .find_map(|commit| commit.agents.first())
-            .map(|agent| super::before_commit(agent))
-            .unwrap_or_default(),
-        false => Vec::new(),
-    };
+    let checkout = crate::server::worktree::agent::integration(core, &search.dir, sha).await?;
     let (owner, search) = (core.clone(), search.clone());
     tokio::task::spawn_blocking(move || {
         refresh(&owner, &search.dir, &checkout)?;
-        run_check(&checkout, &search.command, search.seed, left, env)
+        run_check(&checkout, &search.command, search.seed, left)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -181,7 +169,12 @@ pub async fn hunt(core: &Arc<Core>, search: Search) -> Hunted {
             return unknown("it ran out of time".to_owned());
         }
         let middle = good + (bad - good) / 2;
-        match passes(core, &search, &commits[middle as usize], started).await {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "the search keeps -1 <= good < middle < bad < commits.len()"
+        )]
+        let middle_commit = &commits[middle as usize];
+        match passes(core, &search, middle_commit, started).await {
             Ok(ran) => {
                 step = Duration::from_millis(ran.took_ms);
                 if ran.passed {
@@ -193,6 +186,10 @@ pub async fn hunt(core: &Arc<Core>, search: Search) -> Hunted {
             Err(why) => return unknown(why),
         }
     }
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "bad starts at the last commit and only moves to a middle one"
+    )]
     let sha = commits[bad as usize].clone();
     let (owner, reading, found_sha) = (core.clone(), search.clone(), sha.clone());
     let (subject, agents) = tokio::task::spawn_blocking(move || {

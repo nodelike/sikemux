@@ -187,15 +187,15 @@ pub fn percent_decode(segment: &str) -> Option<String> {
     let bytes = segment.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut at = 0;
-    while at < bytes.len() {
-        if bytes[at] == b'%' {
+    while let Some(&byte) = bytes.get(at) {
+        if byte == b'%' {
             let hex = segment
                 .get(at + 1..at + 3)
                 .filter(|hex| hex.bytes().all(|byte| byte.is_ascii_hexdigit()))?;
             out.push(u8::from_str_radix(hex, 16).ok()?);
             at += 3;
         } else {
-            out.push(bytes[at]);
+            out.push(byte);
             at += 1;
         }
     }

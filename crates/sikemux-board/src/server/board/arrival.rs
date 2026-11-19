@@ -18,7 +18,8 @@ const MAX_DETAILS_CHARS: usize = 4000;
 
 pub enum Key<'a> {
     Ticket(&'a str),
-    Trigger(u64),
+    /// A trigger, by its id on the host it is on.
+    Trigger(u64, Option<&'a str>),
     /// Any of what CI failed on.
     Ci(&'a Broke),
 }
@@ -27,7 +28,7 @@ impl<'a> Key<'a> {
     pub fn of(adding: &'a Adding) -> Option<Self> {
         match (&adding.ticket, adding.trigger, &adding.ci) {
             (Some(ticket), _, _) => Some(Key::Ticket(&ticket.key)),
-            (None, Some(trigger), _) => Some(Key::Trigger(trigger)),
+            (None, Some(trigger), _) => Some(Key::Trigger(trigger, adding.fired_on.as_deref())),
             (None, None, Some(broke)) => Some(Key::Ci(broke)),
             (None, None, None) => None,
         }
@@ -39,7 +40,9 @@ impl<'a> Key<'a> {
                 .ticket
                 .as_ref()
                 .is_some_and(|ticket| ticket.key.eq_ignore_ascii_case(key)),
-            Key::Trigger(trigger) => card.trigger == Some(*trigger),
+            Key::Trigger(trigger, host) => {
+                card.trigger == Some(*trigger) && card.fired_on.as_deref() == *host
+            }
             Key::Ci(broke) => broke.held_by(&card.ci),
         }
     }
@@ -80,7 +83,7 @@ pub fn arrived_again(card: &mut Card, adding: &Adding) -> Option<Notice> {
         .or_else(|| card.team.as_ref().map(|team| team.lead.clone()))?;
     let what = match Key::of(adding)? {
         Key::Ticket(key) => format!("Ticket {key} was put on the board again"),
-        Key::Trigger(_) => format!("The trigger \"{}\" fired again", adding.title),
+        Key::Trigger(..) => format!("The trigger \"{}\" fired again", adding.title),
         Key::Ci(broke) => broke.said(),
     };
     Some(Notice {

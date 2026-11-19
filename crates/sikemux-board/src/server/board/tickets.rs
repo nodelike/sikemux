@@ -46,8 +46,10 @@ impl<'a> Jira<'a> {
     }
 
     async fn call(&self, method: &str, mut params: Value) -> Result<Value, PluginFailure> {
-        params["key"] = self.key.into();
-        params["site"] = json!(self.site);
+        if let Some(fields) = params.as_object_mut() {
+            fields.insert("key".into(), self.key.into());
+            fields.insert("site".into(), json!(self.site));
+        }
         crate::server::plugged::call_on(self.plugins, "sikemux.jira", method, params).await
     }
 }
@@ -172,7 +174,7 @@ async fn run(core: &Arc<Core>, project: &str, id: u64, ticket: &CardTicket, work
         Work::Look => {
             let category = issue
                 .ok()
-                .and_then(|issue| issue["statusCategory"].as_str().map(str::to_owned));
+                .and_then(|issue| issue.get("statusCategory")?.as_str().map(str::to_owned));
             if category.as_deref() == Some("done") {
                 close(core, project, id, &ticket.key).await;
             }
@@ -181,9 +183,10 @@ async fn run(core: &Arc<Core>, project: &str, id: u64, ticket: &CardTicket, work
 }
 
 async fn push(jira: &Jira<'_>, issue: &Value, category: &str) -> Result<(), String> {
-    if issue["statusCategory"].as_str() != Some(category) {
+    if issue.get("statusCategory").and_then(Value::as_str) != Some(category) {
         let offered = jira.call("transition", json!({})).await?;
-        let Some(id) = into_category(&offered["transitions"], category) else {
+        let Some(id) = into_category(offered.get("transitions").unwrap_or(&Value::Null), category)
+        else {
             let into = if category == "done" {
                 "a done"
             } else {

@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use sikemux_process::sync::Locked;
 
 mod target;
@@ -174,7 +174,10 @@ async fn run(
                 return Err(format!(
                     "{id} {}; your open tabs are {}",
                     manager.why_gone(&id),
-                    tabs(manager, agent_id)["tabs"]
+                    tabs(manager, agent_id)
+                        .get("tabs")
+                        .cloned()
+                        .unwrap_or_default()
                 ));
             }
             if manager.reloading(agent_id) {
@@ -191,7 +194,11 @@ async fn run(
             let closed = manager.close_tab(agent_id, &id).is_ok();
             let mut result = tabs(manager, agent_id);
             if !closed {
-                result["note"] = json!(format!("{id} {}", manager.why_gone(&id)));
+                put(
+                    &mut result,
+                    "note",
+                    json!(format!("{id} {}", manager.why_gone(&id))),
+                );
             }
             Ok(result)
         }
@@ -266,13 +273,17 @@ async fn run(
             }
             let mut result = arrived(manager, agent_id, &tab_id, params, started).await?;
             if let Some(note) = note {
-                result["note"] = json!(note);
+                put(&mut result, "note", json!(note));
             }
             if let Some(closed) = closed {
-                result["closedTab"] = json!(format!(
+                put(
+                    &mut result,
+                    "closedTab",
+                    json!(format!(
                     "you had {} tabs of your own, so the one unused longest, {closed}, was closed",
                     crate::manager::AGENT_TAB_LIMIT
-                ));
+                )),
+                );
             }
             Ok(result)
         }
@@ -289,7 +300,7 @@ async fn run(
             let mut result = read_state(manager, agent_id, "full", full_text, part).await?;
             let downloads = manager.recent_downloads(agent_id);
             if !downloads.is_empty() {
-                result["downloads"] = json!(downloads);
+                put(&mut result, "downloads", json!(downloads));
             }
             Ok(result)
         }
@@ -314,7 +325,11 @@ async fn run(
             show_pointer(&view, x, y, !hover).await;
             native::mouse(&view, Mouse::Move, x, y, 0).await?;
             if hover {
-                result["hover"] = call(&view, "hover", &[json!(x), json!(y)]).await?;
+                put(
+                    &mut result,
+                    "hover",
+                    call(&view, "hover", &[json!(x), json!(y)]).await?,
+                );
             }
             if !hover {
                 for count in 1..=clicks {
@@ -322,13 +337,17 @@ async fn run(
                     native::mouse(&view, Mouse::Up, x, y, count).await?;
                 }
             }
-            result["action"] = json!(if hover {
-                "hovered"
-            } else if clicks == 2 {
-                "double-clicked"
-            } else {
-                "clicked"
-            });
+            put(
+                &mut result,
+                "action",
+                json!(if hover {
+                    "hovered"
+                } else if clicks == 2 {
+                    "double-clicked"
+                } else {
+                    "clicked"
+                }),
+            );
             settle(manager, agent_id, &tab_id).await;
             merge(result, report(manager, agent_id, params).await?)
         }
@@ -363,7 +382,11 @@ async fn run(
             };
             let placed = input.is_object();
             let (x, y, mut result) = match input.get("x").and_then(Value::as_f64) {
-                Some(x) => (x, input["y"].as_f64().unwrap_or_default(), input),
+                Some(x) => (
+                    x,
+                    input.get("y").and_then(Value::as_f64).unwrap_or_default(),
+                    input,
+                ),
                 None => target(&view, params, "index", "x", "y").await?,
             };
             let names: Vec<String> = paths
@@ -401,7 +424,7 @@ async fn run(
             if !landed {
                 return Err("a file chooser took the files, but no file input on the page changed, so the page did not get them; pass the selector or number of the button or drop zone that opens its chooser instead".into());
             }
-            result["uploaded"] = json!(names);
+            put(&mut result, "uploaded", json!(names));
             settle(manager, agent_id, &tab_id).await;
             merge(result, report(manager, agent_id, params).await?)
         }
@@ -496,7 +519,7 @@ async fn run(
                 call(&view, "valueOf", &[at]).await?,
             )?;
             if let Some(warning) = typing_missed(&value, &typed) {
-                typed["warning"] = json!(warning);
+                put(&mut typed, "warning", json!(warning));
             }
             if submit {
                 native::key(&view, "Enter").await?;
@@ -614,11 +637,17 @@ async fn run(
                         true => format!("{error}; {WAIT_INSTEAD}"),
                         false => error,
                     })?;
-                let write = &answer["result"]["sikemuxHeldWrite"];
+                let write = answer
+                    .pointer("/result/sikemuxHeldWrite")
+                    .unwrap_or(&Value::Null);
                 if !write.is_object() {
                     return Ok(answer);
                 }
-                let origin = write["origin"].as_str().unwrap_or_default().to_owned();
+                let origin = write
+                    .get("origin")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
                 if allowed.contains(&origin) {
                     return Err(format!("the script kept writing to {origin} while held"));
                 }
@@ -701,16 +730,20 @@ async fn run(
                 "data": base64::engine::general_purpose::STANDARD.encode(&image?),
             });
             if let Some(elements) = marked {
-                result["elements"] = elements;
+                put(&mut result, "elements", elements);
             }
             if let Some(area) = area {
-                result["element"] = json!({ "index": area["index"], "label": area["label"] });
+                put(
+                    &mut result,
+                    "element",
+                    json!({ "index": area.get("index"), "label": area.get("label") }),
+                );
             }
             if height.is_some_and(|height| height > MAX_PAGE_HEIGHT) {
-                result["cutAt"] = json!(MAX_PAGE_HEIGHT);
+                put(&mut result, "cutAt", json!(MAX_PAGE_HEIGHT));
             }
             if let Some(fixed) = held {
-                result["viewport"] = json!(fixed);
+                put(&mut result, "viewport", json!(fixed));
             }
             Ok(result)
         }
@@ -762,7 +795,7 @@ async fn run(
                     .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
                     .await;
                 let mut result = report(manager, agent_id, params).await?;
-                result["note"] = json!("a fixed wait; a condition such as text, selector, url, networkIdle, script or stable waits only as long as it takes");
+                put(&mut result, "note", json!("a fixed wait; a condition such as text, selector, url, networkIdle, script or stable waits only as long as it takes"));
                 return Ok(result);
             };
             let asked = params
@@ -772,8 +805,8 @@ async fn run(
             let limit = asked.min(MAX_CONDITION_WAIT_MS);
             let mut waited =
                 wait_for(manager, agent_id, &condition, Duration::from_millis(limit)).await;
-            if limit < asked && waited["met"] == json!(false) {
-                waited["cappedAtMs"] = json!(limit);
+            if limit < asked && waited.get("met").and_then(Value::as_bool) == Some(false) {
+                put(&mut waited, "cappedAtMs", json!(limit));
             }
             merge(waited, report(manager, agent_id, params).await?)
         }
@@ -788,7 +821,7 @@ async fn run(
             let (mut width, mut height) = (size("width"), size("height"));
             if width.is_some() != height.is_some() && text("preset").is_none() {
                 let now = call(&view, "viewportSize", &[]).await?;
-                let current = |key: &str| now[key].as_u64().map(|value| value as u32);
+                let current = |key: &str| now.get(key)?.as_u64().map(|value| value as u32);
                 width = width.or_else(|| current("width"));
                 height = height.or_else(|| current("height"));
             }
@@ -816,8 +849,12 @@ async fn run(
             }
             let (_, view) = active(manager, agent_id)?;
             let mut size = call(&view, "viewportSize", &[]).await?;
-            size["tabId"] = json!(tab_id);
-            size["held"] = json!(manager.viewport(agent_id, &tab_id));
+            put(&mut size, "tabId", json!(tab_id));
+            put(
+                &mut size,
+                "held",
+                json!(manager.viewport(agent_id, &tab_id)),
+            );
             Ok(size)
         }
         BROWSER_PICTURE_METHOD => {
@@ -882,7 +919,7 @@ async fn run(
                 "console": console,
             });
             if let Some(ran) = ran {
-                result["script"] = ran;
+                put(&mut result, "script", ran);
             }
             if params.get("picture").and_then(Value::as_bool) == Some(false) {
                 return Ok(result);
@@ -909,10 +946,14 @@ async fn run(
                 ));
                 std::fs::write(&saved, &image)
                     .map_err(|error| format!("could not write {}: {error}", saved.display()))?;
-                result["saved"] = json!(saved);
-                result["element"] = json!(area["label"]);
-                result["mimeType"] = json!("image/jpeg");
-                result["data"] = json!(base64::engine::general_purpose::STANDARD.encode(&image));
+                put(&mut result, "saved", json!(saved));
+                put(&mut result, "element", json!(area.get("label")));
+                put(&mut result, "mimeType", json!("image/jpeg"));
+                put(
+                    &mut result,
+                    "data",
+                    json!(base64::engine::general_purpose::STANDARD.encode(&image)),
+                );
                 return Ok(result);
             }
             let page_height = call(view, "pageHeight", &[])
@@ -920,10 +961,14 @@ async fn run(
                 .as_f64()
                 .ok_or("the page did not report its height")?;
             let image = screenshot(view, Some(page_height), None).await?;
-            result["mimeType"] = json!("image/jpeg");
-            result["data"] = json!(base64::engine::general_purpose::STANDARD.encode(&image));
+            put(&mut result, "mimeType", json!("image/jpeg"));
+            put(
+                &mut result,
+                "data",
+                json!(base64::engine::general_purpose::STANDARD.encode(&image)),
+            );
             if page_height > MAX_PAGE_HEIGHT {
-                result["cutAt"] = json!(MAX_PAGE_HEIGHT);
+                put(&mut result, "cutAt", json!(MAX_PAGE_HEIGHT));
             }
             Ok(result)
         }
@@ -958,10 +1003,14 @@ async fn run_agent_script(
         return Ok(json!({ "result": answer.get(..cut), "truncated": true }));
     }
     let result = serde_json::from_str::<Value>(&answer).unwrap_or(Value::String(answer));
+    let returned_nothing = result.is_null();
     let mut answer = json!({ "result": result });
-    if answer["result"].is_null() && !script.contains("return") && script.contains(';') {
-        answer["note"] =
-            json!("a script of several statements returns nothing unless it ends with return");
+    if returned_nothing && !script.contains("return") && script.contains(';') {
+        put(
+            &mut answer,
+            "note",
+            json!("a script of several statements returns nothing unless it ends with return"),
+        );
     }
     Ok(answer)
 }
@@ -1031,7 +1080,11 @@ async fn act(
                 .get(key)
                 .and_then(Value::as_u64)
                 .unwrap_or(DEFAULT_CONDITION_WAIT_MS);
-            step_params[key] = json!(asked.min(left.as_millis() as u64));
+            put(
+                &mut step_params,
+                key,
+                json!(asked.min(left.as_millis() as u64)),
+            );
         }
         let before = outcome(manager, agent_id).ok();
         let failed = match Box::pin(run(manager, agent_id, check, method, &step_params)).await {
@@ -1043,10 +1096,10 @@ async fn act(
             Err(error) => Some(error),
         };
         if let Some(error) = failed {
-            stopped = Some(json!({ "step": number, "action": step["action"], "error": error }));
+            stopped = Some(json!({ "step": number, "action": step.get("action"), "error": error }));
             break;
         }
-        let rest = &steps[number + 1..];
+        let rest = steps.get(number + 1..).unwrap_or_default();
         if let Some(reason) = before
             .zip(outcome(manager, agent_id).ok())
             .and_then(|(before, now)| blocks_the_rest(&before, &now, rest))
@@ -1060,14 +1113,17 @@ async fn act(
     let mut result = json!({ "done": done });
     let finished = stopped.is_none();
     if let Some(stopped) = stopped {
-        result["stopped"] = stopped;
+        put(&mut result, "stopped", stopped);
     }
-    let reads = steps
-        .iter()
-        .any(|step| matches!(step["action"].as_str(), Some("read" | "find")));
+    let reads = steps.iter().any(|step| {
+        matches!(
+            step.get("action").and_then(Value::as_str),
+            Some("read" | "find")
+        )
+    });
     let mut report_params = params.clone();
     if finished && reads && params.get("report").is_none() {
-        report_params["report"] = json!("outcome");
+        put(&mut report_params, "report", json!("outcome"));
     }
     merge(result, report(manager, agent_id, &report_params).await?)
 }
@@ -1193,7 +1249,7 @@ fn typing_missed(typed: &str, result: &Value) -> Option<&'static str> {
         return None;
     }
     let chars: Vec<char> = wanted.chars().collect();
-    let ending: String = chars[chars.len().saturating_sub(40)..].iter().collect();
+    let ending: String = chars.iter().skip(chars.len().saturating_sub(40)).collect();
     if value.is_empty() {
         Some("the field is still empty, so the text went nowhere; the page may have moved focus, or the element is not a text field")
     } else if !value.contains(&ending) {
@@ -1258,9 +1314,10 @@ async fn put_to_person(write: Value, check: &CheckWrite) -> Result<(), String> {
     if write.is_null() {
         return Ok(());
     }
-    let method = write["method"].as_str().unwrap_or_default();
-    let origin = write["origin"].as_str().unwrap_or_default().to_owned();
-    let path = write["path"].as_str().unwrap_or_default();
+    let field = |key: &str| write.get(key).and_then(Value::as_str).unwrap_or_default();
+    let method = field("method");
+    let origin = field("origin").to_owned();
+    let path = field("path");
     check(format!("{method} {origin}{path}"), origin).await
 }
 
@@ -1339,7 +1396,7 @@ fn outcome(manager: &BrowserManager, agent_id: &str) -> Result<Value, String> {
         "loading": page.loading,
     });
     if let Some(dialog) = manager.dialog(&tab_id) {
-        result["dialog"] = json!(dialog);
+        put(&mut result, "dialog", json!(dialog));
     }
     Ok(result)
 }
@@ -1425,9 +1482,24 @@ async fn read_state(
         map.insert("tabId".into(), json!(tab_id));
         map.insert("loading".into(), json!(page.loading));
         map.insert("visible".into(), json!(manager.shown(agent_id, &tab_id)));
-        map.insert("tabs".into(), tabs(manager, agent_id)["tabs"].clone());
+        map.insert(
+            "tabs".into(),
+            tabs(manager, agent_id)
+                .get("tabs")
+                .cloned()
+                .unwrap_or_default(),
+        );
     }
     Ok(result)
+}
+
+fn put(value: &mut Value, key: &str, field: Value) {
+    if value.is_null() {
+        *value = Value::Object(Map::new());
+    }
+    if let Value::Object(fields) = value {
+        fields.insert(key.to_owned(), field);
+    }
 }
 
 fn merge(mut action: Value, state: Value) -> Result<Value, String> {

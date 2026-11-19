@@ -4,8 +4,9 @@ import { audit } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import type { Logger } from "../log.ts";
 import { retryLater } from "../retry.ts";
-import { makeDueCalls } from "./calls.ts";
+import { callLater, makeDueCalls } from "./calls.ts";
 import { heldSubscription, type BillingProvider } from "./provider.ts";
+import { askKeptRefunds, checkSeatPauses } from "./seat-pause.ts";
 
 const BATCH = 20;
 
@@ -60,7 +61,9 @@ export async function holdsOpenSubscriptions(
 /**
  * Ends a deleted account's subscriptions with the provider: at the period's end while it can be
  * restored, at once when it is due to be erased or the plan has lapsed, so the provider's retry of
- * a failed payment charges nobody. A cancel at once the provider took ends the row here too, so
+ * a failed payment charges nobody, or is paused, whose kept paid time is refunded. While it can be
+ * restored, a Pro paused for a seat only has its clock stopped, by the person's own seat check so
+ * the two never cross. A cancel at once the provider took ends the row here too, so
  * the erase never waits on an event that was lost. A failure is recorded for the sweeper to retry,
  * and alerts once it keeps failing.
  */
@@ -97,10 +100,40 @@ export async function endDeletedBilling(
   const due = user.purge_after <= new Date();
   try {
     for (const row of rows) {
-      const when = due || row.status === "lapsed" ? "now" : "period_end";
-      if (when === "period_end" && row.cancel_at_period_end) continue;
       if (provider?.name !== row.provider)
         throw new Error(`no ${row.provider} payment provider is set up`);
+      if (!due && row.paused_for_seat_at) {
+        await db.transaction().execute((trx) => checkSeatPauses(trx, [userId]));
+        continue;
+      }
+      const when = due || row.status !== "active" ? "now" : "period_end";
+      if (when === "period_end" && row.cancel_at_period_end) continue;
+      if (row.paused_for_seat_at)
+        await db.transaction().execute(async (trx) => {
+          await askKeptRefunds(trx, row.id);
+          const kept = await trx
+            .selectFrom("invoices")
+            .select(["provider_payment_id", "kept_refund"])
+            .where("customer_id", "=", row.customer_id)
+            .where(
+              "provider_subscription_id",
+              "=",
+              row.provider_subscription_id,
+            )
+            .where("kept_refund", "is not", null)
+            .where("kept_refunded_at", "is", null)
+            .where("kept_refund_refused_at", "is", null)
+            .execute();
+          await callLater(
+            trx,
+            provider.name,
+            kept.map((invoice) => ({
+              action: "refund",
+              providerPaymentId: invoice.provider_payment_id,
+              amount: Number(invoice.kept_refund),
+            })),
+          );
+        });
       await provider.cancel(
         heldSubscription(row, row.provider_customer_id),
         when,
@@ -139,6 +172,7 @@ export async function endDeletedBilling(
     billing_attempts: 0,
     billing_retry_at: due ? null : user.purge_after,
   });
+  if (provider) await makeDueCalls(db, provider, log);
 }
 
 /** Ends the billing of deleted accounts whose turn has come. */

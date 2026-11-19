@@ -110,13 +110,22 @@ pub fn unlanded(worktree: &AgentWorktree) -> Result<bool, String> {
         &["rev-parse", &format!("refs/heads/{base}")],
     )?);
     let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
-    Ok(!own_commits(&worktree.path, &tip, &head)?.is_empty())
+    Ok(!own_commits(&worktree.path, &tip, &head, None)?.is_empty())
 }
 
-/// The commits of `head` that `tip` lacks, by their changes, oldest first.
-fn own_commits(tree: &Path, tip: &str, head: &str) -> Result<Vec<Unpushed>, String> {
+/// The commits of `head` that `tip` lacks, by their changes, oldest first, after `since` when
+/// given.
+fn own_commits(
+    tree: &Path,
+    tip: &str,
+    head: &str,
+    since: Option<&str>,
+) -> Result<Vec<Unpushed>, String> {
     let range = format!("{tip}..{head}");
-    if git(tree, &["rev-list", "--merges", "--count", &range])?.trim() != "0" {
+    let not_since = since.map(|since| format!("^{since}"));
+    let not_since = not_since.as_deref();
+    let merges = ["rev-list", "--merges", "--count", &range];
+    if git(tree, &[&merges[..], not_since.as_slice()].concat())?.trim() != "0" {
         return Err("Your commits include a merge, which the land queue doesn't take; rebase them onto the branch they land on so they form one line, then land again".into());
     }
     let listed = git(
@@ -128,7 +137,10 @@ fn own_commits(tree: &Path, tip: &str, head: &str) -> Result<Vec<Unpushed>, Stri
             "--right-only",
             "--format=%H%x00%s",
             &format!("{tip}...{head}"),
-        ],
+        ]
+        .into_iter()
+        .chain(not_since)
+        .collect::<Vec<_>>(),
     )?;
     Ok(listed
         .lines()
@@ -163,7 +175,7 @@ fn sync_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Synced, Stri
     for _ in 0..ATTEMPTS {
         let tip = line(git(&worktree.repo, &["rev-parse", &target])?);
         let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
-        let commits = own_commits(&worktree.path, &tip, &head)?;
+        let commits = own_commits(&worktree.path, &tip, &head, None)?;
         let synced = replay(
             signing,
             &worktree.path,
@@ -241,17 +253,18 @@ pub fn follow(tree: &Path, before: &str, after: &str) -> Option<String> {
     None
 }
 
-/// The commits of `head` that `onto` lacks, made again on it in the repository
-/// at `repo`, their footers signed again with `signing`. None when `onto` holds
+/// The commits of `head` that `onto` lacks, after `since` when given, made again on it in the
+/// repository at `repo`, their footers signed again with `signing`. None when `onto` holds
 /// every one of their changes, even as commits made again elsewhere.
 pub fn lay(
     signing: &Signing,
     repo: &Path,
     head: &str,
+    since: Option<&str>,
     onto: &str,
     base: &str,
 ) -> Result<Option<Laid>, String> {
-    let commits = own_commits(repo, onto, head)?;
+    let commits = own_commits(repo, onto, head, since)?;
     if commits.is_empty() {
         return Ok(None);
     }
@@ -272,21 +285,8 @@ pub fn lay(
 /// project's checkout along when it has `base` out. The files someone had
 /// changed there, which took the new lines merged in.
 pub fn put(repo: &Path, base: &str, from: &str, to: &str) -> Result<Vec<String>, NotPut> {
+    let steps = planned(repo, base, from, to)?;
     let target = format!("refs/heads/{base}");
-    let checked_out =
-        git(repo, &["symbolic-ref", "-q", "HEAD"]).is_ok_and(|head| head.trim() == target);
-    let steps = match checked_out {
-        true => {
-            let (steps, clashes) = plan(repo, from, to).map_err(NotPut::Failed)?;
-            if !clashes.is_empty() {
-                return Err(NotPut::Clash(
-                    clashes.iter().map(|path| repo.join(path)).collect(),
-                ));
-            }
-            steps
-        }
-        false => Steps::default(),
-    };
     run(
         repo,
         &[
@@ -301,28 +301,43 @@ pub fn put(repo: &Path, base: &str, from: &str, to: &str) -> Result<Vec<String>,
         None,
     )
     .map_err(|_| NotPut::Moved)?;
-    Ok(match checked_out {
-        true => apply(repo, steps, from, to),
-        false => Vec::new(),
+    Ok(match steps {
+        Some(steps) => apply(repo, steps, from, to),
+        None => Vec::new(),
     })
 }
 
-/// What each file the landing changes needs in the project's checkout at
-/// `repo`, from `before` to `after`, and whether someone had changed it there.
-/// A clash with what someone changed refuses the landing.
-pub fn steps(repo: &Path, before: &str, after: &str) -> Result<Steps, String> {
-    let (steps, clashes) = plan(repo, before, after)?;
+/// What moving `base` from `from` to `to` does to the project's checkout at
+/// `repo`, none when it does not have `base` out. A clash with what someone
+/// changed there refuses it.
+pub fn planned(repo: &Path, base: &str, from: &str, to: &str) -> Result<Option<Steps>, NotPut> {
+    let target = format!("refs/heads/{base}");
+    if !git(repo, &["symbolic-ref", "-q", "HEAD"]).is_ok_and(|head| head.trim() == target) {
+        return Ok(None);
+    }
+    let (steps, clashes) = plan(repo, from, to).map_err(NotPut::Failed)?;
     if !clashes.is_empty() {
-        return Err(format!(
-            "Not landed: the project's checkout has changes nobody committed in {} that clash with yours. Find who made them with who_wrote on those paths and agree with them, then land again.",
-            clashes
-                .iter()
-                .map(|path| repo.join(path).display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+        return Err(NotPut::Clash(
+            clashes.iter().map(|path| repo.join(path)).collect(),
         ));
     }
-    Ok(steps)
+    Ok(Some(steps))
+}
+
+/// [`planned`], with a clash said in words.
+pub fn steps(repo: &Path, base: &str, before: &str, after: &str) -> Result<Option<Steps>, String> {
+    planned(repo, base, before, after).map_err(|not| match not {
+        NotPut::Clash(paths) => format!(
+            "Not landed: the project's checkout has changes nobody committed in {} that clash with yours. Find who made them with who_wrote on those paths and agree with them, then land again.",
+            paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        NotPut::Failed(why) => why,
+        NotPut::Moved => format!("{base} moved meanwhile"),
+    })
 }
 
 /// What each file changed from `before` to `after` needs in the checkout at
@@ -506,7 +521,8 @@ mod tests {
         let base = worktree.base.as_deref().unwrap_or_default();
         let tip = line(git(&worktree.repo, &["rev-parse", base])?);
         let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
-        let laid = lay(signing, &worktree.repo, &head, &tip, base)?.ok_or("nothing to land")?;
+        let laid =
+            lay(signing, &worktree.repo, &head, None, &tip, base)?.ok_or("nothing to land")?;
         let merged = put(&worktree.repo, base, &tip, &laid.tip).map_err(|not| match not {
             NotPut::Clash(paths) => format!("{paths:?}"),
             NotPut::Moved => "moved".to_owned(),
@@ -633,7 +649,7 @@ mod tests {
             hosts: Vec::new(),
         };
         let head = git_in(&tree, &["rev-parse", "HEAD"]);
-        assert!(lay(&signing, &main, &head, &before, "main")
+        assert!(lay(&signing, &main, &head, None, &before, "main")
             .unwrap()
             .is_none());
         assert!(land_from(&worktree, &signing).is_err());
@@ -709,5 +725,59 @@ mod tests {
             Path::new("new.sh")
         );
         assert_eq!(git_in(&main, &["status", "--porcelain"]), "");
+    }
+
+    #[test]
+    fn a_nested_repos_own_checkout_lands_and_pushes_while_its_checkout_is_mid_rebase() {
+        let root = tempfile::tempdir().unwrap();
+        let root = sikemux_process::files::real_path(root.path()).unwrap();
+        let remote = root.join("remote.git");
+        git_in(
+            &root,
+            &[
+                "init",
+                "-q",
+                "--bare",
+                "-b",
+                "main",
+                &remote.to_string_lossy(),
+            ],
+        );
+        let project = root.join("project");
+        let web = project.join("web");
+        std::fs::create_dir_all(&web).unwrap();
+        git_in(&web, &["init", "-q", "-b", "main"]);
+        git_in(&web, &["commit", "-q", "--allow-empty", "-m", "first"]);
+        git_in(&web, &["commit", "-q", "--allow-empty", "-m", "second"]);
+        git_in(
+            &web,
+            &["remote", "add", "origin", &remote.to_string_lossy()],
+        );
+        git_in(&web, &["push", "-q", "-u", "origin", "main"]);
+        git_in(&web, &["remote", "set-head", "origin", "main"]);
+        let stopped = sikemux_process::user_environment::command("git")
+            .args(["rebase", "-q", "--exec", "false", "HEAD~1"])
+            .current_dir(&web)
+            .output()
+            .unwrap();
+        assert!(!stopped.status.success());
+
+        let (worktree, _) =
+            crate::server::worktree::agent::cut_for(&web, &project, "fix/client").unwrap();
+        assert_eq!(worktree.base.as_deref(), Some("main"));
+        std::fs::write(worktree.path.join("c.txt"), "c\n").unwrap();
+        git_in(&worktree.path, &["add", "c.txt"]);
+        git_in(&worktree.path, &["commit", "-qm", "worker: c"]);
+        assert!(unlanded(&worktree).unwrap());
+
+        let signing = Signing {
+            key: None,
+            hosts: Vec::new(),
+        };
+        land_from(&worktree, &signing).unwrap();
+        assert_eq!(
+            git_in(&web, &["log", "-1", "--format=%s", "main"]),
+            "worker: c"
+        );
     }
 }

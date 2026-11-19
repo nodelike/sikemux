@@ -30,8 +30,6 @@ import { CallDock } from '@/calls/CallDock';
 import { TurnLine } from '@/calls/TurnLine';
 import { queueOf, useKept, waitingCall } from '@/calls/hostCalls';
 import { TELL_CHIEF, sendToTold } from '@shared/calls/words';
-import { AwayCard } from '@/calls/AwayCard';
-import { NowCard } from '@/calls/NowCard';
 import { useOnScreen } from '@/calls/onScreen';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
 import { stripOf, stripOwner } from '@/chat/messageMeta';
@@ -203,7 +201,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const preferences = useHostCall(connection, 'preferences', {}, String(state.running)).data;
   const steers = steerable && preferences?.midTurnSend !== 'queue';
   const saved = live.snapshot?.workspace.agents?.find((shown) => shown.id === agentId);
-  const providerOf = (other: string) => live.snapshot?.workspace.agents?.find((shown) => shown.id === other)?.provider ?? 'agent';
   const worktree = worktreeOf(saved?.worktree);
   const project = live.snapshot?.workspace.projects.find((known) => known.id === saved?.project);
   const accounts = live.snapshot?.workspace.launchers.filter((known) => known.provider === provider) ?? [];
@@ -231,9 +228,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   // The hub keeps the host's calls as the same array while none changes, so typing beside a docked call does not
   // redraw it on every view the host sends.
   const calls = live.snapshot?.calls;
-  // While the chief's chat shows what happened while the person was away, it docks every call that card counts.
-  const awayCalls = state.chief ? state.away?.calls : undefined;
-  const queue = useMemo(() => queueOf(calls, agentId, awayCalls), [calls, agentId, awayCalls]);
+  const queue = useMemo(() => queueOf(calls, agentId), [calls, agentId]);
   const docked = waitingCall(queue, keptCalls, agentId);
   const canAnswerCall = !watchOnly && live.status === 'open';
   // The composer says who an idle chat's words go to, as the Mac does: the chief, or a worker the chief hears.
@@ -256,18 +251,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
       report={session.report}
     />
   ) : null;
-  // A chief's chat carries its project's Now card while anything stands on it or closed lately.
-  const now = state.chief ? live.snapshot?.now?.find((shown) => shown.project === saved?.project) : undefined;
-  const nowCard =
-    now && (now.rows?.length || now.closed?.length) ? (
-      <NowCard
-        now={now}
-        agents={live.snapshot?.workspace.agents}
-        connection={connection}
-        full={access === 'full'}
-        onOpen={(other) => router.push(`/device/${core}/chat/${other}`)}
-      />
-    ) : null;
   const unreachable = chat.attached !== 'live' && live.status === 'closed';
   const status = unreachable ? (
     <View style={styles.missing}>
@@ -420,15 +403,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                 ListFooterComponent={
                                   <>
                                     {queued.length ? <Queued held={queued} sentFiles={chat.sentFiles} /> : null}
-                                    {state.away ? (
-                                      <AwayCard
-                                        away={state.away}
-                                        connection={connection}
-                                        full={access === 'full'}
-                                        providerOf={providerOf}
-                                        onOpen={(other) => router.push(`/device/${core}/chat/${other}`)}
-                                      />
-                                    ) : null}
                                     {activity ? (
                                       <Activity
                                         provider={provider}
@@ -479,7 +453,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                 </Pressable>
                               </KeyboardStickyView>
                             ) : null}
-                            {nowCard}
                           </View>
                         </ToolDetailContext>
                       </SubagentsContext>
@@ -508,6 +481,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   modelsUnread={state.connection === 'ready' ? undefined : state.modelsUnread}
                   effort={state.effort}
                   speed={state.speed}
+                  sessionMode={state.sessionMode}
                   usage={state.usage}
                   expiredCache={chat.expiredCache}
                   commands={state.commands}

@@ -202,13 +202,15 @@ pub(super) fn rename_omp_session(
     let mut slot = vec![0u8; OMP_TITLE_SLOT_BYTES];
     file.read_exact(&mut slot)
         .map_err(|_| "this OMP session has no title line".to_string())?;
-    let current = serde_json::from_slice::<Value>(&slot[..OMP_TITLE_SLOT_BYTES - 1]).ok();
-    let is_slot = slot[OMP_TITLE_SLOT_BYTES - 1] == b'\n'
-        && current
-            .as_ref()
-            .and_then(|value| value.get("type"))
-            .and_then(Value::as_str)
-            == Some("title");
+    let is_slot = slot.split_last().is_some_and(|(&end, line)| {
+        end == b'\n'
+            && serde_json::from_slice::<Value>(line)
+                .ok()
+                .as_ref()
+                .and_then(|value| value.get("type"))
+                .and_then(Value::as_str)
+                == Some("title")
+    });
     if !is_slot {
         return Err("this OMP session has no title line".to_string());
     }
@@ -238,7 +240,7 @@ fn omp_title_slot(title: &str, updated_at: &str) -> Option<String> {
     };
     let chars: Vec<char> = title.chars().collect();
     (0..=chars.len()).rev().find_map(|count| {
-        let title: String = chars[..count].iter().collect();
+        let title: String = chars.iter().take(count).collect();
         let pad = OMP_TITLE_SLOT_BYTES.checked_sub(line(&title, "").len())?;
         Some(line(&title, &" ".repeat(pad)))
     })
@@ -403,8 +405,8 @@ impl AgentOps for Omp {
         args: &mut Vec<String>,
     ) {
         let mut entry = serde_json::json!({ "id": route.model, "input": route.input() });
-        if let Some(compat) = chat_compat(route.model) {
-            entry["compat"] = compat;
+        if let (Some(compat), Some(fields)) = (chat_compat(route.model), entry.as_object_mut()) {
+            fields.insert("compat".to_owned(), compat);
         }
         let mut registered: Vec<serde_json::Value> = env
             .get(MODEL_PROVIDERS_ENV)

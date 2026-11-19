@@ -83,6 +83,9 @@ pub struct ProjectInfo {
     /// How far its repository has come down, while the core clones it. The core fills it in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloning: Option<Cloning>,
+    /// The org its board is shared with. The core fills it in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared: Option<crate::teammates::SharedOrg>,
 }
 
 /// A clone the core is making of a project's repository, as git last said.
@@ -331,6 +334,18 @@ pub struct LauncherInfo {
     /// How hard the model thinks, as a picker shows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<ConfigPicker>,
+    /// The models new chats of its agent started on lately, newest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_models: Vec<RecentModel>,
+}
+
+/// A model a chat started on, and the connected provider that paid for it, if one did.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentModel {
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
 }
 
 /// One of a session's select options, read for a picker.
@@ -404,13 +419,20 @@ pub struct Backdrop {
 /// A host's answer to a browser on the account asking for its look over `sikemux/look/1`: what
 /// the browser draws behind its pages.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "result", rename_all = "camelCase")]
+#[serde(
+    tag = "result",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum LookReply {
     Look {
         texture: bool,
         look: BackdropLook,
         /// The picture shown in place of the grain, as a JPEG data URL.
         picture: Option<String>,
+        /// When the person was last at this host's own window, in ms since the epoch; now
+        /// while it is in front. The browser draws the look of the host it is most recent on.
+        person_at_window: Option<u64>,
     },
     Refused {
         reason: String,

@@ -348,8 +348,10 @@ impl Session {
                 if !self.asks.insert(id.clone()) {
                     return Vec::new();
                 }
-                let call = data["source"]["id"]
-                    .as_str()
+                let call = data
+                    .get("source")
+                    .and_then(|source| source.get("id"))
+                    .and_then(Value::as_str)
                     .and_then(|call| self.tools.get(call));
                 let request = tools::permission(&self.id, data, call, &self.cwd);
                 vec![Effect::Ask {
@@ -509,7 +511,9 @@ impl Session {
         match turn {
             Turn::Sent(number) | Turn::Prompted(number) => {
                 let mut answer = update::turn_answer(reason);
-                answer["usage"] = self.used.answer();
+                if let Some(fields) = answer.as_object_mut() {
+                    fields.insert("usage".to_owned(), self.used.answer());
+                }
                 let end = match (ending, self.failure()) {
                     (Ending::Failed, Some(failure)) | (Ending::Succeeded, Some(failure)) => {
                         TurnEnd::Failed {
@@ -582,7 +586,12 @@ impl Session {
         let mut effects = vec![Effect::Called(context)];
         if self.window > 0 {
             let mut usage = update::usage(context, self.window);
-            usage["cost"] = json!({ "amount": self.cost, "currency": "USD" });
+            if let Some(fields) = usage.as_object_mut() {
+                fields.insert(
+                    "cost".to_owned(),
+                    json!({ "amount": self.cost, "currency": "USD" }),
+                );
+            }
             effects.push(Effect::Update(usage));
         }
         effects

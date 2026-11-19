@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Dumps the sikemux database, encrypts it to the age recipients in BACKUP_RECIPIENTS, uploads it
 # to the R2 bucket and deletes backups older than 30 days. Then copies the stash's files, which
-# the stash key already encrypts, and that key sealed to the same recipients. Run nightly by
-# sikemux-backup.service. Citadel holds only the public key, so it can write backups but never
-# read one back.
+# the stash key already encrypts, and that key and the address proof key sealed to the same
+# recipients. Run nightly by sikemux-backup.service. Citadel holds only the public key, so it can
+# write backups but never read one back.
 set -euo pipefail
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -56,3 +56,7 @@ if [ -n "${STASH_DIR:-}" ]; then
   rclone copyto "$work/key.age" "r2:$R2_BUCKET/stash/key.age"
   echo "kept $(rclone lsf --files-only "r2:$R2_BUCKET/stash/files" | wc -l | tr -d ' ') stashed files"
 fi
+
+echo "sealing the address proof key"
+age --encrypt --recipients-file "$recipients" <"${ADDRESS_PROOF_KEY_FILE:?ADDRESS_PROOF_KEY_FILE is not set}" >"$work/proof-key.age"
+rclone copyto "$work/proof-key.age" "r2:$R2_BUCKET/proofs/key.age"

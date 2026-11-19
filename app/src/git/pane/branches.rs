@@ -108,7 +108,7 @@ impl GitPane {
 
     /// Lists the branches again from what is known of them.
     pub(super) fn list_branches(&mut self) {
-        let query = self.filters[super::Page::Branches as usize].query.clone();
+        let query = self.filters[super::Page::Branches].query.clone();
         let found = |name: &str| query.is_empty() || name.to_lowercase().contains(&query);
         let mut entries = Vec::new();
         let local: Vec<GitBranch> = self

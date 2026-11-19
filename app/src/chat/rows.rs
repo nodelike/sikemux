@@ -3,7 +3,9 @@
 
 use super::*;
 use crate::ui::Clicks;
-use sikemux_view::chat::{ChiefWeek, GoalMoment, PageRef, TaskNotice, WorkerPage};
+use sikemux_view::chat::{
+    ChiefWeek, GoalMoment, PageRef, TaskNotice, TriggerFired, WorkerPage, REPLY_URI,
+};
 use sikemux_view::slice::SliceState;
 
 use crate::theme::{
@@ -43,16 +45,20 @@ pub(super) fn row(
     let user = message.role == ChatRole::User;
     let team = message.team.as_ref();
     let team_open = team.is_some_and(|team| looks.reading.team_open(&team.id));
+    let before = ix.checked_sub(1).and_then(|at| rows.get(at));
+    let from_here = rows.get(ix..).unwrap_or_default();
     let opens_run = team.filter(|team| {
-        ix == 0 || (rows[ix - 1].message.team.as_ref()).is_none_or(|before| before.id != team.id)
+        before.is_none_or(|before| {
+            (before.message.team.as_ref()).is_none_or(|before| before.id != team.id)
+        })
     });
     let team_head = opens_run.and_then(|team| {
-        let line = team::line_of(&rows[ix..], &team.id)?;
+        let line = team::line_of(from_here, &team.id)?;
         Some(team::head(&team.id, line, team_open, looks, cx))
     });
     let behind = team
         .filter(|_| team_open)
-        .is_some_and(|team| team::behind(&rows[ix..], &team.id, looks.reading));
+        .is_some_and(|team| team::behind(from_here, &team.id, looks.reading));
     if team.is_some_and(|team| behind || (!team_open && team.shown.is_empty())) {
         return div()
             .w_full()
@@ -66,12 +72,9 @@ pub(super) fn row(
     let fold = message.fold.as_ref().filter(|_| team.is_none());
     let folded = fold.is_some_and(|fold| !looks.reading.opened.contains(&fold.id));
     let opens = fold.filter(|fold| {
-        ix == 0
-            || rows[ix - 1]
-                .message
-                .fold
-                .as_ref()
-                .is_none_or(|before| before.id != fold.id)
+        before.is_none_or(|before| {
+            (before.message.fold.as_ref()).is_none_or(|before| before.id != fold.id)
+        })
     });
     let work_shown = if user || team_open {
         1.
@@ -105,7 +108,7 @@ pub(super) fn row(
         }
     }
     let live = ix + 1 == rows.len() && looks.reading.running.get();
-    let follows_own = user && ix > 0 && plainly_sent(&rows[ix - 1]);
+    let follows_own = user && before.is_some_and(plainly_sent);
     let followed_by_own = user && rows.get(ix + 1).is_some_and(plainly_sent);
     let summed = if user {
         0.
@@ -365,8 +368,7 @@ pub(super) fn tucked(
         .into_any_element()
 }
 
-/// The prompts of the chat's triggers that came due, each in a bubble at the left under the
-/// trigger's name, with the webhook request that fired it folded beneath.
+/// The chat's triggers that came due, each folded to a line with the trigger's name.
 pub(super) fn fired(
     row: &ChatRow,
     pen: &Pen,
@@ -374,30 +376,13 @@ pub(super) fn fired(
     window: &mut Window,
     cx: &mut App,
 ) -> gpui_kit::Div {
-    let t = Tokens::get(cx).clone();
     let drawn: Vec<AnyElement> = row
         .message
         .letters
         .iter()
         .enumerate()
         .filter_map(|(ix, letter)| Some((ix, letter.trigger.as_ref()?)))
-        .map(|(ix, trigger)| {
-            let id = SharedString::from(format!("{}:{}", row.message.id, letter_doc(ix)));
-            let prompt = row.doc(&letter_doc(ix)).map(|doc| {
-                let look = looks.styles.borrow().user.clone();
-                pen.markdown_with(&look, id.clone(), &doc.markdown, window, cx)
-            });
-            from(trigger_named(&trigger.title, &t), row, prompt, looks)
-                .children(trigger.request.as_ref().map(|request| {
-                    let body = row.doc(&request_doc(ix)).map(|doc| {
-                        let look = looks.styles.borrow().text.clone();
-                        let body_id = SharedString::from(format!("{id}:request"));
-                        pen.markdown_with(&look, body_id, &doc.markdown, window, cx)
-                    });
-                    fired_request(&format!("request:{id}"), request, body, looks, &t)
-                }))
-                .into_any_element()
-        })
+        .map(|(ix, trigger)| trigger_letter(row, ix, trigger, pen, looks, window, cx))
         .collect();
     div()
         .w_full()
@@ -407,27 +392,79 @@ pub(super) fn fired(
         .children(drawn)
 }
 
-/// A trigger's name over its prompt.
-fn trigger_named(title: &str, t: &Tokens) -> Div {
-    div()
-        .min_w_0()
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .child(ui::icon(Icon::Timer, 13.).text_color(t.cmd))
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(t.text_primary)
-                .child(title.to_owned()),
-        )
+/// A trigger that came due: a line with its name, which opens onto its prompt in a bubble
+/// and the webhook request that fired it.
+fn trigger_letter(
+    row: &ChatRow,
+    ix: usize,
+    trigger: &TriggerFired,
+    pen: &Pen,
+    looks: &Drawn,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let id = SharedString::from(format!("{}:{}", row.message.id, letter_doc(ix)));
+    let key = format!("fired:{id}");
+    let open = looks.reading.opened.contains(&key);
+    let says = vec![
+        ui::icon(Icon::Timer, 13.)
+            .text_color(t.cmd)
+            .into_any_element(),
+        div()
+            .min_w_0()
+            .truncate()
+            .child(trigger.title.clone())
+            .into_any_element(),
+    ];
+    let line = fold_toggle(&key, open, says, looks).min_w_0();
+    let shown = motion::follow(
+        SharedString::from(format!("{key}:shown")),
+        if open { 1. } else { 0. },
+        if open {
+            motion::UNFOLD
+        } else {
+            motion::FOLD_AWAY
+        },
+        window,
+        cx,
+    );
+    let opened = (shown > 0.).then(|| {
+        let prompt = row.doc(&letter_doc(ix)).map(|doc| {
+            let look = looks.styles.borrow().user.clone();
+            sent_bubble(
+                pen.markdown_with(&look, id.clone(), &doc.markdown, window, cx),
+                looks,
+            )
+        });
+        let request = trigger.request.as_ref().map(|request| {
+            let body = row.doc(&request_doc(ix)).map(|doc| {
+                let look = looks.styles.borrow().text.clone();
+                let body_id = SharedString::from(format!("{id}:request"));
+                pen.markdown_with(&look, body_id, &doc.markdown, window, cx)
+            });
+            fired_request(&format!("request:{id}"), request, body, looks, &t)
+        });
+        let body = div()
+            .flex()
+            .flex_col()
+            .items_start()
+            .gap(SPACE_1H)
+            .children(prompt)
+            .children(request);
+        match open {
+            true => motion::folded(SharedString::from(key.clone()), shown, body, window, cx),
+            false => motion::folding_away(SharedString::from(key.clone()), shown, body, window, cx),
+        }
+    });
+    from(line, row, None, looks)
+        .children(opened)
+        .into_any_element()
 }
 
 /// What another agent or a trigger sent: who over its bubble at the left, and when at the
 /// line's end.
-fn from(who: Div, row: &ChatRow, body: Option<AnyElement>, looks: &Looks) -> Div {
+fn from(who: impl IntoElement, row: &ChatRow, body: Option<AnyElement>, looks: &Looks) -> Div {
     let when = row.message.sent_at.and_then(meta::clock).map(|when| {
         div()
             .ml_auto()
@@ -454,18 +491,21 @@ fn from(who: Div, row: &ChatRow, body: Option<AnyElement>, looks: &Looks) -> Div
                 .child(who)
                 .children(when),
         )
-        .child(
-            div()
-                .max_w_full()
-                .px(px(14.))
-                .py(SPACE_2H)
-                .rounded(BUBBLE_RADIUS)
-                .rounded_bl(SPACE_1H)
-                .border(crate::theme::border())
-                .border_color(looks.line)
-                .bg(looks.asked)
-                .children(body),
-        )
+        .children(body.map(|body| sent_bubble(body, looks)))
+}
+
+/// What another agent or a trigger said, in a bubble at the left.
+fn sent_bubble(body: AnyElement, looks: &Looks) -> Div {
+    div()
+        .max_w_full()
+        .px(px(14.))
+        .py(SPACE_2H)
+        .rounded(BUBBLE_RADIUS)
+        .rounded_bl(SPACE_1H)
+        .border(crate::theme::border())
+        .border_color(looks.line)
+        .bg(looks.asked)
+        .child(body)
 }
 
 /// The webhook request that fired a trigger: one line saying what it was, which opens onto
@@ -593,45 +633,47 @@ pub(super) fn letters(
     let letters = &row.message.letters;
     let mut drawn = Vec::with_capacity(letters.len());
     let mut ix = 0;
-    while ix < letters.len() {
-        let letter = &letters[ix];
-        if letter.kind == LetterKind::Answer {
-            let run = letters[ix..]
-                .iter()
-                .take_while(|next| {
-                    next.kind == LetterKind::Answer && next.agent_id == letter.agent_id
-                })
-                .count();
-            drawn.push(answer_thread(row, &letters[ix..ix + run], ix, looks, cx));
-            ix += run;
-            continue;
-        }
-        drawn.push(match letter.kind {
-            LetterKind::Answer => unreachable!(),
+    while let Some(letter) = letters.get(ix) {
+        let letter_row = match letter.kind {
+            LetterKind::Answer => {
+                let rest = letters.get(ix..).unwrap_or_default();
+                let run = (rest.iter())
+                    .take_while(|next| {
+                        next.kind == LetterKind::Answer && next.agent_id == letter.agent_id
+                    })
+                    .count();
+                let answers = rest.get(..run).unwrap_or_default();
+                drawn.push(answer_thread(row, answers, ix, looks, cx));
+                ix += run;
+                continue;
+            }
             LetterKind::Message | LetterKind::Trigger => {
+                if let Some(trigger) = &letter.trigger {
+                    drawn.push(trigger_letter(row, ix, trigger, pen, looks, window, cx));
+                    ix += 1;
+                    continue;
+                }
                 let id = SharedString::from(format!("{}:{}", row.message.id, letter_doc(ix)));
                 let text = row.doc(&letter_doc(ix)).map(|doc| {
                     let look = looks.styles.borrow().user.clone();
                     pen.markdown_with(&look, id.clone(), &doc.markdown, window, cx)
                 });
-                let who = match &letter.trigger {
-                    Some(trigger) => trigger_named(&trigger.title, Tokens::get(cx)),
-                    None => match looks.bench.upgrade() {
-                        Some(bench) => div().flex().child(super::agent_pill_of(
-                            &letter.agent_id,
-                            &letter.name,
-                            looks.mark_of(&letter.agent_id, &letter.cli, TEXT_XS + 1., cx),
-                            TEXT_XS,
-                            bench.read(cx).chat_target(&looks.agent),
-                            &looks.bench,
-                            cx,
-                        )),
-                        None => div(),
-                    },
+                let who = match looks.bench.upgrade() {
+                    Some(bench) => div().flex().child(super::agent_pill_of(
+                        &letter.agent_id,
+                        &letter.name,
+                        looks.mark_of(&letter.agent_id, &letter.cli, TEXT_XS + 1., cx),
+                        TEXT_XS,
+                        bench.read(cx).chat_target(&looks.agent),
+                        &looks.bench,
+                        cx,
+                    )),
+                    None => div(),
                 };
                 from(who, row, text, looks).into_any_element()
             }
-        });
+        };
+        drawn.push(letter_row);
         ix += 1;
     }
     div()
@@ -652,7 +694,9 @@ fn answer_thread(
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx);
-    let asker = &answers[0];
+    let Some(asker) = answers.first() else {
+        return div().into_any_element();
+    };
     let answered = answers.iter().enumerate().map(|(at, letter)| {
         let files = letter.attachments.iter().enumerate().map(|(index, path)| {
             let id = format!("{}:{}:{index}", row.message.id, letter_doc(first + at));
@@ -989,9 +1033,13 @@ fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
     let Some(rule) = notice.rule.clone() else {
         return div().into_any_element();
     };
-    let head = match rule.undone {
-        true => t!("Kept as a rule, then undone"),
-        false => t!("Kept as a rule"),
+    let head = match (rule.undone, &rule.org) {
+        (true, _) => t!("Kept as a rule, then undone").to_owned(),
+        (false, Some(org)) if rule.waiting => {
+            t!("Kept as a rule, waiting for {org}'s admins", org = org)
+        }
+        (false, Some(org)) => t!("Kept as a rule for {org}", org = org),
+        (false, None) => t!("Kept as a rule").to_owned(),
     };
     let bench = looks.bench.clone();
     notice_box(looks)
@@ -1005,9 +1053,8 @@ fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
                     .child(t!("Undo"))
                     .clicks(move |_, _, cx| {
                         let rule = rule.clone();
-                        let _ = bench.update(cx, |bench, cx| {
-                            crate::playbook::undo_rule(bench, &rule.project, rule.id, cx)
-                        });
+                        let _ = bench
+                            .update(cx, |bench, cx| crate::playbook::undo_rule(bench, &rule, cx));
                     }),
             )
         })
@@ -1084,16 +1131,40 @@ fn decided(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
 
 /// The quiet line an Overrule leaves in the chief's chat, with Undo until it is undone.
 fn overruled(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
-    let Some(overruled) = notice.overruled.clone() else {
+    let Some(overruled) = notice.overruled.as_deref().cloned() else {
         return div().into_any_element();
     };
-    let (head, tail) = match (overruled.undone, overruled.rule.is_some()) {
-        (true, _) => (t!("Overruled, then undone"), Some(t!("it stands again"))),
-        (false, true) => (
-            t!("Overruled"),
-            Some(t!("decisions like this come to you from now on")),
+    let (head, tail) = match (overruled.undone, overruled.rule.is_some(), &overruled.org) {
+        (true, ..) if overruled.still_kept => (
+            t!("Overruled, then undone"),
+            Some(
+                t!("it stands again, but decisions like this still come to you: remove the rule in the Playbook")
+                    .to_owned(),
+            ),
         ),
-        (false, false) => (t!("Overruled"), None),
+        (true, ..) => (
+            t!("Overruled, then undone"),
+            Some(t!("it stands again").to_owned()),
+        ),
+        (false, true, Some(org)) if overruled.waiting => (
+            t!("Overruled"),
+            Some(t!(
+                "decisions like this come to you from now on, a rule waiting for {org}'s admins",
+                org = org
+            )),
+        ),
+        (false, true, Some(org)) => (
+            t!("Overruled"),
+            Some(t!(
+                "decisions like this come to you from now on, a rule for {org}",
+                org = org
+            )),
+        ),
+        (false, true, None) => (
+            t!("Overruled"),
+            Some(t!("decisions like this come to you from now on").to_owned()),
+        ),
+        (false, false, _) => (t!("Overruled"), None),
     };
     let quoted =
         (!overruled.text.is_empty()).then(|| t!("“{text}”", text = overruled.text.clone()));
@@ -1189,7 +1260,16 @@ fn rule_change(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
     let Some(line) = notice.rule_change.clone() else {
         return div().into_any_element();
     };
+    let moved_to = || match line.store.is_project() {
+        true => t!(
+            "to {project}",
+            project = crate::ui::path::file_name(std::path::Path::new(&line.project))
+        ),
+        false => t!("to yours").to_owned(),
+    };
     let (head, tail) = match (line.restored, &line.commit, &line.was) {
+        (true, _, _) if line.moved => (t!("Moved back"), None),
+        (false, _, _) if line.moved => (t!("Rule moved"), Some(moved_to())),
         (true, _, _) => (
             t!("Rule back"),
             (line.back_by.clone()).map(|name| t!("by @{name}", name = name)),
@@ -1541,6 +1621,119 @@ pub(super) fn subagent(
         .into_any_element()
 }
 
+/// `look` with a reply button beside each paragraph and list item of the text `text`, which
+/// puts that part in the draft's reply.
+fn with_reply(
+    look: Rc<Style>,
+    row: &ChatRow,
+    text: &SharedString,
+    looks: &Drawn,
+    cx: &App,
+) -> Rc<Style> {
+    let message = row.message.id.clone();
+    let tagged = format!("{REPLY_URI}{message}#{text}.");
+    let chosen: Rc<[usize]> = (looks.bench.upgrade())
+        .and_then(|bench| {
+            let composing = bench.read(cx).composing(&looks.agent)?;
+            let places = (composing.draft.read(cx).tokens().iter())
+                .filter_map(|span| span.token().id().strip_prefix(&tagged)?.parse().ok())
+                .collect();
+            Some(places)
+        })
+        .unwrap_or_else(|| Rc::from([]));
+    let hovered = (looks.reading.quoting.as_ref())
+        .filter(|(over, _)| over == text)
+        .map(|(_, place)| *place);
+    let on_hover = {
+        let (reader, text) = (looks.reader.clone(), text.clone());
+        Rc::new(
+            move |place: usize, over: bool, _: &mut Window, cx: &mut App| {
+                reader.update(cx, |reading, cx| {
+                    let here = Some((text.clone(), place));
+                    if over {
+                        reading.quoting = here;
+                        reading.quoting_button = false;
+                    } else if reading.quoting == here {
+                        reading.quoting = None;
+                        reading.quoting_button = false;
+                    } else {
+                        return;
+                    }
+                    cx.notify();
+                })
+            },
+        )
+    };
+    let on_point = {
+        let reader = looks.reader.clone();
+        Rc::new(move |over: bool, _: &mut Window, cx: &mut App| {
+            reader.update(cx, |reading, cx| {
+                if reading.quoting_button != over {
+                    reading.quoting_button = over;
+                    cx.notify();
+                }
+            })
+        })
+    };
+    let button = {
+        let (bench, agent, reader, text) = (
+            looks.bench.clone(),
+            looks.agent.clone(),
+            looks.reader.clone(),
+            text.clone(),
+        );
+        let accent = looks.accent;
+        Rc::new(
+            move |place: usize, quote: String, chosen: bool, _: &mut Window, _: &mut App| {
+                let (bench, agent, reader, message) = (
+                    bench.clone(),
+                    agent.clone(),
+                    reader.clone(),
+                    message.clone(),
+                );
+                let part = format!("{text}.{place}");
+                let label = match chosen {
+                    true => t!("Take out of the reply"),
+                    false => t!("Reply to this part"),
+                };
+                IconButton::new(
+                    SharedString::from(format!("reply:{part}")),
+                    Icon::Reply,
+                    label,
+                )
+                .glyph(13.)
+                .width(24.)
+                .pressed(chosen)
+                .when(chosen, |button| button.tint(accent))
+                .on_click(move |_, window, cx| {
+                    bench
+                        .update(cx, |bench, cx| {
+                            bench.reply_to(&agent, &message, Some(&part), &quote, window, cx)
+                        })
+                        .ok();
+                    reader.update(cx, |_, cx| cx.notify());
+                })
+                .into_any_element()
+            },
+        )
+    };
+    Rc::new(Style {
+        reply: Some(gpui_transcript::Reply {
+            hovered,
+            pointed: hovered.is_some() && looks.reading.quoting_button,
+            chosen,
+            gutter: px(REPLY_GUTTER),
+            on_hover,
+            on_point,
+            button,
+        }),
+        ..(*look).clone()
+    })
+}
+
+/// The room right of an answer's text that holds a paragraph's reply button.
+const REPLY_GUTTER: f32 = 32.;
+
 pub(super) fn part(
     row: &ChatRow,
     part: &ChatPart,
@@ -1586,6 +1779,10 @@ pub(super) fn part(
                 attach::with_chips(look, &row.message, &looks.bench, window)
             } else {
                 attach::with_why(look, &row.message, &looks.agent, &looks.bench, window, cx)
+            };
+            let look = match part {
+                ChatPart::Text { .. } if !user => with_reply(look, row, &id, looks, cx),
+                _ => look,
             };
             let cut = (doc.units > LONG_TEXT && looks.reading.folds(&row.message.id, &id))
                 .then(|| doc.markdown.cut(LONG_TEXT))
@@ -1679,12 +1876,7 @@ pub(super) fn part(
             };
             notice_box(looks)
                 .child(ui::icon(icon, 12.).text_color(tint))
-                .child(
-                    div()
-                        .flex_none()
-                        .text_color(state)
-                        .child(notice.title.clone()),
-                )
+                .child(notice_summary(notice.title.clone()).text_color(state))
                 .children(notice.description.clone().map(notice_summary))
                 .into_any_element()
         }

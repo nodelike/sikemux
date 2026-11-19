@@ -304,7 +304,9 @@ impl Decoder {
         if picture.is_empty() {
             return Ok(());
         }
-        let session = self.session.as_ref().expect("a session was just made");
+        let Some(session) = self.session.as_ref() else {
+            return Ok(());
+        };
         // SAFETY: the block buffer allocates and owns its own copy of `picture`; the
         // sample buffer and block buffer are released below after a synchronous decode.
         unsafe {
@@ -635,12 +637,13 @@ impl RgbFrames {
         let side = |at: usize| {
             frame
                 .get(at..at + 4)
-                .map(|bytes| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize)
+                .and_then(|bytes| bytes.try_into().ok())
+                .map(|bytes| u32::from_le_bytes(bytes) as usize)
         };
         let (Some(width), Some(height)) = (side(0), side(4)) else {
             return Err("the screen's picture is cut short".into());
         };
-        let pixels = &frame[8..];
+        let pixels = frame.get(8..).unwrap_or_default();
         if width == 0 || height == 0 || pixels.len() < width * height * 3 {
             return Err("the screen's picture is cut short".into());
         }
@@ -722,27 +725,26 @@ impl Drop for RgbFrames {
 fn split_units(frame: &[u8]) -> Vec<&[u8]> {
     let mut starts = Vec::new();
     let mut index = 0;
-    while index + 2 < frame.len() {
-        if frame[index] == 0 && frame[index + 1] == 0 {
-            if frame[index + 2] == 1 {
+    while let Some(rest) = frame.get(index..) {
+        match rest {
+            [0, 0, 1, ..] => {
                 starts.push((index, 3));
                 index += 3;
-                continue;
             }
-            if index + 3 < frame.len() && frame[index + 2] == 0 && frame[index + 3] == 1 {
+            [0, 0, 0, 1, ..] => {
                 starts.push((index, 4));
                 index += 4;
-                continue;
             }
+            [_, _, _, ..] => index += 1,
+            _ => break,
         }
-        index += 1;
     }
     starts
         .iter()
         .enumerate()
-        .map(|(at, &(start, length))| {
+        .filter_map(|(at, &(start, length))| {
             let end = starts.get(at + 1).map_or(frame.len(), |&(next, _)| next);
-            &frame[start + length..end]
+            frame.get(start + length..end)
         })
         .collect()
 }

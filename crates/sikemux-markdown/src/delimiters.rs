@@ -72,11 +72,16 @@ pub(crate) fn as_dollars(text: &str) -> Option<(String, Moved)> {
 
 /// Where the bytes of a rewritten text came from: from each byte named on, the byte of the
 /// original it maps to, counting on from there.
+#[derive(Default)]
 pub(crate) struct Moved(Vec<(usize, usize)>);
 
 impl Moved {
-    fn shift(&mut self, written: usize, original: usize) {
+    pub(crate) fn shift(&mut self, written: usize, original: usize) {
         self.0.push((written, original));
+    }
+
+    pub(crate) fn any(&self) -> bool {
+        !self.0.is_empty()
     }
 
     /// The byte of the original text the rewritten text's byte `at` came from.

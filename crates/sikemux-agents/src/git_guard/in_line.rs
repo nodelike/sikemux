@@ -207,9 +207,10 @@ fn copy(mut from: impl Read, mut to: impl Write, log: &Mutex<std::fs::File>) {
         match from.read(&mut buffer) {
             Ok(0) | Err(_) => return,
             Ok(read) => {
-                let _ = to.write_all(&buffer[..read]);
+                let chunk = buffer.get(..read).unwrap_or_default();
+                let _ = to.write_all(chunk);
                 let _ = to.flush();
-                let _ = log.locked().write_all(&buffer[..read]);
+                let _ = log.locked().write_all(chunk);
             }
         }
     }
@@ -372,7 +373,7 @@ fn follow(mut session: Session, log: &Path, program: &str) -> i32 {
             Ok(0) | Err(_) if done => break,
             Ok(0) | Err(_) => std::thread::sleep(FOLLOW_EVERY),
             Ok(read) => {
-                let _ = out.write_all(&buffer[..read]);
+                let _ = out.write_all(buffer.get(..read).unwrap_or_default());
                 let _ = out.flush();
             }
         }

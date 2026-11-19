@@ -8,3 +8,6 @@ publish = false
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }
 resvg = "0.45"
+
+[lints]
+workspace = true

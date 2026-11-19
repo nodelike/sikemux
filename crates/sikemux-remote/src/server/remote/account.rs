@@ -208,6 +208,9 @@ impl live::Account for HostAccount {
                 }
                 crate::server::account::devices::keep_name_current(&reconciling).await;
                 crate::server::account::refresh_allowance(&reconciling).await;
+                crate::server::account::refresh_orgs(&reconciling).await;
+                let registry = crate::server::account::shares::refresh(&reconciling).await;
+                (reconciling.remote_above().shares_heard)(&reconciling, registry);
             });
             (core.remote_above().hosts_relink)(&core);
             core.vault().wake();
@@ -290,9 +293,13 @@ pub fn apply_events(core: &Core, events: &[AccountEvent]) {
     let mut revoked = Vec::new();
     let mut released = None;
     let mut plan_changed = false;
+    let mut orgs_changed = false;
+    let mut shares_changed = false;
     for event in events {
         match event.r#type {
             AccountEventType::PlanChanged => plan_changed = true,
+            AccountEventType::OrgsChanged => orgs_changed = true,
+            AccountEventType::SharesChanged => shares_changed = true,
             AccountEventType::DeviceRevoked => match event.key.as_deref() {
                 Some(key) if Some(key) == own.as_deref() => released = Some(event.reason),
                 Some(key) => revoked.push((
@@ -329,6 +336,15 @@ pub fn apply_events(core: &Core, events: &[AccountEvent]) {
     }
     if let (true, Some(core)) = (plan_changed, core.arc()) {
         tokio::spawn(async move { crate::server::account::refresh_allowance(&core).await });
+    }
+    if let (true, Some(core)) = (orgs_changed || shares_changed, core.arc()) {
+        tokio::spawn(async move {
+            if orgs_changed {
+                crate::server::account::refresh_orgs(&core).await;
+            }
+            let registry = crate::server::account::shares::refresh(&core).await;
+            (core.remote_above().shares_heard)(&core, registry);
+        });
     }
     let last = events.iter().map(|event| event.id).max().unwrap_or(0);
     let mut unlinked = Vec::new();

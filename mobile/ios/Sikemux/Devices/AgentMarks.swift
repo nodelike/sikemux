@@ -11,15 +11,15 @@ struct Working: View {
             let time = timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, _ in
                 for (index, period) in Self.periods.enumerated() {
-                    let rect = CGRect(x: Double(index % 3) * 5, y: Double(index / 3) * 5, width: 3, height: 3)
+                    let rect = CGRect(x: Double(index % 3) * 5, y: Double(index / 3) * 5, width: 3.5, height: 3.5)
                     context.opacity =
                         still
                         ? 1 : Self.opacity(time, period: period, delay: Double(index * 230 % Int(period * 1000)) / 1000)
-                    context.fill(Path(roundedRect: rect, cornerRadius: 0.6), with: .color(palette.live))
+                    context.fill(Path(roundedRect: rect, cornerRadius: 0.75), with: .color(palette.live))
                 }
             }
         }
-        .frame(width: 13, height: 13)
+        .frame(width: 13.5, height: 13.5)
         .accessibilityElement()
         .accessibilityLabel("Working")
     }

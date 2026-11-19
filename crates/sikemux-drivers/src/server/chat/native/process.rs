@@ -309,7 +309,7 @@ async fn keep_tail(
                 Ok(0) | Err(_) => break,
                 Ok(read) => {
                     let mut kept = tail.locked();
-                    kept.extend(&buffer[..read]);
+                    kept.extend(buffer.get(..read).unwrap_or_default());
                     let excess = kept.len().saturating_sub(STDERR_TAIL);
                     kept.drain(..excess);
                 }
@@ -340,9 +340,10 @@ pub struct Lines {
 
 impl Lines {
     fn take_line(&mut self) -> Option<Vec<u8>> {
-        let found = self.buffer[self.scanned..]
-            .iter()
-            .position(|byte| *byte == b'\n');
+        let found = self
+            .buffer
+            .get(self.scanned..)
+            .and_then(|unscanned| unscanned.iter().position(|byte| *byte == b'\n'));
         match found {
             Some(at) => {
                 let end = self.scanned + at;

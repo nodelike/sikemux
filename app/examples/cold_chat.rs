@@ -9,6 +9,7 @@
 //! `<prefix>-early.png` and `<prefix>-late.png`. A debug core trusts it as its window only as
 //! `examples/remote` beside the core, as `fake_chat` says.
 
+use anyhow::Context as _;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -92,7 +93,7 @@ fn main() -> anyhow::Result<()> {
             },
         )
     })?;
-    let bench = held.take().expect("the workbench");
+    let bench = held.take().context("the workbench")?;
     cx.update_window(window.into(), |_, window, _| window.activate_window())
         .ok();
     let ms = |at: Instant| at.duration_since(started).as_secs_f64() * 1e3;

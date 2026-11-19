@@ -370,7 +370,10 @@ impl Opencode {
             let path = format!("/api/session/{existing}");
             match client.get(&path).await {
                 Ok(session) => {
-                    let agent = session["agent"].as_str().unwrap_or(BUILD);
+                    let agent = session
+                        .get("agent")
+                        .and_then(Value::as_str)
+                        .unwrap_or(BUILD);
                     let permissions =
                         json!({ "permissions": rules(mode, catalog.permissions(agent)) });
                     client.patch(&path, permissions).await.map_err(refused)?;
@@ -387,8 +390,8 @@ impl Opencode {
             "agent": BUILD,
             "permissions": rules(mode, catalog.permissions(BUILD)),
         });
-        if let Some(model) = model_ref(model, effort) {
-            body["model"] = model;
+        if let (Some(model), Some(body)) = (model_ref(model, effort), body.as_object_mut()) {
+            body.insert("model".to_owned(), model);
         }
         if !catalog.offers_mode(BUILD) {
             body.as_object_mut().map(|body| body.remove("agent"));
@@ -521,22 +524,28 @@ impl Backend for Opencode {
         )
         .await
         .map_err(failed)?;
-        let session_id = opened["id"]
-            .as_str()
+        let session_id = opened
+            .get("id")
+            .and_then(Value::as_str)
             .ok_or_else(|| failed("OpenCode opened a session without an id".to_owned()))?
             .to_owned();
         {
             let mut session = driver.session.locked();
             session.id = session_id.clone();
-            session.cost = opened["cost"].as_f64().unwrap_or(0.0);
-            session.titled = opened["title"]
-                .as_str()
+            session.cost = opened.get("cost").and_then(Value::as_f64).unwrap_or(0.0);
+            session.titled = opened
+                .get("title")
+                .and_then(Value::as_str)
                 .is_some_and(|title| !title.is_empty());
         }
         sink.loaded();
         sink.update(&session_id, offered_commands(&commands));
         let (reading, _) = Reading::start(Quiet, lines);
-        let mode = opened["agent"].as_str().unwrap_or(BUILD).to_owned();
+        let mode = opened
+            .get("agent")
+            .and_then(Value::as_str)
+            .unwrap_or(BUILD)
+            .to_owned();
         let mut opencode = Self {
             process,
             reading,
@@ -603,8 +612,10 @@ impl Backend for Opencode {
                 return Ok(Steered::PromptRequired);
             }
             let mut body = body?;
-            body["delivery"] = json!("steer");
-            body["resume"] = json!(false);
+            if let Some(body) = body.as_object_mut() {
+                body.insert("delivery".to_owned(), json!("steer"));
+                body.insert("resume".to_owned(), json!(false));
+            }
             let sent = driver
                 .client
                 .post(&driver.path("/prompt"), body)

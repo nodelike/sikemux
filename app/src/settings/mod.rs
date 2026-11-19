@@ -404,8 +404,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                 account
                     .name
                     .clone()
-                    .or_else(|| account.email.clone())
-                    .unwrap_or_else(|| t!("Signed in").into())
+                    .unwrap_or_else(|| t!("Your account").into())
                     .into(),
             ),
             None => (

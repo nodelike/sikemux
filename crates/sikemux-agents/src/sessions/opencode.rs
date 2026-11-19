@@ -92,8 +92,8 @@ pub fn saved_key(integration: &str) -> Option<String> {
             )
             .ok()?;
         let value: serde_json::Value = serde_json::from_str(&value).ok()?;
-        (value["type"] == "key")
-            .then(|| value["key"].as_str().map(str::to_owned))
+        (value.get("type").and_then(Value::as_str) == Some("key"))
+            .then(|| value.get("key")?.as_str().map(str::to_owned))
             .flatten()
     })
 }
@@ -277,13 +277,23 @@ pub(super) fn opencode_prose(db: &Path, session_id: &str, prose: &mut dyn Hear) 
     };
     for (_, kind, data) in messages {
         let (by, texts): (Speaker, Vec<&str>) = match kind.as_str() {
-            "user" => (Speaker::Person, data["text"].as_str().into_iter().collect()),
+            "user" => (
+                Speaker::Person,
+                data.get("text")
+                    .and_then(Value::as_str)
+                    .into_iter()
+                    .collect(),
+            ),
             "assistant" => (
                 Speaker::Agent,
-                (data["content"].as_array().into_iter().flatten())
-                    .filter(|block| block["type"] == "text")
-                    .filter_map(|block| block["text"].as_str())
-                    .collect(),
+                (data
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten())
+                .filter(|block| block["type"] == "text")
+                .filter_map(|block| block["text"].as_str())
+                .collect(),
             ),
             _ => continue,
         };
@@ -292,7 +302,7 @@ pub(super) fn opencode_prose(db: &Path, session_id: &str, prose: &mut dyn Hear) 
                 .char_indices()
                 .nth(MAX_CHARS)
                 .map_or(text.len(), |(at, _)| at);
-            prose.push(by, &text[..end]);
+            prose.push(by, text.get(..end).unwrap_or(text));
         }
     }
 }
@@ -403,7 +413,9 @@ impl AgentOps for Opencode {
             route.key_name,
         );
         models[route.model] = model_entry(route.model, route.input(), route.about, route.cost);
-        config["model"] = route.agent_model.clone().into();
+        if let Some(fields) = config.as_object_mut() {
+            fields.insert("model".to_owned(), route.agent_model.clone().into());
+        }
         env.insert(CONFIG_ENV.into(), config.to_string());
     }
 
@@ -452,14 +464,20 @@ fn provider_config(env: &BTreeMap<String, String>) -> Value {
         .and_then(|text| serde_json::from_str::<Value>(&text).ok())
         .filter(Value::is_object)
         .unwrap_or_else(|| serde_json::json!({}));
-    if !config["providers"].is_object() {
-        config["providers"] = serde_json::json!({});
+    if let Some(fields) = config.as_object_mut() {
+        if !fields.get("providers").is_some_and(Value::is_object) {
+            fields.insert("providers".to_owned(), serde_json::json!({}));
+        }
     }
     config
 }
 
 /// The provider `id` in `config`, reached at `base_url` with the key in `key_name`, answering
 /// with its models to fill in.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "provider_config always gives an object holding a providers object"
+)]
 fn provider_entry<'a>(
     config: &'a mut Value,
     id: &str,
@@ -485,30 +503,38 @@ const REASONING_EFFORTS: [&str; 3] = ["low", "medium", "high"];
 /// A model as OpenCode lists it, with the window, price and efforts models.dev knows of, so
 /// OpenCode offers its efforts, fills its context meter and counts what it costs.
 fn model_entry(id: &str, input: &[&str], about: Option<&Model>, cost: Option<Cost>) -> Value {
-    let mut entry = serde_json::json!({
-        "name": id,
-        "limit": { "output": LISTED_MAX_OUTPUT_TOKENS },
-        "capabilities": { "input": input },
-    });
-    let Some(about) = about else {
-        return entry;
-    };
-    if about.limit.context > 0 {
-        entry["limit"]["context"] = about.limit.context.into();
+    let mut limit =
+        serde_json::Map::from_iter([("output".to_owned(), LISTED_MAX_OUTPUT_TOKENS.into())]);
+    let mut capabilities =
+        serde_json::Map::from_iter([("input".to_owned(), serde_json::json!(input))]);
+    if let Some(about) = about {
+        if about.limit.context > 0 {
+            limit.insert("context".to_owned(), about.limit.context.into());
+        }
+        if about.reasoning {
+            capabilities.insert(
+                "reasoning".to_owned(),
+                serde_json::json!({ "supported": true, "effort": REASONING_EFFORTS }),
+            );
+        }
     }
-    if about.reasoning {
-        entry["capabilities"]["reasoning"] =
-            serde_json::json!({ "supported": true, "effort": REASONING_EFFORTS });
+    let mut entry = serde_json::Map::from_iter([
+        ("name".to_owned(), id.into()),
+        ("limit".to_owned(), Value::Object(limit)),
+        ("capabilities".to_owned(), Value::Object(capabilities)),
+    ]);
+    if let Some(cost) = cost.filter(|_| about.is_some()) {
+        entry.insert(
+            "cost".to_owned(),
+            serde_json::json!({
+                "input": cost.input.unwrap_or_default(),
+                "output": cost.output.unwrap_or_default(),
+                "cache": {
+                    "read": cost.cache_read.unwrap_or_default(),
+                    "write": cost.cache_write.unwrap_or_default(),
+                },
+            }),
+        );
     }
-    if let Some(cost) = cost {
-        entry["cost"] = serde_json::json!({
-            "input": cost.input.unwrap_or_default(),
-            "output": cost.output.unwrap_or_default(),
-            "cache": {
-                "read": cost.cache_read.unwrap_or_default(),
-                "write": cost.cache_write.unwrap_or_default(),
-            },
-        });
-    }
-    entry
+    Value::Object(entry)
 }

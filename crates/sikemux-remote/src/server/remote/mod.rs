@@ -21,7 +21,9 @@ use tokio::sync::{oneshot, watch, Notify};
 use tokio::task::JoinHandle;
 
 use crate::accounts::live::{self, Link, Push, Want};
-use crate::accounts::protocol::{AccountEvent, AccountEventType, DeviceRole, LiveApp, PushResult};
+use crate::accounts::protocol::{
+    AccountEvent, AccountEventType, DeviceRole, LiveApp, PeerTicket, PushResult,
+};
 use crate::join::{self, Expected, Refusal, TrustedKeys};
 use crate::push::NotificationKey;
 use sikemux_client::accounts::network;
@@ -530,6 +532,12 @@ impl Remote {
         self.inner.locked().stored.owner.clone()
     }
 
+    /// The host's remote file and key loaded, so a missing owner means signed out rather than
+    /// not known.
+    pub fn loaded(&self) -> bool {
+        self.inner.locked().path.is_some()
+    }
+
     /// The features the accounts server last said it switched off.
     pub fn flags_off(&self) -> Vec<String> {
         let inner = self.inner.locked();
@@ -940,6 +948,22 @@ impl Remote {
             Some(true) => Ok(()),
             _ => Err(Refusal::WrongPhone),
         }
+    }
+
+    /// Checks a teammate's peer ticket from the host `from` proved it is. Whether this host shares
+    /// anything with the ticket's org is the caller's to check.
+    pub fn check_peer(&self, ticket: &PeerTicket, from: &str) -> Result<(), Refusal> {
+        let keys = self.join_keys();
+        let to = self.core_id().unwrap_or_default();
+        sikemux_corekit::peer::check(
+            ticket,
+            &keys,
+            &sikemux_corekit::peer::Expected {
+                from,
+                to: &to,
+                now: epoch_secs() as i64,
+            },
+        )
     }
 
     fn check_ticket(&self, ticket: &JoinTicket, phone: &str) -> Result<(), Refusal> {

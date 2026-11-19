@@ -109,7 +109,7 @@ fn hasher_over(path: &Path) -> std::io::Result<Sha256> {
         if read == 0 {
             return Ok(hasher);
         }
-        hasher.update(&buffer[..read]);
+        hasher.update(buffer.get(..read).unwrap_or_default());
     }
 }
 

@@ -20,7 +20,7 @@ use super::session::Session;
 use super::spawn::{self, Ending};
 use std::path::PathBuf;
 
-use sikemux_view::prefs::PreferenceChange;
+use sikemux_view::prefs::{Belongs, PreferenceChange};
 
 use super::activity_log::{transcript_of, Place};
 use super::board_above::BoardAbove;
@@ -37,7 +37,7 @@ use super::{
     lifecycle, messages, pins, requests, session_watch, ssh, tasks, themes, triggers, upgrade,
     worktree, Core, CoreResult,
 };
-use super::{finished, hooks, inbox, mods, stash};
+use super::{finished, hooks, inbox, mods, shares, stash};
 use serde_json::Value;
 use sikemux_wire::protocol::ChatLaunch;
 
@@ -165,6 +165,11 @@ fn preference_changed(core: &Core, change: &PreferenceChange) -> CoreResult<()> 
         PreferenceChange::OnboardingComplete(_) => about::introduced(core)?,
         _ => {}
     }
+    if change.belongs() == Belongs::Person
+        || matches!(change, PreferenceChange::SyncAcrossHosts(true))
+    {
+        core.mods().personal_changed();
+    }
     core.theme_changed();
     Ok(())
 }
@@ -173,18 +178,18 @@ fn account_with_room(
     core: &Core,
     provider: &str,
     launch: &ChatLaunch,
+    person: bool,
     among: &dyn Fn(&str) -> bool,
 ) -> Option<String> {
     let chat = agent_accounts::Placing {
         model: launch.model.clone(),
-        typical_tokens: None,
+        person,
         cwd: Some(launch.cwd.clone()),
     };
     agent_accounts::placement(
         &core.workspaces().accounts().unwrap_or_default(),
         provider,
         &chat,
-        crate::agent_accounts::allocate::Aim::Headroom,
         |profile| among(&profile.id),
     )
     .map(|placed| placed.id)
@@ -241,8 +246,8 @@ pub(super) fn chat_above() -> ChatAbove {
         new_token: tools::new_token,
         new_edits: || Box::<edits::Open>::default(),
         account_with_room,
-        spend_model_reset: |core, provider, launch| {
-            Box::pin(agent_accounts::spend_model_reset(core, provider, launch))
+        refill_at_limit: |core, provider, launch| {
+            Box::pin(agent_accounts::refill_at_limit(core, provider, launch))
         },
         other_agent_with_room: agent_accounts::other_agent_with_room,
         turn_told: turn_state::told,
@@ -267,6 +272,7 @@ pub(super) fn chat_above() -> ChatAbove {
         },
         locate_saved: saved::locate,
         note_elsewhere: team_told::note_elsewhere,
+        find_elsewhere: |core, agent_id| Box::pin(super::hosts::peers::find(core, agent_id)),
         open_work: team_told::open_work,
         start_saved: |core, agent_id, waits| {
             Box::pin(launching::start_saved(core, agent_id, waits))
@@ -300,7 +306,6 @@ pub(super) fn chat_above() -> ChatAbove {
         memory_take_removed: memory::take_removed_note,
         memory_chat_ready: memory::chat_ready,
         chief_brief: chief::brief,
-        chief_chat_opened: chief::chat_opened,
         chief_chat_ready: chief::chat_ready,
         feed_moved: |core, agent, from, to| {
             chief::feed_moved(core, agent, from, to);
@@ -332,6 +337,7 @@ pub(super) fn remote_above() -> RemoteAbove {
         hosts_wake: |core| core.hosts().wake.now(),
         hosts_relink: |core| core.hosts().relink.now(),
         serve_link: |core, connection| Box::pin(hosts::serve(core, connection)),
+        serve_peer: |core, connection| Box::pin(super::peer::serve(core, connection)),
         host_look: backdrop::host_look,
         forget_hosts_off_account: hosts::account::forget_hosts_off_account,
         host_rows: hosts::rows,
@@ -346,6 +352,7 @@ pub(super) fn remote_above() -> RemoteAbove {
             stash::heard(core, events);
             mods::heard(core, events);
         },
+        shares_heard: shares::heard,
         account_catch_up: |core| {
             stash::catch_up(core);
             mods::catch_up(core);
@@ -373,7 +380,6 @@ pub(super) fn repo_above() -> RepoAbove {
         board_health_of: board::health_of,
         board_project_at: board::project_at,
         chief_all: chief::all,
-        chief_landed: chief::landed,
         questions_asks_production: questions::asks_production,
         questions_cli_of: questions::cli_of,
         roster_listed: roster::listed,
@@ -388,6 +394,7 @@ pub(super) fn repo_above() -> RepoAbove {
         messages_tell_lead: messages::report_land,
         messages_reachable: |core, to| Box::pin(messages::reachable(core, to)),
         messages_reopened: |core, to| Box::pin(messages::reopened(core, to)),
+        hosts_land_at_lead: super::hosts::spawn::land_at_lead,
         foreign_status: |core, agent| core.hosts().team.get(agent).map(|foreign| foreign.status),
         turn_state_wrote: turn_state::wrote,
         pushed: finished::moved,
@@ -463,11 +470,13 @@ pub(super) fn repo_above() -> RepoAbove {
         accounts_call_answered: |core, call, key| {
             Box::pin(account_calls::answered(core, call, key))
         },
+        memory_call_answered: super::memory::waiting_answered,
     }
 }
 
 pub(super) fn board_above() -> BoardAbove {
     BoardAbove {
+        person_name: memory::moving::first_name,
         memory_brief: memory::brief,
         messages_from_board: |core, to, text, note| {
             Box::pin(messages::from_board(core, to, text, note))
@@ -504,9 +513,13 @@ pub(super) fn board_above() -> BoardAbove {
         chief_card_reopened: chief::card_reopened,
         hosts_started_by: |core, agent| core.hosts().team.get(agent)?.parent,
         hosts_rows_moved: hosts::route::rows_moved,
-        records_changed: hosts::record::changed,
+        records_changed: |core, keys| {
+            shares::records_changed(core, &keys);
+            hosts::record::changed(core, keys);
+        },
         records_elsewhere: hosts::record::elsewhere,
         records_act: hosts::record::act_waiting,
+        records_post: hosts::record::post_home,
     }
 }
 

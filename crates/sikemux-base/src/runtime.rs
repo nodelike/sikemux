@@ -31,10 +31,16 @@ where
 pub fn block_on<F: Future>(work: F) -> F::Output {
     match RUNTIME.get() {
         Some(runtime) => runtime.block_on(work),
-        None => tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("a runtime for one call")
-            .block_on(work),
+        None => {
+            #[expect(
+                clippy::expect_used,
+                reason = "a thread that cannot start a runtime cannot run the work at all"
+            )]
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("a runtime for one call");
+            runtime.block_on(work)
+        }
     }
 }

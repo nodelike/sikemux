@@ -183,7 +183,6 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
         | PaneKind::ProjectSettings
         | PaneKind::InstallSikemux
         | PaneKind::Stash
-        | PaneKind::Asks
         | PaneKind::Hosts
         | PaneKind::Mod => true,
     };
@@ -391,8 +390,11 @@ fn insert_beside(
                 let Some(new) = new.take() else {
                     return true;
                 };
-                let half = sizes[at] / 2;
-                sizes[at] -= half;
+                let half = sizes.get_mut(at).map_or(0, |size| {
+                    let half = *size / 2;
+                    *size -= half;
+                    half
+                });
                 let to = if after { at + 1 } else { at };
                 panes.insert(to, new);
                 sizes.insert(to, half);
@@ -654,36 +656,30 @@ pub(crate) fn open_tab(core: &Core, params: OpenTab) -> CoreResult<String> {
             .tabs
             .iter()
             .position(|tab| holds(&tab.pane, params.kind, &params.target));
-        let replaced = strip.tabs.iter().position(|tab| tab.preview);
-        let id = match (shown, replaced) {
-            (Some(at), _) => {
-                let tab = &mut strip.tabs[at];
-                tab.preview &= params.preview;
-                tab.id.clone()
-            }
-            (None, Some(at)) if params.preview => {
-                let tab = &mut strip.tabs[at];
-                let view = format!("view-{}", uuid::Uuid::new_v4().simple());
-                tab.pane = Pane::View {
-                    id: view,
-                    kind: params.kind,
-                    target: params.target,
-                };
-                tab.title = params.title;
-                tab.id.clone()
-            }
-            (None, _) => {
-                let mut opened = tab(
-                    format!("tab-{}", uuid::Uuid::new_v4().simple()),
-                    params.kind,
-                    params.target,
-                );
-                opened.title = params.title;
-                opened.preview = params.preview;
-                let id = opened.id.clone();
-                strip.tabs.push(opened);
-                id
-            }
+        let replaced = (strip.tabs.iter().position(|tab| tab.preview)).filter(|_| params.preview);
+        let id = if let Some(tab) = shown.and_then(|at| strip.tabs.get_mut(at)) {
+            tab.preview &= params.preview;
+            tab.id.clone()
+        } else if let Some(tab) = replaced.and_then(|at| strip.tabs.get_mut(at)) {
+            let view = format!("view-{}", uuid::Uuid::new_v4().simple());
+            tab.pane = Pane::View {
+                id: view,
+                kind: params.kind,
+                target: params.target,
+            };
+            tab.title = params.title;
+            tab.id.clone()
+        } else {
+            let mut opened = tab(
+                format!("tab-{}", uuid::Uuid::new_v4().simple()),
+                params.kind,
+                params.target,
+            );
+            opened.title = params.title;
+            opened.preview = params.preview;
+            let id = opened.id.clone();
+            strip.tabs.push(opened);
+            id
         };
         if !(params.behind && in_sight) {
             strip.active = Some(id.clone());
@@ -967,7 +963,6 @@ pub(crate) async fn lay_out_carried(
         | PaneKind::Board
         | PaneKind::ProjectSettings
         | PaneKind::Stash
-        | PaneKind::Asks
         | PaneKind::Hosts
         | PaneKind::Mod => true,
     };
@@ -1361,7 +1356,7 @@ pub(crate) fn separate_pane(core: &Core, params: PaneParams) -> CoreResult<Strin
             .iter()
             .position(|tab| tab.id == params.tab)
             .ok_or("that tab is not open")?;
-        let tab = &mut strip.tabs[at];
+        let tab = strip.tabs.get_mut(at).ok_or("that tab is not open")?;
         if matches!(tab.pane, Pane::View { .. }) {
             return Err("that tab shows only that view".into());
         }

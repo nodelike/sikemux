@@ -94,13 +94,14 @@ impl PageEvent {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub(crate) fn read(text: &str) -> Option<Self> {
         let message = serde_json::from_str::<serde_json::Value>(text).ok()?;
-        match message["kind"].as_str()? {
-            "height" => message["height"].as_f64().map(PageEvent::Height),
-            "link" => message["url"]
+        match message.get("kind")?.as_str()? {
+            "height" => message.get("height")?.as_f64().map(PageEvent::Height),
+            "link" => message
+                .get("url")?
                 .as_str()
                 .map(|url| PageEvent::Link(url.to_owned())),
-            "wheel" => message["deltaY"].as_f64().map(PageEvent::Wheel),
-            "pointer" => message["over"].as_bool().map(PageEvent::Pointer),
+            "wheel" => message.get("deltaY")?.as_f64().map(PageEvent::Wheel),
+            "pointer" => message.get("over")?.as_bool().map(PageEvent::Pointer),
             "mod" => Some(PageEvent::Mod(message)),
             "app" => Some(PageEvent::App(message.get("message")?.clone())),
             _ => None,

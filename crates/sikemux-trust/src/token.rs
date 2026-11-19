@@ -185,7 +185,9 @@ impl Token {
     /// The sign-in session the token's processes run in.
     pub fn session(&self) -> io::Result<u32> {
         let read = self.read(TokenSessionId)?;
-        Ok(read[0] as u32)
+        read.first()
+            .map(|&session| session as u32)
+            .ok_or_else(|| io::Error::other("the token has no session"))
     }
 
     /// Runs `work` with this thread acting as the token's user, so a path the user chose is

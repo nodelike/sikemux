@@ -119,11 +119,16 @@ impl Workbench {
             .and_then(|row| agent_row(row, &place))
     }
 
+    /// The agent `id` as the rail shows it, on the host in front or any other this window holds.
     pub fn agent_by_id(&self, id: &str) -> Option<AgentRow> {
-        let place = self.place();
-        rows_of(self.view_at(&place)?)
-            .find(|row| row.agent_id == id)
-            .and_then(|row| agent_row(row, &place))
+        let mut places = std::iter::once(self.place())
+            .chain(std::iter::once(Place::This))
+            .chain((self.feeds.hosts()).map(|(host, _)| Place::Account(host.clone())));
+        places.find_map(|place| {
+            rows_of(self.view_at(&place)?)
+                .find(|row| row.agent_id == id)
+                .and_then(|row| agent_row(row, &place))
+        })
     }
 
     /// The project's agents on the host in front, in the order the core lists them.
@@ -149,6 +154,24 @@ impl Workbench {
                 .map(|copy| self.agents_at(&copy.place, &copy.project))
                 .collect(),
         )
+    }
+
+    /// Every agent the rail lists on any host this window holds, with its project's name, those
+    /// of `agent`'s own project first: who `agent` can name with an @.
+    pub fn nameable_by(&self, agent: &str) -> Vec<(String, AgentRow)> {
+        let own = self.agent_by_id(agent).map(|row| (row.place, row.project));
+        let holds_own = |folded: &Folded| {
+            (folded.copies.iter())
+                .any(|copy| own.as_ref() == Some(&(copy.place.clone(), copy.project.clone())))
+        };
+        let mut folded = self.folded();
+        folded.sort_by_key(|folded| !holds_own(folded));
+        (folded.into_iter())
+            .flat_map(|folded| {
+                (self.agents_of_folded(&folded).into_iter())
+                    .map(move |row| (folded.name.clone(), row))
+            })
+            .collect()
     }
 
     /// The rows the agent rail lists: this project's, or every project's.
@@ -242,13 +265,17 @@ impl Workbench {
         shown.insert(index.min(shown.len()), moved);
         let mut pins = view.workspace.pinned.clone();
         let id = |pin: &PinnedChat| format!("{}:{}", pin.provider, pin.session_id);
-        let slots: Vec<usize> = (0..pins.len())
-            .filter(|&at| shown.contains(&id(&pins[at])))
+        let slots: Vec<usize> = (pins.iter().enumerate())
+            .filter(|(_, pin)| shown.contains(&id(pin)))
+            .map(|(at, _)| at)
             .collect();
         let kept = pins.clone();
         for (slot, chat) in slots.iter().zip(&shown) {
-            if let Some(pin) = kept.iter().find(|pin| id(pin) == *chat) {
-                pins[*slot] = pin.clone();
+            if let (Some(pin), Some(place)) = (
+                kept.iter().find(|pin| id(pin) == *chat),
+                pins.get_mut(*slot),
+            ) {
+                *place = pin.clone();
             }
         }
         if pins != view.workspace.pinned {
@@ -306,13 +333,18 @@ fn merged(lists: Vec<Vec<AgentRow>>) -> Vec<AgentRow> {
     let mut rows = Vec::new();
     loop {
         let next = (teams.iter().enumerate())
-            .filter_map(|(at, list)| Some((at, &list.front()?[0])))
+            .filter_map(|(at, list)| Some((at, list.front()?.first()?)))
             .min_by_key(|(at, head)| (head.started_at.unwrap_or(u64::MAX), *at))
             .map(|(at, _)| at);
         let Some(at) = next else {
             return rows;
         };
-        rows.extend(teams[at].pop_front().unwrap_or_default());
+        rows.extend(
+            teams
+                .get_mut(at)
+                .and_then(|team| team.pop_front())
+                .unwrap_or_default(),
+        );
     }
 }
 

@@ -4,6 +4,10 @@ import type { Network } from "@sikemux/protocol";
 import type { Level } from "pino";
 
 import { readAppleSignIn } from "./account/apple.ts";
+import {
+  readWorkGoogle,
+  type WorkGoogleSettings,
+} from "./account/work-google.ts";
 import { CLERK_API } from "./account/clerk.ts";
 import { isSandboxKey, PADDLE_KEY } from "./billing/paddle-api.ts";
 import type { AppleKey } from "./apple-key.ts";
@@ -42,7 +46,7 @@ export interface Config extends MigrationConfig {
   macClientId: string;
   /** Where Clerk's Backend API is: Clerk's own, or the local stand-in sign-in that names its made-up people. */
   clerkApi: string;
-  /** For Clerk's Backend API. Without it, deleting accounts and revoking removed phones' sessions wait in the database. */
+  /** For Clerk's Backend API. Without it, deleting accounts and revoking removed phones' sessions wait in the database, and sign-ups go unchecked; every release has one. */
   clerkSecretKey: string | null;
   /** Checks the signatures on Clerk's webhooks. Without it, the webhook route refuses everything. */
   clerkWebhookSecret: string | null;
@@ -59,6 +63,10 @@ export interface Config extends MigrationConfig {
   relayAccessToken: string | null;
   /** Null when STASH_DIR and STASH_KEY are not set, and the stash answers that it is not set up. */
   stash: StashSettings | null;
+  /** Keys the hash a proven work address is kept as. Null leaves addresses unproven; every release has one. */
+  addressProofKey: Buffer | null;
+  /** The Google client a work address is proven with; null hides verifying. */
+  workGoogle: WorkGoogleSettings | null;
   billing: BillingSettings;
 }
 
@@ -197,6 +205,8 @@ export function loadConfig(
   const macClientId = text("CLERK_MAC_CLIENT_ID");
 
   const clerkSecretKey = optional("CLERK_SECRET_KEY") ?? null;
+  if (clerkSecretKey === null && release)
+    problems.push("CLERK_SECRET_KEY is not set");
   if (clerkSecretKey && !/^sk_(live|test)_\S+$/.test(clerkSecretKey))
     problems.push("CLERK_SECRET_KEY is not a secret key like sk_live_…");
 
@@ -224,6 +234,18 @@ export function loadConfig(
     stashDir && stashKey
       ? { dir: stashDir, key: Buffer.from(stashKey, "hex") }
       : null;
+
+  const addressProofKey = optional("ADDRESS_PROOF_KEY") ?? null;
+  if (addressProofKey !== null && !/^[0-9a-f]{64}$/.test(addressProofKey))
+    problems.push("ADDRESS_PROOF_KEY is not 32 bytes in lowercase hex");
+  if (addressProofKey === null && release)
+    problems.push("ADDRESS_PROOF_KEY is not set");
+
+  const workGoogle = readWorkGoogle(
+    env,
+    problems,
+    standInIssuer ? clerkIssuer : null,
+  );
 
   const provider = oneOf(
     "BILLING_PROVIDER",
@@ -261,6 +283,10 @@ export function loadConfig(
     placesDir,
     relayAccessToken,
     stash,
+    addressProofKey: addressProofKey
+      ? Buffer.from(addressProofKey, "hex")
+      : null,
+    workGoogle,
     billing,
     logLevel,
   });

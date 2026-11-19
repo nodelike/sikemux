@@ -30,8 +30,9 @@ type AskForDialog = fn(&Core, &str, String, &str, &str, Vec<QuestionChoice>) -> 
 /// Something that takes a while, such as starting a chat.
 type Doing<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// A provider, a launch, and which accounts may be picked by their id.
-type AccountWithRoom = fn(&Core, &str, &ChatLaunch, &dyn Fn(&str) -> bool) -> Option<String>;
+/// A provider, a launch, whether it answers the person's own message, and which accounts may
+/// be picked by their id.
+type AccountWithRoom = fn(&Core, &str, &ChatLaunch, bool, &dyn Fn(&str) -> bool) -> Option<String>;
 
 /// An agent, a shell command, what its launch set in its environment, and where it runs.
 type ShipHeldFor = fn(Arc<Core>, String, String, BTreeMap<String, String>, PathBuf) -> ShipHeld;
@@ -66,8 +67,6 @@ pub struct ChatAbove {
     pub memory_chat_ready: fn(&Core, &Chat),
     /// What the chief is handed as it starts: how it works, then the project's rules and knowledge.
     pub chief_brief: fn(&Core, &Path) -> String,
-    /// The chief's chat opened on `feed`: what happened while the person was away is shown on it.
-    pub chief_chat_opened: fn(&Core, &str, &Arc<Feed>),
     /// The chief's chat is ready and its saved history shown: the lines it keeps that this feed has
     /// not had go at its end, each under the time it was first made.
     pub chief_chat_ready: fn(&Core, &Chat),
@@ -136,12 +135,13 @@ pub struct ChatAbove {
     pub questions_ask_for_dialog: AskForDialog,
     /// How `agent_id`'s turn stands, worked out now from its own facts alone.
     pub turn_state_now: fn(&Core, &str) -> Option<TurnState>,
-    /// The account of this provider with the most room for this launch, among those `among`
-    /// lets through by their id.
+    /// The account of this provider next in line for this launch, among those `among` lets
+    /// through by their id.
     pub account_with_room: AccountWithRoom,
-    /// Spends a reset of the account's that refills its used-up window of the launch's model,
-    /// answering whether one was spent.
-    pub spend_model_reset: for<'a> fn(&'a Arc<Core>, &'a str, &'a ChatLaunch) -> Doing<'a, bool>,
+    /// Spends a saved reset for the launch's model when the rule says one should go at its
+    /// limit, answering the account it refilled.
+    pub refill_at_limit:
+        for<'a> fn(&'a Arc<Core>, &'a str, &'a ChatLaunch) -> Doing<'a, Option<String>>,
     /// Another agent that has room to take a chat of this provider over, in this folder.
     pub other_agent_with_room: fn(&Book, &str, &Path) -> Option<&'static str>,
     /// How a turn stands, as its agent is told.
@@ -155,8 +155,10 @@ pub struct ChatAbove {
     pub ship_held: ShipHeldFor,
     /// Finds a saved session by its id, of this CLI when given.
     pub locate_saved: fn(&Core, &str, Option<&str>) -> Result<Saved, String>,
-    /// The note for a teammate on a linked host.
+    /// The note for an agent on a linked host.
     pub note_elsewhere: fn(&Core, &str) -> Option<String>,
+    /// Asks the linked hosts for an agent by id, name or `Name on host`, when none here goes by it.
+    pub find_elsewhere: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, ()>,
     /// The calls open to the person in the chat's project, what the chat waits on, and where
     /// each of its workers stands.
     pub open_work: fn(&Core, &str) -> Vec<String>,

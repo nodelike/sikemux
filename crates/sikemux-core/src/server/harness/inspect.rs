@@ -123,8 +123,8 @@ pub(super) fn views(core: &Core, pane: &Pane, found: &mut Vec<Value>) {
     match pane {
         Pane::View { id, kind, target } => {
             let mut view = json!({ "id": id, "kind": kind, "target": target });
-            if let Some(cwd) = cwd_of(core, *kind, target) {
-                view["cwd"] = cwd.to_string_lossy().into_owned().into();
+            if let (Some(cwd), Some(fields)) = (cwd_of(core, *kind, target), view.as_object_mut()) {
+                fields.insert("cwd".to_owned(), cwd.to_string_lossy().into_owned().into());
             }
             found.push(view)
         }

@@ -261,7 +261,9 @@ impl SinkPort for ChatSink {
         }
         match end {
             TurnEnd::Completed(payload) => {
-                chat.note_answered(payload["stopReason"] == json!(StopReason::Cancelled));
+                chat.note_answered(
+                    payload.get("stopReason") == Some(&json!(StopReason::Cancelled)),
+                );
                 chat.finish_turn(payload);
                 if let Some(core) = chat.core.upgrade() {
                     let account = self.account.as_deref();
@@ -935,23 +937,26 @@ impl<B: Backend> Running<'_, B> {
             .account
             .as_ref()
             .map(|account| account.id.clone());
-        let refilled = failed.failure.kind == FailureKind::Limit
+        let at_limit = failed.failure.kind == FailureKind::Limit
             && state.reloadable
-            && switches_at_limit(chat)
-            && match chat.core.upgrade() {
-                Some(core) => {
-                    (core.chat_above().spend_model_reset)(&core, self.provider, self.launch).await
-                }
-                None => false,
-            };
+            && switches_at_limit(chat);
+        let refilled = match (at_limit, chat.core.upgrade()) {
+            (true, Some(core)) => {
+                (core.chat_above().refill_at_limit)(&core, self.provider, self.launch).await
+            }
+            _ => None,
+        };
+        let person = (state.last_prompt.as_ref()).is_some_and(|prompt| prompt.person);
         let retry = match failed.failure.kind {
-            FailureKind::Limit if refilled => chat.relaunch(self.launch).map(|launch| Rebind {
-                launch,
-                replay: state.last_prompt.clone(),
-                exhausted: state.exhausted.clone(),
-                signed_in_again: state.signed_in_again,
-                notice: None,
-            }),
+            FailureKind::Limit if refilled.is_some() && refilled == current => {
+                chat.relaunch(self.launch).map(|launch| Rebind {
+                    launch,
+                    replay: state.last_prompt.clone(),
+                    exhausted: state.exhausted.clone(),
+                    signed_in_again: state.signed_in_again,
+                    notice: None,
+                })
+            }
             FailureKind::SignIn if state.reloadable && !state.signed_in_again => {
                 chat.relaunch(self.launch).map(|launch| Rebind {
                     launch,
@@ -961,10 +966,15 @@ impl<B: Backend> Running<'_, B> {
                     notice: None,
                 })
             }
-            FailureKind::Limit if state.reloadable && switches_at_limit(chat) => {
+            FailureKind::Limit if at_limit => {
                 let mut tried = state.exhausted.clone();
                 tried.extend(current.clone());
-                next_account(chat, self.provider, self.launch, &tried).and_then(|next| {
+                tried.retain(|id| Some(id) != refilled.as_ref());
+                let refilled_elsewhere = (self.launch.fallbacks.iter())
+                    .find(|fallback| Some(&fallback.id) == refilled.as_ref());
+                let next = refilled_elsewhere
+                    .or_else(|| next_account(chat, self.provider, self.launch, &tried, person));
+                next.and_then(|next| {
                     let notice = switch_notice(self.launch, next, "limit");
                     let moved = on_account(self.provider, self.launch, next);
                     chat.relaunch(&moved).map(|launch| Rebind {
@@ -1152,8 +1162,10 @@ impl<B: Backend> Running<'_, B> {
                     }
                 }
             }
-            ChatCommand::HandOver { .. } => unreachable!("the loop hands the chat over itself"),
-            ChatCommand::TakeHandoff => unreachable!("the loop takes the note itself"),
+            ChatCommand::HandOver { reply } => {
+                let _ = reply.send(Err("the chat's loop hands it over itself".into()));
+            }
+            ChatCommand::TakeHandoff => {}
         }
         ControlFlow::Continue(())
     }
@@ -1400,18 +1412,24 @@ impl<B: Backend> Running<'_, B> {
             self.backend.set_config(&config_id, &value).await
         };
         if let Ok(options) = &result {
-            self.state.setup["configOptions"] = options.clone();
+            if let Some(setup) = self.state.setup.as_object_mut() {
+                setup.insert("configOptions".to_owned(), options.clone());
+            }
             self.chat.tell_options(&self.state.session_id, options);
         }
         let _ = reply.send(result.map(|options| json!({ "configOptions": options })));
     }
 
     fn is_effort(&self, config_id: &str) -> bool {
-        (self.state.setup["configOptions"]
-            .as_array()
-            .into_iter()
-            .flatten())
-        .any(|row| row["id"] == config_id && sikemux_fold::pickers::is_effort(row))
+        let options = self
+            .state
+            .setup
+            .get("configOptions")
+            .and_then(Value::as_array);
+        options.into_iter().flatten().any(|row| {
+            row.get("id").and_then(Value::as_str) == Some(config_id)
+                && sikemux_fold::pickers::is_effort(row)
+        })
     }
 
     fn steer(

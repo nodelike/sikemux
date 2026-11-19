@@ -15,7 +15,6 @@ use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use crate::agent_accounts::allocate::Aim;
 use crate::agent_accounts::status::AgentStatus as AccountStatus;
 use crate::agent_accounts::usage;
 use crate::cli::protocol::{is_tool_agent_id, HarnessRequest};
@@ -35,7 +34,7 @@ use super::code::{self, Checked, Code, Packed};
 use super::link::{Received, Refusal};
 use super::route::pin;
 use super::team::{Foreign, Role, Tree};
-use super::{call, find, name_of, post, Failed, Sending, Stands};
+use super::{call, find_to_move_work, name_of, post, Failed, Sending, Stands};
 
 /// Under the minute an agent's tool call may take.
 pub(super) const SPAWN_WAIT: Duration = Duration::from_secs(50);
@@ -73,7 +72,7 @@ pub(crate) async fn spawn(
             "a worker on another host runs on that host's own sign-ins; leave out provider".into(),
         );
     }
-    let link = find(core, host)?;
+    let link = find_to_move_work(core, host)?;
     let model = text(params, "model").map(str::to_owned);
     let effort = text(params, "effort").map(str::to_owned);
     let reports = !matches!(params.get("report"), Some(Value::Bool(false)));
@@ -120,7 +119,11 @@ pub(crate) async fn spawn(
     };
     let started_from = format!(
         "your commit {}{}",
-        &packed.code.commit[..packed.code.commit.len().min(10)],
+        packed
+            .code
+            .commit
+            .get(..packed.code.commit.len().min(10))
+            .unwrap_or(&packed.code.commit),
         match (packed.code.patch.is_some(), packed.left_behind) {
             (true, _) => " with your uncommitted changes committed on top".to_owned(),
             (false, 0) => String::new(),
@@ -171,13 +174,16 @@ pub(crate) async fn spawn(
             "note": format!("{} did not answer in time, so whether {shown} started is not known yet. Do not start it again: Sikemux asks {} until it knows, and tells you whether it started. It starts from {started_from}.", link.name, link.name),
         }));
     }
-    let branch = answer["branch"].as_str().unwrap_or_default();
+    let branch = answer
+        .get("branch")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     Ok(json!({
         "name": shown,
         "agentId": agent_id,
         "host": link.name,
-        "cli": answer["cli"],
-        "model": answer["model"],
+        "cli": answer.get("cli"),
+        "model": answer.get("model"),
         "reportsBack": reports,
         "note": format!(
             "{shown} is starting on {} in a checkout of its own{}, from {started_from}, and gets your prompt once it is ready. Each time its turn ends, its new commits come back to a branch in your checkout{}.",
@@ -274,9 +280,10 @@ pub(crate) async fn hand_over(
     )
     .await
     {
-        Ok(answer) if answer["needs"] == "bundle" => {
-            let tips: Vec<String> = answer["tips"]
-                .as_array()
+        Ok(answer) if answer.get("needs").and_then(Value::as_str) == Some("bundle") => {
+            let tips: Vec<String> = answer
+                .get("tips")
+                .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_str)
@@ -296,9 +303,13 @@ pub(crate) async fn hand_over(
                     )
                     .await
                     {
-                        Ok(answer) if answer["needs"] == "bundle" => Err(Failed::Refused(
-                            "it could not take your code from the bundle".into(),
-                        )),
+                        Ok(answer)
+                            if answer.get("needs").and_then(Value::as_str) == Some("bundle") =>
+                        {
+                            Err(Failed::Refused(
+                                "it could not take your code from the bundle".into(),
+                            ))
+                        }
                         answer => answer,
                     }
                 }
@@ -425,12 +436,18 @@ async fn settle_pending(core: &Arc<Core>, host: &str, agent_id: &str, first: Dur
             }
             Ok(Stands::Unknown) => {
                 not_started(core, agent_id);
-                format!("{} did not start on {place}: what started it never arrived there. Start it again if you still need it.", worker.name)
+                format!(
+                    "{} did not start on {place}: what started it never arrived there. Start it again if you still need it.",
+                    worker.name
+                )
             }
             Err(Failed::Refused(_)) => {
                 super::route::stop_worker(core, agent_id);
                 not_started(core, agent_id);
-                format!("{} may have started on {place}, but {place} runs an older Sikemux that cannot say, so Sikemux stopped it there. Start it again if you still need it.", worker.name)
+                format!(
+                    "{} may have started on {place}, but {place} runs an older Sikemux that cannot say, so Sikemux stopped it there. Start it again if you still need it.",
+                    worker.name
+                )
             }
             Ok(Stands::Running) | Err(_) => {
                 if core.hosts().connected(host).is_none() {
@@ -559,7 +576,9 @@ pub(super) async fn start_here(
     };
     match started {
         Ok(mut answer) => {
-            answer["branch"] = tree.branch.clone().into();
+            if let Some(fields) = answer.as_object_mut() {
+                fields.insert("branch".into(), tree.branch.clone().into());
+            }
             super::changed(core);
             Ok(answer)
         }
@@ -597,7 +616,9 @@ fn account_here(core: &Core, cli: &str) -> Result<Option<String>, String> {
         let signed_out = (of_cli.iter())
             .any(|launcher| matches!(launcher.status, Some(AccountStatus::SignedOut)));
         return Err(match signed_out {
-            true => format!("{cli} is signed in to no account there; the person signs in from Sikemux's Settings on that host"),
+            true => format!(
+                "{cli} is signed in to no account there; the person signs in from Sikemux's Settings on that host"
+            ),
             false => format!("{cli} does not start there"),
         });
     }
@@ -625,7 +646,7 @@ fn account_here(core: &Core, cli: &str) -> Result<Option<String>, String> {
         .map(|(launcher, _)| launcher.id.as_str())
         .collect();
     let book = core.workspaces().accounts().unwrap_or_default();
-    let placed = placement(&book, cli, &Placing::default(), Aim::Soonest, |profile| {
+    let placed = placement(&book, cli, &Placing::default(), |profile| {
         room.contains(&LauncherId::on(cli, &profile.id).to_string().as_str())
     })
     .map(|placed| LauncherId::on(cli, &placed.id).to_string());
@@ -727,6 +748,7 @@ async fn send_commits_to(core: &Arc<Core>, worker: &str, tree: Tree, host: &str)
                         agent_id: worker.to_owned(),
                         head: head.clone(),
                         count,
+                        land: None,
                     }),
                 )
                 .keyed(format!("commits:{worker}"))
@@ -745,6 +767,64 @@ async fn send_commits_to(core: &Arc<Core>, worker: &str, tree: Tree, host: &str)
     }
 }
 
+/// A worker here whose lead is on another host lands by sending its commits back with the ask,
+/// and its lead's host puts them in line as it would a checkout's of its own. None when the agent
+/// works in no checkout cut for a lead elsewhere.
+pub(crate) fn land_at_lead(
+    core: &Core,
+    worker: &str,
+    push: bool,
+) -> Option<Result<String, String>> {
+    let tree = core.hosts().team.tree(worker)?;
+    Some(send_land(core, worker, tree, push))
+}
+
+fn send_land(core: &Core, worker: &str, tree: Tree, push: bool) -> Result<String, String> {
+    let lead = (core.names().get(worker).and_then(|named| named.parent))
+        .and_then(|lead| core.hosts().team.get(&lead))
+        .ok_or("Your lead's host is no longer linked to this one, so your commits have nowhere to land")?;
+    let into = core.hosts().outbox.body_path(&format!(
+        "{worker}-{}.bundle",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let since = tree
+        .lead_changes
+        .clone()
+        .unwrap_or_else(|| tree.base.clone());
+    let made = code::commits(&Tree { sent: None, ..tree }, &into).inspect_err(|_| {
+        let _ = std::fs::remove_file(&into);
+    })?;
+    let Some((head, count)) = made else {
+        return Err("Nothing to land: you have no commits since the code your lead sent".into());
+    };
+    post(
+        core,
+        &lead.host,
+        Sending::new(
+            asks::CommitsReady::METHOD,
+            params_of::<asks::CommitsReady>(&code::ArrivingCommits {
+                agent_id: worker.to_owned(),
+                head: head.clone(),
+                count,
+                land: Some(code::Landing { since, push }),
+            }),
+        )
+        .keyed(format!("land:{worker}"))
+        .pulled(into)
+        .kept()
+        .from(worker)
+        .about(worker),
+    );
+    core.hosts().team.tree_sent(worker, &head);
+    let short = head.get(..9).unwrap_or(&head);
+    let pushed = if push { " and pushed" } else { "" };
+    Ok(format!(
+        "Sent your commits up to {short} back to {} on {}, whose host puts them in line for the branch its lands go on, checked and landed{pushed} as a checkout there would be. A message tells you how it ended, naming {short}.",
+        lead.name,
+        name_of(core, &lead.host)
+    ))
+}
+
 /// The bundle of a worker's commits that its lead's host, `host`, fetches after hearing they are
 /// ready.
 pub(super) fn commits_for(
@@ -758,8 +838,8 @@ pub(super) fn commits_for(
     core.hosts()
         .outbox
         .pulled_body(host, |post| {
-            post.params["agentId"] == wanted.agent_id.as_str()
-                && post.params["head"] == wanted.head.as_str()
+            post.params.get("agentId").and_then(Value::as_str) == Some(wanted.agent_id.as_str())
+                && post.params.get("head").and_then(Value::as_str) == Some(wanted.head.as_str())
         })
         .filter(|path| path.is_file())
         .ok_or_else(|| "those commits no longer wait here; newer ones replaced them".into())

@@ -135,7 +135,9 @@ pub fn search(request: SearchRequest) -> SearchResult {
         && strong < enough
         && Instant::now() < deadline
     {
-        let batch = &hits[next..(next + BATCH).min(hits.len())];
+        let batch = hits
+            .get(next..(next + BATCH).min(hits.len()))
+            .unwrap_or_default();
         let found: Vec<Option<Arc<str>>> = batch
             .par_iter()
             .map(|(hit, _)| (Instant::now() < deadline).then(|| prose_of(hit)).flatten())
@@ -150,7 +152,7 @@ pub fn search(request: SearchRequest) -> SearchResult {
         next += batch.len();
     }
     let cut_short = !terms.words.is_empty() && next < hits.len() && strong < enough;
-    for (hit, provider) in &hits[next..] {
+    for (hit, provider) in hits.get(next..).unwrap_or_default() {
         if let Some((title_match, _)) = terms.score(hit, provider, None, now_ms) {
             scored.push((title_match, None));
         }
@@ -366,15 +368,15 @@ impl Terms {
         let start = if start == 0 {
             0
         } else {
-            line[start..end]
-                .find(' ')
+            line.get(start..end)
+                .and_then(|shown| shown.find(' '))
                 .map_or(start, |space| start + space + 1)
         };
         let mut excerpt = String::new();
         if start > 0 {
             excerpt.push('…');
         }
-        excerpt.push_str(line[start..end].trim());
+        excerpt.push_str(line.get(start..end).unwrap_or_default().trim());
         if end < line.len() {
             excerpt.push('…');
         }
@@ -417,9 +419,9 @@ fn mentions_of(text: &str, word: &str, cap: usize) -> usize {
 }
 
 fn starts_word(text: &str, at: usize) -> bool {
-    !text[..at]
-        .chars()
-        .next_back()
+    !text
+        .get(..at)
+        .and_then(|before| before.chars().next_back())
         .is_some_and(char::is_alphanumeric)
 }
 

@@ -30,6 +30,8 @@ const OLD_THEMES: &str = "customThemes";
 
 pub struct Prefs {
     values: Mutex<Map<String, Value>>,
+    /// What each preference is on this host until the person sets it.
+    starting: Map<String, Value>,
     kept: Kept,
     /// The person's own themes as an older core kept them here, before themes were files.
     old_themes: Mutex<Vec<Value>>,
@@ -39,7 +41,8 @@ impl Prefs {
     /// The preferences kept in `data_dir`; on an Omarchy desktop they start out wearing its theme.
     pub fn new(data_dir: Option<&Path>, omarchy: bool) -> Self {
         let kept = Kept::new(data_dir, FILE);
-        let mut values = defaults(omarchy);
+        let starting = defaults(omarchy);
+        let mut values = starting.clone();
         let mut saved: Value = kept.load();
         let old_themes = match saved.get_mut(OLD_THEMES).map(Value::take) {
             Some(Value::Array(themes)) => themes,
@@ -53,6 +56,7 @@ impl Prefs {
         }
         Self {
             values: Mutex::new(values),
+            starting,
             kept,
             old_themes: Mutex::new(old_themes),
         }
@@ -71,6 +75,11 @@ impl Prefs {
 
     pub fn get(&self) -> Preferences {
         read(&self.values.locked())
+    }
+
+    /// The preferences as this host starts them, before the person sets any.
+    pub fn starting(&self) -> Preferences {
+        read(&self.starting)
     }
 
     /// Keeps what an older app's settings file says of the preference `key`, refusing a key

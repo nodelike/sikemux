@@ -9,7 +9,9 @@ pub fn read_exact_at(file: &File, mut buffer: &mut [u8], mut offset: u64) -> io:
         match file.seek_read(buffer, offset) {
             Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
             Ok(read) => {
-                buffer = &mut buffer[read..];
+                buffer = std::mem::take(&mut buffer)
+                    .get_mut(read..)
+                    .unwrap_or_default();
                 offset += read as u64;
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}

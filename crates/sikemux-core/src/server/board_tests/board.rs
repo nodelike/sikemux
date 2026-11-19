@@ -48,7 +48,7 @@ async fn a_triggers_card_is_taken_up_until_someone_holds_it() {
         add_for_trigger(
             &core,
             PROJECT,
-            37,
+            (37, "this host"),
             "pr-fan",
             &format!("{{\"action\":\"{action}\"}}"),
         )

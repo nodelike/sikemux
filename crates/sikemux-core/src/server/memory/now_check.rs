@@ -6,7 +6,6 @@
 //! leaves a line with Undo in the chief's chat, or the acting agent's where there is no chief, and
 //! a rule that leaves is kept apart, with who and when, until the person brings it back.
 
-use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::Path;
 
@@ -47,9 +46,8 @@ pub(super) fn labelled(
 ) -> Option<Result<(), String>> {
     let said = said.trim();
     let label = |label: &str| {
-        (said.get(..label.len()))
-            .filter(|start| start.eq_ignore_ascii_case(label))
-            .map(|_| &said[label.len()..])
+        let (start, rest) = said.split_at_checked(label.len())?;
+        start.eq_ignore_ascii_case(label).then_some(rest)
     };
     if let Some(rest) = label(NOW_A_CHECK) {
         return Some(retire(core, project, id, rest, by));
@@ -180,7 +178,15 @@ fn retire(core: &Core, project: &str, id: u64, rest: &str, by: &Learned) -> Resu
     }
     tell_clients(core, false);
     core.activity_log().core_used("rule.nowCheck");
-    let line = line(core, project, &rule, &chief, Some(commit), None);
+    let line = line(
+        core,
+        project,
+        Store::Project,
+        &rule,
+        &chief,
+        Some(commit),
+        None,
+    );
     crate::server::chief::rule_changed(core, line, &chief);
     Ok(())
 }
@@ -189,6 +195,7 @@ fn retire(core: &Core, project: &str, id: u64, rest: &str, by: &Learned) -> Resu
 pub(super) fn line(
     core: &Core,
     project: &str,
+    store: Store,
     rule: &MemoryRule,
     agent: &str,
     commit: Option<String>,
@@ -203,6 +210,8 @@ pub(super) fn line(
         by: core.names().name_or_id(agent),
         restored: false,
         back_by: None,
+        store,
+        moved: false,
     }
 }
 
@@ -257,7 +266,7 @@ pub(super) fn is_set_aside(core: &Core, project: &str, id: u64) -> bool {
 
 /// Whether the person's own words started `agent`'s turn now.
 pub(super) fn persons_turn(core: &Core, agent: &str) -> bool {
-    (core.chats().get(agent)).is_some_and(|chat| !chat.feed.person_said().is_empty())
+    !super::person_said(core, agent).is_empty()
 }
 
 /// An agent brings back rule `id` of the person's in a turn the person's own words started.
@@ -291,14 +300,14 @@ pub(super) fn bring_back_words(
         .find(|apart| crate::text::one_line(&apart.rule.text) == same)?
         .rule
         .id;
-    Some(bring_back(core, project, id, None).map(|folder| {
+    Some(bring_back(core, project, id, None).map(|key| {
         if sensitive {
             let mut state = core.memory().state.locked();
-            let rule = (state.held.get_mut(&folder))
+            let rule = (state.held.get_mut(&key))
                 .and_then(|held| held.rules.iter_mut().find(|rule| rule.id == id));
             if let Some(rule) = rule {
                 rule.sensitive = true;
-                core.memory().save(&mut state, &folder);
+                core.memory().save(&mut state, &key);
             }
         }
     }))
@@ -308,10 +317,7 @@ pub(super) fn bring_back_words(
 /// whose rule came back another way does: the line that offered it says it is back.
 pub(super) fn kept_again(core: &Core, project: &str, new: &super::NewMemory) -> bool {
     let super::NewMemory::Rule {
-        text,
-        goal: None,
-        store: Store::Project,
-        ..
+        text, goal: None, ..
     } = new
     else {
         return false;
@@ -322,7 +328,7 @@ pub(super) fn kept_again(core: &Core, project: &str, new: &super::NewMemory) -> 
         .any(|rule| rule.learned.agent.is_none() && crate::text::one_line(&rule.text) == same);
     if kept {
         crate::server::chief::rule_lines_back(core, project, |line| {
-            line.was.is_none() && line.text == same
+            !line.moved && line.was.is_none() && line.text == same
         });
     }
     kept
@@ -332,26 +338,28 @@ pub(super) fn kept_again(core: &Core, project: &str, new: &super::NewMemory) -> 
 /// already, and the line for it says it is back: brought back by `agent`, or by the person.
 /// Answers the key of the store it is kept in.
 fn bring_back(core: &Core, project: &str, id: u64, agent: Option<&str>) -> Result<String, String> {
-    let (folder, apart) = {
+    let (key, store, apart) = {
         let mut state = core.memory().state.locked();
-        let (folder, apart) = take(&mut state, project, id)?;
+        let (key, apart) = take(&mut state, project, id)?;
         let words = apart.rule.text.to_lowercase();
         let kept_again = (state.applying(project)).any(|held| {
             held.rules
                 .iter()
                 .any(|rule| rule.text.to_lowercase() == words)
         });
-        let held = (state.held.get_mut(&folder)).ok_or("the store went while it was changed")?;
+        let held = (state.held.get_mut(&key)).ok_or("the store went while it was changed")?;
         if !kept_again {
             held.rules.push(apart.rule.clone());
         }
-        core.memory().save(&mut state, &folder);
-        (folder, apart)
+        let store = held.store;
+        core.memory().save(&mut state, &key);
+        (key, store, apart)
     };
     tell_clients(core, false);
     let mut back = line(
         core,
         project,
+        store,
         &apart.rule,
         &apart.by,
         apart.commit.clone(),
@@ -364,19 +372,19 @@ fn bring_back(core: &Core, project: &str, id: u64, agent: Option<&str>) -> Resul
     if let Some(agent) = agent.filter(|agent| chief.is_none() && *agent != apart.by) {
         crate::server::chief::rule_back(core, back, agent);
     }
-    Ok(folder)
+    Ok(key)
 }
 
 /// Takes rule `id` out of what is set aside for `project`; answers the key of its store, and
 /// what was set aside.
 fn take(state: &mut State, project: &str, id: u64) -> Result<(String, SetAside), String> {
-    let folder = (state.applying(project))
+    let key = (state.applying(project))
         .find(|held| held.set_aside.iter().any(|apart| apart.rule.id == id))
         .map(|held| held.key.clone())
         .ok_or_else(|| format!("#{id} is not a rule set aside for this project"))?;
-    let held = (state.held.get_mut(&folder)).ok_or("the store went while it was changed")?;
+    let held = (state.held.get_mut(&key)).ok_or("the store went while it was changed")?;
     let at = (held.set_aside.iter())
         .position(|apart| apart.rule.id == id)
         .ok_or("the rule went while it was changed")?;
-    Ok((folder, held.set_aside.remove(at)))
+    Ok((key, held.set_aside.remove(at)))
 }

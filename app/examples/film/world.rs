@@ -1,7 +1,6 @@
 //! The throwaway world a film runs in: a core, projects, chats and activity to show.
 
 use super::*;
-use sikemux_agents::sessions::claude::claude_project_dir;
 
 /// The throwaway core the film talks to, started by this process so a dev core trusts it.
 pub(super) struct World {
@@ -19,15 +18,28 @@ pub(super) struct World {
     named: std::collections::HashMap<String, String>,
     /// The folder of the checkout the last `core` call made, for `$checkout`.
     checkout: Option<String>,
+    /// The remote each project a scene adds gets, in a scene on a recorded team or one naming an
+    /// `origin`; the world's other projects have none.
+    pub(super) origin: Option<String>,
+    /// The team's other hosts, in a scene where they ask about its tasks.
+    teammates: Option<Teammates>,
     pub(super) claude: PathBuf,
     pub(super) world: Value,
+    pub(super) core_program: PathBuf,
+    pub(super) claude_program: PathBuf,
+    pub(super) linked: Vec<Linked>,
+    pub(super) account: Option<Account>,
 }
 
 impl World {
     pub(super) fn start(
         args: &Args,
         replies: Option<PathBuf>,
+        team: Option<(PathBuf, String)>,
+        asks: bool,
         clock: &Path,
+        mut account: Option<Account>,
+        signs_in_at_step: bool,
     ) -> anyhow::Result<Self> {
         let work = &args.work;
         let home = work.join("home");
@@ -53,8 +65,10 @@ impl World {
                 bin.display()
             ),
         )?;
-        let ssh: String = args.world["sshHosts"]
-            .as_array()
+        let ssh: String = args
+            .world
+            .get("sshHosts")
+            .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(|host| {
@@ -75,10 +89,20 @@ impl World {
         )?;
         std::fs::write(
             claude.join("fake-usage.json"),
-            usage(&args.world["account"]["usage"]).to_string(),
+            usage(args.world.pointer("/account/usage").unwrap_or(&Value::Null)).to_string(),
         )?;
+        std::fs::write(claude.join(".claude.json"), signed_in("edon"))?;
+        if let Some(account) = &mut account {
+            account.prepare(&home)?;
+        }
         let socket = work.join("core.sock");
         let _ = std::fs::remove_file(&socket);
+        if let Some((folder, _)) = &team {
+            seat_team(folder, work, &home, &socket)?;
+        }
+        let teammates = (team.is_some() && asks)
+            .then(|| Teammates::seat(work, &home, &args.claude))
+            .transpose()?;
         let log = std::fs::File::create(work.join("core.log"))?;
         let mut command = sikemux_process::user_environment::command(&args.core);
         let path = command
@@ -107,6 +131,11 @@ impl World {
             .stdin(Stdio::null())
             .stdout(log.try_clone()?)
             .stderr(log);
+        if let Some(account) = &account {
+            command
+                .arg("--throwaway")
+                .env(sikemux_process::vars::API_URL, &account.api);
+        }
         if let Some(replies) = &replies {
             command.env("FAKE_CLAUDE_SCRIPT", replies);
         }
@@ -120,19 +149,10 @@ impl World {
             .worker_threads(2)
             .enable_all()
             .build()?;
-        let started = Instant::now();
-        let (client, events) = loop {
-            match runtime.block_on(CoreClient::connect(&socket)) {
-                Ok(connected) => break connected,
-                Err(error) if started.elapsed() > Duration::from_secs(30) => {
-                    bail!("the core never answered at {}: {error}", socket.display())
-                }
-                Err(_) => std::thread::sleep(Duration::from_millis(100)),
-            }
-        };
+        let (client, events) = connect(&runtime, &socket)?;
         let profile = json!({
             "id": "builtin-claude", "provider": "claude", "accent": "#d97757",
-            "name": args.world["account"]["name"].as_str().unwrap_or("Claude"),
+            "name": args.world.pointer("/account/name").and_then(Value::as_str).unwrap_or("Claude"),
             "executablePath": args.claude, "configPath": claude,
         });
         runtime.block_on(client.call("setAgentAccounts", json!({ "profiles": [profile] })))?;
@@ -145,7 +165,7 @@ impl World {
             ("onboardingComplete".to_owned(), json!(true)),
             ("lastSeenVersion".to_owned(), json!(version)),
         ];
-        if let Some(kept) = args.world["preferences"].as_object() {
+        if let Some(kept) = args.world.get("preferences").and_then(Value::as_object) {
             preferences.extend(
                 kept.iter()
                     .map(|(key, value)| (key.clone(), expand_home(value))),
@@ -157,14 +177,14 @@ impl World {
         {
             runtime.block_on(client.call(method, params))?;
         }
-        if args.world["faceStyle"].is_object() {
-            runtime.block_on(client.call("setFaceStyle", args.world["faceStyle"].clone()))?;
+        if let Some(face) = args.world.get("faceStyle").filter(|face| face.is_object()) {
+            runtime.block_on(client.call("setFaceStyle", face.clone()))?;
         }
-        Ok(Self {
+        let mut world = Self {
             core,
             runtime,
             client,
-            _events: Box::new(events),
+            _events: events,
             socket,
             work: work.clone(),
             home,
@@ -176,9 +196,19 @@ impl World {
             chat: None,
             named: std::collections::HashMap::new(),
             checkout: None,
+            origin: team.map(|(_, origin)| origin),
+            teammates,
             claude,
             world: args.world.clone(),
-        })
+            core_program: args.core.clone(),
+            claude_program: args.claude.clone(),
+            linked: Vec::new(),
+            account,
+        };
+        if !signs_in_at_step {
+            world.sign_in()?;
+        }
+        Ok(world)
     }
 
     /// A year of work in `path` for the activity calendar: busier on weekdays and lately. The
@@ -257,7 +287,7 @@ impl World {
             .flatten()
             .filter_map(Value::as_str)
         {
-            self.add_project(other, None)?;
+            self.add_project(other, None, None)?;
         }
         let spaces: Vec<&Value> = world["spaces"].as_array().into_iter().flatten().collect();
         if !spaces.is_empty() {
@@ -283,32 +313,12 @@ impl World {
         {
             self.call("openSshTerminal", json!({ "host": host }))?;
         }
-        let transcripts = claude_project_dir(&self.claude, &path.to_string_lossy());
-        std::fs::create_dir_all(&transcripts)?;
         let mut pinned = Vec::new();
         for (at, chat) in world["recent"].as_array().into_iter().flatten().enumerate() {
-            let session = session_id(at);
             let title = chat["title"].as_str().unwrap_or("Chat");
-            let file = transcripts.join(format!("{session}.jsonl"));
-            let lines = [
-                json!({ "type": "user", "uuid": session_id(at + 100), "sessionId": session, "cwd": path,
-                    "message": { "role": "user", "content": [{ "type": "text", "text": title }] } }),
-                json!({ "type": "custom-title", "customTitle": title, "sessionId": session }),
-            ];
-            std::fs::write(
-                &file,
-                lines
-                    .iter()
-                    .map(|line| format!("{line}\n"))
-                    .collect::<String>(),
-            )?;
-            let minutes = 20 + at as u64 * 25;
-            sikemux_process::user_environment::command("touch")
-                .args(["-A", &format!("-{:02}{:02}00", minutes / 60, minutes % 60)])
-                .arg(&file)
-                .status()?;
+            save_transcript(&self.claude, path, at, title, 20 + at as u64 * 25)?;
             if chat["pinned"] == true {
-                pinned.push(format!("claude:{session}"));
+                pinned.push(format!("claude:{}", session_id(at)));
             }
         }
         self.seed_activity(path)?;
@@ -346,7 +356,9 @@ impl World {
             };
             let mut patch = json!({ "title": agent["title"], "renamed": true });
             if let Some(lead) = agent["lead"].as_str().and_then(|lead| named.get(lead)) {
-                patch["lead"] = json!(lead);
+                if let Some(fields) = patch.as_object_mut() {
+                    fields.insert("lead".to_owned(), json!(lead));
+                }
             }
             self.call("updateAgent", json!({ "agentId": chat, "patch": patch }))?;
         }
@@ -376,7 +388,12 @@ impl World {
     }
 
     /// Adds a git project called `name`, a copy of `from` or else a folder holding only a README.
-    pub(super) fn add_project(&self, name: &str, from: Option<&Path>) -> anyhow::Result<PathBuf> {
+    pub(super) fn add_project(
+        &self,
+        name: &str,
+        from: Option<&Path>,
+        remote: Option<&str>,
+    ) -> anyhow::Result<PathBuf> {
         let path = self.work.join("projects").join(name);
         std::fs::create_dir_all(path.parent().unwrap_or(&self.work))?;
         match from {
@@ -409,6 +426,9 @@ impl World {
             Ok(())
         };
         git(&["init", "-q", "-b", "main"])?;
+        if let Some(remote) = remote {
+            git(&["remote", "add", "origin", remote])?;
+        }
         let mut copied: Vec<String> = std::fs::read_dir(&path)?
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
@@ -441,6 +461,44 @@ impl World {
         }
     }
 
+    /// Signs in one more Claude account, `name`, with `used` percent of its week gone and the
+    /// week refilling in `days`.
+    fn add_account(&self, name: &str, used: u64, days: u64) -> anyhow::Result<()> {
+        let id = format!("film-{}", name.to_lowercase().replace(' ', "-"));
+        let folder = self.home.join(format!(".claude-{id}"));
+        std::fs::create_dir_all(&folder)?;
+        std::fs::write(
+            folder.join("fake-account.json"),
+            json!({ "loggedIn": true, "authMethod": "claude.ai", "subscriptionType": "max" })
+                .to_string(),
+        )?;
+        let limits = json!({
+            "rate_limits_available": true,
+            "subscription_type": "max",
+            "rate_limits": {
+                "five_hour": { "utilization": used / 4, "resetsInMinutes": 120 },
+                "seven_day": { "utilization": used, "resetsInMinutes": days * 24 * 60 },
+            },
+        });
+        std::fs::write(folder.join("fake-usage.json"), usage(&limits).to_string())?;
+        std::fs::write(folder.join(".claude.json"), signed_in(&id))?;
+        let book = self.call("agentAccounts", json!({}))?;
+        let mut profiles = (book.get("profiles").and_then(Value::as_array))
+            .cloned()
+            .unwrap_or_default();
+        let program = profiles
+            .iter()
+            .find(|profile| profile.get("provider") == Some(&json!("claude")))
+            .and_then(|profile| profile.get("executablePath").cloned())
+            .ok_or_else(|| anyhow!("the world has no Claude account to copy"))?;
+        profiles.push(json!({
+            "id": id, "provider": "claude", "accent": "#e0663a", "name": name,
+            "executablePath": program, "configPath": folder,
+        }));
+        self.call("setAgentAccounts", json!({ "profiles": profiles }))?;
+        Ok(())
+    }
+
     pub(super) fn call(&self, method: &str, params: Value) -> anyhow::Result<Value> {
         Ok(self.runtime.block_on(self.client.call(method, params))?)
     }
@@ -465,6 +523,23 @@ impl World {
             .ok_or_else(|| anyhow!("add a project first"))
     }
 
+    /// Signs the film's core in to the world's accounts API, as the host its sikemuxAccount names.
+    fn sign_in(&mut self) -> anyhow::Result<()> {
+        let Some(account) = &mut self.account else {
+            return Ok(());
+        };
+        let name = (self.world.pointer("/sikemuxAccount/host"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("the world's sikemuxAccount names no host"))?;
+        account.sign_in(
+            &self.runtime,
+            &self.client,
+            &self.work.join("data"),
+            name,
+            None,
+        )
+    }
+
     /// Does `step` when it is the core's to do.
     pub(super) fn chat_named(&self, name: &str) -> anyhow::Result<String> {
         (self.named.get(name).cloned()).ok_or_else(|| anyhow!("no chat named {name}"))
@@ -474,18 +549,34 @@ impl World {
         match step.verb.as_str() {
             "project" => {
                 let name = step.text(0)?.to_owned();
-                let path = self.add_project(&name, Some(&self.scenes.join(step.text(1)?)))?;
+                let from = self.scenes.join(step.text(1)?);
+                let remote = step.text(2).ok().or(self.origin.as_deref());
+                let path = self.add_project(&name, Some(&from), remote)?;
                 if self.project.is_none() {
                     self.populate(&name, &path)?;
                 }
                 self.project = Some((name, path));
             }
+            "signed-in" => self.sign_in()?,
+            "host" => self.link_host(step.text(0)?, step.text(1).ok())?,
+            "saved" => self.save_chat_on(step.text(0)?, step.text(1)?)?,
+            "asleep" => self.freeze(step.text(0)?)?,
+            "orgrole" => self.org_change("role", step.text(0)?, step.text(1)?)?,
+            "orgplan" => self.org_change("plan", step.text(0)?, step.text(1)?)?,
+            "orgkey" => self.org_key(step.text(0)?, step.text(1)?, step.text(2)?)?,
+            "orgpolicy" => self.org_change("policy", step.text(0)?, step.text(1)?)?,
+            "orgshare" => self.org_share(step.text(0)?, step.text(1).unwrap_or("here"))?,
+            "orgmember" => self.org_change("member", step.text(0)?, step.text(1)?)?,
+            "orgmove" => self.org_move(step.text(0)?, step.text(1)?)?,
+            "orgholds" => self.org_holds(step.text(0)?, step.text(1)?)?,
             "chat" => {
                 let (project, _) = self.project()?.clone();
+                let launcher = step.text(1).unwrap_or("claude:builtin-claude").to_owned();
+                let model = step.text(2).ok().map(str::to_owned);
                 let (chat, _) = self.runtime.block_on(self.client.start_chat(
-                    "claude:builtin-claude".into(),
+                    launcher,
                     project.clone(),
-                    None,
+                    model,
                 ))?;
                 self.call(
                     "openTab",
@@ -501,6 +592,11 @@ impl World {
                 }
                 self.chat = Some(chat);
             }
+            "account" => self.add_account(
+                step.text(0)?,
+                step.text(1)?.parse()?,
+                step.text(2)?.parse()?,
+            )?,
             "lead" => {
                 let chat = (self.chat.clone()).ok_or_else(|| anyhow!("open a chat first"))?;
                 let lead = (self.named.get(step.text(0)?).cloned())
@@ -594,9 +690,20 @@ impl World {
             "prefer" => {
                 let key = step.text(0)?;
                 let value = match step.text(1) {
-                    Err(_) => expand_home(&self.world["preferences"][key]),
+                    Err(_) => expand_home(
+                        self.world
+                            .get("preferences")
+                            .and_then(|preferences| preferences.get(key))
+                            .unwrap_or(&Value::Null),
+                    ),
                     Ok("null") => Value::Null,
-                    Ok(text) => serde_json::from_str(text).unwrap_or_else(|_| json!(text)),
+                    Ok(text) => {
+                        let projects = self.work.join("projects");
+                        let projects =
+                            sikemux_process::files::real_path(&projects).unwrap_or(projects);
+                        let text = text.replace("$projects", &projects.to_string_lossy());
+                        serde_json::from_str(&text).unwrap_or_else(|_| json!(text))
+                    }
                 };
                 for (method, params) in setting(key, &value) {
                     self.call(method, params)?;
@@ -625,6 +732,24 @@ impl World {
                 let (project, path) = self.project()?.clone();
                 self.open_tab(&project, &path, step.text(0)?)?;
             }
+            "ask" => {
+                let (teammates, origin) = (self.teammates.as_ref())
+                    .zip(self.origin.as_deref())
+                    .context("only a scene on a recorded team has teammates to ask")?;
+                let task = step.text(2)?.parse()?;
+                let said = self.runtime.block_on(teammates.ask(
+                    &self.client,
+                    origin,
+                    step.text(0)?,
+                    step.text(1)?,
+                    task,
+                    step.text(3)?,
+                ))?;
+                eprintln!(
+                    "film: {} asked about task {task} and heard {said}",
+                    step.text(0)?
+                );
+            }
             "core" => {
                 let (_, path) = self.project()?.clone();
                 let params = match step.text(1)? {
@@ -638,7 +763,9 @@ impl World {
                     .replace("$chat", self.chat.as_deref().unwrap_or_default())
                     .replace("$checkout", self.checkout.as_deref().unwrap_or_default());
                 let answer = self.call(step.text(0)?, serde_json::from_str(&params)?)?;
-                if let (Ok("openChief"), Some(chief)) = (step.text(0), answer["agentId"].as_str()) {
+                if let (Ok("openChief"), Some(chief)) =
+                    (step.text(0), answer.get("agentId").and_then(Value::as_str))
+                {
                     self.named.insert("Chief".to_owned(), chief.to_owned());
                 }
                 if let Some(folder) = answer.pointer("/worktree/path").and_then(Value::as_str) {
@@ -664,6 +791,75 @@ pub(super) fn session_id(seed: usize) -> String {
 }
 
 /// Claude's usage answer, with each window's `resetsInMinutes` turned into when it resets.
+/// Copies a recorded team account into the world before its core starts, with its teammates'
+/// boards heard just now. A dev core keeps its host key in a file named for its socket's path,
+/// and trusts the recorded account only beside that key.
+fn seat_team(folder: &Path, work: &Path, home: &Path, socket: &Path) -> anyhow::Result<()> {
+    let copied = sikemux_process::user_environment::command("cp")
+        .arg("-R")
+        .arg(folder.join("."))
+        .arg(work)
+        .status()?;
+    if !copied.success() {
+        bail!("could not copy {}", folder.display());
+    }
+    let boards_file = work.join("data/teammate-boards.json");
+    let mut copies: Value = serde_json::from_slice(&std::fs::read(&boards_file)?)?;
+    let boards = copies
+        .get_mut("boards")
+        .and_then(Value::as_array_mut)
+        .context("the recorded boards have no list")?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis() as u64;
+    let latest = boards
+        .iter()
+        .filter_map(|board| board.get("heard")?.as_u64())
+        .max()
+        .unwrap_or(now);
+    let shift = |at: &mut Value| {
+        if let Some(ms) = at.as_u64() {
+            *at = json!(ms + now.saturating_sub(latest));
+        }
+    };
+    for board in boards {
+        board.get_mut("heard").map(shift);
+        let tasks = board
+            .pointer_mut("/board/tasks")
+            .and_then(Value::as_array_mut);
+        for task in tasks.into_iter().flatten() {
+            task.get_mut("since").map(shift);
+            task.pointer_mut("/fact/at").map(shift);
+        }
+    }
+    std::fs::write(&boards_file, serde_json::to_vec(&copies)?)?;
+    let mut shasum = sikemux_process::user_environment::command("shasum")
+        .args(["-a", "256"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?;
+    shasum
+        .stdin
+        .take()
+        .context("shasum took no input")?
+        .write_all(socket.as_os_str().as_encoded_bytes())?;
+    let digest = String::from_utf8(shasum.wait_with_output()?.stdout)?;
+    let keys = home.join(".config/sikemux/secrets/sikemux-host-dev");
+    std::fs::create_dir_all(&keys)?;
+    std::fs::rename(
+        work.join("host"),
+        keys.join(format!(
+            "core.sock-{}",
+            digest.get(..16).unwrap_or_default()
+        )),
+    )?;
+    Ok(())
+}
+
+#[expect(
+    clippy::indexing_slicing,
+    reason = "indexing adds a missing rate_limits key as null, which the fake usage file keeps"
+)]
 pub(super) fn usage(world: &Value) -> Value {
     let mut usage = world.clone();
     let now = std::time::SystemTime::now()
@@ -728,4 +924,9 @@ fn setting(key: &str, value: &Value) -> Vec<(&'static str, Value)> {
             .collect(),
         _ => vec![("setPreference", json!({ "key": key, "value": value }))],
     }
+}
+
+/// The `.claude.json` a Claude login leaves, which the core reads to know an account is signed in.
+fn signed_in(account: &str) -> String {
+    json!({ "oauthAccount": { "accountUuid": account } }).to_string()
 }

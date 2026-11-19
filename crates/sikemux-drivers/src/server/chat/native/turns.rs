@@ -230,7 +230,7 @@ impl Turns {
     /// Err when the chat no longer has it.
     pub fn before(&self, id: &str) -> Result<Option<String>, ()> {
         let at = self.order.iter().position(|turn| turn == id).ok_or(())?;
-        Ok(at.checked_sub(1).map(|at| self.order[at].clone()))
+        Ok(at.checked_sub(1).and_then(|at| self.order.get(at).cloned()))
     }
 
     /// The conversation went back to before turn `id`, which goes with every
@@ -262,7 +262,9 @@ pub(super) fn prompted_end(
     match outcome {
         Outcome::Completed => (None, TurnEnd::Completed(payload)),
         Outcome::Stopped => {
-            payload["stopReason"] = json!(StopReason::Cancelled);
+            if let Some(fields) = payload.as_object_mut() {
+                fields.insert("stopReason".to_owned(), json!(StopReason::Cancelled));
+            }
             (Some(Subagent::Cancelled), TurnEnd::Completed(payload))
         }
         Outcome::Failed => (

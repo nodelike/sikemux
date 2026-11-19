@@ -60,7 +60,9 @@ export type AccountEventType =
   | "stash.seen"
   | "vault.changed"
   | "mods.changed"
-  | "plan.changed";
+  | "plan.changed"
+  | "orgs.changed"
+  | "shares.changed";
 export const accountEventTypeValues: readonly AccountEventType[] = [
   "device.added",
   "device.changed",
@@ -73,6 +75,8 @@ export const accountEventTypeValues: readonly AccountEventType[] = [
   "vault.changed",
   "mods.changed",
   "plan.changed",
+  "orgs.changed",
+  "shares.changed",
 ];
 
 /** The name, email and picture the account signed in with, for a host to show who it belongs to. */
@@ -320,7 +324,9 @@ export type ErrorCode =
   | "rate_limited"
   | "internal"
   | "unavailable"
-  | "reverify_required";
+  | "reverify_required"
+  | "address_proven"
+  | "same_account";
 export const errorCodeValues: readonly ErrorCode[] = [
   "bad_request",
   "unauthorized",
@@ -332,6 +338,8 @@ export const errorCodeValues: readonly ErrorCode[] = [
   "internal",
   "unavailable",
   "reverify_required",
+  "address_proven",
+  "same_account",
 ];
 
 export interface ErrorDetail {
@@ -362,6 +370,90 @@ export interface Flags {
   /** The names of the features switched off, such as staffFeed. */
   off: string[];
 }
+
+/** Whether to ask a new account's person if they already have an account. */
+export interface FoldCatch {
+  ask: boolean;
+  why?: FoldWhy;
+  /** The address opens no account of its own: the person brings it to an account of theirs, or makes one with their own sign-in. */
+  mustFold: boolean;
+  /** The new account's own sign-in address, shown only to its own person. */
+  address?: string;
+  /** The org the invite, the proven domain or the address's proof is for. */
+  orgName?: string;
+  /** With mustFold: the account was deleted and can be restored until then. */
+  deletesAt?: string;
+  /** With ask: the screen's heading, in the words every client shows. */
+  title?: string;
+  /** With ask: why the person is asked, in the words every client shows. */
+  words?: string;
+}
+
+export interface FoldCatchRequest {
+  hint?: FoldHint;
+  /** With hint invite: the invite link's token, so the answer can name its org. */
+  inviteToken?: string;
+}
+
+/** What the web app saw as the person signed up: an invite link, a shared page, or another account signed in on this browser before. */
+export type FoldHint = "invite" | "share" | "browser";
+export const foldHintValues: readonly FoldHint[] = [
+  "invite",
+  "share",
+  "browser",
+];
+
+/** A fold waiting for the person's other account to confirm it, on this browser, within ten minutes. */
+export interface FoldIntent {
+  id: string;
+  /** Kept by the browser that started the fold; the other account sends it to confirm. */
+  secret: string;
+  expiresAt: string;
+  /** The line shown above the sign-in while the fold waits for the person's other account. */
+  waitingWords: string;
+}
+
+/** What confirming the fold does, for the confirmation screen. */
+export interface FoldPreview {
+  why: FoldWhy;
+  /** The work address the kept account proves. */
+  address: string;
+  /** The name of the account that stays. */
+  keptName: string | null;
+  /** The sign-in address of the account that stays, which started the fold, so the person can tell which of their accounts takes the seat. */
+  keptAddress?: string;
+  orgName: string | null;
+  /** The orgs whose seats move to the account that stays. */
+  seats: string[];
+  title: string;
+  /** What confirming does, in the words every client shows. */
+  words: string;
+  doneTitle: string;
+  /** What the confirmation screen says once the fold is done. */
+  doneWords: string;
+}
+
+export interface FoldSecret {
+  secret: string;
+}
+
+export interface FoldStart {
+  why: FoldWhy;
+  /** With why invite: the invite link's token, so the confirmation names its org. */
+  inviteToken?: string;
+}
+
+/** Why two accounts may be one person's. invite, share and browser: what the web app saw as the new account signed up. domain: an org proves the new account's address's domain. address: the address is proven on another account. seat: an account brings over a seat another of the person's accounts holds. */
+export type FoldWhy =
+  "invite" | "share" | "browser" | "domain" | "address" | "seat";
+export const foldWhyValues: readonly FoldWhy[] = [
+  "invite",
+  "share",
+  "browser",
+  "domain",
+  "address",
+  "seat",
+];
 
 /** Whether the API can serve requests, and which build is answering. */
 export interface Health {
@@ -573,6 +665,8 @@ export interface Invoice {
   at: string;
   /** A refund was asked of the provider, which has not made it yet. */
   refundRequestedAt?: string;
+  /** What the provider paid back of a payment it did not refund in full, such as the unused days of a Pro paused for a seat. */
+  partlyRefunded?: Money;
   /** Only on a plan's first payment, while the plan may still be refunded. */
   refundableUntil?: string;
 }
@@ -790,6 +884,9 @@ export type LiveServerMessage =
   | LiveBye
   | LivePushed;
 
+/** The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none. */
+export type MemberName = string;
+
 /** The oldest version of each app the server works with, by platform. Dev builds are never too old. */
 export interface MinimumVersions {
   macos: ChannelVersions;
@@ -925,9 +1022,179 @@ export interface Org {
   createdAt: string;
 }
 
+/** What happened. ownership is handed over when role_changed has to: owner. */
+export type OrgAuditAction =
+  | "created"
+  | "joined"
+  | "left"
+  | "removed"
+  | "role_changed"
+  | "invite_created"
+  | "invite_revoked"
+  | "seats_changed"
+  | "plan_canceled"
+  | "plan_resumed"
+  | "team_created"
+  | "team_renamed"
+  | "team_deleted"
+  | "team_member_added"
+  | "team_member_removed"
+  | "domain_added"
+  | "domain_verified"
+  | "domain_joining_changed"
+  | "domain_ours_changed"
+  | "domain_removed"
+  | "policy_changed"
+  | "seat_moved"
+  | "vault_created"
+  | "vault_host_added"
+  | "vault_rotated"
+  | "vault_entry_written"
+  | "vault_entry_removed";
+export const orgAuditActionValues: readonly OrgAuditAction[] = [
+  "created",
+  "joined",
+  "left",
+  "removed",
+  "role_changed",
+  "invite_created",
+  "invite_revoked",
+  "seats_changed",
+  "plan_canceled",
+  "plan_resumed",
+  "team_created",
+  "team_renamed",
+  "team_deleted",
+  "team_member_added",
+  "team_member_removed",
+  "domain_added",
+  "domain_verified",
+  "domain_joining_changed",
+  "domain_ours_changed",
+  "domain_removed",
+  "policy_changed",
+  "seat_moved",
+  "vault_created",
+  "vault_host_added",
+  "vault_rotated",
+  "vault_entry_written",
+  "vault_entry_removed",
+];
+
+/** Where the next page of the audit log starts. Opaque to apps. */
+export type OrgAuditCursor = string;
+
+/** One thing that happened in the org. It names people only by their sign-in's name and computers by what their member calls them; never an email or a host's key. */
+export interface OrgAuditEntry {
+  id: string;
+  at: string;
+  action: OrgAuditAction;
+  /** The name of who did it, from their sign-in; null when it has none, cannot be read right now, or the system did it. */
+  by: string | null;
+  /** The name of the member it happened to, when that is not who did it; else null. */
+  about: string | null;
+  /** The role someone joined, left or was invited with. */
+  role?: OrgRole;
+  from?: OrgRole;
+  to?: OrgRole;
+  via?: OrgJoinedVia;
+  /** The team's name at the time. */
+  team?: OrgTeamName;
+  /** A renamed team's old name. */
+  previousName?: OrgTeamName;
+  domain?: OrgDomainName;
+  joining?: OrgDomainJoining;
+  /** Whether a domain's addresses are the org's own, as an owner set it. */
+  ours?: boolean;
+  /** Who may add a rule, as a policy change set it. */
+  ruleAdding?: OrgRuleAdding;
+  /** Whether teammates' agents may ask, as a policy change set it. */
+  asking?: boolean;
+  /** The questions a day a policy change set. */
+  dailyQuestions?: OrgDailyQuestions;
+  /** What a vault entry written or removed is, such as model-key. */
+  entryKind?: string;
+  /** What its member calls the computer given the vault's key, at the time. */
+  computer?: string;
+  /** The seat count a change set. */
+  seats?: number;
+  /** True when a seat change waits for the plan's renewal. */
+  atRenewal?: boolean;
+}
+
+/** Up to 50 of the org's audit entries, newest first. */
+export interface OrgAuditPage {
+  entries: OrgAuditEntry[];
+  /** Pass as cursor for older entries; null at the start of the log. */
+  next: OrgAuditCursor | null;
+}
+
 /** A new org, with you as its owner. */
 export interface OrgCreate {
   name: OrgName;
+}
+
+/** How many questions one person's agents may ask, a day, across all of the org's shared projects. */
+export type OrgDailyQuestions = number;
+
+/** An email domain the org claims. */
+export interface OrgDomain {
+  id: OrgDomainId;
+  domain: OrgDomainName;
+  joining: OrgDomainJoining;
+  record: OrgDomainRecord;
+  /** When the record was found; null until then, and nobody joins by the domain before it. */
+  verifiedAt: string | null;
+  /** When an owner said addresses at the domain are the org's own; null while they haven't. Only an address added after it is refused a Sikemux account or sign-in of its own. */
+  oursSince: string | null;
+  createdAt: string;
+}
+
+export interface OrgDomainAdd {
+  domain: OrgDomainName;
+  joining: OrgDomainJoining;
+}
+
+/** An org domain's id, a UUID in lowercase. */
+export type OrgDomainId = string;
+
+/** Joining an org through your email's domain, or through a work address you just proved. */
+export interface OrgDomainJoin {
+  orgId: OrgId;
+  /** The sitting a work address was just proven in on the Account page; the join stands on that proof instead of your sign-in addresses. */
+  sitting?: string;
+}
+
+/** How someone whose verified sign-in email is at the domain comes in. open: they see the org on their Team page and may join it. offered: the org is also put to them when they sign in. */
+export type OrgDomainJoining = "open" | "offered";
+export const orgDomainJoiningValues: readonly OrgDomainJoining[] = [
+  "open",
+  "offered",
+];
+
+export interface OrgDomainJoiningChange {
+  joining: OrgDomainJoining;
+}
+
+/** The org's domains, oldest first. */
+export interface OrgDomainList {
+  domains: OrgDomain[];
+}
+
+/** An email domain, such as example.com, in lowercase. */
+export type OrgDomainName = string;
+
+export interface OrgDomainOursChange {
+  /** Whether addresses at the domain are the org's own. */
+  ours: boolean;
+}
+
+/** The DNS TXT record that proves the org owns the domain. */
+export interface OrgDomainRecord {
+  /** Where the TXT record goes. */
+  name: string;
+  /** What the TXT record says. */
+  value: string;
 }
 
 /** An org's id, a UUID in lowercase. */
@@ -963,6 +1230,11 @@ export interface OrgInviteList {
   invites: OrgInvite[];
 }
 
+/** What an invite link says before anyone signs in. Only a live invite names its org; a used, revoked, expired or unknown link answers null, so the answer tells nothing more. */
+export interface OrgInvitePreview {
+  orgName: string | null;
+}
+
 /** The secret an invite link carries: 32 random bytes in unpadded base64url. The server keeps only its hash. */
 export type OrgInviteToken = string;
 
@@ -970,6 +1242,10 @@ export type OrgInviteToken = string;
 export interface OrgJoin {
   token: OrgInviteToken;
 }
+
+/** How someone joined an org. */
+export type OrgJoinedVia = "invite" | "domain";
+export const orgJoinedViaValues: readonly OrgJoinedVia[] = ["invite", "domain"];
 
 /** The orgs you are in, oldest first. */
 export interface OrgList {
@@ -995,8 +1271,50 @@ export interface OrgMemberList {
   members: OrgMember[];
 }
 
+/** An org the account holds a seat in, as its hosts see it. */
+export interface OrgMembership {
+  id: OrgId;
+  name: OrgName;
+  /** The account's role in it. */
+  role: OrgRole;
+  plan: OrgPlan;
+  policy: OrgPolicy;
+}
+
+/** The orgs the account is in, oldest first. orgs.changed says when to read it again. */
+export interface OrgMemberships {
+  orgs: OrgMembership[];
+}
+
 /** What the org is called, as its members see it. */
 export type OrgName = string;
+
+/** An org you may join because your verified sign-in email is at a domain it proved it owns. */
+export interface OrgOffer {
+  orgId: OrgId;
+  name: OrgName;
+  domain: OrgDomainName;
+  joining: OrgDomainJoining;
+  /** Whether a seat is free for you now; joining is refused while none is. */
+  seatFree: boolean;
+}
+
+/** The orgs your email's domain lets you join, leaving out those you are in and those with no live Team plan. */
+export interface OrgOfferList {
+  offers: OrgOffer[];
+}
+
+/** Whether the org's Team plan is paid up. lapsed: it has none, or it stopped being paid; invites and the org's features are frozen and its data is kept. */
+export type OrgPlan = "active" | "lapsed";
+export const orgPlanValues: readonly OrgPlan[] = ["active", "lapsed"];
+
+/** How the org's agents work together. Every member reads it; owners and admins change it. An org that never changed it reads as every_member, asking on and 30 a day. */
+export interface OrgPolicy {
+  ruleAdding: OrgRuleAdding;
+  /** Whether teammates' agents may ask yours about a task. */
+  asking: boolean;
+  dailyQuestions: OrgDailyQuestions;
+}
 
 export interface OrgRename {
   name: OrgName;
@@ -1010,10 +1328,155 @@ export interface OrgRoleChange {
   role: OrgRole;
 }
 
+/** Who may add a rule to a project the org shares. every_member: it is kept at once. admins_approve: a member's rule waits for an owner or an admin. */
+export type OrgRuleAdding = "every_member" | "admins_approve";
+export const orgRuleAddingValues: readonly OrgRuleAdding[] = [
+  "every_member",
+  "admins_approve",
+];
+
 /** Each member and each pending invite holds a seat. limit is the Team plan's seat count: 0 while the org has no live Team plan, so nobody can be invited. */
 export interface OrgSeats {
   held: number;
   limit: number;
+}
+
+/** One org whose Team plan is paid: its members, and the projects the others share with it. */
+export interface OrgShareList {
+  org: OrgId;
+  members: ShareMember[];
+  /** What the other members share; never the account's own. */
+  shares: SharedProject[];
+  /** The account's own registrations with the org. */
+  mine: SharedProject[];
+}
+
+/** A named list of an org's members. It owns nothing: it stands in wherever a list of people goes. */
+export interface OrgTeam {
+  id: OrgTeamId;
+  name: OrgTeamName;
+  /** Who is on it, by membership id, in the order they were added. */
+  members: OrgMemberId[];
+  createdAt: string;
+}
+
+export interface OrgTeamCreate {
+  name: OrgTeamName;
+}
+
+/** A team's id, a UUID in lowercase. */
+export type OrgTeamId = string;
+
+/** The org's teams, by name. */
+export interface OrgTeamList {
+  teams: OrgTeam[];
+}
+
+/** What a team is called; unique within its org. */
+export type OrgTeamName = string;
+
+export interface OrgTeamRename {
+  name: OrgTeamName;
+}
+
+/** An org's vault, as one of its members' hosts sees it. */
+export interface OrgVault {
+  generation: VaultGeneration;
+  /** The org's key sealed for the asking host at the current generation, or null when it has none yet. */
+  key: OrgVaultWrapped | null;
+  /** The members' hosts holding the key at the current generation. */
+  holders: DeviceKey[];
+  /** The members' hosts without the key at the current generation, for a holder to wrap it for. */
+  waiting: DeviceKey[];
+  /** A host that held the key is no longer a member's host, so an owner's or admin's host should replace it. */
+  rotate: boolean;
+  entries: OrgVaultEntry[];
+  /** Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it. */
+  ended: OrgVaultEnded[];
+  /** How many changes the vault's entries have had. A host passes it back as after to read only the entries changed or removed since. */
+  changes: OrgVaultChanges;
+  /** The after this answer starts from: entries and ended hold only what changed since then. Null when they hold everything. */
+  since: OrgVaultChanges | null;
+}
+
+/** A count of the changes to an org vault's entries. */
+export type OrgVaultChanges = number;
+
+/** The changes a host read last, in a query string. */
+export type OrgVaultChangesParam = string;
+
+/** An owner's or admin's host makes the org's vault, holding its key at generation 1. */
+export interface OrgVaultCreate {
+  /** The org's key sealed for the asking host. */
+  key: OrgVaultWrapped;
+}
+
+/** An entry removed from an org's vault, at the last revision it had. */
+export interface OrgVaultEnded {
+  id: VaultEntryId;
+  revision: VaultRevision;
+}
+
+/** One entry in an org's vault, sealed under the org's key of its generation. */
+export interface OrgVaultEntry {
+  id: VaultEntryId;
+  kind: OrgVaultEntryKind;
+  generation: VaultGeneration;
+  sealed: VaultSealed;
+  revision: VaultRevision;
+  updatedBy: DeviceKey;
+  updatedAt: string;
+}
+
+/** What an entry of an org's vault is, such as model-key. The server sees this and nothing else of it. */
+export type OrgVaultEntryKind = string;
+
+/** An owner's or admin's host adds or replaces an entry. Any member's host may put a shared project's waiting list, and its store while the org lets every member add rules. */
+export interface OrgVaultEntryPut {
+  kind: OrgVaultEntryKind;
+  /** The generation of the key it is sealed under, which must be current. */
+  generation: VaultGeneration;
+  sealed: VaultSealed;
+  /** The entry's revision as the writer last saw it, or 0 to add it. */
+  revision: number;
+  /** Other entries the writer read this one against, each at the revision it read: the write is refused as a conflict once any of them has moved. */
+  checked?: OrgVaultEntryRead[];
+}
+
+/** An entry at the revision a writer read it. */
+export interface OrgVaultEntryRead {
+  id: VaultEntryId;
+  revision: number;
+}
+
+/** A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one. */
+export interface OrgVaultKeysAdd {
+  generation: VaultGeneration;
+  keys: OrgWrappedKey[];
+}
+
+/** An owner's or admin's host replaces the org's key: every wrap and every entry moves to the next generation at once. */
+export interface OrgVaultRotate {
+  /** The current generation. */
+  from: VaultGeneration;
+  /** The new key sealed for each member's host that keeps it, the asking host among them. Every other wrap is dropped. */
+  keys: OrgWrappedKey[];
+  /** Every entry in the vault, each once. */
+  entries: VaultEntryReseal[];
+}
+
+export interface OrgVaultState {
+  /** Null until an owner's or admin's host makes the vault. */
+  vault: OrgVault | null;
+}
+
+/** The org's key sealed for one host, in URL-safe base64. */
+export type OrgVaultWrapped = string;
+
+/** The org's key, sealed for one member's host. */
+export interface OrgWrappedKey {
+  hostKey: DeviceKey;
+  wrapped: OrgVaultWrapped;
 }
 
 /** Paddle.js opens its checkout with a client token, which Paddle makes public by design. */
@@ -1035,6 +1498,29 @@ export interface PaymentCard {
   last4: string;
   expMonth: number;
   expYear: number;
+}
+
+/** The server's word that the host `from` belongs to a member of the org, for the host `to`, a teammate's host with a project shared with that org. The asking host shows it over ALPN sikemux/peer/1, and shows a new one before it runs out or the connection ends. The signature is the server's Ed25519 signature, with the join tickets' key, over the UTF-8 text `sikemux-peer|v1|<keyId>|<org>|<member>|<from>|<to>|<issuedAt>|<expiresAt>|<memberName>`, times in decimal. */
+export interface PeerTicket {
+  /** The ticket's format. Only 1 exists. */
+  v: number;
+  keyId: string;
+  org: OrgId;
+  /** The asking account's membership id in the org. */
+  member: OrgMemberId;
+  memberName: MemberName;
+  from: DeviceKey;
+  to: DeviceKey;
+  issuedAt: number;
+  /** Five minutes after issuedAt. */
+  expiresAt: number;
+  signature: string;
+}
+
+/** Which teammate's host the asking host wants to read a shared project from, as a member of which org. */
+export interface PeerTicketRequest {
+  org: OrgId;
+  host: DeviceKey;
 }
 
 /** The host waiting behind a user code, for the person to check before approving it. */
@@ -1107,6 +1593,9 @@ export const platformValues: readonly Platform[] = [
 
 /** The connector a sign-in is for, such as sikemux.github. */
 export type PluginId = string;
+
+/** A project as the server knows it: the SHA-256, in lowercase hex, of its repository's normalised address. The server never learns the address; a teammate's host matches the hash against its own projects. */
+export type ProjectKey = string;
 
 /** Which build of the phone app the token belongs to. Each has its own Firebase project and bundle id, and an API serves only one of them. */
 export type PushApp = "production" | "dev";
@@ -1190,6 +1679,14 @@ export interface ScheduledChange {
 
 /** What the host sealed for the share's viewers: a 12-byte nonce, then AES-256-GCM ciphertext and tag, in unpadded base64url. The key lives only in the share's link, so the server cannot read it. */
 export type Sealed = string;
+
+/** A person's own Pro, paused at the provider while a seat in an org includes Pro, so it is never paid twice. Its status stays active: the paid time it had left is kept and counts as Pro once no seat does. */
+export interface SeatPause {
+  /** The names of the orgs whose seat includes Pro now. Empty once the last seat ended and the kept time is running. */
+  orgs: string[];
+  /** Once no seat includes Pro: when the kept time runs out and the provider bills a new period. */
+  resumesAt?: string;
+}
 
 /** Host only: the sealed answer to one viewer's question. */
 export interface ShareAnswer {
@@ -1281,6 +1778,14 @@ export const ShareCloseCode = {
 export type ShareCloseCode =
   (typeof ShareCloseCode)[keyof typeof ShareCloseCode];
 
+/** A project a teammate shares with the org, and the host to ask for its record. */
+export interface SharedProject {
+  project: ProjectKey;
+  /** The id of the teammate's membership in the org. */
+  member: OrgMemberId;
+  host: DeviceKey;
+}
+
 /** The share ended. The server closes a viewer's connection with ShareCloseCode ended after it. */
 export interface ShareEnded {
   type: "ended";
@@ -1328,6 +1833,15 @@ export interface ShareHost {
 
 /** A shared chat's id: 16 random bytes the host picks, in unpadded base64url. */
 export type ShareId = string;
+
+/** Someone in the org, by their membership id, the name they show and their account's picture. */
+export interface ShareMember {
+  id: OrgMemberId;
+  name: MemberName;
+  imageUrl: string | null;
+  /** Whether this is the account asking. */
+  you: boolean;
+}
 
 /** Host only: start a share. The server answers opened or refused. Hosts on 0.5.3 and earlier send no viewers check, and their shares are open to anyone signed in who has the link. */
 export interface ShareOpen {
@@ -1387,6 +1901,24 @@ export interface ShareRefused {
   reason: ShareRefusal;
 }
 
+/** A project the account shares with one of its orgs, and the host that holds its record. Sent again with another host when the project's home moves. */
+export interface ShareRegistration {
+  org: OrgId;
+  project: ProjectKey;
+  host: DeviceKey;
+}
+
+/** The share registry as one host sees it: each of its account's orgs whose Team plan is paid. shares.changed and orgs.changed say when to read it again. */
+export interface ShareRegistry {
+  orgs: OrgShareList[];
+}
+
+/** A project the account no longer shares with the org. */
+export interface ShareRemoval {
+  org: OrgId;
+  project: ProjectKey;
+}
+
 /** A host publishes its shared chats; a viewer watches one. */
 export type ShareRole = "host" | "viewer";
 export const shareRoleValues: readonly ShareRole[] = ["host", "viewer"];
@@ -1435,6 +1967,26 @@ export interface ShareWantsSnapshot {
 export interface ShedBoxes {
   product: BillingProductId;
   quantity: number;
+}
+
+/** An address the person is about to add as a way to sign in, checked before Clerk sends it a code. It is read and forgotten, never stored. */
+export interface SignInAddressCheck {
+  email: string;
+}
+
+/** A way to sign in the API took off the account because its address is a work address: at a domain an org verified, or already proven on an account. */
+export interface SignInRemoval {
+  domain: string;
+  /** The org that verified the domain; null when the address was proven on an account instead. */
+  orgName: string | null;
+  /** The sign-in that brought the address, such as google; null for an address added on its own. */
+  provider: string | null;
+  removedAt: string;
+}
+
+/** What was taken off the account since the person last saw it, each told once. */
+export interface SignInsTidied {
+  removed: SignInRemoval[];
 }
 
 /** The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it. */
@@ -1589,6 +2141,7 @@ export interface Subscription {
   refundRequestedAt?: string;
   /** What the refund returns, or returns once paid: every payment on the plan in its first refundDays. */
   refundAmount?: Money;
+  seatPause?: SeatPause;
 }
 
 /** A new quantity, product or interval, now with the rest of the period charged or credited, or from the next renewal. Plans change only to another of the same kind: a Shed box to another Shed box. */
@@ -1735,6 +2288,42 @@ export interface VaultUsesAdd {
   uses: VaultUse[];
 }
 
+/** A work address the person proved they hold, kept as a keyed hash: the address itself is never stored, so only its domain is shown. */
+export interface WorkAddress {
+  /** Names the proof for removing it. */
+  id: string;
+  domain: string;
+  /** The org that had verified the domain when the address was proven; null once that org is gone. */
+  orgId: string | null;
+  orgName: string | null;
+  provenAt: string;
+}
+
+export interface WorkAddressList {
+  workAddresses: WorkAddress[];
+  /** Whether a work address can be verified here; false while the API has no Google client for it. */
+  verifying: boolean;
+}
+
+/** The work address just proven, and the org its domain lets the person join now, in this sitting only. */
+export interface WorkAddressProven {
+  workAddress: WorkAddress;
+  /** Joining the offered org names this, so the join stands on the proof just made. */
+  sitting: string;
+  offer: OrgOffer | null;
+}
+
+/** What Google sent back to the web app after the person signed in there. */
+export interface WorkAddressVerifyFinish {
+  code: string;
+  state: string;
+}
+
+/** Where to send the person to sign in with the Google account of their work address. */
+export interface WorkAddressVerifyStart {
+  url: string;
+}
+
 /** The vault key, sealed for one host. */
 export interface WrappedKey {
   hostKey: DeviceKey;
@@ -1787,6 +2376,14 @@ export interface Definitions {
   EventId: EventId;
   FcmTokenRegistration: FcmTokenRegistration;
   Flags: Flags;
+  FoldCatch: FoldCatch;
+  FoldCatchRequest: FoldCatchRequest;
+  FoldHint: FoldHint;
+  FoldIntent: FoldIntent;
+  FoldPreview: FoldPreview;
+  FoldSecret: FoldSecret;
+  FoldStart: FoldStart;
+  FoldWhy: FoldWhy;
   Health: Health;
   HealthStatus: HealthStatus;
   Hook: Hook;
@@ -1845,6 +2442,7 @@ export interface Definitions {
   LiveRevoked: LiveRevoked;
   LiveRole: LiveRole;
   LiveServerMessage: LiveServerMessage;
+  MemberName: MemberName;
   MinimumVersions: MinimumVersions;
   ModConflict: ModConflict;
   ModDocument: ModDocument;
@@ -1865,33 +2463,81 @@ export interface Definitions {
   Money: Money;
   Network: Network;
   Org: Org;
+  OrgAuditAction: OrgAuditAction;
+  OrgAuditCursor: OrgAuditCursor;
+  OrgAuditEntry: OrgAuditEntry;
+  OrgAuditPage: OrgAuditPage;
   OrgCreate: OrgCreate;
+  OrgDailyQuestions: OrgDailyQuestions;
+  OrgDomain: OrgDomain;
+  OrgDomainAdd: OrgDomainAdd;
+  OrgDomainId: OrgDomainId;
+  OrgDomainJoin: OrgDomainJoin;
+  OrgDomainJoining: OrgDomainJoining;
+  OrgDomainJoiningChange: OrgDomainJoiningChange;
+  OrgDomainList: OrgDomainList;
+  OrgDomainName: OrgDomainName;
+  OrgDomainOursChange: OrgDomainOursChange;
+  OrgDomainRecord: OrgDomainRecord;
   OrgId: OrgId;
   OrgInvite: OrgInvite;
   OrgInviteCreate: OrgInviteCreate;
   OrgInviteCreated: OrgInviteCreated;
   OrgInviteId: OrgInviteId;
   OrgInviteList: OrgInviteList;
+  OrgInvitePreview: OrgInvitePreview;
   OrgInviteToken: OrgInviteToken;
   OrgJoin: OrgJoin;
+  OrgJoinedVia: OrgJoinedVia;
   OrgList: OrgList;
   OrgMember: OrgMember;
   OrgMemberId: OrgMemberId;
   OrgMemberList: OrgMemberList;
+  OrgMembership: OrgMembership;
+  OrgMemberships: OrgMemberships;
   OrgName: OrgName;
+  OrgOffer: OrgOffer;
+  OrgOfferList: OrgOfferList;
+  OrgPlan: OrgPlan;
+  OrgPolicy: OrgPolicy;
   OrgRename: OrgRename;
   OrgRole: OrgRole;
   OrgRoleChange: OrgRoleChange;
+  OrgRuleAdding: OrgRuleAdding;
   OrgSeats: OrgSeats;
+  OrgShareList: OrgShareList;
+  OrgTeam: OrgTeam;
+  OrgTeamCreate: OrgTeamCreate;
+  OrgTeamId: OrgTeamId;
+  OrgTeamList: OrgTeamList;
+  OrgTeamName: OrgTeamName;
+  OrgTeamRename: OrgTeamRename;
+  OrgVault: OrgVault;
+  OrgVaultChanges: OrgVaultChanges;
+  OrgVaultChangesParam: OrgVaultChangesParam;
+  OrgVaultCreate: OrgVaultCreate;
+  OrgVaultEnded: OrgVaultEnded;
+  OrgVaultEntry: OrgVaultEntry;
+  OrgVaultEntryKind: OrgVaultEntryKind;
+  OrgVaultEntryPut: OrgVaultEntryPut;
+  OrgVaultEntryRead: OrgVaultEntryRead;
+  OrgVaultKeysAdd: OrgVaultKeysAdd;
+  OrgVaultRotate: OrgVaultRotate;
+  OrgVaultState: OrgVaultState;
+  OrgVaultWrapped: OrgVaultWrapped;
+  OrgWrappedKey: OrgWrappedKey;
   PaddleCheckout: PaddleCheckout;
   PaddleEnvironment: PaddleEnvironment;
   PaymentCard: PaymentCard;
+  PeerTicket: PeerTicket;
+  PeerTicketRequest: PeerTicketRequest;
   PendingHost: PendingHost;
   PlanFeature: PlanFeature;
   PlanId: PlanId;
   PlanPayer: PlanPayer;
   Platform: Platform;
   PluginId: PluginId;
+  ProjectKey: ProjectKey;
   PushApp: PushApp;
   PushKind: PushKind;
   PushPlatform: PushPlatform;
@@ -1905,6 +2551,7 @@ export interface Definitions {
   RevokeReason: RevokeReason;
   ScheduledChange: ScheduledChange;
   Sealed: Sealed;
+  SeatPause: SeatPause;
   ShareAnswer: ShareAnswer;
   ShareAnswered: ShareAnswered;
   ShareAsk: ShareAsk;
@@ -1915,6 +2562,7 @@ export interface Definitions {
   ShareClientMessage: ShareClientMessage;
   ShareClose: ShareClose;
   ShareCloseCode: ShareCloseCode;
+  SharedProject: SharedProject;
   ShareEnded: ShareEnded;
   ShareEndReason: ShareEndReason;
   ShareFrame: ShareFrame;
@@ -1922,6 +2570,7 @@ export interface Definitions {
   ShareHello: ShareHello;
   ShareHost: ShareHost;
   ShareId: ShareId;
+  ShareMember: ShareMember;
   ShareOpen: ShareOpen;
   ShareOpened: ShareOpened;
   SharePing: SharePing;
@@ -1930,6 +2579,9 @@ export interface Definitions {
   ShareReady: ShareReady;
   ShareRefusal: ShareRefusal;
   ShareRefused: ShareRefused;
+  ShareRegistration: ShareRegistration;
+  ShareRegistry: ShareRegistry;
+  ShareRemoval: ShareRemoval;
   ShareRole: ShareRole;
   ShareSeq: ShareSeq;
   ShareServerMessage: ShareServerMessage;
@@ -1939,6 +2591,9 @@ export interface Definitions {
   ShareViewers: ShareViewers;
   ShareWantsSnapshot: ShareWantsSnapshot;
   ShedBoxes: ShedBoxes;
+  SignInAddressCheck: SignInAddressCheck;
+  SignInRemoval: SignInRemoval;
+  SignInsTidied: SignInsTidied;
   Staff: Staff;
   StashAdd: StashAdd;
   StashAddLink: StashAddLink;
@@ -1977,5 +2632,10 @@ export interface Definitions {
   VaultUseRow: VaultUseRow;
   VaultUses: VaultUses;
   VaultUsesAdd: VaultUsesAdd;
+  WorkAddress: WorkAddress;
+  WorkAddressList: WorkAddressList;
+  WorkAddressProven: WorkAddressProven;
+  WorkAddressVerifyFinish: WorkAddressVerifyFinish;
+  WorkAddressVerifyStart: WorkAddressVerifyStart;
   WrappedKey: WrappedKey;
 }

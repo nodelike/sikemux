@@ -247,7 +247,9 @@ impl Outside {
             .waiting
             .iter()
             .position(|waiting| waiting.shown.id == id)?;
-        let Answer::Allowed(access) = inner.waiting[index].answer else {
+        let Some(&Answer::Allowed(access)) =
+            inner.waiting.get(index).map(|waiting| &waiting.answer)
+        else {
             return None;
         };
         Some((inner.waiting.remove(index).shown, access))

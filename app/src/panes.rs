@@ -595,24 +595,33 @@ fn split(
         .filter(|(_, out)| *out < 1.)
     {
         let beside = if at > 0 { at - 1 } else { at + 1 };
+        let Some(grow) = grows.get(at).copied() else {
+            continue;
+        };
         if beside < panes.len() {
-            grows[beside] += grows[at] * (1. - out);
-            reach[beside] = (theme::gap() * (1. - out), beside < at);
+            if let Some(grown) = grows.get_mut(beside) {
+                *grown += grow * (1. - out);
+            }
+            if let Some(reached) = reach.get_mut(beside) {
+                *reached = (theme::gap() * (1. - out), beside < at);
+            }
         }
-        grows[at] *= out;
+        if let Some(grow) = grows.get_mut(at) {
+            *grow *= out;
+        }
     }
-    for (at, child) in panes.iter().enumerate() {
+    let laid = (panes.iter().zip(&grows)).zip(reach.iter().zip(&shown));
+    for (at, ((child, &grow), (&(reach, toward_end), &shown))) in laid.enumerate() {
         if at > 0 {
             row = row.child(divider(tab, id, at - 1, across));
         }
         let mut cell = div().flex().min_w_0().min_h_0().flex_basis(px(0.));
-        cell.style().flex_grow = Some(grows[at]);
+        cell.style().flex_grow = Some(grow);
         let drawn = pane(bench, tab, child, window, cx);
         // A sliding desk keeps its full width and shows only what its cell has room for, and
         // the view beside it covers the gap the desk will close, so neither lays out again.
-        let (reach, toward_end) = reach[at];
-        let drawn = if shown[at] < 1. {
-            let full = relative(1. / shown[at].max(0.001));
+        let drawn = if shown < 1. {
+            let full = relative(1. / shown.max(0.001));
             div()
                 .absolute()
                 .top_0()
@@ -637,12 +646,12 @@ fn split(
         } else {
             drawn
         };
-        let sliding = shown[at] < 1. || reach > 0.;
+        let sliding = shown < 1. || reach > 0.;
         row = row.child(
             cell.when(across, |cell| cell.h_full())
                 .when(!across, |cell| cell.w_full())
                 .when(sliding, |cell| cell.relative())
-                .when(shown[at] < 1., |cell| cell.overflow_hidden())
+                .when(shown < 1., |cell| cell.overflow_hidden())
                 .child(drawn),
         );
     }
@@ -730,16 +739,17 @@ impl Panes {
             return;
         }
         let total: f32 = sizes.iter().map(|&size| f32::from(size)).sum();
-        let ahead: f32 = sizes[..divider.at]
-            .iter()
+        let ahead: f32 = (sizes.iter().take(divider.at))
             .map(|&size| f32::from(size))
             .sum();
         let offset = f32::from(pointer - start) - theme::gap() * (divider.at as f32 + 0.5);
         let pair = f32::from(before) + f32::from(after);
         let least = (MIN_PANE / room * total).min(pair / 2.);
         let wanted = (offset / room * total - ahead).clamp(least, pair - least);
-        sizes[divider.at] = wanted.round() as u16;
-        sizes[divider.at + 1] = (pair - wanted).round() as u16;
+        if let Some([ahead_of, behind]) = sizes.get_mut(divider.at..=divider.at + 1) {
+            *ahead_of = wanted.round() as u16;
+            *behind = (pair - wanted).round() as u16;
+        }
     }
 }
 
@@ -971,7 +981,7 @@ impl Workbench {
             Towards::Left | Towards::Up if at > 0 => at - 1,
             _ => return,
         };
-        let Some(&spare) = sizes.get(beyond) else {
+        let (Some(&kept), Some(&spare)) = (sizes.get(at), sizes.get(beyond)) else {
             return;
         };
         let total: u32 = sizes.iter().map(|&size| u32::from(size)).sum();
@@ -980,8 +990,12 @@ impl Workbench {
         if give == 0 {
             return;
         }
-        sizes[at] += give;
-        sizes[beyond] -= give;
+        if let Some(size) = sizes.get_mut(at) {
+            *size = kept + give;
+        }
+        if let Some(size) = sizes.get_mut(beyond) {
+            *size = spare - give;
+        }
         self.target()
             .call_typed::<call::ResizeSplit>(layout::ResizeSplit {
                 at: strip.at(),

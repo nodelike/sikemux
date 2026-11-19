@@ -155,8 +155,8 @@ struct Row<Mark: View, End: View, After: View>: View {
             if named != nil || lead != nil || host != nil || End.self != EmptyView.self {
                 HStack(spacing: 6) {
                     if let host {
-                        IconView(icon: Icons.remoteHost, size: 11)
-                            .foregroundStyle(palette.live)
+                        IconView(icon: Icons.laptop, size: 11)
+                            .foregroundStyle(palette.host)
                             .opacity(dim ? 0.55 : 1)
                             .accessibilityLabel(host)
                     }

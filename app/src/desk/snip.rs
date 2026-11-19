@@ -173,17 +173,17 @@ fn about(path: &Path, page: &Value) -> (String, String) {
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
     let text_of = |key: &str| page[key].as_str().unwrap_or_default();
-    let number = |value: &Value| value.as_f64().unwrap_or(0.0).round();
+    let number = |value: Option<&Value>| value.and_then(Value::as_f64).unwrap_or(0.0).round();
     let mut text = format!(
         "{file} is the part of {} (\"{}\") I boxed: {} × {} at {}, {} in its {} × {} view.",
         text_of("url"),
         text_of("title"),
-        number(&page["width"]),
-        number(&page["height"]),
-        number(&page["left"]),
-        number(&page["top"]),
-        number(&page["viewport"]["width"]),
-        number(&page["viewport"]["height"]),
+        number(page.get("width")),
+        number(page.get("height")),
+        number(page.get("left")),
+        number(page.get("top")),
+        number(page.pointer("/viewport/width")),
+        number(page.pointer("/viewport/height")),
     );
     let element = |text: &mut String, element: &Value| {
         let field = |key: &str| element[key].as_str().unwrap_or_default();

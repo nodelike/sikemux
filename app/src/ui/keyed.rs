@@ -166,7 +166,10 @@ impl KeyedRows {
             }
             return false;
         };
-        self.keyed = Some(order[to].clone());
+        let Some(keyed) = order.get(to) else {
+            return false;
+        };
+        self.keyed = Some(keyed.clone());
         self.moved.set(true);
         true
     }

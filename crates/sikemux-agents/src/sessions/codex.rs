@@ -654,11 +654,9 @@ fn command_line(command: &Value) -> Option<String> {
         Value::String(command) => Some(command.clone()),
         Value::Array(words) => {
             let words: Vec<&str> = words.iter().filter_map(Value::as_str).collect();
-            let shell = matches!(words.as_slice(), [_, "-lc" | "-c", _]);
-            Some(if shell {
-                words[2].to_owned()
-            } else {
-                words.join(" ")
+            Some(match words.as_slice() {
+                [_, "-lc" | "-c", script] => (*script).to_owned(),
+                _ => words.join(" "),
             })
         }
         _ => None,

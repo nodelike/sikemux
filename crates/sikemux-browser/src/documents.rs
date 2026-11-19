@@ -88,7 +88,9 @@ impl DocumentLog {
                 let Some(index) = self.open_index(navigation) else {
                     return false;
                 };
-                self.loads[index].close(Some(error));
+                if let Some(load) = self.loads.get_mut(index) {
+                    load.close(Some(error));
+                }
                 Some(index) == latest
             }
         }

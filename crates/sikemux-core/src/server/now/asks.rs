@@ -1,10 +1,10 @@
-//! The person's asks: one for each message they send an agent, kept as a task on its project's
-//! board from then until its change is in the app they run. The agents the receiving agent starts
-//! or messages in that turn take it over. A chief's turn that hands it to nobody answered it, as
-//! did another agent's turn that left its work where it was, and an answered ask leaves the board.
-//! An ask outlives the agents on it: once every one has closed before its work reached the
-//! project's branch, nobody has it. An agent closes one handled without a hand-off with
-//! `task_update`'s `asked`.
+//! The person's asks: each message they send an agent waits through that agent's turn, and becomes
+//! a task on its project's board only when the turn hands it on as work, a start or a message with
+//! `work`, to the agents it reached. A turn that hands it on as no work answered it, and it goes.
+//! A task is kept until its change is in the app the person runs, landed by the first commit of
+//! its own one of its holders lands after taking it. It outlives the agents on it: once every one
+//! has closed before its work reached the project's branch, nobody has it. An agent closes one
+//! handled without a hand-off with `task_update`'s `asked`.
 
 use super::*;
 use crate::cli::protocol::HarnessRequest;
@@ -12,12 +12,11 @@ use crate::server::board::asked::{Asked, Holder, Stood};
 use crate::server::board::{Board, Card};
 use crate::server::board_state::BoardParts;
 use crate::server::chat_state::ChatParts;
-use crate::server::chief;
 use crate::text::{clipped, clipped_line};
 use serde_json::{json, Value};
 use sikemux_markdown::paths::is_image_path;
 use sikemux_view::goals::{AgentDesk, DeskPage};
-use sikemux_view::now::{AskCall, AskSaid};
+use sikemux_view::now::{AskCall, AskSaid, AskStand, NowAsk};
 use std::collections::{BTreeMap, BTreeSet};
 
 const TITLE_CHARS: usize = 160;
@@ -82,12 +81,6 @@ fn folder_of(core: &Core, project: &str) -> Option<String> {
     (core.workspaces().projects().into_iter())
         .find(|it| it.id == project)
         .map(|it| it.path.to_string_lossy().into_owned())
-}
-
-fn project_id_of(core: &Core, folder: &str) -> Option<String> {
-    (core.workspaces().projects().into_iter())
-        .find(|it| it.path.to_string_lossy() == folder)
-        .map(|it| it.id)
 }
 
 /// The folder of the project `agent` works in.
@@ -219,7 +212,6 @@ pub(crate) fn asked(
         images: images.clone(),
         call: None,
     };
-    let to_before = stood(core, agent);
     let mut id = None;
     change_in(core, &folder, |board, at| {
         let again = asks(board).find(|(card, asked)| {
@@ -236,7 +228,6 @@ pub(crate) fn asked(
             to: agent.to_owned(),
             images,
             said: vec![said],
-            to_before,
             in_turn: true,
             ..Asked::default()
         };
@@ -280,12 +271,9 @@ fn said_under(core: &Core, filed: Option<u64>, agent: &str, said: AskSaid) -> Op
 }
 
 /// What the person sent under the ask `id` of the workspace project `project`, the ask first.
-pub(crate) fn said(core: &Core, project: &str, id: u64) -> Vec<AskSaid> {
-    let Some(folder) = folder_of(core, project) else {
-        return Vec::new();
-    };
+pub(crate) fn said(core: &Core, folder: &str, id: u64) -> Vec<AskSaid> {
     let state = core.boards().state.locked();
-    (state.of(&folder))
+    (state.of(folder))
         .and_then(|board| board.card(id).ok()?.asked())
         .map(|asked| asked.said.clone())
         .unwrap_or_default()
@@ -375,9 +363,17 @@ pub(crate) fn desks_moved(
     });
 }
 
-/// `from` started or messaged `to`: the asks of its turn go with it, and so do the asks of its
-/// project named. A start's `task` names those that have no name yet.
-pub(crate) fn handed(core: &Core, from: &str, to: &[String], named: &[u64], task: Option<&str>) {
+/// `from` started or messaged `to`: the asks of its turn go with it when it hands them on as
+/// `work`, and so do the asks of its project named. A start's `task` names those that have no name
+/// yet.
+pub(crate) fn handed(
+    core: &Core,
+    from: &str,
+    to: &[String],
+    named: &[u64],
+    task: Option<&str>,
+    work: bool,
+) {
     if to.is_empty() {
         return;
     }
@@ -386,7 +382,7 @@ pub(crate) fn handed(core: &Core, from: &str, to: &[String], named: &[u64], task
     change(core, |board, at| {
         let names_here = home.as_deref() == Some(board.folder());
         each_ask(board, at, |id, asked| {
-            let ours = asked.to == from && asked.in_turn;
+            let ours = work && asked.to == from && asked.in_turn;
             if !ours && !(names_here && named.contains(&id)) {
                 return false;
             }
@@ -407,10 +403,8 @@ pub(crate) fn handed(core: &Core, from: &str, to: &[String], named: &[u64], task
     });
 }
 
-/// `agent`'s turn ended by itself. A chief's asks it handed to nobody were answered; another
-/// agent keeps its own.
+/// `agent`'s turn ended by itself: its asks it handed on as work to nobody were answered.
 pub(crate) fn turn_ended(core: &Core, agent: &str) {
-    let keeps = !chief::is_chief(core, agent);
     change(core, |board, at| {
         let mut answered = Vec::new();
         let changed = each_ask(board, at, |id, asked| {
@@ -418,13 +412,8 @@ pub(crate) fn turn_ended(core: &Core, agent: &str) {
                 return false;
             }
             asked.in_turn = false;
-            match (keeps, asked.owners.is_empty()) {
-                (_, false) => {}
-                (false, true) => answered.push(id),
-                (true, true) => asked.owners.push(Holder {
-                    agent: agent.to_owned(),
-                    before: asked.to_before.clone(),
-                }),
+            if asked.owners.is_empty() {
+                answered.push(id);
             }
             true
         });
@@ -432,38 +421,35 @@ pub(crate) fn turn_ended(core: &Core, agent: &str) {
     });
 }
 
-/// Where `agent`'s work is was read again: an ask it holds reaches the branch with its work, and
-/// one it kept for itself was answered when its work did not move.
+/// Where `agent`'s work is was read again: an ask it holds reaches the branch with the commit of
+/// its own it landed since taking it, and it lets go of the ask, so its later work lands no other.
 pub(crate) fn work_read(core: &Core, agent: &str) {
     let fix = super::fix_now(core, agent);
     let now = stood(core, agent);
     change(core, |board, at| {
-        let mut answered = Vec::new();
-        let changed = each_ask(board, at, |id, asked| {
+        each_ask(board, at, |_, asked| {
             let Some(held) = asked.owners.iter().find(|holder| holder.agent == agent) else {
                 return false;
             };
-            if asked.in_turn {
+            if asked.in_turn || !moved(now.as_ref(), held) {
                 return false;
             }
-            let moved_here = moved(now.as_ref(), held);
-            let own = asked.to == agent && asked.owners.len() == 1;
-            if own && !moved_here {
-                answered.push(id);
+            let Some(fix) = fix.as_ref() else {
+                return false;
+            };
+            if !reached(asked, fix, at) && asked.commit.as_deref() != Some(&fix.commit) {
                 return false;
             }
-            match fix.as_ref().filter(|_| moved_here) {
-                Some(fix) => reached(asked, fix, at),
-                None => false,
-            }
-        });
-        board.forget_answered(|card| answered.contains(&card.id)) || changed
+            asked.owners.retain(|holder| holder.agent != agent);
+            true
+        })
     });
 }
 
-/// Takes `fix` as how far `asked` has gone; whether that moved it.
+/// Takes `fix` as how far `asked` has gone, when it is a commit of the holder's own; whether that
+/// moved it.
 fn reached(asked: &mut Asked, fix: &Fix, at: u64) -> bool {
-    if fix.at < FixAt::Landed {
+    if fix.at < FixAt::Landed || !fix.own {
         return false;
     }
     let mut changed = asked.commit.as_deref() != Some(&fix.commit);
@@ -609,52 +595,36 @@ fn rank(stand: &AskStand) -> u8 {
 /// An ask nobody has whose chief was not told of it yet.
 pub(crate) struct Untold {
     pub id: u64,
-    /// The workspace project, by id.
-    pub project: String,
+    /// The project's folder.
+    pub folder: String,
     pub title: String,
     /// Since when nobody has it.
     pub since: u64,
 }
 
 pub(crate) fn with_nobody_untold(core: &Core) -> Vec<Untold> {
-    let untold: Vec<(String, u64, String, u64)> = {
-        let state = core.boards().state.locked();
-        (state.boards.values())
-            .flat_map(|board| asks(board).map(move |(card, asked)| (board, card, asked)))
-            .filter(|(_, _, asked)| asked.commit.is_none() && asked.in_build_at.is_none())
-            .filter_map(|(board, card, asked)| {
-                let since = asked.nobody_since?;
-                (asked.told_since != Some(since)).then(|| {
-                    let folder = board.folder().to_owned();
-                    (folder, card.id, card.title().to_owned(), since)
-                })
-            })
-            .collect()
-    };
-    (untold.into_iter())
-        .filter_map(|(folder, id, title, since)| {
-            Some(Untold {
-                id,
-                project: project_id_of(core, &folder)?,
-                title,
+    let state = core.boards().state.locked();
+    (state.boards.values())
+        .flat_map(|board| asks(board).map(move |(card, asked)| (board, card, asked)))
+        .filter(|(_, _, asked)| asked.commit.is_none() && asked.in_build_at.is_none())
+        .filter_map(|(board, card, asked)| {
+            let since = asked.nobody_since?;
+            (asked.told_since != Some(since)).then(|| Untold {
+                id: card.id,
+                folder: board.folder().to_owned(),
+                title: card.title().to_owned(),
                 since,
             })
         })
         .collect()
 }
 
-/// The chiefs were told the asks `told`, each by workspace project and number, have nobody.
+/// The chiefs were told the asks `told`, each by folder and number, have nobody.
 pub(crate) fn told(core: &Core, told: &[(String, u64)]) {
-    let folders: Vec<(String, u64)> = (told.iter())
-        .filter_map(|(project, id)| Some((folder_of(core, project)?, *id)))
-        .collect();
     change(core, |board, at| {
         let folder = board.folder().to_owned();
         each_ask(board, at, |id, asked| {
-            if !folders
-                .iter()
-                .any(|(on, told)| *on == folder && *told == id)
-            {
+            if !told.iter().any(|(on, told)| *on == folder && *told == id) {
                 return false;
             }
             let changed = asked.told_since != asked.nobody_since;
@@ -664,12 +634,34 @@ pub(crate) fn told(core: &Core, told: &[(String, u64)]) {
     });
 }
 
+/// The full id of the commit `named` in the project at `folder`, or in a repository the folder holds.
+fn commit_in(folder: &Path, named: &str) -> Option<String> {
+    let held = std::fs::read_dir(folder).into_iter().flatten().flatten();
+    let held = held
+        .map(|entry| entry.path())
+        .filter(|child| child.join(".git").exists());
+    std::iter::once(folder.to_path_buf())
+        .chain(held)
+        .find_map(|repo| {
+            Git::quick(&repo)
+                .trimmed(&[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "--end-of-options",
+                    &format!("{named}^{{commit}}"),
+                ])
+                .ok()
+                .filter(|commit| !commit.is_empty())
+        })
+}
+
 /// `task_update` with `asked`: the caller closes one of its project's asks that was handled: in the commit it
 /// names, which then stands for the ask's work, or with nothing to change, which answered it.
 pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
     let agent = (request.agent_id.as_deref()).ok_or("task_update needs the calling agent's id")?;
-    let id = request.params["asked"]
-        .as_u64()
+    let id = (request.params.get("asked"))
+        .and_then(Value::as_u64)
         .ok_or("task_update needs the number of what the person asked for")?;
     let project = (core.workspaces().agent(agent))
         .ok_or("task_update answers only an agent Sikemux started")?
@@ -681,7 +673,7 @@ pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
     if !ours {
         return Err(format!("task #{id} is not an open task of this project"));
     }
-    let named = (request.params["commit"].as_str())
+    let named = (request.params.get("commit").and_then(Value::as_str))
         .map(str::trim)
         .filter(|it| !it.is_empty());
     let Some(named) = named else {
@@ -691,16 +683,7 @@ pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
         return Ok(json!({ "closed": id, "answered": "no change" }));
     };
     let repo = PathBuf::from(&folder);
-    let commit = Git::quick(&repo)
-        .trimmed(&[
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            "--end-of-options",
-            &format!("{named}^{{commit}}"),
-        ])
-        .ok()
-        .filter(|commit| !commit.is_empty())
+    let commit = commit_in(&repo, named)
         .ok_or_else(|| format!("{named} is not a commit of this project"))?;
     change_in(core, &folder, |board, at| {
         let Ok(card) = board.card_mut(id) else {
@@ -717,4 +700,157 @@ pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
     });
     build_moved(core, &repo);
     Ok(json!({ "closed": id, "commit": commit }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::turn_state::Work;
+    use crate::server::workspace::{AddProjectParams, AddProjectParamsExt};
+    use crate::server::ServerCore;
+
+    fn git(dir: &Path, args: &[&str]) {
+        let mut all = vec!["-c", "user.name=t", "-c", "user.email=t@t"];
+        all.extend(args);
+        Git::quick(dir).trimmed(&all).expect("git");
+    }
+
+    fn open(core: &Core, id: &str, project: &str, cwd: &Path) {
+        let agent = json!({
+            "id": id,
+            "provider": "claude",
+            "project": project,
+            "cwd": cwd,
+            "title": id,
+            "permissionMode": "auto",
+        });
+        (core
+            .workspaces()
+            .put_agent_draft(agent.as_object().cloned().expect("an object")))
+        .expect("the agent");
+        core.inbox().started(id);
+    }
+
+    fn works_at(core: &Core, agent: &str, project: &str, head: &str, own: Option<&str>) {
+        let work = Work {
+            changes: WorkAt::Landed,
+            head: Some(head.to_owned()),
+            head_at: None,
+            project: project.to_owned(),
+            can_try: false,
+            own: own
+                .map(|own| format!("{own} its change"))
+                .into_iter()
+                .collect(),
+            shared: 0,
+        };
+        core.inbox().keep_work(agent, work);
+        let fix = Fix {
+            commit: own.unwrap_or(head).to_owned(),
+            own: own.is_some(),
+            at: FixAt::Landed,
+            release: None,
+        };
+        core.now().fixes.locked().insert(agent.to_owned(), fix);
+        work_read(core, agent);
+    }
+
+    fn ask(core: &Core, folder: &str, id: u64) -> Option<Asked> {
+        let state = core.boards().state.locked();
+        state.of(folder)?.card(id).ok()?.asked().cloned()
+    }
+
+    /// The Tasks view of 19 Nov: the person's question "No more fables right?" to @Chief and to
+    /// @Lille finished with @Kaori's and @Lille's unrelated lands, and @Shenhua's pacman fix with
+    /// main's head that @Toshiro landed.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn only_work_handed_on_is_a_task_and_only_its_own_commit_lands_it() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        git(dir.path(), &["init", "-q", "-b", "main"]);
+        git(
+            dir.path(),
+            &["commit", "-q", "--allow-empty", "-m", "start"],
+        );
+        let project = crate::server::workspace::add_project(
+            &core,
+            AddProjectParams::at(dir.path().to_owned()),
+        )
+        .await
+        .expect("the project");
+        let folder = project.path.to_string_lossy().into_owned();
+        for agent in ["chief", "kaori", "lille", "shenhua"] {
+            open(&core, agent, &project.id, dir.path());
+        }
+        let main_head = "c858c2431a1b2c3d4e5f60718293a4b5c6d7e8f9";
+        works_at(&core, "lille", &folder, main_head, None);
+        works_at(&core, "shenhua", &folder, main_head, None);
+
+        let to_chief = asked(&core, "chief", "No more fables right bruv?", &[], None).unwrap();
+        handed(&core, "chief", &["kaori".into()], &[], None, false);
+        turn_ended(&core, "chief");
+        works_at(&core, "kaori", &folder, "1ee1fea2a", Some("1ee1fea2a"));
+        assert!(ask(&core, &folder, to_chief).is_none(), "#712");
+
+        let to_lille = asked(&core, "lille", "No more fables right?", &[], None).unwrap();
+        turn_ended(&core, "lille");
+        works_at(&core, "lille", &folder, "08f18e971", Some("08f18e971"));
+        assert!(ask(&core, &folder, to_lille).is_none(), "#711");
+
+        let pacman = asked(
+            &core,
+            "chief",
+            "Restart fails after a pacman update",
+            &[],
+            None,
+        )
+        .unwrap();
+        let title = Some("Fix restart after pacman update");
+        handed(&core, "chief", &["shenhua".into()], &[], title, true);
+        turn_ended(&core, "chief");
+        works_at(
+            &core,
+            "shenhua",
+            &folder,
+            "0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e",
+            None,
+        );
+        assert_eq!(ask(&core, &folder, pacman).unwrap().commit, None, "#713");
+
+        works_at(&core, "shenhua", &folder, "5ae7c0ffe", Some("5ae7c0ffe"));
+        works_at(&core, "shenhua", &folder, "7b1d2e3f4", Some("7b1d2e3f4"));
+        let landed = ask(&core, &folder, pacman).unwrap();
+        assert_eq!(landed.commit.as_deref(), Some("5ae7c0ffe"));
+        assert_eq!(landed.name.as_deref(), title);
+    }
+
+    #[test]
+    fn a_commit_of_a_repository_inside_the_project_folder_is_found() {
+        let folder = tempfile::tempdir().expect("tempdir");
+        let web = folder.path().join("web");
+        std::fs::create_dir(&web).expect("repository folder");
+        Git::quick(&web).trimmed(&["init", "-q"]).expect("init");
+        Git::quick(&web)
+            .trimmed(&[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "c",
+            ])
+            .expect("commit");
+        let head = Git::quick(&web)
+            .trimmed(&["rev-parse", "HEAD"])
+            .expect("head");
+
+        assert_eq!(
+            commit_in(folder.path(), head.get(..9).expect("short id")),
+            Some(head)
+        );
+        assert_eq!(commit_in(folder.path(), "0000000"), None);
+    }
 }

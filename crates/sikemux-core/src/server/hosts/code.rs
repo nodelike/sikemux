@@ -15,12 +15,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::super::connection::blocking;
+use super::super::edits::land::own_checkout;
+use super::super::edits::queue;
 use super::super::worktree::{self, inside, slug};
 use super::super::{new_project, Core};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::link::{Received, Refusal};
 use super::name_of;
-use super::team::{Role, Tree};
+use super::team::{Foreign, Role, Tree};
 use crate::git::Git;
 
 /// More than this of uncommitted changes the lead commits first.
@@ -393,7 +395,11 @@ fn clone_dir(core: &Core, host: &str, code: &Code) -> PathBuf {
         .clone()
         .unwrap_or_else(std::env::temp_dir)
         .join(CLONES);
-    base.join(format!("{}-{}", slug(&code.project), &digest[..12]))
+    base.join(format!(
+        "{}-{}",
+        slug(&code.project),
+        digest.get(..12).unwrap_or(&digest)
+    ))
 }
 
 /// The commits a host with `repo` has, so a bundle need not carry them.
@@ -809,12 +815,16 @@ pub(crate) fn checkout(
     let added = worktree::cut(&repo, branch, &code.commit);
     let _ = Git::quick(&repo).trimmed(&["update-ref", "-d", &incoming]);
     let (branch, path) = added?;
-    if let Some(patch) = &code.patch {
-        if let Err(error) = apply(&path, patch) {
-            worktree::remove(&repo, &path, &branch);
-            return Err(error);
-        }
-    }
+    let lead_changes = match &code.patch {
+        Some(patch) => match apply(&path, patch) {
+            Ok(()) => Some(Git::quick(&path).trimmed(&["rev-parse", "HEAD"])?),
+            Err(error) => {
+                worktree::remove(&repo, &path, &branch);
+                return Err(error);
+            }
+        },
+        None => None,
+    };
     worktree::seed_in_background(&repo, &path);
     Ok(Checked::Ready(
         Tree {
@@ -823,6 +833,7 @@ pub(crate) fn checkout(
             path: path.clone(),
             branch,
             base: code.commit.clone(),
+            lead_changes,
             sent: None,
         },
         path.join(inside),
@@ -915,6 +926,17 @@ pub(super) struct ArrivingCommits {
     #[serde(default)]
     pub(super) head: String,
     pub(super) count: usize,
+    /// The worker asked for its commits to land, not only to come back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) land: Option<Landing>,
+}
+
+/// A worker's land sent with its commits: its own commits are those after `since`.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct Landing {
+    pub(super) since: String,
+    pub(super) push: bool,
 }
 
 /// A worker on `host` sent its commits: they go onto a branch named for it
@@ -947,6 +969,9 @@ pub(super) async fn land(
         return Err(refused(format!("{} is no longer there", repo.display())));
     }
     if worker.landed_head.as_deref() == Some(landing.head.as_str()) {
+        if let (Some(asked), Some(branch)) = (&landing.land, &worker.branch) {
+            queue_land(core, &worker, &repo, branch, &landing.head, asked).await;
+        }
         return Ok(json!({ "branch": worker.branch }));
     }
     let body = match body {
@@ -956,6 +981,7 @@ pub(super) async fn land(
                 agent_id: landing.agent_id.clone(),
                 head: landing.head.clone(),
                 count: landing.count,
+                land: None,
             });
             super::pull(core, host, asks::PullCommits::METHOD, wanted)
                 .await
@@ -965,7 +991,8 @@ pub(super) async fn land(
                 })?
         }
     };
-    let (own, last_head) = (worker.branch, worker.landed_head);
+    let (own, last_head) = (worker.branch.clone(), worker.landed_head.clone());
+    let lead_repo = repo.clone();
     let wanted = format!(
         "sikemux/{}/{}",
         slug(&name_of(core, host)),
@@ -988,5 +1015,52 @@ pub(super) async fn land(
         worker.landed_head = Some(landing.head.clone());
         worker.branch = Some(branch.clone());
     });
+    if let Some(asked) = &landing.land {
+        queue_land(core, &worker, &lead_repo, &branch, &landing.head, asked).await;
+    }
     Ok(json!({ "branch": branch }))
+}
+
+/// Puts the commits a worker sent back to land in line for the branch its lead's lands go on:
+/// its lead's own checkout's, else the one the lead's checkout has out. The worker hears how it
+/// ends, as from a checkout here.
+async fn queue_land(
+    core: &Arc<Core>,
+    worker: &Foreign,
+    repo: &Path,
+    branch: &str,
+    head: &str,
+    asked: &Landing,
+) {
+    let lead_checkout = (worker.parent.as_deref()).and_then(|lead| own_checkout(core, lead));
+    let queued = {
+        let (core, agent_id, repo) = (core.clone(), worker.agent_id.clone(), repo.to_owned());
+        let (head, asked) = (head.to_owned(), asked.clone());
+        blocking(move || {
+            let (repo, base) = match lead_checkout {
+                Some(tree) => (tree.base)
+                    .map(|base| (tree.repo, base))
+                    .ok_or("your lead's checkout was cut from no branch")?,
+                None => Git::quick(&repo)
+                    .trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"])
+                    .map(|base| (repo, base))
+                    .map_err(|_| "your lead's checkout is on no branch")?,
+            };
+            let sent = queue::Sent {
+                repo,
+                base,
+                head,
+                since: Some(asked.since),
+            };
+            Ok(queue::enqueue_sent(&core, &agent_id, sent, asked.push)?)
+        })
+        .await
+    };
+    let text = match queued {
+        Ok(queued) => queued.note().to_owned(),
+        Err(why) => format!(
+            "Your commits came back to your lead's checkout as {branch} but did not go in line to land: {why}."
+        ),
+    };
+    super::route::notice(core, worker.agent_id.clone(), text);
 }

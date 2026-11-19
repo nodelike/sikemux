@@ -34,8 +34,8 @@ use crate::icons::Icon;
 use crate::motion;
 use crate::rail::{Rail, RailWidth};
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_6, TEXT_2XS,
-    TEXT_3XS, TEXT_SM, TEXT_XS,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, SPACE_6,
+    TEXT_2XS, TEXT_3XS, TEXT_SM, TEXT_XS,
 };
 use crate::ui::{self, Field, Group, IconButton, Row, Segmented};
 use crate::workbench::Workbench;
@@ -157,10 +157,19 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     };
     let unseen = out_of_sight(bench, &agents);
     let snoozed = away_rows(&snoozed, cx);
-    let projects: Vec<ProjectInfo> = match bench.rails.all_projects {
+    let homes = home_projects(bench);
+    let place = bench.place();
+    let mut projects: Vec<ProjectInfo> = match bench.rails.all_projects {
         true => ranked_projects(bench),
         false => bench.project().cloned().into_iter().collect(),
     };
+    for project in &mut projects {
+        if let Some(home) = home_project(bench, &homes, &place, &project.id) {
+            *project = home.clone();
+        }
+    }
+    let mut seen = HashSet::new();
+    projects.retain(|project| seen.insert(project.id.clone()));
     let heads: Vec<(String, AnyElement)> = (projects.iter())
         .map(|project| {
             let chief = chief_of(project, &agents);
@@ -172,11 +181,11 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         .filter_map(|project| chief_of(project, &agents))
         .map(|chief| chief.id.clone())
         .collect();
-    let place = bench.place();
     let mut agents: Vec<AgentRow> = (agents.into_iter())
-        .filter(|agent| !agent.chief || (agent.place != place && !leading.contains(&agent.id)))
+        .filter(|agent| {
+            !agent.chief || (agent.place != Place::This && !leading.contains(&agent.id))
+        })
         .collect();
-    let homes = home_projects(bench);
     if bench.rails.all_projects {
         let at = |project: &str| heads.iter().position(|(id, _)| id == project);
         agents.sort_by_key(|agent| at(home_of(&homes, agent)).unwrap_or(usize::MAX));
@@ -228,6 +237,9 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         .collect();
     if bench.has_older() && !recent.is_empty() && !bench.rails.folded(RECENT) {
         recent.push(older_when_seen(bench, cx));
+    }
+    if !tagged {
+        recent.extend(other_hosts_line(bench, cx));
     }
     let quiet = rows.is_empty() && snoozed.is_empty();
     let empty = (quiet && pinned.is_empty() && recent.is_empty()).then(|| {
@@ -604,6 +616,10 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
         .into_any_element(),
         false => ui::mono(ui::time::age(recent.active_at), TEXT_2XS, cx).into_any_element(),
     };
+    let elsewhere = bench.found_host(&recent.id).map(|key| {
+        let said = t!("On {host}", host = bench.host_name(key));
+        host_mark(format!("host-of-{}", recent.id), said.into(), cx)
+    });
     let row = Row::new(
         SharedString::from(format!("recent-{}", recent.id)),
         recent.title.clone(),
@@ -613,11 +629,18 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
     .when_some(bench.said_in(&recent.id), |row, said| {
         row.subtitle(crate::pickers::recent::said_line(said, cx))
     })
+    .children(elsewhere)
     .child(tail)
     .on_click(cx.listener({
         let recent = recent.clone();
         move |bench, _, _, cx| bench.take_up_chat(&recent, cx)
     }));
+    if bench.found_host(&recent.id).is_some() {
+        return div()
+            .id(SharedString::from(format!("recent-menu-{}", recent.id)))
+            .child(row)
+            .into_any_element();
+    }
     let pin = pin_chat(&cx.entity(), recent);
     let unpin = recent.pinned.then(|| {
         let unpin = pin.1.clone();
@@ -730,6 +753,72 @@ fn older_when_seen(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
     .w_full()
     .h(px(1.))
     .into_any_element()
+}
+
+/// The quiet last line of Recent while the filter searches other hosts: how many are still
+/// being asked, then which did not answer, with Try again for those alone.
+fn other_hosts_line(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let older = bench
+        .older
+        .as_ref()
+        .filter(|_| !bench.filter_text().is_empty())?;
+    if !bench.searches_hosts() {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let line = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .pt(SPACE_2)
+        .pb(SPACE_1)
+        .pl(px(46.))
+        .pr(SPACE_4)
+        .text_size(crate::theme::ui_text(TEXT_2XS))
+        .text_color(t.text_tertiary);
+    if !older.asking.is_empty() {
+        let asking = match older.asking.len() {
+            1 => SharedString::from(t!("Asking 1 more host…")),
+            count => t!("Asking {count} more hosts…", count = count).into(),
+        };
+        return Some(
+            line.child(ui::working(9., t.text_tertiary))
+                .child(asking)
+                .into_any_element(),
+        );
+    }
+    if !bench.may_search_hosts() {
+        let upgrade = div()
+            .id("search-hosts-pro")
+            .hover(|upgrade| upgrade.text_color(t.text_secondary))
+            .child(t!("Pro searches every host's chats ›"))
+            .clicks(cx.listener(|bench, _, window, cx| {
+                bench.open_settings(crate::settings::Page::Account, window, cx)
+            }));
+        return Some(line.child(upgrade).into_any_element());
+    }
+    if older.unanswered.is_empty() {
+        return bench
+            .pro_free()
+            .map(|free| line.child(free).into_any_element());
+    }
+    let names: Vec<SharedString> = (older.unanswered.iter())
+        .map(|key| bench.host_name(key))
+        .collect();
+    let silent = t!("{hosts} didn't answer", hosts = names.join(", "));
+    let unanswered = older.unanswered.clone();
+    let again = div()
+        .id("search-hosts-again")
+        .text_color(t.text_secondary)
+        .hover(|again| again.text_color(t.text_primary))
+        .child(t!("Try again"))
+        .clicks(cx.listener(move |bench, _, _, cx| bench.search_hosts(unanswered.clone(), cx)));
+    Some(
+        line.child(silent)
+            .child("·")
+            .child(again)
+            .into_any_element(),
+    )
 }
 
 /// Asks for a recent chat's new title, and renames it in its CLI's own history.
@@ -1134,6 +1223,54 @@ fn agent_row(
         .filter(|retitling| retitling.agent == agent.id && retitling.in_rail)
         .map(|retitling| crate::home::retitle_field(retitling, 13., cx).w_full());
     let said = (bench.chat_of(&agent.id)).and_then(|chat| bench.said_in(&chat.id));
+    let host = host_tag(bench, agent, cx);
+    let lead_apart = (hang.lead_apart.as_deref())
+        .and_then(|lead| bench.agent_by_id(lead))
+        .and_then(|lead| lead.name)
+        .map(|lead| ui::meta(format!("@{lead} ›"), cx).pl(SPACE_2));
+    let first = host.is_none() && lead_apart.is_none();
+    let name = (agent.handle())
+        .map(|name| ui::meta(format!("@{name}"), cx).when(first, |name| name.pl(SPACE_2)));
+    let wake = (agent.snoozed_until).map(|until| crate::agents::settled::wake_label(until, cx));
+    let turn_time = ui::turn_time(&agent.id, agent.turn.as_ref());
+    let counts = counts(agent, cx);
+    let shut_fold = fold.as_ref().filter(|fold| !fold.open);
+    // The hover buttons cover the name and counts, which fade for them, so nothing slides.
+    let covered = fades
+        && (name.is_some() || counts.is_some())
+        && shut_fold.is_none()
+        && wake.is_none()
+        && turn_time.is_none();
+    let (name, counts) = match covered {
+        true => {
+            let tail = div()
+                .flex()
+                .items_center()
+                .justify_end()
+                .gap(SPACE_2)
+                .min_w(px(if pin.is_some() { 40. } else { 20. }))
+                .pr(SPACE_1)
+                .children(name)
+                .children(counts);
+            (
+                Some(ui::gives_way(AGENT_ROW, tail).into_any_element()),
+                None,
+            )
+        }
+        false => (
+            name.map(|name| {
+                let name = name.pr(SPACE_1);
+                match fades {
+                    true => ui::gives_way(AGENT_ROW, name).into_any_element(),
+                    false => name.into_any_element(),
+                }
+            }),
+            counts.map(|counts| match fades {
+                true => ui::gives_way(AGENT_ROW, counts).into_any_element(),
+                false => counts.into_any_element(),
+            }),
+        ),
+    };
     let row = Row::new(
         SharedString::from(format!("agent-{}", agent.id)),
         agent.title.clone(),
@@ -1143,7 +1280,9 @@ fn agent_row(
         row.subtitle(crate::pickers::recent::said_line(said, cx))
     })
     .mark(22., mark)
-    .hover_padding(AGENT_ROW, if pin.is_some() { 48. } else { 28. })
+    .when(!covered, |row| {
+        row.hover_padding(AGENT_ROW, if pin.is_some() { 48. } else { 28. })
+    })
     .chosen(chosen)
     .glided(glided && chosen)
     .compact(bench.rail_compact())
@@ -1171,21 +1310,10 @@ fn agent_row(
             }
         }
     }))
-    .children(host_tag(bench, agent, cx))
-    .children(
-        (hang.lead_apart.as_deref())
-            .and_then(|lead| bench.agent_by_id(lead))
-            .and_then(|lead| lead.name)
-            .map(|lead| ui::meta(format!("@{lead} ›"), cx).pl(SPACE_2)),
-    )
-    .children(agent.handle().map(|name| {
-        let name = ui::meta(format!("@{name}"), cx).pl(SPACE_2).pr(SPACE_1);
-        match fades {
-            true => ui::gives_way(AGENT_ROW, name).into_any_element(),
-            false => name.into_any_element(),
-        }
-    }))
-    .children(fold.as_ref().filter(|fold| !fold.open).map(|fold| {
+    .children(host)
+    .children(lead_apart)
+    .children(name)
+    .children(shut_fold.map(|fold| {
         div()
             .flex_none()
             .px(px(5.))
@@ -1197,16 +1325,11 @@ fn agent_row(
             .font_features(crate::theme::tabular())
             .child(format!("+{}", fold.count))
     }))
-    .children((agent.snoozed_until).map(|until| crate::agents::settled::wake_label(until, cx)))
-    .children(ui::turn_time(&agent.id, agent.turn.as_ref()))
-    .children(counts(agent, cx).map(|counts| match fades {
-        true => ui::gives_way(AGENT_ROW, counts).into_any_element(),
-        false => counts.into_any_element(),
-    }));
+    .children(wake)
+    .children(turn_time)
+    .children(counts);
     let lines = hang_lines(hang, cx);
-    let card = (!elsewhere)
-        .then(|| crate::agents::card::view(bench, agent, project.as_deref(), cx))
-        .flatten();
+    let card = crate::agents::card::view(bench, agent, project.as_deref(), cx);
     let close = agent.id.clone();
     let actions = ui::hover_actions(AGENT_ROW)
         .top_0()
@@ -1319,6 +1442,18 @@ fn home_projects(bench: &Workbench) -> HashMap<(Place, String), String> {
                 .map(move |copy| ((copy.place, copy.project), own.clone()))
         })
         .collect()
+}
+
+/// This host's project that the copy `project` on the host at `place` folds into, so the rail
+/// heads it with the same @Chief whichever host is in front.
+fn home_project<'a>(
+    bench: &'a Workbench,
+    homes: &HashMap<(Place, String), String>,
+    place: &Place,
+    project: &str,
+) -> Option<&'a ProjectInfo> {
+    let home = homes.get(&(place.clone(), project.to_owned()))?;
+    (bench.this_view()?.workspace.projects.iter()).find(|project| project.id == *home)
 }
 
 /// The project whose @Chief leads the agent's row: this host's copy of its project.
@@ -1443,7 +1578,7 @@ fn host_mark(id: String, said: SharedString, cx: &App) -> AnyElement {
         .flex_none()
         .pl(SPACE_2)
         .tooltip(ui::tooltip(said))
-        .child(ui::icon(Icon::Laptop, 11.).text_color(Tokens::get(cx).host))
+        .child(crate::rail::host_glyph(crate::theme::ROW_GLYPH, true, cx))
         .into_any_element()
 }
 

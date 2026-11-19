@@ -9,30 +9,40 @@ import {
   AGAINST_IT,
   CONNECTING,
   context as contextOf,
+  DO_NOT_DOING,
+  DONE,
   GO_WITH_THIS,
+  headline as headlineOf,
   hidden,
   kept,
+  LOOK_SEEN,
+  moreCalls,
+  newest as newestOf,
   OWN_WORDS,
   PICK,
   pictureLabel,
   place,
   pushFailed,
   SECRET_FIELD,
+  SEEN,
   SHOW_ALL,
   SHOW_LESS,
   WHAT_RUNS,
+  WHY_NOT_DOING,
 } from '@shared/calls/words';
 import { useT } from '@/i18n';
-import type { CallAsker, CallOption, PersonCall } from '@shared/wire.generated';
-import { router } from 'expo-router';
+import type { CallAsker, CallLink, CallOption, PersonCall } from '@shared/wire.generated';
 import { PageCard } from '@/chat/Notices';
+import { serviceMark } from '@/chat/Markdown';
 import { AskerMark } from '@/calls/AskerMark';
 import { SECRET_INPUT } from '@/calls/secretInput';
 import { answer, answerOf, choose, chosenIn, draftOf, edit, focus, see, useKept } from '@/calls/hostCalls';
-import { useHostFile } from '@/chat/hostFiles';
+import { HostContext, useHostFile } from '@/chat/hostFiles';
+import { AgentPill, namedAgent, type Named, useCrew } from '@/devices/Crew';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { useMinute } from '@/ui/motion';
+import { openLink } from '@/ui/prompt';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
 const ROW = 44;
@@ -86,10 +96,22 @@ export const CallDock = memo(function CallDock({
   // What a step to production, or anything that can't be undone, rests on is read whole; any other call's opens on a tap.
   const whole = call.kind === 'production' || !!call.brief?.cannotUndo;
   const [contextOpen, setContextOpen] = useState(false);
+  const [othersOpen, setOthersOpen] = useState(false);
   const failed = held.failed[call.id];
   // The core asks only a production call to have been drawn before its answer counts.
   const seen = call.kind !== 'production' || held.seen.has(call.id);
-  const ready = (chosen.length > 0 || typed) && !draft.sending && canAnswer && seen;
+  const notDoing = call.kind === 'do' && chosen.includes(DO_NOT_DOING);
+  const answered =
+    call.kind === 'look' ? true : call.kind === 'do' ? chosen.length > 0 && (!notDoing || typed) : chosen.length > 0 || typed;
+  const ready = answered && !draft.sending && canAnswer && seen;
+  const headline = headlineOf(call, t);
+  const chosenLabel = call.options.find((option) => option.id === chosen[0])?.label;
+  const goWords = call.kind === 'look' ? t(SEEN) : call.kind === 'do' ? (chosenLabel ?? t(DONE)) : seen ? t(GO_WITH_THIS) : t(CONNECTING);
+  const others = queue.filter((other) => other.id !== call.id);
+  const newest = others.reduce<PersonCall | undefined>(
+    (last, other) => (!last || other.raisedAt > last.raisedAt ? other : last),
+    undefined,
+  );
 
   // Tells the host this phone drew the call, again whenever the connection changes.
   useEffect(() => {
@@ -97,7 +119,7 @@ export const CallDock = memo(function CallDock({
   }, [core, connection, call]);
 
   const go = () => {
-    const params = answerOf(store.get(), call);
+    const params = call.kind === 'look' ? { id: call.id, option: LOOK_SEEN } : answerOf(store.get(), call);
     if (!params || !ready) return;
     haptics.select();
     void answer(core, connection, call, store, params, report);
@@ -106,18 +128,33 @@ export const CallDock = memo(function CallDock({
   return (
     <View style={[styles.card, inPlace && styles.cardInPlace]}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.inner} scrollEnabled={!inPlace} persistentScrollbar>
-        <View style={styles.who}>
-          <AskerMark agentId={call.asker.agentId} provider={call.asker.cli} chief={call.asker.chief} asking />
-          <Text style={styles.name}>@{call.asker.name}</Text>
-          <Text style={styles.sep}>·</Text>
-          <Text style={styles.age}>{formatAge(call.raisedAt, minute * 60_000, t)}</Text>
-          {call.about ? <About core={core} about={call.about} /> : null}
-          {queue.length > 1 && at >= 0 ? <Text style={styles.place}>{place(at + 1, queue.length, t)}</Text> : null}
-        </View>
-        <Text style={styles.question}>{call.question}</Text>
+        <HostContext value={core}>
+          <View style={styles.who}>
+            <Asker asker={call.asker} />
+            <Text style={styles.sep}>·</Text>
+            <Text style={styles.age}>{formatAge(call.raisedAt, minute * 60_000, t)}</Text>
+            {call.about ? (
+              <>
+                <Text style={styles.sep}>·</Text>
+                <Text style={styles.age}>{t('about')}</Text>
+                <Asker asker={call.about} />
+              </>
+            ) : null}
+            {queue.length > 1 && at >= 0 ? <Text style={styles.place}>{place(at + 1, queue.length, t)}</Text> : null}
+          </View>
+        </HostContext>
+        <Text style={styles.question} selectable>
+          {headline}
+        </Text>
+        {headline !== call.question ? (
+          <Text style={styles.prose} selectable>
+            {call.question}
+          </Text>
+        ) : null}
         {context ? (
           <Text
             style={styles.context}
+            selectable
             numberOfLines={whole || contextOpen ? undefined : 2}
             onPress={whole ? undefined : () => setContextOpen(!contextOpen)}
             accessibilityRole={whole ? undefined : 'button'}
@@ -126,71 +163,86 @@ export const CallDock = memo(function CallDock({
             {context}
           </Text>
         ) : null}
+        {call.link ? (
+          <LinkTile
+            link={call.link}
+            onOpen={() => {
+              if (call.kind === 'look' && canAnswer && !draft.sending) {
+                haptics.select();
+                void answer(core, connection, call, store, { id: call.id, option: LOOK_SEEN }, report);
+              }
+            }}
+          />
+        ) : null}
         {call.page ? <PageCard page={call.page} /> : null}
         {(call.evidence ?? [])
           .filter((evidence) => !evidence.picture)
           .map((evidence, index) => (
-            <Text key={index} style={styles.context}>
+            <Text key={index} style={styles.context} selectable>
               {evidence.what}
             </Text>
           ))}
         {pictured ? <Strip call={call} chosen={chosen} onChoose={(option) => choose(store, call, option)} /> : <Evidence call={call} />}
-        <View style={[styles.options, { borderColor: lit ? colors.borderSelected : colors.border }]}>
-          {call.options.map((option, index) => (
-            <OptionRow
-              key={option.id}
-              option={option}
-              first={index === 0}
-              on={chosen.includes(option.id)}
-              pick={call.pick === option.id}
-              disabled={!canAnswer || draft.sending}
-              onPress={() => {
-                haptics.select();
-                choose(store, call, option.id);
-              }}
-            />
-          ))}
-          <View style={[styles.field, call.options.length > 0 && styles.fieldAfter]}>
-            <Icon name="IconPencil" size={13} color={lit ? colors.tertiary : colors.inkFaint} />
-            {secret ? (
-              <TextInput
-                value={draft.typed}
-                onChangeText={(text) => edit(store, { typed: text })}
-                placeholder={chosen.length ? t(ADD_NOTE) : t(SECRET_FIELD)}
-                placeholderTextColor={colors.tertiary}
-                // Its words never show, and the keyboard neither suggests nor remembers them. A hidden secure field
-                // cannot hold the line breaks of a pasted key, so the text is drawn clear; paste still works.
-                style={[styles.input, draft.typed ? styles.hiddenText : null]}
-                multiline
-                {...SECRET_INPUT}
-                // Return sends it, as in the card's other field; a pasted key keeps its line breaks.
-                returnKeyType="send"
-                submitBehavior="submit"
-                onSubmitEditing={go}
-                caretHidden={!!draft.typed}
-                editable={canAnswer}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setFocused(false)}
+        {call.kind === 'look' ? null : (
+          <View style={[styles.options, { borderColor: lit ? colors.borderSelected : colors.border }]}>
+            {call.options.map((option, index) => (
+              <OptionRow
+                key={option.id}
+                option={option}
+                first={index === 0}
+                on={chosen.includes(option.id)}
+                pick={call.pick === option.id}
+                disabled={!canAnswer || draft.sending}
+                onPress={() => {
+                  haptics.select();
+                  choose(store, call, option.id);
+                }}
               />
-            ) : (
-              <TextInput
-                value={draft.typed}
-                onChangeText={(text) => edit(store, { typed: text })}
-                placeholder={chosen.length ? t(ADD_NOTE) : t(OWN_WORDS)}
-                placeholderTextColor={colors.tertiary}
-                style={styles.input}
-                // Only the button passes a step to production; Enter there is a new line of the note's.
-                returnKeyType={call.kind === 'production' ? 'default' : 'send'}
-                onSubmitEditing={call.kind === 'production' ? undefined : go}
-                editable={canAnswer}
-                onFocus={() => setFocused(true)}
-                onBlur={() => setFocused(false)}
-              />
+            ))}
+            {call.kind === 'do' && !notDoing ? null : (
+              <View style={[styles.field, call.options.length > 0 && styles.fieldAfter]}>
+                <Icon name="IconPencil" size={13} color={lit ? colors.tertiary : colors.inkFaint} />
+                {secret ? (
+                  <TextInput
+                    value={draft.typed}
+                    onChangeText={(text) => edit(store, { typed: text })}
+                    placeholder={chosen.length ? t(ADD_NOTE) : t(SECRET_FIELD)}
+                    placeholderTextColor={colors.tertiary}
+                    // Its words never show, and the keyboard neither suggests nor remembers them. A hidden secure field
+                    // cannot hold the line breaks of a pasted key, so the text is drawn clear; paste still works.
+                    style={[styles.input, draft.typed ? styles.hiddenText : null]}
+                    multiline
+                    {...SECRET_INPUT}
+                    // Return sends it, as in the card's other field; a pasted key keeps its line breaks.
+                    returnKeyType="send"
+                    submitBehavior="submit"
+                    onSubmitEditing={go}
+                    caretHidden={!!draft.typed}
+                    editable={canAnswer}
+                    onFocus={() => setFocused(true)}
+                    onBlur={() => setFocused(false)}
+                  />
+                ) : (
+                  <TextInput
+                    value={draft.typed}
+                    onChangeText={(text) => edit(store, { typed: text })}
+                    placeholder={notDoing ? t(WHY_NOT_DOING) : chosen.length ? t(ADD_NOTE) : t(OWN_WORDS)}
+                    placeholderTextColor={colors.tertiary}
+                    style={styles.input}
+                    // Only the button passes a step to production; Enter there is a new line of the note's.
+                    returnKeyType={call.kind === 'production' ? 'default' : 'send'}
+                    onSubmitEditing={call.kind === 'production' ? undefined : go}
+                    editable={canAnswer}
+                    onFocus={() => setFocused(true)}
+                    onBlur={() => setFocused(false)}
+                  />
+                )}
+              </View>
             )}
           </View>
-        </View>
+        )}
         {call.against ? (
-          <Text style={styles.against}>
+          <Text style={styles.against} selectable>
             <Text style={{ color: colors.tertiary }}>{t(AGAINST_IT)} </Text>
             {call.against}
           </Text>
@@ -227,26 +279,47 @@ export const CallDock = memo(function CallDock({
           style={({ pressed }) => [styles.go, !ready && { opacity: 0.5 }, pressed && { opacity: 0.8 }]}
           accessibilityRole="button"
           accessibilityState={{ disabled: !ready }}>
-          <Text style={styles.goText}>{seen ? t(GO_WITH_THIS) : t(CONNECTING)}</Text>
+          <Text style={styles.goText}>{goWords}</Text>
         </Pressable>
-        {queue
-          .filter((other) => other.id !== call.id)
-          .map((other) => (
-            <Pressable
-              key={other.id}
-              onPress={() => {
-                haptics.select();
-                focus(core, other, chat);
-              }}
-              style={styles.folded}
-              accessibilityRole="button">
-              <AskerMark agentId={other.asker.agentId} provider={other.asker.cli} chief={other.asker.chief} asking size={16} />
-              <Text style={styles.foldedText} numberOfLines={1}>
-                {other.question}
-              </Text>
-              <Text style={styles.foldedAge}>{formatAge(other.raisedAt, minute * 60_000, t)}</Text>
-            </Pressable>
-          ))}
+        {others.length > 1 && newest ? (
+          <Pressable
+            onPress={() => {
+              haptics.select();
+              setOthersOpen(!othersOpen);
+            }}
+            style={styles.folded}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: othersOpen }}>
+            <AskerMark agentId={newest.asker.agentId} provider={newest.asker.cli} chief={newest.asker.chief} asking size={16} />
+            <Text style={styles.foldedText} numberOfLines={1}>
+              <Text style={{ color: colors.ink }}>{moreCalls(others.length, t)}</Text>
+              <Text style={styles.sep}> · </Text>
+              {newestOf(headlineOf(newest, t), t)}
+            </Text>
+            <Text style={styles.foldedAge}>{formatAge(newest.raisedAt, minute * 60_000, t)}</Text>
+            <View style={{ transform: [{ rotate: othersOpen ? '90deg' : '0deg' }] }}>
+              <Icon name="IconChevron" size={11} color={colors.tertiary} />
+            </View>
+          </Pressable>
+        ) : null}
+        {others.length === 1 || othersOpen
+          ? others.map((other) => (
+              <Pressable
+                key={other.id}
+                onPress={() => {
+                  haptics.select();
+                  focus(core, other, chat);
+                }}
+                style={styles.folded}
+                accessibilityRole="button">
+                <AskerMark agentId={other.asker.agentId} provider={other.asker.cli} chief={other.asker.chief} asking size={16} />
+                <Text style={styles.foldedText} numberOfLines={1}>
+                  {headlineOf(other, t)}
+                </Text>
+                <Text style={styles.foldedAge}>{formatAge(other.raisedAt, minute * 60_000, t)}</Text>
+              </Pressable>
+            ))
+          : null}
       </ScrollView>
     </View>
   );
@@ -309,21 +382,40 @@ function ChoiceMark({ on }: { on: boolean }) {
   );
 }
 
-/** The agent the call is about, which opens its chat. */
-function About({ core, about }: { core: string; about: CallAsker }) {
+/** An agent the call names, as the pill that opens its chat: as the host lists it, or as the call names it. */
+function Asker({ asker }: { asker: CallAsker }) {
+  const crew = useCrew();
+  const agent: Named = namedAgent(crew, asker.agentId) ?? {
+    id: asker.agentId,
+    written: `@${asker.name}`,
+    chief: asker.chief === true,
+    provider: asker.cli,
+  };
+  return <AgentPill agent={agent} size={13} />;
+}
+
+/** Where a do call's task is done, or what a look call shows: the link's words and its address; a tap opens it. */
+function LinkTile({ link, onOpen }: { link: CallLink; onOpen: () => void }) {
+  const colors = useColors();
   const styles = useStyles(makeStyles);
-  const t = useT();
   return (
     <Pressable
-      style={styles.about}
-      accessibilityRole="button"
       onPress={() => {
-        haptics.select();
-        router.push(`/device/${core}/chat/${about.agentId}`);
-      }}>
-      <Text style={styles.sep}>·</Text>
-      <Text style={styles.age}>{t('about')}</Text>
-      <Text style={styles.name}>@{about.name}</Text>
+        openLink(link.url);
+        onOpen();
+      }}
+      style={({ pressed }) => [styles.link, pressed && { backgroundColor: colors.active }]}
+      accessibilityRole="link"
+      accessibilityLabel={link.label}>
+      <Icon name={serviceMark(link.url) ?? 'IconGlobe'} size={14} color={colors.secondary} />
+      <Text style={styles.linkLabel} numberOfLines={1}>
+        {link.label}
+      </Text>
+      {link.label !== link.url ? (
+        <Text style={styles.linkUrl} numberOfLines={1}>
+          {link.url}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -416,12 +508,25 @@ const makeStyles = (colors: Palette) => {
     scroll: { flexGrow: 0 },
     inner: { padding: 12 },
     who: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    name: { fontFamily: fonts.uiMedium, fontSize: 14, color: colors.secondary },
     sep: { color: colors.inkFaint },
-    about: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     age: { fontFamily: fonts.ui, fontSize: 14, color: colors.tertiary },
     place: { marginLeft: 'auto', fontFamily: fonts.ui, fontSize: 13, color: colors.tertiary, fontVariant: ['tabular-nums'] },
     question: { marginTop: 8, fontFamily: fonts.uiSemibold, fontSize: 17, lineHeight: 22, color: colors.ink },
+    prose: { marginTop: 4, fontFamily: fonts.ui, fontSize: 15, lineHeight: 20, color: colors.secondary },
+    link: {
+      marginTop: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      minHeight: ROW,
+      paddingHorizontal: 14,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.composer,
+    },
+    linkLabel: { flexShrink: 0, maxWidth: '70%', fontFamily: fonts.uiMedium, fontSize: 14.5, color: colors.ink },
+    linkUrl: { flex: 1, fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
     context: { marginTop: 2, fontFamily: fonts.ui, fontSize: 14, lineHeight: 19, color: colors.tertiary },
     options: { marginTop: 12, borderWidth: 1, borderRadius: 10, overflow: 'hidden' },
     option: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: ROW, paddingHorizontal: 14, paddingVertical: 8 },

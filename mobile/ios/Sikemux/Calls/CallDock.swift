@@ -20,6 +20,7 @@ struct CallDock: View {
     @FocusState private var fieldFocused: Bool
     @State private var secretFocused = false
     @State private var contextOpen = false
+    @State private var othersOpen = false
 
     private static let row: CGFloat = 44
 
@@ -27,6 +28,7 @@ struct CallDock: View {
     private var chosen: [String] { draft.chosen(in: call) }
     private var typed: Bool { !draft.typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var pictured: Bool { call.secret != true && call.options.contains { $0.picture != nil } }
+    private var notDoing: Bool { call.kind == .do && chosen.contains(CallWords.notDoingId) }
 
     var body: some View {
         ScrollView {
@@ -34,16 +36,22 @@ struct CallDock: View {
                 CallWho(
                     core: core, call: call,
                     place: queue.count > 1 ? queue.firstIndex(of: call).map { ($0 + 1, queue.count) } : nil)
-                Text(call.question)
+                let headline = CallWords.headline(call)
+                Text(headline)
                     .font(Theme.ui(17, .semibold))
                     .tracking(-0.2)
                     .foregroundStyle(palette.ink)
+                    .textSelection(.enabled)
                     .padding(.top, 8)
+                if headline != call.question {
+                    Text(call.question).font(Theme.ui(15)).foregroundStyle(palette.secondary).textSelection(.enabled)
+                        .padding(.top, 4)
+                }
                 if let context = CallWords.context(call) {
                     // What a step to production, or anything that can't be undone, rests on is read whole; any
                     // other call's opens on a tap.
                     let whole = call.kind == .production || call.brief?.cannotUndo.isEmpty == false
-                    Text(context).font(Theme.ui(14)).foregroundStyle(palette.tertiary)
+                    Text(context).font(Theme.ui(14)).foregroundStyle(palette.tertiary).textSelection(.enabled)
                         .lineLimit(whole || contextOpen ? nil : 2)
                         .padding(.top, 2)
                         .onTapGesture { if !whole { contextOpen.toggle() } }
@@ -51,18 +59,24 @@ struct CallDock: View {
                         .accessibilityValue(whole ? "" : contextOpen ? "expanded" : "collapsed")
                         .accessibilityHint(whole ? "" : contextOpen ? CallWords.showLess : CallWords.showAll)
                 }
+                if let link = call.link {
+                    CallLinkTile(link: link) { if call.kind == .look, canAnswer, !draft.sending { seenLook() } }
+                        .padding(.top, 10)
+                }
                 if let page = call.page {
                     PageCard(page: PageRef(id: page.id, title: page.title))
                 }
                 ForEach(Array((call.evidence ?? []).filter { $0.picture == nil }.enumerated()), id: \.offset) {
-                    Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary).padding(.top, 4)
+                    Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary).textSelection(.enabled)
+                        .padding(.top, 4)
                 }
                 pictures
-                options
+                if call.kind != .look { options }
                 if let against = call.against {
                     (Text("\(CallWords.againstIt) ").foregroundStyle(palette.tertiary)
                         + Text(against).foregroundStyle(palette.secondary))
                         .font(Theme.ui(13.5))
+                        .textSelection(.enabled)
                         .padding(.top, 10)
                 }
                 extras
@@ -89,35 +103,67 @@ struct CallDock: View {
         .task(id: "\(call.id)|\(Hub.shared.live(core).isOpen)") { await calls.see(call) }
     }
 
-    /// The asker's other calls, a line each; a tap brings one into the card.
+    /// The asker's other calls, a line each; a tap brings one into the card. Two or more fold into one row that
+    /// names the newest, and a tap on it opens their lines.
     @ViewBuilder
     private var folded: some View {
         let others = queue.filter { $0.id != call.id }
         if !others.isEmpty {
             VStack(spacing: 0) {
-                ForEach(others, id: \.id) { other in
+                if others.count > 1, let newest = others.max(by: { $0.raisedAt < $1.raisedAt }) {
                     Button {
                         Haptics.select()
-                        calls.focus(other, in: chat)
+                        othersOpen.toggle()
                     } label: {
                         HStack(spacing: 10) {
-                            AskerMark(
-                                agentId: other.asker.agentId, provider: other.asker.cli,
-                                chief: other.asker.chief == true,
-                                asking: true, size: 16)
-                            Text(other.question).font(Theme.ui(14)).foregroundStyle(palette.secondary).lineLimit(1)
+                            askerMark(newest)
+                            (Text(CallWords.moreCalls(others.count)).foregroundStyle(palette.ink)
+                                + Text(" · ").foregroundStyle(palette.inkFaint)
+                                + Text(CallWords.newest(CallWords.headline(newest))).foregroundStyle(palette.secondary))
+                                .font(Theme.ui(14)).lineLimit(1)
                             Spacer(minLength: 8)
-                            Text(Format.age(Format.date(millis: other.raisedAt))).font(Theme.ui(12.5))
-                                .foregroundStyle(palette.warn)
+                            age(newest)
+                            IconView(icon: Icons.chevron, size: 11).foregroundStyle(palette.tertiary)
+                                .rotationEffect(.degrees(othersOpen ? 90 : 0))
                         }
                         .frame(minHeight: Self.row)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(PressFade())
+                    .accessibilityValue(othersOpen ? "expanded" : "collapsed")
+                }
+                if others.count == 1 || othersOpen {
+                    ForEach(others, id: \.id) { other in
+                        Button {
+                            Haptics.select()
+                            calls.focus(other, in: chat)
+                        } label: {
+                            HStack(spacing: 10) {
+                                askerMark(other)
+                                Text(CallWords.headline(other)).font(Theme.ui(14)).foregroundStyle(palette.secondary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 8)
+                                age(other)
+                            }
+                            .frame(minHeight: Self.row)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PressFade())
+                    }
                 }
             }
             .padding(.top, 8)
         }
+    }
+
+    private func askerMark(_ other: PersonCall) -> some View {
+        AskerMark(
+            agentId: other.asker.agentId, provider: other.asker.cli, chief: other.asker.chief == true, asking: true,
+            size: 16)
+    }
+
+    private func age(_ other: PersonCall) -> some View {
+        Text(Format.age(Format.date(millis: other.raisedAt))).font(Theme.ui(12.5)).foregroundStyle(palette.warn)
     }
 
     @ViewBuilder
@@ -166,8 +212,10 @@ struct CallDock: View {
                 if index > 0 { palette.border.frame(height: 1) }
                 optionRow(option)
             }
-            if !call.options.isEmpty { palette.border.frame(height: 1) }
-            field
+            if call.kind != .do || notDoing {
+                if !call.options.isEmpty { palette.border.frame(height: 1) }
+                field
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
@@ -231,7 +279,9 @@ struct CallDock: View {
                         }
                     }
                 } else {
-                    TextField(chosen.isEmpty ? CallWords.ownWords : CallWords.addNote, text: $draft.typed)
+                    TextField(
+                        notDoing ? CallWords.whyNotDoing : chosen.isEmpty ? CallWords.ownWords : CallWords.addNote,
+                        text: $draft.typed)
                 }
             }
             .font(Theme.ui(15.5))
@@ -285,11 +335,29 @@ struct CallDock: View {
         }
     }
 
+    private var seen: Bool { call.kind != .production || calls.seen.contains(call.id) }
+
+    private var ready: Bool {
+        let answered: Bool =
+            switch call.kind {
+            case .look: true
+            case .do: !chosen.isEmpty && (!notDoing || typed)
+            default: !chosen.isEmpty || typed
+            }
+        return answered && !draft.sending && canAnswer && seen
+    }
+
+    private var goWords: String {
+        switch call.kind {
+        case .look: CallWords.seen
+        case .do: chosen.first.flatMap { id in call.options.first { $0.id == id }?.label } ?? CallWords.done
+        default: seen ? CallWords.goWithThis : CallWords.connecting
+        }
+    }
+
     private var goButton: some View {
-        let seen = call.kind != .production || calls.seen.contains(call.id)
-        let ready = (!chosen.isEmpty || typed) && !draft.sending && canAnswer && seen
-        return Button(action: goWithThis) {
-            Text(seen ? CallWords.goWithThis : CallWords.connecting)
+        Button(action: goWithThis) {
+            Text(goWords)
                 .font(Theme.ui(16, .semibold))
                 .foregroundStyle(palette.ground)
                 .frame(maxWidth: .infinity, minHeight: 46)
@@ -302,16 +370,59 @@ struct CallDock: View {
     }
 
     private func goWithThis() {
+        guard ready else { return }
+        if call.kind == .look { return seenLook() }
         guard let params = draft.answer(call) else { return }
         Haptics.select()
         fieldFocused = false
         calls.answer(call, params, report: report)
     }
+
+    private func seenLook() {
+        Haptics.select()
+        calls.answer(call, AnswerCallParams(id: call.id, option: CallWords.seenId), report: report)
+    }
 }
 
-/// Who asks a call and how long ago, the chief by its own mark.
+/// Where a do call's task is done, or what a look call shows: the service's mark, the link's words and its address.
+struct CallLinkTile: View {
+    @Environment(\.palette) private var palette
+    @Environment(\.openURL) private var openURL
+    let link: CallLink
+    let opened: () -> Void
+
+    var body: some View {
+        let url = URL(string: link.url)
+        Button {
+            Haptics.select()
+            if let url { openURL(url) }
+            opened()
+        } label: {
+            HStack(spacing: 10) {
+                IconView(icon: url.flatMap(ServiceMark.of).flatMap { Icons.named($0) } ?? Icons.globe, size: 14)
+                    .foregroundStyle(palette.secondary)
+                Text(link.label).font(Theme.ui(14.5, .medium)).foregroundStyle(palette.ink).lineLimit(1)
+                    .layoutPriority(1)
+                if link.label != link.url {
+                    Text(link.url).font(Theme.ui(12.5)).foregroundStyle(palette.tertiary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(palette.composer))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressFade())
+        .accessibilityAddTraits(.isLink)
+    }
+}
+
+/// Who asks a call and how long ago, and whom it is about, each as the pill that opens its chat.
 struct CallWho: View {
     @Environment(\.palette) private var palette
+    @Environment(\.crew) private var crew
     let core: String
     let call: PersonCall
     /// Which of its asker's calls it is, and of how many, while there are several.
@@ -319,27 +430,13 @@ struct CallWho: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 8) {
-                AskerMark(
-                    agentId: call.asker.agentId, provider: call.asker.cli, chief: call.asker.chief == true,
-                    asking: true)
-                Text("@\(call.asker.name)").font(Theme.ui(14, .medium)).foregroundStyle(palette.secondary)
-                Text("·").foregroundStyle(palette.inkFaint)
-                Text(Format.age(Format.date(millis: call.raisedAt))).foregroundStyle(palette.tertiary)
-            }
-            .accessibilityElement(children: .combine)
+            AgentPill(agent: named(call.asker), size: 13).fixedSize()
+            Text("·").foregroundStyle(palette.inkFaint).accessibilityHidden(true)
+            Text(Format.age(Format.date(millis: call.raisedAt))).foregroundStyle(palette.tertiary)
             if let about = call.about {
                 Text("·").foregroundStyle(palette.inkFaint).accessibilityHidden(true)
-                Button {
-                    Haptics.select()
-                    Router.shared.push(.chat(core: core, agent: about.agentId))
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(CallWords.about).foregroundStyle(palette.tertiary)
-                        Text("@\(about.name)").font(Theme.ui(14, .medium)).foregroundStyle(palette.secondary)
-                    }
-                }
-                .buttonStyle(PressFade())
+                Text(CallWords.about).foregroundStyle(palette.tertiary)
+                AgentPill(agent: named(about), size: 13).fixedSize()
             }
             if let place {
                 Spacer(minLength: 8)
@@ -348,6 +445,15 @@ struct CallWho: View {
             }
         }
         .font(Theme.ui(14))
+        .lineLimit(1)
+    }
+
+    /// The agent as this host lists it, or as the call names it once the host no longer does.
+    private func named(_ asker: CallAsker) -> Crew.Named {
+        crew?.agent(asker.agentId)
+            ?? Crew.Named(
+                id: asker.agentId, written: "@\(asker.name)", chief: asker.chief == true, provider: asker.cli,
+                face: nil, project: nil)
     }
 }
 

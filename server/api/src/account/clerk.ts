@@ -7,19 +7,58 @@ export interface ClerkBackend {
   profile(userId: string): Promise<Omit<AccountProfile, "staff">>;
   /** The user's primary email once Clerk has verified it, else null. */
   verifiedEmail(userId: string): Promise<string | null>;
+  /** The domains of every address on the user that Clerk has verified, lowercased; the addresses themselves never leave here. */
+  verifiedDomains(userId: string): Promise<string[]>;
+  /** When the user was made and the addresses it signs in with, main first; null once the user is gone. */
+  signUp(userId: string): Promise<SignUp | null>;
   /** The names and pictures of up to 100 users, by id; a user who is gone is left out. */
   people(userIds: string[]): Promise<Map<string, Person>>;
   revokeSession(sessionId: string): Promise<void>;
   /** The access tokens Clerk holds from the user's web sign-ins with Apple; none for the phone's. */
   appleAccessTokens(userId: string): Promise<string[]>;
+  /** Every address and connected account on the user, for the API's own checks; null once the user is gone. Never log what it holds. */
+  signIns(userId: string): Promise<SignIns | null>;
+  setPrimaryAddress(userId: string, addressId: string): Promise<void>;
+  removeAddress(addressId: string): Promise<void>;
+  removeExternalAccount(userId: string, accountId: string): Promise<void>;
 }
 
+export type SignIns = {
+  primaryAddressId: string | null;
+  addresses: {
+    id: string;
+    email: string;
+    signsIn: boolean;
+    verified: boolean;
+    addedAt: Date;
+  }[];
+  externalAccounts: { id: string; provider: string; email: string }[];
+};
+
 export type Person = Pick<AccountProfile, "name" | "imageUrl">;
+
+export interface SignUp {
+  createdAt: Date;
+  /** The main address, once Clerk has verified it. */
+  email: string | null;
+  /** Every address the user can sign in with, the main one first. */
+  addresses: { email: string; verified: boolean; addedAt: Date }[];
+}
 
 type Fetch = (
   input: string | URL | Request,
   init?: RequestInit,
 ) => Promise<Response>;
+
+/** Clerk lets a reserved address sign in before it is verified. */
+function signsIn(address: {
+  reserved?: boolean;
+  verification?: { status?: string } | null;
+}) {
+  return (
+    address.verification?.status === "verified" || address.reserved === true
+  );
+}
 
 export const CLERK_API = "https://api.clerk.com";
 
@@ -28,11 +67,19 @@ interface ClerkUser {
   first_name?: string | null;
   last_name?: string | null;
   image_url?: string | null;
+  created_at?: number;
   primary_email_address_id?: string | null;
   email_addresses?: {
     id?: string;
     email_address?: string;
+    created_at?: number;
+    reserved?: boolean;
     verification?: { status?: string } | null;
+  }[];
+  external_accounts?: {
+    id?: string;
+    provider?: string;
+    email_address?: string;
   }[];
 }
 const TIMEOUT_MS = 10_000;
@@ -54,10 +101,14 @@ export function clerkBackend(
   fetcher: Fetch = fetch,
   base = CLERK_API,
 ): ClerkBackend {
-  const request = async (method: string, path: string) => {
+  const request = async (method: string, path: string, body?: object) => {
     const response = await fetcher(`${base}${path}`, {
       method,
-      headers: { authorization: `Bearer ${secretKey}` },
+      headers: {
+        authorization: `Bearer ${secretKey}`,
+        ...(body ? { "content-type": "application/json" } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (response.ok) return response;
@@ -65,8 +116,8 @@ export function clerkBackend(
     if (response.status === 404) return null;
     throw new Error(`Clerk answered ${response.status} to ${method} ${path}`);
   };
-  const call = async (method: string, path: string) => {
-    const response = await request(method, path);
+  const call = async (method: string, path: string, body?: object) => {
+    const response = await request(method, path, body);
     await response?.body?.cancel();
   };
   const checked = (id: string, prefix: string) => {
@@ -80,11 +131,16 @@ export function clerkBackend(
       `/v1/users/${checked(userId, "user")}`,
     );
     const user = (await response?.json()) as ClerkUser | undefined;
+    const address = user?.email_addresses?.find(
+      (address) => address.id === user.primary_email_address_id,
+    );
     return {
       user,
-      address: user?.email_addresses?.find(
-        (address) => address.id === user.primary_email_address_id,
-      ),
+      address,
+      verified:
+        address?.verification?.status === "verified"
+          ? (address.email_address ?? null)
+          : null,
     };
   };
   return {
@@ -95,11 +151,47 @@ export function clerkBackend(
       const email = address?.email_address?.slice(0, 320) ?? null;
       return { email, ...personOf(user) };
     },
-    verifiedEmail: async (userId) => {
-      const { address } = await primaryEmail(userId);
-      return address?.verification?.status === "verified"
-        ? (address.email_address ?? null)
-        : null;
+    verifiedEmail: async (userId) => (await primaryEmail(userId)).verified,
+    signUp: async (userId) => {
+      const { user, address: main, verified } = await primaryEmail(userId);
+      if (typeof user?.created_at !== "number") return null;
+      const createdAt = new Date(user.created_at);
+      const addresses = (user.email_addresses ?? []).flatMap((address) =>
+        signsIn(address) && address.email_address
+          ? [
+              {
+                email: address.email_address,
+                verified: address.verification?.status === "verified",
+                addedAt:
+                  typeof address.created_at === "number"
+                    ? new Date(
+                        Math.max(address.created_at, createdAt.getTime()),
+                      )
+                    : createdAt,
+              },
+            ]
+          : [],
+      );
+      return {
+        createdAt,
+        email: verified,
+        addresses: addresses.sort(
+          (a, b) =>
+            Number(b.email === main?.email_address) -
+            Number(a.email === main?.email_address),
+        ),
+      };
+    },
+    verifiedDomains: async (userId) => {
+      const { user } = await primaryEmail(userId);
+      const domains = (user?.email_addresses ?? []).flatMap((address) => {
+        const email = address.email_address ?? "";
+        const at = email.lastIndexOf("@");
+        return address.verification?.status === "verified" && at > 0
+          ? [email.slice(at + 1).toLowerCase()]
+          : [];
+      });
+      return [...new Set(domains)];
     },
     people: async (userIds) => {
       const query = new URLSearchParams({ limit: "100" });
@@ -126,5 +218,47 @@ export function clerkBackend(
         typeof entry?.token === "string" && entry.token ? [entry.token] : [],
       );
     },
+    signIns: async (userId) => {
+      const { user } = await primaryEmail(userId);
+      if (!user) return null;
+      return {
+        primaryAddressId: user.primary_email_address_id ?? null,
+        addresses: (user.email_addresses ?? []).flatMap((address) =>
+          address.id && address.email_address
+            ? [
+                {
+                  id: address.id,
+                  email: address.email_address,
+                  signsIn: signsIn(address),
+                  verified: address.verification?.status === "verified",
+                  addedAt: new Date(address.created_at ?? 0),
+                },
+              ]
+            : [],
+        ),
+        externalAccounts: (user.external_accounts ?? []).flatMap((account) =>
+          account.id && account.provider
+            ? [
+                {
+                  id: account.id,
+                  provider: account.provider.replace(/^oauth_/, ""),
+                  email: account.email_address ?? "",
+                },
+              ]
+            : [],
+        ),
+      };
+    },
+    setPrimaryAddress: async (userId, addressId) =>
+      call("PATCH", `/v1/users/${checked(userId, "user")}`, {
+        primary_email_address_id: checked(addressId, "idn"),
+      }),
+    removeAddress: async (addressId) =>
+      call("DELETE", `/v1/email_addresses/${checked(addressId, "idn")}`),
+    removeExternalAccount: async (userId, accountId) =>
+      call(
+        "DELETE",
+        `/v1/users/${checked(userId, "user")}/external_accounts/${checked(accountId, "(?:idn|eac)")}`,
+      ),
   };
 }

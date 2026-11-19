@@ -189,8 +189,8 @@ fn adopt_booted(bench: &Workbench, bytes: &[u8], cx: &App) {
     let Ok(saved) = serde_json::from_slice::<Value>(bytes) else {
         return;
     };
-    let booted = saved["simulators"]["booted"]
-        .as_array()
+    let booted = (saved.pointer("/simulators/booted"))
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(|udid| udid.as_str().map(str::to_owned))

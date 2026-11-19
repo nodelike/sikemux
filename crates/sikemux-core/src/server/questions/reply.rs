@@ -157,9 +157,8 @@ pub(super) fn list_item(line: &str) -> Option<&str> {
         let digits = line
             .find(|c: char| !c.is_ascii_digit())
             .filter(|at| *at > 0)?;
-        line[digits..]
-            .strip_prefix(". ")
-            .or_else(|| line[digits..].strip_prefix(") "))
+        let rest = line.get(digits..)?;
+        rest.strip_prefix(". ").or_else(|| rest.strip_prefix(") "))
     })
 }
 
@@ -181,7 +180,10 @@ pub(super) fn last_ask(paragraph: &str) -> Option<Ask> {
     let (sentence, asks) = if tail.is_empty() {
         let (ends, asks) = sentence_ends(paragraph);
         let start = ends.last().copied().unwrap_or(0);
-        (plain(paragraph[start..].trim()), asks)
+        (
+            plain(paragraph.get(start..).unwrap_or_default().trim()),
+            asks,
+        )
     } else {
         let sentence = sentences.pop()?;
         let asks = sentence.trim_end_matches([')', '"']).ends_with('?');
@@ -252,15 +254,14 @@ fn preference_of(lower: &str) -> Option<&str> {
     let preferred = PREFERRING
         .iter()
         .find_map(|opening| asked.strip_prefix(opening))?;
-    let end = preferred
-        .find([',', '.', ';', '!', '(', '—'])
-        .unwrap_or(preferred.len());
-    let preferred = preferred[..end].trim();
+    let preferred = (preferred.split([',', '.', ';', '!', '(', '—']).next())
+        .unwrap_or_default()
+        .trim();
     let preferred = [" because", " since", " for ", " so "]
         .iter()
         .filter_map(|word| preferred.find(word))
         .min()
-        .map_or(preferred, |at| &preferred[..at]);
+        .map_or(preferred, |at| preferred.get(..at).unwrap_or(preferred));
     Some(preferred.trim_matches(|c: char| c == '"' || c == '\'' || c.is_whitespace()))
         .filter(|preferred| !preferred.is_empty())
 }
@@ -316,7 +317,7 @@ pub(super) fn sentences_of(paragraph: &str) -> Vec<String> {
     let stops = ends.iter().copied().chain(std::iter::once(paragraph.len()));
     starts
         .zip(stops)
-        .map(|(start, stop)| plain(paragraph[start..stop].trim()))
+        .map(|(start, stop)| plain(paragraph.get(start..stop).unwrap_or_default().trim()))
         .collect()
 }
 
@@ -329,9 +330,8 @@ pub(super) fn sentence_ends(paragraph: &str) -> (Vec<usize>, bool) {
     let mut asks = false;
     let chars: Vec<(usize, char)> = paragraph.char_indices().collect();
     let mut at = 0;
-    while at < chars.len() {
-        let (index, c) = chars[at];
-        let before = at.checked_sub(1).map(|before| chars[before].1);
+    while let Some(&(index, c)) = chars.get(at) {
+        let before = (at.checked_sub(1).and_then(|before| chars.get(before))).map(|(_, c)| *c);
         let next = chars.get(at + 1).map(|(_, next)| *next);
         at += 1;
         if c == '`' {
@@ -363,7 +363,7 @@ pub(super) fn sentence_ends(paragraph: &str) -> (Vec<usize>, bool) {
         }
         ending = matches!(c, '.' | '?' | '!') || (ending && matches!(c, ')' | '"'));
         if c == '?'
-            && chars[at..]
+            && (chars.get(at..).unwrap_or_default())
                 .iter()
                 .all(|(_, rest)| matches!(rest, '*' | '_' | ')'))
         {
@@ -438,7 +438,8 @@ pub(super) fn plain(text: &str) -> String {
     let kept = chars.iter().enumerate().filter(|&(at, &c)| match c {
         '`' | '*' => false,
         '_' => !emphasis_underscore(
-            at.checked_sub(1).map(|before| chars[before]),
+            at.checked_sub(1)
+                .and_then(|before| chars.get(before).copied()),
             chars.get(at + 1).copied(),
         ),
         _ => true,

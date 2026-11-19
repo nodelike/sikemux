@@ -71,12 +71,12 @@ fn table(family: u16, class: TCP_TABLE_CLASS) -> Vec<u32> {
 }
 
 fn rows<Row: Copy>(table: &[u32]) -> Vec<Row> {
-    let Some(&count) = table.first() else {
+    let Some((&count, listed)) = table.split_first() else {
         return Vec::new();
     };
     let words_per_row = size_of::<Row>() / size_of::<u32>();
-    let available = (table.len() - 1) / words_per_row;
-    let start = table[1..].as_ptr().cast::<Row>();
+    let available = listed.len() / words_per_row;
+    let start = listed.as_ptr().cast::<Row>();
     (0..(count as usize).min(available))
         // SAFETY: `index` stays below the rows that fit in `table` after its count.
         .map(|index| unsafe { start.add(index).read_unaligned() })

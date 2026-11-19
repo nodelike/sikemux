@@ -56,6 +56,10 @@ struct Shared {
 fn shared() -> &'static Shared {
     static SHARED: OnceLock<Shared> = OnceLock::new();
     SHARED.get_or_init(|| {
+        #[expect(
+            clippy::expect_used,
+            reason = "the syntax bundle is generated and compiled into the app"
+        )]
         let library = Library::new(INDEX, GRAMMARS).expect("the generated syntax bundle reads");
         let styles = Styles::new(library.theme_rules());
         let quiet = ["string", "comment"]
@@ -308,7 +312,7 @@ pub fn block_runs(
         });
         blocks.blocks.len() - 1
     });
-    let block = &mut blocks.blocks[at];
+    let block = blocks.blocks.get_mut(at)?;
     block.used = used;
     block.coloured_with = Some(coloured.clone());
     let grew = block.text != *code;
@@ -403,7 +407,9 @@ impl Blocks {
     /// Counts the block at `at` afresh, then lets the least recently drawn others go while
     /// there are too many or they take too much.
     fn settle(&mut self, at: usize) {
-        let block = &mut self.blocks[at];
+        let Some(block) = self.blocks.get_mut(at) else {
+            return;
+        };
         let bytes = block.text.len()
             + block.runs.len() * std::mem::size_of::<(Range<usize>, HighlightStyle)>()
             + block.document_bytes;
@@ -428,8 +434,7 @@ impl Blocks {
 /// `runs` coloured as far as `coloured`, and plain from there to `len`.
 fn plain_after(runs: &CodeRuns, coloured: usize, len: usize, plain: HighlightStyle) -> CodeRuns {
     let kept = runs.partition_point(|(range, _)| range.start < coloured);
-    runs[..kept]
-        .iter()
+    (runs.iter().take(kept))
         .cloned()
         .chain((coloured < len).then_some((coloured..len, plain)))
         .collect()
@@ -470,7 +475,11 @@ fn colour_block(
     };
     while document.pending_line().is_some() {
         if document
-            .tokenize(&shared().styles, |line| lines[line], lines.len())
+            .tokenize(
+                &shared().styles,
+                |line| lines.get(line).copied().unwrap_or_default(),
+                lines.len(),
+            )
             .is_empty()
         {
             break;
@@ -518,10 +527,10 @@ fn block_coloured(
         return;
     }
     let blocks = &mut state.blocks;
-    let Some(at) = blocks.blocks.iter().position(|block| block.id == id) else {
+    let found = (blocks.blocks.iter_mut().enumerate()).find(|(_, block)| block.id == id);
+    let Some((at, block)) = found else {
         return;
     };
-    let block = &mut blocks.blocks[at];
     block.working = false;
     let Some(colouring) = colouring else {
         block.coloured = usize::MAX;
@@ -530,9 +539,9 @@ fn block_coloured(
     let kept = block
         .runs
         .partition_point(|(range, _)| range.start < block.last_line_start);
-    let mut runs: Vec<_> = block.runs[..kept].to_vec();
+    let mut runs: Vec<_> = block.runs.iter().take(kept).cloned().collect();
     let mut start = block.last_line_start;
-    for (line, spans) in text[start..].split('\n').zip(&colouring.lines) {
+    for (line, spans) in (text.get(start..).unwrap_or_default().split('\n')).zip(&colouring.lines) {
         let mut cursor = start;
         for span in spans {
             let (from, to) = (start + span.start as usize, start + span.end as usize);
@@ -629,7 +638,9 @@ impl Model {
                 break;
             }
             for row in done {
-                shapes[row] = shape(&line_text(text, row), document.spans(row));
+                if let Some(slot) = shapes.get_mut(row) {
+                    *slot = shape(&line_text(text, row), document.spans(row));
+                }
             }
         }
     }

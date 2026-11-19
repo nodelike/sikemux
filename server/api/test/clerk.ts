@@ -1,10 +1,11 @@
-import type { ClerkBackend } from "../src/account/clerk.ts";
+import type { ClerkBackend, SignIns, SignUp } from "../src/account/clerk.ts";
 
 /** Clerk's Backend API as the tests want it to answer: done, or failing until told otherwise. */
 export class FakeClerk implements ClerkBackend {
   readonly deleted: string[] = [];
   readonly revoked: string[] = [];
   readonly appleTokens = new Map<string, string[]>();
+  readonly signUps = new Map<string, SignUp>();
   failing = false;
 
   async deleteUser(userId: string) {
@@ -23,6 +24,22 @@ export class FakeClerk implements ClerkBackend {
     return `verified address of ${userId}`;
   }
 
+  async verifiedDomains(): Promise<string[]> {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return [];
+  }
+
+  async signUp(userId: string): Promise<SignUp | null> {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return (
+      this.signUps.get(userId) ?? {
+        createdAt: new Date(0),
+        email: null,
+        addresses: [],
+      }
+    );
+  }
+
   async people(userIds: string[]) {
     if (this.failing) throw new Error("Clerk answered 500");
     return new Map(
@@ -38,5 +55,30 @@ export class FakeClerk implements ClerkBackend {
   async appleAccessTokens(userId: string) {
     if (this.failing) throw new Error("Clerk answered 500");
     return this.appleTokens.get(userId) ?? [];
+  }
+
+  readonly users = new Map<string, SignIns>();
+
+  async signIns(userId: string) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return this.users.get(userId) ?? null;
+  }
+
+  async setPrimaryAddress(userId: string, addressId: string) {
+    const user = this.users.get(userId);
+    if (user) user.primaryAddressId = addressId;
+  }
+
+  async removeAddress(addressId: string) {
+    for (const user of this.users.values())
+      user.addresses = user.addresses.filter((a) => a.id !== addressId);
+  }
+
+  async removeExternalAccount(userId: string, accountId: string) {
+    const user = this.users.get(userId);
+    if (user)
+      user.externalAccounts = user.externalAccounts.filter(
+        (a) => a.id !== accountId,
+      );
   }
 }

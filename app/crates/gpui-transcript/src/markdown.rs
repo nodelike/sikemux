@@ -164,16 +164,54 @@ impl Node {
 
     /// A cell's content as the markdown that wrote it.
     fn inline_source(&self) -> String {
+        self.written(true)
+    }
+
+    /// A paragraph or list item written back as markdown, as a reply quotes it.
+    pub fn quoted(&self) -> String {
+        match &self.kind {
+            Kind::Bullets | Kind::Numbers(_) => (self.children.iter())
+                .map(|item| format!("- {}", item.quoted()))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Kind::Paragraph | Kind::Item(_) | Kind::Quote => {
+                let mut lines: Vec<String> = Vec::new();
+                let mut inline = String::new();
+                for child in &self.children {
+                    if child.kind.is_inline() {
+                        inline.push_str(&child.written(false));
+                        continue;
+                    }
+                    if !inline.trim().is_empty() {
+                        lines.push(std::mem::take(&mut inline).trim().to_owned());
+                    }
+                    lines.push(child.quoted());
+                }
+                if !inline.trim().is_empty() {
+                    lines.push(inline.trim().to_owned());
+                }
+                lines.join("\n")
+            }
+            _ => self.written(false),
+        }
+    }
+
+    /// Inline content as the markdown that wrote it, with a cell's bars escaped when `cell`.
+    fn written(&self, cell: bool) -> String {
         let inner = || {
             self.children
                 .iter()
-                .map(Node::inline_source)
+                .map(|child| child.written(cell))
                 .collect::<String>()
         };
+        let raw = |text: &str| match cell {
+            true => text.replace('|', "\\|"),
+            false => text.to_owned(),
+        };
         match &self.kind {
-            Kind::Text => self.text.replace('|', "\\|"),
-            Kind::InlineCode => format!("`{}`", self.text.replace('|', "\\|")),
-            Kind::Math => format!("${}$", self.text.replace('|', "\\|")),
+            Kind::Text => raw(&self.text),
+            Kind::InlineCode => format!("`{}`", raw(&self.text)),
+            Kind::Math => format!("${}$", raw(&self.text)),
             Kind::Strong => format!("**{}**", inner()),
             Kind::Emphasis => format!("*{}*", inner()),
             Kind::Strike => format!("~~{}~~", inner()),
@@ -263,7 +301,11 @@ impl Node {
                 for piece in self.flow() {
                     match piece {
                         Piece::Text(rich) => texts.push(rich.text.clone()),
-                        Piece::Block(ix) => self.children[*ix].walk(texts, open),
+                        Piece::Block(ix) => {
+                            if let Some(child) = self.children.get(*ix) {
+                                child.walk(texts, open);
+                            }
+                        }
                     }
                 }
             }
@@ -288,9 +330,15 @@ impl Node {
             .char_indices()
             .nth(limit)
             .map_or(self.text.len(), |(at, _)| at);
-        let head = &self.text[..end];
+        let head = self.text.get(..end)?;
         let end = match head.rfind('\n') {
-            Some(at) if head[..at].chars().count() >= limit / 2 => at,
+            Some(at)
+                if head
+                    .get(..at)
+                    .is_some_and(|lines| lines.chars().count() >= limit / 2) =>
+            {
+                at
+            }
             _ => end,
         };
         let mut head = self.clone();
@@ -380,7 +428,7 @@ pub fn superscript(n: u64) -> String {
     const DIGITS: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
     n.to_string()
         .bytes()
-        .map(|digit| DIGITS[usize::from(digit - b'0')])
+        .filter_map(|digit| DIGITS.get(usize::from(digit - b'0')).copied())
         .collect()
 }
 
@@ -584,14 +632,17 @@ impl Markdown {
             return None;
         }
         let (mut kept, mut count) = (0, 0);
-        while count < lens.len() && kept + lens[count] <= limit {
-            kept += lens[count];
+        while let Some(&len) = lens.get(count) {
+            if kept + len > limit {
+                break;
+            }
+            kept += len;
             count += 1;
         }
         let blocks = if count > 0 {
-            self.blocks[..count].to_vec()
+            self.blocks.iter().take(count).cloned().collect()
         } else {
-            let head = self.blocks[0].code_head(limit)?;
+            let head = self.blocks.first()?.code_head(limit)?;
             kept = head.shown_len();
             vec![Rc::new(head)]
         };

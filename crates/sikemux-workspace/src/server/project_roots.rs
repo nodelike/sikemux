@@ -1,7 +1,8 @@
 //! The project picker's scan of the folders the person keeps projects in:
 //! a root is a project itself when it is a git repo or set to index itself,
-//! and below it, within its depth, each git repo is one. The walk never goes
-//! into a repo or a dot folder.
+//! and below it, within its depth, each git repo is one. A linked worktree
+//! belongs to its main repo and is never one. The walk never goes into a
+//! repo, a worktree or a dot folder.
 
 pub use sikemux_calls::project_roots::{ResolveParams, Resolved, RootEntry, ScanParams};
 use std::collections::{HashSet, VecDeque};
@@ -40,8 +41,30 @@ fn relative_name(root: &Path, p: &Path) -> String {
     }
 }
 
-fn is_repo(dir: &Path) -> bool {
-    dir.join(".git").exists()
+enum Folder {
+    Repo,
+    LinkedWorktree,
+    Plain,
+}
+
+fn folder_kind(dir: &Path) -> Folder {
+    let dot_git = dir.join(".git");
+    match fs::metadata(&dot_git) {
+        Ok(meta) if meta.is_dir() => Folder::Repo,
+        Ok(_) if links_a_worktree(dir, &dot_git) => Folder::LinkedWorktree,
+        Ok(_) => Folder::Repo,
+        Err(_) => Folder::Plain,
+    }
+}
+
+/// A `.git` file names the folder git keeps for the checkout; only a linked
+/// worktree's has a `commondir` pointing back at its main repo.
+fn links_a_worktree(dir: &Path, dot_git: &Path) -> bool {
+    let Ok(link) = fs::read_to_string(dot_git) else {
+        return false;
+    };
+    link.strip_prefix("gitdir:")
+        .is_some_and(|gitdir| dir.join(gitdir.trim()).join("commondir").is_file())
 }
 
 pub fn resolve(params: ResolveParams) -> Resolved {
@@ -61,8 +84,8 @@ pub fn resolve(params: ResolveParams) -> Resolved {
 }
 
 // DFS within `root` up to `remaining` levels deep. Within the walk, only
-// git repos are emitted; repos are also terminal — we never descend into
-// one.
+// git repos are emitted; repos and linked worktrees are terminal — we never
+// descend into one.
 fn walk(
     root: &Path,
     depth: i64,
@@ -107,20 +130,22 @@ fn walk(
             if !canonical.is_dir() {
                 continue;
             }
-            if is_repo(&canonical) {
-                let path = canonical.to_string_lossy().into_owned();
-                if seen_projects.insert(path.clone()) {
-                    if out.len() >= MAX_DISCOVERED_PROJECTS {
-                        return Err("project discovery found too many repositories; narrow the roots or depth".into());
+            match folder_kind(&canonical) {
+                Folder::LinkedWorktree => {}
+                Folder::Plain => pending.push_back((p, remaining - 1)),
+                Folder::Repo => {
+                    let path = canonical.to_string_lossy().into_owned();
+                    if seen_projects.insert(path.clone()) {
+                        if out.len() >= MAX_DISCOVERED_PROJECTS {
+                            return Err("project discovery found too many repositories; narrow the roots or depth".into());
+                        }
+                        out.push(RootEntry {
+                            name: relative_name(root, &p),
+                            path,
+                        });
                     }
-                    out.push(RootEntry {
-                        name: relative_name(root, &p),
-                        path,
-                    });
                 }
-                continue;
             }
-            pending.push_back((p, remaining - 1));
         }
     }
     Ok(())
@@ -155,15 +180,19 @@ fn scan_project_roots_sync(roots: Vec<ProjectRoot>) -> Result<Vec<RootEntry>, St
                 });
             }
         }
-        if is_repo(&root) {
-            let root_path = root.to_string_lossy().into_owned();
-            if seen.insert(root_path.clone()) {
-                out.push(RootEntry {
-                    name: name_of(&root),
-                    path: root_path,
-                });
+        match folder_kind(&root) {
+            Folder::LinkedWorktree => continue,
+            Folder::Repo => {
+                let root_path = root.to_string_lossy().into_owned();
+                if seen.insert(root_path.clone()) {
+                    out.push(RootEntry {
+                        name: name_of(&root),
+                        path: root_path,
+                    });
+                }
+                continue;
             }
-            continue;
+            Folder::Plain => {}
         }
         walk(
             &root,
@@ -196,5 +225,48 @@ mod tests {
 
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].path, root.path().to_string_lossy());
+    }
+
+    #[test]
+    fn a_linked_worktree_is_not_a_project() {
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("app");
+        let git = |args: &[&str]| {
+            crate::git::Git::quick(&repo)
+                .trimmed(args)
+                .unwrap_or_else(|error| panic!("git {args:?}: {error}"));
+        };
+        std::fs::create_dir(&repo).unwrap();
+        git(&["init", "-q"]);
+        git(&[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@localhost",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "first",
+        ]);
+        git(&[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feat",
+            "../app.worktrees/feat",
+        ]);
+        let configured: ProjectRoot = serde_json::from_value(serde_json::json!({
+            "path": root.path(),
+            "depth": 2,
+            "selfIndex": false
+        }))
+        .unwrap();
+
+        let projects = scan_project_roots_sync(vec![configured]).unwrap();
+
+        let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["app"]);
     }
 }

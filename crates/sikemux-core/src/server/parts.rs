@@ -65,6 +65,7 @@ pub(crate) struct Fields {
     pub(super) chiefs: chief::Chiefs,
     pub(super) now: now::Now,
     pub(super) finishing: finished::Finishing,
+    pub(super) peer: super::peer::Peer,
 }
 
 pub(crate) trait Parts {
@@ -103,6 +104,7 @@ pub(crate) trait Parts {
     fn chiefs(&self) -> &chief::Chiefs;
     fn now(&self) -> &now::Now;
     fn finishing(&self) -> &finished::Finishing;
+    fn peer(&self) -> &super::peer::Peer;
 }
 
 impl Parts for Core {
@@ -244,6 +246,10 @@ impl Parts for Core {
 
     fn finishing(&self) -> &finished::Finishing {
         &self.kept::<Fields>().finishing
+    }
+
+    fn peer(&self) -> &super::peer::Peer {
+        &self.kept::<Fields>().peer
     }
 }
 

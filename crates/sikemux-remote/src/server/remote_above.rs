@@ -17,7 +17,7 @@ use sikemux_view::workspace::LookReply;
 use sikemux_view::calls::PersonCall;
 
 use super::{Core, CoreResult};
-use crate::accounts::protocol::{AccountEvent, DeviceList};
+use crate::accounts::protocol::{AccountEvent, DeviceList, ShareRegistry};
 
 /// A link being served until it ends.
 type Serving = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -54,6 +54,8 @@ pub struct RemoteAbove {
     pub hosts_relink: fn(&Core),
     /// A linked host connected: its link is served until it ends.
     pub serve_link: fn(Arc<Core>, Connection) -> Serving,
+    /// Answers a teammate's host reading a project shared with their org.
+    pub serve_peer: fn(Arc<Core>, Connection) -> Serving,
     /// What this host draws behind its panes, for a browser on the account.
     pub host_look: fn(&Core) -> LookReply,
     /// The account no longer has these hosts, so their links go.
@@ -68,6 +70,8 @@ pub struct RemoteAbove {
     pub vault_books: fn(&Core) -> Vec<VaultBook>,
     /// The account said these things happened; the stash and the mods take what is theirs.
     pub account_heard: fn(&Arc<Core>, &[AccountEvent]),
+    /// The account's share registry or orgs were read again, with the registry if it answered.
+    pub shares_heard: fn(&Arc<Core>, Option<ShareRegistry>),
     /// The live connection is up again: the stash and the mods read what the account kept while
     /// this host was away.
     pub account_catch_up: fn(&Arc<Core>),

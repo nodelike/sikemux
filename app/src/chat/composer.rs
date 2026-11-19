@@ -88,6 +88,8 @@ pub struct Strip {
     pub worktree: Option<AnyElement>,
     /// A worktree agent's pull request, beside the worktree.
     pub pull: Option<AnyElement>,
+    /// What the project listens for, last on the left.
+    pub listening: Option<AnyElement>,
     pub account: Option<AnyElement>,
     /// Why smart accounts started this new chat on its account, said beside the account until
     /// the first message.
@@ -823,6 +825,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
         }))
         .children(strip.worktree)
         .children(strip.pull)
+        .children(strip.listening)
         .child(div().flex_1())
         .children(
             strip

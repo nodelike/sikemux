@@ -103,6 +103,9 @@ pub struct Composing {
     pub dismissed: Option<SharedString>,
     /// The files going out with the next message, its pictures named in the draft by number.
     pub attachments: Vec<PathBuf>,
+    /// Where the chat's core keeps each file sent to it from this host, so the same file
+    /// dropped again while its copy is still going names that copy instead of sending it twice.
+    pub kept_from: HashMap<PathBuf, PathBuf>,
     /// The file attached last and when, whose tile flashes as it comes in.
     pub fresh: Option<(PathBuf, std::time::Instant)>,
     /// The agents, files or commands offered for the word at the caret.
@@ -898,6 +901,13 @@ pub(super) fn strip(
         }),
         worktree,
         pull: crate::worktrees::head::pull_badge(bench, &agent.id, cx),
+        listening: project
+            .filter(|_| place == bench.place())
+            .and_then(|project| {
+                let own = head.map_or(&[][..], |head| head.triggers.as_slice());
+                let folder = project.path.to_string_lossy();
+                super::listening::item(bench, &project.id, &folder, own, cx)
+            }),
         account,
     }
 }
@@ -925,7 +935,7 @@ pub fn step_prompts(
     if older {
         let at = at.checked_sub(1)?;
         *recalled = Some((at, typed));
-        return Some(prompts[at].clone());
+        return prompts.get(at).cloned();
     }
     match prompts.get(at + 1) {
         Some(prompt) => {
@@ -1053,7 +1063,7 @@ impl Chat {
     pub fn unknown_command<'a>(&self, text: &'a str) -> Option<&'a str> {
         let commands = &self.state.as_ref()?.commands;
         let word = text.strip_prefix('/')?;
-        let name = &word[..word.find(char::is_whitespace).unwrap_or(word.len())];
+        let name = word.split(char::is_whitespace).next().unwrap_or(word);
         let named = !name.is_empty()
             && name
                 .chars()
@@ -1211,6 +1221,11 @@ impl Workbench {
                         shift: false,
                         secondary,
                     } => bench.send(&owner, *secondary, window, cx),
+                    InputEvent::PressEnter { shift: true, .. } => {
+                        if let Some(call) = crate::calls::reply::call_of(&owner) {
+                            bench.follow_up(call, window, cx);
+                        }
+                    }
                     InputEvent::Change => {
                         let empty = draft.read(cx).value().is_empty();
                         if was_empty.replace(empty) != empty {
@@ -1273,6 +1288,7 @@ impl Workbench {
             suggested: None,
             dismissed: None,
             attachments: Vec::new(),
+            kept_from: HashMap::new(),
             fresh: None,
             menu: None,
             model_open: false,
@@ -1535,15 +1551,6 @@ impl Workbench {
         let outgoing = composing.outgoing(cx);
         let text = draft.read(cx).value().trim().to_owned();
         if text.is_empty() && outgoing.0.is_empty() {
-            let place = (self.chats.open.get(agent)).map(|chat| chat.target.place().clone());
-            let keyed = place.and_then(|place| self.keyed_call(&place, agent, cx));
-            if let Some(id) = keyed.filter(|_| primary) {
-                // A production call is never sent by a key; only its button sends it.
-                if !self.ships_to_production(&id) {
-                    self.go_with(&id, cx);
-                }
-                return;
-            }
             if primary {
                 self.answer(
                     agent,

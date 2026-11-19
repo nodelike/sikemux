@@ -64,11 +64,11 @@ impl WholeChat {
 
     /// The place among `hits` the rows' own find is on, by its row, part and place in the part.
     fn of(&self, (row, part, nth): (&str, &str, usize)) -> Option<usize> {
-        let mut in_part: Vec<usize> = (0..self.hits.len())
-            .filter(|&at| self.hits[at].row == row && self.hits[at].part == part)
+        let mut in_part: Vec<(usize, &FindHit)> = (self.hits.iter().enumerate())
+            .filter(|(_, hit)| hit.row == row && hit.part == part)
             .collect();
-        in_part.sort_by_key(|&at| self.hits[at].range[0]);
-        in_part.get(nth).copied()
+        in_part.sort_by_key(|(_, hit)| hit.range[0]);
+        in_part.get(nth).map(|(at, _)| *at)
     }
 
     /// The bar's words, `3/41…` while counting goes on, with the place the reader is on: the one
@@ -325,7 +325,9 @@ impl Workbench {
             });
         };
         whole.at = Some(to);
-        let hit = whole.hits[to].clone();
+        let Some(hit) = whole.hits.get(to).cloned() else {
+            return;
+        };
         let nth = whole.nth(&hit);
         let held = chat.transcript.read(cx).holds(&hit.row);
         chat.transcript.update(cx, |transcript, cx| {

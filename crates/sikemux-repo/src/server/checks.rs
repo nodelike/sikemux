@@ -36,6 +36,10 @@ use culprit::{Hunted, Search};
 /// How long a check may run, and how much of what it says is kept.
 const RUN_LIMIT: Duration = Duration::from_secs(30 * 60);
 const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
+/// How long the merge queue's checkout keeps a build result no check has written since. Each
+/// check's set of crates can give every crate new feature flags, so Cargo builds them again
+/// under new names and the old ones pile up by the hundred gigabytes.
+const QUEUE_BUILDS_KEPT_FOR: Duration = Duration::from_secs(3 * 60 * 60);
 /// Checks running at once across projects, one per this many cores.
 const CORES_PER_CHECK: usize = 2;
 const MIN_RUNNING: usize = 2;
@@ -423,7 +427,7 @@ fn choose_tier(
 fn sample_seed(agent: &str) -> u32 {
     use sha2::{Digest, Sha256};
     let hash = Sha256::digest(agent.as_bytes());
-    u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]])
+    u32::from_be_bytes(*hash.first_chunk::<4>().unwrap_or(&[0; 4]))
 }
 
 /// What came of a batch's check in the integration checkout.
@@ -487,7 +491,7 @@ async fn run_batch(
                 use crate::server::edits::generate::regenerate;
                 match regenerate(&owner, &dir, &checkout, &newest, &agents) {
                     Ok(Some(generated)) => Ok(BatchRun::Generated(generated)),
-                    Ok(None) => run_check(&checkout, &command, seed, RUN_LIMIT, Vec::new())
+                    Ok(None) => run_check(&checkout, &command, seed, RUN_LIMIT)
                         .map(BatchRun::Ran),
                     Err(error) => Err(format!(
                         "the files the project generates could not be brought up to date: {error}"
@@ -584,7 +588,6 @@ async fn run_batch(
                     sound,
                     commits: commits.clone(),
                     failing_took: ran.took_ms,
-                    in_queue: false,
                 },
             )
             .await
@@ -993,7 +996,7 @@ fn newest_with(dir: &Path, commits: Vec<Commit>) -> (Vec<Commit>, Vec<Commit>) {
     let Some(mut newest) = commits.first().map(|commit| commit.sha.clone()) else {
         return (Vec::new(), Vec::new());
     };
-    for commit in &commits[1..] {
+    for commit in commits.iter().skip(1) {
         if holds(&commit.sha, &newest) {
             newest.clone_from(&commit.sha);
         }
@@ -1309,14 +1312,8 @@ pub fn stop_running() {
     }
 }
 
-fn run_check(
-    cwd: &Path,
-    command: &str,
-    seed: u32,
-    limit: Duration,
-    env: Vec<(String, String)>,
-) -> Result<Ran, String> {
-    run_timed(cwd, command, seed, limit, env).map_err(String::from)
+fn run_check(cwd: &Path, command: &str, seed: u32, limit: Duration) -> Result<Ran, String> {
+    run_timed(cwd, command, seed, limit, Vec::new()).map_err(String::from)
 }
 
 /// Why a check did not run.
@@ -1417,6 +1414,7 @@ pub async fn run_in_queue(
     let env = before_commit(agent);
     let ran = tokio::task::spawn_blocking(move || {
         refresh(&owner, &dir, &checkout)?;
+        drop_old_builds(&checkout);
         let ran = run_timed(&checkout, &command, seed, RUN_LIMIT, env.clone())?;
         if ran.passed || !compiler_cache_failed(&ran.text) {
             return Ok(ran);
@@ -1434,45 +1432,30 @@ pub async fn run_in_queue(
     })
 }
 
+fn drop_old_builds(checkout: &Path) {
+    let Some(before) = std::time::SystemTime::now().checked_sub(QUEUE_BUILDS_KEPT_FOR) else {
+        return;
+    };
+    let entries = |dir: &Path| std::fs::read_dir(dir).into_iter().flatten().flatten();
+    for profile in entries(&checkout.join("target")) {
+        for folder in ["deps", "examples"] {
+            for built in entries(&profile.path().join(folder)) {
+                let old = (built.metadata().ok())
+                    .filter(|meta| meta.is_file())
+                    .and_then(|meta| meta.modified().ok())
+                    .is_some_and(|modified| modified < before);
+                if old {
+                    let _ = std::fs::remove_file(built.path());
+                }
+            }
+        }
+    }
+}
+
 /// Whether a build failed because its compiler cache did, not its code, so a
 /// run without the cache can say whether the code builds.
 fn compiler_cache_failed(output: &str) -> bool {
     output.contains("daemon compilation did not complete") || output.contains("sccache: error")
-}
-
-/// The first of `commits`, oldest first on top of `sound`, that fails
-/// `command` in the merge queue's checkout, or why none could be named.
-pub async fn first_failing_in_queue(
-    core: &Arc<Core>,
-    dir: &Path,
-    commits: Vec<String>,
-    sound: &str,
-    command: &str,
-    agent: &str,
-    failing_took: u64,
-) -> Result<String, String> {
-    let commits = commits
-        .into_iter()
-        .map(|sha| Commit {
-            sha,
-            subject: String::new(),
-            agents: vec![agent.to_owned()],
-        })
-        .collect();
-    let search = Search {
-        dir: dir.to_owned(),
-        command: command.to_owned(),
-        seed: sample_seed(agent),
-        sound: Some(sound.to_owned()),
-        commits,
-        failing_took,
-        in_queue: true,
-    };
-    match culprit::hunt(core, search).await {
-        Hunted::Found { sha, .. } => Ok(sha),
-        Hunted::Unknown { why, .. } => Err(why),
-        Hunted::NotTried => Err("nothing was searched".to_owned()),
-    }
 }
 
 /// Runs a check or gate's command in the worktree. Whether it passed, and the

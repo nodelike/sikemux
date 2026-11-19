@@ -44,9 +44,9 @@ impl Chat {
                 return;
             };
             let mut update = sikemux_fold::update::usage(saved.used, size);
-            if kind == AgentKind::Claude {
-                update["compactAt"] =
-                    json!(compact_at(size, claude_window(launch.model.as_deref())));
+            if let (AgentKind::Claude, Some(fields)) = (kind, update.as_object_mut()) {
+                let compact = compact_at(size, claude_window(launch.model.as_deref()));
+                fields.insert("compactAt".to_owned(), json!(compact));
             }
             if chat.generation == generation {
                 chat.feed.emit(

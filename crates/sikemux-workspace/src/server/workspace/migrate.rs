@@ -64,9 +64,13 @@ pub fn carry_over(saved: &mut Saved, read: &Value, app: Option<Value>) {
 /// Gives every agent kept before the core chose buddy colours one of its own.
 pub fn dress_agents(saved: &mut Saved) {
     for index in 0..saved.agents.len() {
-        let mut agent = saved.agents[index].agent.clone();
+        let Some(mut agent) = saved.agents.get(index).map(|kept| kept.agent.clone()) else {
+            continue;
+        };
         dress(&mut agent, &saved.agents);
-        saved.agents[index].agent = agent;
+        if let Some(kept) = saved.agents.get_mut(index) {
+            kept.agent = agent;
+        }
     }
 }
 
@@ -108,9 +112,11 @@ pub fn untitle_chiefs(saved: &mut Saved) {
 /// Brings back to the list the agents the core once settled by itself; only the person
 /// settles an agent now.
 pub fn unsettle_by_core(saved: &mut Saved, read: &Value) {
-    let by_core: Vec<&str> = (read["agents"].as_array().into_iter().flatten())
-        .filter(|kept| kept["place"]["settled"]["byCore"].as_bool() == Some(true))
-        .filter_map(|kept| kept["id"].as_str())
+    let by_core: Vec<&str> = (read.get("agents").and_then(Value::as_array))
+        .into_iter()
+        .flatten()
+        .filter(|kept| kept.pointer("/place/settled/byCore") == Some(&Value::Bool(true)))
+        .filter_map(|kept| kept.get("id").and_then(Value::as_str))
         .collect();
     for kept in &mut saved.agents {
         if by_core.contains(&kept.agent.id.as_str()) {
@@ -189,6 +195,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 standing: Default::default(),
                 calls: 0,
                 cloning: None,
+                shared: None,
             })
         })
         .filter(|project| project.path.is_absolute())

@@ -21,12 +21,16 @@ pub fn read(rows: &[&str]) -> String {
     let from = rows.len().saturating_sub(BOTTOM_ROWS).max(1);
     let Some(start) = (from..rows.len())
         .rev()
-        .find(|&row| prompt(rows[row]).is_some() && rule(rows[row - 1]))
+        .find(|&row| match rows.get(row - 1..=row) {
+            Some([above, at]) => prompt(at).is_some() && rule(above),
+            _ => false,
+        })
     else {
         return String::new();
     };
-    let mut lines = vec![prompt(rows[start]).unwrap_or_default()];
-    for row in rows[start + 1..].iter().take_while(|row| !rule(row)) {
+    let first = rows.get(start).copied().and_then(prompt);
+    let mut lines = vec![first.unwrap_or_default()];
+    for row in rows.iter().skip(start + 1).take_while(|row| !rule(row)) {
         let mut characters = row.chars();
         if !characters.by_ref().take(2).all(char::is_whitespace) {
             return String::new();

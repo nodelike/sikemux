@@ -197,15 +197,23 @@ impl Diff {
                 row.2 = expand_tabs(&row.2);
             }
         }
+        let [old, new] = &mut sides;
         let at = rows
             .iter()
             .map(|row| {
-                let side = usize::from(row.0 != ROW_DELETED);
-                let line = sides[side].len() as u32;
+                let side = if row.0 == ROW_DELETED {
+                    &mut *old
+                } else {
+                    &mut *new
+                };
+                let line = side.len() as u32;
                 match row.0 {
                     ROW_HIDDEN => {}
-                    ROW_ADDED | ROW_DELETED => sides[side].push(&row.2),
-                    _ => sides.iter_mut().for_each(|lines| lines.push(&row.2)),
+                    ROW_ADDED | ROW_DELETED => side.push(&row.2),
+                    _ => {
+                        old.push(&row.2);
+                        new.push(&row.2);
+                    }
                 }
                 line
             })
@@ -251,7 +259,7 @@ impl Diff {
 
     /// The line in the new text a row stands for, from 0, as an editor opens it.
     pub fn target(&self, row: usize) -> u32 {
-        self.targets[row]
+        self.targets.get(row).copied().unwrap_or_default()
     }
 
     /// Each row's note: an added row's by its line, and where lines were taken out with
@@ -261,23 +269,30 @@ impl Diff {
             return Vec::new();
         }
         let mut shown = vec![None; self.rows.len()];
+        let note_gap = |shown: &mut [Option<SharedString>], start: usize| {
+            if let (Some(slot), Some(target)) = (shown.get_mut(start), self.targets.get(start)) {
+                *slot = notes.gaps.get(&(target + 1)).cloned();
+            }
+        };
         let mut block: Option<(usize, bool)> = None;
         for (index, DiffRow(kind, number, _)) in self.rows.iter().enumerate() {
             match *kind {
                 ROW_ADDED => {
-                    shown[index] = notes.lines.get(number).cloned();
+                    if let Some(slot) = shown.get_mut(index) {
+                        *slot = notes.lines.get(number).cloned();
+                    }
                     block = Some((block.map_or(index, |(start, _)| start), true));
                 }
                 ROW_DELETED => block = Some(block.unwrap_or((index, false))),
                 _ => {
                     if let Some((start, false)) = block.take() {
-                        shown[start] = notes.gaps.get(&(self.targets[start] + 1)).cloned();
+                        note_gap(&mut shown, start);
                     }
                 }
             }
         }
         if let Some((start, false)) = block {
-            shown[start] = notes.gaps.get(&(self.targets[start] + 1)).cloned();
+            note_gap(&mut shown, start);
         }
         shown
     }
@@ -344,8 +359,10 @@ impl Colours {
                     if let Some(colours) =
                         coloured(view).filter(|colours| colours.version == Some(version))
                     {
-                        colours.sides[side] = Some(lines);
-                        cx.notify();
+                        if let Some(slot) = colours.sides.get_mut(side) {
+                            *slot = Some(lines);
+                            cx.notify();
+                        }
                     }
                 })
                 .ok();
@@ -355,10 +372,13 @@ impl Colours {
     }
 
     fn of(&self, diff: &Diff, row: usize) -> &[(Range<usize>, HighlightStyle)] {
-        let side = usize::from(diff.rows[row].0 != ROW_DELETED);
-        self.sides[side]
-            .as_ref()
-            .and_then(|lines| lines.get(diff.at[row] as usize))
+        let (Some(DiffRow(kind, ..)), Some(&at)) = (diff.rows.get(row), diff.at.get(row)) else {
+            return &[];
+        };
+        self.sides
+            .get(usize::from(*kind != ROW_DELETED))
+            .and_then(Option::as_ref)
+            .and_then(|lines| lines.get(at as usize))
             .map_or(&[], Vec::as_slice)
     }
 }
@@ -407,7 +427,9 @@ pub fn row(
     file: Option<&Path>,
     expand: impl Fn(&mut Window, &mut App) + 'static,
 ) -> Div {
-    let DiffRow(kind, number, text) = &diff.rows[index];
+    let Some(DiffRow(kind, number, text)) = diff.rows.get(index) else {
+        return div();
+    };
     if *kind == ROW_HIDDEN {
         let hover = look.hover;
         let shown = match *number {

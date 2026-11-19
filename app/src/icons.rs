@@ -68,6 +68,10 @@ icons!(
     Command => "command",
     Contrast => "contrast",
     Commit => "commit",
+    ListTodo => "list-todo",
+    CircleMoving => "circle-moving",
+    CircleDashed => "circle-dashed",
+    CircleSlash => "circle-slash",
     Copy => "copy",
     Cube => "cube",
     Dashboard => "dashboard",
@@ -175,6 +179,7 @@ icons!(
     Status => "status",
     Steps => "steps",
     Stop => "stop",
+    Pause => "pause",
     Swipe => "swipe",
     Table => "table",
     Tablet => "tablet",
@@ -189,6 +194,7 @@ icons!(
     Unlink => "unlink",
     Upload => "upload",
     User => "user",
+    Users => "users",
     Vercel => "vercel",
     PhoneQr => "phone-qr",
     Viewport => "viewport",
@@ -247,6 +253,10 @@ icons!(
 );
 
 /// Whether an SVG draws in `currentColor`.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "runs only at compile time, and the loop bounds keep both indexes in range"
+)]
 const fn tints(svg: &[u8]) -> bool {
     let needle = b"currentColor";
     let mut start = 0;

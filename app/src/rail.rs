@@ -55,6 +55,23 @@ impl Rail {
             Rail::Agents => crate::agents::TAB_RAIL,
         }
     }
+
+    /// What `pair`, the side rail's first, keeps for this rail.
+    pub(crate) fn of<T>(self, pair: &[T; 2]) -> &T {
+        let [side, agents] = pair;
+        match self {
+            Rail::Side => side,
+            Rail::Agents => agents,
+        }
+    }
+
+    pub(crate) fn of_mut<T>(self, pair: &mut [T; 2]) -> &mut T {
+        let [side, agents] = pair;
+        match self {
+            Rail::Side => side,
+            Rail::Agents => agents,
+        }
+    }
 }
 
 /// The window's edge a closed rail comes out from.
@@ -120,7 +137,7 @@ impl Rails {
     }
 
     pub(crate) fn keyed(&self, rail: Rail) -> &KeyedRows {
-        &self.keyed[rail as usize]
+        rail.of(&self.keyed)
     }
 
     /// Opens, sizes and pages the rails as the person's preferences keep them.
@@ -353,7 +370,7 @@ fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement
     let row = Row::new("this-host", t!("This host"))
         .mark(
             16.,
-            ui::icon(Icon::Laptop, 14.)
+            ui::icon(Icon::Laptop, crate::theme::ROW_GLYPH)
                 .text_color(t.text_secondary)
                 .group_hover(ui::ROW, move |style| style.text_color(t.text_primary)),
         )
@@ -552,7 +569,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                         bench.choose_host(crate::hosts::HostChoice::Account(key.clone()), cx)
                     }))
                 })
-                .mark(16., host_glyph(14., linked, cx))
+                .mark(16., host_glyph(crate::theme::ROW_GLYPH, linked, cx))
                 .quiet()
                 .when_some(
                     {
@@ -1039,6 +1056,16 @@ fn project_tree(
                 cx,
             ))
     });
+    let shared = (front.as_ref()).and_then(|copy| {
+        bench
+            .project_on(&copy.place, &copy.project)?
+            .shared
+            .as_ref()
+    });
+    let mark = match shared.filter(|shared| !shared.name.is_empty()) {
+        Some(shared) => ui::org_mark(&shared.name, &shared.org, 14.).into_any_element(),
+        None => project_glyph(13., cx).into_any_element(),
+    };
     let go = {
         let (front, identity) = (front, folded.identity.clone());
         cx.listener(move |bench, _, _, cx| {
@@ -1052,7 +1079,7 @@ fn project_tree(
         SharedString::from(format!("project-{key}")),
         folded.name.clone(),
     )
-    .mark(16., project_glyph(13., cx))
+    .mark(16., mark)
     .quiet()
     .bold(active)
     .chosen(active)
@@ -1272,7 +1299,7 @@ fn rollup(bench: &Workbench, folded: &Folded, cx: &App) -> Option<gpui_kit::AnyE
     ui::status_mark(&key, status, cx)
 }
 
-/// The project's surfaces, its Agent Board and its Playbook, hung off a spine with a tick to each, the one in
+/// The project's surfaces and its Playbook, hung off a spine with a tick to each, the one in
 /// front lit.
 fn surfaces(
     workbench: &Workbench,
@@ -1313,18 +1340,6 @@ fn surfaces(
                 cx,
             )
         });
-    let board = crate::workbench::actions::FocusAgentBoard::ID;
-    let board = tree_row(
-        "surface-board".into(),
-        Icon::SquareKanban,
-        n!("Agent Board"),
-        false,
-        false,
-        keymap::hint(board, cx),
-        cx,
-    )
-    .clicks(move |_, window, cx| keymap::dispatch(board, window, cx));
-    let board = keyed.row("surface-board", t!("Agent Board"), board, cx);
     let playbook = crate::workbench::actions::FocusPlaybook::ID;
     let playbook = tree_row(
         "surface-playbook".into(),
@@ -1344,7 +1359,6 @@ fn surfaces(
         .py(SPACE_0)
         .pr(SPACE_1H)
         .children(surfaces)
-        .child(board)
         .child(playbook)
 }
 
@@ -1599,19 +1613,13 @@ fn space_menu(
 fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let Some(view) = bench.this_view() else {
-        return div()
-            .flex_none()
-            .flex()
+        return foot(&t)
             .justify_end()
-            .px(SPACE_2H)
-            .py(SPACE_1H)
-            .border_t(crate::theme::border())
-            .border_color(t.border)
             .child(settings_button())
             .into_any_element();
     };
     let Some(account) = view.account.as_deref() else {
-        return sign_in(bench, cx).into_any_element();
+        return foot(&t).child(sign_in(bench, cx)).into_any_element();
     };
     let who = account
         .name
@@ -1681,6 +1689,13 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
             )
         },
     );
+    foot(&t)
+        .child(div().flex_1().min_w_0().child(menu))
+        .into_any_element()
+}
+
+/// The rail's last band, under a line, that holds the account row.
+fn foot(t: &Tokens) -> Div {
     div()
         .flex_none()
         .flex()
@@ -1690,8 +1705,6 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .py(SPACE_1H)
         .border_t(crate::theme::border())
         .border_color(t.border)
-        .child(div().flex_1().min_w_0().child(menu))
-        .into_any_element()
 }
 
 /// A row of the account menu, roomier than other menus' rows since it opens the width of the rail.
@@ -1742,12 +1755,27 @@ fn settings_button() -> IconButton {
     IconButton::new("settings", Icon::Settings, t!("Settings"))
         .glyph(14.)
         .width(28.)
-        .on_click(|_, window, cx| keymap::dispatch(actions::ToggleSettings::ID, window, cx))
+        .on_click(|_, window, cx| {
+            cx.stop_propagation();
+            keymap::dispatch(actions::ToggleSettings::ID, window, cx)
+        })
 }
 
 /// The account's picture in a circle, else its initials.
 pub(crate) fn avatar(bench: &Workbench, account: &AccountInfo, size: f32, t: &Tokens) -> Div {
     let initials = initials(account.name.as_deref(), account.email.as_deref());
+    face(size, t)
+        .text_size(px(size * 0.375))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(t.text_secondary)
+        .map(|face| match bench.picture() {
+            Some(picture) => face.child(gpui_kit::img(picture).size_full().rounded_full()),
+            None => face.child(initials),
+        })
+}
+
+/// The circle an account's picture sits in, and the sign-in mark in its place.
+fn face(size: f32, t: &Tokens) -> Div {
     div()
         .size(px(size))
         .flex_none()
@@ -1759,13 +1787,6 @@ pub(crate) fn avatar(bench: &Workbench, account: &AccountInfo, size: f32, t: &To
         .flex()
         .items_center()
         .justify_center()
-        .text_size(px(size * 0.375))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(t.text_secondary)
-        .map(|face| match bench.picture() {
-            Some(picture) => face.child(gpui_kit::img(picture).size_full().rounded_full()),
-            None => face.child(initials),
-        })
 }
 
 /// The first letters of the first and last words of the name, else the email's first.
@@ -1784,57 +1805,28 @@ fn initials(name: Option<&str>, email: Option<&str>) -> String {
     }
 }
 
+/// The account row while no one is signed in: it signs in, and its gear opens Settings.
 fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx);
-    let (copy, button) = if bench.signing_in {
-        (
-            t!("Finish signing in in your browser."),
-            Button::new("sign-in", t!("Cancel"), Variant::Outline).on_click(cx.listener(
-                |bench, _, _, cx| {
-                    bench.cancel_sign_in();
-                    cx.notify();
-                },
-            )),
-        )
-    } else {
-        (
-            t!("Sign in to reach this host from your phone and other devices."),
-            Button::new("sign-in", t!("Sign in"), Variant::Primary)
-                .icon(Icon::LogIn)
-                .on_click(cx.listener(|bench, _, _, cx| {
-                    bench.sign_in();
-                    cx.notify();
-                })),
-        )
+    let mark = face(24., t).child(ui::icon(Icon::LogIn, 13.).text_color(t.accent));
+    let row = match bench.signing_in {
+        true => Row::new("account", t!("Finish signing in in your browser"))
+            .detail(t!("Cancel"))
+            .on_click(cx.listener(|bench, _, _, cx| {
+                bench.cancel_sign_in();
+                cx.notify();
+            })),
+        false => Row::new("account", t!("Sign in")).on_click(cx.listener(|bench, _, _, cx| {
+            bench.sign_in();
+            cx.notify();
+        })),
     };
-    div()
-        .flex_none()
-        .mx(SPACE_2H)
-        .mb(SPACE_2H)
-        .p(SPACE_2)
-        .flex()
-        .flex_col()
-        .gap(SPACE_2)
-        .rounded(radius_2())
-        .bg(gpui_kit::Hsla {
-            a: 0.04,
-            ..t.text_primary
-        })
-        .child(
-            div()
-                .text_size(crate::theme::ui_text(TEXT_XS))
-                .line_height(crate::theme::ui_text(12. * 1.4))
-                .text_color(t.text_secondary)
-                .child(copy),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(SPACE_1)
-                .child(div().flex_1().min_w_0().flex().flex_col().child(button))
-                .child(settings_button()),
-        )
+    div().flex_1().min_w_0().child(
+        row.mark(24., mark)
+            .centered()
+            .padding_right(2.)
+            .child(settings_button()),
+    )
 }
 
 /// `rail` taking the keys, whose arrows walk the rows it lists.
@@ -1851,7 +1843,7 @@ pub(crate) fn keyed_rail(
         let this = cx.weak_entity();
         move |key: &A, window: &mut Window, cx: &mut App| {
             this.update(cx, |bench, cx| {
-                if bench.rails.keyed[which as usize].key(key, window, cx) {
+                if which.of_mut(&mut bench.rails.keyed).key(key, window, cx) {
                     bench.redraw_rail(which, cx);
                 }
             })
@@ -1901,10 +1893,10 @@ impl Workbench {
             .into_iter()
             .find(|rail| self.rails.keyed(*rail).focus.contains_focused(window, cx));
         let at = areas.iter().position(|area| *area == now).unwrap_or(0);
-        let to = areas[(at as isize + by).rem_euclid(areas.len() as isize) as usize];
-        match to {
+        let to = areas.get((at as isize + by).rem_euclid(areas.len() as isize) as usize);
+        match to.copied().flatten() {
             Some(rail) => {
-                self.rails.keyed[rail as usize].take_keys(window, cx);
+                rail.of_mut(&mut self.rails.keyed).take_keys(window, cx);
                 self.redraw_rail(rail, cx);
             }
             None => self.keys_to_stage(window, cx),
@@ -1925,7 +1917,7 @@ impl Workbench {
 
     /// How wide `rail` is drawn, which a narrow window can make less than the width kept.
     pub fn rail_width(&self, rail: Rail) -> f32 {
-        self.rails.drawn[rail as usize]
+        *rail.of(&self.rails.drawn)
     }
 
     fn kept_width(&self, rail: Rail) -> f32 {
@@ -1980,9 +1972,9 @@ impl Workbench {
         };
         crate::panes::handle(id, DraggedRail(rail), true)
             .key_context("RailResizer")
-            .track_focus(&self.rails.resizers[rail as usize])
+            .track_focus(rail.of(&self.rails.resizers))
             .clicks_keep_cursor(cx.listener(move |bench, _, window, cx| {
-                bench.rails.resizers[rail as usize].focus(window, cx)
+                rail.of(&bench.rails.resizers).focus(window, cx)
             }))
             .on_action(cx.listener(move |bench, _: &EdgeLeft, window, cx| {
                 bench.nudge_rail(rail, -16., window, cx)

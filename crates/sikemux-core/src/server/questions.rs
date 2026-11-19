@@ -72,6 +72,7 @@ const MIN_HIDDEN_SECRET_CHARS: usize = 4;
 const HIDDEN: &str = "••••••••";
 const MAX_QUESTION_BYTES: usize = 8 * 1024;
 const MAX_CHOICES: usize = 9;
+const MAX_PAGES: usize = 6;
 const MAX_LABEL_CHARS: usize = 200;
 const MAX_DETAIL_CHARS: usize = 400;
 /// How recent the page an agent showed must be for a call about its work to link it unasked.
@@ -133,6 +134,9 @@ struct Question {
     /// The page that shows what it is about.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     page: Option<CallPage>,
+    /// Pages after the first, when it names several.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    more_pages: Vec<CallPage>,
     /// Where a do call's task is done, or the change a look call shows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     link: Option<CallLink>,
@@ -206,6 +210,11 @@ impl Question {
         }
     }
 
+    /// Every page it names, the first one first.
+    fn pages(&self) -> impl Iterator<Item = &CallPage> {
+        self.page.iter().chain(&self.more_pages)
+    }
+
     /// Its call to the person is one for a change to production.
     fn production_call(&self) -> bool {
         !self.secret && self.approval.is_some()
@@ -243,6 +252,8 @@ impl Question {
             joined: Vec::new(),
             about: self.about.clone(),
             page: self.page.clone(),
+            more_pages: self.more_pages.clone(),
+            shown_in: Vec::new(),
             link: self.link.clone(),
             question: self.text.clone(),
             context: None,
@@ -333,6 +344,8 @@ struct State {
     keeper: Keeper,
     /// The open questions also put to the person on another host, and which.
     relayed_to: HashMap<String, String>,
+    /// Notes for askers whose pick was cleared, by asker, not yet sent.
+    unpicked: Vec<(String, String)>,
 }
 
 pub(crate) struct Questions {
@@ -422,7 +435,7 @@ struct Asked {
     secret: bool,
     kind: Option<CallKind>,
     about: Option<CallAsker>,
-    page: Option<CallPage>,
+    pages: Vec<CallPage>,
     link: Option<CallLink>,
     approval: Option<Approval>,
     dialog: Option<String>,
@@ -737,6 +750,44 @@ impl Questions {
 
     /// The person typed into the terminal of an agent that asked them
     /// something, which answers it there.
+    /// The person wrote to `agent_id` directly, so a call about its work no longer stands behind
+    /// the pick its asker made before: the pick is cleared and the asker told to edit or withdraw.
+    pub(crate) fn steered(&self, agent_id: &str) {
+        let mut state = self.state.locked();
+        let mut notes = Vec::new();
+        for question in &mut state.open {
+            let about = question
+                .about
+                .as_ref()
+                .filter(|about| about.agent_id == agent_id);
+            let Some(about) = about.filter(|_| question.asks_person()) else {
+                continue;
+            };
+            let picked = question
+                .choices
+                .iter_mut()
+                .filter(|choice| choice.recommended);
+            if picked.map(|choice| choice.recommended = false).count() == 0 {
+                continue;
+            }
+            let named = question
+                .header
+                .clone()
+                .unwrap_or_else(|| clipped(&question.text, 80));
+            let note = format!(
+                "The person wrote to @{} directly after your call \"{named}\", so its pick was \
+                 cleared. If it no longer stands, edit it with ask edit: \"{}\" or withdraw it \
+                 with withdraw: true.",
+                about.name, question.id
+            );
+            notes.push((question.agent_id.clone(), note));
+        }
+        if !notes.is_empty() {
+            state.unpicked.extend(notes);
+            self.changed(&mut state);
+        }
+    }
+
     pub(crate) fn typed(&self, agent_id: &str) {
         let mut state = self.state.locked();
         let before = state.open.len();
@@ -905,12 +956,9 @@ fn mark_pick(pick: &str, choices: &mut [QuestionChoice]) {
 fn recommended(label: &str) -> (&str, bool) {
     const MARK: &str = "(recommended)";
     let label = label.trim();
-    let cut = label
-        .len()
-        .checked_sub(MARK.len())
-        .filter(|&at| label.is_char_boundary(at));
+    let cut = (label.len().checked_sub(MARK.len())).and_then(|at| label.split_at_checked(at));
     match cut {
-        Some(at) if label[at..].eq_ignore_ascii_case(MARK) => (label[..at].trim_end(), true),
+        Some((kept, mark)) if mark.eq_ignore_ascii_case(MARK) => (kept.trim_end(), true),
         _ => (label, false),
     }
 }
@@ -995,7 +1043,8 @@ fn open(
                 LAST_PAGE_MS,
             ),
             about: asked.about,
-            page: asked.page,
+            page: asked.pages.first().cloned(),
+            more_pages: asked.pages.iter().skip(1).cloned().collect(),
             link: asked.link,
             id: format!("question-{}", uuid::Uuid::new_v4().simple()),
             agent_id: agent_id.to_owned(),
@@ -1082,8 +1131,8 @@ fn for_lead(question: &Question) -> (String, String) {
     }
     let id = &question.agent_id;
     let note = format!(
-        "@{name} ({id}), an agent you started, asks you this. Answer with agent_send to {id}, setting answers to {}. If only the person can answer it, ask them yourself with ask, setting about to {id}, and their answer reaches @{name} too. If your turn ends with neither, it goes to the person.",
-        question.id
+        "@{name} ({id}), an agent you started, asks you this. Answer with agent_send to {id}, setting answers to {}. If only the person can answer it, ask them yourself with ask, setting about to {}, and their answer reaches @{name} too. If your turn ends with neither, it goes to the person.",
+        question.id, question.id
     );
     (text, note)
 }
@@ -1125,6 +1174,9 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         .clone()
         .ok_or("ask needs the calling agent's id")?;
     let params = &request.params;
+    if let Some(id) = text_param(params, "edit", 64)? {
+        return edit(core, request, &agent_id, &id).await;
+    }
     let text = text_param(params, "question", MAX_QUESTION_BYTES)?
         .ok_or("question must be what you want to know, as nonempty text")?;
     let mut choices = choices(params.get("choices"))?;
@@ -1141,14 +1193,14 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     let look = kind == Some(CallKind::Look);
     let blocked = secret || (!look && flag("blocked")?.unwrap_or(true));
     let link = link_param(params.get("link"))?;
-    let page_wanted = text_param(params, "page", 64)?;
+    let pages_wanted = pages_param(params)?;
     if let Some(form) = kind.and_then(form_choices) {
         formed(
             core,
             &agent_id,
             look,
             header.is_some(),
-            (&page_wanted, &link),
+            (!pages_wanted.is_empty(), &link),
         )?;
         choices = form;
     } else if let Some(pick) = params.get("pick").and_then(Value::as_str) {
@@ -1156,14 +1208,21 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     }
     (core.harness().questions).keep_pictures(&request.project, &mut choices)?;
     let about_wanted = text_param(params, "about", 200)?;
-    let about = match &about_wanted {
-        Some(wanted) => about_of(core, &agent_id, wanted).await,
-        None => None,
+    let (about, held_question) = match &about_wanted {
+        Some(wanted) => match handed_question(core, &agent_id, wanted) {
+            Some(about) => (Some(about), Some(wanted.clone())),
+            None => (about_of(core, &agent_id, wanted).await, None),
+        },
+        None => (None, None),
     };
-    let page = match page_wanted.as_deref() {
-        Some(id) => page_of(core, id),
-        None => (about.as_ref()).and_then(|about| last_page_of(core, &about.agent_id)),
-    };
+    let (pages, unknown_pages): (Vec<_>, Vec<_>) = (pages_wanted.iter())
+        .map(|id| page_of(core, id).ok_or(id.clone()))
+        .partition(Result::is_ok);
+    let mut pages: Vec<CallPage> = pages.into_iter().flatten().collect();
+    if pages_wanted.is_empty() {
+        pages.extend((about.as_ref()).and_then(|about| last_page_of(core, &about.agent_id)));
+    }
+    let unknown_pages: Vec<String> = unknown_pages.into_iter().filter_map(Result::err).collect();
     let question = open(
         core,
         &agent_id,
@@ -1176,22 +1235,15 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             secret,
             kind,
             about,
-            page,
+            pages,
             link,
             approval: None,
             dialog: None,
         }],
     )?
     .remove(0);
-    if let (Some(page), Some(data_dir)) = (&question.page, core.config().data_dir.clone()) {
-        let (page, call) = (page.id.clone(), question.id.clone());
-        let linked = move || {
-            super::harness::page_index::link_call(&data_dir, &page, &call);
-            Ok(())
-        };
-        let _ = super::connection::blocking(linked).await;
-    }
-    hold_for(core, &question);
+    link_pages(core, &question).await;
+    hold_for(core, &question, held_question.as_deref());
     hand_to_lead(core, &question).await;
     let question = core
         .harness()
@@ -1209,8 +1261,85 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             Stage::Lead { lead_name, .. } => lead_name.clone(),
             Stage::Person { .. } => "the person".to_owned(),
         },
-        "note": left_off(sent_note(&question), about_wanted.filter(|_| question.about.is_none()), page_wanted.filter(|_| question.page.is_none())),
+        "note": left_off(sent_note(&question), about_wanted.filter(|_| question.about.is_none()), &unknown_pages),
     }))
+}
+
+/// Changes or withdraws the open question `id` that `agent_id` asked, as the edit of an ask says;
+/// the person's open call then shows the change, or closes as withdrawn.
+async fn edit(
+    core: &Arc<Core>,
+    request: &HarnessRequest,
+    agent_id: &str,
+    id: &str,
+) -> Result<Value, String> {
+    let params = &request.params;
+    let withdraw = matches!(params.get("withdraw"), Some(Value::Bool(true)));
+    let text = text_param(params, "question", MAX_QUESTION_BYTES)?;
+    let header = (text_param(params, "title", MAX_QUESTION_BYTES)?)
+        .map(|header| clipped(&header, MAX_HEADER_CHARS));
+    let mut choices = match params.get("choices") {
+        None | Some(Value::Null) => None,
+        given => Some(choices(given)?),
+    };
+    if let Some(choices) = &mut choices {
+        (core.harness().questions).keep_pictures(&request.project, choices)?;
+    }
+    let pick = params.get("pick").and_then(Value::as_str);
+    let link = link_param(params.get("link"))?;
+    let pages = (pages_param(params)?.iter())
+        .map(|id| page_of(core, id).ok_or(format!("no page {id} to show")))
+        .collect::<Result<Vec<_>, _>>()?;
+    let question = {
+        let questions = &core.harness().questions;
+        let mut state = questions.state.locked();
+        let at = (state.open.iter())
+            .position(|open| open.id == id && open.agent_id == agent_id)
+            .ok_or(
+                "no open call of yours has that id: it was answered, withdrawn or asked by another",
+            )?;
+        if withdraw {
+            let question = state.open.remove(at);
+            questions.changed(&mut state);
+            drop(state);
+            if let Some(lead) = question.lead_id() {
+                messages::withdraw(core, lead, &question.id);
+            }
+            return Ok(json!({ "withdrawn": id }));
+        }
+        let question = state.open.get_mut(at).ok_or("that call just closed")?;
+        if question.kind.and_then(form_choices).is_some() && (choices.is_some() || pick.is_some()) {
+            return Err(
+                "a do or look call's choices are fixed: edit its title, question, pages or link"
+                    .into(),
+            );
+        }
+        if let Some(text) = text {
+            question.asked = text.clone();
+            question.text = text;
+        }
+        if header.is_some() {
+            question.header = header;
+        }
+        if let Some(choices) = choices {
+            question.choices = choices;
+        }
+        if let Some(pick) = pick {
+            mark_pick(pick, &mut question.choices);
+        }
+        if !pages.is_empty() {
+            question.page = pages.first().cloned();
+            question.more_pages = pages.into_iter().skip(1).collect();
+        }
+        if link.is_some() {
+            question.link = link;
+        }
+        let question = question.clone();
+        questions.changed(&mut state);
+        question
+    };
+    link_pages(core, &question).await;
+    Ok(json!({ "edited": id }))
 }
 
 /// Refuses a do or look call that lacks what it is drawn with, and a look from an agent that leads
@@ -1220,7 +1349,7 @@ fn formed(
     agent_id: &str,
     look: bool,
     titled: bool,
-    (page, link): (&Option<String>, &Option<CallLink>),
+    (paged, link): (bool, &Option<CallLink>),
 ) -> Result<(), String> {
     if !titled {
         return Err("a do or look call needs a title naming it in a few words".into());
@@ -1228,7 +1357,7 @@ fn formed(
     if !look {
         return Ok(());
     }
-    if page.is_none() && link.is_none() {
+    if !paged && link.is_none() {
         return Err("a look call needs the page or the link it shows".into());
     }
     let leads =
@@ -1260,21 +1389,27 @@ fn link_param(value: Option<&Value>) -> Result<Option<CallLink>, String> {
     }))
 }
 
-/// Has `call` hold the questions the agent it is about asked its asker, so a lead that asks the
-/// person about its worker's question raises one call, whose answer goes to both.
-fn hold_for(core: &Core, call: &Question) {
+/// Has `call` hold the question the agent it is about asked its asker, so a lead that asks the
+/// person about its worker's question raises one call, whose answer goes to both. Unless the
+/// asker named the question, only a lone one no other call holds is held: the answer fits no other.
+fn hold_for(core: &Core, call: &Question, named: Option<&str>) {
     let Some(about) = call.about.as_ref().filter(|_| !call.secret) else {
         return;
     };
     let questions = &core.harness().questions;
     let mut state = questions.state.locked();
+    let held_elsewhere =
+        |id: &str| (state.open.iter()).any(|open| open.holds.iter().any(|held| held == id));
     let held: Vec<String> = (state.open.iter())
         .filter(|open| {
-            open.agent_id == about.agent_id && open.lead_id() == Some(call.agent_id.as_str())
+            open.agent_id == about.agent_id
+                && open.lead_id() == Some(call.agent_id.as_str())
+                && named.is_none_or(|named| open.id == named)
+                && !held_elsewhere(&open.id)
         })
         .map(|open| open.id.clone())
         .collect();
-    if held.is_empty() {
+    if held.len() != 1 {
         return;
     }
     if let Some(open) = state.open.iter_mut().find(|open| open.id == call.id) {
@@ -1283,19 +1418,72 @@ fn hold_for(core: &Core, call: &Question) {
     }
 }
 
+/// The agent that asked `asker` the open question `id`, when it is one.
+fn handed_question(core: &Core, asker: &str, id: &str) -> Option<CallAsker> {
+    let question = (core.harness().questions.state.locked().open.iter())
+        .find(|open| open.id == id && open.lead_id() == Some(asker))
+        .cloned()?;
+    Some(CallAsker {
+        chief: super::chief::all(core).contains(&question.agent_id),
+        agent_id: question.agent_id,
+        name: question.name,
+        cli: question.cli,
+    })
+}
+
 /// The note on an asked question, saying which of its hints the card leaves off.
-fn left_off(note: String, about: Option<String>, page: Option<String>) -> String {
+fn left_off(note: String, about: Option<String>, pages: &[String]) -> String {
     let about = about.map(|about| {
         format!(" The card names no other agent: {about} is you, or no open agent is called that.")
     });
-    let page = page.map(|page| {
-        format!(" The card links no page: {page} is no page you showed with page_show.")
+    let pages = (!pages.is_empty()).then(|| {
+        format!(
+            " The card leaves off {}: no page you showed with page_show has that id.",
+            pages.join(", ")
+        )
     });
     format!(
         "{note}{}{}",
         about.unwrap_or_default(),
-        page.unwrap_or_default()
+        pages.unwrap_or_default()
     )
+}
+
+/// The page ids an ask names, by `page` and then `pages`, each once.
+fn pages_param(params: &Value) -> Result<Vec<String>, String> {
+    let mut ids: Vec<String> = text_param(params, "page", 64)?.into_iter().collect();
+    match params.get("pages") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(list)) if list.len() <= MAX_PAGES => {
+            for id in list {
+                let id = (id.as_str())
+                    .ok_or("pages must be a list of page ids")?
+                    .trim();
+                if !id.is_empty() && !ids.iter().any(|kept| kept == id) {
+                    ids.push(id.to_owned());
+                }
+            }
+        }
+        Some(Value::Array(_)) => return Err(format!("pages holds at most {MAX_PAGES}")),
+        Some(_) => return Err("pages must be a list of page ids".into()),
+    }
+    Ok(ids)
+}
+
+/// Records each page `question` names as linked to its call, so the page knows its call.
+async fn link_pages(core: &Core, question: &Question) {
+    let Some(data_dir) = core.config().data_dir.clone() else {
+        return;
+    };
+    let pages: Vec<String> = question.pages().map(|page| page.id.clone()).collect();
+    let call = question.id.clone();
+    let linked = move || {
+        for page in &pages {
+            super::harness::page_index::link_call(&data_dir, page, &call);
+        }
+        Ok(())
+    };
+    let _ = super::connection::blocking(linked).await;
 }
 
 /// The open agent `wanted` names, by name or id, looked for in the asker's project first. None
@@ -1362,7 +1550,7 @@ pub(crate) fn put_to_person(
             secret: false,
             kind: None,
             about: None,
-            page: None,
+            pages: Vec::new(),
             link: None,
             approval: Some(approval),
             dialog: None,
@@ -1397,7 +1585,7 @@ pub(crate) fn ask_for_dialog(
             secret: false,
             kind: None,
             about: None,
-            page: None,
+            pages: Vec::new(),
             link: None,
             approval: None,
             dialog: Some(dialog),
@@ -1460,7 +1648,7 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
                 secret: question["isSecret"].as_bool().unwrap_or(false),
                 kind: None,
                 about: None,
-                page: None,
+                pages: Vec::new(),
                 link: None,
                 approval: None,
                 dialog: None,
@@ -1902,7 +2090,8 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             })
             .collect();
         match messages::answer(core, asker.to_owned(), sent).await {
-            Ok(delivered) if delivered["delivery"] == "waiting" => {}
+            Ok(delivered)
+                if delivered.get("delivery").and_then(Value::as_str) == Some("waiting") => {}
             Ok(_) => core.harness().questions.delivered(asker),
             Err(error) => {
                 reopen(
@@ -2051,11 +2240,9 @@ fn attach_picked_pictures(core: &Arc<Core>, answers: &mut [AnswerParams]) {
             continue;
         };
         let to = dir.join(name);
-        if std::fs::create_dir_all(dir)
-            .and_then(|()| std::fs::copy(from, &to))
-            .is_ok()
-        {
-            answers[at].paths.push(to.to_string_lossy().into_owned());
+        let copied = std::fs::create_dir_all(dir).and_then(|()| std::fs::copy(from, &to));
+        if let (Ok(_), Some(answer)) = (copied, answers.get_mut(at)) {
+            answer.paths.push(to.to_string_lossy().into_owned());
         }
     }
 }
@@ -2076,6 +2263,13 @@ fn reply_text(params: &AnswerParams) -> Result<String, String> {
 /// and tells the window and phones what changed. Runs when questions or the
 /// agents change, and again when a lead's time to answer runs out.
 pub(crate) fn settle(core: &Arc<Core>) {
+    let unpicked = std::mem::take(&mut core.harness().questions.state.locked().unpicked);
+    for (asker, note) in unpicked {
+        let core = core.clone();
+        tokio::spawn(async move {
+            let _ = messages::from_sikemux(&core, asker, note).await;
+        });
+    }
     let (askers, leads): (HashSet<String>, HashSet<String>) = {
         let state = core.harness().questions.state.locked();
         if state.dirty {
@@ -2424,16 +2618,16 @@ mod tests {
         .await
         .expect("the project");
         for agent in ["worker", "lead"] {
-            let serde_json::Value::Object(draft) = serde_json::json!({
-                "id": agent,
-                "provider": "claude",
-                "project": project.id,
-                "cwd": dir.path(),
-                "title": agent,
-                "permissionMode": "auto",
-            }) else {
-                unreachable!()
-            };
+            let draft: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_value(serde_json::json!({
+                    "id": agent,
+                    "provider": "claude",
+                    "project": project.id,
+                    "cwd": dir.path(),
+                    "title": agent,
+                    "permissionMode": "auto",
+                }))
+                .expect("a draft");
             core.workspaces().put_agent_draft(draft).expect("the agent");
         }
         let workers: Question = serde_json::from_value(serde_json::json!({
@@ -2468,11 +2662,117 @@ mod tests {
             .open
             .extend([workers, leads.clone()]);
 
-        super::hold_for(&core, &leads);
+        super::hold_for(&core, &leads, None);
         super::settle(&core);
 
         let for_person: Vec<String> = questions.for_person().into_iter().map(|q| q.id).collect();
         assert_eq!(for_person, ["question-lead"]);
+    }
+
+    /// @Chief raised two calls about @Lille's two questions, and @Lille got the first call's
+    /// answer for both.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn two_calls_about_one_worker_each_answer_their_own_question() {
+        use super::{AnswerParams, AnswersParams};
+        use crate::server::parts::Parts;
+        use crate::server::workspace::{AddProjectParams, AddProjectParamsExt};
+        use crate::server::workspace_state::WorkspaceParts;
+        use crate::server::{Core, ServerCore};
+
+        let core = Core::new(Default::default(), None).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let mut all = vec!["-c", "user.name=test", "-c", "user.email=test@localhost"];
+            all.extend(args);
+            crate::git::Git::at(dir.path()).text(&all).expect("git");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "start"]);
+        let project = crate::server::workspace::add_project(
+            &core,
+            AddProjectParams::at(dir.path().to_owned()),
+        )
+        .await
+        .expect("the project");
+        for agent in ["worker", "lead"] {
+            let draft: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_value(serde_json::json!({
+                    "id": agent,
+                    "provider": "claude",
+                    "project": project.id,
+                    "cwd": dir.path(),
+                    "title": agent,
+                    "permissionMode": "auto",
+                }))
+                .expect("a draft");
+            core.workspaces().put_agent_draft(draft).expect("the agent");
+        }
+        let workers = |id: &str, asked: &str| -> Question {
+            serde_json::from_value(serde_json::json!({
+                "id": id,
+                "agentId": "worker",
+                "name": "Lille",
+                "cli": "claude",
+                "project": project.id,
+                "asked": asked,
+                "text": asked,
+                "choices": [],
+                "blocked": true,
+                "at": 7,
+                "stage": { "stage": "lead", "leadId": "lead", "leadName": "Chief", "endedAt": null },
+            }))
+            .expect("a question")
+        };
+        let questions = &core.harness().questions;
+        questions.state.locked().open.extend([
+            workers("question-search", "Where does search go?"),
+            workers("question-tasks", "T1 or T2 for teammates' tasks?"),
+        ]);
+        let mut calls = Vec::new();
+        for (id, about, text) in [
+            ("1", "question-search", "Where does search go?"),
+            ("2", "question-tasks", "T1 or T2 for teammates' tasks?"),
+        ] {
+            let request = crate::cli::protocol::HarnessRequest {
+                id: id.to_owned(),
+                project: project.id.clone(),
+                agent_id: Some("lead".to_owned()),
+                method: "agent.ask".to_owned(),
+                params: serde_json::json!({ "question": text, "about": about }),
+            };
+            let asked = super::ask(&core, &request).await.expect("the call");
+            calls.push(asked["questionId"].as_str().unwrap().to_owned());
+        }
+
+        for (call, answer) in calls.iter().zip(["In the triggers view", "T1"]) {
+            super::answer_all(
+                &core,
+                AnswersParams {
+                    answers: vec![AnswerParams {
+                        id: call.clone(),
+                        answer: Some(answer.to_owned()),
+                        ..AnswerParams::default()
+                    }],
+                },
+            )
+            .await
+            .expect("the answer");
+        }
+
+        let answered: Vec<(String, Option<String>)> = (questions.state.locked().answered.iter())
+            .filter(|answered| answered.question.agent_id == "worker")
+            .map(|answered| (answered.question.id.clone(), answered.answer.clone()))
+            .collect();
+        assert_eq!(
+            answered,
+            [
+                (
+                    "question-search".to_owned(),
+                    Some("In the triggers view".to_owned())
+                ),
+                ("question-tasks".to_owned(), Some("T1".to_owned())),
+            ]
+        );
     }
 
     /// An access call asking the person to press a button in a page only they reach kept its

@@ -193,8 +193,8 @@ pub async fn lsp_save(
     };
     task::spawn_blocking(move || {
         let mut params = json!({ "textDocument": { "uri": path_to_uri(&path) } });
-        if let Some(text) = content {
-            params["text"] = json!(text);
+        if let (Some(text), Some(fields)) = (content, params.as_object_mut()) {
+            fields.insert("text".to_owned(), json!(text));
         }
         notify(&server, "textDocument/didSave", params)
     })
@@ -216,10 +216,9 @@ pub async fn lsp_close(project: String, language: String, path: String) -> LspRe
             return Ok(false);
         };
         if document.refs > 1 {
-            documents
-                .get_mut(&path)
-                .expect("document disappeared while its map is locked")
-                .refs -= 1;
+            if let Some(document) = documents.get_mut(&path) {
+                document.refs -= 1;
+            }
             return Ok(false);
         }
         let mut last_change = server.last_change.locked();
@@ -268,8 +267,8 @@ pub async fn lsp_locations(
         "textDocument": { "uri": path_to_uri(&path) },
         "position": { "line": line, "character": character }
     });
-    if with_context {
-        params["context"] = json!({ "includeDeclaration": false });
+    if let (true, Some(fields)) = (with_context, params.as_object_mut()) {
+        fields.insert("context".to_owned(), json!({ "includeDeclaration": false }));
     }
     let result = task::spawn_blocking(move || request(&server, method, params))
         .await

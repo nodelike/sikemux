@@ -15,10 +15,12 @@ import {
   IconPlus,
   IconUsers,
 } from "@shared/ui/Icons";
+import { useClerk, useUser } from "@clerk/react";
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 
+import { useSignInWays } from "./AccountPage.tsx";
 import { problemText } from "./api.ts";
-import { PersonAvatar } from "./Avatar.tsx";
+import { Avatar, PersonAvatar } from "./Avatar.tsx";
 import {
   ChangeSeats,
   heldChange,
@@ -34,7 +36,15 @@ import {
   priceOf,
   productOf,
 } from "./money.ts";
-import { BILLING, TEAM } from "./navigation.ts";
+import { useInviteOrg } from "./invite.ts";
+import { BILLING, JOIN, TEAM } from "./navigation.ts";
+import {
+  OfferRow,
+  OrgChoice,
+  ROLE_WORDS,
+  useOffers,
+  useOrgs,
+} from "./OrgPages.tsx";
 import {
   Confirm,
   ItemRow,
@@ -46,12 +56,7 @@ import {
   useAction,
   useNotice,
 } from "./ui.tsx";
-
-const ROLE_WORDS: Record<OrgRole, string> = {
-  owner: "Owner",
-  admin: "Admin",
-  user: "User",
-};
+import { BringSeat } from "./Fold.tsx";
 
 /** Whether someone with `actor`'s role may change, remove or invite someone with `role`, as the API decides it. */
 function manages(actor: OrgRole, role: OrgRole) {
@@ -67,30 +72,25 @@ type Detail = {
 };
 
 export function TeamPage({ follow }: { follow: Follow }) {
-  const client = useClient();
-  const [orgs, setOrgs] = useState<Org[]>();
-  const [problem, setProblem] = useState<string>();
-  const [chosen, setChosen] = useState<string>();
-  const [tick, setTick] = useState(0);
+  const { orgs, org, problem, choose, reload, version } = useOrgs();
+  const offers = useOffers(true);
   const { notice, show } = useNotice();
-  const org = orgs?.find((each) => each.id === chosen) ?? orgs?.[0];
 
-  useEffect(() => {
-    let current = true;
-    void client("see your org")
-      .then((routes) => routes.listOrgs())
-      .then(
-        ({ orgs }) => current && setOrgs(orgs),
-        (error: unknown) =>
-          current &&
-          setProblem(`${problemText(error)} Reload the page to try again.`),
-      );
-    return () => {
-      current = false;
-    };
-  }, [client, tick]);
-
-  const reload = () => setTick((n) => n + 1);
+  const joined = (each: Org) => {
+    show(`You joined ${each.name}`);
+    choose(each.id);
+    offers.reload();
+    reload();
+  };
+  const offered = offers.offers.length ? (
+    <Section label="Orgs at your email domains">
+      <Rows>
+        {offers.offers.map((offer) => (
+          <OfferRow key={offer.orgId} offer={offer} onJoined={joined} />
+        ))}
+      </Rows>
+    </Section>
+  ) : null;
 
   if (problem)
     return (
@@ -115,7 +115,7 @@ export function TeamPage({ follow }: { follow: Follow }) {
   if (!org)
     return (
       <>
-        <NoOrg />
+        <NoOrg offered={offered} />
         {notice}
       </>
     );
@@ -125,23 +125,15 @@ export function TeamPage({ follow }: { follow: Follow }) {
       <PageHead title="Team">
         {org.name}. Everyone with a seat has Pro on their own hosts.
       </PageHead>
-      {orgs.length > 1 ? (
-        <div className="payer">
-          <Segmented
-            label="Which org"
-            value={org.id}
-            onChange={setChosen}
-            options={orgs.map((each) => ({ value: each.id, name: each.name }))}
-          />
-        </div>
-      ) : null}
+      <OrgChoice orgs={orgs} org={org} choose={choose} />
       <OrgView
         key={org.id}
         org={org}
-        version={tick}
+        version={version}
         follow={follow}
         reload={reload}
         show={show}
+        offered={offered}
       />
       {notice}
     </>
@@ -154,12 +146,14 @@ function OrgView({
   follow,
   reload,
   show,
+  offered,
 }: {
   org: Org;
   version: number;
   follow: Follow;
   reload: () => void;
   show: (text: string) => void;
+  offered: ReactNode;
 }) {
   const client = useClient();
   const [detail, setDetail] = useState<Detail>();
@@ -278,6 +272,7 @@ function OrgView({
           }}
         />
       ) : null}
+      {offered}
       <Leave org={org} onLeft={reload} show={show} />
     </div>
   );
@@ -746,7 +741,7 @@ function Leave({
   );
 }
 
-function NoOrg() {
+function NoOrg({ offered }: { offered: ReactNode }) {
   const client = useClient();
   const checkout = useCheckout();
   const [catalog, setCatalog] = useState<BillingCatalog>();
@@ -822,12 +817,19 @@ function NoOrg() {
             )}
           </div>
         </Section>
+        {offered}
         <Section label="Joining an org">
           <Rows>
             <ItemRow
               glyph={<IconLink size={16} />}
               name="Been given an invite link?"
               detail="Open it while signed in here and you join that org. Nothing is mailed, so ask the owner for one."
+            />
+            <ItemRow
+              glyph={<IconUsers size={16} />}
+              name="Hold a seat on another account?"
+              detail="Sign in with that account once and its seat moves here. It must hold nothing but the seat."
+              end={<BringSeat />}
             />
           </Rows>
         </Section>
@@ -838,13 +840,22 @@ function NoOrg() {
 
 export function JoinPage({ follow }: { follow: Follow }) {
   const client = useClient();
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  const signIns = useSignInWays();
   const [token] = useState(() => location.hash.slice(1));
+  const orgName = useInviteOrg(token);
   const action = useAction();
   const [joined, setJoined] = useState<Org>();
 
   useEffect(() => {
     if (location.hash) history.replaceState(null, "", location.pathname);
   }, []);
+
+  const name = user?.fullName || user?.username || "this account";
+  const ways = new Intl.ListFormat("en", { type: "conjunction" }).format(
+    signIns.map((way) => way.name),
+  );
 
   const body: ReactNode = joined ? (
     <>
@@ -865,11 +876,28 @@ export function JoinPage({ follow }: { follow: Follow }) {
     </>
   ) : (
     <>
-      <PageHead title="Join an org">
-        You've been sent an invite link. Joining takes one of the org's seats
-        and gives you Pro on your own hosts while you hold it. Nobody in the org
-        sees your hosts or your email address.
+      <PageHead title={orgName ? `Join ${orgName}` : "Join an org"}>
+        You've been sent an invite link. Joining takes one of{" "}
+        {orgName ? `${orgName}'s` : "the org's"} seats and gives you Pro on your
+        own hosts while you hold it. Nobody in the org sees your hosts or your
+        email address.
       </PageHead>
+      <Rows>
+        <ItemRow
+          glyph={<Avatar size={28} />}
+          name={`Joining as ${name}`}
+          detail={`The account on this browser. It signs in with ${ways}.`}
+          end={
+            <button
+              type="button"
+              className="remove"
+              onClick={() => void signOut({ redirectUrl: `${JOIN}#${token}` })}
+            >
+              Not you?
+            </button>
+          }
+        />
+      </Rows>
       {action.problem ? (
         <p className="problem" role="alert">
           {action.problem}
@@ -892,8 +920,12 @@ export function JoinPage({ follow }: { follow: Follow }) {
           )
         }
       >
-        Join the org
+        {orgName ? `Join ${orgName}` : "Join the org"}
       </button>
+      <p className="fine">
+        The link works with any account. You don&rsquo;t need an address at{" "}
+        {orgName ?? "the org"} to join.
+      </p>
     </>
   );
 

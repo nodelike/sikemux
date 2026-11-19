@@ -746,7 +746,7 @@ fn target(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Di
             ))
         }
         None => web_link(text).map(|range| {
-            let url = text[range.clone()].to_owned();
+            let url = text.get(range.clone()).unwrap_or_default().to_owned();
             let open: Opens = std::rc::Rc::new(move |press, window, cx| {
                 if !matches!(press, FilePress::Menu(_)) {
                     super::link::open(&url, &agent, &bench, window, cx)
@@ -776,7 +776,7 @@ fn target(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Di
         }));
     let line = match opens {
         Some((range, open)) => line
-            .child(text[..range.start].to_owned())
+            .child(text.get(..range.start).unwrap_or_default().to_owned())
             .child(
                 div()
                     .id(SharedString::from(format!("target:{id}")))
@@ -799,9 +799,9 @@ fn target(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Di
                         cx.stop_propagation();
                         open(FilePress::Menu(event.position), window, cx);
                     })
-                    .child(text[range.clone()].to_owned()),
+                    .child(text.get(range.clone()).unwrap_or_default().to_owned()),
             )
-            .child(text[range.end..].to_owned()),
+            .child(text.get(range.end..).unwrap_or_default().to_owned()),
         None => line.child(text.to_owned()),
     };
     line.children(row.detail.clone().map(|detail| {
@@ -817,11 +817,13 @@ type Opens = std::rc::Rc<dyn Fn(FilePress, &mut gpui_kit::Window, &mut App)>;
 /// Where a web address starts and ends in a row's target, its closing punctuation left out.
 fn web_link(text: &str) -> Option<std::ops::Range<usize>> {
     let start = text.find("https://").or_else(|| text.find("http://"))?;
-    let rest = &text[start..];
+    let rest = text.get(start..)?;
     let end = rest
         .find(|ch: char| ch.is_whitespace() || matches!(ch, '<' | '>' | '"' | '\'' | '`'))
         .unwrap_or(rest.len());
-    let link = rest[..end].trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']']);
+    let link = rest
+        .get(..end)?
+        .trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']']);
     Some(start..start + link.len())
 }
 
@@ -940,7 +942,7 @@ fn terminal(
                 .rmatch_indices('\n')
                 .nth(OUTPUT_TAIL_LINES - 1)
                 .map_or(0, |(at, _)| at + 1);
-            &text[from..]
+            text.get(from..).unwrap_or(text)
         }
         false => text,
     };
@@ -1178,8 +1180,8 @@ fn kept(lines: &[DiffLine], context: usize) -> Vec<bool> {
     for (ix, line) in lines.iter().enumerate() {
         if line.sign != " " {
             let end = ix.saturating_add(context).min(lines.len() - 1);
-            keep[ix.saturating_sub(context)..=end]
-                .iter_mut()
+            (keep.get_mut(ix.saturating_sub(context)..=end).into_iter())
+                .flatten()
                 .for_each(|kept| *kept = true);
         }
     }

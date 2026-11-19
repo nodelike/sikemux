@@ -419,7 +419,12 @@ pub fn overlay(
     let account = bench
         .this_view()
         .and_then(|view| view.account.as_deref())
-        .and_then(|account| account.email.clone().or_else(|| account.name.clone()));
+        .map(|account| {
+            account
+                .name
+                .clone()
+                .unwrap_or_else(|| t!("Your account").into())
+        });
     let tile = |icon: Icon| {
         div()
             .size(px(72.))

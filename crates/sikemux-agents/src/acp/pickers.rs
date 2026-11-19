@@ -6,17 +6,23 @@ use serde_json::{json, Value};
 
 pub use sikemux_fold::pickers::pickers;
 
+fn set(object: &mut Value, key: &str, value: Value) {
+    if let Some(object) = object.as_object_mut() {
+        object.insert(key.to_owned(), value);
+    }
+}
+
 pub fn choice(value: &str, name: &str, description: Option<&str>) -> Value {
     let mut choice = json!({ "value": value, "name": name });
     if let Some(description) = description {
-        choice["description"] = json!(description);
+        set(&mut choice, "description", json!(description));
     }
     choice
 }
 
 /// `choice` marked as the one the agent takes when none is made.
 pub fn as_default(mut choice: Value) -> Value {
-    choice["isDefault"] = json!(true);
+    set(&mut choice, "isDefault", json!(true));
     choice
 }
 
@@ -35,7 +41,7 @@ pub fn model_select(about: Option<&str>, current: &str, mut choices: Vec<Value>)
         "options": choices,
     });
     if let Some(about) = about {
-        select["description"] = json!(about);
+        set(&mut select, "description", json!(about));
     }
     select
 }
@@ -63,16 +69,20 @@ pub fn effort_select(
 /// `choice` with the efforts its model takes, `default` the one it runs at when none is
 /// picked, so the effort row can be built for it before a session is on it.
 pub fn with_efforts(mut choice: Value, efforts: &[&str], default: Option<&str>) -> Value {
-    choice["efforts"] = json!(efforts);
+    set(&mut choice, "efforts", json!(efforts));
     if let Some(default) = default {
-        choice["defaultEffort"] = json!(default);
+        set(&mut choice, "defaultEffort", json!(default));
     }
     choice
 }
 
 /// Names the effort row a model select's choices build, by the `id` the agent changes it by.
 pub fn with_effort_row(mut select: Value, id: &str, name: &str, about: &str) -> Value {
-    select["effortRow"] = json!({ "id": id, "name": name, "description": about });
+    set(
+        &mut select,
+        "effortRow",
+        json!({ "id": id, "name": name, "description": about }),
+    );
     select
 }
 
@@ -126,11 +136,14 @@ pub fn fit_effort(options: &mut Value) {
         })
         .collect();
     let picked = old.as_ref().and_then(|row| row["currentValue"].as_str());
-    let current = [picked, default.as_deref()]
+    let Some(current) = [picked, default.as_deref()]
         .into_iter()
         .flatten()
         .find(|level| levels.iter().any(|offered| offered == level))
-        .unwrap_or(&levels[0]);
+        .or_else(|| levels.first().map(String::as_str))
+    else {
+        return;
+    };
     let row = effort_select(
         &text("id", "effort"),
         &text("name", "Effort"),

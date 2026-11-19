@@ -84,11 +84,14 @@ async fn ended(core: &Core, execution_id: u64) -> Result<Option<String>, String>
     )
     .await
     .map_err(|failure| plugged::explain(&failure))?;
-    if read["ended"].is_null() {
+    if read.get("ended").is_none_or(Value::is_null) {
         return Ok(None);
     }
-    let status = read["status"].as_str().unwrap_or("ended");
-    let url = read["url"].as_str().unwrap_or_default();
+    let status = read
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("ended");
+    let url = read.get("url").and_then(Value::as_str).unwrap_or_default();
     Ok(Some(
         format!("Rundeck run {execution_id} ended {status}. {url}")
             .trim_end()

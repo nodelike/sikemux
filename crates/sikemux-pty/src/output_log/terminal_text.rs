@@ -63,15 +63,17 @@ impl Screen {
     }
 
     fn put(&mut self, character: char) {
-        let line = &mut self.rows[self.row];
+        let Some(line) = self.rows.get_mut(self.row) else {
+            return;
+        };
         if line.len() < self.col {
             let padding = (self.col - line.len()).min(self.padding_left);
             self.padding_left -= padding;
             line.resize(line.len() + padding, ' ');
             self.col = line.len();
         }
-        if self.col < line.len() {
-            line[self.col] = character;
+        if let Some(cell) = line.get_mut(self.col) {
+            *cell = character;
         } else {
             line.push(character);
         }
@@ -79,8 +81,9 @@ impl Screen {
     }
 
     fn newline(&mut self, at: u64) {
-        let end = &mut self.ends[self.row];
-        *end = Some(end.map_or(at, |previous| previous.max(at)));
+        if let Some(end) = self.ends.get_mut(self.row) {
+            *end = Some(end.map_or(at, |previous| previous.max(at)));
+        }
         self.go_to_row(self.row + 1);
         self.col = 0;
     }
@@ -115,7 +118,9 @@ impl Screen {
             'G' | '`' => self.set_col(count - 1),
             'H' | 'f' => self.set_col(numbers.get(1).copied().unwrap_or(0).max(1) - 1),
             'K' => {
-                let line = &mut self.rows[self.row];
+                let Some(line) = self.rows.get_mut(self.row) else {
+                    return;
+                };
                 match first {
                     0 => line.truncate(self.col),
                     1 => {
@@ -127,7 +132,9 @@ impl Screen {
                 }
             }
             'J' if first == 0 => {
-                self.rows[self.row].truncate(self.col);
+                if let Some(line) = self.rows.get_mut(self.row) {
+                    line.truncate(self.col);
+                }
                 self.rows.truncate(self.row + 1);
                 self.ends.truncate(self.row + 1);
             }
@@ -234,16 +241,20 @@ pub fn collapse(lines: Vec<Line>) -> Vec<Line> {
     while index < lines.len() {
         let mut best: Option<(usize, usize)> = None;
         for size in 1..=LONGEST_REPEATED_BLOCK.min((lines.len() - index) / 2) {
-            let block = &lines[index..index + size];
+            let Some(block) = lines.get(index..index + size) else {
+                continue;
+            };
             if block.iter().all(|line| line.text.is_empty()) {
                 continue;
             }
             let mut copies = 1;
-            while index + (copies + 1) * size <= lines.len()
-                && lines[index + copies * size..index + (copies + 1) * size]
-                    .iter()
-                    .zip(block)
-                    .all(|(line, first)| line.text == first.text)
+            while lines
+                .get(index + copies * size..index + (copies + 1) * size)
+                .is_some_and(|copy| {
+                    copy.iter()
+                        .zip(block)
+                        .all(|(line, first)| line.text == first.text)
+                })
             {
                 copies += 1;
             }
@@ -253,11 +264,11 @@ pub fn collapse(lines: Vec<Line>) -> Vec<Line> {
             }
         }
         let Some((size, hidden)) = best else {
-            collapsed.push(lines[index].clone());
+            collapsed.extend(lines.get(index).cloned());
             index += 1;
             continue;
         };
-        collapsed.extend_from_slice(&lines[index..index + size]);
+        collapsed.extend_from_slice(lines.get(index..index + size).unwrap_or_default());
         let more = hidden / size;
         let times = if more == 1 { "time" } else { "times" };
         let text = if size == 1 {
@@ -266,9 +277,12 @@ pub fn collapse(lines: Vec<Line>) -> Vec<Line> {
             format!("[previous {size} lines repeated {more} more {times}]")
         };
         index += size + hidden;
+        let Some(last) = lines.get(index - 1) else {
+            break;
+        };
         collapsed.push(Line {
             text,
-            end: lines[index - 1].end,
+            end: last.end,
         });
     }
     collapsed

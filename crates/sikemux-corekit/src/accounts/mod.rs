@@ -1,9 +1,10 @@
 //! What the core shares with the accounts server at api.sikemux.com. The types
-//! in [`protocol`], [`share`], [`host`], [`hooks`] and [`vault`] are generated from `server/protocol/schema`.
+//! in [`protocol`], [`share`], [`host`], [`hooks`], [`vault`] and [`orgvault`] are generated from `server/protocol/schema`.
 
 pub mod hooks;
 pub mod host;
 pub mod live;
+pub mod orgvault;
 pub mod share;
 pub mod socket;
 pub mod vault;
@@ -38,6 +39,14 @@ pub fn allows(
     account
         .and_then(|account| account.features.as_ref())
         .is_none_or(|features| features.contains(&name))
+}
+
+/// The orgs the signed-in account holds a seat in, each with its own role there and whether the
+/// org's Team plan is paid. None while signed out or before the account has said.
+pub fn orgs(
+    account: Option<&sikemux_view::device::AccountInfo>,
+) -> &[sikemux_view::device::AccountOrg] {
+    account.map_or(&[], |account| &account.orgs)
 }
 
 /// Where the web app is. A shared chat's link opens there, and it hands the
@@ -163,6 +172,7 @@ mod tests {
                     .or_else(|| super::host::round_trip(&name, &json))
                     .or_else(|| super::hooks::round_trip(&name, &json))
                     .or_else(|| super::vault::round_trip(&name, &json))
+                    .or_else(|| super::orgvault::round_trip(&name, &json))
                     .ok_or_else(|| format!("{name} has fixtures but no Rust type"))?
                     .map_err(|error| format!("{}: {error}", path.display()))?;
                 let read: serde_json::Value = serde_json::from_str(&json)?;

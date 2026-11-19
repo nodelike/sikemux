@@ -29,6 +29,10 @@ struct Model {
     files: Vec<PinnedFile>,
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "voice-models.json is compiled in, generated, and always parses"
+)]
 fn manifest() -> &'static Manifest {
     static PARSED: OnceLock<Manifest> = OnceLock::new();
     PARSED.get_or_init(|| {

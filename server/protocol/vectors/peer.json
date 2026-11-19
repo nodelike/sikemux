@@ -1,0 +1,18 @@
+{
+  "description": "A peer ticket signed by the join vector's throwaway key. The asking host is the key whose secret is 32 bytes of 7 and the answering host the one of 32 bytes of 8. The server and the core both check it.",
+  "publicKey": "6d40b315d14f2eafe6b431241eb9963845e4afe3170000abe5b5e52306893670",
+  "message": "sikemux-peer|v1|vector-1|7a1c2e9b-4d3f-4a8e-9c61-2b5d8f0e3a17|3f8e1d2c-5b6a-4c7d-8e9f-0a1b2c3d4e5f|ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c|1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca|1791000000|1791000300|Arjun | Mehta",
+  "signature": "9984279c65f8c2f9ade0f602ff174a33a8843747e86f8e89160878c0adfbcc95f3f993f38c4ac588ff639a5d302f3192fff5853108c4fd64b0e7c078028d4b01",
+  "ticket": {
+    "v": 1,
+    "keyId": "vector-1",
+    "org": "7a1c2e9b-4d3f-4a8e-9c61-2b5d8f0e3a17",
+    "member": "3f8e1d2c-5b6a-4c7d-8e9f-0a1b2c3d4e5f",
+    "memberName": "Arjun | Mehta",
+    "from": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+    "to": "1398f62c6d1a457c51ba6a4b5f3dbd2f69fca93216218dc8997e416bd17d93ca",
+    "issuedAt": 1791000000,
+    "expiresAt": 1791000300,
+    "signature": "9984279c65f8c2f9ade0f602ff174a33a8843747e86f8e89160878c0adfbcc95f3f993f38c4ac588ff639a5d302f3192fff5853108c4fd64b0e7c078028d4b01"
+  }
+}

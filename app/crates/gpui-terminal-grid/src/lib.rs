@@ -224,7 +224,13 @@ impl Metrics {
     }
 
     fn font(&self, look: &Look) -> &Font {
-        &self.fonts[usize::from(look.bold) + 2 * usize::from(look.italic)]
+        let [regular, bold, italic, bold_italic] = &self.fonts;
+        match (look.bold, look.italic) {
+            (false, false) => regular,
+            (true, false) => bold,
+            (false, true) => italic,
+            (true, true) => bold_italic,
+        }
     }
 
     fn cells(&self, origin: Point<Pixels>, row: u16, column: u16, width: u16) -> Bounds<Pixels> {

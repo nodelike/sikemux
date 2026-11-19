@@ -208,7 +208,7 @@ impl Skeleton {
     }
 
     pub fn peek_edge(&self, rail: Rail) -> Edge {
-        self.peeks[rail as usize]
+        *rail.of(&self.peeks)
     }
 }
 
@@ -235,22 +235,22 @@ impl Workbench {
         let rails = &mut self.rails;
         rails.drawn = [rails.side_width, rails.tab_width];
         let beside: Vec<Rail> = (self.skeleton.beside_stage.iter().copied())
-            .filter(|rail| tucks[*rail as usize] < 1.)
+            .filter(|rail| *rail.of(&tucks) < 1.)
             .collect();
         let taken: f32 = beside
             .iter()
-            .map(|rail| rails.drawn[*rail as usize] + gap())
+            .map(|rail| *rail.of(&rails.drawn) + gap())
             .sum();
         let room = width - 2. * inset() - STAGE_MIN.0;
         let over = taken - room;
         let give: f32 = (beside.iter())
-            .map(|rail| rails.drawn[*rail as usize] - rail.widths().min)
+            .map(|rail| *rail.of(&rails.drawn) - rail.widths().min)
             .sum();
         if over <= 0. || give <= 0. {
             return;
         }
         for rail in beside {
-            let drawn = &mut rails.drawn[rail as usize];
+            let drawn = rail.of_mut(&mut rails.drawn);
             let share = (*drawn - rail.widths().min) / give;
             *drawn = (*drawn - over * share).max(rail.widths().min).floor();
         }
@@ -263,7 +263,7 @@ impl Workbench {
         cx: &mut gpui_kit::Context<Self>,
     ) -> AnyElement {
         let drawn = |part: Part| match part {
-            Part::Side | Part::Agents => part.rail().is_some_and(|rail| tucks[rail as usize] < 1.),
+            Part::Side | Part::Agents => part.rail().is_some_and(|rail| *rail.of(&tucks) < 1.),
             Part::Bar | Part::Stage => true,
         };
         let inset = inset();
@@ -339,7 +339,8 @@ impl Workbench {
         };
         let mut drawn = sized(taken.pad(div().flex().when(!row, |column| column.flex_col())));
         for (at, child) in nodes.iter().enumerate() {
-            if at > 0 && self.spaced(&nodes[at - 1], child, row) {
+            let before = at.checked_sub(1).and_then(|before| nodes.get(before));
+            if before.is_some_and(|before| self.spaced(before, child, row)) {
                 drawn = drawn.child(match row {
                     true => div().flex_none().w(px(gap())),
                     false => div().flex_none().h(px(gap())),
@@ -386,7 +387,7 @@ impl Workbench {
                 let handle_after = self.skeleton.peek_edge(rail) == Edge::Left;
                 div()
                     .flex()
-                    .child(self.docked_rail(rail, tucks[rail as usize], handle_after, cx))
+                    .child(self.docked_rail(rail, *rail.of(&tucks), handle_after, cx))
             }
         }
     }

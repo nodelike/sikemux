@@ -3,18 +3,12 @@ import type { StashAdd, StashTarget } from "@sikemux/protocol";
 import { MAX_STASH_FILE_BYTES } from "@sikemux/protocol/stash";
 import type { Kysely } from "kysely";
 
-import type { Identity } from "../auth.ts";
+import { holdStanding, type Identity } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { ApiFailure, badRequest } from "../http.ts";
 import type { Logger } from "../log.ts";
 import type { StashFiles } from "./files.ts";
-import {
-  announce,
-  checkSpace,
-  checkTarget,
-  holdAccount,
-  type ItemRow,
-} from "./items.ts";
+import { announce, checkSpace, checkTarget, type ItemRow } from "./items.ts";
 import { isFetchable, linksIn, readLinks, readPages } from "./preview.ts";
 
 /** A file to stash, as its upload's headers describe it. */
@@ -110,7 +104,7 @@ export async function addItem(
   if (request.target) await checkTarget(db, userId, request.target);
   const id = newId();
   const row = await db.transaction().execute(async (trx) => {
-    await holdAccount(trx, userId);
+    await holdStanding(trx, userId, { exclusive: true });
     const row = await trx
       .insertInto("stash_items")
       .values({
@@ -192,7 +186,7 @@ export async function addFile(
     checkBody(written.sha256);
     const device = await fromDevice(db, identity);
     return await db.transaction().execute(async (trx) => {
-      await holdAccount(trx, userId);
+      await holdStanding(trx, userId, { exclusive: true });
       await checkSpace(trx, userId, written.size);
       if (prompt) await openPrompt(trx, userId, prompt);
       const row = await trx

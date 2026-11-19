@@ -135,6 +135,10 @@ pub const CATEGORIES: &[&str] = &[
 
 /// Every command in the shared table.
 pub fn shortcuts() -> &'static [Shortcut] {
+    #[expect(
+        clippy::expect_used,
+        reason = "the table is compiled into the app, so it always reads"
+    )]
     static SHORTCUTS: LazyLock<Vec<Shortcut>> =
         LazyLock::new(|| serde_json::from_str(TABLE).expect("the shortcut table reads"));
     &SHORTCUTS
@@ -419,7 +423,9 @@ pub fn spelling(keystroke: &Keystroke) -> Option<String> {
     let code = match key.chars().collect::<Vec<_>>().as_slice() {
         [letter] if letter.is_ascii_alphabetic() => format!("Key{}", letter.to_ascii_uppercase()),
         [digit] if digit.is_ascii_digit() => format!("Digit{digit}"),
-        _ if key.starts_with('f') && key[1..].parse::<u8>().is_ok() => key.to_uppercase(),
+        _ if (key.strip_prefix('f')).is_some_and(|number| number.parse::<u8>().is_ok()) => {
+            key.to_uppercase()
+        }
         _ => NAMED
             .iter()
             .chain(shifted)

@@ -21,7 +21,7 @@
             id: "showcase", firstName: "Edon", lastName: nil, imageUrl: nil, hasImage: false,
             primaryEmailAddressId: nil, emailAddresses: [], externalAccounts: nil, passwordEnabled: nil)
 
-        private static func argument(_ name: String) -> String? {
+        fileprivate static func argument(_ name: String) -> String? {
             let arguments = ProcessInfo.processInfo.arguments
             guard let at = arguments.firstIndex(of: name), at + 1 < arguments.count else { return nil }
             return arguments[at + 1]
@@ -46,6 +46,27 @@
                 view: text(world["view"]), host: text(world["host"]), calls: texts(world["calls"]),
                 chats: texts(world["chats"]),
                 details: ((world["details"] as? [String: Any]) ?? [:]).mapValues(texts), paired: paired)
+        }
+    }
+
+    /// With `-SikemuxShowcase` and `-SikemuxShowcaseAccount <file>`, the accounts server's answers come from a file that maps "POST /v1/…" to a
+    /// list of `{"status": 409, "json": …}`, taken in turn; the last one repeats. A route not in it goes to the server.
+    @MainActor
+    enum ShowcaseAccount {
+        private static var answers: [String: [[String: Any]]] = {
+            guard Showcase.current != nil, let path = Showcase.argument("-SikemuxShowcaseAccount"),
+                let data = FileManager.default.contents(atPath: path),
+                let file = try? JSONSerialization.jsonObject(with: data) as? [String: [[String: Any]]]
+            else { return [:] }
+            return file
+        }()
+
+        static func answer(_ method: String, _ path: String) -> (status: Int, body: Data)? {
+            let route = "\(method) \(path)"
+            guard let list = answers[route], let next = list.first else { return nil }
+            if list.count > 1 { answers[route] = Array(list.dropFirst()) }
+            let body = next["json"].flatMap { try? JSONSerialization.data(withJSONObject: $0) } ?? Data("{}".utf8)
+            return (next["status"] as? Int ?? 200, body)
         }
     }
 

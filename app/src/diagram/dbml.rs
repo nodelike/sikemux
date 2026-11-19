@@ -73,9 +73,12 @@ fn lex(source: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut at = 0;
     let mut line = 0u32;
-    let lines_in = |from: usize, to: usize| source[from..to].matches('\n').count() as u32;
-    while at < bytes.len() {
-        let c = bytes[at];
+    let lines_in = |from: usize, to: usize| {
+        bytes
+            .get(from..to)
+            .map_or(0, |span| span.iter().filter(|&&b| b == b'\n').count()) as u32
+    };
+    while let Some(&c) = bytes.get(at) {
         let start = at;
         match c {
             b'\n' => {
@@ -90,27 +93,30 @@ fn lex(source: &str) -> Vec<Token> {
             }
             b' ' | b'\t' | b'\r' => at += 1,
             b'/' if bytes.get(at + 1) == Some(&b'/') => {
-                while at < bytes.len() && bytes[at] != b'\n' {
+                while bytes.get(at).is_some_and(|&b| b != b'\n') {
                     at += 1;
                 }
             }
             b'/' if bytes.get(at + 1) == Some(&b'*') => {
-                let end = source[at + 2..]
-                    .find("*/")
+                let end = (source.get(at + 2..))
+                    .and_then(|rest| rest.find("*/"))
                     .map_or(bytes.len(), |end| at + 2 + end + 2);
                 line += lines_in(at, end);
                 at = end;
             }
             b'\'' | b'"' | b'`' => {
-                let triple = c == b'\'' && source[at..].starts_with("'''");
-                let (open, close) = if triple {
-                    (3, "'''")
-                } else {
-                    (1, &source[at..at + 1])
+                let triple =
+                    c == b'\'' && bytes.get(at..).is_some_and(|rest| rest.starts_with(b"'''"));
+                let close = match c {
+                    b'\'' if triple => "'''",
+                    b'\'' => "'",
+                    b'"' => "\"",
+                    _ => "`",
                 };
+                let open = close.len();
                 let mut text = String::new();
                 let mut cursor = at + open;
-                let mut chars = source[cursor..].char_indices();
+                let mut chars = source.get(cursor..).unwrap_or_default().char_indices();
                 let mut end = bytes.len();
                 while let Some((offset, ch)) = chars.next() {
                     if ch == '\\' {
@@ -119,7 +125,7 @@ fn lex(source: &str) -> Vec<Token> {
                         }
                         continue;
                     }
-                    if source[cursor + offset..].starts_with(close) {
+                    if (source.get(cursor + offset..)).is_some_and(|rest| rest.starts_with(close)) {
                         end = cursor + offset + close.len();
                         break;
                     }
@@ -138,24 +144,25 @@ fn lex(source: &str) -> Vec<Token> {
             }
             b'#' if bytes.get(at + 1).is_some_and(u8::is_ascii_hexdigit) => {
                 at += 1;
-                while at < bytes.len() && bytes[at].is_ascii_alphanumeric() {
+                while bytes.get(at).is_some_and(u8::is_ascii_alphanumeric) {
                     at += 1;
                 }
                 tokens.push(Token {
-                    tok: Tok::Word(source[start..at].to_string()),
+                    tok: Tok::Word(source.get(start..at).unwrap_or_default().to_string()),
                     start,
                     end: at,
                     line,
                 });
             }
             c if c.is_ascii_alphanumeric() || c == b'_' || c >= 0x80 => {
-                while at < bytes.len()
-                    && (bytes[at].is_ascii_alphanumeric() || bytes[at] == b'_' || bytes[at] >= 0x80)
+                while bytes
+                    .get(at)
+                    .is_some_and(|&b| b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80)
                 {
                     at += 1;
                 }
                 tokens.push(Token {
-                    tok: Tok::Word(source[start..at].to_string()),
+                    tok: Tok::Word(source.get(start..at).unwrap_or_default().to_string()),
                     start,
                     end: at,
                     line,
@@ -389,7 +396,9 @@ impl Parser<'_> {
                     let mut to = from;
                     let mut text = None;
                     while !matches!(self.peek(), None | Some(Tok::Sym(',' | ']'))) {
-                        let token = self.bump().unwrap();
+                        let Some(token) = self.bump() else {
+                            break;
+                        };
                         if let Tok::Text(value) = &token.tok {
                             text = Some(value.clone());
                         }
@@ -397,7 +406,9 @@ impl Parser<'_> {
                     }
                     settings.default = match (text, from, to) {
                         (Some(text), _, _) => Some(text),
-                        (None, Some(from), Some(to)) => Some(self.source[from..to].to_string()),
+                        (None, Some(from), Some(to)) => {
+                            self.source.get(from..to).map(str::to_string)
+                        }
                         _ => None,
                     };
                 }
@@ -454,7 +465,7 @@ pub(super) fn parse(source: &str) -> Schema {
         };
         match word.to_ascii_lowercase().as_str() {
             "table" => {
-                let line = parser.tokens[parser.at].line;
+                let line = parser.tokens.get(parser.at).map_or(0, |token| token.line);
                 parser.at += 1;
                 drafts.push(table(&mut parser, line));
             }
@@ -510,11 +521,11 @@ pub(super) fn parse(source: &str) -> Schema {
 fn table(parser: &mut Parser, line: u32) -> Draft {
     let parts = parser.name();
     let mut aliases = vec![parts.join(".")];
-    if parts.len() == 2 && parts[0].eq_ignore_ascii_case("public") {
-        aliases.push(parts[1].clone());
-    }
     let name = match parts.as_slice() {
-        [schema, name] if schema.eq_ignore_ascii_case("public") => name.clone(),
+        [schema, name] if schema.eq_ignore_ascii_case("public") => {
+            aliases.push(name.clone());
+            name.clone()
+        }
         _ => parts.join("."),
     };
     if matches!(parser.peek(), Some(Tok::Word(word)) if word.eq_ignore_ascii_case("as")) {
@@ -595,17 +606,18 @@ fn column(parser: &mut Parser, draft: &mut Draft) {
                 to = usize::MAX;
             }
             _ => {
-                let token = parser.bump().unwrap();
+                let Some(token) = parser.bump() else {
+                    break;
+                };
                 from.get_or_insert(token.start);
                 to = token.end;
             }
         }
     }
-    if let Some(from) = from.filter(|_| to != usize::MAX) {
-        kind = parser.source[from..to]
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
+    if let Some(written) =
+        (from.filter(|_| to != usize::MAX)).and_then(|from| parser.source.get(from..to))
+    {
+        kind = written.split_whitespace().collect::<Vec<_>>().join(" ");
     }
     let settings = parser.settings();
     let index = draft.table.columns.len();
@@ -657,8 +669,8 @@ fn indexes(parser: &mut Parser, draft: &mut Draft) {
         let settings = parser.settings();
         if settings.pk {
             draft.pk_sets.push(columns);
-        } else if settings.unique && columns.len() == 1 {
-            if let Some(column) = (draft.table.columns.iter_mut()).find(|c| c.name == columns[0]) {
+        } else if let (true, [only]) = (settings.unique, columns.as_slice()) {
+            if let Some(column) = (draft.table.columns.iter_mut()).find(|c| &c.name == only) {
                 column.unique = true;
             }
         }
@@ -740,11 +752,14 @@ fn resolve(
             }
         }
         for (column, op, mut target) in inline {
+            let Some(from_column) = table.columns.get(column) else {
+                continue;
+            };
             let to_column = target.pop().unwrap_or_default();
             written.push(Written {
                 from: (
-                    vec![aliases[0].clone()],
-                    vec![table.columns[column].name.clone()],
+                    aliases.first().cloned().into_iter().collect(),
+                    vec![from_column.name.clone()],
                 ),
                 op,
                 to: (target, vec![to_column]),
@@ -754,9 +769,10 @@ fn resolve(
     }
     let end = |tables: &[Table], (parts, columns): &(Vec<String>, Vec<String>), many: bool| {
         let table = find_table(parts)?;
+        let found = &tables.get(table)?.columns;
         let columns = columns
             .iter()
-            .filter_map(|name| tables[table].columns.iter().position(|c| &c.name == name))
+            .filter_map(|name| found.iter().position(|c| &c.name == name))
             .collect();
         Some(End {
             table,

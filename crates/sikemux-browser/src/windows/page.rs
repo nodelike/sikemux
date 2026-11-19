@@ -151,8 +151,8 @@ fn evaluate(
         "awaitPromise": true,
         "returnByValue": true,
     });
-    if let Some(context) = context {
-        params["contextId"] = json!(context);
+    if let (Some(context), Some(fields)) = (context, params.as_object_mut()) {
+        fields.insert("contextId".to_owned(), json!(context));
     }
     devtools(page, "Runtime.evaluate", &params, move |answer| {
         done(answer.and_then(|answer| {
@@ -221,8 +221,11 @@ pub fn snapshot_jpeg(
     done: Box<dyn FnOnce(Result<Vec<u8>, String>) + Send>,
 ) {
     let mut params = json!({ "format": "jpeg", "quality": JPEG_QUALITY });
-    if let Some((x, y, width, height)) = area {
-        params["clip"] = json!({ "x": x, "y": y, "width": width, "height": height, "scale": 1 });
+    if let (Some((x, y, width, height)), Some(fields)) = (area, params.as_object_mut()) {
+        fields.insert(
+            "clip".to_owned(),
+            json!({ "x": x, "y": y, "width": width, "height": height, "scale": 1 }),
+        );
     }
     devtools(page, "Page.captureScreenshot", &params, move |picture| {
         done(picture.and_then(decoded))

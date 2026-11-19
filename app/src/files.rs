@@ -317,11 +317,11 @@ impl FileTree {
         let naming = self.naming.as_ref()?;
         if let Some(from) = &naming.from {
             let at = rows.iter().position(|row| &row.path == from)?;
-            return Some((at, rows[at].depth, true));
+            return Some((at, rows.get(at)?.depth, true));
         }
         Some(
             match rows.iter().position(|row| row.path == naming.parent) {
-                Some(at) => (at + 1, rows[at].depth + 1, false),
+                Some(at) => (at + 1, rows.get(at)?.depth + 1, false),
                 None => (0, 0, false),
             },
         )
@@ -891,7 +891,10 @@ fn on_key(bench: &mut Workbench, key: Key, window: &mut Window, cx: &mut Context
     let Some(at) = keyed.or((!rows.is_empty()).then_some(0)) else {
         return;
     };
-    let (row, last) = (&rows[at], rows.len() - 1);
+    let Some(row) = rows.get(at) else {
+        return;
+    };
+    let last = rows.len() - 1;
     let to = match key {
         Key::Previous => Some(at.saturating_sub(1)),
         Key::Next => Some((at + 1).min(last)),
@@ -906,7 +909,7 @@ fn on_key(bench: &mut Workbench, key: Key, window: &mut Window, cx: &mut Context
             bench.files.toggle(&row.path, &bench.target());
             Some(at)
         }
-        Key::Collapse => rows[..at].iter().rposition(|above| above.depth < row.depth),
+        Key::Collapse => (rows.iter().take(at)).rposition(|above| above.depth < row.depth),
         Key::Expand => None,
         Key::Activate => {
             click_row(bench, &row.path.clone(), 1, cx);
@@ -921,8 +924,8 @@ fn on_key(bench: &mut Workbench, key: Key, window: &mut Window, cx: &mut Context
             None
         }
     };
-    if let Some(to) = to {
-        bench.files.keyed = Some(rows[to].path.clone());
+    if let Some((to, row)) = to.and_then(|to| Some((to, rows.get(to)?))) {
+        bench.files.keyed = Some(row.path.clone());
         bench
             .files
             .scroll

@@ -3,6 +3,8 @@ import { router, useIsFocused } from 'expo-router';
 import { useAuth } from '@clerk/expo';
 
 import { useFarewell } from '@/account/farewell';
+import { useFoldGate } from '@/account/fold';
+import { FoldScreen } from '@/account/FoldScreens';
 import { useAccountStatus } from '@/account/session';
 import { readDevicesAgain, useDevices } from '@/devices/hub';
 import { DevicesList } from '@/devices/DevicesList';
@@ -41,16 +43,18 @@ export default function Home() {
   const { devices, problem } = useDevices();
   const farewell = useFarewell();
   const status = useAccountStatus();
+  const gate = useFoldGate();
   const focused = useIsFocused();
   const only = isSignedIn && devices.length === 1 ? devices[0].core : undefined;
 
   useEffect(() => {
-    if (launched || !isSignedIn) return;
+    if (launched || !isSignedIn || gate.kind !== 'open') return;
     launched = true;
     if (focused && only) router.push(`/device/${only}`);
-  }, [isSignedIn, focused, only]);
+  }, [isSignedIn, gate.kind, focused, only]);
 
   if (!isSignedIn) return farewell ? <Farewell reason={farewell} /> : <Welcome />;
+  if (gate.kind !== 'open') return <FoldScreen gate={gate} />;
   if (status?.step === 'deleting') return <RestoreAccount deletesAt={status.deletesAt} />;
   if (problem) return <Unreadable problem={problem} />;
   return <DevicesList devices={devices} />;

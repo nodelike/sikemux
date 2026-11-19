@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Steers the nightlies the Release workflow builds from every push to main, as docs/releasing.md describes.
+# Steers the nightlies the Release workflow builds hourly from the newest green main, as docs/releasing.md describes.
 #   nightly.sh why                 what the staff and nightly feeds serve, and whether builds are held
 #   nightly.sh hold [REASON] | unhold
 #   nightly.sh pull <version>      keeps a published nightly from nightly, or a stable candidate from shipping, and moves the feeds off it
@@ -32,7 +32,7 @@ later() {
 why() {
   local hold
   hold="$(gh variable get NIGHTLY_HOLD 2>/dev/null || true)"
-  if [[ -n "$hold" ]]; then echo "held: $hold"; else echo "building every push to main once CI starts on it"; fi
+  if [[ -n "$hold" ]]; then echo "held: $hold"; else echo "building the newest green main at most once an hour"; fi
   echo "staff feed: v$(feed_version staff)"
   echo "nightly feed: v$(feed_version nightly)"
   gh run list --workflow release.yml --limit 3 --json displayTitle,status,conclusion \

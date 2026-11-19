@@ -84,7 +84,7 @@ struct OverruledLine: View {
     @State private var refused: String?
 
     private var why: String? {
-        if overruled.undone == true { return CallWords.standsAgain }
+        if overruled.undone == true { return overruled.stillKept == true ? CallWords.stillKept : CallWords.standsAgain }
         return overruled.rule != nil ? CallWords.fromNowOn : nil
     }
 

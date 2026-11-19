@@ -190,17 +190,16 @@ fn verdict(
             Some(Value::String(text)) => serde_json::from_str(text).unwrap_or(Value::Null),
             Some(arguments) => arguments.clone(),
         };
-        return Ok(match arguments["city"].as_str() {
+        return Ok(match arguments.get("city").and_then(Value::as_str) {
             Some(city) if !city.trim().is_empty() => Answer::Works,
             _ => Answer::Fails(format!(
                 "{api}: called the tool with arguments that are not the JSON it asks for"
             )),
         });
     }
-    let said = body["error"]["message"]
-        .as_str()
-        .or_else(|| body["error"].as_str())
-        .or_else(|| body["message"].as_str())
+    let said = (body.pointer("/error/message").and_then(Value::as_str))
+        .or_else(|| body.get("error").and_then(Value::as_str))
+        .or_else(|| body.get("message").and_then(Value::as_str))
         .unwrap_or_default();
     let said: String = said.chars().take(200).collect();
     match status {
@@ -253,11 +252,12 @@ async fn openai(provider: &Provider, key: Option<&str>, model: &str) -> Result<A
         "tools": [{ "type": "function", "function": { "name": TOOL, "description": "The weather in a city now", "parameters": tool_parameters() } }],
     });
     ask(request, "OpenAI-compatible API", body, |answer| {
-        answer["choices"][0]["message"]["tool_calls"]
+        answer
+            .pointer("/choices/0/message/tool_calls")?
             .as_array()?
             .iter()
-            .find(|call| call["function"]["name"] == TOOL)
-            .map(|call| &call["function"]["arguments"])
+            .find(|call| call.pointer("/function/name").and_then(Value::as_str) == Some(TOOL))
+            .map(|call| call.pointer("/function/arguments").unwrap_or(&Value::Null))
     })
     .await
 }

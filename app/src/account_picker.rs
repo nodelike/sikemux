@@ -61,9 +61,10 @@ pub fn picker(
             .filter(|status| status.signed_in)
             .cloned()
     };
+    let takers = accounts::takers(bench, key, on, cx).cloned();
+    let smart = takers.as_ref().and_then(|takers| takers.smart.clone());
     let (movable, none_because): (Vec<(Profile, AccountStatus)>, Option<String>) = match started {
-        Some(agent) => {
-            let takers = accounts::takers(bench, agent, on, cx).cloned();
+        Some(_) => {
             let others = takers.as_ref().map(|takers| &takers.others);
             let movable = (bench.accounts.of(provider).into_iter())
                 .filter(|profile| {
@@ -130,7 +131,6 @@ pub fn picker(
             profile: profile.clone(),
             name: name(profile, Some(status)),
             picture: bench.accounts.avatar(profile),
-            detail: status.email.clone().or_else(|| status.organization.clone()),
             used: accounts::used(bench, profile),
         })
         .collect();
@@ -145,7 +145,6 @@ pub fn picker(
                         profile,
                         name,
                         picture,
-                        detail,
                         used,
                     } in &rows
                     {
@@ -154,9 +153,9 @@ pub fn picker(
                             profile,
                             name,
                             picture.clone(),
-                            detail.clone(),
                             *used,
                             here,
+                            smart.as_deref() == Some(profile.id.as_str()),
                         );
                         if here {
                             popup = popup.item(item);
@@ -180,6 +179,5 @@ struct Row {
     profile: Profile,
     name: String,
     picture: Arc<Image>,
-    detail: Option<String>,
     used: Option<f64>,
 }

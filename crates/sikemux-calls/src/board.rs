@@ -140,15 +140,39 @@ pub struct BoardCard {
     pub arrivals: Vec<Arrival>,
     pub at: u64,
     pub updated_at: u64,
-    /// When it was put aside in Later, off the board until someone takes it up again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub aside_at: Option<u64>,
+    pub dropped: Option<CardDropped>,
     /// The commits its owner made while on it, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commits: Vec<CardCommit>,
     /// The pull requests those commits went up in, as the code host last told.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pulls: Vec<CardPull>,
+}
+
+/// A task ended without being done. Undo puts it back as it stood.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardDropped {
+    pub at: u64,
+    pub by: DroppedBy,
+    /// Why, in a few words.
+    pub why: String,
+    /// The task that took its place, by id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instead: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum DroppedBy {
+    Person,
+    /// The board, for a task nobody touched for a week.
+    Board,
+    Agent {
+        id: String,
+        name: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -280,6 +304,17 @@ pub struct BoardTicketCard {
     pub ticket: Option<BoardTicketParams>,
 }
 
+/// Stops teammates' agents asking about a project's tasks, or lets them again: everyone, or the
+/// one person `member` names.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeammateAskingParams {
+    pub project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member: Option<String>,
+    pub stop: bool,
+}
+
 /// What the person changes of a card; what it leaves out stays as it is.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -309,6 +344,12 @@ pub struct BoardUpdateParams {
     /// The card it goes under, 0 for none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<u64>,
+    /// Puts a dropped task back as it stood.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub undrop: bool,
+    /// The person opened the finished task.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub opened: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -409,6 +450,9 @@ pub struct BoardSettings {
     /// The linked hosts cards go to past this host's places, by key, the first with room first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hosts: Vec<String>,
+    /// The org whose members read the board, by its id; none while only its owner does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_with: Option<String>,
 }
 
 impl BoardSettings {
@@ -437,8 +481,17 @@ impl Default for BoardSettings {
             places_confirmed: None,
             spend_ceiling: None,
             hosts: Vec::new(),
+            shared_with: None,
         }
     }
+}
+
+/// Shares a project's board with one org the account is in, in place of any other.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareProjectParams {
+    pub project: String,
+    pub org: String,
 }
 
 /// What the person changes of how a project's board runs on its own; what it leaves out

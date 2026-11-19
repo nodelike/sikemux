@@ -1,0 +1,29 @@
+[
+  {
+    "when": "round each line",
+    "steps": [{ "say": "Only the total, once @Rimuru's fix lands. The cent comes from rounding tax on every line; the fix rounds once at the order total. Nothing is committed yet." }]
+  },
+  {
+    "when": "shipping country or billing",
+    "steps": [{ "say": "The shipping country. @Nami is replacing the flat 19% with a rate table looked up by the shipping address." }]
+  },
+  {
+    "when": "still show in search",
+    "steps": [{ "say": "Yes, at the end of the results rather than hidden. @Yuno sorts by stock before relevance." }]
+  },
+  {
+    "when": "which file does the rounding",
+    "steps": [{ "say": "src/cart/receipt.ts, in lineTotal(). @Rimuru hasn't changed it yet." }]
+  },
+  {
+    "when": "cover the eu only",
+    "steps": [{ "say": "The EU and the UK for now. @Nami left the US for a later task." }]
+  },
+  {
+    "when": "",
+    "steps": [
+      { "say": "Looking into it." },
+      { "tool": "Bash", "input": { "command": "pnpm test", "description": "Run the tests" }, "result": "ok", "ms": 600000 }
+    ]
+  }
+]

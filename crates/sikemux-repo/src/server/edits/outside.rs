@@ -763,8 +763,11 @@ fn committed_copies(top: &Path, paths: &[&str]) -> HashMap<String, Option<String
         let Some(end) = rest.iter().position(|byte| *byte == b'\n') else {
             break;
         };
-        let header = String::from_utf8_lossy(&rest[..end]).into_owned();
-        rest = &rest[end + 1..];
+        let (Some(header), Some(after)) = (rest.get(..end), rest.get(end + 1..)) else {
+            break;
+        };
+        let header = String::from_utf8_lossy(header).into_owned();
+        rest = after;
         let found = match header.split(' ').collect::<Vec<_>>()[..] {
             [_, kind, size] => size
                 .parse::<usize>()
@@ -774,10 +777,10 @@ fn committed_copies(top: &Path, paths: &[&str]) -> HashMap<String, Option<String
         };
         let copy = match found {
             Some((blob, size)) if rest.len() > size => {
-                let copy = String::from_utf8(rest[..size].to_vec())
-                    .ok()
+                let copy = (rest.get(..size))
+                    .and_then(|copy| String::from_utf8(copy.to_vec()).ok())
                     .filter(|_| blob);
-                rest = &rest[size + 1..];
+                rest = rest.get(size + 1..).unwrap_or_default();
                 copy
             }
             Some(_) => break,

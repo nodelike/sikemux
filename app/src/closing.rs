@@ -150,9 +150,9 @@ impl Workbench {
         let busy: Vec<String> = busy.iter().map(|id| self.label_of(id, true)).collect();
         let named: Vec<String> = workers.iter().map(|id| self.label_of(id, true)).collect();
         let one = workers.len() == 1;
-        let working = match busy.len() {
-            0 => None,
-            1 => Some(t!("{name} is working and stops with it.", name = busy[0])),
+        let working = match busy.as_slice() {
+            [] => None,
+            [name] => Some(t!("{name} is working and stops with it.", name = name)),
             _ => Some(t!(
                 "{names} are working and stop with it.",
                 names = listed(&busy)

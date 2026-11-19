@@ -353,7 +353,7 @@ fn listed_programs(folder: &Path) -> Vec<String> {
     std::fs::read(folder.join(LISTED))
         .ok()
         .and_then(|table| serde_json::from_slice::<Value>(&table).ok())
-        .and_then(|table| serde_json::from_value(table["programs"].clone()).ok())
+        .and_then(|table| serde_json::from_value(table.get("programs")?.clone()).ok())
         .unwrap_or_default()
 }
 
@@ -457,10 +457,19 @@ fn asked(ship: &crate::ship::Ship, cwd: &Path, follows: bool) -> Asked {
         GUARD_WAIT,
     );
     match answer {
-        Ok(answer) if answer["allowed"] == true => Asked::Goes {
-            went: answer["went"].as_str().map(str::to_owned),
+        Ok(answer) if answer.get("allowed").and_then(Value::as_bool) == Some(true) => Asked::Goes {
+            went: answer
+                .get("went")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
         },
-        Ok(answer) => Asked::Held(answer["said"].as_str().unwrap_or_default().to_owned()),
+        Ok(answer) => Asked::Held(
+            answer
+                .get("said")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        ),
         Err(_) => Asked::Held(format!(
             "Sikemux could not ask whether `{}` may leave this machine. Run it again in a moment.",
             ship.what
@@ -580,7 +589,7 @@ fn gh_as_agents(words: &[String], cwd: &Path) -> Option<GhAsAgents> {
         }
     })?;
     let answer = credential::ask(&footer::endpoint()?, &remote)?;
-    let token = answer["password"].as_str()?.to_owned();
+    let token = answer.get("password")?.as_str()?.to_owned();
     let config = folder.join("gh");
     std::fs::create_dir_all(&config).ok()?;
     Some(GhAsAgents {
@@ -624,18 +633,22 @@ fn gh_run(words: &[String], cwd: &Path) -> Option<i32> {
         Duration::from_secs(60),
     )
     .ok()?;
-    if answer["pass"] == Value::Bool(true) {
+    if answer.get("pass").and_then(Value::as_bool) == Some(true) {
         return None;
     }
-    let code = answer["code"]
-        .as_i64()
+    let code = answer
+        .get("code")
+        .and_then(Value::as_i64)
         .and_then(|code| i32::try_from(code).ok())
         .unwrap_or(0);
-    if let Some(said) = answer["err"].as_str() {
+    if let Some(said) = answer.get("err").and_then(Value::as_str) {
         eprintln!("{said}");
         return Some(code);
     }
-    let out = answer["out"].as_str().unwrap_or_default();
+    let out = answer
+        .get("out")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let (Some(jq), Some(filter)) = (jq, filter) else {
         println!("{out}");
         return Some(code);
@@ -698,20 +711,25 @@ fn gh_merge(mut view: Command, gh: &GhAsAgents, args: &[&str], cwd: &Path) -> i3
     else {
         return 1;
     };
-    let Some(number) = found["number"].as_u64() else {
+    let Some(number) = found.get("number").and_then(Value::as_u64) else {
         return 1;
     };
-    let mut params = json!({ "remote": gh.remote, "number": number });
+    let mut params = serde_json::Map::from_iter([
+        ("remote".to_owned(), json!(gh.remote)),
+        ("number".to_owned(), json!(number)),
+    ]);
     if let Some(method) = method {
-        params["method"] = json!(method);
+        params.insert("method".to_owned(), json!(method));
     }
     if let Some(sha) = sha {
-        params["sha"] = json!(sha);
+        params.insert("sha".to_owned(), json!(sha));
     }
     if delete {
-        params["deleteBranch"] = found["headRefName"].clone();
-        params["head"] = found["headRefOid"].clone();
+        let field = |key: &str| found.get(key).cloned().unwrap_or(Value::Null);
+        params.insert("deleteBranch".to_owned(), field("headRefName"));
+        params.insert("head".to_owned(), field("headRefOid"));
     }
+    let params = Value::Object(params);
     let Some(endpoint) = footer::endpoint() else {
         return 1;
     };
@@ -725,7 +743,13 @@ fn gh_merge(mut view: Command, gh: &GhAsAgents, args: &[&str], cwd: &Path) -> i3
     );
     match answer {
         Ok(answer) => {
-            eprintln!("{}", answer["said"].as_str().unwrap_or_default());
+            eprintln!(
+                "{}",
+                answer
+                    .get("said")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+            );
             0
         }
         Err(
@@ -849,12 +873,15 @@ fn run(args: Vec<OsString>) -> i32 {
     let mut command = sikemux_process::user_environment::command(&git);
     let subcommand = super::git_args(&words);
     if let Some(folder) = std::env::var_os(footer::HOOKS) {
-        let options = &words[..words.len() - subcommand.len()];
+        let options = words
+            .get(..words.len() - subcommand.len())
+            .unwrap_or_default();
         let folder = Path::new(&folder);
         sikemux_git::add_config(&mut command, &identity::agent_settings(folder));
         match subcommand.first().map(String::as_str) {
             Some("commit" | "merge") => {
-                footer::prepare(&mut command, folder, &git, options, &subcommand[1..]);
+                let rest = subcommand.get(1..).unwrap_or_default();
+                footer::prepare(&mut command, folder, &git, options, rest);
             }
             Some("rebase" | "cherry-pick" | "pull") => {
                 footer::prepare_remaking(&mut command, folder, &git, options);

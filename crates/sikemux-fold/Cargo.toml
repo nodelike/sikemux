@@ -12,5 +12,8 @@ sikemux-markdown = { path = "../sikemux-markdown" }
 sikemux-view = { path = "../sikemux-view" }
 sikemux-wire = { path = "../sikemux-wire" }
 
+[lints]
+workspace = true
+
 [target.'cfg(target_os = "macos")'.dependencies]
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

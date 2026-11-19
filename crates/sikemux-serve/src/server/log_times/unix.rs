@@ -115,6 +115,6 @@ pub fn write_all(fd: RawFd, mut bytes: &[u8]) {
             }
             return;
         }
-        bytes = &bytes[written as usize..];
+        bytes = bytes.get(written as usize..).unwrap_or_default();
     }
 }

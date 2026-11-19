@@ -63,6 +63,10 @@ pub enum Read {
     Activity,
     Mods,
     Tasks,
+    /// The project in front's one list of tasks.
+    TaskList,
+    /// Who the project in front's board is shared with.
+    Sharing,
     Runs,
     ProjectConfig,
     Ports,
@@ -106,10 +110,12 @@ impl Read {
 
     /// What the core in front is watched for while its project is in front. A feed's `leave`
     /// lets go of what they answered.
-    pub const OF_THE_PROJECT_IN_FRONT: [Read; 10] = [
+    pub const OF_THE_PROJECT_IN_FRONT: [Read; 12] = [
         Read::Activity,
         Read::Mods,
         Read::Tasks,
+        Read::TaskList,
+        Read::Sharing,
         Read::Runs,
         Read::Ports,
         Read::ProjectConfig,
@@ -145,6 +151,11 @@ impl Read {
             }
             Read::Mods => (call::Mods::METHOD, &[Topic::Mods]),
             Read::Tasks => (call::Tasks::METHOD, &[Topic::Tasks, Topic::Runs]),
+            Read::TaskList => (call::ProjectTasks::METHOD, &[Topic::Boards]),
+            Read::Sharing => (
+                call::ProjectSharing::METHOD,
+                &[Topic::Boards, Topic::Account],
+            ),
             Read::Runs => (call::TaskRuns::METHOD, &[Topic::Runs]),
             Read::ProjectConfig => (call::ProjectConfig::METHOD, &[Topic::Tasks]),
             Read::Ports => (call::Ports::METHOD, &[Topic::Ports]),
@@ -470,6 +481,7 @@ impl Workbench {
                     crate::see_through::set(&preferences, cx);
                     crate::screens::experience::preferences_read(self, &preferences, cx);
                     self.preferences = Some(preferences);
+                    self.parts.redraw(&self.parts.finder, cx);
                 }
                 self.terminals.redraw_all(cx);
                 crate::notifications::introduce(self, cx);
@@ -508,6 +520,7 @@ impl Workbench {
                 if !keep_decoded(&mut self.reads.usage, value, "plan usage") {
                     return;
                 }
+                self.accounts.forget_takers();
             }
             Read::Shares => {
                 if !keep_decoded(&mut self.reads.shares, value, "shares") {
@@ -544,6 +557,24 @@ impl Workbench {
                 if !keep_decoded(&mut self.feeds.at_mut(&place).tasks, value, "tasks") {
                     return;
                 }
+            }
+            Read::TaskList => {
+                if !keep_decoded(&mut self.feeds.at_mut(&place).task_list, value, "task list") {
+                    return;
+                }
+                self.desks
+                    .update(cx, |desks, cx| desks.redraw_call_pages(cx));
+                self.parts.redraw_stage(cx);
+            }
+            Read::Sharing => {
+                if !keep_decoded(
+                    &mut self.feeds.at_mut(&place).sharing,
+                    value,
+                    "board sharing",
+                ) {
+                    return;
+                }
+                self.parts.redraw_stage(cx);
             }
             Read::ProjectConfig => {
                 if let Some(config) = decoded(value, "project config") {

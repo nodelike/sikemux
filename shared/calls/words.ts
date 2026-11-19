@@ -285,24 +285,8 @@ export const chiefAway = (at: number, now = Date.now(), say: Say = english) =>
 /** The composer's words in a worker's chat whose project's chief hears what is typed there. */
 export const sendToTold = (name: string, say: Say = english) => say("Send to @{name} · @Chief is told", { name });
 
-// The chief's chat: what happened while the person was away, an Overrule, the week's count
+// The chief's chat: an Overrule, the week's count
 
-export const WHILE_AWAY = "While you were away";
-/** How long the person was away, `back - since`. */
-export function awayFor(ms: number, say: Say = english): string {
-    const total = Math.floor(Math.max(0, ms) / MINUTE);
-    const hours = Math.floor(total / 60);
-    const minutes = total % 60;
-    if (!hours) return say("{minutes} min", { minutes });
-    if (!minutes) return say("{hours} h", { hours });
-    return say("{hours} h {minutes} min", { hours, minutes });
-}
-export const AWAY_NEEDS_YOU = "Needs you";
-export const DECIDED_FOR_YOU = "Decided for you";
-export const LANDED = "Landed";
-/** Under Needs you: the calls are the queue docked above the composer. */
-export const answerBelow = (count: number, say: Say = english) =>
-    count === 1 ? say("Answer it in the card below") : say("Answer them in the card below");
 export const OVERRULE = "Overrule";
 /** What a tap on a call's cut context does, for a screen reader. */
 export const SHOW_ALL = "Shows all of it";
@@ -315,6 +299,8 @@ export const DECIDED = "Decided";
 export const OVERRULED = "Overruled";
 export const OVERRULED_UNDONE = "Overruled, then undone";
 export const STANDS_AGAIN = "It stands again";
+/** Undoing an Overrule could not remove the rule it kept. */
+export const STILL_KEPT = "It stands again, but decisions like this still come to you: remove the rule in the Playbook";
 export const FROM_NOW_ON = "Decisions like this come to you from now on";
 /** The line the board leaves when it closed a card by itself. */
 export const CLOSED_BY_ITSELF = "Closed by itself";
@@ -372,6 +358,28 @@ export const WHAT_RUNS = "What runs";
 export const kept = (name: string, say: Say = english) => say("Kept private: @{name} reads it, and it never shows in the chat.", { name });
 /** Go with this while the host has not yet taken that this phone drew the call. */
 export const CONNECTING = "Connecting…";
+/** The answers a do or look call takes, by the ids the core gives its options. */
+export const DO_DONE = "done";
+export const DO_NOT_DOING = "notDoing";
+export const LOOK_SEEN = "seen";
+/** A do call's Go before an answer is chosen, and a look call's. */
+export const DONE = "Done";
+export const SEEN = "Seen";
+/** The field under Not doing on a do call. */
+export const WHY_NOT_DOING = "Say why you're not doing it…";
+/** Under the docked card, the rest of an agent's waiting calls folded into one row. */
+export const moreCalls = (count: number, say: Say = english) => say("{count} more calls", { count });
+export const newest = (question: string, say: Say = english) => say("Newest: {question}", { question });
+
+/** A do or look call goes by its kind and short title, `Do · Test purchase`; any other by its question. */
+export function headline(call: PersonCall, say: Say = english): string {
+    const title = call.title?.trim();
+    if (!title) return call.question;
+    if (call.kind === "do") return say("Do · {title}", { title });
+    if (call.kind === "look") return say("Look · {title}", { title });
+    return call.question;
+}
+
 /** Which of an agent's waiting calls the card shows: `1 of 3`. */
 export const place = (index: number, count: number, say: Say = english) => say("{index} of {count}", { index, count });
 /** On the card when the answer sent from its notification did not go. */

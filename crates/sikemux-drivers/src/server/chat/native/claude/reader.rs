@@ -411,31 +411,33 @@ fn workflow_agents(progress: &[Value]) -> Value {
                 Some("progress") => "running",
                 _ => "queued",
             };
-            let mut shown = json!({
-                "index": agent.get("index"),
-                "label": text(agent, "label").unwrap_or("agent"),
-                "state": state,
-            });
+            let mut shown = Map::new();
+            shown.insert("index".to_owned(), json!(agent.get("index")));
+            shown.insert(
+                "label".to_owned(),
+                json!(text(agent, "label").unwrap_or("agent")),
+            );
+            shown.insert("state".to_owned(), json!(state));
             for (from, to) in [
                 ("phaseTitle", "phase"),
                 ("lastToolSummary", "activity"),
                 ("error", "error"),
             ] {
                 if let Some(value) = text(agent, from) {
-                    shown[to] = json!(value);
+                    shown.insert(to.to_owned(), json!(value));
                 }
             }
-            if shown.get("activity").is_none() {
+            if !shown.contains_key("activity") {
                 if let Some(tool) = text(agent, "lastToolName") {
-                    shown["activity"] = json!(tool);
+                    shown.insert("activity".to_owned(), json!(tool));
                 }
             }
             for key in ["tokens", "toolCalls"] {
                 if let Some(count) = agent.get(key).and_then(Value::as_u64) {
-                    shown[key] = json!(count);
+                    shown.insert(key.to_owned(), json!(count));
                 }
             }
-            shown
+            Value::Object(shown)
         })
         .collect();
     Value::Array(agents)
@@ -681,7 +683,10 @@ impl Reader {
                     Some(cap::TOOL_HOOK) if self.shared.locked().hushed => {
                         tool_refused(HANDOFF_NO_TOOLS)
                     }
-                    Some(cap::SHIP_HOOK) => return self.check_ships(request_id, &request["input"]),
+                    Some(cap::SHIP_HOOK) => {
+                        let input = request.get("input").unwrap_or(&Value::Null);
+                        return self.check_ships(request_id, input);
+                    }
                     _ => json!({ "continue": true }),
                 };
                 self.control.respond(&request_id, answer)
@@ -966,12 +971,11 @@ impl Reader {
                     if parent.is_none() {
                         if let Some((_, streamed_kind, streamed)) = self.data.streamed.get(position)
                         {
-                            if *streamed_kind == kind
-                                && !streamed.is_empty()
-                                && full.starts_with(streamed.as_str())
-                            {
-                                position += 1;
-                                rest = full[streamed.len()..].to_owned();
+                            if *streamed_kind == kind && !streamed.is_empty() {
+                                if let Some(after) = full.strip_prefix(streamed.as_str()) {
+                                    position += 1;
+                                    rest = after.to_owned();
+                                }
                             }
                         }
                     }
@@ -979,7 +983,9 @@ impl Reader {
                         continue;
                     }
                     let mut block = block.clone();
-                    block[field] = json!(rest);
+                    if let Some(fields) = block.as_object_mut() {
+                        fields.insert(field.to_owned(), json!(rest));
+                    }
                     if let Some(update) =
                         tools::content_chunk(&block, "assistant", message_id.as_deref())
                     {
@@ -1284,9 +1290,17 @@ impl Reader {
             return;
         };
         let mut update = sikemux_fold::update::usage(used, self.data.size);
-        update["compactAt"] = json!(cap::compact_at(self.data.size, self.data.window));
-        if let Some(cost) = self.data.cost {
-            update["cost"] = json!({ "amount": cost, "currency": "USD" });
+        if let Some(fields) = update.as_object_mut() {
+            fields.insert(
+                "compactAt".to_owned(),
+                json!(cap::compact_at(self.data.size, self.data.window)),
+            );
+            if let Some(cost) = self.data.cost {
+                fields.insert(
+                    "cost".to_owned(),
+                    json!({ "amount": cost, "currency": "USD" }),
+                );
+            }
         }
         self.sink.update(&self.data.session_id, update);
     }
@@ -1697,11 +1711,14 @@ impl Reader {
             "showInTranscript": message.get("skip_transcript").and_then(Value::as_bool) != Some(true),
             "canStop": true,
         });
-        if let Some(owner) = self.owner_of(spawner.as_deref()) {
-            update["owner"] = json!(owner);
-        }
-        if let Some(spawner) = spawner {
-            update["toolCallId"] = json!(spawner);
+        let owner = self.owner_of(spawner.as_deref());
+        if let Some(fields) = update.as_object_mut() {
+            if let Some(owner) = owner {
+                fields.insert("owner".to_owned(), json!(owner));
+            }
+            if let Some(spawner) = spawner {
+                fields.insert("toolCallId".to_owned(), json!(spawner));
+            }
         }
         self.sink.update(&self.data.session_id, update);
     }
@@ -1751,7 +1768,9 @@ impl Reader {
         ])
         .unwrap_or_else(|| states::UNNAMED_TASK.to_owned());
         let mut spawned = states::spawned(&session_id, &name, &task);
-        spawned["canStop"] = json!(true);
+        if let Some(fields) = spawned.as_object_mut() {
+            fields.insert("canStop".to_owned(), json!(true));
+        }
         self.sink.update(&parent_session, spawned);
         let background = message
             .get("is_backgrounded")
@@ -1817,13 +1836,17 @@ impl Reader {
         let Some(task) = self.data.tasks.get_mut(id).filter(|task| !task.ended) else {
             return;
         };
-        let mut update =
-            json!({ "sessionUpdate": UpdateKind::AsyncTaskProgress, "asyncTaskId": id });
+        let mut update = Map::new();
+        update.insert(
+            "sessionUpdate".to_owned(),
+            json!(UpdateKind::AsyncTaskProgress),
+        );
+        update.insert("asyncTaskId".to_owned(), json!(id));
         if let Some(progress) = message.get("workflow_progress").and_then(Value::as_array) {
             task.agents = Some(workflow_agents(progress));
         }
         if let Some(agents) = &task.agents {
-            update["agents"] = agents.clone();
+            update.insert("agents".to_owned(), agents.clone());
         }
         for (from, to) in [
             ("description", "description"),
@@ -1831,18 +1854,22 @@ impl Reader {
             ("last_tool_name", "lastToolName"),
         ] {
             if let Some(value) = text(message, from) {
-                update[to] = json!(value);
+                update.insert(to.to_owned(), json!(value));
             }
         }
         if let Some(usage) = message.get("usage").filter(|usage| usage.is_object()) {
             let field = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
-            update["usage"] = json!({
-                "totalTokens": field("total_tokens"),
-                "toolUses": field("tool_uses"),
-                "durationMs": field("duration_ms"),
-            });
+            update.insert(
+                "usage".to_owned(),
+                json!({
+                    "totalTokens": field("total_tokens"),
+                    "toolUses": field("tool_uses"),
+                    "durationMs": field("duration_ms"),
+                }),
+            );
         }
-        self.sink.update(&self.data.session_id, update);
+        self.sink
+            .update(&self.data.session_id, Value::Object(update));
     }
 
     fn task_ended(
@@ -1887,11 +1914,13 @@ impl Reader {
         }
         task.ended = true;
         let mut update = state.update(task_id);
-        if let Some(summary) = summary {
-            update["summary"] = json!(summary);
-        }
-        if let Some(output) = output {
-            update["outputFilePath"] = json!(output);
+        if let Some(fields) = update.as_object_mut() {
+            if let Some(summary) = summary {
+                fields.insert("summary".to_owned(), json!(summary));
+            }
+            if let Some(output) = output {
+                fields.insert("outputFilePath".to_owned(), json!(output));
+            }
         }
         self.sink.update(&self.data.session_id, update);
     }
@@ -1904,7 +1933,9 @@ impl Reader {
         };
         let mut update = json!({ "sessionUpdate": UpdateKind::TaskNotice, "taskId": task_id, "name": name, "state": state.as_str() });
         if self.data.subagents.contains_key(task_id) {
-            update["subagentSessionId"] = json!(task_id);
+            if let Some(fields) = update.as_object_mut() {
+                fields.insert("subagentSessionId".to_owned(), json!(task_id));
+            }
         }
         self.sink.update(&self.data.session_id, update);
     }
@@ -1942,7 +1973,9 @@ impl Reader {
             return;
         }
         if let Some(mut started) = self.data.foreground.remove(task_id) {
-            started["is_backgrounded"] = json!(true);
+            if let Some(fields) = started.as_object_mut() {
+                fields.insert("is_backgrounded".to_owned(), json!(true));
+            }
             self.task_started(&started);
         }
     }

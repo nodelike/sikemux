@@ -22,6 +22,8 @@ enum ErrorCode: String, Codable, Hashable, Sendable {
     case `internal` = "internal"
     case unavailable = "unavailable"
     case reverifyRequired = "reverify_required"
+    case addressProven = "address_proven"
+    case sameAccount = "same_account"
     /// A value added after this build, which it cannot act on.
     case unknown
 

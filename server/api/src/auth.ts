@@ -5,7 +5,7 @@ import {
   type JWTVerifyGetKey,
 } from "jose";
 import type { Context, MiddlewareHandler } from "hono";
-import { sql, type Kysely } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 
 import type { Tables } from "./db.ts";
 import { bodySha256, requestMessage, signedBy } from "./devices/signature.ts";
@@ -59,6 +59,31 @@ export function accountDeleted(): ApiFailure {
   return unauthorized(
     "This account was deleted. Sign in to the phone app or app.sikemux.com to restore it.",
   );
+}
+
+/**
+ * Makes sure the account has its row and still stands, and holds the row until the transaction
+ * ends, so a deletion or a fold waits for this write and never misses what it adds.
+ * `exclusive` also holds out other writes to the same account.
+ */
+export async function holdStanding(
+  trx: Transaction<Tables>,
+  userId: string,
+  { exclusive = false } = {},
+): Promise<void> {
+  await trx
+    .insertInto("users")
+    .values({ id: userId })
+    .onConflict((oc) => oc.column("id").doNothing())
+    .execute();
+  const query = trx
+    .selectFrom("users")
+    .select("deleted_at")
+    .where("id", "=", userId);
+  const user = await (
+    exclusive ? query.forUpdate() : query.forShare()
+  ).executeTakeFirstOrThrow();
+  if (user.deleted_at) throw accountDeleted();
 }
 
 /**

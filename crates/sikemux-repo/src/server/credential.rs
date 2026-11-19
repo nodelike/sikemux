@@ -51,14 +51,14 @@ pub async fn call(
     peer: SocketAddr,
     port: u16,
 ) -> Result<Value, String> {
-    let remote = request.params["remote"]
-        .as_str()
+    let remote = (request.params.get("remote"))
+        .and_then(Value::as_str)
         .ok_or("remote is missing")?
         .to_owned();
     let Some(asker) = asker(peer, port).await else {
         return Ok(json!({}));
     };
-    let grant = request.params["grant"].as_str();
+    let grant = request.params.get("grant").and_then(Value::as_str);
     let person = crate::server::plugged::acts_as(core, &remote) == Some(Acting::Person);
     match answer(core, asker, &remote, grant).await {
         Ok(Some(credential)) => Ok(json!({

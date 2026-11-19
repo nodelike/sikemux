@@ -28,6 +28,7 @@ struct WelcomeScreen: View {
             .padding(.horizontal, 24)
 
             VStack(spacing: 12) {
+                FoldWaiting()
                 provider(.apple, "Continue with Apple", BrandMarks.apple)
                 provider(.google, "Continue with Google", BrandMarks.google)
                 provider(.github, "Continue with GitHub", BrandMarks.github)

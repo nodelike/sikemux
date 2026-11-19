@@ -50,10 +50,12 @@ pub trait Host: Send + Sync + 'static {
 }
 
 /// A host with nowhere to keep the helper and nobody to tell, for tests.
-#[cfg(all(test, unix))]
+#[cfg(test)]
+#[cfg(unix)]
 struct NoHost;
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
+#[cfg(unix)]
 impl Host for NoHost {
     fn data_dir(&self) -> Option<PathBuf> {
         None
@@ -237,7 +239,8 @@ impl SimulatorManager {
         Self::made(host, None, Claims::shared())
     }
 
-    #[cfg(all(test, unix))]
+    #[cfg(test)]
+    #[cfg(unix)]
     pub(crate) fn with_helper(path: PathBuf) -> Arc<Self> {
         let claims = tempfile::tempdir().expect("a claims folder").keep();
         Self::made(
@@ -368,7 +371,13 @@ impl SimulatorManager {
                     limit,
                 )
                 .await?;
-            Ok::<_, String>(answer["devices"].as_array().cloned().unwrap_or_default())
+            Ok::<_, String>(
+                answer
+                    .get("devices")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
+            )
         };
         let (ios, android) = tokio::join!(ios, self.android.devices());
         let mut devices = match ios {
@@ -1167,13 +1176,15 @@ impl SimulatorManager {
 
     /// Turns a device, or with no `orientation` says which way it is turned.
     pub async fn orientation(&self, udid: &str, orientation: Option<String>) -> SimResult<String> {
-        let mut fields = json!({ "udid": udid });
+        let mut fields = Map::new();
+        fields.insert("udid".to_owned(), udid.into());
         if let Some(orientation) = &orientation {
-            fields["orientation"] = orientation.as_str().into();
+            fields.insert("orientation".to_owned(), orientation.as_str().into());
         }
-        let answer = self.request("orientation", fields).await?;
-        Ok(answer["orientation"]
-            .as_str()
+        let answer = self.request("orientation", Value::Object(fields)).await?;
+        Ok(answer
+            .get("orientation")
+            .and_then(Value::as_str)
             .map(str::to_owned)
             .or(orientation)
             .unwrap_or_else(|| "portrait".into()))
@@ -1242,12 +1253,19 @@ impl SimulatorManager {
             let runtimes = simctl(&dir, &["list", "runtimes", "--json"])
                 .and_then(|text| serde_json::from_str::<Value>(&text).ok())
                 .map(|list| {
-                    list["runtimes"]
-                        .as_array()
+                    list.get("runtimes")
+                        .and_then(Value::as_array)
                         .into_iter()
                         .flatten()
-                        .filter(|runtime| runtime["isAvailable"].as_bool() == Some(true))
-                        .filter_map(|runtime| runtime["name"].as_str().map(str::to_owned))
+                        .filter(|runtime| {
+                            runtime.get("isAvailable").and_then(Value::as_bool) == Some(true)
+                        })
+                        .filter_map(|runtime| {
+                            runtime
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .map(str::to_owned)
+                        })
                         .collect()
                 })
                 .unwrap_or_default();
@@ -1287,5 +1305,6 @@ pub(crate) fn simctl(developer_dir: &Path, args: &[&str]) -> Option<String> {
 }
 
 // The tests stand shell scripts in for the device helper.
-#[cfg(all(test, unix))]
+#[cfg(test)]
+#[cfg(unix)]
 mod tests;

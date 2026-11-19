@@ -56,8 +56,8 @@ fn agent_note(id: u64, text: &str, learned: &Learned) -> String {
 fn names(text: &str, term: &str) -> bool {
     let is_word = |char: char| char.is_alphanumeric() || char == '_';
     text.match_indices(term).any(|(at, _)| {
-        let before = text[..at].chars().next_back();
-        let after = text[at + term.len()..].chars().next();
+        let before = text.get(..at).and_then(|head| head.chars().next_back());
+        let after = (text.get(at + term.len()..)).and_then(|tail| tail.chars().next());
         !before.is_some_and(is_word) && !after.is_some_and(is_word)
     })
 }
@@ -252,7 +252,7 @@ fn decided(core: &Core, project: &str, goal: Option<u64>, task: &str, blind: boo
         (true, false) => (on_goal, NEWEST_DECISIONS),
         (true, true) => (standing.iter().collect(), NEWEST_DECISIONS),
     };
-    let picked = &picked[picked.len().saturating_sub(most)..];
+    let picked = (picked.get(picked.len().saturating_sub(most)..)).unwrap_or_default();
     let left = standing.len() - picked.len();
     let mut lines: Vec<String> = (picked.iter())
         .map(|decision| {

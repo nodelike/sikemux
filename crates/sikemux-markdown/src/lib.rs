@@ -5,6 +5,7 @@
 mod autolink;
 mod delimiters;
 mod doc;
+mod fences;
 mod mend;
 pub mod paths;
 mod reference;
@@ -239,14 +240,23 @@ fn read(text: &str, options: MarkdownOptions, skip: usize) -> (Vec<MdElement>, V
         links_open: 0,
         footnotes: Vec::new(),
     };
-    let rewritten = options.math.then(|| delimiters::as_dollars(text)).flatten();
+    let indented = fences::indent_item_fences(text);
+    let (text_read, indents) = match &indented {
+        Some((indented, moved)) => (indented.as_str(), Some(moved)),
+        None => (text, None),
+    };
+    let rewritten = options
+        .math
+        .then(|| delimiters::as_dollars(text_read))
+        .flatten();
     let (read, moved) = match &rewritten {
         Some((dollars, moved)) => (dollars.as_str(), Some(moved)),
-        None => (text, None),
+        None => (text_read, None),
     };
     for (event, range) in Parser::new_ext(read, flags).into_offset_iter() {
         if builder.stack.is_empty() {
             let start = moved.map_or(range.start, |moved| moved.original(range.start));
+            let start = indents.map_or(start, |moved| moved.original(start));
             builder.opening.get_or_insert(start);
         }
         builder.event(event);
@@ -891,7 +901,10 @@ impl Builder {
                 name,
                 mut text,
             } => {
-                if !text.is_empty() && !text.ends_with('\n') {
+                if text.trim().is_empty() {
+                    return;
+                }
+                if !text.ends_with('\n') && !text.ends_with('\n') {
                     text.push('\n');
                 }
                 MdElement::Pre {

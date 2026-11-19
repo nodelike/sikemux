@@ -14,6 +14,12 @@
 //! folders each project under that folder now keeps as its own.
 //! Version 7: each goal card kept its own decisions; the project keeps them all in one list
 //! now, each tagged with its goal and keeping its id, and new ids start above every old one.
+//! Version 8: a card nobody touched for a week, once put aside in Later, is dropped by the board,
+//! and the cards already done count as opened by the person.
+//! Version 9: a person's message became a task only once an agent handed it on as work, and landed
+//! only with a commit of its holder's own. Those an earlier core made of every message an agent
+//! passed on in its turn, which no start named, go; a commit pinned from a holder's checkout head,
+//! kept in full where its own commits are short, comes off, and its task goes once nobody holds it.
 
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
@@ -53,7 +59,54 @@ pub fn carry_over(mut board: Value, folders: Option<&Vec<(String, Vec<Value>)>>)
     if version < 7 {
         decisions_to_one_list(&mut board);
     }
+    if version < 8 {
+        later_to_dropped(&mut board);
+    }
+    if version < 9 {
+        asks_to_marked_work(&mut board);
+    }
     board
+}
+
+fn asks_to_marked_work(board: &mut Value) {
+    let Some(cards) = board.get_mut("cards").and_then(Value::as_array_mut) else {
+        return;
+    };
+    cards.retain_mut(|card| {
+        let Some(asked) = card.get_mut("asked").and_then(Value::as_object_mut) else {
+            return true;
+        };
+        if asked.get("name").is_none_or(Value::is_null) {
+            return false;
+        }
+        let head_pin =
+            (asked.get("commit").and_then(Value::as_str)).is_some_and(|it| it.len() == 40);
+        if !head_pin {
+            return true;
+        }
+        let held = (asked.get("owners").and_then(Value::as_array)).is_some_and(|it| !it.is_empty());
+        for pinned in ["commit", "landedAt", "inBuildAt"] {
+            asked.remove(pinned);
+        }
+        card["status"] = json!("progress");
+        held
+    });
+}
+
+fn later_to_dropped(board: &mut Value) {
+    let cards = board.get_mut("cards").and_then(Value::as_array_mut);
+    for card in cards.into_iter().flatten().filter_map(Value::as_object_mut) {
+        if let Some(at) = card.remove("asideAt").filter(|at| !at.is_null()) {
+            card.insert(
+                "dropped".into(),
+                json!({ "at": at, "by": { "kind": "board" }, "why": "nobody touched it for a week" }),
+            );
+        }
+        if card.get("status").and_then(Value::as_str) == Some("done") {
+            let at = card.get("updatedAt").cloned().unwrap_or(Value::Null);
+            card.insert("openedAt".into(), at);
+        }
+    }
 }
 
 fn decisions_to_one_list(board: &mut Value) {
@@ -77,7 +130,9 @@ fn decisions_to_one_list(board: &mut Value) {
             .and_then(|kept| kept.as_array().cloned())
             .unwrap_or_default()
         {
-            decision["goal"] = id.clone();
+            if let Some(fields) = decision.as_object_mut() {
+                fields.insert("goal".into(), id.clone());
+            }
             decisions.push(decision);
         }
     }
@@ -148,13 +203,14 @@ fn environments_to_places(board: &mut Value, folders: &[(String, Vec<Value>)]) {
     let Some(proposal) = board.remove("environmentsProposal") else {
         return;
     };
-    let proposed: Vec<Place> = (proposal["environments"].as_array().into_iter().flatten())
+    let environments = proposal.get("environments").and_then(Value::as_array);
+    let proposed: Vec<Place> = (environments.into_iter().flatten())
         .filter_map(from_environment)
         .collect();
     if !proposed.is_empty() {
         board.insert(
             "placesProposal".into(),
-            json!({ "places": proposed, "why": proposal["why"], "by": proposal["by"], "at": proposal["at"] }),
+            json!({ "places": proposed, "why": proposal.get("why"), "by": proposal.get("by"), "at": proposal.get("at") }),
         );
     }
 }
@@ -240,21 +296,21 @@ fn runs_off_their_stage(board: &mut Value) {
     let Some(cards) = board.get_mut("cards").and_then(Value::as_array_mut) else {
         return;
     };
-    for card in cards {
-        let stage = card
-            .pointer("/auto/stage")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
+    for card in cards.iter_mut().filter_map(Value::as_object_mut) {
+        let Some(auto) = card.get_mut("auto").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        let stage = auto.get("stage").and_then(Value::as_str).map(str::to_owned);
         match stage.as_deref() {
-            Some("review") => card["auto"]["stage"] = "watching".into(),
+            Some("review") => {
+                auto.insert("stage".into(), "watching".into());
+            }
             Some("held") => {
-                card["auto"]["stage"] = "working".into();
-                card["auto"]["held"] = "fix".into();
+                auto.insert("stage".into(), "working".into());
+                auto.insert("held".into(), "fix".into());
             }
             Some("merged" | "closed") => {
-                if let Some(card) = card.as_object_mut() {
-                    card.remove("auto");
-                }
+                card.remove("auto");
             }
             _ => {}
         }

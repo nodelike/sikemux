@@ -12,6 +12,9 @@ enum ProviderSignIn {
     struct Cancelled: Error {}
 
     static func start(_ provider: Provider) async throws {
+        #if DEBUG
+            if Showcase.current != nil { return Account.shared.signInShowcase() }
+        #endif
         switch provider {
         case .apple: try await withApple()
         case .google, .github: try await onTheWeb("oauth_\(provider.rawValue)")

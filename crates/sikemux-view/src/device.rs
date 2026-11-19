@@ -153,6 +153,31 @@ pub struct AccountInfo {
     /// Pro's features come free for now: before paid plans start, or while Pro is a gift.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub pro_given: bool,
+    /// The orgs the account holds a seat in, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub orgs: Vec<AccountOrg>,
+}
+
+/// An org the account is in, and its own role there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountOrg {
+    pub id: String,
+    pub name: String,
+    pub role: OrgRole,
+    /// Whether the org's Team plan is paid. While it is not, the org's features and invites are
+    /// frozen and its data is kept.
+    pub active: bool,
+}
+
+/// What a member may do in an org. owner: everything, billing and deleting the org included.
+/// admin: rename it, invite people and manage admins and users. user: see the org and its members.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OrgRole {
+    Owner,
+    Admin,
+    User,
 }
 
 /// A feature still being tried, on for staff before anyone else. Each is a risky change
@@ -224,6 +249,9 @@ pub struct FoundChat {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat: Option<String>,
     pub by: FoundBy,
+    /// The linked host it is on, by key; none for this host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
 }
 
 /// Where a search found a chat: its agent's @name, its title, or what was said in it.

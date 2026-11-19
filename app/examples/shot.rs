@@ -151,6 +151,7 @@ fn main() -> anyhow::Result<()> {
             flags: Vec::new(),
             features: None,
             pro_given: false,
+            orgs: Vec::new(),
         };
         cx.update(|cx| {
             bench.update(cx, |bench, cx| {

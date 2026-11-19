@@ -177,12 +177,12 @@ pub fn read(
             .position(|byte| *byte == b'\n')
             .map_or(rest.len(), |at| at + 1);
         offset += cut as u64;
-        rest = &rest[cut..];
+        rest = rest.get(cut..).unwrap_or_default();
     }
     let mut said: Vec<(u64, bool, Said)> = Vec::new();
     let mut times = Vec::new();
     while let Some(at) = rest.iter().position(|byte| *byte == b'\n') {
-        let line = &rest[..at];
+        let line = rest.get(..at).unwrap_or_default();
         if let Ok(value) = serde_json::from_slice::<Value>(line) {
             let mut items = Vec::new();
             if let Some(said) = cli.ops().transcript_said() {
@@ -196,7 +196,7 @@ pub fn read(
             }
         }
         offset += at as u64 + 1;
-        rest = &rest[at + 1..];
+        rest = rest.get(at + 1..).unwrap_or_default();
     }
     if from.is_none() {
         let starts: Vec<usize> = said
@@ -287,7 +287,7 @@ fn unpasted(text: &str) -> String {
     let mut text = text.to_owned();
     for tag in ["<pasted_content", "</pasted_content"] {
         while let Some(start) = text.find(tag) {
-            let Some(length) = text[start..].find('>') else {
+            let Some(length) = text.get(start..).and_then(|after| after.find('>')) else {
                 break;
             };
             text.replace_range(start..=start + length, "");

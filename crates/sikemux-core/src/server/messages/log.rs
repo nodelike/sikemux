@@ -1,8 +1,8 @@
 //! A log of the messages between agents in each project: who sent what kind
 //! to whom, when, and what became of it. One line of JSON each, never the
 //! text, in a file per project that starts over once it fills, keeping the
-//! one before. Questions asked aside are kept the same way in a log of their own, with
-//! their text.
+//! one before. Questions asked aside, by this person's agents or a teammate's, are kept the
+//! same way in a log of their own, with their text.
 
 pub use sikemux_calls::messages::{MessageOutcome, MessageRow, MessageTone};
 use std::collections::BTreeMap;
@@ -45,12 +45,32 @@ pub(crate) struct MessageEntry {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AskEntry {
     pub at: u64,
+    /// The asking agent's id; for a teammate's agent, which has no id here, its name.
     pub from: String,
     pub from_name: String,
+    /// The agent whose work answered; empty when nobody held the task.
     pub to: String,
     pub to_name: String,
     pub question: String,
     pub answer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub teammate: Option<Teammate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<u64>,
+}
+
+/// The person in one of this account's orgs whose agent asked.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Teammate {
+    pub org: String,
+    pub member: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture: Option<String>,
+    /// The program their agent that asked runs on, which picks its mark.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_cli: Option<String>,
 }
 
 pub(crate) struct MessageLog<T = MessageEntry> {
@@ -185,20 +205,23 @@ pub(crate) fn rows(
         );
         let earlier = later
             .then(|| {
-                going.iter().position(|&place| {
-                    let row = &rows[place];
-                    row.to == entry.to
-                        && (entry.from.is_none() || row.from == entry.from)
-                        && (entry.kind.is_none() || row.kind == entry.kind)
+                (going.iter().enumerate()).find(|(_, place)| {
+                    rows.get(**place).is_some_and(|row| {
+                        row.to == entry.to
+                            && (entry.from.is_none() || row.from == entry.from)
+                            && (entry.kind.is_none() || row.kind == entry.kind)
+                    })
                 })
             })
-            .flatten();
-        if let Some(waiting) = earlier {
-            let row = &mut rows[going[waiting]];
-            row.waited |= !matches!(row.outcome, MessageOutcome::Typed);
-            row.outcome = entry.outcome;
-            row.tone = tone(entry.outcome);
-            row.at = entry.at;
+            .flatten()
+            .map(|(waiting, place)| (waiting, *place));
+        if let Some((waiting, place)) = earlier {
+            if let Some(row) = rows.get_mut(place) {
+                row.waited |= !matches!(row.outcome, MessageOutcome::Typed);
+                row.outcome = entry.outcome;
+                row.tone = tone(entry.outcome);
+                row.at = entry.at;
+            }
             if !still_going(entry.outcome) {
                 going.remove(waiting);
             }

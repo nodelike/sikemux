@@ -78,7 +78,12 @@ fn spread(mut samples: Vec<f64>) -> serde_json::Value {
         return json!(null);
     }
     samples.sort_by(f64::total_cmp);
-    let at = |share: f64| samples[((samples.len() - 1) as f64 * share).round() as usize];
+    let at = |share: f64| {
+        samples
+            .get(((samples.len() - 1) as f64 * share).round() as usize)
+            .copied()
+            .unwrap_or_default()
+    };
     json!({
         "n": samples.len(),
         "mean": samples.iter().sum::<f64>() / samples.len() as f64,
@@ -223,10 +228,10 @@ async fn flood(client: &CoreClient, count: usize, seconds: u64) -> Result<(), Fa
     while Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(500)).await;
         let probe = probe(client).await;
-        list.push(probe["listMs"].as_f64().unwrap_or(0.));
+        list.push(probe.get("listMs").and_then(|ms| ms.as_f64()).unwrap_or(0.));
         let core = usage(client.core_pid());
-        cpu.push(core["cpu"].as_f64().unwrap_or(0.));
-        rss.push(core["rssMb"].as_f64().unwrap_or(0.));
+        cpu.push(core.get("cpu").and_then(|cpu| cpu.as_f64()).unwrap_or(0.));
+        rss.push(core.get("rssMb").and_then(|rss| rss.as_f64()).unwrap_or(0.));
     }
     println!(
         "{}",
@@ -254,7 +259,7 @@ async fn prompt(client: &CoreClient, agent: &str, text: String) -> Result<(), Fa
 fn said(changes: &serde_json::Value, needle: &str) -> Option<String> {
     let text = changes.to_string();
     let at = text.find(needle)?;
-    Some(text[at..].chars().take(120).collect())
+    Some(text.get(at..)?.chars().take(120).collect())
 }
 
 async fn tools(
@@ -365,8 +370,13 @@ async fn stream(
     while !waiting.is_empty() && Instant::now() < deadline {
         if Instant::now() >= next_probe {
             let probe = probe(client).await;
-            list.push(probe["listMs"].as_f64().unwrap_or(0.));
-            cpu.push(usage(client.core_pid())["cpu"].as_f64().unwrap_or(0.));
+            list.push(probe.get("listMs").and_then(|ms| ms.as_f64()).unwrap_or(0.));
+            cpu.push(
+                usage(client.core_pid())
+                    .get("cpu")
+                    .and_then(|cpu| cpu.as_f64())
+                    .unwrap_or(0.),
+            );
             next_probe = Instant::now() + Duration::from_millis(500);
         }
         let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(100), events.recv()).await

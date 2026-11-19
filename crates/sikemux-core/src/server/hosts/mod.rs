@@ -21,12 +21,14 @@ mod listed;
 mod machine;
 pub mod open;
 mod outbox;
+pub(crate) mod peers;
 pub(crate) mod probe;
 mod receipts;
 pub(crate) mod record;
 pub(crate) mod rehome;
 pub(crate) mod reopen;
 pub(crate) mod route;
+pub(crate) mod search;
 pub(crate) mod spawn;
 pub(crate) mod team;
 pub mod transfer;
@@ -138,6 +140,8 @@ pub(crate) struct Hosts {
     pub(crate) outbox: outbox::Outbox,
     receipts: receipts::Receipts,
     pub(crate) team: team::Team,
+    /// Agents on the other hosts that are on no team here, heard of while this core runs.
+    pub(crate) peers: peers::Peers,
     /// What the other hosts hold of the account's projects.
     pub(crate) copies: copies::Copies,
     /// How big each linked host is, by its key.
@@ -176,6 +180,7 @@ impl Hosts {
             outbox: outbox::Outbox::new(data_dir),
             receipts: receipts::Receipts::new(data_dir),
             team: team::Team::new(data_dir),
+            peers: peers::Peers::default(),
             copies: copies::Copies::new(data_dir),
             machines: machine::Machines::default(),
             wake: Wake::default(),
@@ -391,6 +396,19 @@ pub(crate) fn find(core: &Core, wanted: &str) -> Result<StoredLink, String> {
     }
 }
 
+/// The linked host `wanted` names, to move work to or from it, which the account's plan must allow.
+/// The host that asks checks, so nothing has moved yet when it refuses.
+pub(crate) fn find_to_move_work(core: &Core, wanted: &str) -> Result<StoredLink, String> {
+    let account = core.account().shown();
+    if !crate::accounts::allows(
+        account.as_ref(),
+        crate::accounts::protocol::PlanFeature::MoveWork,
+    ) {
+        return Err("Moving work between hosts is part of Pro, and this account doesn't have it; the work can run on this host instead".into());
+    }
+    find(core, wanted)
+}
+
 pub(crate) fn name_of(core: &Core, id: &str) -> String {
     core.remote()
         .link(id)
@@ -423,7 +441,7 @@ fn addresses_of(value: &Value) -> Vec<String> {
         .collect()
 }
 
-fn addr_of(core: &Core, id: &str, addresses: &[String]) -> Result<EndpointAddr, String> {
+pub(crate) fn addr_of(core: &Core, id: &str, addresses: &[String]) -> Result<EndpointAddr, String> {
     let key: iroh::PublicKey = id
         .parse()
         .map_err(|_| "that is not a host's key".to_owned())?;
@@ -736,7 +754,7 @@ async fn flush_lane(core: Arc<Core>, host: String, lane: String) {
             Ok(_) => {
                 core.hosts().outbox.sent(&host, post.seq);
                 if post.method == "question" {
-                    if let Some(id) = post.params["id"].as_str() {
+                    if let Some(id) = post.params.get("id").and_then(Value::as_str) {
                         super::questions::relay_arrived(&core, id);
                     }
                 }

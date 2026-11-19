@@ -34,10 +34,15 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let now = epoch_ms();
     let mut next: Option<u64> = None;
     let mut due = Vec::new();
+    let tested_at_home = crate::server::hosts::record::elsewhere_identities(core);
     {
         let mut state = core.memory().state.locked();
         let mut room = MAX_AT_ONCE.saturating_sub(state.checking.len());
-        for held in state.held.values() {
+        let tested_here = state
+            .held
+            .values()
+            .filter(|held| !tested_at_home.contains(&held.key));
+        for held in tested_here {
             let Some(place) = state.folder_of_store(held) else {
                 continue;
             };

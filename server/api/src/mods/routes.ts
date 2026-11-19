@@ -2,6 +2,7 @@ import type { Services } from "../app.ts";
 import { Hono, type Context } from "hono";
 
 import { requireIdentity, type AuthEnv } from "../auth.ts";
+import { requireFeature } from "../billing/access.ts";
 import { ApiFailure, badRequest, limitBody, readBody } from "../http.ts";
 import { limit, perUser } from "../limits.ts";
 import type { StashFiles } from "../stash/files.ts";
@@ -41,14 +42,17 @@ function asker(c: Context<AuthEnv>) {
 /**
  * The account's record of every mod's documents and files, sealed under the vault key. Hosts keep
  * their own copy and merge through this one; the server sees mod ids, sizes and times, never
- * contents. Files are kept in the stash's encrypted file store, apart from its items.
+ * contents. Files are kept in the stash's encrypted file store, apart from its items. They are Pro's
+ * sync, so once plans are live an account without it is refused.
  */
 export function modRoutes({
   database: { db },
   verifier,
   limiter,
   stash,
-}: Pick<Services, "database" | "verifier" | "limiter" | "stash">) {
+  billing,
+}: Pick<Services, "database" | "verifier" | "limiter" | "stash" | "billing">) {
+  const syncing = requireFeature(db, billing.live, "sync");
   const asHost = requireIdentity(verifier, db, { accept: ["host"] });
   const asUploadingHost = requireIdentity(verifier, db, {
     accept: ["host"],
@@ -69,6 +73,7 @@ export function modRoutes({
       "/documents",
       limitBody<AuthEnv>(PUSH_BYTES),
       asHost,
+      syncing,
       limit<AuthEnv>(limiter, "mods-push", 30, (c) => asker(c).hostKey),
       async (c) => {
         const body = await readBody(c, "ModsPush");
@@ -78,6 +83,7 @@ export function modRoutes({
     .get(
       "/documents",
       asHost,
+      syncing,
       perUser(limiter, "mods-pull", 240),
       async (c) => {
         const since = c.req.query("since") ?? "";
@@ -91,6 +97,7 @@ export function modRoutes({
     .delete(
       "/:mod/documents",
       asHost,
+      syncing,
       perUser(limiter, "mods-purge", 30),
       async (c) => {
         const { storedAs, ...purged } = await purgeMod(db, asker(c), modId(c));
@@ -101,12 +108,14 @@ export function modRoutes({
     .get(
       "/:mod/files",
       asHost,
+      syncing,
       perUser(limiter, "mods-files", 240),
       async (c) => c.json(await listFiles(db, asker(c).userId, modId(c))),
     )
     .put(
       "/:mod/files/:file",
       asUploadingHost,
+      syncing,
       limit<AuthEnv>(limiter, "mods-file-put", 120, (c) => asker(c).hostKey),
       async (c) =>
         c.json(
@@ -124,6 +133,7 @@ export function modRoutes({
     .get(
       "/:mod/files/:file",
       asHost,
+      syncing,
       perUser(limiter, "mods-file-get", 600),
       async (c) => {
         const file = modFile(c);
@@ -143,6 +153,7 @@ export function modRoutes({
     .delete(
       "/:mod/files/:file",
       asHost,
+      syncing,
       perUser(limiter, "mods-file-remove", 240),
       async (c) => {
         await removeFile(db, stash, asker(c).userId, modFile(c));

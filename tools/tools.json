@@ -1691,6 +1691,10 @@
           "type": "integer",
           "minimum": 1
         },
+        "work": {
+          "description": "true: hands on work the person asked for this turn, making it a task; never for a question or remark",
+          "type": "boolean"
+        },
         "to": {
           "description": "Name or id, comma-separated, or team",
           "type": "string",
@@ -1730,6 +1734,10 @@
           "description": "Number of what the person asked for that this hands on",
           "type": "integer",
           "minimum": 1
+        },
+        "work": {
+          "description": "true: hands on work the person asked for this turn, making it a task; never for a question or remark",
+          "type": "boolean"
         },
         "cli": {
           "description": "e.g. claude, codex; omit for a helper",
@@ -1891,6 +1899,7 @@
       "description": "Read what an agent said.",
       "properties": {
         "agent": {
+          "description": "Or a teammate's task from task_list, with a question to ask about it",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
@@ -2056,9 +2065,12 @@
         "link": {"type": "object", "additionalProperties": false, "properties": {"label": {"type": "string", "maxLength": 80}, "url": {"type": "string", "minLength": 1, "maxLength": 2048}}, "required": ["url"]},
         "pick": {"description": "The choice you recommend", "type": "string", "minLength": 1, "maxLength": 200},
         "about": {"description": "Agent whose work it is, when not yours", "type": "string", "minLength": 1, "maxLength": 200},
-        "page": {"description": "Id of a page you showed that pictures it", "type": "string", "minLength": 32, "maxLength": 32}
+        "page": {"description": "Id of a page you showed that pictures it", "type": "string", "minLength": 32, "maxLength": 32},
+        "pages": {"description": "Several such page ids, in order; on edit, the new list", "type": "array", "maxItems": 6, "items": {"type": "string", "minLength": 32, "maxLength": 32}},
+        "edit": {"description": "questionId of your open call: change it in place with the fields given", "type": "string", "minLength": 1, "maxLength": 64},
+        "withdraw": {"description": "With edit: take the call back", "type": "boolean"}
       },
-      "required": ["question"]
+      "required": []
     },
     {
       "name": "task_add",
@@ -2150,12 +2162,19 @@
           "type": "string",
           "enum": [
             "open",
-            "done"
+            "done",
+            "dropped"
           ]
         },
         "result": {
+          "description": "With dropped: why, in a few words",
           "type": "string",
           "maxLength": 16384
+        },
+        "replacedBy": {
+          "description": "With dropped: the task that takes its place",
+          "type": "integer",
+          "minimum": 1
         },
         "dependsOn": {
           "type": "array",

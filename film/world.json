@@ -134,8 +134,17 @@
     { "name": "db-replica", "hostName": "db-replica.acme.dev" },
     { "name": "pi-hole", "hostName": "192.168.1.2", "user": "pi" }
   ],
+  "sikemuxAccount": {
+    "person": "ines",
+    "host": "studio",
+    "orgs": [
+      { "name": "Lumen Studio", "role": "admin", "plan": "active" },
+      { "name": "Fjord Labs", "role": "user", "plan": "active" },
+      { "name": "Harbor Works", "role": "user", "plan": "lapsed" }
+    ]
+  },
   "account": {
-    "name": "edon",
+    "name": "Edon",
     "usage": {
       "rate_limits_available": true,
       "subscription_type": "max",

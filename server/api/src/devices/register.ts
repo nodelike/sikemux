@@ -2,10 +2,11 @@ import type { Device, DeviceRegistration } from "@sikemux/protocol";
 import { sql, type Kysely, type Selectable } from "kysely";
 
 import { audit } from "../audit.ts";
-import { accountDeleted } from "../auth.ts";
+import { holdStanding } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
 import { ApiFailure, badRequest, forbidden } from "../http.ts";
+import { vaultChanged } from "../orgvault/change.ts";
 import { proveKey } from "./challenge.ts";
 import { registrationMessage } from "./signature.ts";
 
@@ -63,18 +64,7 @@ export async function registerDevice(
   });
 
   return db.transaction().execute(async (trx) => {
-    await trx
-      .insertInto("users")
-      .values({ id: userId })
-      .onConflict((oc) => oc.column("id").doNothing())
-      .execute();
-    const user = await trx
-      .selectFrom("users")
-      .select("deleted_at")
-      .where("id", "=", userId)
-      .forShare()
-      .executeTakeFirstOrThrow();
-    if (user.deleted_at) throw accountDeleted();
+    await holdStanding(trx, userId);
     const existing = await trx
       .selectFrom("devices")
       .selectAll()
@@ -158,6 +148,15 @@ export async function registerDevice(
         .deleteFrom("removed_devices")
         .where("key", "=", registration.key)
         .execute();
+    if (!existing && registration.role === "host") {
+      const vaults = await trx
+        .selectFrom("org_users")
+        .innerJoin("org_vaults", "org_vaults.org_id", "org_users.org_id")
+        .select("org_users.org_id")
+        .where("org_users.user_id", "=", userId)
+        .execute();
+      for (const { org_id } of vaults) await vaultChanged(trx, org_id);
+    }
     await audit(trx, {
       userId,
       actor: `user:${userId}`,

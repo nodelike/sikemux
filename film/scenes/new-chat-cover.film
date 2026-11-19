@@ -1,0 +1,19 @@
+# A new chat's welcome over the pane picture, in each of the picture's coverages.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer paneBackdrop picture
+prefer paneImage
+prefer paneCoverage band
+project storefront shop
+chat Wren
+settle 6
+front Wren
+settle 2
+snap band
+prefer paneCoverage full
+settle 2
+snap full
+prefer paneCoverage band
+settle 2
+snap band-again

@@ -105,12 +105,12 @@ fn apply(text: &mut String, change: &LspTextChange) -> bool {
 fn offset(text: &str, position: &LspPos) -> Option<usize> {
     let mut line_start = 0;
     for _ in 0..position.line {
-        line_start += text[line_start..].find('\n')? + 1;
+        line_start += text.get(line_start..)?.find('\n')? + 1;
     }
-    let line = &text[line_start..];
+    let line = text.get(line_start..)?;
     let line_end = line.find('\n').unwrap_or(line.len());
     let mut units = 0;
-    for (at, character) in line[..line_end].char_indices() {
+    for (at, character) in line.get(..line_end)?.char_indices() {
         if units >= position.character {
             return Some(line_start + at);
         }

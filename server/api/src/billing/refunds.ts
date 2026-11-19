@@ -6,6 +6,7 @@ import { ApiFailure } from "../http.ts";
 import { callLater, type ProviderCall } from "./calls.ts";
 import { REFUND_DAYS, product } from "./catalog.ts";
 import { heldSubscription } from "./provider.ts";
+import { checkSeatPauses } from "./seat-pause.ts";
 
 const DAY_MS = 24 * 60 * 60_000;
 
@@ -56,6 +57,7 @@ export async function planRefund(
     .execute();
   const first = invoices.find((invoice) => invoice.reason === "first_payment");
   if (!first) return NONE;
+  if (invoices.some((invoice) => invoice.kept_refund !== null)) return NONE;
   const until = new Date(first.at.getTime() + REFUND_DAYS * DAY_MS);
   const covered = invoices.filter(
     (invoice) =>
@@ -139,7 +141,8 @@ async function lockPayer(trx: Kysely<Tables>, customerId: string) {
 
 /**
  * Asks for a plan's refund: its payments are marked asked, and the provider is told to stop the
- * plan renewing and to refund each one. When the refund is paid, the plan ends.
+ * plan renewing and to refund each one. A Pro paused for a seat is left to its seat check, which
+ * holds its paid time and drops any resume before it asks. When the refund is paid, the plan ends.
  */
 export async function askRefund(
   db: Kysely<Tables>,
@@ -171,7 +174,7 @@ export async function askRefund(
         refund.covers.map((invoice) => invoice.id),
       )
       .execute();
-    const renewing = await trx
+    const open = await trx
       .selectFrom("subscriptions")
       .innerJoin(
         "billing_customers",
@@ -179,7 +182,10 @@ export async function askRefund(
         "subscriptions.customer_id",
       )
       .selectAll("subscriptions")
-      .select("billing_customers.provider_customer_id")
+      .select([
+        "billing_customers.provider_customer_id",
+        "billing_customers.user_id",
+      ])
       .where("subscriptions.customer_id", "=", customerId)
       .where(
         "subscriptions.provider_subscription_id",
@@ -187,13 +193,19 @@ export async function askRefund(
         providerSubscriptionId,
       )
       .where("subscriptions.status", "<>", "ended")
-      .where("subscriptions.cancel_at_period_end", "=", false)
       .execute();
+    const pausedForSeat = open.find((row) => row.paused_for_seat_at);
+    if (pausedForSeat?.user_id) {
+      await checkSeatPauses(trx, [pausedForSeat.user_id]);
+      return "asked";
+    }
     const calls: ProviderCall[] = [
-      ...renewing.map((row) => ({
-        action: "cancel_at_period_end" as const,
-        subscription: heldSubscription(row, row.provider_customer_id),
-      })),
+      ...open
+        .filter((row) => !row.cancel_at_period_end)
+        .map((row) => ({
+          action: "cancel_at_period_end" as const,
+          subscription: heldSubscription(row, row.provider_customer_id),
+        })),
       ...refund.covers.map((invoice) => ({
         action: "refund" as const,
         providerPaymentId: invoice.provider_payment_id,
@@ -216,7 +228,16 @@ export async function refundPending(
     .where("customer_id", "=", customerId)
     .where("provider_subscription_id", "=", providerSubscriptionId)
     .where("status", "=", "paid")
-    .where("refund_requested_at", "is not", null)
+    .where((eb) =>
+      eb.or([
+        eb("refund_requested_at", "is not", null),
+        eb.and([
+          eb("kept_refund", "is not", null),
+          eb("kept_refunded_at", "is", null),
+          eb("kept_refund_refused_at", "is", null),
+        ]),
+      ]),
+    )
     .executeTakeFirst();
   return Boolean(pending);
 }

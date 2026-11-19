@@ -33,6 +33,7 @@ crate::calls! {
     "memory" Memory (crate::memory::MemoryParams) -> sikemux_view::memory::MemoryView;
     "memoryUpdate" MemoryUpdate (crate::memory::MemoryUpdateParams) -> sikemux_view::memory::MemoryView;
     "promoteRule" PromoteRule (crate::memory::MemoryEntryParams) -> sikemux_view::memory::MemoryView;
+    "promoteRules" PromoteRules (crate::memory::MemoryParams) -> sikemux_view::memory::MemoryView;
     "keepSeededRules" KeepSeededRules (crate::memory::KeepSeededParams) -> sikemux_view::memory::MemoryView;
     "seedRules" SeedRules (crate::memory::MemoryParams) -> sikemux_view::memory::MemoryView;
     "moveAgentToProject" MoveAgentToProject (crate::move_agent::MoveParams) -> sikemux_view::workspace::WorkspaceAgent;
@@ -78,6 +79,7 @@ crate::calls! {
     "triage" Triage (crate::triage::TriageParams) -> sikemux_view::start::Triage;
     "removeTrigger" RemoveTrigger (crate::triggers::TriggerParams) -> bool;
     "holdTrigger" HoldTrigger (crate::triggers::HoldTriggerParams) -> bool;
+    "addTrigger" AddTrigger (crate::triggers::AddTriggerParams) -> sikemux_view::playbook::RunsAlone;
     "takeStep" TakeStep (crate::turn_state::TakeStepParams) -> ();
     "updateInstall" UpdateInstall (crate::updates::UpdateInstallParams) -> sikemux_view::updates::UpdateStatus;
     "updateApply" UpdateApply (crate::params::NoParams) -> bool;
@@ -221,6 +223,9 @@ crate::calls! {
     "attachStash" AttachStash (crate::stash::AttachStashParams) -> crate::stash::AttachedStash;
     "removeStash" RemoveStash (crate::stash::StashItemParams) -> ();
     "vault" Vault (crate::params::NoParams) -> crate::vault::ShownVault;
+    "orgVaults" OrgVaults (crate::params::NoParams) -> Vec<crate::vault::ShownOrgVault>;
+    "orgModelKeyAdd" OrgModelKeyAdd (crate::vault::OrgModelKeyAdd) -> ();
+    "orgModelKeyRemove" OrgModelKeyRemove (crate::vault::OrgEntryParams) -> ();
     "vaultRecoverySaved" VaultRecoverySaved (crate::params::NoParams) -> ();
     "vaultShowRecovery" VaultShowRecovery (crate::params::NoParams) -> ();
     "setPreference" SetPreference (sikemux_view::prefs::PreferenceChange) -> sikemux_view::prefs::Preferences;
@@ -335,6 +340,8 @@ crate::calls! {
     "hosts" Hosts (crate::params::NoParams) -> Vec<crate::hosts::HostRow>;
     "boards" Boards (crate::params::NoParams) -> Vec<crate::board::ProjectBoard>;
     "board" Board (crate::board::BoardParams) -> crate::board::ProjectBoard;
+    "projectTasks" ProjectTasks (crate::board::BoardParams) -> sikemux_view::task_list::ProjectTasks;
+    "teammateAsking" TeammateAsking (crate::board::TeammateAskingParams) -> sikemux_view::task_list::ProjectTasks;
     "boardAdd" BoardAdd (crate::board::BoardAddParams) -> crate::board::ProjectBoard;
     "boardHandOff" BoardHandOff (crate::board::BoardHandOffParams) -> crate::board::HandedOff;
     "boardResumeOwner" BoardResumeOwner (crate::board::BoardCardParams) -> crate::board::ProjectBoard;
@@ -353,6 +360,9 @@ crate::calls! {
     "overruleDecision" OverruleDecision (crate::board::OverruleParams) -> crate::board::ProjectBoard;
     "undoOverrule" UndoOverrule (crate::board::UndoOverruleParams) -> crate::board::ProjectBoard;
     "boardDecide" BoardDecide (crate::board::DecideParams) -> crate::board::ProjectBoard;
+    "shareProject" ShareProject (crate::board::ShareProjectParams) -> sikemux_view::teammates::ProjectSharing;
+    "unshareProject" UnshareProject (crate::board::BoardParams) -> sikemux_view::teammates::ProjectSharing;
+    "projectSharing" ProjectSharing (crate::board::BoardParams) -> sikemux_view::teammates::ProjectSharing;
     "boardRetry" BoardRetry (crate::board::BoardCardParams) -> crate::board::ProjectBoard;
     "boardPass" BoardPass (crate::board::BoardPassParams) -> crate::board::ProjectBoard;
     "boardNote" BoardNote (crate::board::BoardNoteParams) -> crate::board::ProjectBoard;

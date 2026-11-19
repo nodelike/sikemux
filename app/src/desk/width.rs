@@ -247,63 +247,62 @@ pub(super) fn all(
                 .child(label(named(live_at).0, format!(" · {}", t!("live")))),
         )
         .child(div().flex_1().min_h_0().child(live));
-    let others =
-        WIDTHS
-            .iter()
-            .filter(|(preset, ..)| *preset != live_at)
-            .map(|(preset, name, _)| {
-                let size = Viewport::preset(preset).expect("every width is a preset");
-                let picture = pictures.get(preset);
-                let after = picture.map_or_else(String::new, |(_, taken)| {
-                    format!(" · {}", ui::time::clock(*taken))
-                });
-                let shape = size.width as f32 / size.height as f32;
-                let (bench, agent, tab_id) =
-                    (cx.entity().downgrade(), agent.to_owned(), tab.id.clone());
-                div()
-                    .id(SharedString::from(format!("desk-width-picture-{preset}")))
-                    .flex()
-                    .flex_col()
-                    .gap(SPACE_1H)
-                    .cursor_pointer()
-                    .group("desk-width-picture")
-                    .child(label(crate::i18n::tr(name), after))
-                    .child(
-                        div()
-                            .w_full()
-                            .aspect_ratio(shape.max(1. / TALLEST_PICTURE))
-                            .overflow_hidden()
-                            .rounded(px(6.))
-                            .border(crate::theme::border())
-                            .border_color(t.border)
-                            .bg(t.surface_raised)
-                            .hover(move |frame| frame.border_color(t.border_strong))
-                            .map(|frame| match picture.and_then(|(image, _)| image.clone()) {
-                                Some(image) => frame.child(
-                                    div()
-                                        .w_full()
-                                        .aspect_ratio(shape)
-                                        .child(gpui_kit::img(image).size_full()),
-                                ),
-                                None => frame.flex().items_center().justify_center().child(
-                                    gpui_kit::component::spinner::Spinner::new()
-                                        .with_size(px(13.))
-                                        .color(t.text_tertiary),
-                                ),
-                            }),
-                    )
-                    .clicks(move |_, _, cx| {
-                        bench
-                            .update(cx, |bench, cx| {
-                                bench.with_engine(cx, |engine| {
-                                    engine.set_viewport(&agent, &tab_id, Viewport::preset(preset))
-                                });
-                                bench.take_pictures(&agent, cx);
-                                cx.notify();
-                            })
-                            .ok();
-                    })
+    let others = WIDTHS
+        .iter()
+        .filter(|(preset, ..)| *preset != live_at)
+        .filter_map(|(preset, name, _)| Some((preset, name, Viewport::preset(preset)?)))
+        .map(|(preset, name, size)| {
+            let picture = pictures.get(preset);
+            let after = picture.map_or_else(String::new, |(_, taken)| {
+                format!(" · {}", ui::time::clock(*taken))
             });
+            let shape = size.width as f32 / size.height as f32;
+            let (bench, agent, tab_id) =
+                (cx.entity().downgrade(), agent.to_owned(), tab.id.clone());
+            div()
+                .id(SharedString::from(format!("desk-width-picture-{preset}")))
+                .flex()
+                .flex_col()
+                .gap(SPACE_1H)
+                .cursor_pointer()
+                .group("desk-width-picture")
+                .child(label(crate::i18n::tr(name), after))
+                .child(
+                    div()
+                        .w_full()
+                        .aspect_ratio(shape.max(1. / TALLEST_PICTURE))
+                        .overflow_hidden()
+                        .rounded(px(6.))
+                        .border(crate::theme::border())
+                        .border_color(t.border)
+                        .bg(t.surface_raised)
+                        .hover(move |frame| frame.border_color(t.border_strong))
+                        .map(|frame| match picture.and_then(|(image, _)| image.clone()) {
+                            Some(image) => frame.child(
+                                div()
+                                    .w_full()
+                                    .aspect_ratio(shape)
+                                    .child(gpui_kit::img(image).size_full()),
+                            ),
+                            None => frame.flex().items_center().justify_center().child(
+                                gpui_kit::component::spinner::Spinner::new()
+                                    .with_size(px(13.))
+                                    .color(t.text_tertiary),
+                            ),
+                        }),
+                )
+                .clicks(move |_, _, cx| {
+                    bench
+                        .update(cx, |bench, cx| {
+                            bench.with_engine(cx, |engine| {
+                                engine.set_viewport(&agent, &tab_id, Viewport::preset(preset))
+                            });
+                            bench.take_pictures(&agent, cx);
+                            cx.notify();
+                        })
+                        .ok();
+                })
+        });
     let pictures_column = div()
         .flex_none()
         .w(relative(0.42))

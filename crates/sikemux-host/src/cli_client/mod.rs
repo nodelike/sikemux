@@ -42,19 +42,19 @@ pub fn run() -> i32 {
 
 fn run_inner() -> Result<i32, String> {
     let mut args: Vec<String> = env::args().skip(1).collect();
-    if args.is_empty() {
+    let Some((command, rest)) = args.split_first() else {
         print!("{}", overview());
         return Ok(0);
-    }
-    let command = args[0].as_str();
-    let wants_help = args[1..].iter().any(|arg| arg == "-h" || arg == "--help");
+    };
+    let command = command.as_str();
+    let wants_help = rest.iter().any(|arg| arg == "-h" || arg == "--help");
     match command {
         "--version" | "-V" | "version" => {
             println!("sikemux {}", env!("CARGO_PKG_VERSION"));
             return Ok(0);
         }
         "--help" | "-h" | "help" => {
-            match args.get(1) {
+            match rest.first() {
                 Some(topic) => print!("{}", command_help(topic).ok_or_else(|| unknown(topic))?),
                 None => print!("{}", overview()),
             }
@@ -64,12 +64,12 @@ fn run_inner() -> Result<i32, String> {
             print!("{}", command_help(command).unwrap_or_default());
             return Ok(0);
         }
-        "tool" => return execute_tool(&args[1..]),
-        "chat" => return chat::chat(&args[1..]),
+        "tool" => return execute_tool(rest),
+        "chat" => return chat::chat(rest),
         "doctor" => return doctor(),
-        "triage" => return triage::triage(&args[1..]),
+        "triage" => return triage::triage(rest),
         _ if crate::headless::COMMANDS.contains(&command) => {
-            return Ok(crate::headless::run(command, &args[1..]));
+            return Ok(crate::headless::run(command, rest));
         }
         "open" => {
             args.remove(0);
@@ -161,11 +161,10 @@ fn unknown(word: &str) -> String {
 }
 
 fn execute_tool(args: &[String]) -> Result<i32, String> {
-    if args.is_empty() || args.len() > 2 {
+    let (Some(method), params, None) = (args.first(), args.get(1), args.get(2)) else {
         return Err("usage: sikemux tool METHOD [JSON_PARAMS]".into());
-    }
-    let params = args
-        .get(1)
+    };
+    let params = params
         .map(|value| serde_json::from_str(value))
         .transpose()
         .map_err(|_| "invalid JSON params")?
@@ -175,7 +174,7 @@ fn execute_tool(args: &[String]) -> Result<i32, String> {
         &endpoint_to_read()?,
         &current_project()?,
         agent_id.as_deref(),
-        &args[0],
+        method,
         &params,
         TOOLS_REPLY_TIMEOUT,
     )

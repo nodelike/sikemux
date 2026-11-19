@@ -20,6 +20,7 @@ import {
   type ProviderSubscription,
 } from "./provider.ts";
 import { refundPending } from "./refunds.ts";
+import { checkSeatPauses } from "./seat-pause.ts";
 import { claimSettledBy } from "./seats.ts";
 
 /** An event about something erased, which is acknowledged and changes nothing. */
@@ -77,6 +78,10 @@ async function rowsOf(
       "subscriptions.provider_updated_at",
       "subscriptions.started_at",
       "subscriptions.ended_at",
+      "subscriptions.paused_for_seat_at",
+      "subscriptions.paid_left",
+      "subscriptions.resumes_at",
+      "subscriptions.cancel_at_period_end",
     ])
     .where("billing_customers.provider", "=", from.name)
     .where(
@@ -221,9 +226,20 @@ async function changeItems(
   }));
   for (const { item, row } of pairs) {
     if (!row || (row.status === "ended" && !live.length)) continue;
-    const back = row.status !== "active" && {
-      status: "active" as const,
-      ended_at: null,
+    const pausing =
+      row.paused_for_seat_at !== null &&
+      row.paid_left === null &&
+      row.resumes_at === null;
+    const back = {
+      ...(row.status !== "active" && {
+        status: "active" as const,
+        ended_at: null,
+      }),
+      ...(!pausing && {
+        paused_for_seat_at: null,
+        paid_left: null,
+        resumes_at: null,
+      }),
     };
     await trx
       .updateTable("subscriptions")
@@ -234,6 +250,8 @@ async function changeItems(
           at,
         ),
         ...back,
+        ...(pausing &&
+          row.cancel_at_period_end && { cancel_at_period_end: true }),
       })
       .where("id", "=", row.id)
       .execute();
@@ -402,7 +420,11 @@ async function apply(
   trx: Transaction<Tables>,
   from: From,
   event: ProviderEvent,
-): Promise<{ customerId: string | null; cancelled?: string }> {
+): Promise<{
+  customerId: string | null;
+  cancelled?: string;
+  refused?: string;
+}> {
   const provider = from.name;
   const { at } = event;
   switch (event.type) {
@@ -440,6 +462,21 @@ async function apply(
       if (!held) return STRAY;
       const { rows, customerId } = held;
       if (isNewer(rows, at)) await changeItems(trx, rows, customerId, sub, at);
+      return { customerId };
+    }
+    case "subscription.paused": {
+      const held = await rowsOf(trx, from, event.providerSubscriptionId, at);
+      if (!held) return STRAY;
+      const { rows, customerId } = held;
+      const ids = rows
+        .filter((row) => row.status !== "ended")
+        .map((row) => row.id);
+      if (ids.length && isNewer(rows, at))
+        await trx
+          .updateTable("subscriptions")
+          .set({ status: "paused", provider_updated_at: at })
+          .where("id", "in", ids)
+          .execute();
       return { customerId };
     }
     case "subscription.lapsed":
@@ -560,6 +597,19 @@ async function apply(
       const customerId = invoice.customer_id;
       const subscriptionId = invoice.provider_subscription_id;
       if (invoice.status !== "paid") return { customerId };
+      const keptPending =
+        invoice.kept_refund !== null && invoice.kept_refunded_at === null;
+      if (event.type === "payment.refund_refused" && keptPending) {
+        if (invoice.kept_refund_refused_at)
+          return { customerId, refused: event.providerPaymentId };
+        await trx
+          .updateTable("invoices")
+          .set({ kept_refund_refused_at: at })
+          .where("id", "=", invoice.id)
+          .execute();
+        await keptRefundsAnswered(trx, from, customerId, subscriptionId, at);
+        return { customerId, refused: event.providerPaymentId };
+      }
       if (event.type === "payment.refund_refused") {
         await trx
           .updateTable("invoices")
@@ -568,6 +618,19 @@ async function apply(
           .where("provider_subscription_id", "=", subscriptionId)
           .where("status", "=", "paid")
           .execute();
+        return { customerId, refused: event.providerPaymentId };
+      }
+      if (keptPending && !event.chargeback) {
+        const whole = event.returned.amount >= Number(invoice.amount);
+        await trx
+          .updateTable("invoices")
+          .set({
+            kept_refunded_at: at,
+            ...(whole && { status: "refunded" as const, refunded_at: at }),
+          })
+          .where("id", "=", invoice.id)
+          .execute();
+        await keptRefundsAnswered(trx, from, customerId, subscriptionId, at);
         return { customerId };
       }
       if (event.chargeback) {
@@ -593,6 +656,56 @@ async function apply(
       return { customerId };
     }
   }
+}
+
+/**
+ * Once the provider has answered every refund of a paused plan's kept time, ends the plan if it paid
+ * them all. Otherwise the person keeps the time whose refund was refused: the kept time is cut by
+ * the share of it paid back, by amount, and the plan runs the rest.
+ */
+async function keptRefundsAnswered(
+  trx: Transaction<Tables>,
+  from: From,
+  customerId: string,
+  providerSubscriptionId: string,
+  at: Date,
+) {
+  const kept = await trx
+    .selectFrom("invoices")
+    .select(["kept_refund", "kept_refunded_at", "kept_refund_refused_at"])
+    .where("customer_id", "=", customerId)
+    .where("provider_subscription_id", "=", providerSubscriptionId)
+    .where("kept_refund", "is not", null)
+    .execute();
+  if (
+    kept.some(
+      (invoice) =>
+        invoice.kept_refunded_at === null &&
+        invoice.kept_refund_refused_at === null,
+    )
+  )
+    return;
+  let total = 0;
+  let paidBack = 0;
+  for (const invoice of kept) {
+    const amount = Number(invoice.kept_refund);
+    total += amount;
+    if (invoice.kept_refunded_at) paidBack += amount;
+  }
+  if (paidBack >= total) {
+    await endPlanNow(trx, from, customerId, providerSubscriptionId, at);
+    return;
+  }
+  if (paidBack === 0) return;
+  await trx
+    .updateTable("subscriptions")
+    .set({
+      paid_left: sql<string>`paid_left * ${(total - paidBack) / total}::float8`,
+    })
+    .where("customer_id", "=", customerId)
+    .where("provider_subscription_id", "=", providerSubscriptionId)
+    .where("paid_left", "is not", null)
+    .execute();
 }
 
 /** Whether a refund asked for on a plan has been paid in full, its first payment included. */
@@ -651,20 +764,20 @@ async function endPlanNow(
 export async function peopleOf(
   db: Kysely<Tables>,
   customerId: string,
-): Promise<string[]> {
+): Promise<{ people: string[]; org: boolean }> {
   const customer = await db
     .selectFrom("billing_customers")
     .select(["user_id", "org_id"])
     .where("id", "=", customerId)
     .executeTakeFirstOrThrow();
-  if (customer.user_id) return [customer.user_id];
-  if (!customer.org_id) return [];
+  if (customer.user_id) return { people: [customer.user_id], org: false };
+  if (!customer.org_id) return { people: [], org: false };
   const members = await db
     .selectFrom("org_users")
     .select("user_id")
     .where("org_id", "=", customer.org_id)
     .execute();
-  return members.map((member) => member.user_id);
+  return { people: members.map((member) => member.user_id), org: true };
 }
 
 /**
@@ -702,13 +815,22 @@ async function applyOnce(
         .executeTakeFirst();
       if (!fresh) return;
       const result = await apply(trx, from, event);
-      const people = result.customerId
+      const { people, org } = result.customerId
         ? await peopleOf(trx, result.customerId)
-        : [];
+        : { people: [], org: false };
       await appendEvents(
         trx,
-        people.map((userId) => ({ userId, type: "plan.changed" as const })),
+        people.flatMap((userId) => [
+          { userId, type: "plan.changed" as const },
+          ...(org ? [{ userId, type: "orgs.changed" as const }] : []),
+        ]),
       );
+      await checkSeatPauses(trx, people);
+      if (result.refused)
+        log.error(
+          { provider: name, payment: result.refused },
+          "the payment provider refused a refund: the plan goes on with its paid time, and the person is owed an answer",
+        );
       if (result.cancelled)
         log.warn(
           { provider: name, subscription: result.cancelled },

@@ -23,10 +23,13 @@ pub mod shimmer;
 pub mod sign_in;
 pub(crate) mod slice_state;
 mod state_mark;
+mod stepper;
 pub mod time;
 pub mod yolo;
 
-pub use controls::{Button, Field, IconButton, Segmented, Toggle, Variant};
+pub use controls::{
+    corner_dot, count_badge, Button, Field, IconButton, Segmented, Toggle, Variant,
+};
 pub use dialog::{Cheatsheet, Choice, Choices, Confirm, Prompt, Section};
 pub use dock::{shell as dock_shell, DockMenu, DockRow, DockScope};
 pub use file_card::{file_head, Opens};
@@ -41,6 +44,7 @@ pub use model_name::model_name;
 pub use pane::{floating_panel, notice_bar, pane, pane_frame, PaneHeader, AGENT_INSET};
 pub use select::{select, Pick};
 pub use state_mark::{status_mark, turn_mark, turn_time};
+pub use stepper::stepper;
 
 use std::f32::consts::TAU;
 
@@ -253,10 +257,7 @@ pub fn initials(name: &str, key: &str, size: f32, cx: &App) -> Div {
             .collect::<String>()
             .to_uppercase(),
     };
-    let key = if key.is_empty() { name } else { key };
-    let hue = key.chars().fold(0u32, |hash, character| {
-        hash.wrapping_mul(31).wrapping_add(character as u32)
-    }) % 360;
+    let hue = hue_of(if key.is_empty() { name } else { key });
     div()
         .size(px(size))
         .flex_none()
@@ -264,11 +265,42 @@ pub fn initials(name: &str, key: &str, size: f32, cx: &App) -> Div {
         .items_center()
         .justify_center()
         .rounded_full()
-        .bg(gpui_kit::hsla(hue as f32 / 360., 0.62, 0.64, 1.))
+        .bg(gpui_kit::hsla(hue, 0.62, 0.64, 1.))
         .text_color(Tokens::get(cx).on_accent)
         .text_size(px(size * 0.47))
         .font_weight(FontWeight::SEMIBOLD)
         .child(initials)
+}
+
+/// A hue of its own for `key`, as a fraction of the colour wheel.
+fn hue_of(key: &str) -> f32 {
+    let hash = key.chars().fold(0u32, |hash, character| {
+        hash.wrapping_mul(31).wrapping_add(character as u32)
+    });
+    (hash % 360) as f32 / 360.
+}
+
+/// An org's first letter in a rounded square tinted a colour of its own, picked by its id.
+pub fn org_mark(name: &str, id: &str, size: f32) -> Div {
+    let hue = hue_of(id);
+    let letter: String = name.chars().take(1).flat_map(char::to_uppercase).collect();
+    div()
+        .size(px(size))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(theme::radius_2())
+        .bg(gpui_kit::hsla(hue, 0.5, 0.5, 0.2))
+        .text_color(gpui_kit::hsla(hue, 0.6, 0.68, 1.))
+        .text_size(px(size * 0.5))
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(letter)
+}
+
+/// The mark of an org whose Team plan has lapsed.
+pub fn plan_lapsed_mark(size: f32, cx: &App) -> Svg {
+    icon(Icon::Pause, size).text_color(Tokens::get(cx).warn)
 }
 
 /// A page's site icon, or a filled square in its place while the page has none.
@@ -366,6 +398,18 @@ pub fn caps(value: &str, cx: &App) -> Div {
         .letter_spacing(0.2)
         .line_height(crate::theme::ui_text(TEXT_LG))
         .text_color(Tokens::get(cx).text_tertiary)
+}
+
+/// PRO in the accent, marking a way in that needs the Pro plan.
+pub fn pro_mark(cx: &App) -> Div {
+    let accent = Tokens::get(cx).accent;
+    caps("Pro", cx)
+        .px(theme::SPACE_1H)
+        .rounded(theme::radius_1())
+        .border(crate::theme::border())
+        .border_color(accent.opacity(0.45))
+        .bg(accent.opacity(0.1))
+        .text_color(accent)
 }
 
 /// `value` with the letters a search for `query` found in it in the primary ink at semibold,

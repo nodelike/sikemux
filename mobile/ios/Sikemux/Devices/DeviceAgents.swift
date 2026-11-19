@@ -31,8 +31,8 @@ struct DeviceAgents: View {
                 if teams.contains(where: { $0.project != nil || !$0.items.isEmpty }) {
                     Rows {
                         ForEach(teams, id: \.id) { team in
-                            let placed = AgentTree.tree(
-                                team.items, id: \.id, lead: \.lead, root: team.project == nil ? 0 : 1, folded: folded)
+                            let (led, own) = byStarter(team)
+                            let placed = AgentTree.tree(led, id: \.id, lead: \.lead, root: 1, folded: folded)
                             if let project = team.project {
                                 let shown = view.inbox.agents.first { $0.chief == true && $0.project == project.id }
                                 ChiefRow(core: core, project: project, shown: shown, mixed: scope == nil, now: now)
@@ -40,6 +40,8 @@ struct DeviceAgents: View {
                                     .needsYou("chief:\(project.id)", shown?.group == .blocked)
                             }
                             ForEach(placed, id: \.item.id) { row($0, folds: true, now: now) }
+                            let apart = AgentTree.tree(own, id: \.id, lead: \.lead, root: 0, folded: folded)
+                            ForEach(apart, id: \.item.id) { row($0, folds: true, now: now) }
                         }
                     }
                     .animation(still ? nil : .snappy(duration: 0.28), value: teams.map(\.id))
@@ -74,23 +76,25 @@ struct DeviceAgents: View {
         let project: String?
         let snoozed: Bool
         let away: Bool
+        let chiefLed: Bool
         var agent: AgentShown?
         var worker: RemoteAgent?
     }
 
     /// The agents the list draws, each hung under its lead: every open agent and worker shown, a chief only where a
     /// list filtered to one kind has no @Chief row, and a settled one only while its team still works. A filtered list
-    /// is flat, as it may have left a lead out; an agent whose lead is a chief hangs under that chief's row.
+    /// is flat, as it may have left a lead out; an agent a chief started hangs under that chief's row.
     private func items() -> (main: [Item], snoozed: [Item]) {
         let flat = provider != nil
         let chiefs = Set(view.inbox.agents.filter { $0.chief == true }.map(\.agentId))
         let leadOf = { (lead: String?) in flat ? nil : lead.flatMap { chiefs.contains($0) ? nil : $0 } }
+        let chiefLed = { (lead: String?) in !flat && lead.map { chiefs.contains($0) } == true }
         let here = view.inbox.agents
             .filter { listed(scope, provider, project: $0.project, type: $0.cli) && (flat || $0.chief != true) }
             .map {
                 Item(
                     id: $0.agentId, lead: leadOf($0.lead), project: $0.project, snoozed: $0.snoozedUntil != nil,
-                    away: $0.snoozedUntil != nil || $0.settledAt != nil, agent: $0)
+                    away: $0.snoozedUntil != nil || $0.settledAt != nil, chiefLed: chiefLed($0.lead), agent: $0)
             }
         let seen = Set(here.map(\.id))
         let workers = view.inbox.remoteAgents
@@ -98,7 +102,7 @@ struct DeviceAgents: View {
             .map {
                 Item(
                     id: $0.agentId, lead: leadOf($0.lead), project: $0.project, snoozed: $0.snoozedUntil != nil,
-                    away: $0.snoozedUntil != nil || $0.settledAt != nil, worker: $0)
+                    away: $0.snoozedUntil != nil || $0.settledAt != nil, chiefLed: chiefLed($0.lead), worker: $0)
             }
         var items = here + workers
         if let scope {
@@ -119,6 +123,18 @@ struct DeviceAgents: View {
     private func leadsOf(_ items: [Item]) -> [String: String] {
         Dictionary(
             items.compactMap { item in item.lead.map { (item.id, $0) } }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// A team as the Mac's rail splits it: the trees whose top agent its project's chief started, which hang under the
+    /// chief's row, and the person's own, which stand at the root below them.
+    private func byStarter(_ team: Team) -> (led: [Item], own: [Item]) {
+        let items = team.items
+        guard team.project != nil else { return ([], items) }
+        let lead = leadsOf(items)
+        let ids = Set(items.map(\.id))
+        let led = Set(items.filter(\.chiefLed).map(\.id))
+        let byChief = { (item: Item) in led.contains(AgentTree.top(of: item.id, lead, among: ids)) }
+        return (items.filter(byChief), items.filter { !byChief($0) })
     }
 
     /// One project's chief and the agents under it; agents of no project shown go last with no chief.

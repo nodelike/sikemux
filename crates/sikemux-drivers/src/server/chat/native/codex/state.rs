@@ -276,12 +276,16 @@ impl Session {
                 }
                 let attempt = self.retries.entry(turn.clone()).or_default();
                 *attempt += 1;
-                let category = match failure_kind(&notice.error["codexErrorInfo"]) {
+                let category = match failure_kind(
+                    notice.error.get("codexErrorInfo").unwrap_or(&Value::Null),
+                ) {
                     FailureKind::Network => "connection",
                     _ => "service",
                 };
-                let detail = notice.error["message"]
-                    .as_str()
+                let detail = notice
+                    .error
+                    .get("message")
+                    .and_then(Value::as_str)
                     .unwrap_or("Codex is retrying");
                 let update = crate::acp::failure::retrying(
                     &format!("{turn}:retry"),
@@ -500,7 +504,9 @@ impl RpcSession for Session {
     fn payload(&self) -> Value {
         let mut payload = json!({ "stopReason": "end_turn" });
         if let Some(usage) = self.token_usage.as_ref().and_then(items::turn_usage) {
-            payload["usage"] = usage;
+            if let Some(fields) = payload.as_object_mut() {
+                fields.insert("usage".to_owned(), usage);
+            }
         }
         payload
     }

@@ -256,6 +256,27 @@ enum CallWords {
     }
     /// Go with this while the host has not yet taken that this phone drew the call.
     static let connecting = String(localized: "Connecting…")
+    /// The answers a do or look call takes, by the ids the core gives its options.
+    static let doneId = "done"
+    static let notDoingId = "notDoing"
+    static let seenId = "seen"
+    /// A do call's Go before an answer is chosen, and a look call's.
+    static let done = String(localized: "Done")
+    static let seen = String(localized: "Seen")
+    /// The field under Not doing on a do call.
+    static let whyNotDoing = String(localized: "Say why you're not doing it…")
+    /// Under the docked card, the rest of an agent's waiting calls folded into one row.
+    static func moreCalls(_ count: Int) -> String { String(localized: "\(count) more calls") }
+    static func newest(_ question: String) -> String { String(localized: "Newest: \(question)") }
+    /// A do or look call goes by its kind and short title, `Do · Test purchase`; any other by its question.
+    static func headline(_ call: PersonCall) -> String {
+        guard let title = call.title?.trimmingCharacters(in: .whitespaces), !title.isEmpty else { return call.question }
+        switch call.kind {
+        case .do: return String(localized: "Do · \(title)")
+        case .look: return String(localized: "Look · \(title)")
+        default: return call.question
+        }
+    }
     /// Which of an agent's waiting calls the card shows: `1 of 3`.
     static func place(_ index: Int, of count: Int) -> String { String(localized: "\(index) of \(count)") }
     /// On the card when the answer sent from its notification did not go.
@@ -303,25 +324,8 @@ enum CallWords {
     /// The composer's words in a worker's chat whose project's chief hears what is typed there.
     static func sendToTold(_ name: String) -> String { String(localized: "Send to @\(name) · @Chief is told") }
 
-    // MARK: The chief's chat: what happened while the person was away, an Overrule, the week's count
+    // MARK: The chief's chat: an Overrule, the week's count
 
-    static let whileAway = String(localized: "While you were away")
-    /// How long the person was away, `back - since`.
-    static func awayFor(_ milliseconds: Int) -> String {
-        let total = max(0, milliseconds) / 60_000
-        let (hours, minutes) = (total / 60, total % 60)
-        if hours == 0 { return String(localized: "\(minutes) min") }
-        if minutes == 0 { return String(localized: "\(hours) h") }
-        return String(localized: "\(hours) h \(minutes) min")
-    }
-    static let awayNeedsYou = String(localized: "Needs you")
-    static let decidedForYou = String(localized: "Decided for you")
-    static let landed = String(localized: "Landed")
-    /// Under Needs you: the calls are the queue docked above the composer.
-    static func answerBelow(_ count: Int) -> String {
-        count == 1
-            ? String(localized: "Answer it in the card below") : String(localized: "Answer them in the card below")
-    }
     static let overrule = String(localized: "Overrule")
     /// What a tap on a call's cut context does, for VoiceOver.
     static let showAll = String(localized: "Shows all of it")
@@ -334,6 +338,8 @@ enum CallWords {
     static let overruled = String(localized: "Overruled")
     static let overruledUndone = String(localized: "Overruled, then undone")
     static let standsAgain = String(localized: "It stands again")
+    static let stillKept = String(
+        localized: "It stands again, but decisions like this still come to you: remove the rule in the Playbook")
     static let fromNowOn = String(localized: "Decisions like this come to you from now on")
     /// The line the board leaves when it closed a card by itself.
     static let closedByItself = String(localized: "Closed by itself")

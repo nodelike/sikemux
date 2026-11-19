@@ -42,27 +42,36 @@ extension View {
     }
 }
 
-/// Who sent a bubble at the left, over it, with when at the line's end.
+/// Who sent a bubble at the left, over it, with when at the line's end. Unbubbled, it is the line alone.
 struct From<Who: View, Content: View>: View {
     @Environment(\.palette) private var palette
     var at: Int?
+    var bubbled = true
     @ViewBuilder let who: () -> Who
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        HeadOverBubble(spacing: 6) {
-            HStack(spacing: 8) {
-                who()
-                Spacer(minLength: 0)
-                if let at {
-                    Text(ChatWords.clock(at)).font(Theme.ui(11.5)).monospacedDigit().foregroundStyle(palette.inkFaint)
-                        .padding(.leading, 8)
-                }
+        if bubbled {
+            HeadOverBubble(spacing: 6) {
+                head
+                content().theirBubble(palette)
             }
-            .frame(minHeight: 22)
-            content().theirBubble(palette)
+            .sentWidth(0.86, alignment: .leading)
+        } else {
+            head.sentWidth(0.86, alignment: .leading)
         }
-        .sentWidth(0.86, alignment: .leading)
+    }
+
+    private var head: some View {
+        HStack(spacing: 8) {
+            who()
+            Spacer(minLength: 0)
+            if let at {
+                Text(ChatWords.clock(at)).font(Theme.ui(11.5)).monospacedDigit().foregroundStyle(palette.inkFaint)
+                    .padding(.leading, 8)
+            }
+        }
+        .frame(minHeight: 22)
     }
 }
 

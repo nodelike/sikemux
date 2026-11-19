@@ -15,8 +15,8 @@ use sikemux_view::changed::Topic;
 use sikemux_view::host_stats::HostEventKind;
 
 use super::{
-    add_again, branch_exists, branch_for, copy_included, cut, inside, warm, worktrees_folder,
-    AgentWorktree,
+    add_again, base_branch, branch_exists, branch_for, copy_included, cut, inside, warm,
+    worktrees_folder, AgentWorktree,
 };
 use crate::git::{main_checkout, Git};
 use crate::server::changed::What;
@@ -44,9 +44,7 @@ pub fn cut_for(
     let start_sha = Git::quick(&repo)
         .trimmed(&["rev-parse", "--verify", "HEAD"])
         .map_err(|_| "the project has no commit to branch from")?;
-    let base = Git::quick(&repo)
-        .trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"])
-        .ok();
+    let base = base_branch(&repo).ok();
     let (branch, path) = cut(&repo, branch, &start_sha)?;
     copy_included(&main, &path);
     warm::seed_in_background(&main, &path);
@@ -173,9 +171,7 @@ fn make_again(cwd: &Path, branch: Option<&str>) -> Result<AgentWorktree, String>
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let base = Git::quick(&repo)
-        .trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"])
-        .ok();
+    let base = base_branch(&repo).ok();
     let now = Git::quick(&repo)
         .trimmed(&["rev-parse", "--verify", "HEAD"])
         .map_err(|_| "the project has no commit to make it from")?;
@@ -247,9 +243,7 @@ fn read_back(cwd: &Path) -> Option<AgentWorktree> {
     let branch = Git::quick(&path)
         .trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"])
         .ok()?;
-    let base = Git::quick(&main)
-        .trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"])
-        .ok();
+    let base = base_branch(&main).ok();
     let start_sha = Git::quick(&main)
         .trimmed(&["merge-base", "HEAD", &branch])
         .ok()?;
@@ -333,6 +327,27 @@ pub async fn merge_queue(
     commit: &str,
 ) -> Result<PathBuf, String> {
     clean_at(core, project, commit, MERGE_QUEUE).await
+}
+
+/// Drops the Cargo builds in the merge queue's checkout of `project` that no build has used
+/// lately, at most once an hour. Call it while holding the queue's checkout turn, so no check
+/// is building there.
+pub async fn trim_merge_queue(project: &Path) {
+    let checkout = worktrees_folder(project).join(MERGE_QUEUE);
+    if !linked(&checkout) {
+        return;
+    }
+    let shown = checkout.clone();
+    let freed = blocking(move || Ok(super::stale_builds::trim_hourly(&checkout)))
+        .await
+        .unwrap_or_default();
+    if freed > 0 {
+        eprintln!(
+            "sikemux core: freed {:.1} GB of old builds from {}",
+            freed as f64 / 1e9,
+            shown.display()
+        );
+    }
 }
 
 /// The checkout of `project`'s repository that its reservoir command runs in, moved to `commit`.
@@ -536,7 +551,9 @@ pub async fn run_hooks(
                 "" => why,
                 printed => {
                     let lines: Vec<&str> = printed.lines().collect();
-                    lines[lines.len().saturating_sub(FAILED_LINES)..].join("\n")
+                    (lines.get(lines.len().saturating_sub(FAILED_LINES)..))
+                        .unwrap_or_default()
+                        .join("\n")
                 }
             },
             Err(error) => error.to_string(),

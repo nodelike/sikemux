@@ -56,6 +56,8 @@ DEB_OPENED="libvulkan1, libegl1, libwayland-client0, libx11-6, libxext6"
 # through them too.
 DEB_PLUGINS="gstreamer1.0-plugins-base, gstreamer1.0-plugins-good"
 DEB_H264=gstreamer1.0-plugins-ugly
+# Without a CJK font, Chinese, Japanese and Korean text draws as empty boxes.
+DEB_CJK_FONT=fonts-noto-cjk
 RECORDING_PLUGINS=(coreelements app videoconvertscale vpx matroska isomp4)
 GSTREAMER_SETS=(gstreamer1.0-plugins-base gstreamer1.0-plugins-good)
 GSTREAMER_DIR=/usr/lib/$ARCH-linux-gnu/gstreamer-1.0
@@ -170,7 +172,7 @@ Section: devel
 Priority: optional
 Installed-Size: $(du -sk --exclude=DEBIAN "$DEB_ROOT" | cut -f1)
 Depends: $LINKED, $DEB_OPENED, $DEB_PLUGINS
-Recommends: $DEB_H264
+Recommends: $DEB_H264, $DEB_CJK_FONT
 Description: $SUMMARY
 CONTROL
 install -D -m 644 "$ARCHIVE_KEY" "$DEB_ROOT/usr/share/keyrings/sikemux-archive.asc"

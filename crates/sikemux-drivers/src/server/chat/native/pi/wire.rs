@@ -57,7 +57,9 @@ impl Wire {
 
     fn numbered(&self, mut command: Value) -> (i64, Value) {
         let id = self.next_id.fetch_add(1, Ordering::AcqRel);
-        command["id"] = json!(id.to_string());
+        if let Some(fields) = command.as_object_mut() {
+            fields.insert("id".to_owned(), json!(id.to_string()));
+        }
         (id, command)
     }
 
@@ -69,7 +71,11 @@ impl Wire {
     }
 
     pub fn start(&self, command: Value, purpose: Option<Purpose>) -> Result<Sent, String> {
-        let name = command["type"].as_str().unwrap_or("command").to_owned();
+        let name = command
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("command")
+            .to_owned();
         let (id, command) = self.numbered(command);
         let answered = self.pending.waited(id, purpose);
         self.writer.send(&command).inspect_err(|_| {
@@ -97,15 +103,20 @@ impl Wire {
 
     /// Hands a response to what waits on it, or reads the record as an event.
     pub fn read(&self, message: Value) -> Option<Incoming> {
-        if message["type"] != "response" {
+        if message.get("type").and_then(Value::as_str) != Some("response") {
             return Some(Incoming::Event(message));
         }
-        let id = message["id"].as_str()?.parse::<i64>().ok()?;
-        let result = if message["success"] == true {
+        let id = message
+            .get("id")
+            .and_then(Value::as_str)?
+            .parse::<i64>()
+            .ok()?;
+        let result = if message.get("success").and_then(Value::as_bool) == Some(true) {
             Ok(message.get("data").cloned().unwrap_or(Value::Null))
         } else {
-            let said = message["error"]
-                .as_str()
+            let said = message
+                .get("error")
+                .and_then(Value::as_str)
                 .unwrap_or("Pi refused the command");
             Err(unanswered(said))
         };

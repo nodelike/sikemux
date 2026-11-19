@@ -89,6 +89,9 @@ pub struct Workbench {
     pub(crate) open_waits: Vec<(sikemux_wire::protocol::CallId, HashMap<String, bool>)>,
     /// Each open Playbook tab's state, by the project's folder.
     pub project_settings: HashMap<String, crate::playbook::PlaybookTab>,
+    /// What the core last said each project's Playbook holds, by the project's folder, for its
+    /// Playbook tab and its chats; none while the first read is out.
+    pub(crate) playbooks: HashMap<String, Option<sikemux_view::playbook::Playbook>>,
     pub shown: crate::screens::experience::Shown,
     pub(crate) picture: crate::picture::AccountPicture,
     /// From asking the core to sign in until the browser is done or gives up.
@@ -109,9 +112,9 @@ pub struct Workbench {
     pub last_place: Option<Strip>,
     pub(crate) visits: crate::visits::Visits,
     /// The person's ask opened from its card, while it is open.
-    pub(crate) opened_ask: Option<crate::opened_ask::OpenedAsk>,
-    /// The ask an Agent Board shows on its sheet, while it does.
-    pub(crate) ask_sheet: Option<crate::agent_board::Sheet>,
+    pub(crate) opened_task: Option<crate::opened_task::OpenedTask>,
+    /// The task the Tasks view shows on its sheet, while it does.
+    pub(crate) task_sheet: Option<crate::task_sheet::Sheet>,
     pub rails: crate::rail::Rails,
     pub(crate) strip: crate::tabs::StripMotion,
     /// Tabs asked to close that the layout still lists, and when, so a second click or ⌘W
@@ -357,6 +360,7 @@ impl Workbench {
             agent_setup: Default::default(),
             overlays: Overlays::default(),
             project_settings: HashMap::new(),
+            playbooks: HashMap::new(),
             kept_running_told: false,
             open_waits: Vec::new(),
             pairing: crate::pairing::RemotePairing::new(cx),
@@ -372,8 +376,8 @@ impl Workbench {
             place: None,
             last_place: None,
             visits: Default::default(),
-            opened_ask: None,
-            ask_sheet: None,
+            opened_task: None,
+            task_sheet: None,
             rails,
             strip: Default::default(),
             closing_tabs: Default::default(),
@@ -883,7 +887,7 @@ impl Render for Workbench {
         if asked.is_some() {
             crate::drive::trace(format_args!("question drawn"));
         }
-        let asking = self.asking_freely(window, cx);
+        let asking = self.asking_freely(window);
         let context = match asking {
             Some(_) => format!("{SHELL} QuestionDock"),
             None => SHELL.to_owned(),

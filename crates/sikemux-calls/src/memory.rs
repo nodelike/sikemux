@@ -23,6 +23,19 @@ pub struct MemoryUpdateParams {
     pub drop_check: bool,
     /// The goal card whose own rule `id` is.
     pub goal: Option<u64>,
+    /// Moves it into this store, keeping its id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<Store>,
+    /// The person turned down the chief's offer to move it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub not_now: bool,
+    /// `id` is the number a chat line kept: an entry renumbered since is found under its new one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub kept: bool,
+    /// The words the kept entry had when the line was written: nothing changes when the entry
+    /// now under its number has others.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub words: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]

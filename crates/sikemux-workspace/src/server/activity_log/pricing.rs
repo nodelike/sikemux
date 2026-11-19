@@ -98,13 +98,19 @@ impl Prices {
             .or_else(|| self.table.get(bare))
             .copied()
     }
+
+    /// `model`'s standard price in USD per million tokens, in and out.
+    pub fn per_million(&self, model: &str) -> Option<(f64, f64)> {
+        let rates = self.lookup(model)?.standard;
+        Some((rates.input * 1_000_000.0, rates.output * 1_000_000.0))
+    }
 }
 
 /// `claude-fable-5-1[1m]` is the 1M context tier, which is priced by its base name.
 fn normalize(model: &str) -> String {
     let key = model.trim().to_lowercase();
-    match key.find('[') {
-        Some(at) => key[..at].to_string(),
+    match key.split_once('[') {
+        Some((base, _)) => base.to_string(),
         None => key,
     }
 }

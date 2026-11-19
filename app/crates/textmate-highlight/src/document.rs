@@ -71,6 +71,10 @@ impl Document {
     }
 
     /// Lines `start..=old_end` became lines `start..=new_end`.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "states holds one entry per line plus the state after the last, so both reads are in range"
+    )]
     pub fn edit(&mut self, start: usize, old_end: usize, new_end: usize) {
         let old_end = old_end.min(self.spans.len().saturating_sub(1)).max(start);
         if start >= self.spans.len() {
@@ -138,11 +142,14 @@ impl Document {
         let first = pending.next;
         while pending.next < until.min(self.spans.len()) {
             let index = pending.next;
+            let Some(state) = self.states.get(index) else {
+                break;
+            };
             let text = line(index);
             let text = text.as_ref();
-            let result =
-                self.session
-                    .tokenize_line(text, &self.states[index], index == 0, self.options);
+            let result = self
+                .session
+                .tokenize_line(text, state, index == 0, self.options);
             let mut spans: Vec<Span> = Vec::new();
             for token in &result.tokens {
                 let style = *self.styles.entry(token.scopes).or_insert_with(|| {
@@ -162,11 +169,15 @@ impl Document {
                     }),
                 }
             }
-            self.spans[index] = spans;
+            if let Some(line_spans) = self.spans.get_mut(index) {
+                *line_spans = spans;
+            }
             let known = index + 1 < self.frontier;
-            let settled =
-                known && index >= pending.through && self.states[index + 1] == result.state;
-            self.states[index + 1] = result.state;
+            let mut settled = false;
+            if let Some(next_state) = self.states.get_mut(index + 1) {
+                settled = known && index >= pending.through && *next_state == result.state;
+                *next_state = result.state;
+            }
             pending.next += 1;
             self.frontier = self.frontier.max(pending.next);
             if settled {

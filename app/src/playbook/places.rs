@@ -12,6 +12,7 @@ use sikemux_calls::places::PlaceLevelParams;
 use sikemux_calls::places::PlacesParams;
 use sikemux_calls::places::SeenParams;
 use sikemux_view::places::{Level, Place, PlaceKind, PlaceStats, Places, Recognise, Seen};
+use sikemux_view::playbook::Playbook;
 
 use super::said::{self, Action, Moment};
 use super::PlaybookTab;
@@ -66,11 +67,12 @@ pub(super) fn production(places: &Places) -> usize {
 
 pub(super) fn page(
     settings: &PlaybookTab,
+    playbook: Option<&Playbook>,
     folder: &str,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
-    let Some(playbook) = settings.playbook.as_ref() else {
+    let Some(playbook) = playbook else {
         return vec![rows::section(
             t!("Production places"),
             None,
@@ -237,7 +239,6 @@ fn place_row(
         "playbook-place-row-{}",
         place.id
     )))
-    .group(said::ROW)
     .into_any_element()
 }
 

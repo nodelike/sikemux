@@ -23,7 +23,7 @@ pub fn bounded_string(value: &str, max_bytes: usize) -> String {
     while boundary > 0 && !value.is_char_boundary(boundary) {
         boundary -= 1;
     }
-    value[..boundary].to_owned()
+    value.get(..boundary).unwrap_or_default().to_owned()
 }
 
 pub fn uri_to_bounded_path(uri: &str) -> Option<String> {

@@ -107,6 +107,10 @@ impl TrustedKeys {
     pub fn production() -> Self {
         let mut keys = Self::default();
         for (id, key) in PRODUCTION_KEYS {
+            #[expect(
+                clippy::expect_used,
+                reason = "the production keys are fixed hex in this file"
+            )]
             let key = hex::decode(key)
                 .ok()
                 .and_then(|bytes| bytes.try_into().ok())
@@ -132,7 +136,7 @@ impl TrustedKeys {
         self.0.insert(id.to_owned(), key);
     }
 
-    fn get(&self, id: &str) -> Option<&[u8; 32]> {
+    pub(crate) fn get(&self, id: &str) -> Option<&[u8; 32]> {
         self.0.get(id)
     }
 }
@@ -234,19 +238,29 @@ pub mod vector {
         pub ticket: JoinTicket,
     }
 
+    #[expect(clippy::expect_used, reason = "the vector is a file fixed in the repo")]
     pub fn vector() -> Vector {
+        read().expect("the shared join vector reads")
+    }
+
+    fn read() -> Option<Vector> {
         let vector: serde_json::Value =
             serde_json::from_str(include_str!("../../../server/protocol/vectors/join.json"))
-                .unwrap();
-        let text = |name: &str| vector[name].as_str().unwrap().to_owned();
-        let seed = hex::decode(text("secretKey")).unwrap();
-        Vector {
-            signer: Ed25519KeyPair::from_seed_unchecked(&seed).unwrap(),
-            public: hex::decode(text("publicKey")).unwrap().try_into().unwrap(),
-            pem: text("privateKeyPem"),
-            message: text("message"),
-            ticket: serde_json::from_value(vector["ticket"].clone()).unwrap(),
-        }
+                .ok()?;
+        let text = |name: &str| {
+            vector
+                .get(name)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        };
+        let seed = hex::decode(text("secretKey")?).ok()?;
+        Some(Vector {
+            signer: Ed25519KeyPair::from_seed_unchecked(&seed).ok()?,
+            public: hex::decode(text("publicKey")?).ok()?.try_into().ok()?,
+            pem: text("privateKeyPem")?,
+            message: text("message")?,
+            ticket: serde_json::from_value(vector.get("ticket")?.clone()).ok()?,
+        })
     }
 
     impl Vector {

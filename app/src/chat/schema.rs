@@ -176,8 +176,8 @@ fn settle(block: &Entity<Block>, written: SharedString, cx: &mut App) {
 /// The block's text up to its last line break: while an agent writes a line, the diagram
 /// waits for the whole of it rather than drawing it again with each word.
 fn finished_lines(code: &SharedString) -> SharedString {
-    match code.rfind('\n') {
-        Some(end) if end + 1 < code.len() => SharedString::from(code[..=end].to_string()),
+    match (code.rfind('\n')).and_then(|end| code.split_at_checked(end + 1)) {
+        Some((head, tail)) if !tail.is_empty() => SharedString::from(head.to_string()),
         _ => code.clone(),
     }
 }

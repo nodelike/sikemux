@@ -21,7 +21,7 @@ use super::calls::{self as asks, params_of, HostAsk};
 use super::link::Refusal;
 use super::outbox::Sending;
 use super::team::{Foreign, Role};
-use super::{name_of, post, route};
+use super::{name_of, post, record, route};
 use crate::server::device_view::DeviceViewCore;
 use sikemux_process::clock::epoch_ms;
 
@@ -36,7 +36,12 @@ pub(super) fn host_removed(core: &Core, removed: &str, removed_name: &str) {
         let mut holders = core.hosts().copies.holders(&identity);
         holders.retain(|host| host != removed && core.remote().link(host).is_some());
         holders.extend(here.as_ref().map(|_| me.clone()));
-        let Some(home) = holders.into_iter().min() else {
+        let mut with_copy = core.hosts().copies.with_copy(&identity);
+        with_copy.extend(super::copies::holds_copy(core, &identity).then(|| me.clone()));
+        let copied = (holders.iter())
+            .filter(|host| with_copy.contains(host))
+            .min();
+        let Some(home) = copied.or_else(|| holders.iter().min()).cloned() else {
             continue;
         };
         if home == me {
@@ -46,11 +51,13 @@ pub(super) fn host_removed(core: &Core, removed: &str, removed_name: &str) {
                 continue;
             };
             let waiting = waiting_for(&core, removed, &lead);
+            let written = record::sent_to(&core, removed, &identity);
             core.hosts().team.remove(&lead);
             let removed_name = removed_name.to_owned();
             tokio::spawn(async move {
                 match taken_up(&core, project, &lead, count, &removed_name, gone).await {
                     Ok(_) => {
+                        record::send_to(&core, &home, written);
                         if let Some(waiting) = waiting {
                             send_on(&core, waiting, &removed_name, gone, &lead, &home, &identity);
                         }
@@ -82,6 +89,17 @@ pub(crate) async fn take_over_here(
         return Err(format!("{} is in reach; open @Chief there", home.host_name).into());
     }
     let identity = project.identity.clone().unwrap_or_default();
+    if !super::copies::holds_copy(core, &identity) {
+        let copied = (core.hosts().copies.with_copy(&identity).into_iter())
+            .find(|host| *host != home.host && core.hosts().connected(host).is_some());
+        if let Some(host) = copied {
+            return Err(format!(
+                "{} holds the latest copy of this project's board; take @Chief over there",
+                name_of(core, &host)
+            )
+            .into());
+        }
+    }
     let count = core
         .hosts()
         .copies
@@ -105,6 +123,7 @@ pub(crate) async fn take_over_here(
 /// person took it over there: they report to that host from then on.
 pub(super) fn follow(core: &Core, host: &str) {
     for (identity, lead, count) in core.hosts().copies.chiefs_on(host) {
+        record::follow_home(core, host, &identity);
         let Some(was) = (core.hosts().team.get(&lead))
             .filter(|foreign| foreign.role == Role::Lead && foreign.host != host)
             .map(|foreign| foreign.host)
@@ -132,8 +151,10 @@ async fn taken_up(
     gone: &str,
 ) -> CoreResult<String> {
     core.workspaces().set_chief(&project.id, lead, count + 1)?;
-    core.hosts().copies.wake.now();
     let identity = project.identity.clone().unwrap_or_default();
+    super::super::board::record::kept_here(core, &identity);
+    super::super::memory::kept_here(core, &identity);
+    core.hosts().copies.wake.now();
     let (mut standing, at) = super::chief_copy::kept(core, &identity, lead).unwrap_or_default();
     let stood = match at {
         0 => format!("Nothing of where you stood reached this host from {home_name}, so ask the person what they need."),
@@ -180,6 +201,7 @@ fn move_workers(
     home: &str,
     identity: &str,
 ) {
+    record::send_to(core, home, record::sent_to(core, removed, identity));
     if let Some(waiting) = waiting_for(core, removed, lead) {
         send_on(core, waiting, removed_name, gone, lead, home, identity);
     }

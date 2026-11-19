@@ -62,13 +62,16 @@ struct Offered<'a> {
 fn offered<'a>(state: &'a Value, answer: &Value) -> Offered<'a> {
     let listed: Vec<config::Listed> =
         serde_json::from_value(answer["models"].clone()).unwrap_or_default();
-    let current = state["model"].is_object().then(|| {
-        format!(
-            "{}/{}",
-            state["model"]["provider"].as_str().unwrap_or(""),
-            state["model"]["id"].as_str().unwrap_or("")
-        )
-    });
+    let current = state
+        .get("model")
+        .filter(|model| model.is_object())
+        .map(|model| {
+            format!(
+                "{}/{}",
+                model.get("provider").and_then(Value::as_str).unwrap_or(""),
+                model.get("id").and_then(Value::as_str).unwrap_or("")
+            )
+        });
     let level = text(state, "thinkingLevel");
     let models = config::models(&listed, current.as_deref(), level);
     let model = current
@@ -103,7 +106,7 @@ pub async fn read_options(
         said.lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .find(|line| line["type"] == "response" && line["id"] == id && line["success"] == true)
-            .map(|line| line["data"].clone())
+            .map(|line| line.get("data").cloned().unwrap_or(Value::Null))
     };
     let state = answer("state").unwrap_or(Value::Null);
     let listed = answer("models").ok_or("Pi named no models")?;
@@ -391,7 +394,9 @@ impl Reads for Driver {
     fn message(&mut self, message: Value) {
         match self.wire.read(message) {
             Some(Incoming::Answer { purpose, result }) => self.answered(purpose, result),
-            Some(Incoming::Event(event)) if event["type"] == "extension_ui_request" => {
+            Some(Incoming::Event(event))
+                if event.get("type").and_then(Value::as_str) == Some("extension_ui_request") =>
+            {
                 self.extension_ui(&event)
             }
             Some(Incoming::Event(event)) => {
@@ -519,7 +524,9 @@ impl Pi {
         let mut command =
             json!({ "type": "prompt", "message": message, "streamingBehavior": "steer" });
         if !images.is_empty() {
-            command["images"] = json!(images);
+            if let Some(fields) = command.as_object_mut() {
+                fields.insert("images".to_owned(), json!(images));
+            }
         }
         Ok(command)
     }
@@ -547,8 +554,9 @@ impl Pi {
             Command::Compact(instructions) => {
                 self.begin_turn(turn, prompt);
                 let mut compact = json!({ "type": "compact" });
-                if let Some(instructions) = instructions {
-                    compact["customInstructions"] = json!(instructions);
+                if let (Some(instructions), Some(fields)) = (instructions, compact.as_object_mut())
+                {
+                    fields.insert("customInstructions".to_owned(), json!(instructions));
                 }
                 self.wire().send_for(compact, Purpose::Compact(turn));
                 return Ok(());
@@ -578,16 +586,22 @@ impl Pi {
             .request(json!({ "type": "get_session_stats" }))
             .await
             .unwrap_or(Value::Null);
-        let context = &stats["contextUsage"];
-        let window = context["contextWindow"]
-            .as_u64()
-            .and_then(|size| shared_commands::window_left(size, context["tokens"].as_u64()?));
-        let tokens = stats["tokens"]["total"].as_u64().map(|total| {
+        let context = stats.get("contextUsage");
+        let context_count = |key: &str| {
+            context
+                .and_then(|context| context.get(key))
+                .and_then(Value::as_u64)
+        };
+        let window = context_count("contextWindow")
+            .and_then(|size| shared_commands::window_left(size, context_count("tokens")?));
+        let used = stats.get("tokens");
+        let token_count = |key: &str| used.and_then(|used| used.get(key)).and_then(Value::as_u64);
+        let tokens = token_count("total").map(|total| {
             format!(
                 "{} total  ({} input, {} output)",
                 shared_commands::count(total),
-                shared_commands::count(stats["tokens"]["input"].as_u64().unwrap_or(0)),
-                shared_commands::count(stats["tokens"]["output"].as_u64().unwrap_or(0)),
+                shared_commands::count(token_count("input").unwrap_or(0)),
+                shared_commands::count(token_count("output").unwrap_or(0)),
             )
         });
         let model = match &self.kept.effort {
@@ -654,8 +668,9 @@ impl Pi {
             config::split_slug(slug).ok_or_else(|| format!("{slug} is not a Pi model"))?;
         let chosen = self.wire().request(config::set_model(provider, id)).await?;
         self.kept.model = slug.to_owned();
-        let window = chosen["contextWindow"]
-            .as_u64()
+        let window = chosen
+            .get("contextWindow")
+            .and_then(Value::as_u64)
             .unwrap_or_else(|| self.context_window(slug));
         self.driver.session.locked().context_window = window;
         Ok(())
@@ -684,8 +699,11 @@ impl Pi {
             .request(json!({ "type": "get_entries" }))
             .await
             .unwrap_or(Value::Null);
-        let entries = read["entries"].as_array().map_or(&[][..], Vec::as_slice);
-        let leaf = read["leafId"].as_str();
+        let entries = read
+            .get("entries")
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice);
+        let leaf = read.get("leafId").and_then(Value::as_str);
         let branch = history::branch(entries, leaf);
         let title = text(state, "sessionName")
             .map(str::to_owned)
@@ -758,7 +776,11 @@ impl Backend for Pi {
             .iter()
             .map(|model| (model.slug(), model.context_window))
             .collect();
-        let window = state["model"]["contextWindow"].as_u64().unwrap_or(0);
+        let window = state
+            .get("model")
+            .and_then(|model| model.get("contextWindow"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
         driver.session.locked().context_window = window;
 
         let mut pi = Self {
@@ -936,7 +958,7 @@ impl Backend for Pi {
             .wire()
             .request(json!({ "type": "fork", "entryId": entry }))
             .await?;
-        if forked["cancelled"] == true {
+        if forked.get("cancelled").and_then(Value::as_bool) == Some(true) {
             return Err("A Pi extension stopped this message being edited".to_owned());
         }
         let state = self.wire().request(json!({ "type": "get_state" })).await?;

@@ -129,6 +129,7 @@ final class ChatSession {
             view.setHead { head in
                 if let model = head.model, let value = chosen[model.id] { head.model?.current = value }
                 if let effort = head.effort, let value = chosen[effort.id] { head.effort?.current = value }
+                if let work = head.sessionMode, let value = chosen[work.id] { head.sessionMode?.current = value }
             }
         }
         rows = view
@@ -347,7 +348,10 @@ final class ChatSession {
         if chat.permissionMode != before.permissionMode { mode = nil }
         if chat.head.expiredCache != before.head.expiredCache { summarise = nil }
         if chat.head.queued != before.head.queued || chat.running != before.running { outbox.dropTaken() }
-        if !chosen.isEmpty && (chat.head.model != before.head.model || chat.head.effort != before.head.effort) {
+        if !chosen.isEmpty
+            && (chat.head.model != before.head.model || chat.head.effort != before.head.effort
+                || chat.head.sessionMode != before.head.sessionMode)
+        {
             chosen = [:]
         }
         outbox.settle(turnEnded: before.running && !chat.running)

@@ -128,18 +128,17 @@ mod platform {
             .iter()
             .rposition(|part| part.ends_with(".scope") || part.ends_with(".service"))
             .filter(|&at| at > manager)?;
-        let name = components[unit];
-        let inside = &components[unit + 1..];
+        let (through_unit, inside) = components.split_at_checked(unit + 1)?;
+        let name = *through_unit.last()?;
         let at_top = inside.is_empty() || inside == [CORE_LEAF];
-        let unit_path = Path::new(CGROUPS).join(components[..=unit].join("/"));
+        let unit_path = Path::new(CGROUPS).join(through_unit.join("/"));
         if at_top && name.starts_with(&own_scope_prefix()) && name.ends_with(".scope") {
             return Some(unit_path);
         }
         if at_top && name.ends_with(".service") && service_is_delegated() {
             return Some(unit_path);
         }
-        let slice = components[..unit]
-            .iter()
+        let slice = (components.iter().take(unit))
             .rev()
             .find(|part| part.ends_with(".slice"))
             .copied();

@@ -95,6 +95,17 @@ fn shown(foreign: &Foreign, core: &Core) -> String {
     format!("{} on {}", foreign.name, name_of(core, &foreign.host))
 }
 
+/// The host `agent_id` runs on and how it is shown, for a teammate or another agent heard of there.
+fn placed(core: &Core, agent_id: &str) -> Result<(String, String), String> {
+    if let Some(foreign) = core.hosts().team.get(agent_id) {
+        return Ok((foreign.host.clone(), shown(&foreign, core)));
+    }
+    let (host, agent) = (core.hosts().peers.get(agent_id))
+        .ok_or("Sikemux no longer knows which host that agent runs on")?;
+    let name = agent.name.as_deref().unwrap_or(agent_id);
+    Ok((host.clone(), format!("{name} on {}", name_of(core, &host))))
+}
+
 fn status_of(happened: Happened) -> AgentStatus {
     match happened {
         Happened::Working => AgentStatus::Working,
@@ -487,7 +498,7 @@ pub(super) fn workers_here(
         };
         let waiting = (core.hosts().outbox)
             .pulled_body(host, |post| {
-                post.params["agentId"] == held.agent_id.as_str()
+                post.params.get("agentId").and_then(Value::as_str) == Some(held.agent_id.as_str())
             })
             .is_some();
         if waiting || tree.sent.is_none() || tree.sent == held.landed {
@@ -620,6 +631,7 @@ pub(super) fn back_in_reach(core: &Core, host: &str) {
 /// and their teammates here hear why.
 pub(super) fn host_gone(core: &Core, host: &str, why: &str) {
     let name = name_of(core, host);
+    core.hosts().peers.forget_host(host);
     let gone = core.hosts().team.remove_host(host);
     if gone.is_empty() {
         return;
@@ -651,40 +663,27 @@ pub(crate) async fn deliver(
     agent_id: &str,
     carried: Carried,
 ) -> Result<Value, String> {
-    let foreign = core
-        .hosts()
-        .team
-        .get(agent_id)
-        .ok_or("Sikemux no longer knows which host that agent runs on")?;
-    let host_name = name_of(core, &foreign.host);
-    let shown = shown(&foreign, core);
+    let (host, shown) = placed(core, agent_id)?;
+    let host_name = name_of(core, &host);
     let keep = carried.kind == MessageKind::Report;
     let from = carried.from_id.clone();
     let params = serde_json::to_value(&carried).map_err(|error| error.to_string())?;
     let id = call_id();
-    if goes_now(core, &foreign.host, &from) {
-        match call(
-            core,
-            &foreign.host,
-            "deliver",
-            params.clone(),
-            None,
-            ASK_WAIT,
-            &id,
-        )
-        .await
-        {
+    if goes_now(core, &host, &from) {
+        match call(core, &host, "deliver", params.clone(), None, ASK_WAIT, &id).await {
             Ok(mut answer) => {
-                answer["to"] = shown.into();
-                answer["host"] = host_name.into();
+                if let Some(fields) = answer.as_object_mut() {
+                    fields.insert("to".into(), shown.into());
+                    fields.insert("host".into(), host_name.into());
+                }
                 return Ok(answer);
             }
             Err(error) if !error.passing() => return Err(error.to_string()),
             Err(_) => {}
         }
     }
-    let reachable = core.hosts().reachable(&foreign.host);
-    post(core, &foreign.host, {
+    let reachable = core.hosts().reachable(&host);
+    post(core, &host, {
         let sending = Sending::new("deliver", params)
             .from(&from)
             .about(&from)
@@ -724,9 +723,6 @@ pub(super) async fn deliver_here(
         && core.hosts().team.on(host).iter().any(|foreign| {
             foreign.role == Role::Worker && foreign.parent.as_deref() == Some(carried.to.as_str())
         });
-    if !teammate && !answer_copy {
-        return Err("that agent is not one of a team this host shares with yours".into());
-    }
     let landed = if carried.kind == MessageKind::Report {
         let mut landed = None;
         core.hosts()
@@ -736,7 +732,16 @@ pub(super) async fn deliver_here(
     } else {
         None
     };
-    let host = teammate.then(|| name_of(core, host));
+    if !teammate && !answer_copy {
+        super::peers::heard_from(
+            core,
+            host,
+            &carried.from_id,
+            &carried.from_name,
+            &carried.cli,
+        );
+    }
+    let host = (teammate || !answer_copy).then(|| name_of(core, host));
     messages::from_host(core, host.as_deref(), carried, landed).await
 }
 
@@ -747,33 +752,24 @@ pub(crate) async fn read(
     agent_id: &str,
     cursor: Option<String>,
 ) -> Result<Value, String> {
-    let foreign = core
-        .hosts()
-        .team
-        .get(agent_id)
-        .ok_or("Sikemux no longer knows which host that agent runs on")?;
+    let (host, shown) = placed(core, agent_id)?;
     let params = params_of::<asks::Read>(&ReadParams {
         caller: caller.to_owned(),
         agent_id: agent_id.to_owned(),
         cursor,
     });
-    let mut answer = ask(
-        core,
-        &foreign.host,
-        asks::Read::METHOD,
-        params,
-        None,
-        ASK_WAIT,
-    )
-    .await
-    .map_err(|error| match error {
-        Failed::Unreachable(why) | Failed::Unknown(why) | Failed::Retry(why) => {
-            format!("{} cannot be read now: {why}", shown(&foreign, core))
-        }
-        Failed::Refused(why) | Failed::NotLinked(why) => why,
-    })?;
-    answer["name"] = shown(&foreign, core).into();
-    answer["host"] = name_of(core, &foreign.host).into();
+    let mut answer = ask(core, &host, asks::Read::METHOD, params, None, ASK_WAIT)
+        .await
+        .map_err(|error| match error {
+            Failed::Unreachable(why) | Failed::Unknown(why) | Failed::Retry(why) => {
+                format!("{} cannot be read now: {why}", shown.clone())
+            }
+            Failed::Refused(why) | Failed::NotLinked(why) => why,
+        })?;
+    if let Some(fields) = answer.as_object_mut() {
+        fields.insert("name".into(), shown.clone().into());
+        fields.insert("host".into(), name_of(core, &host).into());
+    }
     Ok(answer)
 }
 
@@ -785,21 +781,8 @@ pub(super) struct ReadParams {
     cursor: Option<String>,
 }
 
-pub(super) async fn read_here(
-    core: &Arc<Core>,
-    host: &str,
-    params: ReadParams,
-) -> Result<Value, String> {
-    if core
-        .hosts()
-        .team
-        .get(&params.caller)
-        .is_none_or(|foreign| foreign.host != host)
-    {
-        return Err(
-            "only an agent of a team this host shares with yours may read its agents".into(),
-        );
-    }
+/// What an agent on one of the person's own linked hosts reads of an agent here.
+pub(super) async fn read_here(core: &Arc<Core>, params: ReadParams) -> Result<Value, String> {
     follow::read_here(core, params.agent_id, params.cursor).await
 }
 
@@ -890,8 +873,9 @@ pub(crate) async fn hire(
                 error => error.to_string(),
             }
         })?;
-    answer["name"]
-        .as_str()
+    answer
+        .get("name")
+        .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| "the lead's host named no worker".into())
 }
@@ -1108,8 +1092,8 @@ pub(crate) fn elsewhere(
     }
     let naming = |agents: Vec<String>| {
         let mut params = params.clone();
-        if params["agentIds"].is_array() {
-            params["agentIds"] = json!(agents);
+        if let Some(ids) = params.get_mut("agentIds").filter(|ids| ids.is_array()) {
+            *ids = json!(agents);
         }
         params
     };
@@ -1214,7 +1198,11 @@ pub(super) fn permit_here(core: &Core, host: &str, params: PermitParams) -> Core
 /// Puts a question an agent here asked to the person on the host its team's
 /// lead runs on.
 pub(crate) fn relay_question(core: &Core, host: &str, question: Value) {
-    let asker = question["agentId"].as_str().unwrap_or_default().to_owned();
+    let asker = question
+        .get("agentId")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
     post(
         core,
         host,

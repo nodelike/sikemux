@@ -353,7 +353,7 @@ pub fn overlay(
                             )
                             .track_scroll(&finder.scroll)
                             .h(px((30. * count as f32)
-                                .min(crate::palette::list_room(window, false))
+                                .min(crate::palette::list_room(window, false, 0.))
                                 + 2. * ui::FLOAT_INSET))
                             .min_h_0()
                             .flex_shrink(1.)

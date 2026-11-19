@@ -680,8 +680,8 @@ pub fn field(cx: &App) -> Option<AnyElement> {
 
 /// What fills the frame of `agent`'s pane: its usual field, crossing over to a new chat's
 /// welcome as `glow` runs from 0 to 1, with its edge lit while the agent waits on the person.
-/// The welcome is the pane picture over the whole pane, strongly dithered, when one is set,
-/// and the glow when none is.
+/// The welcome is the pane picture, strongly dithered, when one is set, and the glow when
+/// none is.
 pub fn pane_ground(agent: Option<&str>, cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
     let field = field_at(agent, cx);
     let edge = agent.and_then(|agent| waiting_edge(agent, cx));
@@ -778,8 +778,10 @@ pub fn burst_in(agent: Option<&str>, cx: &App) -> Option<AnyElement> {
         .collect();
     let mut params = [0.; gpui::RAW_SHADER_PARAMS];
     params[..4].copy_from_slice(&[burst.started, 0., burst.seed, worn.spark as f32]);
-    for (at, ink) in inks.iter().cycle().take(3).enumerate() {
-        params[4 + 4 * at..7 + 4 * at].copy_from_slice(&[ink.r, ink.g, ink.b]);
+    for (slot, ink) in params[4..].chunks_mut(4).zip(inks.iter().cycle().take(3)) {
+        if let [r, g, b, ..] = slot {
+            (*r, *g, *b) = (ink.r, ink.g, ink.b);
+        }
     }
     let show = burst.show;
     Some(
@@ -833,23 +835,37 @@ pub fn burst_in(agent: Option<&str>, cx: &App) -> Option<AnyElement> {
     )
 }
 
-/// The pane picture as a new chat's welcome shows it: over the whole pane and as solid as
-/// `WELCOME_PICTURE`, whatever strength and coverage the panes take, faded by the number given.
+/// The pane picture as a new chat's welcome shows it: as solid as `WELCOME_PICTURE`, whatever
+/// strength the panes take, faded by the number given.
 fn welcome_picture(cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
     let grain = cx.try_global::<Grain>().filter(|grain| grain.shown)?;
     let (_, picture) = grain.picture.as_ref()?;
     let mut params = picture_params(grain, cx);
     params[2] = WELCOME_PICTURE;
-    params[3] = 1.;
-    let picture = picture.clone();
-    Some(Rc::new(move |solid| {
+    Some(picture_field(grain, params, picture.clone()))
+}
+
+/// The pane picture over the part of the pane its coverage asks for.
+fn picture_field(
+    grain: &Grain,
+    params: [f32; gpui::RAW_SHADER_PARAMS],
+    picture: Arc<RenderImage>,
+) -> Rc<dyn Fn(f32) -> AnyElement> {
+    let band = match grain.look.full {
+        true => relative(1.),
+        false => relative(PICTURE_BAND),
+    };
+    Rc::new(move |solid| {
         let mut params = params;
         params[2] *= solid;
         picture_canvas(params, picture.clone(), inner_radius(), true)
             .absolute()
-            .inset_0()
+            .top_0()
+            .left_0()
+            .w_full()
+            .h(band)
             .into_any_element()
-    }))
+    })
 }
 
 fn inner_radius() -> f32 {
@@ -862,23 +878,11 @@ fn field_at(agent: Option<&str>, cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElemen
         .try_global::<Grain>()
         .filter(|grain| grain.shown && grain.strength() > 0.)?;
     if let Some((_, picture)) = &grain.picture {
-        let band = match grain.look.full {
-            true => relative(1.),
-            false => relative(PICTURE_BAND),
-        };
-        let params = picture_params(grain, cx);
-        let picture = picture.clone();
-        return Some(Rc::new(move |solid| {
-            let mut params = params;
-            params[2] *= solid;
-            picture_canvas(params, picture.clone(), inner_radius(), true)
-                .absolute()
-                .top_0()
-                .left_0()
-                .w_full()
-                .h(band)
-                .into_any_element()
-        }));
+        return Some(picture_field(
+            grain,
+            picture_params(grain, cx),
+            picture.clone(),
+        ));
     }
     if grain.wanted.is_some() {
         return None;

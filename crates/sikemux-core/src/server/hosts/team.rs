@@ -90,6 +90,10 @@ pub(crate) struct Tree {
     pub branch: String,
     /// The lead's commit it started from.
     pub base: String,
+    /// The commit holding the lead's uncommitted changes, when it was sent some: the worker's
+    /// own commits come after it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lead_changes: Option<String>,
     /// The commit its work last went back to the lead at.
     pub sent: Option<String>,
 }

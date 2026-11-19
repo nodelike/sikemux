@@ -6,7 +6,7 @@
 //! was written, and a removed document keeps a stamped marker. Two copies of a document merge
 //! field by field, the newest stamp winning, so hosts that wrote apart agree once they meet.
 
-use std::collections::BTreeMap;
+use std::collections::{btree_map, BTreeMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
@@ -334,10 +334,12 @@ fn take_loose(target: &mut Open, loose: &Path) -> CoreResult<()> {
         let merged = merge(ours.clone(), serde_json::from_str(&stamped)?);
         let merged_text = serde_json::to_string(&merged)?;
         let value = shown(&merged).map(|fields| Value::Object(fields).to_string());
-        if !counts.contains_key(&module) {
-            counts.insert(module.clone(), counts_of(&transaction, &module)?);
-        }
-        let mod_counts = counts.get_mut(&module).expect("just inserted");
+        let mod_counts = match counts.entry(module.clone()) {
+            btree_map::Entry::Occupied(counted) => counted.into_mut(),
+            btree_map::Entry::Vacant(uncounted) => {
+                uncounted.insert(counts_of(&transaction, &module)?)
+            }
+        };
         mod_counts.documents += i64::from(value.is_some()) - i64::from(shown(&ours).is_some());
         mod_counts.bytes += merged_text.len() as i64 - stored.map_or(0, |s| s.len()) as i64;
         mod_counts.changes += 1;
@@ -929,7 +931,7 @@ impl Store {
             for row in rows {
                 let (id, value) = row.map_err(failed)?;
                 let value: Value = serde_json::from_str(&value)?;
-                if let Some(text) = value["text"].as_str() {
+                if let Some(text) = value.get("text").and_then(Value::as_str) {
                     badges.insert(id, text.to_owned());
                 }
             }
@@ -1313,8 +1315,8 @@ pub(super) async fn call(
         let document = document.unwrap_or_default();
         let write = match name {
             "data.undo" => {
-                let version = params["version"]
-                    .as_i64()
+                let version = (params.get("version"))
+                    .and_then(Value::as_i64)
                     .ok_or_else(|| CoreError::from("an undo names the version to undo"))?;
                 let (worker, id) = (core.clone(), id.to_owned());
                 blocking(move || {
@@ -1384,7 +1386,7 @@ const DATA_NOTE: &str =
 
 /// What `mod_read` answers: the mod and its collections, a collection's documents, or one.
 pub(in super::super) async fn tool_read(core: &Arc<Core>, params: Value) -> CoreResult<Value> {
-    let id = super::super::calls::parse::<String>(params["mod"].clone())?;
+    let id = super::super::calls::parse::<String>(params.get("mod").cloned().unwrap_or_default())?;
     let manifest = manifest(core, &id).await?;
     let collection = match params.get("collection") {
         None | Some(Value::Null) => None,
@@ -1394,7 +1396,10 @@ pub(in super::super) async fn tool_read(core: &Arc<Core>, params: Value) -> Core
         None | Some(Value::Null) => None,
         Some(_) => Some(named(&params, "id")?.to_owned()),
     };
-    let after = params["after"].as_str().map(str::to_owned);
+    let after = params
+        .get("after")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     let worker = core.clone();
     blocking(move || {
         let store = &worker.mods().data;
@@ -1447,13 +1452,13 @@ pub(in super::super) async fn tool_read(core: &Arc<Core>, params: Value) -> Core
         let cut = listed.len() > fits;
         listed.truncate(fits);
         let mut answer = json!({ "documents": listed, "note": DATA_NOTE });
-        if let (true, Some(last)) = (cut, listed.last()) {
-            answer["more"] = format!(
+        if let (true, Some(last), Some(fields)) = (cut, listed.last(), answer.as_object_mut()) {
+            let more = format!(
                 "Cut at {} documents; pass after: \"{}\" for the next",
                 listed.len(),
                 last.id
-            )
-            .into();
+            );
+            fields.insert("more".into(), more.into());
         }
         Ok(answer)
     })
@@ -1466,8 +1471,8 @@ pub(in super::super) async fn tool_write(
     agent: &str,
     params: Value,
 ) -> CoreResult<Value> {
-    let id = super::super::calls::parse::<String>(params["mod"].clone())?;
-    let Value::Array(asked) = params["writes"].clone() else {
+    let id = super::super::calls::parse::<String>(params.get("mod").cloned().unwrap_or_default())?;
+    let Some(Value::Array(asked)) = params.get("writes").cloned() else {
         return Err("writes must be a list".into());
     };
     if asked.is_empty() || asked.len() > MOST_WRITES {
@@ -1480,8 +1485,8 @@ pub(in super::super) async fn tool_write(
         let kinds: Vec<&str> = ["set", "patch", "remove"]
             .into_iter()
             .filter(|kind| match *kind {
-                "remove" => write[*kind] == Value::Bool(true),
-                given => !write[given].is_null(),
+                "remove" => write.get(*kind) == Some(&Value::Bool(true)),
+                given => write.get(given).is_some_and(|given| !given.is_null()),
             })
             .collect();
         let [kind] = kinds[..] else {
@@ -1494,9 +1499,9 @@ pub(in super::super) async fn tool_write(
             )
             .into());
         };
-        if kind != "remove" {
-            let renamed = write[kind].take();
-            write[if kind == "set" { "doc" } else { "patch" }] = renamed;
+        if let (true, Some(fields)) = (kind != "remove", write.as_object_mut()) {
+            let renamed = fields.get_mut(kind).map(Value::take).unwrap_or_default();
+            fields.insert(if kind == "set" { "doc" } else { "patch" }.into(), renamed);
         }
         writes.push(Write {
             change: change_of(kind, &mut write)?,

@@ -139,13 +139,15 @@ pub fn switches_at_limit(chat: &Chat) -> bool {
         .is_none_or(|core| core.workspaces().accounts().unwrap_or_default().smart)
 }
 
-/// The account to move to that is signed in and not known to be out of usage: of those, the one
-/// with the most of its week left, so the chat can keep going, else the first.
+/// The account to move to that is signed in and not known to be full for the chat: of those,
+/// the one next in line, else the first. `person` when the chat answers the person's own
+/// message, which may use the last tenth agents leave them.
 pub fn next_account<'a>(
     chat: &Chat,
     provider: &str,
     launch: &'a ChatLaunch,
     exhausted: &[String],
+    person: bool,
 ) -> Option<&'a ChatAccount> {
     let book = chat
         .core
@@ -162,12 +164,16 @@ pub fn next_account<'a>(
                 && sign_in::signed_in(provider, env) != Some(SignIn::SignedOut)
                 && !usage::last_reading(provider, crate::launch::named_account(provider, env))
                     .is_some_and(|reading| {
-                        allocate::spent(&reading.usage, launch.model.as_deref(), now)
+                        let placing = allocate::Chat {
+                            model: launch.model.as_deref(),
+                            person,
+                        };
+                        allocate::full(&reading.usage, placing, now)
                     })
         })
         .collect();
     let placed = chat.core.upgrade().and_then(|core| {
-        (core.chat_above().account_with_room)(&core, provider, launch, &|profile| {
+        (core.chat_above().account_with_room)(&core, provider, launch, person, &|profile| {
             open.iter().any(|fallback| fallback.id == profile)
         })
     });

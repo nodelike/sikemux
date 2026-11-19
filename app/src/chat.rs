@@ -72,17 +72,17 @@ mod find;
 mod gestures;
 mod installing;
 pub(crate) mod link;
+mod listening;
 pub(crate) mod live;
 mod looks;
 mod math;
 mod mention;
 mod mermaid;
 mod moving;
-mod now;
 mod rotation;
 pub(crate) use attach::{
-    agent_pill, agent_pill_of, context_chip, file_chip, named, named_agents, pill, site_icon, Made,
-    Mention, SNIP_NAME,
+    agent_pill, agent_pill_of, context_chip, file_chip, named, named_agents, pill, site_icon,
+    unknown_agent_pill, Made, Mention, SNIP_NAME,
 };
 pub use mention::Tray;
 mod meta;
@@ -93,7 +93,7 @@ mod questions;
 mod rows;
 mod schema;
 mod shown;
-pub(crate) use shown::{take as take_step, turn_picture, turn_picture_held};
+pub(crate) use shown::{turn_picture, turn_picture_held};
 pub(crate) mod status;
 mod team;
 mod tools;
@@ -531,6 +531,10 @@ struct Reading {
     /// The whole briefs fresh sessions started from that the reader asked to read, by when
     /// each started, or why it could not be read.
     briefs: HashMap<u64, Result<sikemux_view::chat::RotationBrief, String>>,
+    /// The paragraph or list item the pointer is over, by its text and its place in the text.
+    quoting: Option<(SharedString, usize)>,
+    /// The pointer is on that part's reply button.
+    quoting_button: bool,
 }
 
 impl Reading {
@@ -677,8 +681,6 @@ pub struct Chat {
     /// Its agent's record names the session a turn ran in, so until the core first answers
     /// the chat is drawn as one with messages, never as a new one.
     pub(crate) said: bool,
-    /// A chief's Now card is folded to its counts.
-    now_folded: bool,
     /// The person's ask the chat shows alone, while it shows one.
     pub(crate) narrowed: Option<narrowed::Narrowed>,
     /// Rows of other asks came while it showed one alone.
@@ -829,7 +831,6 @@ impl Chat {
             finding: None,
             plan_open: false,
             first_sent: Cell::new(None),
-            now_folded: false,
             activity_line,
             announcer: cx.new(|_| announce::Announcer::default()),
             calls,
@@ -1132,8 +1133,7 @@ impl Chat {
         let Some(at) = parts.iter().position(|part| part.id() == active) else {
             return false;
         };
-        let head = parts[..=at]
-            .iter()
+        let head = (parts.iter().take(at + 1))
             .rev()
             .take_while(|part| {
                 matches!(
@@ -1289,15 +1289,12 @@ impl Chat {
         (through < 1. && !cx.reduce_motion()).then(|| leaves.at(through))
     }
 
-    /// Nothing has been said in it and no While you were away card stands in it.
+    /// Nothing has been said in it.
     pub fn is_new(&self, cx: &App) -> bool {
         if self.narrowed.is_some() {
             return false;
         }
-        let Some(head) = self.state.as_ref() else {
-            return !self.said && self.transcript.read(cx).rows().is_empty();
-        };
-        head.away.is_none() && self.transcript.read(cx).rows().is_empty()
+        (self.state.is_some() || !self.said) && self.transcript.read(cx).rows().is_empty()
     }
 
     /// The account smart accounts started the chat on, and why.
@@ -1421,19 +1418,20 @@ impl Chat {
         let mut kept = 0..rows.len();
         if transcript.away() {
             let top = transcript.list().logical_scroll_top().item_ix;
-            if top > HELD_AROUND + SLACK_ROWS {
-                let from = &rows[top - HELD_AROUND];
+            let from = (top > HELD_AROUND + SLACK_ROWS)
+                .then(|| rows.get(top - HELD_AROUND))
+                .flatten();
+            if let Some(from) = from {
                 if let Some(event) = from.first_event() {
                     self.older_before = Some(event);
                     drops.push(Change::DropBefore(from.id().to_owned().into()));
                     kept.start = top - HELD_AROUND;
                 }
             }
-            if rows.len() > top + 2 * HELD_AROUND + SLACK_ROWS {
-                let (last, cut) = (
-                    &rows[top + 2 * HELD_AROUND - 1],
-                    &rows[top + 2 * HELD_AROUND],
-                );
+            let edge = (rows.len() > top + 2 * HELD_AROUND + SLACK_ROWS)
+                .then(|| rows.get(top + 2 * HELD_AROUND - 1..=top + 2 * HELD_AROUND))
+                .flatten();
+            if let Some([last, cut]) = edge {
                 if let Some(event) = last.first_event() {
                     (self.newer_after, self.detached) = (Some(event), true);
                     drops.push(Change::DropFrom(cut.id().to_owned().into()));
@@ -1441,16 +1439,21 @@ impl Chat {
                 }
             }
         } else {
-            let turns: Vec<usize> = (0..rows.len())
-                .filter(|&ix| rows[ix].opens_turn())
+            let turns: Vec<usize> = (rows.iter().enumerate())
+                .filter(|(_, row)| row.opens_turn())
+                .map(|(ix, _)| ix)
                 .collect();
-            let by_turns =
-                (turns.len() > HELD_TURNS + SLACK_TURNS).then(|| turns[turns.len() - HELD_TURNS]);
+            let by_turns = (turns.len() > HELD_TURNS + SLACK_TURNS)
+                .then(|| turns.get(turns.len() - HELD_TURNS).copied())
+                .flatten();
             let by_rows = (rows.len() > HELD_ROWS + SLACK_ROWS).then(|| rows.len() - HELD_ROWS);
-            if let Some(at) = by_turns.max(by_rows) {
-                if let Some(event) = rows[at].first_event() {
+            let cut = by_turns
+                .max(by_rows)
+                .and_then(|at| Some((at, rows.get(at)?)));
+            if let Some((at, row)) = cut {
+                if let Some(event) = row.first_event() {
                     self.older_before = Some(event);
-                    drops.push(Change::DropBefore(rows[at].id().to_owned().into()));
+                    drops.push(Change::DropBefore(row.id().to_owned().into()));
                     kept.start = at;
                 }
             }
@@ -1460,7 +1463,9 @@ impl Chat {
         }
         #[cfg(feature = "counts")]
         gpui_transcript::counts::add(&gpui_transcript::counts::TRIMS, 1);
-        let held: HashSet<&str> = rows[kept].iter().map(|row| row.id()).collect();
+        let held: HashSet<&str> = (rows.get(kept).unwrap_or_default().iter())
+            .map(|row| row.id())
+            .collect();
         let streamed: Vec<String> = (self.reader.read(cx).streamed.iter())
             .filter(|row| held.contains(row.as_str()))
             .cloned()
@@ -1661,7 +1666,6 @@ pub fn pane(
             .bottom_0()
             .child(Scrollbar::vertical(&list))
     });
-    let now_card = now::card(bench, agent, chat, cx);
     let rows = div()
         .flex_1()
         .min_h_0()
@@ -1730,35 +1734,14 @@ pub fn pane(
         })
         .children(welcome.map(|welcome| crate::home::over_composer(welcome).absolute().inset_0()))
         .children(app::expanded(&agent.id, cx))
-        .children(app::scrolls(cx))
-        .children(now_card);
+        .children(app::scrolls(cx));
     let open: Vec<&Question> = bench
         .feeds
         .questions_outside_calls()
         .filter(|question| question.asks(&agent.id))
         .collect();
     let calls = bench.calls_of(chat.target.place(), &agent.id, chat.last_said(cx));
-    let head = (chat.state.as_ref()).and_then(|head| head.away.as_ref());
-    let away_calls: Vec<&sikemux_view::calls::PersonCall> = (head.iter())
-        .flat_map(|head| {
-            let open = (head.calls.iter())
-                .filter_map(|id| bench.call_at(id).map(|(_, call)| call))
-                .filter(|call| call.state == sikemux_view::calls::CallState::Open);
-            let answered = (head.answered.iter())
-                .filter_map(|id| bench.call_at(id).map(|(_, call)| call))
-                .filter(|call| call.state == sikemux_view::calls::CallState::Answered);
-            answered.chain(open)
-        })
-        .collect();
-    let away = match chat.calls.read(cx).shows_away(head, &away_calls) {
-        true => crate::calls::Shown::Same,
-        false => crate::calls::Shown::New(head.map(|head| crate::calls::Away {
-            head: head.clone(),
-            calls: away_calls.into_iter().cloned().collect(),
-        })),
-    };
-    chat.calls
-        .update(cx, |shown, cx| shown.show(calls, away, cx));
+    chat.calls.update(cx, |shown, cx| shown.show(calls, cx));
     let permissions = chat
         .state
         .as_ref()
@@ -1850,13 +1833,9 @@ pub fn pane(
         .composer
         .as_ref()
         .is_some_and(|composing| composing.draft.read(cx).value().is_empty());
-    let keyed_call = bench
-        .keyed_call(chat.target.place(), &agent.id, cx)
-        .is_some();
     let asking = empty
-        && (keyed_call
-            || chat.current(&open).is_some_and(|question| !question.secret)
-                && !chat.is_folded(&open));
+        && chat.current(&open).is_some_and(|question| !question.secret)
+        && !chat.is_folded(&open);
     let id = &agent.id;
     let composing = chat.composer.is_some();
     let pane = div()
@@ -1957,7 +1936,7 @@ fn pressed<A: gpui::Action, F: Fn(&A) -> Press + 'static>(
     bench: &WeakEntity<Workbench>,
 ) -> impl Fn(&A, &mut Window, &mut App) + use<A, F> {
     let (agent, this) = (agent.to_owned(), bench.clone());
-    move |action: &A, window: &mut Window, cx: &mut App| {
+    move |action: &A, _window: &mut Window, cx: &mut App| {
         let taken = this.update(cx, |bench, cx| {
             let open: Vec<&Question> = bench
                 .feeds
@@ -1965,11 +1944,7 @@ fn pressed<A: gpui::Action, F: Fn(&A) -> Press + 'static>(
                 .filter(|question| question.asks(&agent))
                 .collect();
             if open.is_empty() {
-                let place = bench.chats.open.get(&agent)?.target.place().clone();
-                let id = bench.keyed_call(&place, &agent, cx)?;
-                return bench
-                    .press_call(&id, press(action), window, cx)
-                    .then_some(());
+                return None;
             }
             let chat = bench.chats.open.get_mut(&agent)?;
             let (taken, ask) = chat.press(press(action), &open);

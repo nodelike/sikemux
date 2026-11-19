@@ -140,7 +140,9 @@ pub fn request(
         "content": info.content,
     });
     if !locations.is_empty() {
-        tool_call["locations"] = json!(locations);
+        if let Some(fields) = tool_call.as_object_mut() {
+            fields.insert("locations".to_owned(), json!(locations));
+        }
     }
     crate::server::chat::permission::request(session, tool_call, &options)
 }
@@ -154,13 +156,18 @@ pub(crate) fn is_claude_code_question(tool_id: &str) -> bool {
 /// The permission request for a question Claude Code itself asks. Its last
 /// choice is the way out, as in "Not now".
 pub(crate) fn claude_code_question(session: &str, tool_id: &str, input: &Value) -> Value {
-    let asked = &input["questions"][0];
-    let choices = asked["options"].as_array().map_or(&[][..], Vec::as_slice);
+    let asked = input
+        .get("questions")
+        .and_then(|questions| questions.get(0));
+    let choices = asked
+        .and_then(|asked| asked.get("options"))
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice);
     let options: Vec<Value> = choices
         .iter()
         .enumerate()
         .filter_map(|(index, choice)| {
-            let label = choice["label"].as_str()?;
+            let label = choice.get("label").and_then(Value::as_str)?;
             let kind = if index + 1 == choices.len() {
                 PermissionKind::RejectOnce
             } else {
@@ -173,7 +180,7 @@ pub(crate) fn claude_code_question(session: &str, tool_id: &str, input: &Value) 
         session,
         json!({
             "toolCallId": tool_id,
-            "title": asked["question"],
+            "title": asked.and_then(|asked| asked.get("question")),
             "kind": "other",
             "status": "pending",
             "rawInput": input,
@@ -189,24 +196,39 @@ pub fn answer(tool_id: &str, input: &Value, cli: &Value, chosen: Option<&str>) -
         Some(ALLOW) => allow(),
         Some(chosen) if chosen.starts_with(CHOICE) => {
             let mut answer = allow();
-            if let Some(question) = input["questions"][0]["question"].as_str() {
-                answer["updatedInput"]["answers"] =
-                    json!({ question: chosen.trim_start_matches(CHOICE) });
+            let question = input
+                .get("questions")
+                .and_then(|questions| questions.get(0))
+                .and_then(|asked| asked.get("question"))
+                .and_then(Value::as_str);
+            let updated = answer
+                .get_mut("updatedInput")
+                .and_then(Value::as_object_mut);
+            if let (Some(question), Some(updated)) = (question, updated) {
+                updated.insert(
+                    "answers".to_owned(),
+                    json!({ question: chosen.trim_start_matches(CHOICE) }),
+                );
             }
             answer
         }
         Some(ALLOW_ALWAYS) => {
             let mut answer = allow();
-            if let Some(suggestions) = suggestions(cli) {
-                answer["updatedPermissions"] = suggestions.clone();
+            if let (Some(suggestions), Some(fields)) = (suggestions(cli), answer.as_object_mut()) {
+                fields.insert("updatedPermissions".to_owned(), suggestions.clone());
             }
             answer
         }
         Some(chosen) if chosen.starts_with(EXIT_PLAN) => {
             let mut answer = allow();
-            if let Some(mode) = chosen.strip_prefix(&format!("{EXIT_PLAN}:")) {
-                answer["updatedPermissions"] =
-                    json!([{ "type": "setMode", "mode": mode, "destination": "session" }]);
+            if let (Some(mode), Some(fields)) = (
+                chosen.strip_prefix(&format!("{EXIT_PLAN}:")),
+                answer.as_object_mut(),
+            ) {
+                fields.insert(
+                    "updatedPermissions".to_owned(),
+                    json!([{ "type": "setMode", "mode": mode, "destination": "session" }]),
+                );
             }
             answer
         }

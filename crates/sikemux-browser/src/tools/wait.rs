@@ -156,8 +156,11 @@ async fn script_holds(view: &Tab, script: &str, limit: Duration) -> Result<Optio
         Err(error) if error.contains("SyntaxError") => return Err(error),
         Err(error) => return Ok(Some(format!("the script failed: {error}"))),
     };
-    let result = &answer["result"];
-    if let Some(origin) = result["sikemuxHeldWrite"]["origin"].as_str() {
+    let result = answer.get("result").unwrap_or(&Value::Null);
+    if let Some(origin) = result
+        .pointer("/sikemuxHeldWrite/origin")
+        .and_then(Value::as_str)
+    {
         return Err(format!(
             "a wait's script may only read the page, but it sent a request to {origin}"
         ));
@@ -194,16 +197,18 @@ pub(super) async fn arrived(
 ) -> Result<Value, String> {
     let waited = match params.get("waitFor").and_then(wait_condition) {
         Some(condition) => {
-            let asked = params["waitFor"]
-                .get("timeoutMs")
+            let asked = params
+                .pointer("/waitFor/timeoutMs")
                 .and_then(Value::as_u64)
                 .unwrap_or(DEFAULT_CONDITION_WAIT_MS);
             let limit = Duration::from_millis(asked.min(MAX_CONDITION_WAIT_MS)).min(
                 Duration::from_millis(MAX_CONDITION_WAIT_MS).saturating_sub(started.elapsed()),
             );
             let mut waited = wait_for(manager, agent_id, &condition, limit).await;
-            if limit < Duration::from_millis(asked) && waited["met"] == json!(false) {
-                waited["note"] = json!(format!("the load took part of the {asked} ms, so the wait gave up after {} ms; wait again with browser_wait", limit.as_millis()));
+            if limit < Duration::from_millis(asked)
+                && waited.get("met").and_then(Value::as_bool) == Some(false)
+            {
+                put(&mut waited, "note", json!(format!("the load took part of the {asked} ms, so the wait gave up after {} ms; wait again with browser_wait", limit.as_millis())));
             }
             Some(waited)
         }
@@ -215,16 +220,20 @@ pub(super) async fn arrived(
     }
     if let Some(load) = manager.documents(tab_id, true).last() {
         if let Some(error) = &load.error {
-            result["loadError"] = json!(format!("{} did not load: {error}", load.url));
+            put(
+                &mut result,
+                "loadError",
+                json!(format!("{} did not load: {error}", load.url)),
+            );
         }
     }
     let blank = |key: &str| result.get(key).and_then(Value::as_str) == Some("");
     if blank("elements")
         && blank("text")
         && result.get("loadError").is_none()
-        && result["url"] != json!(BLANK_URL)
+        && result.get("url").and_then(Value::as_str) != Some(BLANK_URL)
     {
-        result["note"] = json!("the page loaded but shows no text or controls yet; a web app may still be drawing it, so wait with browser_wait and a text or selector");
+        put(&mut result, "note", json!("the page loaded but shows no text or controls yet; a web app may still be drawing it, so wait with browser_wait and a text or selector"));
     }
     Ok(result)
 }

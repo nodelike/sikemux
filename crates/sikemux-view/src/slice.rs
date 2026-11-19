@@ -490,6 +490,9 @@ pub struct Decision {
     /// Who retired it and when. A full list drops its oldest retired
     /// decisions first.
     pub retired: Option<Learned>,
+    /// When the person's overrule of it was undone, last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restored: Option<u64>,
     /// What was being decided, when it settled a question an agent asked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asked: Option<String>,

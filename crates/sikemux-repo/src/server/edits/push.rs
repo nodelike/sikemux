@@ -102,14 +102,48 @@ impl Signing {
     }
 }
 
+/// A land not on its branch yet: the branch stands at `from`, and the land
+/// takes it to `to`.
+#[derive(Clone, Copy)]
+pub struct Landing<'a> {
+    pub branch: &'a str,
+    pub from: &'a str,
+    pub to: &'a str,
+}
+
 /// Pushes the unpushed commits on `dir`'s branch made by any of `agents`, or
 /// by agents they lead. From the project's own checkout, rather than an
 /// agent's, it pushes every one: the land queue or git_commit checked them.
+/// So it does from a checkout on a release line, whose cherry-picks carry no
+/// note of who made them.
 /// Where the remote knows agents by an identity of their own, the caller's
 /// changes to CI workflows that can reach secrets wait for the person, who is
 /// asked.
 pub fn push(core: &Core, dir: &Path, agents: &[String], remote: &str) -> Result<Pushed, String> {
-    let whole_branch = is_main_checkout(dir);
+    push_from(core, dir, agents, remote, None)
+}
+
+/// Pushes the project's checkout `dir` as it stands with `landing` on it, and
+/// moves its branch there only once the remote took it, so a push refused for
+/// any reason leaves the branch as it was.
+pub fn land_and_push(
+    core: &Core,
+    dir: &Path,
+    agents: &[String],
+    remote: &str,
+    landing: &Landing,
+) -> Result<Pushed, String> {
+    push_from(core, dir, agents, remote, Some(landing))
+}
+
+fn push_from(
+    core: &Core,
+    dir: &Path,
+    agents: &[String],
+    remote: &str,
+    landing: Option<&Landing>,
+) -> Result<Pushed, String> {
+    let whole_branch = is_main_checkout(dir) || on_release_line(dir);
     let sessions: Vec<String> = (agents.iter())
         .filter_map(|agent| core.names().last_session(agent))
         .collect();
@@ -140,7 +174,8 @@ pub fn push(core: &Core, dir: &Path, agents: &[String], remote: &str) -> Result<
     };
     let guarded = workflows::guarded(core, dir, remote).is_some();
     let judge = |commit: &str| guarded && workflows::waits(dir, commit);
-    let mut pushed = push_holding(dir, remote, whose, judge, whole_branch, &Signing::of(core))?;
+    let signing = Signing::of(core);
+    let mut pushed = push_holding(dir, remote, whose, judge, whole_branch, &signing, landing)?;
     for blocked in &mut pushed.blocked {
         blocked.owners = match verified(core, dir, &blocked.id) {
             Ok(agents) if !agents.is_empty() => {
@@ -172,7 +207,7 @@ fn push_as(
     whose: impl Fn(&str) -> Result<(bool, String), String>,
     signing: &Signing,
 ) -> Result<Pushed, String> {
-    push_holding(dir, remote, whose, |_| false, false, signing)
+    push_holding(dir, remote, whose, |_| false, false, signing, None)
 }
 
 /// [`push_as`], leaving out the caller's commits `judge` says wait for the person, with those
@@ -184,17 +219,33 @@ fn push_holding(
     judge: impl Fn(&str) -> bool,
     drop_clashing: bool,
     signing: &Signing,
+    landing: Option<&Landing>,
 ) -> Result<Pushed, String> {
     let top = PathBuf::from(git(dir, &["rev-parse", "--show-toplevel"])?.trim());
-    let branch = git(&top, &["symbolic-ref", "--short", "-q", "HEAD"])
-        .map_err(|_| "git_push pushes a branch; this checkout is not on one".to_owned())?
-        .trim()
-        .to_owned();
+    let branch = match landing {
+        Some(landing) => landing.branch.to_owned(),
+        None => match release_line(&top) {
+            Some(release) => release,
+            None => git(&top, &["symbolic-ref", "--short", "-q", "HEAD"])
+                .map_err(|_| "git_push pushes a branch; this checkout is not on one".to_owned())?
+                .trim()
+                .to_owned(),
+        },
+    };
     for _ in 0..ATTEMPTS {
+        let head = match landing {
+            Some(_) => String::new(),
+            None => line(git(&top, &["rev-parse", "HEAD"])?),
+        };
+        let landing = landing.copied().unwrap_or(Landing {
+            branch: &branch,
+            from: &head,
+            to: &head,
+        });
         match push_once(
             &top,
             remote,
-            &branch,
+            &landing,
             &whose,
             &judge,
             drop_clashing,
@@ -241,13 +292,17 @@ impl From<String> for Attempt {
 fn push_once(
     top: &Path,
     remote: &str,
-    branch: &str,
+    landing: &Landing,
     whose: &impl Fn(&str) -> Result<(bool, String), String>,
     judge: &impl Fn(&str) -> bool,
     drop_clashing: bool,
     signing: &Signing,
 ) -> Result<Pushed, Attempt> {
-    let head = line(git(top, &["rev-parse", "HEAD"])?);
+    let (branch, at, head) = (
+        landing.branch,
+        landing.from.to_owned(),
+        landing.to.to_owned(),
+    );
     let (base, fork) = match on_remote(top, remote, branch)? {
         true => {
             let tip = fetched_tip(top, remote, branch)?;
@@ -283,17 +338,19 @@ fn push_once(
     let (ours, theirs): (Vec<&Unpushed>, Vec<&Unpushed>) =
         unpushed.iter().partition(|commit| commit.mine);
     if held_ids.is_empty() && theirs.is_empty() && !moved {
+        land::steps(top, branch, &at, &head)?;
         send(top, remote, branch, &head)?;
+        let rebased = at == head || rebase_branch(signing, top, branch, &at, &head, true, LANDED)?;
         return Ok(Pushed {
             remote: remote.to_owned(),
             branch: branch.to_owned(),
             pushed: shown(&ours),
             kept: Vec::new(),
             waiting: Vec::new(),
-            note: None,
             held: Vec::new(),
             sent_back: Vec::new(),
             blocked: Vec::new(),
+            note: (!rebased).then(|| not_landed_here(remote, branch)),
             tip: Some(head),
         });
     }
@@ -325,13 +382,13 @@ fn push_once(
                 tip = next;
                 going.push(commit);
             }
-            Err(_) if unpushed[..at].iter().any(|before| before.mine && before.waits) => {
+            Err(_) if unpushed.iter().take(at).any(|before| before.mine && before.waits) => {
                 waiting.push(commit)
             }
-            Err(_) if unpushed[..at].iter().any(|before| before.waits) => {
+            Err(_) if unpushed.iter().take(at).any(|before| before.waits) => {
                 return Err(Attempt::Failed(format!(
                     "Your commits build on a change to CI that waits for the person, so they go once it is passed and pushed: {}. Go on with other work, and push again after.",
-                    (unpushed[..at].iter())
+                    unpushed.iter().take(at)
                         .filter(|before| before.waits)
                         .map(|before| format!("{} {} by {}", short(&before.id), before.subject, before.by))
                         .collect::<Vec<_>>()
@@ -377,22 +434,41 @@ fn push_once(
         blocked,
         tip: None,
     };
+    let landing = at != head;
     if going.is_empty() && pushed.blocked.is_empty() {
-        return Ok(pushed);
+        let rebased = !landing || rebase_branch(signing, top, branch, &at, &head, true, LANDED)?;
+        return Ok(Pushed {
+            note: match rebased {
+                true => pushed.note.clone(),
+                false => Some(not_landed_here(remote, branch)),
+            },
+            ..pushed
+        });
     }
     let rebuilt = replay(signing, top, &tip, &left, clash).map_err(|_| cannot_go_alone())?;
-    match moved {
-        true => {
-            land::steps(top, &head, &rebuilt)?;
-        }
-        false if tree(top, &rebuilt)? != tree(top, &head)? => return Err(cannot_go_alone()),
-        false => {}
+    if !moved && tree(top, &rebuilt)? != tree(top, &head)? {
+        return Err(cannot_go_alone());
     }
+    land::steps(top, branch, &at, &rebuilt)?;
     send(top, remote, branch, &tip)?;
-    let rebased = rebase_branch(signing, top, branch, &head, &rebuilt, moved)?;
-    let moving = (!rebased).then(|| format!(
-        "{branch} moved while pushing, so it still holds your pushed commits as they were; run git pull --rebase in this checkout to drop them"
-    ));
+    let rebased = rebase_branch(
+        signing,
+        top,
+        branch,
+        &at,
+        &rebuilt,
+        moved || landing,
+        match landing {
+            true => LANDED,
+            false => "push: other agents' unpushed commits go after the pushed ones",
+        },
+    )?;
+    let moving = (!rebased).then(|| match landing {
+        true => not_landed_here(remote, branch),
+        false => format!(
+            "{branch} moved while pushing, so it still holds your pushed commits as they were; run git pull --rebase in this checkout to drop them"
+        ),
+    });
     Ok(Pushed {
         tip: Some(tip),
         note: match (moving, pushed.note.clone()) {
@@ -545,13 +621,13 @@ fn rebase_branch(
     head: &str,
     rebuilt: &str,
     moved: bool,
+    reflog: &str,
 ) -> Result<bool, String> {
-    let reflog = "push: other agents' unpushed commits go after the pushed ones";
     let target = format!("refs/heads/{branch}");
     let mut from = head.to_owned();
     let mut onto = rebuilt.to_owned();
     for _ in 0..ATTEMPTS {
-        let Ok(steps) = land::steps(top, &from, &onto) else {
+        let Ok(steps) = land::steps(top, branch, &from, &onto) else {
             return Ok(false);
         };
         if run(
@@ -562,7 +638,9 @@ fn rebase_branch(
         )
         .is_ok()
         {
-            land::apply(top, steps, &from, &onto);
+            if let Some(steps) = steps {
+                land::apply(top, steps, &from, &onto);
+            }
             return Ok(true);
         }
         let now = line(git(top, &["rev-parse", &target])?);
@@ -588,6 +666,15 @@ fn rebase_branch(
     }
     Ok(false)
 }
+
+/// What a push says when the remote took a land that its branch here could not take after.
+fn not_landed_here(remote: &str, branch: &str) -> String {
+    format!(
+        "{branch} moved in the project's checkout while pushing, so your commits are on {remote}/{branch} but not yet on {branch} there; run git pull --rebase in it to bring them"
+    )
+}
+
+const LANDED: &str = "land: the land queue, once the remote took it";
 
 const WITHOUT_THEIRS: &str = "without other agents' unpushed commits";
 
@@ -846,6 +933,24 @@ pub(super) fn is_main_checkout(dir: &Path) -> bool {
     matches!((path("--git-dir"), path("--git-common-dir")), (Ok(own), Ok(common)) if own == common)
 }
 
+const RELEASE_LINE: &str = "release/";
+
+/// The `release/*` branch `dir` stands on, or follows from a branch of its own.
+fn release_line(dir: &Path) -> Option<String> {
+    let named = |args: &[&str]| git(dir, args).map(line).ok();
+    let branch = named(&["symbolic-ref", "--short", "-q", "HEAD"])?;
+    let upstream = named(&["rev-parse", "--abbrev-ref", "-q", "@{upstream}"]);
+    let followed = upstream.and_then(|upstream| Some(upstream.split_once('/')?.1.to_owned()));
+    [Some(branch), followed]
+        .into_iter()
+        .flatten()
+        .find(|branch| branch.starts_with(RELEASE_LINE))
+}
+
+pub(super) fn on_release_line(dir: &Path) -> bool {
+    release_line(dir).is_some()
+}
+
 fn tree(top: &Path, commit: &str) -> Result<String, String> {
     Ok(line(git(
         top,
@@ -931,7 +1036,6 @@ mod tests {
     /// A push Bitbucket's branch rules refused said only "failed to push some refs".
     #[test]
     fn a_refused_push_says_what_the_remote_said() {
-        use std::os::unix::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
         let root = sikemux_process::files::real_path(root.path()).unwrap();
         let remote = root.join("remote.git");
@@ -942,7 +1046,11 @@ mod tests {
         commit(&work, "base.txt", "base\n", "mine: base");
         let hook = |at: PathBuf, said: &str| {
             std::fs::write(&at, format!("#!/bin/sh\necho '{said}'\nexit 1\n")).unwrap();
-            std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o755)).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
         };
         hook(
             work.join(".git/hooks/pre-push"),
@@ -969,6 +1077,87 @@ mod tests {
             why.contains("Branch main only takes pull requests."),
             "{why}"
         );
+    }
+
+    /// On 2026-11-12 a land moved the project's main onto stale commits, and only then did its
+    /// push refuse one whose authorship record was lost; main had to be put back by hand.
+    #[test]
+    fn a_refused_landing_push_leaves_main_as_it_was() {
+        let root = tempfile::tempdir().unwrap();
+        let root = sikemux_process::files::real_path(root.path()).unwrap();
+        let remote = root.join("remote.git");
+        let work = root.join("work");
+        git_in(&root, &["init", "-q", "--bare", "-b", "main", "remote.git"]);
+        git_in(&root, &["clone", "-q", &remote.to_string_lossy(), "work"]);
+        git_in(&work, &["checkout", "-q", "-b", "main"]);
+        commit(&work, "base.txt", "base\n", "base");
+        git_in(&work, &["push", "-q", "-u", "origin", "main"]);
+        let from = line(git_in(&work, &["rev-parse", "HEAD"]));
+        git_in(&work, &["checkout", "-q", "-b", "agent"]);
+        commit(&work, "landed.txt", "landed\n", "lost its authorship");
+        let to = line(git_in(&work, &["rev-parse", "HEAD"]));
+        git_in(&work, &["checkout", "-q", "main"]);
+        let landing = Landing {
+            branch: "main",
+            from: &from,
+            to: &to,
+        };
+        let signing = Signing {
+            key: None,
+            hosts: Vec::new(),
+        };
+        let unknown = |_: &str| Err("no authorship record".to_owned());
+        let refused = push_holding(
+            &work,
+            "origin",
+            unknown,
+            |_| false,
+            true,
+            &signing,
+            Some(&landing),
+        );
+        assert!(refused.is_err());
+        let as_it_was = || {
+            assert_eq!(line(git_in(&work, &["rev-parse", "main"])), from);
+            assert!(!work.join("landed.txt").exists());
+            assert_eq!(line(git_in(&remote, &["rev-parse", "main"])), from);
+        };
+        as_it_was();
+
+        let hook = remote.join("hooks/pre-receive");
+        std::fs::write(&hook, "#!/bin/sh\necho 'main is protected'\nexit 1\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let known = |_: &str| Ok((true, "someone".to_owned()));
+        let refused = push_holding(
+            &work,
+            "origin",
+            known,
+            |_| false,
+            true,
+            &signing,
+            Some(&landing),
+        );
+        assert!(refused.is_err_and(|why| why.contains("main is protected")));
+        as_it_was();
+
+        std::fs::remove_file(&hook).unwrap();
+        push_holding(
+            &work,
+            "origin",
+            known,
+            |_| false,
+            true,
+            &signing,
+            Some(&landing),
+        )
+        .unwrap();
+        assert_eq!(line(git_in(&work, &["rev-parse", "main"])), to);
+        assert_eq!(line(git_in(&remote, &["rev-parse", "main"])), to);
+        assert!(work.join("landed.txt").exists());
     }
 
     #[test]
@@ -1039,7 +1228,7 @@ mod tests {
             hosts: Vec::new(),
         };
         let whose = |_: &str| Ok((true, "someone".to_owned()));
-        let pushed = push_holding(&work, "origin", whose, |_| false, true, &signing).unwrap();
+        let pushed = push_holding(&work, "origin", whose, |_| false, true, &signing, None).unwrap();
         let subjects = |dir: &Path, rev: &str| git_in(dir, &["log", "--format=%s", rev]);
         assert_eq!(subjects(&remote, "main"), "fine\nfmt\nbase");
         assert_eq!(subjects(&work, "main"), "fine\nfmt\nbase");

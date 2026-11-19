@@ -111,16 +111,17 @@ async fn run_until(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
     let run = harness.read(|state| state.run(project, execution_id))?;
     let mut fields = json!({ "met": met });
     if let Some(tail) = run_tail(core, &run).await {
-        fields["tail"] = tail.into();
+        set_param(&mut fields, "tail", tail.into());
     }
     if !met {
-        fields["note"] = match run.status {
+        let note = match run.status {
             RunStatus::AwaitingTrust => AWAITING_TRUST_NOTE.into(),
             status if status.is_active() => {
                 "Not yet; call events_wait with the same until again.".into()
             }
             _ => "The run ended first.".into(),
         };
+        set_param(&mut fields, "note", note);
     }
     Ok(with_fields(&run, fields))
 }

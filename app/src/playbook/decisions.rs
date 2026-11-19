@@ -69,6 +69,8 @@ pub(crate) fn reopen_card(
         result: None,
         depends_on: None,
         parent: None,
+        undrop: false,
+        opened: false,
     });
     bench.report(
         asked,

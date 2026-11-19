@@ -162,8 +162,8 @@ fn omp_call(block: &Value, cwd: &Path) -> Value {
         "status": "pending",
         "rawInput": input,
     });
-    if let Some(path) = path.filter(|_| !to_device) {
-        call["locations"] = json!([{ "path": cwd.join(path) }]);
+    if let (Some(path), Some(fields)) = (path.filter(|_| !to_device), call.as_object_mut()) {
+        fields.insert("locations".to_owned(), json!([{ "path": cwd.join(path) }]));
     }
     call
 }
@@ -261,8 +261,11 @@ fn opencode_tool(block: &Value) -> Vec<Value> {
         "status": "pending",
         "rawInput": input,
     });
-    if let Some(path) = input["filePath"].as_str().or(input["path"].as_str()) {
-        call["locations"] = json!([{ "path": path }]);
+    if let (Some(path), Some(fields)) = (
+        input["filePath"].as_str().or(input["path"].as_str()),
+        call.as_object_mut(),
+    ) {
+        fields.insert("locations".to_owned(), json!([{ "path": path }]));
     }
     let (status, said, raw) = match state["status"].as_str() {
         Some("completed") => (
@@ -274,7 +277,11 @@ fn opencode_tool(block: &Value) -> Vec<Value> {
             json!({ "metadata": state["metadata"] }),
         ),
         Some("error") => {
-            let message = state["error"]["message"].as_str().unwrap_or_default();
+            let message = state
+                .get("error")
+                .and_then(|error| error.get("message"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             (
                 "failed",
                 vec![text(message)],

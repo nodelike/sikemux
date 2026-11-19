@@ -70,17 +70,23 @@ pub fn terminal_cache_env(cwd: &Path, account_root: Option<&Path>) -> Option<(St
         Some(cwd.join(".claude/settings.json")),
         account_root.map(|root| root.join("settings.json")),
     ];
-    let mut settings = json!({ "env": {} });
+    let mut settings = Map::new();
+    let mut env = Map::new();
     for found in files.into_iter().flatten().filter_map(|file| read(&file)) {
-        if settings.get("promptCacheTtl").is_none() {
+        if !settings.contains_key("promptCacheTtl") {
             if let Some(ttl) = found.get("promptCacheTtl") {
-                settings["promptCacheTtl"] = ttl.clone();
+                settings.insert("promptCacheTtl".to_owned(), ttl.clone());
             }
         }
-        if let Some(ttl) = found["env"].get("CLAUDE_CODE_PROMPT_CACHE_TTL") {
-            settings["env"]["CLAUDE_CODE_PROMPT_CACHE_TTL"] = ttl.clone();
+        if let Some(ttl) = found
+            .get("env")
+            .and_then(|env| env.get("CLAUDE_CODE_PROMPT_CACHE_TTL"))
+        {
+            env.insert("CLAUDE_CODE_PROMPT_CACHE_TTL".to_owned(), ttl.clone());
         }
     }
+    settings.insert("env".to_owned(), Value::Object(env));
+    let settings = Value::Object(settings);
     let ttl = cache_lifetimes(&settings, &BTreeMap::new(), false).remove("promptCacheTtl")?;
     Some((
         "CLAUDE_CODE_PROMPT_CACHE_TTL".to_owned(),
@@ -176,10 +182,16 @@ pub(crate) fn named_model(
             .or_else(|| text(&row, "value").map(str::to_owned));
     }
     let name = text(&row, "displayName").unwrap_or(base).to_owned();
-    row["value"] = json!(named);
-    row["displayName"] = json!(format!("{name} (1M context)"));
-    if let Some(resolved) = text(&row, "resolvedModel").map(str::to_owned) {
-        row["resolvedModel"] = json!(claude_model::long(&resolved));
+    let resolved = text(&row, "resolvedModel").map(claude_model::long);
+    if let Some(fields) = row.as_object_mut() {
+        fields.insert("value".to_owned(), json!(named));
+        fields.insert(
+            "displayName".to_owned(),
+            json!(format!("{name} (1M context)")),
+        );
+        if let Some(resolved) = resolved {
+            fields.insert("resolvedModel".to_owned(), json!(resolved));
+        }
     }
     models.push(row);
     Some(named.to_owned())

@@ -16,8 +16,8 @@ use sikemux_process::sync::Locked;
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::chat::{
-    ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, ChiefAway, GuestMessage, PlanEntry,
-    PlanStatus, QueuedMessage, SentContext, ToolDetail,
+    ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, GuestMessage, PlanEntry, PlanStatus,
+    QueuedMessage, SentContext, ToolDetail,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -94,8 +94,6 @@ pub struct Inner {
     chief: bool,
     /// The chief that hears what the person types here.
     chief_hears: Option<String>,
-    /// What happened while the person was away from this chief.
-    away: Option<ChiefAway>,
     /// What other agents need of the person.
     needs: Vec<AgentNeed>,
     /// The folder the chat's agent works in, and where its edits sit in their files,
@@ -217,10 +215,11 @@ fn line_of(path: &std::path::Path, text: &str) -> Option<u64> {
     }
     let held = std::fs::read_to_string(path).ok()?;
     let at = held.find(text)?;
-    if held[at + text.len()..].contains(text) {
+    let (before, from) = held.split_at_checked(at)?;
+    if from.get(text.len()..)?.contains(text) {
         return None;
     }
-    Some(held[..at].matches('\n').count() as u64 + 1)
+    Some(before.matches('\n').count() as u64 + 1)
 }
 
 /// Every exchange with the person, and each shell command the agent ran with whether it failed.
@@ -300,7 +299,6 @@ impl Feed {
                 turn: None,
                 chief: false,
                 chief_hears: None,
-                away: None,
                 needs: Vec::new(),
                 work: None,
                 agents: None,
@@ -395,7 +393,6 @@ impl Feed {
                 turn: None,
                 chief: false,
                 chief_hears: None,
-                away: None,
                 needs: Vec::new(),
                 work: None,
                 agents: None,
@@ -448,59 +445,60 @@ impl Feed {
 
     /// The fold, built again from the chat's events when it was let go.
     fn fold<'a>(&self, inner: &'a mut Inner) -> &'a mut Fold {
-        if inner.fold.is_none() {
-            inner.replay.reload();
-            self.account(inner);
-            let mut fold = new_fold(
-                inner.permission_mode,
-                inner.offers_effort,
-                inner.work.as_ref(),
-                inner.agents.as_ref(),
-            );
-            if let Some(start) = &inner.start {
-                fold.apply(
-                    inner.replay.next_index,
-                    ChatEventKind::Ready,
-                    &json!(start),
-                    0,
+        match inner.fold {
+            Some(ref mut fold) => fold,
+            None => {
+                inner.replay.reload();
+                self.account(inner);
+                let mut fold = new_fold(
+                    inner.permission_mode,
+                    inner.offers_effort,
+                    inner.work.as_ref(),
+                    inner.agents.as_ref(),
                 );
+                if let Some(start) = &inner.start {
+                    fold.apply(
+                        inner.replay.next_index,
+                        ChatEventKind::Ready,
+                        &json!(start),
+                        0,
+                    );
+                }
+                fold.answering(inner.replay.held_ask());
+                for (index, seq, event) in inner.replay.fold_events() {
+                    let at = event
+                        .payload
+                        .get("at")
+                        .and_then(Value::as_u64)
+                        .unwrap_or_default();
+                    fold.number(seq);
+                    fold.apply(index, event.kind, &event.payload, at);
+                }
+                // The events kept may no longer reach back to where a long turn started.
+                fold.set_running(inner.replay.in_turn);
+                fold.set_queued(queued_view(&inner.queued));
+                fold.set_guests(inner.guests.clone());
+                fold.set_triggers(inner.triggers.clone());
+                fold.set_goal(inner.goal.clone());
+                fold.set_handoff(inner.handoff.clone());
+                fold.set_expired_cache(inner.expired_cache.clone());
+                fold.set_turn(inner.turn.clone());
+                fold.set_chief(inner.chief);
+                fold.set_chief_hears(inner.chief_hears.clone());
+                let (shown, results) = self.stand.locked().shown.clone();
+                fold.set_shown(shown, results);
+                fold.set_needs(inner.needs.clone());
+                if inner.replay.is_trimmed() && !inner.replay.keeps_history() {
+                    fold.set_earlier_lost();
+                }
+                fold.rebuilt();
+                if inner.replay.unsent {
+                    inner.replay.delivered();
+                }
+                fold.number(inner.replay.seq + 1);
+                inner.fold.insert(fold)
             }
-            fold.answering(inner.replay.held_ask());
-            for (index, seq, event) in inner.replay.fold_events() {
-                let at = event
-                    .payload
-                    .get("at")
-                    .and_then(Value::as_u64)
-                    .unwrap_or_default();
-                fold.number(seq);
-                fold.apply(index, event.kind, &event.payload, at);
-            }
-            // The events kept may no longer reach back to where a long turn started.
-            fold.set_running(inner.replay.in_turn);
-            fold.set_queued(queued_view(&inner.queued));
-            fold.set_guests(inner.guests.clone());
-            fold.set_triggers(inner.triggers.clone());
-            fold.set_goal(inner.goal.clone());
-            fold.set_handoff(inner.handoff.clone());
-            fold.set_expired_cache(inner.expired_cache.clone());
-            fold.set_turn(inner.turn.clone());
-            fold.set_chief(inner.chief);
-            fold.set_chief_hears(inner.chief_hears.clone());
-            fold.set_away(inner.away.clone());
-            let (shown, results) = self.stand.locked().shown.clone();
-            fold.set_shown(shown, results);
-            fold.set_needs(inner.needs.clone());
-            if inner.replay.is_trimmed() && !inner.replay.keeps_history() {
-                fold.set_earlier_lost();
-            }
-            fold.rebuilt();
-            if inner.replay.unsent {
-                inner.replay.delivered();
-            }
-            fold.number(inner.replay.seq + 1);
-            inner.fold = Some(fold);
         }
-        inner.fold.as_mut().expect("just built")
     }
 
     /// Writes the newest event to the history once it has had a while to
@@ -614,32 +612,35 @@ impl Feed {
         whose: super::Whose,
         ask: Option<u64>,
     ) {
-        let mut payload = json!({ "text": text, "paths": paths });
+        let mut payload = serde_json::Map::new();
+        payload.insert("text".to_owned(), json!(text));
+        payload.insert("paths".to_owned(), json!(paths));
         if whose.person {
-            payload["person"] = json!(true);
+            payload.insert("person".to_owned(), json!(true));
         }
         if let Some(ask) = ask {
-            payload["ask"] = json!(ask);
+            payload.insert("ask".to_owned(), json!(ask));
         }
         if let Some(message_id) = message_id {
-            payload["messageId"] = json!(message_id);
+            payload.insert("messageId".to_owned(), json!(message_id));
         }
         let (for_agent, shown): (Vec<_>, Vec<_>) =
             context.iter().partition(|item| item.for_agent_only());
         if !shown.is_empty() {
-            payload["context"] = json!(shown
+            let shown = shown
                 .iter()
                 .map(|item| {
                     let sent = SentContext::new(item.uri.clone(), item.title.clone())
                         .with_text(&item.text);
                     json!({ "uri": item.uri, "title": item.title, "quote": sent.quote })
                 })
-                .collect::<Vec<_>>());
+                .collect();
+            payload.insert("context".to_owned(), Value::Array(shown));
         }
         if !for_agent.is_empty() {
-            payload["forAgent"] = json!(for_agent);
+            payload.insert("forAgent".to_owned(), json!(for_agent));
         }
-        self.emit(ChatEventKind::Prompt, payload);
+        self.emit(ChatEventKind::Prompt, Value::Object(payload));
     }
 
     /// What the person's message `message_id` told the agent alone, which an edit tells it again.
@@ -771,19 +772,6 @@ impl Feed {
         inner.chief_hears.clone_from(&chief);
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_chief_hears(chief);
-            self.flush_locked(&mut inner);
-        }
-    }
-
-    /// What happened while the person was away from this chief, or none once it is done with.
-    pub fn set_away(&self, away: Option<ChiefAway>) {
-        let mut inner = self.inner.locked();
-        if inner.away == away {
-            return;
-        }
-        inner.away.clone_from(&away);
-        if let Some(fold) = inner.fold.as_mut() {
-            fold.set_away(away);
             self.flush_locked(&mut inner);
         }
     }
@@ -1239,6 +1227,10 @@ impl Feed {
 
     pub fn running_tasks(&self) -> u32 {
         self.inner.locked().replay.work.running_tasks() as u32
+    }
+
+    pub fn running_task(&self) -> Option<String> {
+        self.inner.locked().replay.work.running_task()
     }
 
     /// The agent's process went away, and every subagent and background task

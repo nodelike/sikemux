@@ -257,7 +257,9 @@ impl Voice {
         if !running {
             *slot = Some(self.spawn()?);
         }
-        let helper = slot.as_mut().expect("helper was just started");
+        let Some(helper) = slot.as_mut() else {
+            return Err("the voice helper did not start".to_owned());
+        };
         let mut line = serde_json::to_string(&command).map_err(|error| error.to_string())?;
         line.push('\n');
         helper
@@ -280,8 +282,9 @@ impl Voice {
             .stderr(Stdio::inherit())
             .spawn()
             .map_err(|error| format!("could not start the voice helper: {error}"))?;
-        let stdin = child.stdin.take().expect("stdin is piped");
-        let stdout = child.stdout.take().expect("stdout is piped");
+        let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+            return Err("the voice helper started without its pipes".to_owned());
+        };
         let events = self.events.clone();
         let stopped_on_purpose = Arc::new(AtomicBool::new(false));
         let stopped = Arc::clone(&stopped_on_purpose);

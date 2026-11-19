@@ -1,0 +1,9 @@
+# Settings → Account signed in on a local accounts API: an org you run, one you're in, one lapsed.
+stage 1440 900
+window 1440 900
+signed-in
+project storefront shop
+settle 4
+settings Account
+settle 3
+snap account-orgs

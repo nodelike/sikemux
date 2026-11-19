@@ -32,7 +32,7 @@ use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS, TEXT_3XS, TEXT_XS,
+    Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS, TEXT_3XS, TEXT_XS,
 };
 use crate::toast;
 use crate::ui::{self, IconButton, Tab};
@@ -47,6 +47,23 @@ fn tabs_top() -> f32 {
 /// ends where the tabs do, so the gap under it is the panes' own gap.
 pub fn bar_height() -> f32 {
     tabs_top() + crate::ui::tab_height()
+}
+
+/// The room every chip in the bar leaves between its edge and what it draws, boxed or not, so
+/// the bar's one gap spaces them all alike.
+pub(crate) const CHIP_INSET: f32 = 6.;
+
+const CHIP_GLYPH: f32 = 15.;
+
+/// A bar button that is only a glyph, as wide as the glyph and the chips' inset.
+pub(crate) fn glyph_chip(
+    id: &'static str,
+    glyph: Icon,
+    label: impl Into<SharedString>,
+) -> IconButton {
+    IconButton::new(id, glyph, label)
+        .glyph(CHIP_GLYPH)
+        .width(CHIP_GLYPH + 2. * CHIP_INSET)
 }
 
 /// How tall macOS draws its window buttons.
@@ -171,7 +188,7 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap(SPACE_3)
+                .gap(SPACE_1)
                 .ml(SPACE_4)
                 .pr(SPACE_2H)
                 .children(crate::tasks::cards(bench, cx))
@@ -186,9 +203,9 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
                 .children(crate::agents::limits::chip(bench, cx))
                 .children(battery_chip(bench, cx))
                 .child(clock(cx))
-                .child(crate::hosts::bar::devices(cx))
+                .child(crate::hosts::bar::devices(bench, cx))
                 .child(
-                    IconButton::new(
+                    glyph_chip(
                         "focus",
                         Icon::Focus,
                         match crate::keymap::hint(actions::FocusMode::ID, cx) {
@@ -196,7 +213,6 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
                             None => t!("Focus mode — hide rails").to_owned(),
                         },
                     )
-                    .width(30.)
                     .pressed(!bench.rails.side_open && !bench.rails.tab_open)
                     .on_click(|_, window, cx| {
                         crate::keymap::dispatch(actions::FocusMode::ID, window, cx)
@@ -359,7 +375,7 @@ fn git_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
             .id("git-chip")
             .h(px(24.))
             .max_w(px(200.))
-            .px(SPACE_1)
+            .px(px(CHIP_INSET))
             .flex()
             .items_center()
             .gap(SPACE_1H)
@@ -802,8 +818,12 @@ impl TabMenu {
         let strip = self.strip.clone();
         let at = self.files.iter().position(|(id, _)| *id == self.tab);
         let ids = |files: &[(String, bool)]| files.iter().map(|(id, _)| id.clone()).collect();
-        let left: Vec<String> = at.map_or(Vec::new(), |at| ids(&self.files[..at]));
-        let right: Vec<String> = at.map_or(Vec::new(), |at| ids(&self.files[at + 1..]));
+        let left: Vec<String> = at.map_or(Vec::new(), |at| {
+            ids(self.files.get(..at).unwrap_or_default())
+        });
+        let right: Vec<String> = at.map_or(Vec::new(), |at| {
+            ids(self.files.get(at + 1..).unwrap_or_default())
+        });
         let others: Vec<String> = ids(&self.files)
             .into_iter()
             .filter(|id: &String| *id != self.tab)
@@ -922,6 +942,7 @@ fn clock(cx: &App) -> impl IntoElement {
     div()
         .flex()
         .items_baseline()
+        .px(px(CHIP_INSET))
         .font_features(crate::theme::tabular())
         .child(
             ui::text(
@@ -978,7 +999,9 @@ impl Workbench {
             return;
         };
         let to = (at as isize + by).rem_euclid(tabs.len() as isize) as usize;
-        self.activate_tab(&strip, &tabs[to].id);
+        if let Some(tab) = tabs.get(to) {
+            self.activate_tab(&strip, &tab.id);
+        }
     }
 
     /// Brings forward the tab at `place` in the strip, counting from one, or the last tab.
@@ -1082,13 +1105,12 @@ impl Workbench {
                 .iter()
                 .find_map(|id| tabs.iter().find(|tab| &tab.id == id).filter(open))
         };
-        match active {
-            Some(at) if open(&&tabs[at]) => Some(&tabs[at]),
-            Some(at) => latest().or_else(|| {
-                tabs[at..]
-                    .iter()
+        match active.and_then(|at| Some((at, tabs.get(at)?))) {
+            Some((_, tab)) if open(&tab) => Some(tab),
+            Some((at, _)) => latest().or_else(|| {
+                (tabs.iter().skip(at))
                     .find(open)
-                    .or_else(|| tabs[..at].iter().rev().find(open))
+                    .or_else(|| tabs.iter().take(at).rev().find(open))
             }),
             None => tabs.iter().find(open),
         }

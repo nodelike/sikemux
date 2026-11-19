@@ -249,7 +249,7 @@ pub async fn find(
                         .await?
                         .into_iter()
                         .find(|found| is_named(found, name))
-                        .map(|found| found["id"].clone())
+                        .map(|found| found.get("id").cloned().unwrap_or_default())
                         .ok_or_else(|| format!("{} has no workflow called {name}", repo.slug()))?,
                 ),
                 None => None,
@@ -368,7 +368,7 @@ fn sha_and_url(run: &Value) -> (String, String) {
 /// Whether every part was read, so the answer can be kept.
 async fn read_run(repo: &Repo, id: &Value, job: Option<Value>) -> Result<(Failing, bool), String> {
     let detail = timed(ASK_BUDGET, codehost::run(repo, id)).await?;
-    let run = &detail["run"];
+    let run = detail.get("run").unwrap_or(&Value::Null);
     match conclusion(run) {
         None => return Err("that run has not finished; trigger_add with ci set to its address prompts you once it has, so end your turn rather than polling".into()),
         Some(found) if Conclusion::of(found) != Conclusion::Failed => {
@@ -378,12 +378,15 @@ async fn read_run(repo: &Repo, id: &Value, job: Option<Value>) -> Result<(Failin
         }
         Some(_) => {}
     }
+    if codehost::jobs_conclusion(&detail) == Conclusion::Stopped {
+        return Err("that run's jobs were only cancelled, as when a newer push supersedes it or no runner took a job; no commit broke it".into());
+    }
     let sha = text(run, "sha").to_owned();
     if sha.is_empty() {
         return Err("the code host did not say which commit that run built".into());
     }
-    let failed_jobs: Vec<&Value> = detail["jobs"]
-        .as_array()
+    let failed_jobs: Vec<&Value> = (detail.get("jobs"))
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter(|found| ended(found) == Some(Conclusion::Failed))
@@ -392,7 +395,7 @@ async fn read_run(repo: &Repo, id: &Value, job: Option<Value>) -> Result<(Failin
         .iter()
         .find(|found| job.as_ref().is_some_and(|job| found["id"] == *job))
         .or(failed_jobs.first())
-        .map(|found| found["id"].clone());
+        .map(|found| found.get("id").cloned().unwrap_or_default());
     let reads_log = read.is_some();
     let history = async {
         let branch = run["branch"].as_str()?;
@@ -509,7 +512,7 @@ pub fn commits(top: &Path, ci: &Ci) -> Result<Found, String> {
     if !is_commit(top, &failing.sha) {
         return Err(format!(
             "the failing commit {} is not in this checkout; fetch it first",
-            &failing.sha[..failing.sha.len().min(12)]
+            failing.sha.get(..12).unwrap_or(&failing.sha)
         ));
     }
     let passed = failing
@@ -533,7 +536,7 @@ pub fn commits(top: &Path, ci: &Ci) -> Result<Found, String> {
         Some((sha, url)) => {
             found.notes.push(format!(
                 "It first failed at {} ({url}), so only the commits up to there can have broken it.",
-                &sha[..sha.len().min(7)]
+                sha.get(..7).unwrap_or(sha)
             ));
             sha.as_str()
         }
@@ -638,7 +641,7 @@ impl Ci {
         let failing = &self.failing;
         answer["run"] = failing.run.clone();
         answer["lastPassed"] = match &failing.passed {
-            Some((sha, url)) => json!({ "commit": &sha[..sha.len().min(7)], "url": url }),
+            Some((sha, url)) => json!({ "commit": sha.get(..7).unwrap_or(sha), "url": url }),
             None => Value::Null,
         };
         answer["error"] = failing.error.clone().into();

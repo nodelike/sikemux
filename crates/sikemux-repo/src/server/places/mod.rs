@@ -421,6 +421,7 @@ fn by_tap() -> Learned {
         turn: None,
         at: epoch_ms(),
         with: None,
+        person: None,
     }
 }
 

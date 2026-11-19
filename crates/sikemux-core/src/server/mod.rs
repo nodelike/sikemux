@@ -63,6 +63,7 @@ mod goals;
 mod handover;
 pub mod harness;
 mod hooks;
+mod teammate_asks;
 pub use sikemux_remote::server::host;
 pub mod host_stats;
 pub mod hosts;
@@ -132,9 +133,11 @@ pub use sikemux_serve::server::session;
 pub use sikemux_workspace::server::saved_sessions;
 pub use sikemux_workspace::server::search;
 pub(crate) use sikemux_workspace::server::seen;
+pub(crate) mod peer;
 mod session_watch;
 pub mod settling;
 pub mod setup_check;
+pub(crate) mod shares;
 pub use sikemux_remote::server::share;
 pub use sikemux_repo::server::ship;
 pub use sikemux_repo::server::skill_library;
@@ -145,6 +148,7 @@ pub mod ssh;
 mod stalls;
 pub mod stash;
 pub mod streams;
+mod task_list;
 pub mod tasks;
 mod team_told;
 pub mod themes;
@@ -555,6 +559,7 @@ impl ServerCore for Core {
                     chiefs: chief::Chiefs::new(data_dir),
                     now: now::Now::new(data_dir),
                     finishing: finished::Finishing::default(),
+                    peer: peer::Peer::new(data_dir),
                 }) as sikemux_kernel::Parts,
             ]
         });

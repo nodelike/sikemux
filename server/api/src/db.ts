@@ -18,6 +18,8 @@ import type {
   DeviceRole,
   HookHeader,
   HookMethod,
+  OrgDomainJoining,
+  OrgRuleAdding,
   OrgRole,
   Platform,
   PushApp,
@@ -36,6 +38,9 @@ import type { UpdateChannel, UpdatePlatform } from "./updates/update.ts";
 
 type CreatedAt = ColumnType<Date, never, never>;
 
+export type FoldWhy =
+  "invite" | "share" | "browser" | "domain" | "address" | "seat";
+
 /** The tables the API reads and writes. Each one arrives with the migration that creates it. */
 export interface Tables {
   users: {
@@ -51,6 +56,30 @@ export interface Tables {
     events_pruned_through: ColumnType<string, never, string | number>;
     stash_seen_at: ColumnType<Date | null, never, Date>;
     staff: ColumnType<boolean, never, boolean>;
+    admitted_at: ColumnType<Date | null, Date | undefined, Date>;
+    new_kept_at: ColumnType<Date | null, never, Date>;
+  };
+  address_proofs: {
+    id: Generated<string>;
+    address_hash: Buffer;
+    user_id: string;
+    domain: string;
+    org_id: string | null;
+    via: "fold" | "google";
+    proven_at: ColumnType<Date, never, never>;
+  };
+  account_folds: {
+    id: Generated<string>;
+    from_user: ColumnType<string | null, string | undefined, string>;
+    into_user: ColumnType<string | null, string | undefined, string>;
+    secret_hash: Buffer;
+    why: FoldWhy;
+    org_id: string | null;
+    address_hash: ColumnType<Buffer | null, Buffer | undefined, Buffer>;
+    domain: ColumnType<string | null, string | undefined, string>;
+    created_at: CreatedAt;
+    expires_at: Date;
+    done_at: ColumnType<Date | null, never, Date>;
   };
   events: {
     id: Generated<string>;
@@ -60,6 +89,27 @@ export interface Tables {
     subject_role: DeviceRole | null;
     reason: RevokeReason | null;
     at: CreatedAt;
+  };
+  work_address_sittings: {
+    id: Generated<string>;
+    user_id: string;
+    state_hash: Buffer;
+    nonce: string;
+    verifier: string;
+    address_hash: Buffer | null;
+    created_at: CreatedAt;
+    proven_at: Date | null;
+    joined_at: Date | null;
+  };
+  sign_in_removals: {
+    id: Generated<string>;
+    user_id: string;
+    address_id: string;
+    domain: string;
+    org_name: string | null;
+    provider: string | null;
+    removed_at: CreatedAt;
+    told_at: Date | null;
   };
   removed_devices: {
     key: string;
@@ -244,6 +294,40 @@ export interface Tables {
     updated_at: ColumnType<Date, never, Date>;
     created_at: CreatedAt;
   };
+  org_vaults: {
+    org_id: string;
+    generation: ColumnType<number, never, number>;
+    created_by: string;
+    created_at: CreatedAt;
+    rotated_at: ColumnType<Date | null, never, Date>;
+    changes: ColumnType<string, never, never>;
+  };
+  org_vault_keys: {
+    org_id: string;
+    host_key: string;
+    generation: number;
+    wrapped: string;
+    wrapped_by: string;
+    created_at: ColumnType<Date, never, Date>;
+  };
+  org_vault_entries: {
+    id: string;
+    org_id: string;
+    kind: string;
+    generation: number;
+    sealed: string;
+    revision: number;
+    updated_by: string;
+    updated_at: ColumnType<Date, never, Date>;
+    created_at: CreatedAt;
+    change: ColumnType<string, never, never>;
+  };
+  org_vault_ended: {
+    org_id: string;
+    id: string;
+    revision: number;
+    change: ColumnType<string, never, never>;
+  };
   vault_uses: {
     id: Generated<string>;
     user_id: string;
@@ -295,6 +379,9 @@ export interface Tables {
     name: string;
     created_by: string;
     created_at: CreatedAt;
+    rule_adding: Generated<OrgRuleAdding>;
+    asking: Generated<boolean>;
+    daily_questions: Generated<number>;
   };
   org_users: {
     id: Generated<string>;
@@ -303,6 +390,13 @@ export interface Tables {
     role: OrgRole;
     invited_by: string | null;
     joined_at: CreatedAt;
+  };
+  org_shares: {
+    member_id: string;
+    project: string;
+    host: string;
+    created_at: CreatedAt;
+    updated_at: ColumnType<Date, never, Date>;
   };
   org_invites: {
     id: Generated<string>;
@@ -315,6 +409,28 @@ export interface Tables {
     accepted_by: ColumnType<string | null, never, string>;
     accepted_at: ColumnType<Date | null, never, Date>;
     revoked_at: ColumnType<Date | null, never, Date>;
+  };
+  org_teams: {
+    id: Generated<string>;
+    org_id: string;
+    name: string;
+    created_at: CreatedAt;
+  };
+  org_team_members: {
+    team_id: string;
+    member_id: string;
+    added_at: CreatedAt;
+  };
+  org_domains: {
+    id: Generated<string>;
+    org_id: string;
+    domain: string;
+    token: string;
+    joining: OrgDomainJoining;
+    added_by: string;
+    created_at: CreatedAt;
+    verified_at: Date | null;
+    ours_since: Date | null;
   };
   billing_customers: {
     id: Generated<string>;
@@ -349,7 +465,7 @@ export interface Tables {
     product: BillingProductId;
     interval: BillingInterval;
     quantity: number;
-    status: SubscriptionStatus;
+    status: SubscriptionStatus | "paused";
     current_period_end: Date;
     cancel_at_period_end: boolean;
     started_at: Date;
@@ -360,6 +476,10 @@ export interface Tables {
     provider_updated_at: Date;
     seats_cut_to: Generated<number | null>;
     seats_cut_at: Generated<Date | null>;
+    paused_for_seat_at: Generated<Date | null>;
+    /** An interval, only ever reckoned with in SQL. */
+    paid_left: Generated<string | null>;
+    resumes_at: Generated<Date | null>;
   };
   invoices: {
     id: Generated<string>;
@@ -374,6 +494,13 @@ export interface Tables {
     at: Date;
     refund_requested_at: Date | null;
     refunded_at: Date | null;
+    kept_refund: ColumnType<
+      string | null,
+      number | null | undefined,
+      number | null
+    >;
+    kept_refunded_at: Generated<Date | null>;
+    kept_refund_refused_at: Generated<Date | null>;
   };
   billing_events: {
     provider: string;
@@ -401,13 +528,16 @@ export interface Tables {
   billing_calls: {
     id: Generated<string>;
     provider: string;
-    action: "cancel_now" | "cancel_at_period_end" | "refund";
+    action:
+      "cancel_now" | "cancel_at_period_end" | "refund" | "settle_seat_pause";
     subscription: ColumnType<
       Record<string, unknown> | null,
       string | null,
       never
     >;
     provider_payment_id: string | null;
+    user_id: string | null;
+    refund_amount: ColumnType<string | null, number | null, never>;
     attempts: ColumnType<number, never, number>;
     retry_at: ColumnType<Date, never, Date>;
     created_at: CreatedAt;

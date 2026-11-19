@@ -255,7 +255,7 @@ pub fn os_version() -> Option<String> {
     if status != 0 {
         return None;
     }
-    std::ffi::CStr::from_bytes_until_nul(&buffer[..length.min(buffer.len())])
+    std::ffi::CStr::from_bytes_until_nul(buffer.get(..length).unwrap_or(&buffer))
         .ok()?
         .to_str()
         .ok()

@@ -340,7 +340,9 @@ pub fn settle(core: &Arc<Core>) {
             let was = record.goal.clone();
             match (&was, now) {
                 (Some(was), Some(now)) if was.card == now.card => {
-                    let held = record.goal.as_mut().expect("just read");
+                    let Some(held) = record.goal.as_mut() else {
+                        continue;
+                    };
                     changed |= was.name != now.name;
                     held.name.clone_from(&now.name);
                     let done_now = steps_done(now);

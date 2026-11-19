@@ -51,7 +51,7 @@ impl ItemParams {
     pub fn turn_id(&self) -> Option<&str> {
         self.turn_id
             .as_deref()
-            .or_else(|| self.item["turnId"].as_str())
+            .or_else(|| self.item.get("turnId").and_then(Value::as_str))
     }
 }
 

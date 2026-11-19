@@ -13,8 +13,8 @@ use super::super::Core;
 use super::link::{Answer, Kind, Received, Refusal};
 use super::receipts::Stands;
 use super::{
-    answered, chat_move, chief_copy, code, copies, introduction, machine, not_linked, open, record,
-    rehome, reopen, route, spawn, transfer,
+    answered, chat_move, chief_copy, code, copies, introduction, machine, not_linked, open, peers,
+    record, rehome, reopen, route, search, spawn, transfer,
 };
 
 /// One ask between hosts: what it is called and what it carries, shared by the host asking
@@ -67,6 +67,9 @@ host_asks! {
     ChiefCopy "chiefCopy" chief_copy::ChiefCopy;
     RecordCopy "recordCopy" record::RecordCopy;
     RecordAct "recordAct" record::RecordAct;
+    SearchChats "searchChats" search::SearchParams;
+    RecordTakeIn "recordTakeIn" record::TakeIn;
+    Agent "agent" peers::LinkedAgentParams;
 }
 
 /// Asks what became of the call `call`.
@@ -144,6 +147,9 @@ async fn work(
     if method == LeadMoved::METHOD {
         return rehome::lead_moved_here(core, host, read::<LeadMoved>(params)?);
     }
+    if method == RecordTakeIn::METHOD {
+        return record::taken_in(core, read::<RecordTakeIn>(params)?);
+    }
     dispatch(core, host, method, params, body)
         .await
         .map_err(Refusal::from)
@@ -159,7 +165,9 @@ async fn dispatch(
     match method {
         "join" => {
             let mut reply = introduction(core);
-            reply["result"] = "allowed".into();
+            if let Some(fields) = reply.as_object_mut() {
+                fields.insert("result".into(), "allowed".into());
+            }
             Ok(reply)
         }
         "unlink" => {
@@ -176,7 +184,7 @@ async fn dispatch(
         Hire::METHOD => answered(route::hire_here(core, host, read::<Hire>(params)?)),
         Forget::METHOD => answered(route::forget_here(core, host, read::<Forget>(params)?)),
         "deliver" => route::deliver_here(core, host, params).await,
-        Read::METHOD => route::read_here(core, host, read::<Read>(params)?).await,
+        Read::METHOD => route::read_here(core, read::<Read>(params)?).await,
         Close::METHOD => answered(route::close_here(core, host, read::<Close>(params)?)),
         Permit::METHOD => answered(route::permit_here(core, host, read::<Permit>(params)?)),
         Act::METHOD => answered(route::act_here(core, read::<Act>(params)?).await),
@@ -201,6 +209,8 @@ async fn dispatch(
         RecordCopy::METHOD => record::heard(core, host, read::<RecordCopy>(params)?),
         RecordAct::METHOD => record::act_here(core, read::<RecordAct>(params)?).await,
         TakeChat::METHOD => chat_move::take_here(core, read::<TakeChat>(params)?).await,
+        SearchChats::METHOD => search::here(core, read::<SearchChats>(params)?).await,
+        Agent::METHOD => peers::here(core, read::<Agent>(params)?),
         _ => Err(format!("this host does not know {method}")),
     }
 }

@@ -4,9 +4,9 @@
 use std::ops::Range;
 
 use gpui::{
-    App, BorderStyle, Bounds, Corners, Edges, Element, ElementId, GlobalElementId, HighlightStyle,
-    Hitbox, HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels,
-    SharedString, StyledText, Window,
+    App, BorderStyle, Bounds, ClickEvent, Corners, Edges, Element, ElementId, GlobalElementId,
+    HighlightStyle, Hitbox, HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId,
+    PaintQuad, Pixels, SharedString, StyledText, Window,
 };
 use gpui_kit::base::{
     TextSelection, TextSelectionHandle, TextSelectionRegistration, TextSelectionRun,
@@ -26,6 +26,17 @@ pub fn selectable(
         styled: StyledText::new(text.clone()).with_highlights(runs),
         text,
     }
+}
+
+/// `text` in one colour, selectable as one piece under `id`.
+pub fn plain(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Selectable {
+    selectable(id, text, std::iter::empty())
+}
+
+/// Whether `click` ended a drag that selected text, so a row holding the text is not also
+/// pressed by it.
+pub fn selected_by(click: &ClickEvent, window: &mut Window, cx: &mut App) -> bool {
+    matches!(click, ClickEvent::Mouse(_)) && !TextSelection::selected_text(window, cx).is_empty()
 }
 
 pub struct Selectable {
@@ -61,6 +72,7 @@ impl Element for Selectable {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, TextSelectionHandle) {
+        #[expect(clippy::expect_used, reason = "the element always names its own id")]
         let handle = window.with_element_state(
             global_id.expect("selectable text has an id"),
             |kept: Option<TextSelectionHandle>, _| {

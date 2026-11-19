@@ -262,12 +262,12 @@ pub(super) async fn ended(core: &Arc<Core>, watch: &CiWatch) -> Result<Ci, Strin
 
 async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Ci, String> {
     let detail = codehost::run(repo, id).await?;
-    let run = &detail["run"];
-    if run["status"] != "completed" {
+    let run = |key: &str| detail.get("run").and_then(|run| run.get(key)?.as_str());
+    if run("status") != Some("completed") {
         return Ok(Ci::Going { running: true });
     }
-    let conclusion = run["conclusion"].as_str().unwrap_or("ended");
-    let url = run["url"].as_str().unwrap_or_default();
+    let conclusion = run("conclusion").unwrap_or("ended");
+    let url = run("url").unwrap_or_default();
     let how = match Conclusion::of(conclusion) {
         Conclusion::Passed => CiEnded::Passed,
         Conclusion::Failed => match codehost::jobs_conclusion(&detail) {
@@ -283,14 +283,16 @@ async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Ci, String> {
     };
     let mut said = format!("CI run {} ended {ended}. {url}", id_text(id));
     if how == CiEnded::Failed {
-        let failed: Vec<&str> = detail["jobs"]
-            .as_array()
+        let failed: Vec<&str> = (detail.get("jobs").and_then(Value::as_array))
             .into_iter()
             .flatten()
             .filter(|job| {
-                job["conclusion"].as_str().map(Conclusion::of) == Some(Conclusion::Failed)
+                job.get("conclusion")
+                    .and_then(Value::as_str)
+                    .map(Conclusion::of)
+                    == Some(Conclusion::Failed)
             })
-            .filter_map(|job| job["name"].as_str())
+            .filter_map(|job| job.get("name")?.as_str())
             .collect();
         if !failed.is_empty() {
             said.push_str(&format!("\nFailed: {}", failed.join(", ")));
@@ -442,10 +444,12 @@ fn watched(core: &Core, id: u64, change: impl FnOnce(&mut CiWatch)) {
 
 const AFTER_PUSH: &str = "Sikemux watches CI after each push, so this needs no trigger_add.";
 
-/// Tells each agent whose push the watch was for how its CI ended. A failure wakes it, or its
-/// lead once it has closed; any other end is only a notice it reads if it is at work.
+/// Tells each agent whose push the watch was for how its CI ended. A failure wakes it, or once
+/// it has closed its lead, which hears of the run once for all its closed pushers; any other end
+/// is only a notice it reads if it is at work.
 async fn tell_pushers(core: &Arc<Core>, watch: &CiWatch, said: String, how: CiEnded) {
     let run = watch.run();
+    let mut closed_by_hearer: Vec<(String, Vec<String>)> = Vec::new();
     for agent in &watch.pushed_by {
         if watches_itself(core, agent, &run) {
             continue;
@@ -466,7 +470,10 @@ async fn tell_pushers(core: &Arc<Core>, watch: &CiWatch, said: String, how: CiEn
             }
             (CiEnded::Failed, false) => {
                 if let Some(to) = crate::server::roster::hears_of(core, agent).agent() {
-                    messages::report_ci(core, agent.clone(), to.to_owned(), said.clone());
+                    match closed_by_hearer.iter_mut().find(|(hearer, _)| hearer == to) {
+                        Some((_, closed)) => closed.push(agent.clone()),
+                        None => closed_by_hearer.push((to.to_owned(), vec![agent.clone()])),
+                    }
                 }
                 Ok(())
             }
@@ -480,6 +487,9 @@ async fn tell_pushers(core: &Arc<Core>, watch: &CiWatch, said: String, how: CiEn
         if let Err(error) = told {
             eprintln!("sikemux core: CI after a push did not reach {agent}: {error}");
         }
+    }
+    for (to, closed) in closed_by_hearer {
+        messages::report_ci(core, closed, to, said.clone());
     }
 }
 

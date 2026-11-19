@@ -44,11 +44,16 @@ impl Places {
                 self.places.len() - 1
             }
         };
-        let place = &mut self.places[ahead];
-        place.seen = now;
+        let joined = match self.places.get_mut(ahead) {
+            Some(place) => {
+                place.seen = now;
+                place.joined
+            }
+            None => now,
+        };
         Taken {
             ahead,
-            joined: place.joined,
+            joined,
             moved: self.places.len() != before,
         }
     }

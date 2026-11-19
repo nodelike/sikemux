@@ -176,7 +176,7 @@ pub(super) fn read(
 ) -> Result<(GoalSummary, Option<String>), String> {
     let json = (said.find('{').zip(said.rfind('}')))
         .filter(|(start, end)| start < end)
-        .map(|(start, end)| &said[start..=end])
+        .and_then(|(start, end)| said.get(start..=end))
         .ok_or_else(|| {
             format!(
                 "The model answered: {}",
@@ -207,7 +207,9 @@ pub(super) fn read(
         return Err("None of the model's sentences named a moment that exists".into());
     }
     for gap in &gathered.gaps {
-        let source = &moments[gap.moment].source;
+        let Some(source) = moments.get(gap.moment).map(|moment| &moment.source) else {
+            continue;
+        };
         if !(happened.iter()).any(|line| line.sources.contains(source)) {
             happened.push(SummaryLine {
                 text: gap.sentence.clone(),

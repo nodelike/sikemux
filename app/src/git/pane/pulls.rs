@@ -154,7 +154,7 @@ pub(super) fn pulls_page(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl 
         (true, true, true) => Some(t!("No open pull requests.")),
         _ => None,
     };
-    let query = pane.filters[super::Page::Pulls as usize].query.clone();
+    let query = pane.filters[super::Page::Pulls].query.clone();
     let rows: Vec<AnyElement> = (pane.pulls.listed.iter().enumerate())
         .filter(|(_, listed)| query.is_empty() || listed.pull.title.to_lowercase().contains(&query))
         .map(|(index, listed)| pull_row(&view, pane, listed, index, cx))

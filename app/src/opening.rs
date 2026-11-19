@@ -178,14 +178,13 @@ impl Workbench {
             agent = said("agent"),
             theme = said("theme")
         );
-        let undo = &params["undo"];
+        let undone = |path: &str| params.pointer(path).cloned().unwrap_or_default();
         let before: Vec<PreferenceChange> = [
-            serde_json::from_value(undo["theme"].clone()).map(PreferenceChange::ThemeId),
-            serde_json::from_value(undo["adjust"]["scrollbars"].clone())
+            serde_json::from_value(undone("/undo/theme")).map(PreferenceChange::ThemeId),
+            serde_json::from_value(undone("/undo/adjust/scrollbars"))
                 .map(PreferenceChange::Scrollbars),
-            serde_json::from_value(undo["adjust"]["contrast"].clone())
-                .map(PreferenceChange::Contrast),
-            serde_json::from_value(undo["adjust"]["motion"].clone()).map(PreferenceChange::Motion),
+            serde_json::from_value(undone("/undo/adjust/contrast")).map(PreferenceChange::Contrast),
+            serde_json::from_value(undone("/undo/adjust/motion")).map(PreferenceChange::Motion),
         ]
         .into_iter()
         .flatten()
@@ -520,23 +519,22 @@ impl Workbench {
         let Some(agent) = request.agent_id else {
             return answer(Ok(json!({})));
         };
-        let id = request.params["id"].as_str().unwrap_or_default().to_owned();
+        let id = (request.params.get("id").and_then(Value::as_str))
+            .unwrap_or_default()
+            .to_owned();
         if !sikemux_base::pages::is_page_id(&id) {
             return answer(Err("that is not a page the core keeps".into()));
         }
         let page =
             Target::here(&self.asks).request_typed::<call::ReadPage>(PageParams { id: id.clone() });
-        let picture = request.params["picture"] == true;
+        let picture = request.params.get("picture") == Some(&Value::Bool(true));
         let files = self.desks.read(cx).page_files.clone();
         crate::desk::spawn(async move {
             let shown = async {
                 let page = page.await?;
                 let url = files.kept_url(&id, &page)?;
                 let engine = files.engine()?;
-                engine
-                    .open_tab(&agent, Some(&url))
-                    .await
-                    .map_err(|error| error.to_string())?;
+                crate::desk::show_once(&engine, &agent, &url, picture).await?;
                 if !picture {
                     return Ok(json!({}));
                 }
@@ -591,7 +589,12 @@ impl Workbench {
             .id
             .strip_prefix(&format!("{}:", recent.provider))
             .unwrap_or(&recent.id);
-        let taken = self.resume_session(
+        let place = match self.found_host(&recent.id) {
+            Some(host) => self.place_of(host),
+            None => self.place(),
+        };
+        let taken = self.resume_session_on(
+            place,
             &recent.project,
             recent.provider.clone(),
             session.to_owned(),
@@ -623,7 +626,22 @@ impl Workbench {
         title: String,
         cx: &mut Context<Self>,
     ) -> Task<Option<String>> {
-        let Some(project) = self.projects().iter().find(|known| known.id == project) else {
+        self.resume_session_on(self.place(), project, provider, session_id, cwd, title, cx)
+    }
+
+    /// As [`Self::resume_session`], on the host at `place`.
+    #[allow(clippy::too_many_arguments)]
+    fn resume_session_on(
+        &self,
+        place: Place,
+        project: &str,
+        provider: String,
+        session_id: String,
+        cwd: PathBuf,
+        title: String,
+        cx: &mut Context<Self>,
+    ) -> Task<Option<String>> {
+        let Some(project) = self.project_on(&place, project) else {
             return Task::ready(None);
         };
         let asked = SessionChoice {
@@ -633,7 +651,7 @@ impl Workbench {
             cwd: Some(cwd),
             title: Some(title),
         };
-        let target = self.target();
+        let target = Target::new(&self.asks, place);
         let taken = target.request_typed::<call::ResumeSession>(asked);
         cx.spawn(async move |bench, cx| match taken.await {
             Ok(taken) => {

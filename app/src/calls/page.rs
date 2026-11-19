@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::chat::composer::{self, Act};
+use crate::ui::selectable;
 use crate::ui::Clicks;
 use gpui_kit::MouseButton;
 use gpui_kit::StatefulInteractiveElement;
@@ -23,34 +24,26 @@ const OPTION_PICTURE_HEIGHT: f32 = 176.;
 const CHAT_ROW: &str = "call-chat-row";
 
 /// The project path of agent `agent`'s desk.
-fn project_of(bench: &Workbench, agent: &str) -> Option<String> {
+pub(crate) fn project_of(bench: &Workbench, agent: &str) -> Option<String> {
     let row = bench.agent_by_id(agent)?;
     (bench.projects().iter())
         .find(|project| project.id == row.project)
         .map(|project| project.path.to_string_lossy().into_owned())
 }
 
-/// How many calls wait on the person in the project of agent `agent`'s desk.
+/// How many calls wait on the person in agent `agent`'s chat.
 pub(crate) fn waiting_on_desk(bench: &Workbench, agent: &str) -> usize {
-    project_of(bench, agent).map_or(0, |project| {
-        bench.open_calls(&bench.place(), &project).len()
-    })
+    bench.open_calls(&bench.place(), agent).len()
 }
 
-/// The calls waiting on the person in the project of agent `agent`'s desk, oldest first.
+/// The calls waiting on the person in agent `agent`'s chat, oldest first.
 pub(crate) fn on_desk(bench: &Workbench, agent: &str) -> Vec<PersonCall> {
-    let mut calls: Vec<PersonCall> = project_of(bench, agent)
-        .map(|project| {
-            (bench.open_calls(&bench.place(), &project).into_iter())
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default();
-    calls.sort_by_key(|call| call.raised_at);
-    calls
+    (bench.open_calls(&bench.place(), agent).into_iter())
+        .cloned()
+        .collect()
 }
 
-/// The Calls page of one agent's desk, over the calls of its project.
+/// The Calls page of one agent's desk, over the calls its chat lists.
 pub struct Page {
     bench: WeakEntity<Workbench>,
     cards: Entity<Cards>,
@@ -114,11 +107,17 @@ impl Render for Page {
                 .size_full()
                 .flex()
                 .flex_col()
-                .items_center()
-                .justify_center()
-                .gap(SPACE_2)
-                .child(ui::icon(Icon::Bell, 18.).text_color(t.text_disabled))
-                .child(ui::meta(t!("Nothing waits on you"), cx))
+                .child(
+                    div()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .justify_center()
+                        .gap(SPACE_2)
+                        .child(ui::icon(Icon::Bell, 18.).text_color(t.text_disabled))
+                        .child(ui::meta(t!("Nothing waits on you"), cx)),
+                )
                 .into_any_element();
         };
         let through = Through {
@@ -200,10 +199,10 @@ impl Render for Page {
 fn reply_hint(call: &PersonCall, chosen: &[String]) -> &'static str {
     let production = call.kind == CallKind::Production;
     match (call.options.is_empty(), chosen.is_empty(), production) {
-        (true, ..) => t!("Answer in your own words, or drop a screenshot…"),
+        (true, ..) => t!("Answer or drop a screenshot · ⏎ sends and closes · ⇧⏎ keeps it open"),
         (false, true, _) => t!("Pick one above, or answer in your own words…"),
         (false, false, true) => t!("Add a note, then click Go…"),
-        (false, false, false) => t!("Add a note or drop a screenshot…"),
+        (false, false, false) => t!("Add a note · ⏎ sends and closes · ⇧⏎ keeps it open"),
     }
 }
 
@@ -244,13 +243,16 @@ fn body(
         .children(changes(call, &t))
         .child(div().ml_auto().child(open_chat));
     let who = who(call, through, Some(tail.into_any_element()), cx);
-    let prose = |text: String| {
+    let prose = |part: &str, text: String| {
         div()
             .max_w(px(PROSE))
             .text_size(theme::ui_text(13.5))
             .line_height(relative(1.6))
             .text_color(t.text_secondary)
-            .child(text)
+            .child(selectable::plain(
+                SharedString::from(format!("call-page-{part}-{}", call.id)),
+                text,
+            ))
     };
     let mut lines = (call.question.lines().map(str::trim)).filter(|line| !line.is_empty());
     let formed = matches!(call.kind, CallKind::Do | CallKind::Look);
@@ -264,9 +266,13 @@ fn body(
         .font_weight(FontWeight::SEMIBOLD)
         .line_height(relative(1.3))
         .text_color(t.text_primary)
-        .child(headline);
+        .child(selectable::plain(
+            SharedString::from(format!("call-page-question-{}", call.id)),
+            headline,
+        ));
     let more: Vec<gpui_kit::Div> = lines
-        .map(|line| prose(line.to_owned()).mt(px(10.)))
+        .enumerate()
+        .map(|(ix, line)| prose(&format!("line-{ix}"), line.to_owned()).mt(px(10.)))
         .collect();
     let link = (call.link.as_ref())
         .map(|link| div().mt(px(16.)).child(link_tile(call, link, through, &t)));
@@ -293,11 +299,16 @@ fn body(
         .flatten()
         .map(|action| runs(call, action, &t));
     let go = go_row(call, (&chosen, noted), sending, next, through);
-    let why: Vec<gpui_kit::Div> = (context_words(call).into_iter().map(prose))
+    let context = context_words(call).map(|words| prose("context", words));
+    let why: Vec<gpui_kit::Div> = (context.into_iter())
         .chain(
             (call.evidence.iter())
-                .filter(|evidence| evidence.picture.is_none())
-                .map(|evidence| prose(evidence.what.clone()).text_color(t.text_tertiary)),
+                .enumerate()
+                .filter(|(_, evidence)| evidence.picture.is_none())
+                .map(|(ix, evidence)| {
+                    prose(&format!("evidence-{ix}"), evidence.what.clone())
+                        .text_color(t.text_tertiary)
+                }),
         )
         .collect();
     let why = (!why.is_empty()).then(|| {
@@ -447,7 +458,10 @@ fn tile(
                 .text_size(theme::ui_text(13.5))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(t.text_primary)
-                .child(option.label.clone()),
+                .child(selectable::plain(
+                    SharedString::from(format!("call-option-label-{}-{ix}", call.id)),
+                    option.label.clone(),
+                )),
         )
         .children((picked && !pictured).then(|| pick_mark(t)));
     let detail = option.detail.clone().map(|detail| {
@@ -456,7 +470,10 @@ fn tile(
             .text_size(theme::ui_text(12.5))
             .line_height(relative(1.5))
             .text_color(t.text_tertiary)
-            .child(detail)
+            .child(selectable::plain(
+                SharedString::from(format!("call-option-detail-{}-{ix}", call.id)),
+                detail,
+            ))
     });
     let (cards, held, id) = (cards.clone(), call.clone(), option.id.clone());
     let hover = t.surface_hover;
@@ -474,7 +491,10 @@ fn tile(
             false => (tile.bg(t.surface_composer).border_color(t.border))
                 .hover(move |style| style.bg(hover)),
         })
-        .on_click(move |_, _, cx| {
+        .on_click(move |click, window, cx| {
+            if selectable::selected_by(click, window, cx) {
+                return;
+            }
             cards.update(cx, |cards, cx| cards.choose(&held, &id, cx));
         })
         .children(preview)
@@ -575,10 +595,9 @@ fn runs(call: &PersonCall, action: &str, t: &Tokens) -> gpui_kit::Div {
                 .text_size(theme::ui_text(12.))
                 .line_height(relative(1.55))
                 .text_color(t.text_secondary)
-                .child(crate::ui::selectable::selectable(
+                .child(selectable::plain(
                     SharedString::from(format!("call-page-action-{}", call.id)),
                     action.to_owned(),
-                    std::iter::empty(),
                 )),
         )
 }
@@ -1021,7 +1040,9 @@ pub(super) fn chat_fold(
         (asker.into_iter().flatten()).chain([div().flex_1().into_any_element()])
     });
     let hover = t.surface_hover;
+    let count = t!("{count} calls", count = calls.len());
     let head = BaseButton::new("call-chat-fold")
+        .accessibility_label(count.clone())
         .w_full()
         .h(px(36.))
         .pl(SPACE_2)
@@ -1038,7 +1059,7 @@ pub(super) fn chat_fold(
             div()
                 .flex_none()
                 .font_weight(FontWeight::MEDIUM)
-                .child(t!("{count} calls", count = calls.len())),
+                .child(count),
         )
         .children(folded.into_iter().flatten())
         .children(unfolded.into_iter().flatten())
@@ -1126,6 +1147,7 @@ pub(super) fn chat_row(
             .into_any_element(),
     };
     BaseButton::new(SharedString::from(format!("call-chat-row-{}", call.id)))
+        .accessibility_label(SharedString::from(headline(&call.question).to_owned()))
         .group(CHAT_ROW)
         .w_full()
         .h(px(36.))

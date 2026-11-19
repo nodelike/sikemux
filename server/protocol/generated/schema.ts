@@ -114,6 +114,8 @@ export const schema = {
         "vault.changed",
         "mods.changed",
         "plan.changed",
+        "orgs.changed",
+        "shares.changed",
       ],
     },
     AccountProfile: {
@@ -506,6 +508,8 @@ export const schema = {
         "internal",
         "unavailable",
         "reverify_required",
+        "address_proven",
+        "same_account",
       ],
     },
     ErrorDetail: {
@@ -575,6 +579,166 @@ export const schema = {
       },
       required: ["off"],
       additionalProperties: false,
+    },
+    FoldCatch: {
+      description:
+        "Whether to ask a new account's person if they already have an account.",
+      type: "object",
+      properties: {
+        ask: { type: "boolean" },
+        why: { $ref: "#/$defs/FoldWhy" },
+        mustFold: {
+          description:
+            "The address opens no account of its own: the person brings it to an account of theirs, or makes one with their own sign-in.",
+          type: "boolean",
+        },
+        address: {
+          description:
+            "The new account's own sign-in address, shown only to its own person.",
+          type: "string",
+        },
+        orgName: {
+          description:
+            "The org the invite, the proven domain or the address's proof is for.",
+          type: "string",
+        },
+        deletesAt: {
+          description:
+            "With mustFold: the account was deleted and can be restored until then.",
+          type: "string",
+          format: "date-time",
+        },
+        title: {
+          description:
+            "With ask: the screen's heading, in the words every client shows.",
+          type: "string",
+        },
+        words: {
+          description:
+            "With ask: why the person is asked, in the words every client shows.",
+          type: "string",
+        },
+      },
+      required: ["ask", "mustFold"],
+      additionalProperties: false,
+    },
+    FoldCatchRequest: {
+      type: "object",
+      properties: {
+        hint: { $ref: "#/$defs/FoldHint" },
+        inviteToken: {
+          description:
+            "With hint invite: the invite link's token, so the answer can name its org.",
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+        },
+      },
+      additionalProperties: false,
+    },
+    FoldHint: {
+      description:
+        "What the web app saw as the person signed up: an invite link, a shared page, or another account signed in on this browser before.",
+      type: "string",
+      enum: ["invite", "share", "browser"],
+    },
+    FoldIntent: {
+      description:
+        "A fold waiting for the person's other account to confirm it, on this browser, within ten minutes.",
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        secret: {
+          description:
+            "Kept by the browser that started the fold; the other account sends it to confirm.",
+          type: "string",
+        },
+        expiresAt: { type: "string", format: "date-time" },
+        waitingWords: {
+          description:
+            "The line shown above the sign-in while the fold waits for the person's other account.",
+          type: "string",
+        },
+      },
+      required: ["id", "secret", "expiresAt", "waitingWords"],
+      additionalProperties: false,
+    },
+    FoldPreview: {
+      description:
+        "What confirming the fold does, for the confirmation screen.",
+      type: "object",
+      properties: {
+        why: { $ref: "#/$defs/FoldWhy" },
+        address: {
+          description: "The work address the kept account proves.",
+          type: "string",
+        },
+        keptName: {
+          description: "The name of the account that stays.",
+          type: ["string", "null"],
+        },
+        keptAddress: {
+          description:
+            "The sign-in address of the account that stays, which started the fold, so the person can tell which of their accounts takes the seat.",
+          type: "string",
+        },
+        orgName: { type: ["string", "null"] },
+        seats: {
+          description: "The orgs whose seats move to the account that stays.",
+          type: "array",
+          items: { type: "string" },
+        },
+        title: { type: "string" },
+        words: {
+          description: "What confirming does, in the words every client shows.",
+          type: "string",
+        },
+        doneTitle: { type: "string" },
+        doneWords: {
+          description:
+            "What the confirmation screen says once the fold is done.",
+          type: "string",
+        },
+      },
+      required: [
+        "why",
+        "address",
+        "keptName",
+        "orgName",
+        "seats",
+        "title",
+        "words",
+        "doneTitle",
+        "doneWords",
+      ],
+      additionalProperties: false,
+    },
+    FoldSecret: {
+      type: "object",
+      properties: { secret: { type: "string", minLength: 1, maxLength: 128 } },
+      required: ["secret"],
+      additionalProperties: false,
+    },
+    FoldStart: {
+      type: "object",
+      properties: {
+        why: { $ref: "#/$defs/FoldWhy" },
+        inviteToken: {
+          description:
+            "With why invite: the invite link's token, so the confirmation names its org.",
+          type: "string",
+          minLength: 1,
+          maxLength: 128,
+        },
+      },
+      required: ["why"],
+      additionalProperties: false,
+    },
+    FoldWhy: {
+      description:
+        "Why two accounts may be one person's. invite, share and browser: what the web app saw as the new account signed up. domain: an org proves the new account's address's domain. address: the address is proven on another account. seat: an account brings over a seat another of the person's accounts holds.",
+      type: "string",
+      enum: ["invite", "share", "browser", "domain", "address", "seat"],
     },
     Health: {
       description:
@@ -982,6 +1146,11 @@ export const schema = {
             "A refund was asked of the provider, which has not made it yet.",
           type: "string",
           format: "date-time",
+        },
+        partlyRefunded: {
+          description:
+            "What the provider paid back of a payment it did not refund in full, such as the unused days of a Pro paused for a seat.",
+          $ref: "#/$defs/Money",
         },
         refundableUntil: {
           description:
@@ -1426,6 +1595,13 @@ export const schema = {
       ],
       discriminator: { propertyName: "type" },
     },
+    MemberName: {
+      description:
+        "The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none.",
+      type: "string",
+      minLength: 1,
+      maxLength: 128,
+    },
     MinimumVersions: {
       description:
         "The oldest version of each app the server works with, by platform. Dev builds are never too old.",
@@ -1687,11 +1863,272 @@ export const schema = {
       required: ["id", "name", "role", "seats", "createdAt"],
       additionalProperties: false,
     },
+    OrgAuditAction: {
+      description:
+        "What happened. ownership is handed over when role_changed has to: owner.",
+      type: "string",
+      enum: [
+        "created",
+        "joined",
+        "left",
+        "removed",
+        "role_changed",
+        "invite_created",
+        "invite_revoked",
+        "seats_changed",
+        "plan_canceled",
+        "plan_resumed",
+        "team_created",
+        "team_renamed",
+        "team_deleted",
+        "team_member_added",
+        "team_member_removed",
+        "domain_added",
+        "domain_verified",
+        "domain_joining_changed",
+        "domain_ours_changed",
+        "domain_removed",
+        "policy_changed",
+        "seat_moved",
+        "vault_created",
+        "vault_host_added",
+        "vault_rotated",
+        "vault_entry_written",
+        "vault_entry_removed",
+      ],
+    },
+    OrgAuditCursor: {
+      description:
+        "Where the next page of the audit log starts. Opaque to apps.",
+      type: "string",
+      minLength: 1,
+      maxLength: 40,
+    },
+    OrgAuditEntry: {
+      description:
+        "One thing that happened in the org. It names people only by their sign-in's name and computers by what their member calls them; never an email or a host's key.",
+      type: "object",
+      properties: {
+        id: { type: "string", pattern: "^[0-9]{1,19}$" },
+        at: { type: "string", format: "date-time" },
+        action: { $ref: "#/$defs/OrgAuditAction" },
+        by: {
+          description:
+            "The name of who did it, from their sign-in; null when it has none, cannot be read right now, or the system did it.",
+          type: ["string", "null"],
+          maxLength: 256,
+        },
+        about: {
+          description:
+            "The name of the member it happened to, when that is not who did it; else null.",
+          type: ["string", "null"],
+          maxLength: 256,
+        },
+        role: {
+          description: "The role someone joined, left or was invited with.",
+          $ref: "#/$defs/OrgRole",
+        },
+        from: { $ref: "#/$defs/OrgRole" },
+        to: { $ref: "#/$defs/OrgRole" },
+        via: { $ref: "#/$defs/OrgJoinedVia" },
+        team: {
+          description: "The team's name at the time.",
+          $ref: "#/$defs/OrgTeamName",
+        },
+        previousName: {
+          description: "A renamed team's old name.",
+          $ref: "#/$defs/OrgTeamName",
+        },
+        domain: { $ref: "#/$defs/OrgDomainName" },
+        joining: { $ref: "#/$defs/OrgDomainJoining" },
+        ours: {
+          description:
+            "Whether a domain's addresses are the org's own, as an owner set it.",
+          type: "boolean",
+        },
+        ruleAdding: {
+          description: "Who may add a rule, as a policy change set it.",
+          $ref: "#/$defs/OrgRuleAdding",
+        },
+        asking: {
+          description:
+            "Whether teammates' agents may ask, as a policy change set it.",
+          type: "boolean",
+        },
+        dailyQuestions: {
+          description: "The questions a day a policy change set.",
+          $ref: "#/$defs/OrgDailyQuestions",
+        },
+        entryKind: {
+          description:
+            "What a vault entry written or removed is, such as model-key.",
+          type: "string",
+        },
+        computer: {
+          description:
+            "What its member calls the computer given the vault's key, at the time.",
+          type: "string",
+          maxLength: 64,
+        },
+        seats: {
+          description: "The seat count a change set.",
+          type: "integer",
+          minimum: 0,
+        },
+        atRenewal: {
+          description: "True when a seat change waits for the plan's renewal.",
+          type: "boolean",
+        },
+      },
+      required: ["id", "at", "action", "by", "about"],
+      additionalProperties: false,
+    },
+    OrgAuditPage: {
+      description: "Up to 50 of the org's audit entries, newest first.",
+      type: "object",
+      properties: {
+        entries: { type: "array", items: { $ref: "#/$defs/OrgAuditEntry" } },
+        next: {
+          description:
+            "Pass as cursor for older entries; null at the start of the log.",
+          anyOf: [{ $ref: "#/$defs/OrgAuditCursor" }, { type: "null" }],
+        },
+      },
+      required: ["entries", "next"],
+      additionalProperties: false,
+    },
     OrgCreate: {
       description: "A new org, with you as its owner.",
       type: "object",
       properties: { name: { $ref: "#/$defs/OrgName" } },
       required: ["name"],
+      additionalProperties: false,
+    },
+    OrgDailyQuestions: {
+      description:
+        "How many questions one person's agents may ask, a day, across all of the org's shared projects.",
+      type: "integer",
+      minimum: 1,
+      maximum: 500,
+    },
+    OrgDomain: {
+      description: "An email domain the org claims.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/OrgDomainId" },
+        domain: { $ref: "#/$defs/OrgDomainName" },
+        joining: { $ref: "#/$defs/OrgDomainJoining" },
+        record: { $ref: "#/$defs/OrgDomainRecord" },
+        verifiedAt: {
+          description:
+            "When the record was found; null until then, and nobody joins by the domain before it.",
+          type: ["string", "null"],
+          format: "date-time",
+        },
+        oursSince: {
+          description:
+            "When an owner said addresses at the domain are the org's own; null while they haven't. Only an address added after it is refused a Sikemux account or sign-in of its own.",
+          type: ["string", "null"],
+          format: "date-time",
+        },
+        createdAt: { type: "string", format: "date-time" },
+      },
+      required: [
+        "id",
+        "domain",
+        "joining",
+        "record",
+        "verifiedAt",
+        "oursSince",
+        "createdAt",
+      ],
+      additionalProperties: false,
+    },
+    OrgDomainAdd: {
+      type: "object",
+      properties: {
+        domain: { $ref: "#/$defs/OrgDomainName" },
+        joining: { $ref: "#/$defs/OrgDomainJoining" },
+      },
+      required: ["domain", "joining"],
+      additionalProperties: false,
+    },
+    OrgDomainId: {
+      description: "An org domain's id, a UUID in lowercase.",
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    },
+    OrgDomainJoin: {
+      description:
+        "Joining an org through your email's domain, or through a work address you just proved.",
+      type: "object",
+      properties: {
+        orgId: { $ref: "#/$defs/OrgId" },
+        sitting: {
+          description:
+            "The sitting a work address was just proven in on the Account page; the join stands on that proof instead of your sign-in addresses.",
+          type: "string",
+          pattern:
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        },
+      },
+      required: ["orgId"],
+      additionalProperties: false,
+    },
+    OrgDomainJoining: {
+      description:
+        "How someone whose verified sign-in email is at the domain comes in. open: they see the org on their Team page and may join it. offered: the org is also put to them when they sign in.",
+      type: "string",
+      enum: ["open", "offered"],
+    },
+    OrgDomainJoiningChange: {
+      type: "object",
+      properties: { joining: { $ref: "#/$defs/OrgDomainJoining" } },
+      required: ["joining"],
+      additionalProperties: false,
+    },
+    OrgDomainList: {
+      description: "The org's domains, oldest first.",
+      type: "object",
+      properties: {
+        domains: { type: "array", items: { $ref: "#/$defs/OrgDomain" } },
+      },
+      required: ["domains"],
+      additionalProperties: false,
+    },
+    OrgDomainName: {
+      description: "An email domain, such as example.com, in lowercase.",
+      type: "string",
+      minLength: 4,
+      maxLength: 253,
+    },
+    OrgDomainOursChange: {
+      type: "object",
+      properties: {
+        ours: {
+          description: "Whether addresses at the domain are the org's own.",
+          type: "boolean",
+        },
+      },
+      required: ["ours"],
+      additionalProperties: false,
+    },
+    OrgDomainRecord: {
+      description: "The DNS TXT record that proves the org owns the domain.",
+      type: "object",
+      properties: {
+        name: {
+          description: "Where the TXT record goes.",
+          type: "string",
+          maxLength: 300,
+        },
+        value: {
+          description: "What the TXT record says.",
+          type: "string",
+          maxLength: 100,
+        },
+      },
+      required: ["name", "value"],
       additionalProperties: false,
     },
     OrgId: {
@@ -1753,6 +2190,16 @@ export const schema = {
       required: ["invites"],
       additionalProperties: false,
     },
+    OrgInvitePreview: {
+      description:
+        "What an invite link says before anyone signs in. Only a live invite names its org; a used, revoked, expired or unknown link answers null, so the answer tells nothing more.",
+      type: "object",
+      properties: {
+        orgName: { type: ["string", "null"], minLength: 1, maxLength: 64 },
+      },
+      required: ["orgName"],
+      additionalProperties: false,
+    },
     OrgInviteToken: {
       description:
         "The secret an invite link carries: 32 random bytes in unpadded base64url. The server keeps only its hash.",
@@ -1765,6 +2212,11 @@ export const schema = {
       properties: { token: { $ref: "#/$defs/OrgInviteToken" } },
       required: ["token"],
       additionalProperties: false,
+    },
+    OrgJoinedVia: {
+      description: "How someone joined an org.",
+      type: "string",
+      enum: ["invite", "domain"],
     },
     OrgList: {
       description: "The orgs you are in, oldest first.",
@@ -1806,11 +2258,86 @@ export const schema = {
       required: ["members"],
       additionalProperties: false,
     },
+    OrgMembership: {
+      description: "An org the account holds a seat in, as its hosts see it.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/OrgId" },
+        name: { $ref: "#/$defs/OrgName" },
+        role: {
+          description: "The account's role in it.",
+          $ref: "#/$defs/OrgRole",
+        },
+        plan: { $ref: "#/$defs/OrgPlan" },
+        policy: { $ref: "#/$defs/OrgPolicy" },
+      },
+      required: ["id", "name", "role", "plan", "policy"],
+      additionalProperties: false,
+    },
+    OrgMemberships: {
+      description:
+        "The orgs the account is in, oldest first. orgs.changed says when to read it again.",
+      type: "object",
+      properties: {
+        orgs: { type: "array", items: { $ref: "#/$defs/OrgMembership" } },
+      },
+      required: ["orgs"],
+      additionalProperties: false,
+    },
     OrgName: {
       description: "What the org is called, as its members see it.",
       type: "string",
       minLength: 1,
       maxLength: 64,
+    },
+    OrgOffer: {
+      description:
+        "An org you may join because your verified sign-in email is at a domain it proved it owns.",
+      type: "object",
+      properties: {
+        orgId: { $ref: "#/$defs/OrgId" },
+        name: { $ref: "#/$defs/OrgName" },
+        domain: { $ref: "#/$defs/OrgDomainName" },
+        joining: { $ref: "#/$defs/OrgDomainJoining" },
+        seatFree: {
+          description:
+            "Whether a seat is free for you now; joining is refused while none is.",
+          type: "boolean",
+        },
+      },
+      required: ["orgId", "name", "domain", "joining", "seatFree"],
+      additionalProperties: false,
+    },
+    OrgOfferList: {
+      description:
+        "The orgs your email's domain lets you join, leaving out those you are in and those with no live Team plan.",
+      type: "object",
+      properties: {
+        offers: { type: "array", items: { $ref: "#/$defs/OrgOffer" } },
+      },
+      required: ["offers"],
+      additionalProperties: false,
+    },
+    OrgPlan: {
+      description:
+        "Whether the org's Team plan is paid up. lapsed: it has none, or it stopped being paid; invites and the org's features are frozen and its data is kept.",
+      type: "string",
+      enum: ["active", "lapsed"],
+    },
+    OrgPolicy: {
+      description:
+        "How the org's agents work together. Every member reads it; owners and admins change it. An org that never changed it reads as every_member, asking on and 30 a day.",
+      type: "object",
+      properties: {
+        ruleAdding: { $ref: "#/$defs/OrgRuleAdding" },
+        asking: {
+          description: "Whether teammates' agents may ask yours about a task.",
+          type: "boolean",
+        },
+        dailyQuestions: { $ref: "#/$defs/OrgDailyQuestions" },
+      },
+      required: ["ruleAdding", "asking", "dailyQuestions"],
+      additionalProperties: false,
     },
     OrgRename: {
       type: "object",
@@ -1830,6 +2357,12 @@ export const schema = {
       required: ["role"],
       additionalProperties: false,
     },
+    OrgRuleAdding: {
+      description:
+        "Who may add a rule to a project the org shares. every_member: it is kept at once. admins_approve: a member's rule waits for an owner or an admin.",
+      type: "string",
+      enum: ["every_member", "admins_approve"],
+    },
     OrgSeats: {
       description:
         "Each member and each pending invite holds a seat. limit is the Team plan's seat count: 0 while the org has no live Team plan, so nobody can be invited.",
@@ -1839,6 +2372,309 @@ export const schema = {
         limit: { type: "integer", minimum: 0 },
       },
       required: ["held", "limit"],
+      additionalProperties: false,
+    },
+    OrgShareList: {
+      description:
+        "One org whose Team plan is paid: its members, and the projects the others share with it.",
+      type: "object",
+      properties: {
+        org: { $ref: "#/$defs/OrgId" },
+        members: { type: "array", items: { $ref: "#/$defs/ShareMember" } },
+        shares: {
+          description: "What the other members share; never the account's own.",
+          type: "array",
+          items: { $ref: "#/$defs/SharedProject" },
+        },
+        mine: {
+          description: "The account's own registrations with the org.",
+          type: "array",
+          items: { $ref: "#/$defs/SharedProject" },
+        },
+      },
+      required: ["org", "members", "shares", "mine"],
+      additionalProperties: false,
+    },
+    OrgTeam: {
+      description:
+        "A named list of an org's members. It owns nothing: it stands in wherever a list of people goes.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/OrgTeamId" },
+        name: { $ref: "#/$defs/OrgTeamName" },
+        members: {
+          description:
+            "Who is on it, by membership id, in the order they were added.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgMemberId" },
+        },
+        createdAt: { type: "string", format: "date-time" },
+      },
+      required: ["id", "name", "members", "createdAt"],
+      additionalProperties: false,
+    },
+    OrgTeamCreate: {
+      type: "object",
+      properties: { name: { $ref: "#/$defs/OrgTeamName" } },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    OrgTeamId: {
+      description: "A team's id, a UUID in lowercase.",
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    },
+    OrgTeamList: {
+      description: "The org's teams, by name.",
+      type: "object",
+      properties: {
+        teams: { type: "array", items: { $ref: "#/$defs/OrgTeam" } },
+      },
+      required: ["teams"],
+      additionalProperties: false,
+    },
+    OrgTeamName: {
+      description: "What a team is called; unique within its org.",
+      type: "string",
+      minLength: 1,
+      maxLength: 64,
+    },
+    OrgTeamRename: {
+      type: "object",
+      properties: { name: { $ref: "#/$defs/OrgTeamName" } },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    OrgVault: {
+      description: "An org's vault, as one of its members' hosts sees it.",
+      type: "object",
+      properties: {
+        generation: { $ref: "#/$defs/VaultGeneration" },
+        key: {
+          description:
+            "The org's key sealed for the asking host at the current generation, or null when it has none yet.",
+          anyOf: [{ $ref: "#/$defs/OrgVaultWrapped" }, { type: "null" }],
+        },
+        holders: {
+          description:
+            "The members' hosts holding the key at the current generation.",
+          type: "array",
+          items: { $ref: "#/$defs/DeviceKey" },
+        },
+        waiting: {
+          description:
+            "The members' hosts without the key at the current generation, for a holder to wrap it for.",
+          type: "array",
+          items: { $ref: "#/$defs/DeviceKey" },
+        },
+        rotate: {
+          description:
+            "A host that held the key is no longer a member's host, so an owner's or admin's host should replace it.",
+          type: "boolean",
+        },
+        entries: { type: "array", items: { $ref: "#/$defs/OrgVaultEntry" } },
+        ended: {
+          description:
+            "Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgVaultEnded" },
+        },
+        changes: {
+          description:
+            "How many changes the vault's entries have had. A host passes it back as after to read only the entries changed or removed since.",
+          $ref: "#/$defs/OrgVaultChanges",
+        },
+        since: {
+          description:
+            "The after this answer starts from: entries and ended hold only what changed since then. Null when they hold everything.",
+          anyOf: [{ $ref: "#/$defs/OrgVaultChanges" }, { type: "null" }],
+        },
+      },
+      required: [
+        "generation",
+        "key",
+        "holders",
+        "waiting",
+        "rotate",
+        "entries",
+        "ended",
+        "changes",
+        "since",
+      ],
+      additionalProperties: false,
+    },
+    OrgVaultChanges: {
+      description: "A count of the changes to an org vault's entries.",
+      type: "integer",
+      minimum: 0,
+    },
+    OrgVaultChangesParam: {
+      description: "The changes a host read last, in a query string.",
+      type: "string",
+      pattern: "^(0|[1-9][0-9]{0,14})$",
+    },
+    OrgVaultCreate: {
+      description:
+        "An owner's or admin's host makes the org's vault, holding its key at generation 1.",
+      type: "object",
+      properties: {
+        key: {
+          description: "The org's key sealed for the asking host.",
+          $ref: "#/$defs/OrgVaultWrapped",
+        },
+      },
+      required: ["key"],
+      additionalProperties: false,
+    },
+    OrgVaultEnded: {
+      description:
+        "An entry removed from an org's vault, at the last revision it had.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/VaultEntryId" },
+        revision: { $ref: "#/$defs/VaultRevision" },
+      },
+      required: ["id", "revision"],
+      additionalProperties: false,
+    },
+    OrgVaultEntry: {
+      description:
+        "One entry in an org's vault, sealed under the org's key of its generation.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/VaultEntryId" },
+        kind: { $ref: "#/$defs/OrgVaultEntryKind" },
+        generation: { $ref: "#/$defs/VaultGeneration" },
+        sealed: { $ref: "#/$defs/VaultSealed" },
+        revision: { $ref: "#/$defs/VaultRevision" },
+        updatedBy: { $ref: "#/$defs/DeviceKey" },
+        updatedAt: { type: "string", format: "date-time" },
+      },
+      required: [
+        "id",
+        "kind",
+        "generation",
+        "sealed",
+        "revision",
+        "updatedBy",
+        "updatedAt",
+      ],
+      additionalProperties: false,
+    },
+    OrgVaultEntryKind: {
+      description:
+        "What an entry of an org's vault is, such as model-key. The server sees this and nothing else of it.",
+      type: "string",
+      pattern: "^[a-z][a-z0-9-]{0,47}$",
+    },
+    OrgVaultEntryPut: {
+      description:
+        "An owner's or admin's host adds or replaces an entry. Any member's host may put a shared project's waiting list, and its store while the org lets every member add rules.",
+      type: "object",
+      properties: {
+        kind: { $ref: "#/$defs/OrgVaultEntryKind" },
+        generation: {
+          description:
+            "The generation of the key it is sealed under, which must be current.",
+          $ref: "#/$defs/VaultGeneration",
+        },
+        sealed: { $ref: "#/$defs/VaultSealed" },
+        revision: {
+          description:
+            "The entry's revision as the writer last saw it, or 0 to add it.",
+          type: "integer",
+          minimum: 0,
+          maximum: 999999999,
+        },
+        checked: {
+          description:
+            "Other entries the writer read this one against, each at the revision it read: the write is refused as a conflict once any of them has moved.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgVaultEntryRead" },
+          maxItems: 500,
+        },
+      },
+      required: ["kind", "generation", "sealed", "revision"],
+      additionalProperties: false,
+    },
+    OrgVaultEntryRead: {
+      description: "An entry at the revision a writer read it.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/VaultEntryId" },
+        revision: { type: "integer", minimum: 0, maximum: 999999999 },
+      },
+      required: ["id", "revision"],
+      additionalProperties: false,
+    },
+    OrgVaultKeysAdd: {
+      description:
+        "A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one.",
+      type: "object",
+      properties: {
+        generation: { $ref: "#/$defs/VaultGeneration" },
+        keys: {
+          type: "array",
+          items: { $ref: "#/$defs/OrgWrappedKey" },
+          minItems: 1,
+          maxItems: 500,
+        },
+      },
+      required: ["generation", "keys"],
+      additionalProperties: false,
+    },
+    OrgVaultRotate: {
+      description:
+        "An owner's or admin's host replaces the org's key: every wrap and every entry moves to the next generation at once.",
+      type: "object",
+      properties: {
+        from: {
+          description: "The current generation.",
+          $ref: "#/$defs/VaultGeneration",
+        },
+        keys: {
+          description:
+            "The new key sealed for each member's host that keeps it, the asking host among them. Every other wrap is dropped.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgWrappedKey" },
+          minItems: 1,
+          maxItems: 500,
+        },
+        entries: {
+          description: "Every entry in the vault, each once.",
+          type: "array",
+          items: { $ref: "#/$defs/VaultEntryReseal" },
+          maxItems: 500,
+        },
+      },
+      required: ["from", "keys", "entries"],
+      additionalProperties: false,
+    },
+    OrgVaultState: {
+      type: "object",
+      properties: {
+        vault: {
+          description: "Null until an owner's or admin's host makes the vault.",
+          anyOf: [{ $ref: "#/$defs/OrgVault" }, { type: "null" }],
+        },
+      },
+      required: ["vault"],
+      additionalProperties: false,
+    },
+    OrgVaultWrapped: {
+      description: "The org's key sealed for one host, in URL-safe base64.",
+      type: "string",
+      pattern: "^[A-Za-z0-9_-]+$",
+      maxLength: 256,
+    },
+    OrgWrappedKey: {
+      description: "The org's key, sealed for one member's host.",
+      type: "object",
+      properties: {
+        hostKey: { $ref: "#/$defs/DeviceKey" },
+        wrapped: { $ref: "#/$defs/OrgVaultWrapped" },
+      },
+      required: ["hostKey", "wrapped"],
       additionalProperties: false,
     },
     PaddleCheckout: {
@@ -1868,6 +2704,63 @@ export const schema = {
         expYear: { type: "integer", minimum: 2000 },
       },
       required: ["brand", "last4", "expMonth", "expYear"],
+      additionalProperties: false,
+    },
+    PeerTicket: {
+      description:
+        "The server's word that the host `from` belongs to a member of the org, for the host `to`, a teammate's host with a project shared with that org. The asking host shows it over ALPN sikemux/peer/1, and shows a new one before it runs out or the connection ends. The signature is the server's Ed25519 signature, with the join tickets' key, over the UTF-8 text `sikemux-peer|v1|<keyId>|<org>|<member>|<from>|<to>|<issuedAt>|<expiresAt>|<memberName>`, times in decimal.",
+      type: "object",
+      properties: {
+        v: {
+          description: "The ticket's format. Only 1 exists.",
+          type: "integer",
+          minimum: 1,
+          maximum: 1,
+        },
+        keyId: {
+          type: "string",
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$",
+          maxLength: 32,
+        },
+        org: { $ref: "#/$defs/OrgId" },
+        member: {
+          description: "The asking account's membership id in the org.",
+          $ref: "#/$defs/OrgMemberId",
+        },
+        memberName: { $ref: "#/$defs/MemberName" },
+        from: { $ref: "#/$defs/DeviceKey" },
+        to: { $ref: "#/$defs/DeviceKey" },
+        issuedAt: { type: "integer", minimum: 0 },
+        expiresAt: {
+          description: "Five minutes after issuedAt.",
+          type: "integer",
+          minimum: 0,
+        },
+        signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
+      },
+      required: [
+        "v",
+        "keyId",
+        "org",
+        "member",
+        "memberName",
+        "from",
+        "to",
+        "issuedAt",
+        "expiresAt",
+        "signature",
+      ],
+      additionalProperties: false,
+    },
+    PeerTicketRequest: {
+      description:
+        "Which teammate's host the asking host wants to read a shared project from, as a member of which org.",
+      type: "object",
+      properties: {
+        org: { $ref: "#/$defs/OrgId" },
+        host: { $ref: "#/$defs/DeviceKey" },
+      },
+      required: ["org", "host"],
       additionalProperties: false,
     },
     PendingHost: {
@@ -1957,6 +2850,12 @@ export const schema = {
       description: "The connector a sign-in is for, such as sikemux.github.",
       type: "string",
       pattern: "^sikemux\\.[a-z0-9-]{1,48}$",
+    },
+    ProjectKey: {
+      description:
+        "A project as the server knows it: the SHA-256, in lowercase hex, of its repository's normalised address. The server never learns the address; a teammate's host matches the hash against its own projects.",
+      type: "string",
+      pattern: "^[0-9a-f]{64}$",
     },
     PushApp: {
       description:
@@ -2080,6 +2979,27 @@ export const schema = {
       type: "string",
       pattern: "^[A-Za-z0-9_-]+$",
       maxLength: 6000000,
+    },
+    SeatPause: {
+      description:
+        "A person's own Pro, paused at the provider while a seat in an org includes Pro, so it is never paid twice. Its status stays active: the paid time it had left is kept and counts as Pro once no seat does.",
+      type: "object",
+      properties: {
+        orgs: {
+          description:
+            "The names of the orgs whose seat includes Pro now. Empty once the last seat ended and the kept time is running.",
+          type: "array",
+          items: { type: "string" },
+        },
+        resumesAt: {
+          description:
+            "Once no seat includes Pro: when the kept time runs out and the provider bills a new period.",
+          type: "string",
+          format: "date-time",
+        },
+      },
+      required: ["orgs"],
+      additionalProperties: false,
     },
     ShareAnswer: {
       description: "Host only: the sealed answer to one viewer's question.",
@@ -2253,6 +3173,21 @@ export const schema = {
         },
       ],
     },
+    SharedProject: {
+      description:
+        "A project a teammate shares with the org, and the host to ask for its record.",
+      type: "object",
+      properties: {
+        project: { $ref: "#/$defs/ProjectKey" },
+        member: {
+          description: "The id of the teammate's membership in the org.",
+          $ref: "#/$defs/OrgMemberId",
+        },
+        host: { $ref: "#/$defs/DeviceKey" },
+      },
+      required: ["project", "member", "host"],
+      additionalProperties: false,
+    },
     ShareEnded: {
       description:
         "The share ended. The server closes a viewer's connection with ShareCloseCode ended after it.",
@@ -2324,6 +3259,22 @@ export const schema = {
         "A shared chat's id: 16 random bytes the host picks, in unpadded base64url.",
       type: "string",
       pattern: "^[A-Za-z0-9_-]{22}$",
+    },
+    ShareMember: {
+      description:
+        "Someone in the org, by their membership id, the name they show and their account's picture.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/OrgMemberId" },
+        name: { $ref: "#/$defs/MemberName" },
+        imageUrl: { type: ["string", "null"], format: "uri", maxLength: 2048 },
+        you: {
+          description: "Whether this is the account asking.",
+          type: "boolean",
+        },
+      },
+      required: ["id", "name", "imageUrl", "you"],
+      additionalProperties: false,
     },
     ShareOpen: {
       description:
@@ -2417,6 +3368,38 @@ export const schema = {
       required: ["type", "share", "reason"],
       additionalProperties: false,
     },
+    ShareRegistration: {
+      description:
+        "A project the account shares with one of its orgs, and the host that holds its record. Sent again with another host when the project's home moves.",
+      type: "object",
+      properties: {
+        org: { $ref: "#/$defs/OrgId" },
+        project: { $ref: "#/$defs/ProjectKey" },
+        host: { $ref: "#/$defs/DeviceKey" },
+      },
+      required: ["org", "project", "host"],
+      additionalProperties: false,
+    },
+    ShareRegistry: {
+      description:
+        "The share registry as one host sees it: each of its account's orgs whose Team plan is paid. shares.changed and orgs.changed say when to read it again.",
+      type: "object",
+      properties: {
+        orgs: { type: "array", items: { $ref: "#/$defs/OrgShareList" } },
+      },
+      required: ["orgs"],
+      additionalProperties: false,
+    },
+    ShareRemoval: {
+      description: "A project the account no longer shares with the org.",
+      type: "object",
+      properties: {
+        org: { $ref: "#/$defs/OrgId" },
+        project: { $ref: "#/$defs/ProjectKey" },
+      },
+      required: ["org", "project"],
+      additionalProperties: false,
+    },
     ShareRole: {
       description: "A host publishes its shared chats; a viewer watches one.",
       type: "string",
@@ -2495,6 +3478,45 @@ export const schema = {
         quantity: { type: "integer", minimum: 1 },
       },
       required: ["product", "quantity"],
+      additionalProperties: false,
+    },
+    SignInAddressCheck: {
+      description:
+        "An address the person is about to add as a way to sign in, checked before Clerk sends it a code. It is read and forgotten, never stored.",
+      type: "object",
+      properties: { email: { type: "string", minLength: 3, maxLength: 320 } },
+      required: ["email"],
+      additionalProperties: false,
+    },
+    SignInRemoval: {
+      description:
+        "A way to sign in the API took off the account because its address is a work address: at a domain an org verified, or already proven on an account.",
+      type: "object",
+      properties: {
+        domain: { type: "string" },
+        orgName: {
+          description:
+            "The org that verified the domain; null when the address was proven on an account instead.",
+          type: ["string", "null"],
+        },
+        provider: {
+          description:
+            "The sign-in that brought the address, such as google; null for an address added on its own.",
+          type: ["string", "null"],
+        },
+        removedAt: { type: "string", format: "date-time" },
+      },
+      required: ["domain", "orgName", "provider", "removedAt"],
+      additionalProperties: false,
+    },
+    SignInsTidied: {
+      description:
+        "What was taken off the account since the person last saw it, each told once.",
+      type: "object",
+      properties: {
+        removed: { type: "array", items: { $ref: "#/$defs/SignInRemoval" } },
+      },
+      required: ["removed"],
       additionalProperties: false,
     },
     Staff: {
@@ -2796,6 +3818,7 @@ export const schema = {
             "What the refund returns, or returns once paid: every payment on the plan in its first refundDays.",
           $ref: "#/$defs/Money",
         },
+        seatPause: { $ref: "#/$defs/SeatPause" },
       },
       required: [
         "id",
@@ -3112,6 +4135,82 @@ export const schema = {
         },
       },
       required: ["uses"],
+      additionalProperties: false,
+    },
+    WorkAddress: {
+      description:
+        "A work address the person proved they hold, kept as a keyed hash: the address itself is never stored, so only its domain is shown.",
+      type: "object",
+      properties: {
+        id: {
+          description: "Names the proof for removing it.",
+          type: "string",
+          pattern:
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        },
+        domain: { type: "string" },
+        orgId: {
+          description:
+            "The org that had verified the domain when the address was proven; null once that org is gone.",
+          type: ["string", "null"],
+        },
+        orgName: { type: ["string", "null"] },
+        provenAt: { type: "string", format: "date-time" },
+      },
+      required: ["id", "domain", "orgId", "orgName", "provenAt"],
+      additionalProperties: false,
+    },
+    WorkAddressList: {
+      type: "object",
+      properties: {
+        workAddresses: {
+          type: "array",
+          items: { $ref: "#/$defs/WorkAddress" },
+        },
+        verifying: {
+          description:
+            "Whether a work address can be verified here; false while the API has no Google client for it.",
+          type: "boolean",
+        },
+      },
+      required: ["workAddresses", "verifying"],
+      additionalProperties: false,
+    },
+    WorkAddressProven: {
+      description:
+        "The work address just proven, and the org its domain lets the person join now, in this sitting only.",
+      type: "object",
+      properties: {
+        workAddress: { $ref: "#/$defs/WorkAddress" },
+        sitting: {
+          description:
+            "Joining the offered org names this, so the join stands on the proof just made.",
+          type: "string",
+          pattern:
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        },
+        offer: { anyOf: [{ $ref: "#/$defs/OrgOffer" }, { type: "null" }] },
+      },
+      required: ["workAddress", "sitting", "offer"],
+      additionalProperties: false,
+    },
+    WorkAddressVerifyFinish: {
+      description:
+        "What Google sent back to the web app after the person signed in there.",
+      type: "object",
+      properties: {
+        code: { type: "string", minLength: 1, maxLength: 2048 },
+        state: { type: "string", minLength: 1, maxLength: 128 },
+      },
+      required: ["code", "state"],
+      additionalProperties: false,
+    },
+    WorkAddressVerifyStart: {
+      description:
+        "Where to send the person to sign in with the Google account of their work address.",
+      type: "object",
+      properties: { url: { type: "string", maxLength: 4096 } },
+      required: ["url"],
       additionalProperties: false,
     },
     WrappedKey: {

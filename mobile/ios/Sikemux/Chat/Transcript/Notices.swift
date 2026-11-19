@@ -215,24 +215,28 @@ struct ResourceChip: View {
     }
 }
 
-/// A page the agent showed. The phone has no web view to draw it in, so it names the page and where it is.
+/// A page the agent showed, open in a tab on its desk. The phone has no web view to draw it in, so it names the page
+/// and where it is.
 struct PageCard: View {
     @Environment(\.palette) private var palette
     let page: PageRef
 
     var body: some View {
-        HStack(spacing: 8) {
-            IconView(icon: Icons.window, size: 14).foregroundStyle(palette.inkDim)
-            Text(page.title).font(Theme.ui(13, .medium)).foregroundStyle(palette.ink).lineLimit(1)
-            Text("on the computer").font(Theme.ui(12)).foregroundStyle(palette.inkFaint)
+        HStack(spacing: 10) {
+            IconView(icon: Icons.tabs, size: 14).foregroundStyle(palette.inkDim)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(page.title).font(Theme.ui(13, .medium)).foregroundStyle(palette.ink).lineLimit(2)
+                    .truncationMode(.tail).fixedSize(horizontal: false, vertical: true)
+                Text("In a tab on the desk").font(Theme.ui(12)).foregroundStyle(palette.inkFaint).lineLimit(1)
+            }
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 8)
         .padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 8).fill(palette.raised))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.border, lineWidth: 1))
         .padding(.vertical, 6)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Page \(page.title), open on the computer")
+        .accessibilityLabel("Page \(page.title), in a tab on the desk")
     }
 }
 
@@ -485,8 +489,8 @@ struct WorktreeLine: View {
     }
 }
 
-/// A trigger's prompt in a bubble at the left under the trigger's name, with the webhook request that fired it folded
-/// beneath.
+/// A trigger that came due, folded to a line with its name, which opens onto its prompt in a bubble at the left and the
+/// webhook request that fired it.
 struct FiredTrigger: View {
     @Environment(\.palette) private var palette
     @Environment(\.displayScale) private var scale
@@ -496,16 +500,29 @@ struct FiredTrigger: View {
     var at: Int?
 
     var body: some View {
+        let shown = context.folds.isOpen("\(id)/fired", false)
         let open = context.folds.isOpen("\(id)/request", false)
         VStack(alignment: .leading, spacing: 0) {
-            From(at: at) {
-                IconView(icon: Icons.timer, size: 13).foregroundStyle(palette.cmd)
-                Text(fired.title).font(Theme.ui(12.5, .semibold)).foregroundStyle(palette.ink).lineLimit(1)
+            From(at: at, bubbled: shown) {
+                Button {
+                    context.folds.set("\(id)/fired", !shown)
+                } label: {
+                    HStack(spacing: 6) {
+                        IconView(icon: Icons.chevron, size: 10).foregroundStyle(palette.inkFaint).rotationEffect(
+                            .degrees(shown ? 90 : 0))
+                        IconView(icon: Icons.timer, size: 13).foregroundStyle(palette.cmd)
+                        Text(fired.title).font(Theme.ui(12.5, .semibold)).foregroundStyle(palette.ink).lineLimit(1)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(fired.title)
+                .accessibilityValue(shown ? "expanded" : "collapsed")
             } content: {
                 Text(fired.prompt).sentWords(palette).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let request = fired.request {
+            if shown, let request = fired.request {
                 Button {
                     context.folds.set("\(id)/request", !open)
                 } label: {
@@ -619,7 +636,7 @@ struct EarlierLine: View {
                 .accessibilityLabel("Couldn't load earlier messages. Retry")
             } else {
                 HStack(spacing: 8) {
-                    if loading { Working() } else { Color.clear.frame(width: 13, height: 13) }
+                    if loading { Working() } else { Color.clear.frame(width: 13.5, height: 13.5) }
                     Text("Loading earlier messages…")
                 }
             }

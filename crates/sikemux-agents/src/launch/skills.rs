@@ -93,10 +93,19 @@ fn chat_opencode_config(
             .filter(Value::is_object)?,
     };
     add_opencode_paths(&mut config, own_paths, library);
-    if !config["experimental"].is_object() {
-        config["experimental"] = json!({});
+    if let Some(config) = config.as_object_mut() {
+        match config
+            .get_mut("experimental")
+            .and_then(Value::as_object_mut)
+        {
+            Some(experimental) => {
+                experimental.insert("todo".to_owned(), json!(true));
+            }
+            None => {
+                config.insert("experimental".to_owned(), json!({ "todo": true }));
+            }
+        }
     }
-    config["experimental"]["todo"] = json!(true);
     Some(config.to_string())
 }
 

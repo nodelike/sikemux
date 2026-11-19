@@ -2188,7 +2188,9 @@ mod diff {
 
     fn marked(line: &DiffLine) -> &str {
         let mark = line.mark.as_ref().expect("a marked span");
-        &line.text[mark[0] as usize..mark[1] as usize]
+        (line.text)
+            .get(mark[0] as usize..mark[1] as usize)
+            .expect("the span falls on character boundaries")
     }
 
     #[test]
@@ -3220,7 +3222,10 @@ fn a_decision_overruled_before_its_turn_ends_shows_once_as_overruled() {
         decision: 1,
         text: "Inbox for shared links".into(),
         rule: None,
+        org: None,
+        waiting: false,
         undone: false,
+        still_kept: false,
         stopped_auto: false,
     };
     chat.update(update::overruled_notice("Overruled", overruled.clone()));
@@ -3228,7 +3233,7 @@ fn a_decision_overruled_before_its_turn_ends_shows_once_as_overruled() {
     let lines = decision_lines(&mut chat);
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert_eq!(lines[0].decided, None);
-    assert_eq!(lines[0].overruled, Some(overruled));
+    assert_eq!(lines[0].overruled, Some(Box::new(overruled)));
 }
 
 #[test]

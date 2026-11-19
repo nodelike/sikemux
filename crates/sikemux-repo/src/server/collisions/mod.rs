@@ -1480,7 +1480,7 @@ fn command_text(update: &Value) -> Option<Arc<str>> {
     while !text.is_char_boundary(end) {
         end -= 1;
     }
-    Some(Arc::from(&text[..end]))
+    Some(Arc::from(text.get(..end).unwrap_or_default()))
 }
 
 /// Whether `command` names the file at `place`, as a script that writes it does.
@@ -1490,8 +1490,8 @@ fn names_file(command: &str, place: &Path) -> bool {
         .and_then(|name| name.to_str())
         .is_some_and(|name| {
             command.match_indices(name).any(|(at, _)| {
-                let before = command[..at].chars().next_back();
-                let after = command[at + name.len()..].chars().next();
+                let before = command.get(..at).and_then(|head| head.chars().next_back());
+                let after = (command.get(at + name.len()..)).and_then(|tail| tail.chars().next());
                 let edge = |c: Option<char>| {
                     c.is_none_or(|c| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.')))
                 };

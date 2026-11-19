@@ -61,6 +61,7 @@ fn main() {
             focus: !behind,
             ..Default::default()
         };
+        #[expect(clippy::expect_used, reason = "the app cannot run without its window")]
         let (window, bench) = gpui_kit::open_window(options, cx, |window, cx| {
             if let Err(error) = window.enable_scene_overlay() {
                 eprintln!("sikemux: pages will cover menus, with no overlay plane: {error}");

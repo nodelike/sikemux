@@ -51,7 +51,7 @@ impl Workbench {
     /// Notes the tab in front as visited, and whether the arrows still lead anywhere.
     pub(crate) fn note_visit(&mut self) {
         self.arrive();
-        self.visits.can_go_back = self.opened_ask.is_some() || self.next_visit(-1).is_some();
+        self.visits.can_go_back = self.opened_task.is_some() || self.next_visit(-1).is_some();
         self.visits.can_go_forward =
             self.visits.ask_forward.is_some() || self.next_visit(1).is_some();
     }

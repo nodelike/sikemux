@@ -54,7 +54,10 @@ impl RpcAgent for Session {
     }
 
     fn turn_id_in(answer: &Value) -> Option<&str> {
-        answer["turn"]["id"].as_str()
+        answer
+            .get("turn")
+            .and_then(|turn| turn.get("id"))
+            .and_then(Value::as_str)
     }
 
     fn carry_out(driver: &Driver, Predict(turn): Predict) {
@@ -68,7 +71,7 @@ impl RpcAgent for Session {
                 "effort": "low",
             });
             if let Ok(answer) = driver.rpc.request("thread/sample", params).await {
-                if let Some(text) = answer["text"].as_str() {
+                if let Some(text) = answer.get("text").and_then(Value::as_str) {
                     driver
                         .sink
                         .update(&thread, sikemux_fold::update::prompt_suggestion(text));
@@ -118,7 +121,11 @@ impl RpcAgent for Session {
             .as_ref()
             .filter(|_| question.allows(chosen.as_deref()))
         {
-            let session = question.request["sessionId"].as_str().unwrap_or_default();
+            let session = question
+                .request
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             driver.sink.update(
                 session,
                 json!({ "sessionUpdate": UpdateKind::ToolCallUpdate, "toolCallId": call, "status": "in_progress" }),
@@ -165,7 +172,13 @@ pub async fn read_options(
     let params = json!({ "cursor": null, "limit": null, "includeHidden": false });
     let listed =
         crate::agent_accounts::usage::codex_ask(command, "model/list", params, "models").await?;
-    let models = config::models(listed["data"].as_array().cloned().unwrap_or_default());
+    let models = config::models(
+        listed
+            .get("data")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+    );
     let model = models.default_model().ok_or("Codex named no models")?;
     let effort = models.effort_for(&model, None);
     Ok(models.options("Codex", &model, effort.as_deref()))
@@ -228,18 +241,22 @@ async fn turns_since(rpc: &Rpc, thread_id: &str, latest: &str) -> Result<Vec<Val
                 }),
             )
             .await?;
-        let listed = match page["data"].take() {
-            Value::Array(listed) => listed,
+        let listed = match page.get_mut("data").map(Value::take) {
+            Some(Value::Array(listed)) => listed,
             _ => Vec::new(),
         };
         for turn in listed {
-            if turn["id"] == latest {
+            if turn.get("id").is_some_and(|id| id == latest) {
                 newer.reverse();
                 return Ok(newer);
             }
             newer.push(turn);
         }
-        match page["nextCursor"].as_str().filter(|next| cursor != *next) {
+        match page
+            .get("nextCursor")
+            .and_then(Value::as_str)
+            .filter(|next| cursor != *next)
+        {
             Some(next) => cursor = next.into(),
             None => return Ok(Vec::new()),
         }
@@ -250,8 +267,8 @@ async fn turns_since(rpc: &Rpc, thread_id: &str, latest: &str) -> Result<Vec<Val
 fn data(pages: Vec<Value>) -> Vec<Value> {
     pages
         .into_iter()
-        .flat_map(|mut page| match page["data"].take() {
-            Value::Array(listed) => listed,
+        .flat_map(|mut page| match page.get_mut("data").map(Value::take) {
+            Some(Value::Array(listed)) => listed,
             _ => Vec::new(),
         })
         .collect()
@@ -363,7 +380,11 @@ impl Codex {
                 let statuses = rpc
                     .request("mcpServerStatus/list", json!({ "threadId": thread }))
                     .await?;
-                let statuses = statuses["data"].as_array().cloned().unwrap_or_default();
+                let statuses = statuses
+                    .get("data")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
                 self.driver
                     .say(&commands::servers_text(&statuses, &self.kept.servers));
             }
@@ -463,14 +484,22 @@ impl Codex {
                     }),
                 )
                 .await?;
-            let listed = page["data"].as_array().cloned().unwrap_or_default();
+            let listed = page
+                .get("data")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
             if listed.iter().any(|turn| turn["id"] == message_id) {
                 return Ok(message_id.to_owned());
             }
             if let Some(turn) = history::message_turns(&listed).remove(message_id) {
                 return Ok(turn);
             }
-            match page["nextCursor"].as_str().filter(|next| cursor != *next) {
+            match page
+                .get("nextCursor")
+                .and_then(Value::as_str)
+                .filter(|next| cursor != *next)
+            {
                 Some(next) => cursor = next.into(),
                 None => return Ok(message_id.to_owned()),
             }
@@ -522,8 +551,9 @@ impl Backend for Codex {
             .await
             .map_err(failed)?;
         // Codex names itself as `<client>/<its version> (<system>) …`.
-        let version = initialized["userAgent"]
-            .as_str()
+        let version = initialized
+            .get("userAgent")
+            .and_then(Value::as_str)
             .and_then(|agent| agent.split_once('/'))
             .and_then(|(_, rest)| rest.split_whitespace().next());
         if let Some(version) = version {
@@ -541,7 +571,7 @@ impl Backend for Codex {
         let account = rpc
             .request("account/read", json!({ "refreshToken": false }))
             .await
-            .map(|read| read["account"].clone())
+            .map(|read| read.get("account").cloned().unwrap_or(Value::Null))
             .unwrap_or(Value::Null);
         let models = if launch.model_provider.is_some() {
             Models::default()
@@ -567,14 +597,18 @@ impl Backend for Codex {
             .filter(|_| !lines.is_empty())
             .map(|read| config::developer_instructions(read, &lines.join("\n\n")));
         let session_config = config::session_config(&cwd, &tools, &configured);
-        let servers: Vec<String> = session_config["mcp_servers"]
-            .as_object()
+        let servers: Vec<String> = session_config
+            .get("mcp_servers")
+            .and_then(Value::as_object)
             .map(|servers| servers.keys().cloned().collect())
             .unwrap_or_default();
         let start_thread = || {
             let mut params = json!({ "cwd": cwd, "config": session_config });
-            if let Some(instructions) = &instructions {
-                params["developerInstructions"] = instructions.as_str().into();
+            if let (Some(instructions), Some(fields)) = (&instructions, params.as_object_mut()) {
+                fields.insert(
+                    "developerInstructions".to_owned(),
+                    instructions.as_str().into(),
+                );
             }
             rpc.request("thread/start", params)
         };
@@ -598,7 +632,7 @@ impl Backend for Codex {
             None => start_thread().await,
         }
         .map_err(failed)?;
-        let thread = &opened["thread"];
+        let thread = opened.get("thread").unwrap_or(&Value::Null);
         let thread_id = thread["id"]
             .as_str()
             .ok_or("Codex opened a thread without an id")?
@@ -614,14 +648,24 @@ impl Backend for Codex {
             .model
             .clone()
             .filter(|model| models.offers(model))
-            .or_else(|| opened["model"].as_str().map(str::to_owned))
+            .or_else(|| {
+                opened
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
             .or_else(|| models.default_model())
             .unwrap_or_default();
         let wanted = launch
             .effort
             .clone()
             .filter(|effort| models.supports_effort(&model, effort))
-            .or_else(|| opened["reasoningEffort"].as_str().map(str::to_owned));
+            .or_else(|| {
+                opened
+                    .get("reasoningEffort")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            });
         let effort = models.effort_for(&model, wanted.as_deref());
 
         let codex = Self {
@@ -668,7 +712,11 @@ impl Backend for Codex {
         if let Some(command) = commands::parse(&prompt.text) {
             return self.command(turn, &prompt, command).await;
         }
-        let summary = if self.kept.account["type"] == "apiKey"
+        let summary = if self
+            .kept
+            .account
+            .get("type")
+            .is_some_and(|kind| kind == "apiKey")
             || !self.kept.models.reasons(&self.kept.model)
         {
             "none"

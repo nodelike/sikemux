@@ -515,7 +515,8 @@ pub(crate) async fn call(
         return sikemux_repo::server::credential::merge(core, &request, peer, port).await;
     }
     if request.method == GH_RUN_METHOD {
-        let args: Vec<String> = (request.params["args"].as_array().into_iter().flatten())
+        let args = request.params.get("args").and_then(Value::as_array);
+        let args: Vec<String> = (args.into_iter().flatten())
             .filter_map(|arg| arg.as_str().map(str::to_owned))
             .collect();
         return sikemux_repo::server::codehost::gh_run::call(core, &request.project, &args).await;
@@ -563,7 +564,9 @@ pub(crate) async fn record_write(
         "task.claim" => board::claim(core, request).await,
         "task.update" => board::update(core, request).await,
         "decision.keep" => board::goal::tool(core, request).await,
-        method => Err(format!("{method} does not write a project's board")),
+        "memory.add" => super::memory::tool_add(core, request).await,
+        "memory.update" => super::memory::tool_update(core, request).await,
+        method => Err(format!("{method} does not write a project's record")),
     }
 }
 
@@ -624,7 +627,9 @@ async fn dispatch(
         "agent.wrote" => super::who_wrote::tool(core, &request).await,
         "agent.why" => super::why::tool(core, &request).await,
         "task.add" => board::add(core, &request).await,
-        "task.list" => board::list(core, &request).await,
+        "task.list" => {
+            super::peer::with_teammates(core, &request, board::list(core, &request).await)
+        }
         "task.claim" => board::claim(core, &request).await,
         "task.update" if request.params.get("asked").is_some() => {
             super::now::asks::done(core, &request)
@@ -701,7 +706,8 @@ async fn dispatch(
     }
 }
 
-/// The agents a start or a message reached take the asks of the caller's turn, and those it names.
+/// The agents a start or a message reached take the asks it names, and those of the caller's turn
+/// when it hands them on as work.
 fn handing(
     core: &Core,
     request: &HarnessRequest,
@@ -714,9 +720,12 @@ fn handing(
         .chain(value["sent"].as_array().into_iter().flatten())
         .filter_map(|reached| reached["agentId"].as_str().map(str::to_owned))
         .collect();
-    let named: Vec<u64> = request.params["task"].as_u64().into_iter().collect();
-    let title = request.params["title"].as_str();
-    super::now::asks::handed(core, from, &reached, &named, title);
+    let named: Vec<u64> = (request.params.get("task").and_then(Value::as_u64))
+        .into_iter()
+        .collect();
+    let title = request.params.get("title").and_then(Value::as_str);
+    let work = request.params.get("work").and_then(Value::as_bool) == Some(true);
+    super::now::asks::handed(core, from, &reached, &named, title, work);
     answer
 }
 
@@ -793,6 +802,12 @@ impl super::part::Part for Harness {
     }
 }
 
+fn set_param(params: &mut Value, key: &str, value: Value) {
+    if let Some(fields) = params.as_object_mut() {
+        fields.insert(key.to_owned(), value);
+    }
+}
+
 /// Opens what the tool names on the agent's desk, each kind with what the window needs of it.
 async fn ui_open(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, String> {
     let mut request = request;
@@ -806,7 +821,11 @@ async fn ui_open(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, Str
                 .map_err(|error| error.to_string())?;
         match resolved {
             Ok(Some(path)) if path.is_file() => {
-                request.params["path"] = path.to_string_lossy().into_owned().into();
+                set_param(
+                    &mut request.params,
+                    "path",
+                    path.to_string_lossy().into_owned().into(),
+                );
             }
             _ => return Err("File must be inside the project".into()),
         }
@@ -817,13 +836,15 @@ async fn ui_open(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, Str
             .harness()
             .read(|state| state.run(&request.project, execution_id))?;
         if let Some(session) = run.pty_id {
-            request.params["session"] = session.into();
-            request.params["title"] = run.label.unwrap_or(run.task_id).into();
+            set_param(&mut request.params, "session", session.into());
+            let title = run.label.unwrap_or(run.task_id);
+            set_param(&mut request.params, "title", title.into());
         }
     }
     if kind.as_deref() == Some("mod") {
         let id = required_text(&request.params, "mod")?.to_owned();
-        request.params["title"] = super::mods::title(core, &id).await?.into();
+        let title = super::mods::title(core, &id).await?;
+        set_param(&mut request.params, "title", title.into());
     }
     if kind.as_deref() == Some("preview") {
         if request.agent_id.is_none() {
@@ -844,7 +865,7 @@ async fn ui_open(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, Str
         .await
         .map_err(|error| error.to_string())?;
         let url = url.ok_or("No preview URL is configured in sikemux.json")?;
-        request.params["url"] = url.into();
+        set_param(&mut request.params, "url", url.into());
     }
     let project = request.project.clone();
     let agent = request.agent_id.clone();

@@ -1,0 +1,39 @@
+# The Share menu of a project the person shares with Acme, naming who can read its board.
+stage 1760 1000
+window 1760 1000
+prefer themeId aura-noir
+prefer starAsked true
+replies tasks.json
+team acme https://acme.invalid/storefront.git
+project storefront shop-site
+chat Senku
+title "Invoice pay button"
+say "Pay button on the invoice does nothing in Safari" tasks/invoice.jpg tasks/invoice-phone.jpg tasks/cart-phone.jpg
+settle 2
+core closeChat {"agentId":"$chat"}
+chat Kaguya
+title "Gift note"
+say "Add a gift note field at checkout"
+settle 2
+core closeChat {"agentId":"$chat"}
+chat Rimuru
+title "Receipt rounding"
+say "Some orders come out a cent off on the receipt [Image #1], like @Nami saw with tax" tasks/cart.jpg tasks/cart-phone.jpg
+chat Yuno
+title "Search order"
+say "Search puts sold-out items first"
+chat Nami
+title "Tax per country"
+say "Tax shows 19% for every country" tasks/cart.jpg
+core openChief {"project":"storefront"}
+settle 6
+key cmd-alt-7
+settle 4
+click 1390,62
+settle 1
+snap share-menu
+click 1167,142
+settle 2
+click 1385,62
+settle 2
+snap share

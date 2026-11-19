@@ -14,7 +14,7 @@ pub use sikemux_calls::memory::{
     KeepSeededParams, MemoryEntryParams, MemoryParams, MemoryUpdateParams,
 };
 pub use sikemux_calls::memory::{MemoryAddParams, NewMemory};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -40,19 +40,29 @@ use crate::text::to_keep;
 
 mod brief;
 mod check;
+pub(crate) mod moving;
 mod now_check;
+mod org;
 mod promote;
+mod record;
 mod removed;
 mod seed;
+mod waiting;
 
 pub(crate) use brief::{brief, for_chat};
 pub(crate) use check::settle;
 pub(crate) use now_check::{set_aside, why as set_aside_why, SetAside};
-pub(crate) use promote::promote;
+pub(crate) use promote::{promote, promote_all};
+pub(crate) use record::{
+    free_elsewhere, free_here, is_copy, kept_here, merge_in, mirror, moving_to,
+    personal as writes_personal, record, record_at, written_at_home,
+    APP_WRITES as APP_RECORD_WRITES,
+};
 pub(crate) use removed::{
     chat_ready, feed_moved, show_on as rules_missing, take_note as take_removed_note,
 };
 pub(crate) use seed::{again as seed_again, keep as keep_seeded};
+pub(crate) use waiting::answered as waiting_answered;
 
 const FOLDER: &str = "memory";
 const MAX_STORES: usize = 256;
@@ -62,6 +72,7 @@ const MAX_TEXT_CHARS: usize = 1000;
 const MAX_ABOUT: usize = 12;
 const MAX_ABOUT_CHARS: usize = 200;
 const MAX_CHECK_CHARS: usize = 1000;
+const NOT_SHARED: &str = "This project is not shared with an org";
 
 /// What one store keeps. Kept even once empty, so `next` never goes back.
 #[derive(Clone, Serialize, Deserialize)]
@@ -83,11 +94,96 @@ struct Held {
     /// Rules kept from a chat's words that the person removed, until that chat's agent hears it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     removed: Vec<removed::Removed>,
+    /// Entries whose offer to move to the other store the person turned down.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    not_now: BTreeSet<u64>,
+    /// Other projects' rules in the same words, taken in when one moved into the person's store.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    absorbed: Vec<moving::Absorbed>,
+    /// It is a copy of what another host, the project's home, sent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    mirrored: bool,
+    /// For an org's store, the member who put each entry there.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    writers: BTreeMap<u64, String>,
+    /// For an org's store, its entry in the org's vault as last read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    base: Option<org::Base>,
+    /// Entries of a project's own store the person moved to its org's, waiting for an owner or
+    /// admin to keep them there.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    waiting: BTreeSet<u64>,
+    /// Entries an owner or admin dropped from the org's waiting list, by that admin's first name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    dropped: BTreeMap<u64, String>,
+    /// Entries the org's vault would not take, kept here instead, with the vault's reason.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    refused: BTreeMap<u64, String>,
+    /// For an org's store, what an owner or admin here kept from a teammate's waiting list and
+    /// the vault does not hold yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    keeps: Vec<waiting::Keep>,
+    /// For an org's store, what an owner or admin here dropped from a teammate's waiting list
+    /// and the vault does not hold yet, by member and entry, with the hash of the words read.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    drops: BTreeMap<String, String>,
+    /// The org the project was shared with when `waiting`, `dropped` and `refused` were last
+    /// kept; they end with that share.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    shared_with: Option<String>,
+    /// For an org's store, the project's own store and the membership it was kept for here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    kept_for: Option<org::KeptFor>,
+    /// The keys this store was kept under before its project's identity changed.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    was: BTreeSet<String>,
+    /// Entries given a new number when the org's store came to hold their old one, old to new.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    renumbered: BTreeMap<u64, u64>,
 }
 
 impl Held {
+    fn new(key: &str, store: Store) -> Self {
+        Self {
+            key: key.to_owned(),
+            store,
+            next: 1,
+            rules: Vec::new(),
+            knowledge: Vec::new(),
+            seeding: None,
+            set_aside: Vec::new(),
+            removed: Vec::new(),
+            not_now: BTreeSet::new(),
+            absorbed: Vec::new(),
+            mirrored: false,
+            writers: BTreeMap::new(),
+            base: None,
+            waiting: BTreeSet::new(),
+            dropped: BTreeMap::new(),
+            refused: BTreeMap::new(),
+            keeps: Vec::new(),
+            drops: BTreeMap::new(),
+            shared_with: None,
+            kept_for: None,
+            was: BTreeSet::new(),
+            renumbered: BTreeMap::new(),
+        }
+    }
+
     fn len(&self) -> usize {
         self.rules.len() + self.knowledge.len()
+    }
+
+    fn words(&self, id: u64) -> Option<&str> {
+        let rule = self
+            .rules
+            .iter()
+            .find(|rule| rule.id == id)
+            .map(|rule| &rule.text);
+        rule.or_else(|| {
+            (self.knowledge.iter().find(|known| known.id == id)).map(|known| &known.text)
+        })
+        .map(String::as_str)
     }
 
     fn holds(&self, id: u64) -> bool {
@@ -102,6 +198,13 @@ impl Held {
         self.seeding = self.seeding.take().or(from.seeding);
         self.set_aside.extend(from.set_aside);
         self.removed.extend(from.removed);
+        self.not_now.extend(from.not_now);
+        self.absorbed.extend(from.absorbed);
+        self.waiting.extend(from.waiting);
+        self.dropped.extend(from.dropped);
+        self.refused.extend(from.refused);
+        self.was.extend(from.was);
+        self.renumbered.extend(from.renumbered);
     }
 }
 
@@ -120,9 +223,27 @@ struct State {
     promoting: Option<u64>,
     /// Each chief's turn, and the rules it named said again in that turn.
     said_again: HashMap<String, (Option<u64>, HashSet<u64>)>,
+    /// The project stores saved since their home last sent them to the linked hosts.
+    saved: BTreeSet<String>,
+    /// The lowest id no linked host has given an entry yet, so one kept here never takes the id
+    /// of a linked host's own note.
+    free_elsewhere: u64,
+    /// The projects open here shared with an org, by their own store's key.
+    shared: HashMap<String, org::Shared>,
+    /// The projects open here shared with an org whose vault this host cannot open yet, by their
+    /// own store's key, with the org's name.
+    shut: HashMap<String, String>,
 }
 
 impl State {
+    /// The one folder on this host that stands for a project's key, the same on every read.
+    fn folder_of(&self, key: &str) -> Option<&String> {
+        (self.keys.iter())
+            .filter(|(_, kept)| *kept == key)
+            .map(|(folder, _)| folder)
+            .min()
+    }
+
     /// The key of the store of the project in folder `project`.
     fn key_of(&self, project: &str) -> String {
         (self.keys.get(project).cloned()).unwrap_or_else(|| project.to_owned())
@@ -132,13 +253,20 @@ impl State {
         match store {
             Store::Project => self.key_of(project),
             Store::Personal => PERSONAL.to_owned(),
+            Store::Org => self.org_key(project).unwrap_or_default(),
         }
     }
 
-    /// The stores whose entries apply to `project`: its own, then the person's.
+    /// The key of the store of the org `project` is shared with.
+    fn org_key(&self, project: &str) -> Option<String> {
+        self.shared.get(&self.key_of(project)).map(org::Shared::key)
+    }
+
+    /// The stores whose entries apply to `project`: its own, its org's, then the person's.
     fn applying<'a>(&'a self, project: &str) -> impl Iterator<Item = &'a Held> + 'a {
         [
             self.held.get(&self.key_of(project)),
+            (self.org_key(project)).and_then(|key| self.held.get(&key)),
             self.held.get(PERSONAL),
         ]
         .into_iter()
@@ -150,6 +278,14 @@ impl State {
         self.held.get(&self.key_of(project))
     }
 
+    /// The number entry `id` has now, when `id` is one a chat line kept before the entry was
+    /// renumbered.
+    fn kept_id(&self, project: &str, id: u64) -> u64 {
+        self.applying(project)
+            .find_map(|held| held.renumbered.get(&id).copied())
+            .unwrap_or(id)
+    }
+
     /// The key of the store applying to `project` that keeps entry `id`.
     fn key_holding(&self, project: &str, id: u64) -> Result<String, String> {
         self.applying(project)
@@ -159,24 +295,31 @@ impl State {
     }
 
     /// A folder on this host to test a store's knowledge in: the person's home for their own
-    /// store, else a folder of the project's.
+    /// store, else a folder of the project's; none for a store of no project open here.
     fn folder_of_store(&self, held: &Held) -> Option<PathBuf> {
         match held.store {
             Store::Personal => std::env::var_os("HOME").map(PathBuf::from),
-            Store::Project => (self.keys.iter())
-                .find(|(_, key)| **key == held.key)
+            Store::Project => self.folder_of(&held.key).map(PathBuf::from),
+            Store::Org => (self.keys.iter())
+                .filter(|(_, key)| self.shared.get(*key).is_some_and(|is| is.key() == held.key))
                 .map(|(folder, _)| PathBuf::from(folder))
-                .or_else(|| {
-                    Path::new(&held.key)
-                        .is_absolute()
-                        .then(|| PathBuf::from(&held.key))
-                }),
+                .min(),
         }
+    }
+
+    /// Whether the store is the person's own, or a project's or its org's open on this host.
+    fn in_use(&self, held: &Held) -> bool {
+        held.store == Store::Personal
+            || self.keys.values().any(|key| *key == held.key)
+            || self.shared.values().any(|shared| shared.key() == held.key)
     }
 
     /// An id no entry has ever had.
     fn next_id(&mut self, key: &str) -> u64 {
-        let id = self.held.values().map(|held| held.next).max().unwrap_or(1);
+        let id = (self.held.values().map(|held| held.next))
+            .chain([self.free_elsewhere])
+            .max()
+            .unwrap_or(1);
         if let Some(held) = self.held.get_mut(key) {
             held.next = id + 1;
         }
@@ -192,6 +335,16 @@ pub(crate) struct Memory {
     promotes: Mutex<()>,
     /// Tests knowledge once it is due.
     pub(crate) wake: Wake,
+    /// What the person said in the turn of each agent on a linked host whose write this host,
+    /// the project's home, is doing now.
+    said_elsewhere: Mutex<HashMap<String, Vec<String>>>,
+    /// Each agent told that a number it named was renumbered, with that number, so its next update
+    /// by the number is taken as written.
+    told_renumbered: Mutex<HashSet<(String, u64)>>,
+    /// Told when an org's store is saved here, or shares changed, to sync with the org's vault.
+    org_sync: Arc<tokio::sync::Notify>,
+    /// What this host's owner or admin answered of entries waiting on an org's list.
+    answers: Mutex<waiting::Answers>,
 }
 
 impl Memory {
@@ -217,6 +370,10 @@ impl Memory {
             folder,
             promotes: Mutex::new(()),
             wake: Wake::default(),
+            said_elsewhere: Mutex::default(),
+            told_renumbered: Mutex::default(),
+            org_sync: Arc::default(),
+            answers: Mutex::default(),
         }
     }
 
@@ -228,9 +385,22 @@ impl Memory {
             held,
             files,
             promoting,
+            saved,
+            shared,
             ..
         } = state;
-        let held = held.get(key)?;
+        let held = held.get_mut(key)?;
+        match held.store {
+            Store::Project => drop(saved.insert(key.to_owned())),
+            Store::Org => {
+                if let Some(shared) = shared.values().find(|shared| shared.key() == key) {
+                    org::own_unwritten(held, &shared.member);
+                }
+                self.org_sync.notify_one();
+            }
+            Store::Personal => {}
+        }
+        let held = &*held;
         let file = files
             .entry(key.to_owned())
             .or_insert_with(|| Arc::new(Kept::new(self.folder.as_deref(), &kept::file_for(key))));
@@ -266,9 +436,11 @@ impl Memory {
 
 /// A store an earlier core kept by a folder's path, read as that project's.
 fn keyed_by_store(mut value: Value) -> Value {
-    if let Some(folder) = (value.as_object_mut()).and_then(|held| held.remove("folder")) {
-        value["key"] = folder;
-        value["store"] = json!("project");
+    if let Some(held) = value.as_object_mut() {
+        if let Some(folder) = held.remove("folder") {
+            held.insert("key".into(), folder);
+            held.insert("store".into(), json!("project"));
+        }
     }
     value
 }
@@ -285,13 +457,34 @@ pub(crate) fn rekey(core: &Core, renamed: &[(String, String)]) {
         .collect();
     let memory = core.memory();
     let mut state = memory.state.locked();
-    let moves: Vec<(String, String)> = (keys.iter())
+    let renames: Vec<(String, String)> = (keys.iter())
         .filter(|(folder, key)| folder != key)
         .map(|(folder, key)| (folder.clone(), key.clone()))
         .chain(renamed.iter().cloned())
-        .filter(|(old, new)| old != new && state.held.contains_key(old))
+        .filter(|(old, new)| old != new)
         .collect();
     state.keys = keys;
+    for (old, new) in &renames {
+        if let Some(shared) = state.shared.remove(old) {
+            state.shared.insert(new.clone(), shared);
+        }
+        if let Some(shut) = state.shut.remove(old) {
+            state.shut.insert(new.clone(), shut);
+        }
+        let following: Vec<String> = (state.held.values_mut())
+            .filter_map(|held| {
+                let kept_for = (held.kept_for.as_mut()).filter(|kept| kept.local == *old)?;
+                kept_for.local = new.clone();
+                Some(held.key.clone())
+            })
+            .collect();
+        for key in following {
+            memory.save(&mut state, &key);
+        }
+    }
+    let moves: Vec<(String, String)> = (renames.into_iter())
+        .filter(|(old, _)| state.held.contains_key(old))
+        .collect();
     if moves.is_empty() {
         return;
     }
@@ -299,6 +492,7 @@ pub(crate) fn rekey(core: &Core, renamed: &[(String, String)]) {
         let Some(mut moving) = state.held.remove(&old) else {
             continue;
         };
+        moving.was.insert(old.clone());
         match state.held.get_mut(&new) {
             Some(held) => held.take_in(moving),
             None => {
@@ -306,7 +500,12 @@ pub(crate) fn rekey(core: &Core, renamed: &[(String, String)]) {
                 state.held.insert(new.clone(), moving);
             }
         }
-        memory.save(&mut state, &new);
+        let pointing: Vec<String> = (state.held.values_mut())
+            .filter_map(|held| moving::rekeyed(held, &old, &new).then(|| held.key.clone()))
+            .collect();
+        for key in pointing.iter().chain([&new]) {
+            memory.save(&mut state, key);
+        }
         memory.forget(&mut state, &old);
     }
     drop(state);
@@ -315,11 +514,10 @@ pub(crate) fn rekey(core: &Core, renamed: &[(String, String)]) {
 
 impl crate::server::part::Part for Memory {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
-        vec![crate::server::part::on_wake(
-            core,
-            |core| &core.memory().wake,
-            settle,
-        )]
+        vec![
+            crate::server::part::on_wake(core, |core| &core.memory().wake, woke),
+            tokio::spawn(org::serve(core.clone())),
+        ]
     }
 
     fn flush(&self) {
@@ -330,9 +528,20 @@ impl crate::server::part::Part for Memory {
     }
 }
 
+/// Which projects are shared with which orgs may have changed.
+pub(crate) fn shares_changed(core: &Core) {
+    core.memory().org_sync.notify_one();
+}
+
+fn woke(core: &Arc<Core>) {
+    crate::server::hosts::record::memory_changed(core, record::saved_since(core));
+    settle(core);
+}
+
 /// Clients read what is kept again, and the inbox moves when knowledge went
 /// stale or holds again.
 fn tell_clients(core: &Core, stale_moved: bool) {
+    core.hosts().copies.wake.now();
     core.changed(What::Read(Topic::Memory));
     core.changed(What::Read(Topic::Playbook));
     if stale_moved {
@@ -376,32 +585,56 @@ fn checked_check(check: MemoryCheck) -> Result<MemoryCheck, String> {
 
 /// What the store under `key` keeps, kept from now on when it kept nothing yet.
 fn holding<'a>(state: &'a mut State, key: &str, store: Store) -> Result<&'a mut Held, String> {
-    if !state.held.contains_key(key) && state.held.len() >= MAX_STORES {
+    let in_use = state
+        .held
+        .values()
+        .filter(|held| state.in_use(held))
+        .count();
+    if !state.held.contains_key(key) && in_use >= MAX_STORES {
         return Err(format!(
             "Sikemux already keeps rules and knowledge for {MAX_STORES} projects, as many as it can"
         ));
     }
-    Ok(state.held.entry(key.to_owned()).or_insert_with(|| Held {
-        key: key.to_owned(),
-        store,
-        next: 1,
-        rules: Vec::new(),
-        knowledge: Vec::new(),
-        seeding: None,
-        set_aside: Vec::new(),
-        removed: Vec::new(),
+    let shared_with = (store == Store::Project)
+        .then(|| state.shared.get(key).map(|shared| shared.org.clone()))
+        .flatten();
+    Ok((state.held.entry(key.to_owned())).or_insert_with(|| Held {
+        shared_with,
+        ..Held::new(key, store)
     }))
 }
 
+/// What the store under `key` keeps, or the person's own store once no other can be kept.
+fn holding_or_personal<'a>(state: &'a mut State, key: &str, store: Store) -> &'a mut Held {
+    let (key, store) = match key != PERSONAL && holding(state, key, store).is_ok() {
+        true => (key, store),
+        false => (PERSONAL, Store::Personal),
+    };
+    (state.held.entry(key.to_owned())).or_insert_with(|| Held::new(key, store))
+}
+
+/// Keeps a new entry in the store it names. Nothing goes to an org's store this way: an entry
+/// reaches it only by the person's move.
 fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u64, String> {
+    let learned = moving::named(core, learned);
     let (text, store) = match &new {
         NewMemory::Rule { text, store, .. } | NewMemory::Knowledge { text, store, .. } => {
             (to_keep(text, "text", MAX_TEXT_CHARS)?, *store)
         }
     };
+    if store == Store::Org {
+        return Err(
+            "A new rule can't go straight to the org's rules: add it to the project, \
+            then move it there"
+                .into(),
+        );
+    }
     let mut state = core.memory().state.locked();
-    let folder = state.key_for(project, store);
-    let held = holding(&mut state, &folder, store)?;
+    let key = state.key_for(project, store);
+    if key.is_empty() {
+        return Err(NOT_SHARED.into());
+    }
+    let held = holding(&mut state, &key, store)?;
     if held.len() >= MAX_ENTRIES {
         return Err(format!(
             "That store already keeps {MAX_ENTRIES} rules and knowledge; retire some first"
@@ -418,10 +651,10 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
     if let Some(id) = known {
         return Err(format!("Sikemux already keeps that, as #{id}"));
     }
-    let id = state.next_id(&folder);
+    let id = state.next_id(&key);
     let held = state
         .held
-        .get_mut(&folder)
+        .get_mut(&key)
         .ok_or("the store went while it was being written to")?;
     match new {
         NewMemory::Rule { sensitive, .. } => {
@@ -431,6 +664,7 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
                 sensitive,
                 learned,
                 was: None,
+                moved: None,
             });
         }
         NewMemory::Knowledge {
@@ -448,9 +682,15 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
             was: None,
             checked: None,
             stale: None,
+            moved: None,
         }),
     }
-    core.memory().save(&mut state, &folder);
+    if let Some(full) = org::too_big(held) {
+        held.rules.retain(|rule| rule.id != id);
+        held.knowledge.retain(|known| known.id != id);
+        return Err(full);
+    }
+    core.memory().save(&mut state, &key);
     drop(state);
     tell_clients(core, false);
     Ok(id)
@@ -482,6 +722,12 @@ fn amend(
     update: MemoryUpdateParams,
     by: Learned,
 ) -> Result<(), String> {
+    if let Some(store) = update.store {
+        return moving::move_to(core, project, update.id, store, by);
+    }
+    if update.not_now {
+        return moving::not_now(core, project, update.id);
+    }
     let Some(card) = update.goal else {
         return change(core, project, update, by);
     };
@@ -533,6 +779,14 @@ fn change(
     let about = update.about.map(abouts).transpose()?;
     let check = update.check.map(checked_check).transpose()?;
     let id = update.id;
+    {
+        let state = core.memory().state.locked();
+        let refused = (state.key_holding(project, id).ok())
+            .and_then(|key| org::refused(&state, project, &key, by.agent.is_some()));
+        if let Some(refused) = refused {
+            return Err(refused);
+        }
+    }
     let only_id = saying == 0 && about.is_none() && check.is_none() && !update.drop_check;
     if now_check::is_set_aside(core, project, id) {
         return match only_id {
@@ -570,8 +824,8 @@ fn change(
     if state.promoting == Some(id) {
         return Err(format!("#{id} is being written into AGENTS.md"));
     }
-    let folder = state.key_holding(project, id)?;
-    let persons_rule = (state.held.get(&folder))
+    let key = state.key_holding(project, id)?;
+    let persons_rule = (state.held.get(&key))
         .and_then(|held| held.rules.iter().find(|rule| rule.id == id))
         .filter(|rule| rule.learned.agent.is_none());
     if let Some(rule) = persons_rule.filter(|_| acting.is_some()) {
@@ -579,11 +833,12 @@ fn change(
     }
     let note_id =
         (acting.is_some() && persons_rule.is_some() && text.is_some() && !new_words_persons)
-            .then(|| state.next_id(&folder));
+            .then(|| state.next_id(&key));
     let held = state
         .held
-        .get_mut(&folder)
+        .get_mut(&key)
         .ok_or("the store went while it was being changed")?;
+    let store = held.store;
     let mut stale_moved = false;
     let (mut line, mut back, mut undone_already, mut removed_from) = (None, None, None, None);
     if let Some(rule) = held.rules.iter_mut().find(|rule| rule.id == id) {
@@ -603,9 +858,9 @@ fn change(
                     agent,
                     name: learned.name.take(),
                 });
-                rule.learned = learned;
+                rule.learned = moving::reworded(&rule.learned, learned);
                 line = Some((
-                    now_check::line(core, project, rule, &agent, None, Some(was.clone())),
+                    now_check::line(core, project, store, rule, &agent, None, Some(was.clone())),
                     agent,
                 ));
                 rule.was = Some(was);
@@ -615,7 +870,7 @@ fn change(
                     .ok_or("the rule went while it was being changed")?;
                 let rule = held.rules.remove(at);
                 line = Some((
-                    now_check::line(core, project, &rule, &agent, None, None),
+                    now_check::line(core, project, store, &rule, &agent, None, None),
                     agent.clone(),
                 ));
                 held.set_aside.push(now_check::SetAside {
@@ -630,6 +885,7 @@ fn change(
                     sensitive: false,
                     learned: by,
                     was: None,
+                    moved: None,
                 });
             }
             (Some(text), None) => {
@@ -641,7 +897,7 @@ fn change(
                     undone_already = Some(flat);
                 }
                 back = put_back.and(changed_by);
-                rule.learned = by;
+                rule.learned = moving::reworded(&rule.learned, by);
                 rule.was = Some(was);
             }
             (None, agent) => {
@@ -653,7 +909,7 @@ fn change(
                     .map(|with| with.agent.clone());
                 if let Some(agent) = agent {
                     line = Some((
-                        now_check::line(core, project, &rule, &agent, None, None),
+                        now_check::line(core, project, store, &rule, &agent, None, None),
                         agent.clone(),
                     ));
                     held.set_aside.push(now_check::SetAside {
@@ -676,7 +932,7 @@ fn change(
         let was_stale = known.stale.is_some();
         if let Some(text) = text {
             known.was = Some(std::mem::replace(&mut known.text, text));
-            known.learned = by.clone();
+            known.learned = moving::reworded(&known.learned, by.clone());
             known.stale = None;
             known.checked = None;
         }
@@ -702,7 +958,10 @@ fn change(
     if update.retire {
         state.wanted.remove(&id);
     }
-    core.memory().save(&mut state, &folder);
+    if let Some(held) = state.held.get_mut(&key) {
+        waiting::recheck(held);
+    }
+    core.memory().save(&mut state, &key);
     drop(state);
     tell_clients(core, stale_moved);
     if let Some((line, agent)) = line {
@@ -712,10 +971,10 @@ fn change(
         removed::show(core, &agent);
     }
     if let Some(agent) = back {
-        let rule = (core.memory().state.locked().held.get(&folder))
+        let rule = (core.memory().state.locked().held.get(&key))
             .and_then(|held| held.rules.iter().find(|rule| rule.id == id).cloned());
         if let Some(rule) = rule {
-            let mut line = now_check::line(core, project, &rule, &agent, None, None);
+            let mut line = now_check::line(core, project, store, &rule, &agent, None, None);
             line.restored = true;
             crate::server::chief::rule_back(core, line, &agent);
         }
@@ -740,7 +999,7 @@ fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
             let rules: Vec<ListedRule> = (held.rules.iter())
                 .filter(|rule| shows_sensitive || !rule.sensitive)
                 .map(|rule| ListedRule {
-                    stays: promote::stays(rule, &file),
+                    stays: promote::stays(rule, held.store, &file),
                     rule: rule.clone(),
                 })
                 .collect();
@@ -764,9 +1023,60 @@ fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
 /// knowledge kept, the project's store first. Sensitive entries show only in Sikemux's own window.
 pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entry>, Vec<Entry>) {
     let shows_sensitive = matches!(peer, Peer::App);
+    let me = moving::first_name(core);
+    let someone = |learned: &Learned| {
+        (learned.person.clone()).filter(|person| me.as_ref().is_some_and(|me| me != person))
+    };
     let state = core.memory().state.locked();
+    let offers = moving::Offers::new(&state, project);
+    let shared = state.shared.get(&state.key_of(project));
+    let shut = (state.shut.get(&state.key_of(project))).filter(|_| shared.is_none());
+    let org = (shared.map(|shared| &shared.name)).or(shut).cloned();
     let (mut rules, mut notes) = (Vec::new(), Vec::new());
     for held in state.applying(project) {
+        let came_from = state.key_for(project, held.store.other());
+        let mine = |id: u64| {
+            held.store != Store::Org
+                || shared.is_some_and(|shared| held.writers.get(&id) == Some(&shared.member))
+        };
+        let someone = |id: u64, learned: &Learned| match (held.store, shared) {
+            (Store::Org, Some(shared)) => (held.writers.get(&id))
+                .filter(|writer| **writer != shared.member)
+                .and_then(|writer| shared.members.get(writer).cloned().flatten()),
+            _ => someone(learned),
+        };
+        let teammate = |id: u64| match (held.store, shared) {
+            (Store::Org, Some(shared)) => (held.writers.get(&id))
+                .filter(|writer| **writer != shared.member)
+                .map(|writer| shared.members.contains_key(writer)),
+            _ => None,
+        };
+        let undoable = |id: u64, moved: &Option<sikemux_view::memory::Moved>| {
+            (moving::back(&state, moved, &came_from) && mine(id))
+                .then(|| moved.as_ref().map(|moved| moved.by.clone()))
+                .flatten()
+        };
+        let org_of = |id: u64| {
+            (org.clone())
+                .filter(|_| held.store != Store::Personal || held.refused.contains_key(&id))
+        };
+        let org = org.clone().filter(|_| held.store != Store::Personal);
+        let local = held.store == Store::Project && org.is_some();
+        let asks = local && shared.is_some_and(|shared| !shared.writes);
+        let refused = |id: u64, sensitive: bool, text: &str| {
+            let why = (held.refused.get(&id).filter(|_| shared.is_some()).cloned()).or_else(|| {
+                (asks && waiting::Waiting::is_sensitive(sensitive, text))
+                    .then(|| waiting::SENSITIVE.to_owned())
+            });
+            match why {
+                Some(why) if sensitive && why == waiting::SENSITIVE => {
+                    Some(waiting::SENSITIVE_ROW.to_owned())
+                }
+                why => why,
+            }
+        };
+        let waiting = |id: u64| local && held.waiting.contains(&id);
+        let dropped = |id: u64| (held.dropped.get(&id)).filter(|_| local).cloned();
         for rule in held
             .rules
             .iter()
@@ -780,6 +1090,17 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 stale: false,
                 sensitive: rule.sensitive,
                 store: held.store,
+                moved: undoable(rule.id, &rule.moved),
+                someone: someone(rule.id, &rule.learned),
+                theirs: teammate(rule.id).is_some(),
+                left: teammate(rule.id) == Some(false),
+                offer: (offers.for_rule(held, rule)).filter(|_| !waiting(rule.id)),
+                org: org_of(rule.id),
+                waiting: waiting(rule.id),
+                dropped: dropped(rule.id),
+                refused: refused(rule.id, rule.sensitive, &rule.text),
+                asks,
+                shut: local && shut.is_some(),
             };
             match rule.learned.agent {
                 None => rules.push(kept),
@@ -799,6 +1120,17 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 stale: known.stale.is_some(),
                 sensitive: known.sensitive,
                 store: held.store,
+                moved: undoable(known.id, &known.moved),
+                someone: someone(known.id, &known.learned),
+                theirs: teammate(known.id).is_some(),
+                left: teammate(known.id) == Some(false),
+                offer: None,
+                org: org_of(known.id),
+                waiting: waiting(known.id),
+                dropped: dropped(known.id),
+                refused: refused(known.id, known.sensitive, &known.text),
+                asks,
+                shut: local && shut.is_some(),
             });
         }
     }
@@ -844,7 +1176,10 @@ pub(crate) fn stale(core: &Core) -> Vec<StaleKnowledge> {
                 Some(Stale::Disputed { why, by }) => (why.clone(), by.at, by.agent.clone()),
             };
             let project = match held.store {
-                Store::Project => state.folder_of_store(held),
+                Store::Project | Store::Org => match state.folder_of_store(held) {
+                    Some(folder) => Some(folder),
+                    None => continue,
+                },
                 Store::Personal => state.keys.keys().next().map(PathBuf::from),
             };
             listed.push(StaleKnowledge {
@@ -960,9 +1295,13 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                     },
                     by,
                 )?;
-                say_kept(&core, &agent, &project, id);
                 let note = format!("Kept as #{id}, as the person's rule.");
-                return Ok(json!({ "note": with_check_asked(note, &said, &[]) }));
+                let note = json!(with_check_asked(note, &said, &[]));
+                let words = crate::text::one_line(&said);
+                if say_kept(&core, &agent, &project, id, &words) {
+                    return Ok(json!({ "note": note }));
+                }
+                return Ok(json!({ "note": note, KEPT_ELSEWHERE: { "id": id, "words": words } }));
             }
             ToolAdd::Rule {
                 text,
@@ -1037,9 +1376,7 @@ fn about_code(text: &str, about: &[String]) -> bool {
 /// rule's longer words, so an agent's own idea, or a message another agent or a trigger sent,
 /// is kept as an agent's note rather than as the person's rule.
 fn said_by_person(core: &Core, agent: &str, rule: &str) -> bool {
-    let said = (core.chats().get(agent))
-        .map(|chat| chat.feed.person_said())
-        .unwrap_or_default();
+    let said = person_said(core, agent);
     let words = |text: &str| -> HashSet<String> {
         (text.split(|c: char| !c.is_alphanumeric()))
             .filter(|word| word.chars().count() >= 4)
@@ -1051,18 +1388,73 @@ fn said_by_person(core: &Core, agent: &str, rule: &str) -> bool {
     !rule.is_empty() && held * 2 >= rule.len()
 }
 
-/// The line in the agent's chat that says rule `id` was kept from the person's words.
-fn say_kept(core: &Core, agent: &str, project: &str, id: u64) {
-    let Some(chat) = core.chats().get(agent) else {
+/// What the person said in `agent`'s turn now, read from its chat, or from the linked host it
+/// runs on while this host does its write.
+pub(crate) fn person_said(core: &Core, agent: &str) -> Vec<String> {
+    match core.chats().get(agent) {
+        Some(chat) => chat.feed.person_said(),
+        None => (core.memory().said_elsewhere.locked().get(agent).cloned()).unwrap_or_default(),
+    }
+}
+
+/// Holds what the person said in `agent`'s turn on a linked host while this host does its write.
+pub(crate) struct SaidElsewhere<'a> {
+    core: &'a Core,
+    agent: String,
+}
+
+pub(crate) fn said_elsewhere<'a>(
+    core: &'a Core,
+    agent: &str,
+    said: Vec<String>,
+) -> SaidElsewhere<'a> {
+    (core.memory().said_elsewhere.locked()).insert(agent.to_owned(), said);
+    SaidElsewhere {
+        core,
+        agent: agent.to_owned(),
+    }
+}
+
+impl Drop for SaidElsewhere<'_> {
+    fn drop(&mut self) {
+        (self.core.memory().said_elsewhere.locked()).remove(&self.agent);
+    }
+}
+
+/// Says in `agent`'s chat on this host that the rule its home kept from the person's words is
+/// kept, when the home's `answer` names one.
+pub(crate) fn kept_at_home(core: &Core, agent: &str, project: &str, answer: &mut Value) {
+    let Some(kept) = (answer.as_object_mut()).and_then(|answer| answer.remove(KEPT_ELSEWHERE))
+    else {
         return;
+    };
+    if let (Some(id), Some(words)) = (
+        kept.get("id").and_then(Value::as_u64),
+        kept.get("words").and_then(Value::as_str),
+    ) {
+        say_kept(core, agent, project, id, words);
+    }
+}
+
+const KEPT_ELSEWHERE: &str = "keptForChat";
+
+/// The line in the agent's chat that says rule `id` was kept from the person's words; answers
+/// whether the chat is on this host.
+fn say_kept(core: &Core, agent: &str, project: &str, id: u64, words: &str) -> bool {
+    let Some(chat) = core.chats().get(agent) else {
+        return false;
     };
     let Some(start) = chat.feed.start() else {
-        return;
+        return true;
     };
+    let (org, waiting) = kept_for_org(core, project, id);
     let rule = sikemux_view::chat::KeptRule {
         id,
         project: project.to_owned(),
+        words: words.to_owned(),
         undone: false,
+        org,
+        waiting,
     };
     chat.emit(
         sikemux_fold::ChatEventKind::SessionUpdate,
@@ -1071,6 +1463,22 @@ fn say_kept(core: &Core, agent: &str, project: &str, id: u64) {
             "update": sikemux_fold::update::rule_notice(rule),
         }),
     );
+    true
+}
+
+/// The org whose store rule `id` of `project` went to, and whether it waits there for an
+/// owner or admin; none when it stayed on this host.
+pub(crate) fn kept_for_org(core: &Core, project: &str, id: u64) -> (Option<String>, bool) {
+    let state = core.memory().state.locked();
+    let shared = state.shared.get(&state.key_of(project));
+    let waiting = (state.own(project)).is_some_and(|held| held.waiting.contains(&id));
+    let holds = |shared: &&org::Shared| {
+        waiting || (state.held.get(&shared.key())).is_some_and(|held| held.holds(id))
+    };
+    (
+        shared.filter(holds).map(|shared| shared.name.clone()),
+        waiting,
+    )
 }
 
 /// `memory_update`: corrects, disputes or retires an entry, or changes what
@@ -1088,11 +1496,16 @@ pub(crate) async fn tool_update(
         .is_some_and(|label| label.eq_ignore_ascii_case("said again"));
     let core = core.clone();
     run(move || {
+        renumbered_once(&core, &agent, &project, id)?;
         let corrected = (given.text.as_deref())
             .map(|text| with_check_asked(String::new(), text, given.about.as_deref().unwrap_or_default()))
             .filter(|asked| !asked.is_empty());
         let update = MemoryUpdateParams {
             goal: given.goal.then(|| goal_card(&core, &agent)).transpose()?,
+            store: None,
+            not_now: false,
+            kept: false,
+            words: None,
             project: project.clone(),
             id: given.id,
             text: given.text,
@@ -1110,6 +1523,36 @@ pub(crate) async fn tool_update(
         })
     })
     .await
+}
+
+/// Refuses, the first time this agent names it, a number that once named an entry since renumbered
+/// and now names another one, since the agent may mean either.
+fn renumbered_once(core: &Core, agent: &str, project: &str, id: u64) -> Result<(), String> {
+    let state = core.memory().state.locked();
+    let moved = (state.applying(project)).find_map(|held| held.renumbered.get(&id).copied());
+    let holder = state.applying(project).find(|held| held.holds(id));
+    let (Some(now), Some(holder)) = (moved, holder) else {
+        return Ok(());
+    };
+    if !(core.memory().told_renumbered.locked()).insert((agent.to_owned(), id)) {
+        return Ok(());
+    }
+    let words = holder.words(id).unwrap_or_default();
+    let from = match holder.store {
+        Store::Org => (state.shared.get(&state.key_of(project))).map_or_else(
+            || "the org's rules".to_owned(),
+            |shared| shared.name.clone(),
+        ),
+        Store::Project => "this project".to_owned(),
+        Store::Personal => "your own rules".to_owned(),
+    };
+    let was = match state.applying(project).find_map(|held| held.words(now)) {
+        Some(was) => format!("#{id} was \"{was}\", which is now #{now}."),
+        None => format!("#{id} was renumbered to #{now}, which is no longer kept."),
+    };
+    Err(format!(
+        "{was} #{id} is now \"{words}\" from {from}. Send it again with the number you mean."
+    ))
 }
 
 fn said_by(learned: &Learned) -> &str {
@@ -1176,9 +1619,9 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
         "decisions": decisions,
         "goal": goal.map(|(card, rules)| json!({ "card": card, "rules": rules })),
     });
-    if !set_aside.is_empty() {
-        listed["setAside"] = json!(set_aside);
-        listed["setAsideNote"] = json!(BRING_BACK);
+    if let Some(fields) = listed.as_object_mut().filter(|_| !set_aside.is_empty()) {
+        fields.insert("setAside".to_owned(), json!(set_aside));
+        fields.insert("setAsideNote".to_owned(), json!(BRING_BACK));
     }
     Ok(listed)
 }
@@ -1215,8 +1658,15 @@ pub(crate) fn keep_persons_rule(core: &Core, project: &str, text: String) -> Res
     add(core, project, rule, learned(core, None))
 }
 
-/// Retires a rule of the project's in the person's name, as undoing an Overrule does.
-pub(crate) fn retire_persons_rule(core: &Core, project: &str, id: u64) -> Result<(), String> {
+/// Retires a rule of the project's in the person's name, as undoing an Overrule does, when what
+/// has its number now still has `words`.
+pub(crate) fn retire_persons_rule(
+    core: &Core,
+    project: &str,
+    id: u64,
+    words: &str,
+) -> Result<(), String> {
+    let id = line_entry(core, project, id, Some(words))?;
     let update = MemoryUpdateParams {
         project: project.to_owned(),
         id,
@@ -1227,8 +1677,20 @@ pub(crate) fn retire_persons_rule(core: &Core, project: &str, id: u64) -> Result
         check: None,
         drop_check: false,
         goal: None,
+        store: None,
+        not_now: false,
+        kept: false,
+        words: None,
     };
     change(core, project, update, learned(core, None))
+}
+
+/// Whether an entry applying to the project still has the number a chat line's entry `id` has now.
+pub(crate) fn still_held(core: &Core, project: &str, id: u64) -> bool {
+    let state = core.memory().state.locked();
+    let id = state.kept_id(project, id);
+    let held = state.applying(project).any(|held| held.holds(id));
+    held
 }
 
 pub(crate) async fn person_add(
@@ -1243,8 +1705,8 @@ pub(crate) async fn person_add(
             NewMemory::Rule {
                 text,
                 goal: None,
-                store: Store::Project,
                 sensitive,
+                ..
             } => now_check::bring_back_words(&core, &project, text, *sensitive),
             _ => None,
         };
@@ -1260,14 +1722,42 @@ pub(crate) async fn person_add(
     .await
 }
 
+/// The number a chat line's entry has now, past any renumbering since the line was written.
+/// Refused when the line's `words` were sent and no entry under that number has them.
+pub(crate) fn line_entry(
+    core: &Core,
+    project: &str,
+    id: u64,
+    words: Option<&str>,
+) -> Result<u64, String> {
+    let state = core.memory().state.locked();
+    let id = state.kept_id(project, id);
+    let Some(words) = words.map(crate::text::one_line) else {
+        return Ok(id);
+    };
+    let same = !words.is_empty()
+        && state.applying(project).any(|held| {
+            (held.rules.iter().map(|rule| (rule.id, &rule.text)))
+                .chain(held.knowledge.iter().map(|known| (known.id, &known.text)))
+                .any(|(at, text)| at == id && crate::text::one_line(text) == words)
+        });
+    match same {
+        true => Ok(id),
+        false => Err("That has changed since, so nothing was undone".to_owned()),
+    }
+}
+
 pub(crate) async fn person_update(
     core: &Arc<Core>,
     peer: Peer,
-    params: MemoryUpdateParams,
+    mut params: MemoryUpdateParams,
 ) -> Result<MemoryView, String> {
     let project = project_at(core, &params.project)?;
     let core = core.clone();
     run(move || {
+        if params.kept {
+            params.id = line_entry(&core, &project, params.id, params.words.as_deref())?;
+        }
         amend(&core, &project, params, learned(&core, None))?;
         Ok(view(&core, &project, &peer))
     })

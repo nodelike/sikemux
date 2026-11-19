@@ -5,6 +5,7 @@
 mod automation;
 mod decisions;
 mod landing;
+mod new_trigger;
 mod places;
 mod rules;
 pub(crate) mod said;
@@ -12,7 +13,7 @@ mod setup;
 
 use crate::ui::Clicks;
 pub(crate) use decisions::{overrule, reopen_card, undo_overrule};
-pub(crate) use rules::{restore as restore_rule, retire as undo_rule};
+pub(crate) use rules::{restore as restore_rule, undo_kept as undo_rule};
 
 use sikemux_calls::tasks::ProjectConfigRead;
 use sikemux_calls::tasks::ProjectParams;
@@ -90,8 +91,6 @@ const SETTINGS: [(Page, &str, Icon); 5] = [
 /// What a project's Playbook tab keeps between frames.
 pub struct PlaybookTab {
     page: Page,
-    /// What the core last said the project's Playbook holds.
-    playbook: Option<Playbook>,
     /// What the core last said of the project's sikemux.json.
     config: Option<ProjectConfigRead>,
     /// The repositories directly inside the project's folder.
@@ -112,6 +111,7 @@ pub struct PlaybookTab {
     spaces: Vec<String>,
     /// The folders of found tasks the person opened.
     opened: HashSet<String>,
+    new_trigger: Option<new_trigger::NewTrigger>,
     _typing: Vec<Subscription>,
 }
 
@@ -134,6 +134,23 @@ impl Workbench {
         }
     }
 
+    /// Opens the Playbook of project `id`, in `folder`, on its Automation page.
+    pub(crate) fn open_automation(
+        &mut self,
+        id: &str,
+        folder: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.project_settings.contains_key(folder) {
+            make(self, folder.to_owned(), window, cx);
+        }
+        if let Some(tab) = self.project_settings.get_mut(folder) {
+            tab.page = Page::Automation;
+        }
+        self.open_project_settings(id);
+    }
+
     pub fn open_project_settings(&self, id: &str) {
         let Some(project) = self.projects().iter().find(|project| project.id == id) else {
             return;
@@ -145,11 +162,24 @@ impl Workbench {
         ));
     }
 
-    /// Reads every open Playbook again, as after the core says one moved.
+    /// Reads every Playbook held again, as after the core says one moved.
     pub(crate) fn playbooks_moved(&self, cx: &mut Context<Self>) {
-        for folder in self.project_settings.keys() {
+        for folder in self.playbooks.keys() {
             self.reload_playbook(folder, cx);
         }
+    }
+
+    pub(crate) fn playbook_of(&self, folder: &str) -> Option<&Playbook> {
+        self.playbooks.get(folder)?.as_ref()
+    }
+
+    /// Reads the Playbook of the project in `folder` once, to keep it from then on.
+    pub(crate) fn want_playbook(&mut self, folder: &str, cx: &mut Context<Self>) {
+        if self.playbooks.contains_key(folder) {
+            return;
+        }
+        self.playbooks.insert(folder.to_owned(), None);
+        self.reload_playbook(folder, cx);
     }
 
     fn reload_playbook(&self, folder: &str, cx: &mut Context<Self>) {
@@ -164,9 +194,7 @@ impl Workbench {
                 return;
             };
             let _ = bench.update(cx, |bench, cx| {
-                if let Some(settings) = bench.settings_of(&folder) {
-                    settings.playbook = Some(playbook);
-                }
+                bench.playbooks.insert(folder, Some(playbook));
                 bench.parts.redraw_stage(cx);
             });
         })
@@ -325,7 +353,6 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
         folder.clone(),
         PlaybookTab {
             page: Page::default(),
-            playbook: None,
             config: None,
             repos: None,
             setup: None,
@@ -338,10 +365,12 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
             space,
             spaces,
             opened: HashSet::new(),
+            new_trigger: None,
             _typing: vec![saving, filtering],
         },
     );
     bench.reload_config(&folder, cx);
+    bench.playbooks.insert(folder.clone(), None);
     bench.reload_playbook(&folder, cx);
     bench.reload_setup(&folder, cx);
     let finding =
@@ -470,7 +499,8 @@ pub fn pane(
         .config
         .as_ref()
         .is_some_and(|config| matches!(config.load, ConfigLoad::Invalid { .. }));
-    let counts = settings.playbook.as_ref().map(|playbook| {
+    let playbook = bench.playbook_of(folder);
+    let counts = playbook.map(|playbook| {
         (
             playbook.rules.len(),
             places::production(&playbook.places),
@@ -586,10 +616,10 @@ pub fn pane(
             .on_click(move |_, _, cx| cx.reveal_path(&revealed)),
         );
     let body: Vec<AnyElement> = match settings.page {
-        Page::Rules => rules::page(settings.playbook.as_ref(), folder, &this, cx),
-        Page::Places => places::page(settings, folder, &this, cx),
-        Page::Landing => landing::page(settings.playbook.as_ref(), folder, &this, cx),
-        Page::Automation => automation::page(settings.playbook.as_ref(), &this, cx),
+        Page::Rules => rules::page(playbook, folder, &this, cx),
+        Page::Places => places::page(settings, playbook, folder, &this, cx),
+        Page::Landing => landing::page(playbook, folder, &this, cx),
+        Page::Automation => automation::page(bench, settings, playbook, folder, &this, cx),
         Page::General => vec![general(bench, settings, folder, &this, cx)],
         Page::Processes => tasks(bench, settings, folder, &this, cx),
         Page::Setup => setup::page(settings, folder, &this, cx),
@@ -1062,9 +1092,9 @@ fn git(
                     t!("Ask each time")
                 }
                 .to_owned(),
-                match only {
-                    true => repos[0].name.clone(),
-                    false => t!("the Git pane lists them").to_owned(),
+                match repos.as_slice() {
+                    [repo] => repo.name.clone(),
+                    _ => t!("the Git pane lists them").to_owned(),
                 },
                 0,
                 None,

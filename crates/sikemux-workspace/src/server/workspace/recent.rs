@@ -264,7 +264,7 @@ pub async fn recent_chats(core: &Core, asked: RecentChatsParams) -> CoreResult<R
         chats,
         next: page.next,
         said,
-        found: Vec::new(),
+        ..RecentChats::default()
     })
 }
 

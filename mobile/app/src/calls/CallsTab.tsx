@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { formatAge } from '@shared/lib/format';
-import { ANSWERED, cameOf, NO_CALLS } from '@shared/calls/words';
+import { ANSWERED, cameOf, headline, NO_CALLS } from '@shared/calls/words';
 import { useT } from '@/i18n';
 import type { PersonCall, ProjectInfo } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
@@ -12,6 +12,7 @@ import { AskerMark } from '@/calls/AskerMark';
 import { CallDock } from '@/calls/CallDock';
 import { draftOf, focus, openCalls, settledCalls } from '@/calls/hostCalls';
 import { useExternalValue } from '@shared/lib/externalValue';
+import { Icon } from '@/ui/Icon';
 import { Row, Rows, SectionLabel } from '@/ui/list';
 import { useMinute } from '@/ui/motion';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
@@ -49,7 +50,7 @@ export function CallsTab({
     <Row
       key={call.id}
       mark={<AskerMark agentId={call.asker.agentId} provider={call.asker.cli} chief={call.asker.chief} asking={call.state === 'open'} />}
-      title={call.question}
+      title={headline(call, t)}
       end={end}
       onPress={
         chatless(call)
@@ -75,9 +76,12 @@ export function CallsTab({
             row(
               call,
               <>
-                <Text style={styles.end} numberOfLines={1}>
-                  {projectName(call)}
-                </Text>
+                <View style={styles.project}>
+                  <Icon name="IconFolder" size={11} color={colors.live} />
+                  <Text style={styles.end} numberOfLines={1}>
+                    {projectName(call)}
+                  </Text>
+                </View>
                 <Text style={[styles.end, { color: colors.warn }]}>{formatAge(call.raisedAt, minute * 60_000, t)}</Text>
               </>,
             ),
@@ -145,6 +149,7 @@ const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     open: { marginTop: 10 },
     end: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary, fontVariant: ['tabular-nums'], maxWidth: 140 },
+    project: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     unfolded: { paddingVertical: 8 },
     refused: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.danger, paddingTop: 6, paddingHorizontal: 4 },
     none: { fontFamily: fonts.ui, fontSize: 14, color: colors.tertiary, paddingVertical: 18, paddingHorizontal: 4 },

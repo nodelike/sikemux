@@ -226,7 +226,7 @@ fn paint_line(window: &mut Window, bounds: Bounds<Pixels>, line: &[(f32, f32)], 
     paint_kept(window, ("stroke", spot(bounds), &drawn), tint, || {
         let mut stroke = PathBuilder::stroke(px(1.25));
         stroke.move_to(at(first));
-        for point in &line[1..] {
+        for point in line.iter().skip(1) {
             stroke.line_to(at(*point));
         }
         stroke.build().ok()

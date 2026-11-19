@@ -1,37 +1,60 @@
 import type { Services } from "../app.ts";
-import type { Account, AccountDeletion } from "@sikemux/protocol";
+import type {
+  Account,
+  AccountDeletion,
+  SignInsTidied,
+} from "@sikemux/protocol";
 import { Hono } from "hono";
 
 import type { AuthEnv } from "../auth.ts";
 import { isWeb, requireIdentity, requireRecentSignIn } from "../auth.ts";
-import { notFound, readOptionalBody } from "../http.ts";
+import { conflict, notFound, readBody, readOptionalBody } from "../http.ts";
 import { perUser } from "../limits.ts";
 import { planOf } from "../billing/allowance.ts";
+import { makeDueCalls } from "../billing/calls.ts";
 import { endDeletedBilling } from "../billing/deleted.ts";
 import { revokeAppleSignIn } from "./apple.ts";
 import { markDeleted, PURGE_AFTER_DAYS, restoreAccount } from "./deletion.ts";
+import {
+  addressRefusal,
+  signInRefusalWords,
+  stripWorkSignIns,
+  takeRemovals,
+} from "./sign-ins.ts";
 import { isStaff } from "./staff.ts";
 
 export function accountRoutes({
   database: { db },
   verifier,
+  signInVerifier,
   limiter,
   clerk,
   appleSignIn: apple,
   push: { app },
   billing: { provider },
+  addressProofKey,
 }: Pick<
   Services,
   | "database"
   | "verifier"
+  | "signInVerifier"
   | "limiter"
   | "clerk"
   | "appleSignIn"
   | "push"
   | "billing"
+  | "addressProofKey"
 >) {
+  const admitted = requireIdentity(verifier, db, { allowDeleted: true });
+  const anyAccount = requireIdentity(signInVerifier, db, {
+    allowDeleted: true,
+  });
   return new Hono<AuthEnv>()
-    .use(requireIdentity(verifier, db, { allowDeleted: true }))
+    .use((c, next) =>
+      c.req.method === "DELETE" || c.req.path.endsWith("/restore")
+        ? anyAccount(c, next)
+        : admitted(c, next),
+    )
     .get("/", async (c) => {
       const { userId } = c.get("identity");
       const user = await db
@@ -64,6 +87,7 @@ export function accountRoutes({
           "The account is already deleted and can no longer be restored.",
         );
       c.get("log").info("restored an account");
+      if (provider) await makeDueCalls(db, provider, c.get("log"));
       const body: Account = {
         status: "active",
         restorableDays: PURGE_AFTER_DAYS,
@@ -72,6 +96,38 @@ export function accountRoutes({
       };
       return c.json(body);
     })
+    .post(
+      "/sign-ins/check",
+      perUser(limiter, "check-sign-in", 10),
+      async (c) => {
+        const { email } = await readBody(c, "SignInAddressCheck");
+        const refusal = await addressRefusal(
+          db,
+          addressProofKey,
+          c.get("identity").userId,
+          email,
+        );
+        if (refusal) throw conflict(signInRefusalWords(refusal));
+        return c.body(null, 204);
+      },
+    )
+    .post(
+      "/sign-ins/tidy",
+      perUser(limiter, "tidy-sign-ins", 30),
+      async (c) => {
+        const { userId } = c.get("identity");
+        if (clerk)
+          await stripWorkSignIns(
+            db,
+            clerk,
+            addressProofKey,
+            c.get("log"),
+            userId,
+          );
+        const body: SignInsTidied = { removed: await takeRemovals(db, userId) };
+        return c.json(body);
+      },
+    )
     .delete(
       "/",
       perUser(limiter, "delete-account", 10),

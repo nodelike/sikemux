@@ -45,13 +45,16 @@ pub fn without_image_tags(text: &str) -> String {
     const OPEN: &str = "[Image #";
     let mut kept = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(at) = rest.find(OPEN) {
-        let after = &rest[at + OPEN.len()..];
-        let digits = after.len() - after.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-        let tag = digits > 0 && after[digits..].starts_with(']');
-        let end = at + OPEN.len() + if tag { digits + 1 } else { 0 };
-        kept.push_str(&rest[..if tag { at } else { end }]);
-        rest = &rest[end..];
+    while let Some((before, after)) = rest.split_once(OPEN) {
+        kept.push_str(before);
+        let past_digits = after.trim_start_matches(|c: char| c.is_ascii_digit());
+        match past_digits.strip_prefix(']') {
+            Some(past_tag) if past_digits.len() < after.len() => rest = past_tag,
+            _ => {
+                kept.push_str(OPEN);
+                rest = after;
+            }
+        }
     }
     kept.push_str(rest);
     kept

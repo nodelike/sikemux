@@ -76,6 +76,7 @@ pub(crate) fn host_look(core: &Core) -> LookReply {
         texture: preferences.pane_backdrop != PaneBackdrop::None,
         look: look(&preferences, &core.look().palette()),
         picture: core.workspaces().backdrop_image(),
+        person_at_window: core.seen().person_at_window(),
     }
 }
 
@@ -97,7 +98,12 @@ pub(crate) fn picture_id(path: &str) -> Option<String> {
         .ok()?;
     let named = format!("{path}\0{}\0{}", metadata.len(), modified.as_nanos());
     let hash = Sha256::digest(named.as_bytes());
-    Some(hash[..8].iter().map(|byte| format!("{byte:02x}")).collect())
+    Some(
+        hash.iter()
+            .take(8)
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    )
 }
 
 /// The picture as a JPEG no longer than a phone draws it, by macOS's `sips`.

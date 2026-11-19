@@ -1,16 +1,19 @@
 import release from "@sikemux/protocol/release.json" with { type: "json" };
-import { sql, type Kysely } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 
 import { audit, type Actor } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { removeDevice } from "../devices/removal.ts";
 import { holdsOpenSubscriptions } from "../billing/deleted.ts";
 import { payerLeft } from "../billing/payer.ts";
+import { checkSeatPauses } from "../billing/seat-pause.ts";
 import { appendEvent } from "../events/log.ts";
 import { conflict } from "../http.ts";
 import type { Logger } from "../log.ts";
+import { dropUnshared } from "../orgvault/projects.ts";
 import { retryLater } from "../retry.ts";
 import type { ClerkBackend } from "./clerk.ts";
+import { dropSeatProofs } from "./proofs.ts";
 
 /**
  * How long a deleted account can still be restored. Then the sign-in is deleted in Clerk and
@@ -134,7 +137,7 @@ export async function markDeleted(
  * are alone in stays theirs, with its pending invites revoked, until it is erased with them.
  */
 async function leaveOrgs(
-  trx: Kysely<Tables>,
+  trx: Transaction<Tables>,
   userId: string,
   actor: Actor,
   { handOver }: { handOver: boolean },
@@ -203,6 +206,8 @@ async function leaveOrgs(
       .where("user_id", "=", userId)
       .execute();
     await payerLeft(trx, orgId, userId);
+    await dropSeatProofs(trx, orgId, [userId]);
+    await dropUnshared(trx, orgId);
     await audit(trx, {
       userId,
       actor,
@@ -232,6 +237,13 @@ export async function restoreAccount(
       .executeTakeFirst();
     if (!user?.deleted_at) return true;
     if (user.clerk_deleted_at) return false;
+    const folded = await trx
+      .selectFrom("account_folds")
+      .select("id")
+      .where("from_user", "=", userId)
+      .where("done_at", "is not", null)
+      .executeTakeFirst();
+    if (folded) return false;
     await trx
       .updateTable("users")
       .set({
@@ -244,6 +256,7 @@ export async function restoreAccount(
       })
       .where("id", "=", userId)
       .execute();
+    await checkSeatPauses(trx, [userId]);
     await audit(trx, {
       userId,
       actor: `user:${userId}`,

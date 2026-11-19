@@ -420,7 +420,11 @@ impl Android {
                 let display = self.display(&serial).await?;
                 let read = self.device(&serial, "tree", Map::new(), limit).await?;
                 let launcher = self.launcher(&serial).await;
-                let package = read["package"].as_str().unwrap_or_default().to_owned();
+                let package = read
+                    .get("package")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
                 let pid = self.pids.locked().get(&(serial.clone(), package)).copied();
                 Ok(tree(&read, display.scale, launcher.as_deref(), pid))
             }
@@ -843,7 +847,7 @@ impl Android {
                 if read == 0 {
                     break;
                 }
-                for frame in frames.push(&chunk[..read]) {
+                for frame in frames.push(chunk.get(..read).unwrap_or_default()) {
                     if !on_frame(frame) {
                         return Ok(());
                     }
@@ -904,7 +908,9 @@ async fn watch_emulator(mut child: sikemux_process::command::AsyncChild) -> Stri
         };
         match event {
             Event::Exited(status) => break status,
-            Event::Read(Some(read @ 1..)) => tail.extend_from_slice(&chunk[..read]),
+            Event::Read(Some(read @ 1..)) => {
+                tail.extend_from_slice(chunk.get(..read).unwrap_or_default());
+            }
             Event::Read(_) => stderr = None,
         }
         tail.drain(..tail.len().saturating_sub(TAIL));
@@ -913,7 +919,10 @@ async fn watch_emulator(mut child: sikemux_process::command::AsyncChild) -> Stri
         let _ = tokio::time::timeout(Duration::from_secs(1), stderr.read_to_end(&mut tail)).await;
     }
     let status = status.map_or_else(|error| error.to_string(), |status| status.to_string());
-    let written = String::from_utf8_lossy(&tail[tail.len().saturating_sub(TAIL)..]);
+    let written = String::from_utf8_lossy(
+        tail.get(tail.len().saturating_sub(TAIL)..)
+            .unwrap_or_default(),
+    );
     match written.trim() {
         "" => status,
         written => format!("{status}\n{written}"),
@@ -1141,7 +1150,8 @@ fn element(node: &Value, frame: Value) -> Option<Value> {
     if label.is_empty() && value.is_empty() && !reachable {
         return None;
     }
-    if frame["width"].as_f64().unwrap_or(0.) <= 0. || frame["height"].as_f64().unwrap_or(0.) <= 0. {
+    let side = |name: &str| frame.get(name).and_then(Value::as_f64).unwrap_or(0.);
+    if side("width") <= 0. || side("height") <= 0. {
         return None;
     }
     Some(json!({
@@ -1171,20 +1181,20 @@ impl Frames {
         let mut frames = Vec::new();
         let mut at = self.scanned;
         while at + 3 <= self.buffer.len() {
-            if self.buffer[at..at + 3] != [0, 0, 1] {
+            if self.buffer.get(at..at + 3) != Some(&[0, 0, 1][..]) {
                 at += 1;
                 continue;
             }
-            let start = if at > 0 && self.buffer[at - 1] == 0 {
-                at - 1
-            } else {
-                at
+            let start = match at.checked_sub(1) {
+                Some(before) if self.buffer.get(before) == Some(&0) => before,
+                _ => at,
             };
             if let Some(unit) = self.unit {
-                let header = self.buffer[unit..]
-                    .iter()
-                    .position(|&byte| byte == 1)
-                    .map(|one| self.buffer[unit + one + 1] & 0x1f);
+                let header = self
+                    .buffer
+                    .get(unit..)
+                    .and_then(|rest| rest.iter().skip_while(|&&byte| byte != 1).nth(1))
+                    .map(|byte| byte & 0x1f);
                 if matches!(header, Some(1 | 5)) {
                     frames.push(self.buffer.drain(..start).collect());
                     at -= start;

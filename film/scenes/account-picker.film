@@ -1,0 +1,13 @@
+# The composer's account picker over a chat, with two Claude accounts to choose from.
+stage 1760 900
+window 1760 900
+prefer themeId aura-noir
+prefer paneImage null
+project storefront shop
+account "edon Studio" 46 2
+chat Mira
+title "Order emails"
+settle 6
+click 1223,548
+settle 3
+snap account-picker

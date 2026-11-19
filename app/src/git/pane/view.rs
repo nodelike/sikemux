@@ -771,7 +771,7 @@ pub(crate) fn changes(
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let empty = pane.entries.is_empty();
-    let query = pane.filters[Page::Changes as usize].query.clone();
+    let query = pane.filters[Page::Changes].query.clone();
     let note = match &pane.overview {
         _ if !empty => None,
         None => Some((

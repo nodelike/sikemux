@@ -36,7 +36,7 @@ pub fn middle(path: &str, most: usize) -> String {
     };
     let mut tail: Vec<&str> = Vec::new();
     let mut used = head.chars().count() + 2;
-    for part in parts[1..].iter().rev() {
+    for part in parts.iter().skip(1).rev() {
         let width = part.chars().count() + 1;
         if !tail.is_empty() && used + width > most {
             break;

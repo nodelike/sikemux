@@ -113,7 +113,8 @@ fn a_fence_names_its_language_and_the_file_it_shows() {
         chat("```ts title=\"a.ts\"\nconst a = 1;\n```"),
         json!([{"t": "pre", "lang": "ts", "name": "a.ts", "v": "const a = 1;\n"}])
     );
-    assert_eq!(chat("```\n```"), json!([{"t": "pre", "v": ""}]));
+    assert_eq!(chat("```\n```"), json!([]));
+    assert_eq!(chat("```sh\n  \n```"), json!([]));
     assert_eq!(
         chat("    indented\n    code"),
         json!([{"t": "pre", "v": "indented\ncode\n"}])
@@ -131,9 +132,34 @@ fn a_fence_still_being_written_holds_the_rest_of_the_message() {
             {"t": "pre", "lang": "rust", "v": "fn main() {\n    println!(\"hi\");\n\n## not a heading\n"},
         ])
     );
+    assert_eq!(chat("text\n\n```ts"), json!([{"t": "p", "c": ["text"]}]));
+}
+
+#[test]
+fn a_fence_opened_on_a_list_item_holds_the_code_written_at_the_margin() {
+    let text = "1. `sikemux 0.6.2-nightly.425`\n2. Status:\n```\n  Core      running, pid 3404236, version 0.6.2-nightly.425\n  At boot   yes, from /home/nodelike/.config/systemd/user/com.nodelike.sikemux.core.service\n  Account   user_3KEBrJ9hrGHNOEhyFWWIVQo2hUj, connected\n  Devices   6 paired, 1 connected, 0 waiting; remote access on\n```\n3. `3404236`. `readlink /proc/3404236/exe` printed nothing, so the exe path couldn't be read. Start time: `Thu Nov 19 10:41:08 2026`.\n4. ```\nUnit sikemux-core-swap.timer could not be found.\nUnit sikemux-core-swap.service could not be found.\n```";
+    let blocks = chat(text);
+    assert_eq!(blocks.as_array().unwrap().len(), 3);
     assert_eq!(
-        chat("text\n\n```ts"),
-        json!([{"t": "p", "c": ["text"]}, {"t": "pre", "lang": "ts", "v": ""}])
+        blocks[2],
+        json!({"t": "ol", "start": 3, "c": [
+            {"t": "li", "c": [
+                {"t": "code", "v": "3404236"},
+                ". ",
+                {"t": "code", "v": "readlink /proc/3404236/exe"},
+                " printed nothing, so the exe path couldn't be read. Start time: ",
+                {"t": "code", "v": "Thu Nov 19 10:41:08 2026"},
+                ".",
+            ]},
+            {"t": "li", "c": [{"t": "pre", "v": "Unit sikemux-core-swap.timer could not be found.\nUnit sikemux-core-swap.service could not be found.\n"}]},
+        ]})
+    );
+    assert_eq!(
+        chat("- Run:\n  ```sh\nmake\n  make install\n  ```\n- done"),
+        json!([{"t": "ul", "c": [
+            {"t": "li", "c": ["Run:", {"t": "pre", "lang": "sh", "v": "make\n  make install\n"}]},
+            {"t": "li", "c": ["done"]},
+        ]}])
     );
 }
 

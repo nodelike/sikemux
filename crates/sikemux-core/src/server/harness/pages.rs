@@ -28,7 +28,7 @@ pub(super) async fn show_page(
     let (data_dir, dir) = pages_dir(core)?;
     let asker = request.agent_id.clone();
     let ask = (asker.as_deref()).and_then(|agent_id| core.chats().get(agent_id)?.answering());
-    let page = match request.params["id"].as_str() {
+    let page = match request.params.get("id").and_then(Value::as_str) {
         Some(id) => {
             let id = id.trim().to_owned();
             blocking(move || {
@@ -38,6 +38,9 @@ pub(super) async fn show_page(
                     return Ok(Err(format!(
                         "{id} is no page Sikemux keeps; page_list finds the kept ones"
                     )));
+                }
+                if let Err(error) = crate::pages::refresh(&dir, &id) {
+                    return Ok(Err(error));
                 }
                 let title = (page_index::title_of(&data_dir, &id))
                     .or_else(|| crate::pages::title(&dir, &id))
@@ -112,23 +115,23 @@ pub(super) async fn show_page(
 /// The latest version of each page agents showed, newest first.
 pub(super) async fn list_pages(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
     let (data_dir, _) = pages_dir(core)?;
-    let words: Vec<String> = (request.params["words"].as_str().unwrap_or_default())
-        .split_whitespace()
+    let words = request.params.get("words").and_then(Value::as_str);
+    let words: Vec<String> = (words.unwrap_or_default().split_whitespace())
         .take(8)
         .map(str::to_owned)
         .collect();
-    let every = request.params["allProjects"] == true;
+    let every = request.params.get("allProjects").and_then(Value::as_bool) == Some(true);
     let project = (!every).then(|| crate::server::caller::project_of(core, request));
     let pages = blocking(move || Ok(page_index::list(&data_dir, &words, project.as_deref())))
         .await
         .map_err(|error| error.to_string())??;
-    let mut reply = json!({ "pages": pages });
-    if !every {
-        reply["note"] = json!(
-            "Only this project's. allProjects: true lists every project's too, and the pages shown before Sikemux kept a list of them."
-        );
+    if every {
+        return Ok(json!({ "pages": pages }));
     }
-    Ok(reply)
+    Ok(json!({
+        "pages": pages,
+        "note": "Only this project's. allProjects: true lists every project's too, and the pages shown before Sikemux kept a list of them.",
+    }))
 }
 
 /// Whoever started `agent_id` sees the page as a row in their chat, and a call about its work

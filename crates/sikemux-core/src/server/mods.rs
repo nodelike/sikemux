@@ -126,6 +126,11 @@ pub(crate) struct Mods {
 }
 
 impl Mods {
+    /// Something of the person's changed here, so their other hosts hear of it in a moment.
+    pub(crate) fn personal_changed(&self) {
+        self.sync.changed();
+    }
+
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let kept = Kept::new(data_dir, SETTLED);
         let owners_kept = Kept::new(data_dir, OWNERS);
@@ -189,9 +194,11 @@ impl Mods {
     }
 }
 
-/// Whether `id` can name a mod's folder: lowercase letters, digits and dashes.
+/// Whether `id` can name a mod's folder: lowercase letters, digits and dashes, other than the
+/// id the core keeps the person's settings and skills under.
 pub fn is_mod_id(id: &str) -> bool {
     !id.is_empty()
+        && id != sync::personal::MODULE
         && id.len() <= MAX_ID
         && !id.starts_with('-')
         && id

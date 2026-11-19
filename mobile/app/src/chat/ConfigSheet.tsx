@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
-import { contextShare, money, tokenCount } from '@shared/chat/contextUsage';
+import { contextLimit, contextShare, money, tokenCount } from '@shared/chat/contextUsage';
 import type { ChatRows } from '@shared/chat/rows';
 import { formatAgo } from '@shared/lib/format';
-import type { ChatFailure, ExpiredCache, ModelRoute } from '@shared/wire.generated';
+import type { ChatFailure, ExpiredCache, ModelRoute, RecentModel } from '@shared/wire.generated';
 import { agentLabel, agentMaker, useAgentBrand } from '@shared/agents/catalog';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Field, Track } from '@/ui/controls';
@@ -81,6 +81,7 @@ export function ConfigSheet({
   routes = [],
   routed,
   onRoute,
+  recent = [],
 }: {
   visible: boolean;
   onClose: () => void;
@@ -103,6 +104,8 @@ export function ConfigSheet({
   /** The provider and model picked from `routes`. */
   routed?: RoutePick;
   onRoute?: (pick: RoutePick) => void;
+  /** The models new chats of the agent started on lately, newest first. */
+  recent?: RecentModel[];
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -127,7 +130,63 @@ export function ConfigSheet({
       models: route.models.filter((one) => !typed || `${one} ${routeFacts(route, one, t)} ${route.label}`.toLowerCase().includes(typed)),
     }))
     .filter(({ models }) => models.length > 0);
+  type RecentRow = { route: ModelRoute; model: string } | { option: Picker['choices'][number] };
+  const recentRows = typed
+    ? []
+    : recent.flatMap((used): RecentRow[] => {
+        if (used.provider) {
+          const route = routes.find((one) => one.id === used.provider && one.models.includes(used.model));
+          return route ? [{ route, model: used.model }] : [];
+        }
+        const option = model?.choices.find((choice) => choice.value === used.model);
+        return option ? [{ option }] : [];
+      });
   const steps = effort?.choices.length ?? 0;
+  const ownRow = (option: Picker['choices'][number], key: string) => {
+    const on = !routed && option.value === model?.current;
+    return (
+      <Pressable
+        key={key}
+        onPress={() => model && onPick(model, option.value)}
+        style={[styles.option, on && { backgroundColor: colors.active }]}
+        accessibilityRole="button"
+        accessibilityState={{ selected: on }}>
+        <AgentIcon provider={provider} size={17} />
+        <Text style={[styles.optionText, on && { color: colors.ink }]} numberOfLines={1}>
+          {option.label}
+        </Text>
+        {option.isDefault ? <Text style={styles.meta}>{t('Default')}</Text> : null}
+        <View style={{ flex: 1 }} />
+        {on ? <Icon name="IconCheck" size={15} color={colors.accent} /> : null}
+      </Pressable>
+    );
+  };
+  const routeRow = (route: ModelRoute, one: string, key: string) => {
+    const on = routed?.provider === route.id && routed.model === one;
+    const facts = routeFacts(route, one, t);
+    return (
+      <Pressable
+        key={key}
+        onPress={() => onRoute?.({ provider: route.id, model: one })}
+        style={[styles.option, on && { backgroundColor: colors.active }]}
+        accessibilityRole="button"
+        accessibilityState={{ selected: on }}>
+        <AgentIcon provider={provider} size={17} />
+        <View style={{ flexShrink: 1 }}>
+          <Text style={[styles.optionText, on && { color: colors.ink }]} numberOfLines={1}>
+            {one}
+          </Text>
+          {facts ? (
+            <Text style={styles.meta} numberOfLines={1}>
+              {facts}
+            </Text>
+          ) : null}
+        </View>
+        <View style={{ flex: 1 }} />
+        {on ? <Icon name="IconCheck" size={15} color={colors.accent} /> : null}
+      </Pressable>
+    );
+  };
   return (
     <Sheet visible={visible} onClose={onClose}>
       {agents.length > 1 ? (
@@ -168,26 +227,18 @@ export function ConfigSheet({
             autoCorrect={false}
             autoCapitalize="none"
           />
+          {recentRows.length ? (
+            <View style={{ paddingBottom: 10 }}>
+              <SectionLabel>{t('Recent')}</SectionLabel>
+              {recentRows.map((row) =>
+                'route' in row
+                  ? routeRow(row.route, row.model, `recent/${row.route.id}/${row.model}`)
+                  : ownRow(row.option, `recent/${row.option.value}`),
+              )}
+            </View>
+          ) : null}
           {shown.length || !routedShown.length ? <SectionLabel>{heading}</SectionLabel> : null}
-          {shown.map((option) => {
-            const on = !routed && option.value === model.current;
-            return (
-              <Pressable
-                key={option.value}
-                onPress={() => onPick(model, option.value)}
-                style={[styles.option, on && { backgroundColor: colors.active }]}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}>
-                <AgentIcon provider={provider} size={17} />
-                <Text style={[styles.optionText, on && { color: colors.ink }]} numberOfLines={1}>
-                  {option.label}
-                </Text>
-                {option.isDefault ? <Text style={styles.meta}>{t('Default')}</Text> : null}
-                <View style={{ flex: 1 }} />
-                {on ? <Icon name="IconCheck" size={15} color={colors.accent} /> : null}
-              </Pressable>
-            );
-          })}
+          {shown.map((option) => ownRow(option, option.value))}
           {folds && !typed ? (
             <Pressable onPress={() => setOlder(!older)} style={styles.option} accessibilityRole="button">
               <View style={{ width: 17, alignItems: 'center', transform: [{ rotate: older ? '-90deg' : '0deg' }] }}>
@@ -201,32 +252,7 @@ export function ConfigSheet({
               <SectionLabel>
                 {route.local && !route.label.startsWith('Local') ? t('{route} · local', { route: route.label }) : route.label}
               </SectionLabel>
-              {models.map((one) => {
-                const on = routed?.provider === route.id && routed.model === one;
-                const facts = routeFacts(route, one, t);
-                return (
-                  <Pressable
-                    key={one}
-                    onPress={() => onRoute?.({ provider: route.id, model: one })}
-                    style={[styles.option, on && { backgroundColor: colors.active }]}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: on }}>
-                    <AgentIcon provider={provider} size={17} />
-                    <View style={{ flexShrink: 1 }}>
-                      <Text style={[styles.optionText, on && { color: colors.ink }]} numberOfLines={1}>
-                        {one}
-                      </Text>
-                      {facts ? (
-                        <Text style={styles.meta} numberOfLines={1}>
-                          {facts}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <View style={{ flex: 1 }} />
-                    {on ? <Icon name="IconCheck" size={15} color={colors.accent} /> : null}
-                  </Pressable>
-                );
-              })}
+              {models.map((one) => routeRow(route, one, one))}
             </View>
           ))}
           {!shown.length && !routedShown.length ? <Text style={styles.none}>{t('No model matches')}</Text> : null}
@@ -281,10 +307,10 @@ export function ConfigSheet({
           {usage ? (
             <View style={styles.context}>
               <View style={styles.contextTop}>
-                <Text style={styles.contextLabel}>{t('Context')}</Text>
+                <Text style={styles.contextLabel}>{usage.compactAt ? t('Until compaction') : t('Context')}</Text>
                 <Text style={styles.contextValue}>
                   {Math.round(contextShare(usage) * 100)}% ·{' '}
-                  {t('{used} of {size}', { used: tokenCount(usage.used), size: tokenCount(usage.size) })}
+                  {t('{used} of {size}', { used: tokenCount(usage.used), size: tokenCount(contextLimit(usage)) })}
                 </Text>
               </View>
               <View style={styles.contextBar}>
@@ -295,11 +321,7 @@ export function ConfigSheet({
                   ]}
                 />
               </View>
-              {usage.compactAt ? (
-                <Text style={styles.cost}>
-                  {t('Compacts at {at} of {size}', { at: tokenCount(usage.compactAt), size: tokenCount(usage.size) })}
-                </Text>
-              ) : null}
+              {usage.compactAt ? <Text style={styles.window}>{t('Model window {size}', { size: tokenCount(usage.size) })}</Text> : null}
               {usage.cost ? <Text style={styles.cost}>{t('Session cost {cost}', { cost: money(usage.cost) })}</Text> : null}
             </View>
           ) : null}
@@ -327,6 +349,7 @@ export function ConfigSheet({
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     cost: { marginTop: 8, fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
+    window: { marginTop: 8, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
     unread: { paddingTop: 16, paddingHorizontal: 4, fontFamily: fonts.ui, fontSize: 13, lineHeight: 19, color: colors.secondary },
     sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 4 },
     sheetTitle: { fontFamily: fonts.uiSemibold, fontSize: 17, letterSpacing: -0.35, color: colors.ink },

@@ -152,31 +152,33 @@ impl Host for WindowHost {
     }
 
     fn emit(&self, event: &str, payload: Value) {
-        let agent = || payload["agentId"].as_str().map(str::to_owned);
+        let field = |key: &str| payload.get(key);
+        let text = |key: &str| field(key).and_then(Value::as_str);
+        let yes = |key: &str| field(key).and_then(Value::as_bool) == Some(true);
+        let fraction = || field("fraction").and_then(Value::as_f64);
+        let agent = || text("agentId").map(str::to_owned);
         let heard = match event {
             tools::ATTACHED_EVENT => agent().map(|agent| {
                 Heard::Attached(
                     agent,
                     Device {
-                        udid: payload["udid"].as_str().unwrap_or_default().to_owned(),
-                        name: payload["name"].as_str().unwrap_or_default().to_owned(),
+                        udid: text("udid").unwrap_or_default().to_owned(),
+                        name: text("name").unwrap_or_default().to_owned(),
                         booted: true,
                     },
                 )
             }),
             tools::DETACHED_EVENT => agent().map(Heard::Detached),
-            tools::ACTING_EVENT => {
-                agent().map(|agent| Heard::Acting(agent, payload["acting"] == true))
+            tools::ACTING_EVENT => agent().map(|agent| Heard::Acting(agent, yes("acting"))),
+            sikemux_simulator::SIM_EVENT => fraction().map(Heard::Progress),
+            ANDROID_SETUP_EVENT if yes("done") => {
+                Some(Heard::AndroidReady(text("error").map(str::to_owned)))
             }
-            sikemux_simulator::SIM_EVENT => payload["fraction"].as_f64().map(Heard::Progress),
-            ANDROID_SETUP_EVENT if payload["done"] == true => Some(Heard::AndroidReady(
-                payload["error"].as_str().map(str::to_owned),
-            )),
             ANDROID_SETUP_EVENT => Some(Heard::AndroidSetup(
-                payload["step"].as_str().unwrap_or_default().to_owned(),
-                payload["fraction"].as_f64().unwrap_or(0.),
+                text("step").unwrap_or_default().to_owned(),
+                fraction().unwrap_or(0.),
             )),
-            WATCH_ENDED_EVENT => payload["id"].as_u64().map(Heard::Ended),
+            WATCH_ENDED_EVENT => field("id").and_then(Value::as_u64).map(Heard::Ended),
             LOAD_EVENT => Some(Heard::Load),
             _ => None,
         };
@@ -804,8 +806,10 @@ impl Simulators {
                 let mask = mask.and_then(Result::ok);
                 let read = chrome.and_then(Result::ok).and_then(|chrome| {
                     Chrome::read(
-                        &chrome["chrome"],
-                        mask.as_ref().and_then(|mask| mask["mask"].as_str()),
+                        chrome.get("chrome").unwrap_or(&Value::Null),
+                        mask.as_ref()
+                            .and_then(|mask| mask.get("mask"))
+                            .and_then(Value::as_str),
                     )
                 });
                 let _ = sims.update(cx, |sims, cx| {
@@ -855,12 +859,11 @@ impl Simulators {
             let Some(Ok(screen)) = answer else {
                 return;
             };
-            let measured = (
-                screen["width"].as_f64().unwrap_or(0.) as f32,
-                screen["height"].as_f64().unwrap_or(0.) as f32,
-            );
-            let orientation = screen["orientation"]
-                .as_str()
+            let side = |key: &str| screen.get(key).and_then(Value::as_f64).unwrap_or(0.) as f32;
+            let measured = (side("width"), side("height"));
+            let orientation = screen
+                .get("orientation")
+                .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned();
             let _ = sims.update(cx, |sims, cx| {
@@ -1057,10 +1060,13 @@ impl Simulators {
                 start
             }
         };
-        let Some((width, height)) = self.screens.get(agent).and_then(|screen| screen.size) else {
+        let Some(screen) = self.screens.get(agent) else {
             return;
         };
-        let drawn = self.screens[agent].drawn.get();
+        let Some((width, height)) = screen.size else {
+            return;
+        };
+        let drawn = screen.drawn.get();
         let scale = width / f32::from(drawn.size.width).max(1.);
         let next = (
             (at.0 + delta.0 * scale).clamp(0., width),

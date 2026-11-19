@@ -159,11 +159,11 @@ async fn locate(
         else {
             continue;
         };
-        let repo = &found["repo"];
+        let repo = found.get("repo").unwrap_or(&Value::Null);
         let (Some(owner), Some(name)) = (text(repo, "owner"), text(repo, "name")) else {
             continue;
         };
-        if found["sameHost"] != Value::Bool(true) {
+        if found.get("sameHost") != Some(&Value::Bool(true)) {
             continue;
         }
         let picked = picks
@@ -584,8 +584,9 @@ async fn runs_on(
     let named = |run: &&Value| {
         workflows.is_empty() || text(run, "name").is_some_and(|name| workflows.contains(&name))
     };
-    Ok(page["runs"]
-        .as_array()
+    Ok(page
+        .get("runs")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter(|run| run["sha"].as_str() == Some(sha))
@@ -652,7 +653,9 @@ pub async fn failed_jobs(repo: &Repo, sha: &str, workflows: &[String]) -> Option
             let workflow = text(run, "name").unwrap_or_else(|| "CI".to_owned());
             let before = failed.len();
             let detail = self::run(repo, &run["id"]).await.unwrap_or_default();
-            let jobs = detail["jobs"].as_array().into_iter().flatten();
+            let jobs = (detail.get("jobs").and_then(Value::as_array))
+                .into_iter()
+                .flatten();
             for job in jobs.filter(|job| conclusion(job) == Some(Conclusion::Failed)) {
                 if failed.len() >= MAX_FAILED_JOBS {
                     return Ok(failed);
@@ -719,7 +722,11 @@ pub async fn runs(
         "perPage": 50,
     });
     let page = repo.call("runs", params).await?;
-    Ok(page["runs"].as_array().cloned().unwrap_or_default())
+    Ok(page
+        .get("runs")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
 }
 
 /// The repository's CI workflows, each with its `id`, `name` and `path`.
@@ -742,8 +749,9 @@ pub async fn log_tail(
 ) -> Result<Vec<String>, String> {
     let params = json!({ "runId": run, "jobId": job, "tail": lines });
     let found = repo.call("jobLogExcerpt", params).await?;
-    Ok(found["lines"]
-        .as_array()
+    Ok(found
+        .get("lines")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(|line| line["text"].as_str().map(str::to_owned))
@@ -784,7 +792,11 @@ pub async fn look(core: &Core, pull: &AutoPull) -> Result<Looked, String> {
     let found = repo.call("pull", json!({ "number": pull.number })).await?;
     Ok(Looked {
         state: text(&found, "state").unwrap_or_else(|| "open".to_owned()),
-        mark: format!("{} {}", found["updatedAt"], found["comments"]),
+        mark: format!(
+            "{} {}",
+            found.get("updatedAt").unwrap_or(&Value::Null),
+            found.get("comments").unwrap_or(&Value::Null)
+        ),
     })
 }
 

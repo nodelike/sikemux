@@ -11,7 +11,7 @@ pub fn command_cwd(value: Option<&str>) -> Result<String, String> {
     let drive = normalized
         .as_bytes()
         .get(..2)
-        .is_some_and(|head| head[0].is_ascii_alphabetic() && head[1] == b':');
+        .is_some_and(|head| matches!(head, [letter, b':'] if letter.is_ascii_alphabetic()));
     if normalized.starts_with('/')
         || normalized.starts_with('~')
         || drive

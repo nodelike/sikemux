@@ -29,6 +29,7 @@ struct Palette: Equatable, Sendable {
     var warn = Color(hex: "#ffca85")
     var danger = Color(hex: "#ff6767")
     var cmd = Color(hex: "#ff6ac1")
+    var host = Color(hex: "#9d7ceb")
     var treeSpine = Color(hex: "#5f4a8a")
     var treeTick = Color(hex: "rgba(162, 119, 255, 0.72)")
     var gitAdded = Color(hex: "#81b88b")
@@ -53,7 +54,7 @@ struct Palette: Equatable, Sendable {
         "border": \.border, "borderStrong": \.borderStrong, "rest": \.rest, "ink": \.ink, "secondary": \.secondary,
         "tertiary": \.tertiary, "inkDim": \.inkDim, "inkFaint": \.inkFaint, "active": \.active,
         "selected": \.selected, "borderSelected": \.borderSelected, "accent": \.accent, "accentSoft": \.accentSoft,
-        "live": \.live, "warn": \.warn, "danger": \.danger, "cmd": \.cmd, "treeSpine": \.treeSpine,
+        "live": \.live, "warn": \.warn, "danger": \.danger, "cmd": \.cmd, "host": \.host, "treeSpine": \.treeSpine,
         "treeTick": \.treeTick, "gitAdded": \.gitAdded, "gitModified": \.gitModified, "gitDeleted": \.gitDeleted,
         "gitRenamed": \.gitRenamed, "toolRead": \.toolRead, "toolEdit": \.toolEdit, "toolDelete": \.toolDelete,
         "toolRun": \.toolRun, "toolMcp": \.toolMcp, "shaderDot": \.shaderDot,

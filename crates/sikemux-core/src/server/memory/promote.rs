@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sikemux_process::sync::Locked;
-use sikemux_view::memory::{MemoryRule, MemoryView, Stays};
+use sikemux_view::memory::{MemoryRule, MemoryView, Stays, Store};
 
-use super::{project_at, run, tell_clients, view, Core, MemoryEntryParams};
+use super::{project_at, run, tell_clients, view, Core, MemoryEntryParams, MemoryParams};
 use crate::server::access::Peer;
 
 const FILE: &str = "AGENTS.md";
@@ -38,17 +38,13 @@ fn with_rule(file: &str, rule: &str) -> String {
             lines.extend([HEADING, "", bullet]);
         }
         Some(heading) => {
-            let end = lines[heading + 1..]
-                .iter()
-                .position(|line| line.starts_with("## "))
-                .map_or(lines.len(), |at| heading + 1 + at);
-            if lines[heading + 1..end]
-                .iter()
-                .any(|line| line.trim_end() == bullet)
-            {
+            let after = lines.get(heading + 1..).unwrap_or_default();
+            let section = (after.split(|line| line.starts_with("## ")).next()).unwrap_or_default();
+            if section.iter().any(|line| line.trim_end() == bullet) {
                 return file.to_owned();
             }
-            let last = lines[..end]
+            let end = heading + 1 + section.len();
+            let last = (lines.get(..end).unwrap_or_default())
                 .iter()
                 .rposition(|line| !line.trim().is_empty())
                 .unwrap_or(heading);
@@ -72,50 +68,88 @@ pub(crate) async fn promote(
     params: MemoryEntryParams,
 ) -> Result<MemoryView, String> {
     let project = project_at(core, &params.project)?;
-    let id = params.id;
     let core = core.clone();
     run(move || {
-        let _one_at_a_time = core.memory().promotes.locked();
-        let key = core.memory().state.locked().key_holding(&project, id)?;
-        let path = agents_file(&project);
-        let (text, file) = {
-            let mut state = core.memory().state.locked();
-            let rule = (state.held.get(&key))
-                .and_then(|held| held.rules.iter().find(|rule| rule.id == id))
-                .ok_or_else(|| format!("#{id} is not a rule, and only rules go into {FILE}"))?;
-            if let Some(stays) = stays(rule, &path) {
-                return Err(refusal(id, &project, stays));
-            }
-            let text = rule.text.clone();
-            state.promoting = Some(id);
-            (text, core.memory().save(&mut state, &key))
-        };
-        let gone_on_disk = match file {
-            Some(file) => {
-                file.flush();
-                file.unsaved()
-                    .map_or(Ok(()), |error| Err(format!("Sikemux could not save that #{id} moved, so {FILE} was left alone: {error}")))
-            }
-            None => Ok(()),
-        };
-        let written = gone_on_disk.and_then(|()| match &path {
-            Ok(path) => write(path, &text),
-            Err(stays) => Err(refusal(id, &project, *stays)),
-        });
-        let mut state = core.memory().state.locked();
-        state.promoting = None;
-        if written.is_ok() {
-            if let Some(held) = state.held.get_mut(&key) {
-                held.rules.retain(|rule| rule.id != id);
-            }
-        }
-        core.memory().save(&mut state, &key);
-        drop(state);
-        written?;
+        promote_one(&core, &project, params.id)?;
         tell_clients(&core, false);
         Ok(view(&core, &project, &peer))
     })
     .await
+}
+
+/// Moves every rule the person gave the project that can go into its AGENTS.md.
+pub(crate) async fn promote_all(
+    core: &Arc<Core>,
+    peer: Peer,
+    params: MemoryParams,
+) -> Result<MemoryView, String> {
+    let project = project_at(core, &params.project)?;
+    let core = core.clone();
+    run(move || {
+        let path = agents_file(&project);
+        let ids: Vec<u64> = (core.memory().state.locked().own(&project))
+            .map(|held| {
+                (held.rules.iter())
+                    .filter(|rule| rule.learned.agent.is_none())
+                    .filter(|rule| stays(rule, held.store, &path).is_none())
+                    .map(|rule| rule.id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if ids.is_empty() {
+            return Err(format!("No rule of this project's can go into {FILE}"));
+        }
+        let moved = ids
+            .into_iter()
+            .try_for_each(|id| promote_one(&core, &project, id));
+        tell_clients(&core, false);
+        moved?;
+        Ok(view(&core, &project, &peer))
+    })
+    .await
+}
+
+fn promote_one(core: &Core, project: &str, id: u64) -> Result<(), String> {
+    let _one_at_a_time = core.memory().promotes.locked();
+    let path = agents_file(project);
+    let (key, text, file) = {
+        let mut state = core.memory().state.locked();
+        let held = (state.own(project)).ok_or_else(|| format!("#{id} is not this project's"))?;
+        let rule = (held.rules.iter().find(|rule| rule.id == id)).ok_or_else(|| {
+            format!("#{id} is not a rule of this project's, and only those go into {FILE}")
+        })?;
+        if let Some(stays) = stays(rule, held.store, &path) {
+            return Err(refusal(id, project, stays));
+        }
+        let (key, text) = (held.key.clone(), rule.text.clone());
+        state.promoting = Some(id);
+        let file = core.memory().save(&mut state, &key);
+        (key, text, file)
+    };
+    let gone_on_disk = match file {
+        Some(file) => {
+            file.flush();
+            file.unsaved().map_or(Ok(()), |error| {
+                Err(format!(
+                    "Sikemux could not save that #{id} moved, so {FILE} was left alone: {error}"
+                ))
+            })
+        }
+        None => Ok(()),
+    };
+    let written = gone_on_disk.and_then(|()| match &path {
+        Ok(path) => write(path, &text),
+        Err(stays) => Err(refusal(id, project, *stays)),
+    });
+    let mut state = core.memory().state.locked();
+    state.promoting = None;
+    if written.is_ok() {
+        if let Some(held) = state.held.get_mut(&key) {
+            held.rules.retain(|rule| rule.id != id);
+        }
+    }
+    core.memory().save(&mut state, &key);
+    written
 }
 
 /// The AGENTS.md of the checkout at `folder`, or the file it links to inside
@@ -138,8 +172,15 @@ pub(super) fn agents_file(folder: &str) -> Result<PathBuf, Stays> {
         .ok_or(Stays::LinkedAway)
 }
 
-/// Why `rule`, kept for a project whose AGENTS.md is `file`, cannot move there.
-pub(super) fn stays(rule: &MemoryRule, file: &Result<PathBuf, Stays>) -> Option<Stays> {
+/// Why `rule`, kept in `store` for a project whose AGENTS.md is `file`, cannot move there.
+pub(super) fn stays(
+    rule: &MemoryRule,
+    store: Store,
+    file: &Result<PathBuf, Stays>,
+) -> Option<Stays> {
+    if !store.is_project() {
+        return Some(Stays::Yours);
+    }
     if rule.sensitive {
         return Some(Stays::Sensitive);
     }
@@ -149,6 +190,7 @@ pub(super) fn stays(rule: &MemoryRule, file: &Result<PathBuf, Stays>) -> Option<
 fn refusal(id: u64, folder: &str, stays: Stays) -> String {
     match stays {
         Stays::Sensitive => format!("#{id} is sensitive, so it never goes into the repository"),
+        Stays::Yours => format!("#{id} is the person's own, so it stays out of every repository"),
         Stays::NoCheckout => format!(
             "{folder} is not the top of a git checkout, so an {FILE} there would not be versioned"
         ),

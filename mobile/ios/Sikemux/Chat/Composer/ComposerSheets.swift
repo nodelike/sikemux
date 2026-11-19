@@ -25,6 +25,8 @@ struct ConfigSheet: View {
     /// The provider and model picked from `routes`.
     var routed: RoutePick?
     var onRoute: (RoutePick) -> Void = { _ in }
+    /// The models new chats of the agent started on lately, newest first.
+    var recent: [RecentModel] = []
     @State private var query = ""
     /// The older releases of the agent's models show, which start folded away.
     @State private var older = false
@@ -81,6 +83,7 @@ struct ConfigSheet: View {
                     font: Theme.ui(15))
                 let heading = Catalog.entry(provider, core: core)?.maker ?? name
                 let routed = routes.map { ($0, Self.matching($0, typed: typed)) }.filter { !$0.1.isEmpty }
+                if typed.isEmpty { recentModels(model) }
                 models(model, typed: typed, heading: heading, others: !routed.isEmpty)
                 ForEach(routed, id: \.0.id) { route, shown in
                     section(route, shown: shown)
@@ -120,10 +123,11 @@ struct ConfigSheet: View {
                     let share = ContextFill.share(usage)
                     VStack(alignment: .leading, spacing: 0) {
                         HStack {
-                            Text("Context").font(Theme.label).foregroundStyle(palette.tertiary)
+                            (usage.compactAt == nil ? Text("Context") : Text("Until compaction")).font(Theme.label)
+                                .foregroundStyle(palette.tertiary)
                             Spacer()
                             Text(
-                                "\(Int((share * 100).rounded()))% · \(Format.tokens(usage.used)) of \(Format.tokens(usage.size))"
+                                "\(Int((share * 100).rounded()))% · \(Format.tokens(usage.used)) of \(Format.tokens(ContextFill.limit(usage)))"
                             )
                             .font(Theme.mono(12))
                             .foregroundStyle(palette.tertiary)
@@ -137,9 +141,9 @@ struct ConfigSheet: View {
                         }
                         .frame(height: 4)
                         .padding(.top, 8)
-                        if let compactAt = usage.compactAt {
-                            Text("Compacts at \(Format.tokens(compactAt)) of \(Format.tokens(usage.size))")
-                                .font(Theme.ui(12.5)).foregroundStyle(palette.tertiary).padding(.top, 8)
+                        if usage.compactAt != nil {
+                            Text("Model window \(Format.tokens(usage.size))")
+                                .font(Theme.ui(12.5)).foregroundStyle(palette.inkDim).padding(.top, 8)
                         }
                         if let cost = usage.cost {
                             Text("Session cost \(ContextFill.money(cost))").font(Theme.ui(12.5)).foregroundStyle(
@@ -187,33 +191,7 @@ struct ConfigSheet: View {
         }
         return VStack(alignment: .leading, spacing: 2) {
             if !shown.isEmpty || !others { SectionLabel(heading) }
-            ForEach(shown, id: \.value) { choice in
-                let on = routed == nil && choice.value == model.current
-                Button {
-                    onPick(model, choice.value)
-                } label: {
-                    HStack(spacing: 11) {
-                        AgentMark(provider: provider, size: 17)
-                        Text(choice.label)
-                            .font(Theme.ui(15))
-                            .foregroundStyle(on ? palette.ink : palette.secondary)
-                            .lineLimit(1)
-                        if choice.isDefault == true {
-                            Text("Default").font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
-                        if on { IconView(icon: Icons.check, size: 15).foregroundStyle(palette.accent) }
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(height: 42)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? palette.active : .clear)
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(PressFade())
-                .accessibilityAddTraits(on ? .isSelected : [])
-            }
+            ForEach(shown, id: \.value) { ownRow(model, $0) }
             if folds && typed.isEmpty {
                 Button {
                     older.toggle()
@@ -262,40 +240,105 @@ struct ConfigSheet: View {
             ? String(localized: "\(route.label) · local") : route.label
         return VStack(alignment: .leading, spacing: 2) {
             SectionLabel(heading)
-            ForEach(shown, id: \.self) { model in
-                let pick = RoutePick(provider: route.id, model: model)
-                let on = routed == pick
-                let facts = Self.facts(route, model)
-                Button {
-                    onRoute(pick)
-                } label: {
-                    HStack(spacing: 11) {
-                        AgentMark(provider: provider, size: 17)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(model)
-                                .font(Theme.ui(15))
-                                .foregroundStyle(on ? palette.ink : palette.secondary)
-                                .lineLimit(1)
-                            if !facts.isEmpty {
-                                Text(facts).font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
-                            }
-                        }
-                        Spacer(minLength: 0)
-                        if on { IconView(icon: Icons.check, size: 15).foregroundStyle(palette.accent) }
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(minHeight: 42)
-                    .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? palette.active : .clear)
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(PressFade())
-                .accessibilityAddTraits(on ? .isSelected : [])
-            }
+            ForEach(shown, id: \.self) { routeRow(route, $0) }
         }
         .padding(.top, 10)
     }
+
+    @ViewBuilder private func ownRow(_ model: ConfigPicker, _ choice: ConfigChoice) -> some View {
+        let on = routed == nil && choice.value == model.current
+        Button {
+            onPick(model, choice.value)
+        } label: {
+            HStack(spacing: 11) {
+                AgentMark(provider: provider, size: 17)
+                Text(choice.label)
+                    .font(Theme.ui(15))
+                    .foregroundStyle(on ? palette.ink : palette.secondary)
+                    .lineLimit(1)
+                if choice.isDefault == true {
+                    Text("Default").font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if on { IconView(icon: Icons.check, size: 15).foregroundStyle(palette.accent) }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 42)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? palette.active : .clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressFade())
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    @ViewBuilder private func routeRow(_ route: ModelRoute, _ model: String) -> some View {
+        let pick = RoutePick(provider: route.id, model: model)
+        let on = routed == pick
+        let facts = Self.facts(route, model)
+        Button {
+            onRoute(pick)
+        } label: {
+            HStack(spacing: 11) {
+                AgentMark(provider: provider, size: 17)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(model)
+                        .font(Theme.ui(15))
+                        .foregroundStyle(on ? palette.ink : palette.secondary)
+                        .lineLimit(1)
+                    if !facts.isEmpty {
+                        Text(facts).font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+                if on { IconView(icon: Icons.check, size: 15).foregroundStyle(palette.accent) }
+            }
+            .padding(.horizontal, 10)
+            .frame(minHeight: 42)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? palette.active : .clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressFade())
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    /// The models new chats of the agent started on lately, as they stand below.
+    @ViewBuilder private func recentModels(_ model: ConfigPicker) -> some View {
+        let rows = recent.compactMap { used -> RecentRow? in
+            if let provider = used.provider {
+                return routes.first { $0.id == provider && $0.models.contains(used.model) }.map {
+                    RecentRow(route: $0, choice: nil, model: used.model)
+                }
+            }
+            return model.choices.first { $0.value == used.model }.map {
+                RecentRow(route: nil, choice: $0, model: used.model)
+            }
+        }
+        if !rows.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                SectionLabel(String(localized: "Recent"))
+                ForEach(rows) { row in
+                    if let route = row.route {
+                        routeRow(route, row.model)
+                    } else if let choice = row.choice {
+                        ownRow(model, choice)
+                    }
+                }
+            }
+            .padding(.bottom, 10)
+        }
+    }
+}
+
+/// A model new chats of the agent started on lately: one of its own, or a connected provider's.
+private struct RecentRow: Identifiable {
+    let route: ModelRoute?
+    let choice: ConfigChoice?
+    let model: String
+    var id: String { "\(route?.id ?? "")/\(model)" }
 }
 
 /// A connected provider's model a chat moves to before it starts.

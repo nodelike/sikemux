@@ -516,9 +516,9 @@
         "other": "Ctrl+Alt+Digit6"
     },
     {
-        "id": "window.board",
-        "label": "Agent Board",
-        "detail": "Open the project's Agent Board on its chief's desk: everything you asked, by who has it",
+        "id": "window.tasks",
+        "label": "Tasks",
+        "detail": "Open the project's tasks on the nearest agent's desk: what waits on you, what finished and what is moving",
         "category": "Navigation",
         "mac": "Meta+Alt+Digit7",
         "other": "Ctrl+Alt+Digit7"

@@ -256,12 +256,10 @@ impl Render for HostPicker {
             .iter()
             .take_while(|choice| matches!(choice, Choice::Has(_)))
             .count();
-        let held = choices[..copies]
-            .iter()
+        let held = (choices.iter().take(copies))
             .enumerate()
             .map(|(at, choice)| self.row(at, choice, &this, cx));
-        let targets = choices[copies..]
-            .iter()
+        let targets = (choices.iter().skip(copies))
             .enumerate()
             .map(|(at, choice)| self.row(copies + at, choice, &this, cx));
         list_picker::popup(312., cx)

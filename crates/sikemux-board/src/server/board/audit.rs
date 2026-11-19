@@ -271,7 +271,7 @@ pub fn view(core: &Core, board: &Board) -> Option<AuditView> {
     let runs = &board.audits.runs;
     let latest = runs.last().and_then(|run| {
         let card = board.card(run.card).ok()?;
-        let before = runs.len().checked_sub(2).map(|at| &runs[at]);
+        let before = runs.len().checked_sub(2).and_then(|at| runs.get(at));
         let findings = (board.under(run.card).into_iter())
             .map(|found| AuditFinding {
                 card: found.id,

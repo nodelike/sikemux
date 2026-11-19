@@ -236,7 +236,11 @@ impl List {
             .call("runs", params)
             .await
             .map_err(|failure| failure.message)?;
-        let runs = page["runs"].as_array().cloned().unwrap_or_default();
+        let runs = page
+            .get("runs")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         if let Some(fields) = &self.json {
             let shown: Option<Vec<Value>> =
                 runs.iter().map(|run| run_json(run, None, fields)).collect();
@@ -297,8 +301,10 @@ impl View {
             return Ok(None);
         }
         let detail = repo::run(repo, &run_id).await?;
-        let run = &detail["run"];
-        let jobs = detail["jobs"].as_array().cloned().unwrap_or_default();
+        let run = detail.get("run").unwrap_or(&Value::Null);
+        let jobs = (detail.get("jobs").and_then(Value::as_array))
+            .cloned()
+            .unwrap_or_default();
         let failed = text(run, "status") == "completed"
             && !matches!(text(run, "conclusion"), "success" | "skipped" | "neutral");
         let code = i32::from(self.exit_status && failed);
@@ -379,8 +385,9 @@ async fn whole_log(repo: &Repo, run_id: &Value, job: &Value) -> Result<Vec<Strin
         .call("jobLog", json!({ "runId": run_id, "jobId": job["id"] }))
         .await
         .map_err(|failure| failure.message)?;
-    Ok(log["lines"]
-        .as_array()
+    Ok(log
+        .get("lines")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .map(|line| text(line, "text").to_owned())

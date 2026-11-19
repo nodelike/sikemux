@@ -91,9 +91,10 @@ fn texts(dir: &Path, extension: &str) -> Vec<(String, Result<String, String>)> {
         let name = match extension {
             "" => file_name,
             _ => match path.extension().and_then(|found| found.to_str()) {
-                Some(found) if found == extension => {
-                    &file_name[..file_name.len() - extension.len() - 1]
-                }
+                Some(found) if found == extension => file_name
+                    .strip_suffix(extension)
+                    .and_then(|stem| stem.strip_suffix('.'))
+                    .unwrap_or(file_name),
                 _ => continue,
             },
         };
@@ -118,8 +119,7 @@ pub fn without_comments(text: &str) -> String {
     let mut at = 0;
     let mut in_string = false;
     let mut last_comma: Option<usize> = None;
-    while at < bytes.len() {
-        let byte = bytes[at];
+    while let Some(&byte) = bytes.get(at) {
         if in_string {
             match byte {
                 b'\\' => at += 1,
@@ -135,15 +135,16 @@ pub fn without_comments(text: &str) -> String {
                 last_comma = None;
             }
             (b'/', Some(b'/')) => {
-                while at < bytes.len() && bytes[at] != b'\n' {
-                    out[at] = b' ';
+                while let Some(slot) = out.get_mut(at).filter(|slot| **slot != b'\n') {
+                    *slot = b' ';
                     at += 1;
                 }
                 continue;
             }
             (b'/', Some(b'*')) => {
-                let end = (text[at + 2..].find("*/")).map_or(bytes.len(), |end| at + 2 + end + 2);
-                for blank in &mut out[at..end] {
+                let end = (text.get(at + 2..).and_then(|rest| rest.find("*/")))
+                    .map_or(bytes.len(), |end| at + 2 + end + 2);
+                for blank in out.iter_mut().take(end).skip(at) {
                     if *blank != b'\n' {
                         *blank = b' ';
                     }
@@ -153,8 +154,8 @@ pub fn without_comments(text: &str) -> String {
             }
             (b',', _) => last_comma = Some(at),
             (b'}' | b']', _) => {
-                if let Some(comma) = last_comma.take() {
-                    out[comma] = b' ';
+                if let Some(comma) = last_comma.take().and_then(|comma| out.get_mut(comma)) {
+                    *comma = b' ';
                 }
             }
             (byte, _) if byte.is_ascii_whitespace() => {}

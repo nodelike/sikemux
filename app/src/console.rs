@@ -113,7 +113,7 @@ fn entry(line: String) -> Entry {
         "log"
     };
     let text = match line.char_indices().nth(MAX_TEXT) {
-        Some((end, _)) => format!("{}…", &line[..end]),
+        Some((end, _)) => format!("{}…", line.get(..end).unwrap_or_default()),
         None => line,
     };
     Entry {
@@ -194,8 +194,8 @@ pub fn read(params: &Value) -> Result<Value, String> {
         .iter()
         .filter(|entry| !errors || entry.level != "log")
         .collect();
-    let mut messages: VecDeque<Value> = matched[matched.len().saturating_sub(limit)..]
-        .iter()
+    let mut messages: VecDeque<Value> = (matched.iter())
+        .skip(matched.len().saturating_sub(limit))
         .map(|entry| entry.to_json())
         .collect();
     let mut size: usize = messages

@@ -100,11 +100,11 @@ fn is_svg(bytes: &[u8]) -> bool {
             .into_iter()
             .find(|(open, _)| rest.starts_with(open))
             .and_then(|(open, close)| {
-                let after = &rest[open.len()..];
+                let after = rest.get(open.len()..)?;
                 let end = after
                     .windows(close.len())
                     .position(|window| window == close)?;
-                Some(&after[end + close.len()..])
+                after.get(end + close.len()..)
             });
         match skipped {
             Some(after) => rest = after,

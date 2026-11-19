@@ -5,14 +5,20 @@ use sikemux_calls::params::NoParams;
 use sikemux_calls::project_roots::ScanParams;
 use std::path::Path;
 
-use gpui_kit::{Context, PathPromptOptions, Window};
+use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::{
+    div, AnyElement, App, Context, IntoElement, ParentElement, PathPromptOptions, Styled, Window,
+};
 use sikemux_calls::ssh::SshHost;
+use sikemux_view::prefs::{PreferenceChange, ProjectRoot, MAX_PROJECT_DEPTH};
 
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::palette::{Mark, Row, Spec};
 use crate::reads::Read;
+use crate::theme::{SPACE_2, SPACE_3, TEXT_3XS_H};
 use crate::toast;
+use crate::ui;
 use crate::ui::path::{this_home, tilde};
 use crate::workbench::{Strip, Workbench};
 use sikemux_calls::call;
@@ -181,15 +187,136 @@ impl Workbench {
 
     /// Asks again what lies under the project roots, for either project picker to offer.
     pub(crate) fn read_project_folders(&self) {
-        let roots = &self.preferences().project_roots;
+        self.scan_roots(self.preferences().project_roots.clone());
+    }
+
+    fn scan_roots(&self, roots: Vec<ProjectRoot>) {
         if !roots.is_empty() {
-            Target::here(&self.asks).answer::<call::ProjectRoots>(
-                Read::PickerFolders,
-                ScanParams {
-                    roots: roots.clone(),
-                },
-            );
+            Target::here(&self.asks)
+                .answer::<call::ProjectRoots>(Read::PickerFolders, ScanParams { roots });
         }
+    }
+
+    /// The path a picker row stands for on this computer.
+    fn row_path(&self, key: &str) -> Option<String> {
+        if let Some(path) = key.strip_prefix(FOLDER) {
+            return Some(path.to_owned());
+        }
+        let id = key.strip_prefix(PROJECT)?;
+        let view = self.view_at(&crate::hosts::Place::This)?;
+        let project = view
+            .workspace
+            .projects
+            .iter()
+            .find(|project| project.id == id)?;
+        Some(project.path.to_string_lossy().into_owned())
+    }
+
+    /// The project folder the chosen row lies in, with its two settings, or a typed folder
+    /// that is not one yet.
+    fn picker_foot(&self, row: &Row, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.picking_place() != crate::hosts::Place::This {
+            return None;
+        }
+        let path = self.row_path(&row.key)?;
+        let roots = &self.preferences().project_roots;
+        let held = roots
+            .iter()
+            .filter(|root| path == root.path || path.starts_with(&format!("{}/", root.path)))
+            .max_by_key(|root| root.path.len())
+            .cloned();
+        let listed = held.is_some();
+        let root = match held {
+            Some(root) => root,
+            None if row.key.starts_with(FOLDER) && Path::new(&path).is_dir() => ProjectRoot {
+                path,
+                depth: 0,
+                self_index: false,
+            },
+            None => return None,
+        };
+        let below = format!("{}/", root.path);
+        let repos = (self.reads.picker_folders.iter())
+            .filter(|found| found.path.starts_with(&below))
+            .count();
+        let said = match (listed, repos) {
+            (false, _) => t!("not a project folder").to_owned(),
+            (true, 0) => t!("no repos").to_owned(),
+            (true, 1) => t!("1 repo").to_owned(),
+            (true, n) => t!("{count} repos", count = n),
+        };
+        let shown = tilde(&root.path, this_home().as_deref());
+        let bench = cx.entity().downgrade();
+        let set = move |root: ProjectRoot, window: &mut Window, cx: &mut App| {
+            let _ = bench.update(cx, |bench, cx| bench.set_root(root, window, cx));
+        };
+        let set = std::rc::Rc::new(set);
+        let (tick, step) = (set.clone(), set);
+        let (ticked, stepped) = (root.clone(), root.clone());
+        Some(
+            div()
+                .flex()
+                .flex_1()
+                .min_w_0()
+                .items_center()
+                .gap(SPACE_3)
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_w_0()
+                        .items_center()
+                        .gap(SPACE_2)
+                        .child(ui::mono(shown, TEXT_3XS_H, cx).truncate())
+                        .child(ui::meta(said, cx).flex_none()),
+                )
+                .child(
+                    Checkbox::new("picker-root-itself")
+                        .label(t!("Index itself"))
+                        .checked(root.self_index)
+                        .on_click(move |on: &bool, window, cx| {
+                            let mut root = ticked.clone();
+                            root.self_index = *on;
+                            tick(root, window, cx);
+                        }),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap(SPACE_2)
+                        .child(ui::meta(t!("Depth"), cx))
+                        .child(ui::stepper(
+                            "picker-root-depth",
+                            root.depth,
+                            MAX_PROJECT_DEPTH,
+                            move |depth, window, cx| {
+                                let mut root = stepped.clone();
+                                root.depth = depth;
+                                step(root, window, cx);
+                            },
+                            cx,
+                        )),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// Saves a project folder's settings from the picker, adding it when new, and searches
+    /// the folders again with them at once.
+    fn set_root(&mut self, root: ProjectRoot, window: &mut Window, cx: &mut Context<Self>) {
+        let mut roots = self.preferences().project_roots.clone();
+        match roots.iter_mut().find(|held| held.path == root.path) {
+            Some(held) => *held = root,
+            None => roots.push(root),
+        }
+        crate::settings::set(self, PreferenceChange::ProjectRoots(roots.clone()));
+        self.scan_roots(roots);
+        if let Some(palette) = self.overlays.palette.as_ref() {
+            palette.refocus(window, cx);
+        }
+        cx.notify();
     }
 
     /// Makes the folder at `path` a project, answering its id, or tells the person why not.
@@ -275,6 +402,7 @@ impl Workbench {
                     ThenPicked::MoveAgent => folder_typed,
                     _ => typed as fn(&str) -> Option<Row>,
                 })
+                .foot(|row, bench, cx| bench.picker_foot(row, cx))
                 .aside(Icon::Folder, t!("Open folder"), move |bench, window, cx| {
                     bench.close_palette(window, cx);
                     let picked = cx.prompt_for_paths(PathPromptOptions {

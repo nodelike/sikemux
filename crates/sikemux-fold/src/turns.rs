@@ -60,11 +60,10 @@ fn turn_parts(rows: &[Row], start: usize, end: usize) -> Vec<(usize, usize, &Cha
 
 /// Where the run of reply parts ending at `end` starts.
 fn run_start(parts: &[(usize, usize, &ChatPart)], end: usize) -> usize {
-    let mut start = end;
-    while start > 0 && is_reply(parts[start - 1].2) {
-        start -= 1;
-    }
-    start
+    let replies = (parts.iter().take(end).rev())
+        .take_while(|(_, _, part)| is_reply(part))
+        .count();
+    end - replies
 }
 
 fn written(part: &ChatPart) -> u64 {
@@ -80,15 +79,16 @@ fn written(part: &ChatPart) -> u64 {
 /// is still the reply, so the reply starts at the earliest such stretch.
 fn reply_from(parts: &[(usize, usize, &ChatPart)]) -> usize {
     let mut from = run_start(parts, parts.len());
-    let mut after: u64 = parts[from..].iter().map(|(_, _, part)| written(part)).sum();
+    let mut after: u64 = (parts.iter().skip(from))
+        .map(|(_, _, part)| written(part))
+        .sum();
     let mut end = from;
     while end > 0 {
-        while end > 0 && !is_reply(parts[end - 1].2) {
-            end -= 1;
-        }
+        end -= (parts.iter().take(end).rev())
+            .take_while(|(_, _, part)| !is_reply(part))
+            .count();
         let start = run_start(parts, end);
-        let run: u64 = parts[start..end]
-            .iter()
+        let run: u64 = (parts.iter().take(end).skip(start))
             .map(|(_, _, part)| written(part))
             .sum();
         if run > after {
@@ -103,18 +103,18 @@ fn reply_from(parts: &[(usize, usize, &ChatPart)]) -> usize {
 /// How long the run `start..=end` took. A prompted turn starts with its
 /// prompt; one the agent began by itself starts when the core said it did.
 fn turn_span(rows: &[Row], start: usize, end: usize) -> Option<u64> {
-    let before = start.checked_sub(1).map(|at| &rows[at].msg);
+    let before = (start.checked_sub(1))
+        .and_then(|at| rows.get(at))
+        .map(|row| &row.msg);
     let began = before
         .filter(|message| message.role == ChatRole::User)
         .and_then(|message| message.sent_at)
         .or_else(|| {
-            rows[start]
-                .msg
-                .opens_turn
-                .as_ref()
+            (rows.get(start))
+                .and_then(|row| row.msg.opens_turn.as_ref())
                 .and_then(|opens| opens.at)
         })?;
-    let ended = rows[end].msg.ended_at?;
+    let ended = rows.get(end)?.msg.ended_at?;
     (ended > began).then(|| ended - began)
 }
 
@@ -149,9 +149,7 @@ impl TurnFold {
 
 fn closes_with_writing(parts: &[(usize, usize, &ChatPart)]) -> bool {
     let closing = run_start(parts, parts.len());
-    parts[closing..]
-        .iter()
-        .any(|(_, _, part)| matches!(part, ChatPart::Text { .. }))
+    (parts.iter().skip(closing)).any(|(_, _, part)| matches!(part, ChatPart::Text { .. }))
 }
 
 fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<TurnFold> {
@@ -160,6 +158,7 @@ fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<TurnFold> {
         return None;
     }
     let from = reply_from(&parts);
+    let (first, last, reply) = (rows.get(start)?, rows.get(end)?, parts.get(from)?);
     let (mut calls, mut worked, mut acted) = (0, false, false);
     for (index, (_, _, part)) in parts.iter().enumerate() {
         if index >= from && is_reply(part) {
@@ -176,15 +175,15 @@ fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<TurnFold> {
     }
     worked.then(|| TurnFold {
         fold: WorkFold {
-            id: rows[start].msg.id.clone(),
-            last: rows[end].msg.id.clone(),
+            id: first.msg.id.clone(),
+            last: last.msg.id.clone(),
             from: 0,
             shown: Vec::new(),
             calls,
             took: turn_span(rows, start, end),
             thought: !acted,
         },
-        reply: (parts[from].0, parts[from].1),
+        reply: (reply.0, reply.1),
     })
 }
 
@@ -193,7 +192,7 @@ fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<TurnFold> {
 /// its speed counts the time spent writing, not waiting on tools.
 fn answer_meta(rows: &[Row], start: usize, end: usize) -> RowMeta {
     let (mut chars, mut written) = (0u64, 0u64);
-    for row in &rows[start..=end] {
+    for row in rows.iter().take(end + 1).skip(start) {
         if let Some(stream) = row.stream.filter(|stream| stream.ended > stream.started) {
             chars += stream.chars;
             written += stream.ended - stream.started;
@@ -202,18 +201,31 @@ fn answer_meta(rows: &[Row], start: usize, end: usize) -> RowMeta {
     let rate = (chars > 0 && written >= MIN_SAMPLE_MS)
         .then(|| chars as f64 / CHARS_PER_TOKEN / (written as f64 / 1000.0));
     RowMeta {
-        from: rows[start].msg.id.clone(),
+        from: (rows.get(start))
+            .map(|row| row.msg.id.clone())
+            .unwrap_or_default(),
         rate,
-        at: rows[end].msg.ended_at,
+        at: rows.get(end).and_then(|row| row.msg.ended_at),
         took: turn_span(rows, start, end),
     }
 }
 
 fn opens_run(rows: &[Row], at: usize) -> bool {
-    rows[at].msg.role == ChatRole::Assistant
-        && (at == 0
-            || rows[at - 1].msg.role != ChatRole::Assistant
-            || rows[at].msg.opens_turn.is_some())
+    let Some(row) = rows.get(at) else {
+        return false;
+    };
+    let before = at.checked_sub(1).and_then(|before| rows.get(before));
+    row.msg.role == ChatRole::Assistant
+        && (before.is_none_or(|before| before.msg.role != ChatRole::Assistant)
+            || row.msg.opens_turn.is_some())
+}
+
+/// The last row of the run of the agent's rows that starts at `at`.
+fn run_end(rows: &[Row], at: usize) -> usize {
+    let more = (rows.iter().skip(at + 1))
+        .take_while(|row| row.msg.role == ChatRole::Assistant && row.msg.opens_turn.is_none())
+        .count();
+    at + more
 }
 
 fn set_meta(row: &mut Row, meta: Option<RowMeta>) -> bool {
@@ -253,28 +265,21 @@ impl Fold {
         let running = self.head.running;
         let mut touched = Vec::new();
         let mut at = start;
-        while at < rows.len() {
-            if rows[at].msg.role != ChatRole::Assistant {
-                if set_fold(&mut rows[at], None) {
+        while let Some(row) = rows.get_mut(at) {
+            if row.msg.role != ChatRole::Assistant {
+                if set_fold(row, None) {
                     touched.push(at);
                 }
                 at += 1;
                 continue;
             }
-            let mut end = at;
-            while end + 1 < rows.len()
-                && rows[end + 1].msg.role == ChatRole::Assistant
-                && rows[end + 1].msg.opens_turn.is_none()
-            {
-                end += 1;
-            }
+            let end = run_end(rows, at);
             // The run still being written has no fold or line until its turn ends.
             let last = end == rows.len() - 1;
             let live = running && last;
             let turn = (!live).then(|| work_fold(rows, at, end)).flatten();
             let meta = (!live).then(|| answer_meta(rows, at, end));
-            let read_from = rows[at.saturating_sub(1)..=end]
-                .iter()
+            let read_from = (rows.iter().take(end + 1).skip(at.saturating_sub(1)))
                 .map(|row| row.v)
                 .chain(last.then_some(self.running_v))
                 .max()
@@ -302,18 +307,12 @@ impl Fold {
 /// The folds and lines of rows folded on their own, such as an earlier page.
 pub(super) fn settle_all(rows: &mut [Row]) {
     let mut at = 0;
-    while at < rows.len() {
-        if rows[at].msg.role != ChatRole::Assistant {
+    while let Some(row) = rows.get(at) {
+        if row.msg.role != ChatRole::Assistant {
             at += 1;
             continue;
         }
-        let mut end = at;
-        while end + 1 < rows.len()
-            && rows[end + 1].msg.role == ChatRole::Assistant
-            && rows[end + 1].msg.opens_turn.is_none()
-        {
-            end += 1;
-        }
+        let end = run_end(rows, at);
         let turn = work_fold(rows, at, end);
         let meta = answer_meta(rows, at, end);
         for (index, row) in rows.iter_mut().enumerate().take(end + 1).skip(at) {

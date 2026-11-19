@@ -186,7 +186,9 @@ pub fn failed(
     let mut blocks = content(said);
     blocks.push(json!({ "type": "content", "content": { "type": "text", "text": error } }));
     let mut raw = raw_output(metadata);
-    raw["error"] = json!(error);
+    if let Some(fields) = raw.as_object_mut() {
+        fields.insert("error".to_owned(), json!(error));
+    }
     json!({
         "sessionUpdate": UpdateKind::ToolCallUpdate,
         "toolCallId": id,
@@ -208,9 +210,11 @@ pub fn permission(session: &str, asked: &Value, call: Option<&Call>, cwd: &Path)
         |call| call.name.clone(),
     );
     let input = call.map_or_else(|| asked["metadata"].clone(), |call| call.input.clone());
-    let id = asked["source"]["id"]
-        .as_str()
-        .or(asked["id"].as_str())
+    let id = asked
+        .get("source")
+        .and_then(|source| source.get("id"))
+        .and_then(Value::as_str)
+        .or(asked.get("id").and_then(Value::as_str))
         .unwrap_or_default();
     let mut locations = locations(&name, &input, cwd);
     if locations.is_empty()

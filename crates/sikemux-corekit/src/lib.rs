@@ -15,6 +15,7 @@ pub mod host_update;
 pub mod join;
 pub mod lines;
 pub mod lock;
+pub mod peer;
 pub mod push;
 pub mod release_feed;
 pub mod releases;

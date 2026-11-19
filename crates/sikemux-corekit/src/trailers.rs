@@ -165,7 +165,7 @@ fn agent_line(agent: &Agent, host: Option<&PublicKey>) -> String {
 }
 
 fn short(host: &PublicKey) -> String {
-    host.to_string()[..HOST_CHARS].to_owned()
+    host.to_string().chars().take(HOST_CHARS).collect()
 }
 
 /// Each field by its length, so no field can run into the next.
@@ -371,14 +371,14 @@ pub fn is_signed(text: &str) -> bool {
 /// with what follows it.
 fn message_file(text: &str) -> Option<(&str, &str, &str)> {
     let cut_at = line_starts(text)
-        .find(|at| first_line(&text[*at..]).get(1..) == Some(SCISSORS))
+        .find(|at| first_line(text.get(*at..).unwrap_or_default()).get(1..) == Some(SCISSORS))
         .unwrap_or(text.len());
     let (body, cut) = text.split_at(cut_at);
     let said = |line: &str| !line.trim().is_empty() && !line.starts_with('#');
     let end = line_starts(body)
-        .filter(|at| said(first_line(&body[*at..])))
+        .filter(|at| said(first_line(body.get(*at..).unwrap_or_default())))
         .last()
-        .map(|at| at + first_line(&body[at..]).len())?;
+        .map(|at| at + first_line(body.get(at..).unwrap_or_default()).len())?;
     let (content, comments) = body.split_at(end);
     Some((content, comments, cut))
 }

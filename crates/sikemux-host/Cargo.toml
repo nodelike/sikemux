@@ -83,5 +83,5 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 tempfile = "3"
 sikemux-agents = { path = "../sikemux-agents" }
 
-[lints.clippy]
-undocumented_unsafe_blocks = "deny"
+[lints]
+workspace = true

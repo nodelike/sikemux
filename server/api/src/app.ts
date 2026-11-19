@@ -5,7 +5,10 @@ import { cors } from "hono/cors";
 import type { AppleSignIn } from "./account/apple.ts";
 import { profileRoutes } from "./account/profile.ts";
 import type { ClerkBackend } from "./account/clerk.ts";
+import { foldRoutes } from "./account/fold.ts";
 import { accountRoutes } from "./account/routes.ts";
+import { workAddressRoutes } from "./account/work-addresses.ts";
+import type { WorkGoogle } from "./account/work-google.ts";
 import type { Verifier } from "./auth.ts";
 import type { Database } from "./db.ts";
 import { allowanceRoutes } from "./billing/host.ts";
@@ -27,7 +30,10 @@ import type { JoinSigner } from "./join/signer.ts";
 import { clientAddress, limit, type RateLimiter } from "./limits.ts";
 import type { Logger } from "./log.ts";
 import { networkRoutes } from "./network/routes.ts";
-import { orgRoutes } from "./orgs/routes.ts";
+import { membershipRoutes } from "./orgs/host.ts";
+import { invitePreviewRoutes, orgRoutes } from "./orgs/routes.ts";
+import { orgVaultRoutes } from "./orgvault/routes.ts";
+import { shareRoutes } from "./orgs/shares.ts";
 import type { Places } from "./places.ts";
 import type { PushSettings } from "./push/settings.ts";
 import { relayAccessRoutes, type RelayAccess } from "./relay/access.ts";
@@ -45,6 +51,12 @@ export interface Services {
   /** The API's own public origin, which webhook addresses start with. */
   apiOrigin: string;
   verifier: Verifier;
+  /** Clerk's sign-ins before the sign-up check, for the routes that fold a refused account away. */
+  signInVerifier: Verifier;
+  /** The key proven work addresses are hashed with, or null when ADDRESS_PROOF_KEY is not set. */
+  addressProofKey: Buffer | null;
+  /** Google, for proving a work address; null when its client is not set up. */
+  workGoogle: WorkGoogle | null;
   limiter: RateLimiter;
   relayAccess: RelayAccess;
   /** Clerk's Backend API, or null when CLERK_SECRET_KEY is not set. */
@@ -64,6 +76,8 @@ export interface Services {
   stash: StashFiles | null;
   /** The hosts connected for their webhooks, which hear at once of a request for them. */
   hookHosts: HookHosts;
+  /** The TXT records at a DNS name, each one's strings joined; throws when the lookup fails. */
+  txtRecords: (name: string) => Promise<string[]>;
   billing: {
     /** Null when BILLING_PROVIDER is not set, and buying or changing anything answers unavailable. */
     provider: BillingProvider | null;
@@ -110,6 +124,7 @@ export function createApp(services: Services) {
   app.route("/v1/stash", stashRoutes(services));
   // A vault rotation carries every entry sealed again, so the vault limits its own bodies too.
   app.route("/v1/vault", vaultRoutes(services));
+  app.route("/v1/orgs/:orgId/vault", orgVaultRoutes(services));
   // A push carries many sealed documents and a mod's files are uploaded, so mods limit their own bodies too.
   app.route("/v1/mods", modRoutes(services));
   app.use(limitBody());
@@ -120,7 +135,14 @@ export function createApp(services: Services) {
   app.route("/v1/host-sign-ins", hostSignInRoutes(services));
   app.route("/v1/account/profile", profileRoutes(services));
   app.route("/v1/account/allowance", allowanceRoutes(services));
+  app.route("/v1/account/orgs", membershipRoutes(services));
+  const { shares, tickets } = shareRoutes(services);
+  app.route("/v1/account/shares", shares);
+  app.route("/v1/account/peer-tickets", tickets);
+  app.route("/v1/account/work-addresses", workAddressRoutes(services));
+  app.route("/v1/account", foldRoutes(services));
   app.route("/v1/account", accountRoutes(services));
+  app.route("/v1/orgs/join/preview", invitePreviewRoutes(services));
   app.route("/v1/orgs", orgRoutes(services));
   app.route(
     "/v1/webhooks",
@@ -129,6 +151,7 @@ export function createApp(services: Services) {
       webhookSecret,
       services.billing.provider,
       services.clerk,
+      services.addressProofKey,
     ),
   );
   app.route("/v1/hooks", hookRoutes(services));

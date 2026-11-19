@@ -41,8 +41,7 @@ fn copied(rows: &[ChatRow], ix: usize) -> Option<String> {
             .position(|row| &row.message.id == start)
             .unwrap_or(ix)
     };
-    let text = rows[from..=ix]
-        .iter()
+    let text = (rows.get(from..=ix)?.iter())
         .flat_map(|row| prose(&row.message))
         .collect::<Vec<_>>()
         .join("\n\n");
@@ -82,8 +81,7 @@ fn rate(rate: f64) -> String {
 }
 
 /// The line under row `ix`, shown while the pointer is on `group`. An agent's row has one only
-/// where it closes an answer and no messages between agents follow, since the line's height is
-/// held even while hidden and would open a hole in that run.
+/// where it closes an answer.
 pub fn line(
     rows: &[ChatRow],
     ix: usize,
@@ -94,10 +92,7 @@ pub fn line(
     let message = &rows.get(ix)?.message;
     let user = message.role == ChatRole::User;
     let meta = message.meta.as_ref();
-    let run_follows = rows
-        .get(ix + 1)
-        .is_some_and(|next| next.message.team.is_some());
-    if !user && (meta.is_none() || run_follows) {
+    if !user && meta.is_none() {
         return None;
     }
     let t = Tokens::get(cx);
@@ -128,7 +123,7 @@ pub fn line(
         .on_click(move |_, window, cx| {
             bench
                 .update(cx, |bench, cx| {
-                    bench.reply_to(&agent, &row, &quote, window, cx)
+                    bench.reply_to(&agent, &row, None, &quote, window, cx)
                 })
                 .ok();
         })

@@ -610,6 +610,9 @@ describe("the provider's events", () => {
         eventRetrySpanMs: provider.eventRetrySpanMs,
         cancel: noCall,
         refund: noCall,
+        pause: noCall,
+        resumeOn: noCall,
+        keepPaused: noCall,
       },
       [
         {
@@ -712,6 +715,9 @@ describe("the provider's events", () => {
           name: "stand-in",
           eventRetrySpanMs: provider.eventRetrySpanMs,
           refund: noCall,
+          pause: noCall,
+          resumeOn: noCall,
+          keepPaused: noCall,
           cancel: () => {
             stopped();
             return new Promise<void>(() => {});
@@ -729,6 +735,9 @@ describe("the provider's events", () => {
         name: "stand-in",
         eventRetrySpanMs: provider.eventRetrySpanMs,
         refund: noCall,
+        pause: noCall,
+        resumeOn: noCall,
+        keepPaused: noCall,
         cancel,
       },
       [second],
@@ -808,6 +817,9 @@ describe("the provider's events", () => {
         eventRetrySpanMs: provider.eventRetrySpanMs,
         cancel,
         refund,
+        pause: noCall,
+        resumeOn: noCall,
+        keepPaused: noCall,
       },
       refs.map((providerCheckoutId, index) => ({
         eventId: `evt_stray_${index}`,

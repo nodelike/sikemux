@@ -79,8 +79,16 @@ impl ProcessCancellation {
     }
 }
 
+/// Kills the child's process group and every group a process below it leads, such as
+/// the group nextest gives each test, which the child's own group kill misses.
 fn kill_group(pid: u32) {
+    #[cfg(unix)]
+    let below = procs::descendants(pid);
     terminate_tree(pid, true);
+    #[cfg(unix)]
+    for &descendant in below.keys() {
+        terminate_tree(descendant, true);
+    }
 }
 
 /// Kills the child and everything it started, then reaps it.
@@ -120,7 +128,7 @@ fn read_bounded(
             exceeded.store(true, Ordering::Release);
             return Err(io::Error::other("subprocess output limit exceeded"));
         }
-        bytes.extend_from_slice(&chunk[..read]);
+        bytes.extend_from_slice(chunk.get(..read).unwrap_or_default());
     }
 }
 

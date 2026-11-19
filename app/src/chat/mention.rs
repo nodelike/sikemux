@@ -88,11 +88,12 @@ fn typed(text: &str, caret: usize) -> Option<Typed> {
         .char_indices()
         .rfind(|(_, ch)| ch.is_whitespace())
         .map_or(0, |(at, ch)| at + ch.len_utf8());
-    let mut word = before[start..].chars();
+    let (head, word) = before.split_at_checked(start)?;
+    let mut word = word.chars();
     let trigger = word
         .next()
         .filter(|first| matches!(first, '@' | '+' | '/' | '#' | '!' | '&'))
-        .filter(|&first| first != '/' || before[..start].trim().is_empty())?;
+        .filter(|&first| first != '/' || head.trim().is_empty())?;
     Some(Typed {
         trigger,
         start,
@@ -534,29 +535,17 @@ impl Workbench {
         let agent = (crate::calls::reply::call_of(agent))
             .and_then(|call| self.call_at(call))
             .map_or(agent, |(_, call)| call.asker.agent_id.as_str());
-        let own = self
-            .shown()
-            .and_then(|view| view.workspace.agents.iter().find(|saved| saved.id == agent))
-            .map(|saved| saved.project.clone());
-        let mut projects: Vec<&ProjectInfo> = self.projects().iter().collect();
-        projects.sort_by_key(|project| Some(&project.id) != own.as_ref());
-        projects
-            .into_iter()
-            .flat_map(|project| {
-                self.agents_of(&project.id)
-                    .into_iter()
-                    .filter_map(move |row| {
-                        let mate = row.name.clone().filter(|mate| {
-                            row.id != agent && mate.to_lowercase().starts_with(needle)
-                        })?;
-                        Some(Choice::Mate {
-                            id: row.id,
-                            name: mate,
-                            title: row.titled.then_some(row.title),
-                            project: project.name.clone(),
-                            provider: row.provider,
-                        })
-                    })
+        (self.nameable_by(agent).into_iter())
+            .filter_map(|(project, row)| {
+                let mate = (row.name.clone())
+                    .filter(|mate| row.id != agent && mate.to_lowercase().starts_with(needle))?;
+                Some(Choice::Mate {
+                    id: row.id,
+                    name: mate,
+                    title: row.titled.then_some(row.title),
+                    project,
+                    provider: row.provider,
+                })
             })
             .take(SHOWN)
             .collect()
@@ -994,7 +983,7 @@ fn tracked_id(item: &TrackedItem) -> String {
 fn clipped(title: &str) -> String {
     const ROOM: usize = 56;
     match title.char_indices().nth(ROOM) {
-        Some((at, _)) => format!("{}…", title[..at].trim_end()),
+        Some((at, _)) => format!("{}…", title.get(..at).unwrap_or(title).trim_end()),
         None => title.to_owned(),
     }
 }

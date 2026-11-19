@@ -146,7 +146,11 @@ impl Control {
 
     pub async fn request(&self, request: Value) -> Result<Value, String> {
         let id = request_id();
-        let subtype = request["subtype"].as_str().unwrap_or("request").to_owned();
+        let subtype = request
+            .get("subtype")
+            .and_then(Value::as_str)
+            .unwrap_or("request")
+            .to_owned();
         let answered = self.pending.waited(id.clone(), None);
         self.write(&id, request)?;
         self.pending

@@ -292,7 +292,7 @@ pub async fn delivered(
     let moved = plugged::call(core, &feed.repo.id.provider, "ciEvent", params)
         .await
         .map_err(|failure| failure.message)?;
-    if moved["runMoved"].as_bool() == Some(true) {
+    if moved.get("runMoved").and_then(Value::as_bool) == Some(true) {
         let watched: Vec<Shown> = {
             let state = core.ci().0.locked();
             state

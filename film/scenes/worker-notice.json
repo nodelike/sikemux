@@ -1,0 +1,21 @@
+[
+  {
+    "when": "where are we with it",
+    "steps": [
+      { "say": "The worker has the discount coming off before tax now, and the tests pass. Nothing is left on the cart total.", "perSecond": 80 }
+    ]
+  },
+  {
+    "when": "apply the discount first",
+    "steps": [
+      { "say": "Both fixes are in: the discount now comes off before tax, totals round once at the end, and the eight cart tests pass, including a new case for a 15% code on a three-item cart that used to come out a cent high.", "perSecond": 120 }
+    ]
+  },
+  {
+    "when": "cart total bug",
+    "steps": [
+      { "say": "I'll hand the cart total to a worker.", "perSecond": 60 },
+      { "tool": "mcp__sikemux-tools__agent_spawn", "call": "agent.spawn", "input": { "cli": "claude", "model": "claude-opus-5-5", "title": "Fix the cart total", "prompt": "You are the owner and long-term maintainer of this codebase, and its design is up to you.\n\nFix the cart total: src/cart.mjs taxes the subtotal before the discount comes off. Apply the discount first, round once, and run node --test." }, "ms": 1500 }
+    ]
+  }
+]

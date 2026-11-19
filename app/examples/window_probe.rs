@@ -41,6 +41,10 @@ fn main() {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             ..Default::default()
         };
+        #[expect(
+            clippy::expect_used,
+            reason = "the probe has nothing to show without its window"
+        )]
         gpui_kit::open_window(options, cx, |_, cx| cx.new(|_| Probe)).expect("window opens");
         cx.activate(true);
         cx.spawn(async move |cx| {

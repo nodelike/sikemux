@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::detect::{
     runs_gradle, CARGO_TEST_LOG, GO_TEST_LOG, JEST_REPORT, PYTEST_REPORT, VITEST_REPORT,
 };
-use super::read_text;
+use super::{read_text, regex};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -53,10 +53,6 @@ const TEST_SOURCES: [&str; 4] = [
 /// Some file systems keep modification times to the nearest two seconds.
 const MODIFIED_SLACK: Duration = Duration::from_secs(2);
 const MAX_FAILURES: usize = 50;
-
-fn regex(pattern: &str) -> Regex {
-    Regex::new(pattern).expect("valid regex")
-}
 
 /// Jest colours its failure messages for a terminal.
 static TERMINAL_COLOURS: LazyLock<Regex> = LazyLock::new(|| regex(r"\x1b\[[0-9;]*m"));
@@ -141,8 +137,10 @@ fn failing_frame(stack: &str, class_name: &str) -> Option<(String, Option<u32>)>
 }
 
 fn source_file(cwd: &Path, class_name: &str, file_name: &str) -> Option<String> {
-    let segments: Vec<&str> = class_name.split('.').collect();
-    let package_path = segments[..segments.len() - 1].join("/");
+    let package_path = class_name
+        .rsplit_once('.')
+        .map_or("", |(package, _)| package)
+        .replace('.', "/");
     TEST_SOURCES
         .iter()
         .find_map(|root| existing_file(join(cwd, &[root, &package_path, file_name])))
@@ -501,10 +499,10 @@ fn read_cargo_results(cwd: &Path) -> Option<TestResults> {
         let file = panic
             .as_ref()
             .and_then(|panic| existing_file(join(cwd, &[&panic[1]])));
-        let segments: Vec<&str> = name.split("::").collect();
+        let (class_name, test_name) = name.rsplit_once("::").unwrap_or(("", &name));
         failures.push(TestFailure {
-            class_name: segments[..segments.len() - 1].join("::"),
-            name: segments[segments.len() - 1].to_string(),
+            class_name: class_name.to_string(),
+            name: test_name.to_string(),
             message,
             file,
             line: panic.as_ref().and_then(|panic| number(&panic[2])),

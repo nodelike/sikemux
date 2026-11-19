@@ -1115,6 +1115,36 @@ a.button {
   margin-top: 8px;
 }
 
+.row > .row-choice {
+  grid-column: 2 / -1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.row-choice > div {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.row-choice .name {
+  white-space: normal;
+}
+
+.row-choice .detail {
+  grid-column: 1;
+}
+
+.row > .row-code {
+  grid-column: 2 / -1;
+  max-width: 320px;
+  margin-top: 10px;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
@@ -1128,13 +1158,16 @@ a.button {
   white-space: nowrap;
 }
 
+.name > .chip {
+  margin-left: 6px;
+}
+
 .chip.accent {
   background: color-mix(in oklab, var(--acc) 18%, transparent);
   color: color-mix(in oklab, var(--acc) 55%, var(--ink));
 }
 
 .chip.warn {
-  margin-left: 6px;
   background: color-mix(in oklab, var(--warn) 16%, transparent);
   color: color-mix(in oklab, var(--warn) 60%, var(--ink));
 }
@@ -1625,12 +1658,85 @@ a.button {
   overflow-wrap: anywhere;
 }
 
+.inline-form .field {
+  height: 32px;
+  font-size: 13px;
+}
+
+.picks,
+.txt-record {
+  grid-column: 2 / -1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.picks li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+}
+
+.picks .grow {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.txt-record {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 14px;
+  margin-top: 10px;
+}
+
+.txt-record dt {
+  color: var(--text-tertiary);
+}
+
+.txt-record dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.txt-record code {
+  font: 12.5px var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.banner.offer {
+  align-items: center;
+  margin-bottom: 22px;
+  border: 1px solid color-mix(in oklab, var(--acc) 30%, transparent);
+  background: color-mix(in oklab, var(--acc) 7%, var(--bg));
+}
+
+.banner.offer > svg {
+  margin-top: 0;
+  color: color-mix(in oklab, var(--acc) 60%, var(--ink));
+}
+
 .join {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 14px;
   max-width: 560px;
+}
+
+.join > .rows {
+  align-self: stretch;
+}
+
+.fine {
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  line-height: 1.5;
 }
 
 .signin-uses {
@@ -1779,4 +1885,82 @@ a.button {
   .row.priced > .act > .button {
     min-width: 88px;
   }
+}
+
+.row.choice {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.row.choice .detail {
+  grid-column: 1;
+}
+
+.row.choice .end {
+  grid-column: 2;
+}
+
+.row.choice .value {
+  color: var(--text-secondary);
+}
+
+.row.choice[data-frozen] > :not(.end),
+.row.choice[data-frozen] > .end > * {
+  opacity: 0.55;
+}
+
+.row.choice[data-frozen] > .end {
+  pointer-events: none;
+}
+
+.switch {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--gray-500);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--ink);
+  transition: transform 120ms ease;
+}
+
+.switch[aria-checked="true"] {
+  background: var(--acc);
+}
+
+.switch[aria-checked="true"]::after {
+  transform: translateX(12px);
+}
+
+.switch:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.switch:disabled {
+  cursor: default;
+}
+
+.count-field {
+  width: 50px;
+  height: 30px;
+  appearance: textfield;
+}
+
+.count-field::-webkit-inner-spin-button,
+.count-field::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
 }

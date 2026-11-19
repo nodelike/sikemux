@@ -36,8 +36,8 @@ rustix = { version = "1", features = ["fs"] }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
-[lints.clippy]
-undocumented_unsafe_blocks = "deny"
-
 [target.'cfg(target_os = "macos")'.dependencies]
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

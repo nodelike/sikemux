@@ -41,11 +41,7 @@ final class Account {
 
     func load() async {
         #if DEBUG
-            if Showcase.current != nil {
-                user = Showcase.user
-                state = .signedIn(userId: Showcase.user.id)
-                return
-            }
+            if Showcase.current != nil { return signInShowcase() }
         #endif
         let saved: Saved?
         do {
@@ -138,6 +134,13 @@ final class Account {
             throw problem
         }
     }
+
+    #if DEBUG
+        func signInShowcase() {
+            user = Showcase.user
+            state = .signedIn(userId: Showcase.user.id)
+        }
+    #endif
 
     /// Ends the session with Clerk and forgets it here. Leaving the account, which also takes the phone off it,
     /// is `Leave`.

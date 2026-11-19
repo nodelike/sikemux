@@ -2,7 +2,7 @@
 //! Whoever hears of an idle agent ([`roster::hears_of`]) is woken for them a few minutes after
 //! its turn ends, once per idle stretch; with only the person to hear, the agent's row says it
 //! already. A lead closing a worker hears in `agent_close`'s answer what the close left, and a
-//! project's chief hears of the person's asks that nobody has.
+//! project's chief hears of the tasks the person asked for that nobody has.
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
@@ -29,14 +29,11 @@ pub(crate) struct Left {
 }
 
 /// The idle agents whose left work is due to be told of now, and when the next one falls due.
-/// `told` keeps, per agent, the end of the turn it was last told about.
 pub(crate) fn read(
     core: &Core,
     turns: &HashMap<String, TurnState>,
-    told: &mut HashMap<String, u64>,
     now: u64,
 ) -> (Vec<Left>, Option<u64>) {
-    told.retain(|agent, _| core.workspaces().agent(agent).is_some());
     let mut left = Vec::new();
     let mut next: Option<u64> = None;
     for agent in core.workspaces().agents() {
@@ -46,7 +43,7 @@ pub(crate) fn read(
         let Some(changes) = idle_with_work(core, &agent.id, turn) else {
             continue;
         };
-        if told.get(&agent.id) == Some(&turn.since) {
+        if core.inbox().told_left(&agent.id) {
             continue;
         }
         let due = turn.since + GRACE_MS;
@@ -58,7 +55,7 @@ pub(crate) fn read(
         let Some(to) = hears.agent().map(str::to_owned) else {
             continue;
         };
-        told.insert(agent.id.clone(), turn.since);
+        core.inbox().tell_left(&agent.id);
         let text = match changes {
             WorkAt::Committed => unlanded_text(core, &agent, &hears),
             _ => uncommitted_text(core, &agent, &hears),
@@ -80,28 +77,29 @@ pub(crate) fn tell(core: &Arc<Core>, left: Vec<Left>) {
     }
 }
 
-/// A note for a project's chief on the person's asks nobody has.
+/// A note for a project's chief on the tasks the person asked for that nobody has.
 pub(crate) struct Unowned {
     chief: String,
     text: String,
 }
 
-/// The person's asks that have had nobody on them for the grace, grouped by the chief of their
-/// project, told once per stretch with nobody; and when the next one falls due.
+/// The tasks the person asked for that have had nobody on them for the grace, grouped by the
+/// chief of their project, told once per stretch with nobody; and when the next one falls due.
 pub(crate) fn asks(core: &Core, now: u64) -> (Vec<Unowned>, Option<u64>) {
     let nobody = super::now::asks::with_nobody_untold(core);
     let mut told = Vec::new();
-    let chiefs = super::chief::seated(core);
     let mut lines: HashMap<String, Vec<String>> = HashMap::new();
     let mut next: Option<u64> = None;
     for super::now::asks::Untold {
         id,
-        project,
+        folder,
         title,
         since,
     } in nobody
     {
-        let Some(chief) = chiefs.get(&project) else {
+        let seated = super::chief::chief_at(core, &folder)
+            .filter(|chief| core.workspaces().agent(chief).is_some());
+        let Some(chief) = seated else {
             continue;
         };
         let due = since + GRACE_MS;
@@ -109,8 +107,8 @@ pub(crate) fn asks(core: &Core, now: u64) -> (Vec<Unowned>, Option<u64>) {
             next = Some(next.map_or(due, |next| next.min(due)));
             continue;
         }
-        told.push((project, id));
-        (lines.entry(chief.clone()).or_default()).push(format!(
+        told.push((folder, id));
+        (lines.entry(chief).or_default()).push(format!(
             "- #{id} {title} ({} min)",
             now.saturating_sub(since) / 60_000
         ));
@@ -119,7 +117,7 @@ pub(crate) fn asks(core: &Core, now: u64) -> (Vec<Unowned>, Option<u64>) {
         .map(|(chief, lines)| Unowned {
             chief,
             text: format!(
-                "{} of the person's asks {} had nobody on them for over {} minutes:\n{}\n\nRoute each to a worker with its number as agent_spawn's or agent_send's task, close one already handled with task_update's asked, or say why it waits. You hear of each once until someone takes it.",
+                "{} of the tasks the person asked for {} had nobody on them for over {} minutes:\n{}\n\nRoute each to a worker with its number as agent_spawn's or agent_send's task, close one already handled with task_update's asked, or say why it waits. You hear of each once until someone takes it.",
                 lines.len(),
                 if lines.len() == 1 { "has" } else { "have" },
                 GRACE_MS / 60_000,
@@ -297,7 +295,7 @@ mod tests {
     use crate::server::turn_state::Work;
     use crate::server::workspace::{AddProjectParams, AddProjectParamsExt};
     use crate::server::ServerCore;
-    use serde_json::{json, Value};
+    use serde_json::json;
     use std::collections::HashSet;
     use std::path::Path;
 
@@ -316,7 +314,7 @@ mod tests {
     }
 
     fn open(core: &Core, id: &str, project: &str, cwd: &Path, lead: Option<&str>) {
-        let Value::Object(agent) = json!({
+        let agent = json!({
             "id": id,
             "provider": "claude",
             "project": project,
@@ -324,9 +322,10 @@ mod tests {
             "title": id,
             "lead": lead,
             "permissionMode": "auto",
-        }) else {
-            unreachable!()
-        };
+        })
+        .as_object()
+        .cloned()
+        .expect("an agent is an object");
         core.workspaces().put_agent_draft(agent).expect("the agent");
     }
 
@@ -450,5 +449,24 @@ mod tests {
             left_by_close(&core, "worker", "@Worker").as_deref(),
             Some("@Worker left a commit off main, and nothing tells anyone of them now.")
         );
+    }
+
+    /// @Kiyal heard of @Miroku's unlanded commits after each of three core starts on 18-19 Nov,
+    /// while @Miroku stayed idle.
+    #[test]
+    fn the_lead_is_told_once_per_idle_stretch_across_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let turns = crate::server::inbox::Turns::new(Some(dir.path()));
+        turns.started("worker");
+        turns.ended("worker", None, None);
+        turns.tell_left("worker");
+        turns.flush();
+
+        let restarted = crate::server::inbox::Turns::new(Some(dir.path()));
+        assert!(restarted.told_left("worker"));
+
+        restarted.started("worker");
+        restarted.ended("worker", None, None);
+        assert!(!restarted.told_left("worker"));
     }
 }

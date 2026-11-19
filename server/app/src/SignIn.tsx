@@ -9,7 +9,14 @@ import { IconBack, IconEye, IconEyeOff } from "@shared/ui/Icons";
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
 
 import { AppleMark, GitHubMark, GoogleMark, Logo } from "./icons.tsx";
-import { HOST, isSharePath, rememberReturn } from "./navigation.ts";
+import { useInviteOrg } from "./invite.ts";
+import {
+  HOST,
+  isSharePath,
+  JOIN,
+  noteSignUpReason,
+  rememberReturn,
+} from "./navigation.ts";
 
 type Provider = "oauth_apple" | "oauth_google" | "oauth_github";
 
@@ -27,9 +34,11 @@ const CODE_DETAIL: Record<CodePurpose, string> = {
   reset: "so you can choose a new password",
 };
 
-/** On a shared chat's page a finished sign-in stays there, where the chat then opens, instead of going to the account pages. */
+/** On a shared chat's page or an invite a finished sign-in stays there, where the chat or the invite then opens, instead of going to the account pages. */
 function staying() {
-  return isSharePath(location.pathname) || location.pathname === HOST
+  return isSharePath(location.pathname) ||
+    location.pathname === HOST ||
+    location.pathname === JOIN
     ? { navigate: () => undefined }
     : undefined;
 }
@@ -38,12 +47,17 @@ export function SignIn({ ready }: { ready: boolean }) {
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
   const [step, setStep] = useState<SignInStep>({ kind: "email" });
+  useEffect(() => noteSignUpReason(), []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState<Action>();
   const [problem, setProblem] = useState<string>();
   const queued = useRef<{ action: Action; work: () => Promise<void> }>(null);
+  const [inviteToken] = useState(() =>
+    location.pathname === JOIN ? location.hash.slice(1) : "",
+  );
+  const joining = useInviteOrg(inviteToken);
 
   const go = (next: SignInStep) => {
     setProblem(undefined);
@@ -150,11 +164,24 @@ export function SignIn({ ready }: { ready: boolean }) {
           <Logo size={22} />
           <span>Sikemux</span>
         </div>
-        <h1>Sign in to Sikemux</h1>
-        <p className="lede">
-          One account for every device you use with Sikemux. Sign in on each,
-          and they find each other.
-        </p>
+        {joining ? (
+          <>
+            <h1>Sign in to join {joining}</h1>
+            <p className="lede">
+              Already use Sikemux? Sign in the way you always do. The invite
+              works with any account, so you don&rsquo;t need your {joining}{" "}
+              address.
+            </p>
+          </>
+        ) : (
+          <>
+            <h1>Sign in to Sikemux</h1>
+            <p className="lede">
+              One account for every device you use with Sikemux. Sign in on
+              each, and they find each other.
+            </p>
+          </>
+        )}
         <div className="providers">
           <button
             type="button"

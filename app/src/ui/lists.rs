@@ -781,10 +781,8 @@ pub(crate) fn relist<T: PartialEq>(list: &ListState, old: &[T], new: &[T]) {
         .zip(new)
         .take_while(|(old, new)| old == new)
         .count();
-    let end = old[start..]
-        .iter()
-        .rev()
-        .zip(new[start..].iter().rev())
+    let end = (old.iter().skip(start).rev())
+        .zip(new.iter().skip(start).rev())
         .take_while(|(old, new)| old == new)
         .count();
     list.splice(start..old.len() - end, new.len() - start - end);

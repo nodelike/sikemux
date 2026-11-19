@@ -144,6 +144,10 @@ fn main() {
         }
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "a demo whose window cannot open has nothing to show"
+    )]
     gpui_platform::application().run(|cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(820.), px(560.)), cx);
         let options = WindowOptions {

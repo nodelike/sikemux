@@ -1,3 +1,10 @@
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::panic,
+    reason = "a failing test helper is meant to panic"
+)]
 //! A phone reaching a core only through a relay, the way it does from outside
 //! the host's network. Needs an `iroh-relay` binary, named by
 //! `SIKEMUX_IROH_RELAY`, so it runs only when asked:

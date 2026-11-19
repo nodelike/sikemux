@@ -48,8 +48,6 @@ private struct ChatPane: View {
     @State private var find: ChatFind?
     @State private var away = false
     @State private var stillness: (() -> Void)?
-    /// How tall the transcript stands, which the Now card stays well inside.
-    @State private var tall: CGFloat = 0
 
     init(core: String, agentId: String) {
         self.core = core
@@ -115,12 +113,6 @@ private struct ChatPane: View {
                 }
             }
             .frame(maxHeight: .infinity)
-            .onGeometryChange(for: CGFloat.self) {
-                $0.size.height
-            } action: {
-                tall = $0
-            }
-            .overlay(alignment: .top) { nowCard(rows) }
             .safeAreaInset(edge: .bottom, spacing: 0) { bottom(rows) }
         }
         .environment(context)
@@ -128,7 +120,7 @@ private struct ChatPane: View {
         .onDisappear(perform: left)
         .modifier(
             ScreenReport(
-                core: core, agentId: agentId, away: session.rows.head.away?.calls, drawn: drawn, full: full,
+                core: core, agentId: agentId, drawn: drawn, full: full,
                 show: show, onFull: { context.acts = $0 })
         )
         .onChange(of: info) { _, info in session.hostSaw(info) }
@@ -180,7 +172,6 @@ private struct ChatPane: View {
     private func appeared() {
         Cards.dismiss(host: core, agent: agentId)
         context.acts = full
-        HostCalls.of(core).setAway(session.rows.head.away?.calls, for: agentId)
         show()
         watch = Hub.shared.watch(core)
         session.hostSaw(info)
@@ -260,7 +251,6 @@ private struct ChatPane: View {
 
     private func left() {
         OnScreen.shared.hide(core, agentId)
-        HostCalls.of(core).setAway(nil, for: agentId)
         stillness?()
         stillness = nil
         release?()
@@ -299,19 +289,6 @@ private struct ChatPane: View {
     }
 
     // MARK: Around the transcript
-
-    /// The chief's Now card for its project, while anything stands on it.
-    @ViewBuilder private func nowCard(_ rows: ChatRows) -> some View {
-        if rows.head.chief == true, let project = listed?.project,
-            let now = live.view?.now?.first(where: { $0.project == project }),
-            !(now.rows ?? []).isEmpty || !(now.closed ?? []).isEmpty
-        {
-            NowCard(
-                core: core, now: now, full: full, folds: session.folds, maxHeight: tall > 0 ? tall * 0.72 : .infinity
-            )
-            .padding(.top, 8)
-        }
-    }
 
     @ViewBuilder private var status: some View {
         let unreachable = session.attached != .live && isClosed
@@ -432,7 +409,6 @@ private struct TranscriptFooter: View {
         let reachable = canAct && session.attached == .live && Hub.shared.live(core).isOpen
         VStack(alignment: .leading, spacing: 0) {
             if !rows.queued.isEmpty { QueuedLines(held: rows.queued) }
-            if let away = rows.head.away { AwayCard(core: core, away: away, full: full) }
             if let activity {
                 ActivityLine(
                     provider: provider, doing: activity, since: session.turnSince, agentId: agentId,
@@ -526,11 +502,10 @@ private struct NoticeBar: View {
     }
 }
 
-/// Tells the host what the chat on screen shows, and docks the chief's away card's calls, as what it hangs on changes.
+/// Tells the host what the chat on screen shows, as what it hangs on changes.
 private struct ScreenReport: ViewModifier {
     let core: String
     let agentId: String
-    let away: [String]?
     let drawn: Bool
     let full: Bool
     let show: () -> Void
@@ -539,7 +514,6 @@ private struct ScreenReport: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: away) { _, calls in HostCalls.of(core).setAway(calls, for: agentId) }
             .onChange(of: scenePhase) { _, phase in OnScreen.shared.front(phase == .active) }
             .onChange(of: Lock.shared.phase) { _, _ in OnScreen.shared.tellAll() }
             .onChange(of: drawn) { _, _ in show() }

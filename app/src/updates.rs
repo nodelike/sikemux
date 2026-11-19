@@ -479,17 +479,19 @@ pub(crate) fn install(bench: &Workbench, force: bool) {
 
 /// `2048` as `2.0 KB`, `15728640` as `15 MB`.
 pub(crate) fn bytes(count: u64) -> String {
-    let mut size = count as f64;
-    for unit in ["KB", "MB", "GB", "TB"] {
-        size /= 1024.;
-        if size < 1024. || unit == "TB" {
-            return match size < 10. {
-                true => format!("{size:.1} {unit}"),
-                false => format!("{size:.0} {unit}"),
-            };
+    let mut size = count as f64 / 1024.;
+    let mut unit = "KB";
+    for larger in ["MB", "GB", "TB"] {
+        if size < 1024. {
+            break;
         }
+        size /= 1024.;
+        unit = larger;
     }
-    unreachable!()
+    match size < 10. {
+        true => format!("{size:.1} {unit}"),
+        false => format!("{size:.0} {unit}"),
+    }
 }
 
 /// What the install button says for where the update stands, and whether it can be pressed.

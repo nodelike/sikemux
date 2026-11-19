@@ -256,9 +256,14 @@ impl Welcome {
             "" => path,
             trimmed => trimmed.to_owned(),
         };
-        let at = match self.rows.iter().position(|row| row.path == path) {
-            Some(at) => {
-                self.rows[at].ticked = true;
+        let at = match self
+            .rows
+            .iter_mut()
+            .enumerate()
+            .find(|(_, row)| row.path == path)
+        {
+            Some((at, row)) => {
+                row.ticked = true;
                 at
             }
             None => {
@@ -354,14 +359,14 @@ fn opening_is_up(bench: &Workbench) -> bool {
 fn visible_rows(welcome: &Welcome) -> Vec<usize> {
     let filter = welcome.filter.trim().to_lowercase();
     let is_path = filter.starts_with(['/', '~', '.']);
-    (0..welcome.rows.len())
-        .filter(|&at| {
-            let row = &welcome.rows[at];
+    (welcome.rows.iter().enumerate())
+        .filter(|(_, row)| {
             filter.is_empty()
                 || is_path
                 || row.name.to_lowercase().contains(&filter)
                 || row.shown.to_lowercase().contains(&filter)
         })
+        .map(|(at, _)| at)
         .collect()
 }
 
@@ -475,7 +480,9 @@ fn take_shortcut(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Wo
     welcome.shortcut = decided;
     if decided == Shortcut::Taken {
         if welcome.ticked().next().is_none() {
-            welcome.rows[0].ticked = true;
+            if let Some(first) = welcome.rows.first_mut() {
+                first.ticked = true;
+            }
         }
         cx.defer_in(window, finish);
     }
@@ -663,7 +670,10 @@ fn step(bench: &mut Workbench, forward: bool, window: &mut Window, cx: &mut Cont
         (Some(at), true) => (at + 1) % stops.len(),
         (Some(at), false) => (at + last) % stops.len(),
     };
-    go(bench, stops[to], window, cx);
+    let Some(&stop) = stops.get(to) else {
+        return;
+    };
+    go(bench, stop, window, cx);
 }
 
 /// Up and down a row of tiles on the first step; elsewhere the arrows step like Tab.
@@ -1866,15 +1876,15 @@ fn project_list(
     let visible = visible_rows(welcome);
     let mut rows: Vec<AnyElement> = visible
         .iter()
-        .map(|&at| {
-            project_row(
+        .filter_map(|&at| {
+            Some(project_row(
                 at,
-                &welcome.rows[at],
+                welcome.rows.get(at)?,
                 lit == Some(Stop::Row(at)),
                 room,
                 this,
                 cx,
-            )
+            ))
         })
         .collect();
     let note = |note: AnyElement| {

@@ -3,7 +3,7 @@ title: Open a project
 description: "Projects, and the sikemux.json that adds actions and processes to one."
 ---
 
-A project is a folder: its editor, terminals, Git and search all work in that directory. Open one with `⌘O`, where you can also type a folder's path such as `~/code/app`, or from a terminal with the `sikemux` CLI:
+A project is a folder: its editor, terminals, Git and search all work in that directory. Open one with `⌘O`, which lists your projects but not their Git worktrees, and where you can also type a folder's path such as `~/code/app`, or from a terminal with the `sikemux` CLI:
 
 ```bash
 sikemux .
@@ -26,13 +26,17 @@ Markdown opens as it reads, and a `.dbml` schema opens as a diagram of its table
 
 ## Moving around
 
-The arrows at the left of the top bar go back to the tab you had in front before this one and forward again, as a browser does through pages: a chat, a file, a terminal, Git or a browser tab, in whichever project or host it was. ⌘[ and ⌘] do the same, and so do the back and forward buttons on a mouse and a two-finger swipe sideways on the trackpad, one step per swipe, the tab you go back to coming in from the left. A tab closed since is passed over, and an arrow is greyed when there is nowhere left to go. Going to a new tab after going back forgets the way forward. A tab that shows a file only to look at, until you open another in its place, counts as one tab, so going back to it shows the file it holds now. In a file, ⌘[ and ⌘] first go back to where you were before a jump, such as to a definition, and on a browser page that has the keys they go back and forward in the page instead.
+The top bar is one row. From the left: back and forward, the tabs of the project in front and **+**, then a bell counting the calls waiting on you in every project and linked host, the branch, one figure for how much of their limits your agents have used, the battery, the clock, **Devices** and Focus mode. Tabs keep about twelve letters of their title; when more are open than fit, the strip scrolls. **Devices** shows the host in front, the hosts you can switch to and **Open Devices**.
+
+The arrows at the left of the top bar go back to the tab you had in front before this one and forward again, as a browser does through pages: a chat, a file, a terminal, Git or a browser tab, in whichever project or host it was. ⌘[ and ⌘] do the same, and so do the back and forward buttons on a mouse and a two-finger swipe on the trackpad, one step per swipe: a swipe right goes back, the tab you go back to coming in from the left, and a swipe left goes forward. A tab closed since is passed over, and an arrow is greyed when there is nowhere left to go. Going to a new tab after going back forgets the way forward. A tab that shows a file only to look at, until you open another in its place, counts as one tab, so going back to it shows the file it holds now. In a file, ⌘[ and ⌘] first go back to where you were before a jump, such as to a definition, and on a browser page that has the keys they go back and forward in the page instead.
 
 The rail on the right has three pages, picked from the icons at its foot or by swiping across the rail:
 
 - **Agents**: the project's chats, then the earlier ones.
 - **Terminals**: every terminal open in the project.
 - **Files**: the files open in the editor, then the project's file tree.
+
+On a narrow window the rails shrink so the view in the middle stays at least 260 points wide.
 
 The tree opens its folders to the file in front. Drag a file or folder onto a folder to move it there, or onto the tree's empty space to move it to the project's folder; its open tabs and unsaved edits go with it. Files dragged in from Finder are copied, on this host only. Dropped anywhere outside the tree, a chat or a terminal, Finder's files go to the terminal you are typing in, else to the chat in front.
 
@@ -44,10 +48,12 @@ A terminal shows the folder its shell is in and how its last command went (runni
 
 ## The Playbook
 
-**Playbook** at the end of the project's tree in the side rail, `⌘⌥6`, or **Playbook** in the command palette opens the project's Playbook in a tab of its own. Its first pages hold what you decided once that every later agent goes by; [The Playbook](/agents/playbook/) describes them. Under a hairline come the project's settings:
+`⌘⌥7`, or **Tasks** on an agent's desk beside **Calls**, lists each thing you asked for that an agent handed on to be worked, in sections: **For you**, **Finished**, **Moving**, **Queued**, **Dropped** and **Opened**, with the agent on each and how long it has gone. Click a task to see what you wrote, the follow-ups and the answers to its calls, with a jump to the chat. See [Tasks](/agents/chats/#tasks).
+
+**Playbook** at the end of the project's tree, `⌘⌥6`, or **Playbook** in the command palette opens the project's Playbook in a tab of its own. Its first pages hold what you decided once that every later agent goes by; [The Playbook](/agents/playbook/) describes them. Under a hairline come the project's settings:
 
 - **General**: whether new chats start in a worktree, whether the project may start language servers, and the Space it sits under.
-- **Processes**: the processes you added, each of which can be run, edited or removed, and **Add a process**, the same form as the run button's menu. Under them, the processes found in the build files, by folder, with a filter.
+- **Processes**: the processes you added, each of which can be run, edited or removed, and **Add a process**. Under them, the processes found in the build files, by folder, with a filter.
 - **Setup**: what a new checkout of the project runs, what runs before one is removed, the ports each checkout gets, the heavy commands that take turns and the things agents use one at a time, all from `sikemux.json`, and whether that was proved on a fresh checkout. **Set up** hands the job to an agent, which writes `sikemux.json` and proves it; **Check again** proves it once more; when a step failed, its last line and **Open log** show under it, and **Fix with an agent** hands the failure to one. See [setting a project up](/getting-started/run/#setting-a-project-up).
 - **Git**: the repository the project's Git views use, when its folder holds several.
 - **sikemux.json**: whether the project has one, whether you trust it, and any mistakes in it. **Open** shows the file in the editor.
@@ -89,7 +95,7 @@ Processes go in its `tasks` list. Agents can start, read and stop them too. They
 
 `heavy` lists the project's heavy commands, by the program and its first words, such as `{ "command": "pnpm test", "final": true }`. `pnpm test` then matches `pnpm test --run` and not `pnpm install`. An agent running one [waits its turn](/getting-started/run/#heavy-commands-take-turns) on the host with the built-in ones, such as `cargo build`; `"final": true` marks a check run before a commit, which goes ahead of the others. `{ "command": "jest", "light": true }` keeps a command out of the line, and `"heavy": []` turns the line off for the project. Never list a dev server or a watcher, which would hold its turn until stopped. A command run by its path, such as `./gradlew`, does not wait.
 
-`resources` names what only so many agents can use at once, such as `"resources": { "port-3000": { "label": "The app on port 3000", "port": 3000 } }`. Each takes a `label`, a `count` (one unless you say), and an optional `port`, which Sikemux checks nothing else listens on before handing it out. A process or `heavy` entry lists what it holds while it runs in `needs`, such as `"needs": ["port-3000"]`: it starts once everything it needs is free, and lets go when it ends. Agents can also hold one for their turn; see [Things used one at a time](/getting-started/run/#things-used-one-at-a-time).
+`resources` names what only so many agents can use at once, such as `"resources": { "port-3000": { "label": "The app on port 3000", "port": 3000 } }`. Each takes a `label`, a `count` (one unless you say), and an optional `port`, which Sikemux checks nothing else listens on before handing it out. `"perCheckout": true` counts checkouts instead of runs, such as `{ "label": "Dev stack", "count": 2, "perCheckout": true }` for two dev stacks at once: a checkout that holds it starts more of its processes freely, and a new checkout waits. It can't be used with a `port`. A process or `heavy` entry lists what it holds while it runs in `needs`, such as `"needs": ["port-3000"]`: it starts once everything it needs is free, and lets go when it ends. Agents can also hold one for their turn; see [Things used one at a time](/getting-started/run/#things-used-one-at-a-time).
 
 `planFirst` lists paths, such as `"planFirst": ["server/**", "db/schema.sql"]`, whose change Sikemux suggests planning before it starts, when what you type names one. Migrations folders, `.proto` and OpenAPI files, a top-level `server/` or `api/`, and UI folders such as `components/` count in every project without it.
 
@@ -138,7 +144,7 @@ When a check fails, Sikemux tests the commits since the last sound one to find t
 }
 ```
 
-Each runs from the project's root in a checkout at the land, with the land's changed files that match `when` as its arguments. A check can name a `fix`, such as the generator its `--check` runs: the queue runs it first and commits what it changes on top of the land, as it does with rustfmt on the Rust a land changed. One that still fails sends the land back to its agent with the end of its output, unless it fails on the branch without the land as well. Keep them to a few seconds: lands wait on them in turn.
+Each runs from the project's root in a checkout at the land, with the land's changed files that match `when` as its arguments. A check can also name a `format` command, which reads a file on its input, with the file's path as `$1`, and writes it formatted: `git_commit` runs each matching file through it and commits what it writes, so the land arrives formatted. A check can name a `fix`, such as the generator its `--check` runs: the queue runs it first and commits what it changes on top of the land, as it does with rustfmt on the Rust a land changed. One that still fails sends the land back to its agent with the end of its output, unless it fails on the branch without the land as well. Keep them to a few seconds: lands wait on them in turn.
 
 ### The changed page
 

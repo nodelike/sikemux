@@ -18,7 +18,10 @@ title "Rotate the TLS certs"
 chat Wren
 title "Cart totals a cent off"
 settle 6
-click 871,774
+# The app opens an empty chat of its own at start, in front of Wren's: close it.
+key cmd-w
+wait 1
+click 871,435
 type "@" 120
 settle 1
 snap mention-agents

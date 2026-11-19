@@ -20,7 +20,7 @@ use crate::server::{watched_folder, Core, CoreResult, ServerCore};
 const SETTLE: Duration = Duration::from_millis(150);
 
 /// The folder of the person's theme files; `themes.dev` in a development build.
-pub(super) fn folder() -> Option<PathBuf> {
+pub(crate) fn folder() -> Option<PathBuf> {
     sikemux_process::paths::config_file("themes", "")
 }
 
@@ -72,6 +72,7 @@ pub(super) async fn follow(core: Arc<Core>) {
 
 /// Reads both folders again, and redraws every app when the theme worn changed.
 fn reread(core: &Core) {
+    core.mods().personal_changed();
     core.look()
         .shelf()
         .reload(folder().as_deref(), ghostty_folder().as_deref());

@@ -18,7 +18,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::agent_accounts::allocate::Aim;
 use crate::agent_catalog::AgentKind;
 use crate::launch::homes;
 use crate::launch::terminal::{self, TerminalRun};
@@ -424,10 +423,12 @@ pub(crate) async fn smart_pick(
     Ok(place(core, &mut chosen)
         .await
         .map(|notice| sikemux_view::chat::AccountMove {
-            label: notice["label"].as_str().unwrap_or_default().to_owned(),
+            label: (notice.get("label").and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_owned(),
             from: None,
             reason: sikemux_view::chat::MoveReason::Chosen,
-            placed: notice["why"].as_str().map(str::to_owned),
+            placed: (notice.get("why").and_then(Value::as_str)).map(str::to_owned),
         }))
 }
 
@@ -453,20 +454,12 @@ async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
         true => drop(tokio::spawn(freshening)),
         false => freshening.await,
     }
-    let (log, cwd) = (
-        core.activity_log().clone(),
-        chosen.cwd.to_string_lossy().into_owned(),
-    );
-    let typical_tokens = blocking(move || Ok(log.typical_chat_tokens(&cwd)))
-        .await
-        .ok()
-        .flatten();
     let chat = super::agent_accounts::Placing {
         model: model_of(core, &book, &kind, chosen.model.clone()),
-        typical_tokens,
+        person: false,
         cwd: Some(chosen.cwd.clone()),
     };
-    let placed = super::agent_accounts::placement(&book, &kind, &chat, Aim::Soonest, |_| true)?;
+    let placed = super::agent_accounts::placement(&book, &kind, &chat, |_| true)?;
     let id = LauncherId::on(&kind, &placed.id).to_string();
     let launcher = core
         .workspaces()
@@ -490,7 +483,7 @@ async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
 /// The model a new chat of `kind` will run: the one chosen, else the agent's own default as its
 /// settings name it, else the one its last session started on. None when all that says is
 /// "default".
-fn model_of(
+pub(super) fn model_of(
     core: &Core,
     book: &crate::agent_accounts::Book,
     kind: &str,

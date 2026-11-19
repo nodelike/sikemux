@@ -47,6 +47,9 @@ pub(crate) fn bytes(size: u64) -> String {
     if unit == 0 {
         format!("{size} B")
     } else {
-        format!("{value:.1} {}", UNITS[unit])
+        format!(
+            "{value:.1} {}",
+            UNITS.get(unit).copied().unwrap_or_default()
+        )
     }
 }

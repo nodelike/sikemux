@@ -88,7 +88,11 @@ pub(super) fn chat(args: &[String]) -> Result<i32, String> {
                     println!("{}", label(started));
                 });
             }
-            let chat = started["agentId"].as_str().unwrap_or_default().to_owned();
+            let chat = started
+                .get("agentId")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
             caller.wait_and_read(&chat)?
         }
         "send" => {
@@ -108,7 +112,10 @@ pub(super) fn chat(args: &[String]) -> Result<i32, String> {
             ))
         }
     };
-    let ended = answer["status"].as_str().map(str::to_owned);
+    let ended = answer
+        .get("status")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     print_answer(&answer, options.json, |answer| {
         if let Some(chats) = answer["chats"].as_array().or(answer["agents"].as_array()) {
             print_chats(chats);
@@ -298,7 +305,7 @@ impl Caller {
                 "",
                 json!({ "chat": chat, "timeoutMs": SAY_WAITED }),
             )?;
-            if waited["timedOut"].as_bool() != Some(true) {
+            if waited.get("timedOut").and_then(Value::as_bool) != Some(true) {
                 break;
             }
         }
@@ -325,7 +332,10 @@ fn token_path() -> Result<PathBuf, String> {
 
 fn saved_token() -> Option<String> {
     let saved: Value = serde_json::from_slice(&fs::read(token_path().ok()?).ok()?).ok()?;
-    saved["token"].as_str().map(str::to_owned)
+    saved
+        .get("token")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
 }
 
 fn forget_token() {
@@ -341,16 +351,20 @@ fn sign_in() -> Result<String, String> {
         env::var("TERM_PROGRAM").unwrap_or_else(|_| "sikemux chat".into())
     );
     let asked = call(OUTSIDE_SIGN_IN_METHOD, None, &json!({ "name": name }))?;
-    let id = asked["id"]
-        .as_str()
+    let id = asked
+        .get("id")
+        .and_then(Value::as_str)
         .ok_or("Sikemux did not start the sign-in")?;
     eprintln!(
         "Allow this terminal in Sikemux: check that it shows {}, then choose what it may do.",
-        asked["check"].as_str().unwrap_or_default()
+        asked
+            .get("check")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
     );
     for _ in 0..SIGN_IN_ROUNDS {
         let answer = call(OUTSIDE_SIGN_IN_WAIT_METHOD, None, &json!({ "id": id }))?;
-        let Some(token) = answer["token"].as_str() else {
+        let Some(token) = answer.get("token").and_then(Value::as_str) else {
             continue;
         };
         let path = token_path()?;

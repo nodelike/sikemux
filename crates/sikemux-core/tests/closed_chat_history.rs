@@ -1,4 +1,11 @@
 #![cfg(unix)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::panic,
+    reason = "a failing test helper is meant to panic"
+)]
 
 //! Card #239: what a chat shows when taken up again from Recent after it was closed, with and
 //! without the core handing over to a new build of itself in between.

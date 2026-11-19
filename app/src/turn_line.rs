@@ -4,8 +4,9 @@
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
+    div, px, relative, AnyElement, App, Context, Div, FontWeight, Hsla, InteractiveElement,
+    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
+    WeakEntity, Window,
 };
 use sikemux_view::chat::FailureKind;
 use sikemux_view::turn::{
@@ -382,15 +383,15 @@ pub fn words(
                     .text_color(tint)
                     .child(t!("Waiting on"))
                     .children(pills),
-                (tint, _) => {
-                    word.min_w_0()
-                        .line_clamp(lines)
-                        .text_ellipsis()
-                        .map(|word| match tint {
-                            Some(tint) => word.text_color(tint).child(said.word.clone()),
-                            None => word.child(ui::shimmer::shimmer(key, said.word.clone())),
-                        })
-                }
+                (tint, _) => word
+                    .flex_shrink_0()
+                    .max_w(relative(0.6))
+                    .line_clamp(lines)
+                    .text_ellipsis()
+                    .map(|word| match tint {
+                        Some(tint) => word.text_color(tint).child(said.word.clone()),
+                        None => word.child(ui::shimmer::shimmer(key, said.word.clone())),
+                    }),
             });
     let last = said.parts.len().saturating_sub(1);
     div()
@@ -440,20 +441,20 @@ fn agent_pills(
     if rows.is_empty() {
         return None;
     }
-    let shown = match rows.len() {
-        count if count <= SHOWN_AGENTS => count,
-        _ => SHOWN_AGENTS,
-    };
-    let mut pills: Vec<AnyElement> = (rows[..shown].iter())
+    let (shown, hidden) = rows.split_at(rows.len().min(SHOWN_AGENTS));
+    let mut pills: Vec<AnyElement> = (shown.iter())
         .map(|row| crate::chat::agent_pill(row, size, bench, cx).into_any_element())
         .collect();
-    let hidden = rows[shown..].to_vec();
+    let hidden = hidden.to_vec();
     if hidden.is_empty() {
         return Some(pills);
     }
     let t = Tokens::get(cx);
     let more = div()
-        .id(SharedString::from(format!("waiting-more:{}", agents[0])))
+        .id(SharedString::from(format!(
+            "waiting-more:{}",
+            agents.first().map(String::as_str).unwrap_or_default()
+        )))
         .flex_none()
         .px(SPACE_1H)
         .rounded(crate::theme::radius_2())

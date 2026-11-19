@@ -37,7 +37,7 @@ impl Grid for Screen {
     }
 
     fn row(&self, row: u16, each: &mut dyn FnMut(Span<'_>)) {
-        for (column, text, look, wide) in &self.rows[usize::from(row)] {
+        for (column, text, look, wide) in self.rows.get(usize::from(row)).into_iter().flatten() {
             each(Span {
                 column: *column,
                 text,
@@ -111,7 +111,7 @@ impl Words {
                 .collect();
             let look = Look {
                 bold: self.next(5) == 0,
-                ..Look::plain(rgb(PALETTE[self.next(8)]).into())
+                ..Look::plain(rgb(PALETTE.get(self.next(8)).copied().unwrap_or_default()).into())
             };
             spans.push((column, text, look, false));
             column += length + 1;
@@ -120,6 +120,10 @@ impl Words {
     }
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the sample fills a few of the screen's ROWS rows, all in range"
+)]
 fn sample() -> Vec<Vec<(u16, String, Look, bool)>> {
     let plain = |color: u32| Look::plain(rgb(color).into());
     let mut rows: Vec<Vec<(u16, String, Look, bool)>> = vec![Vec::new(); usize::from(ROWS)];
@@ -291,7 +295,10 @@ fn main() {
                     |_, cx| cx.new(|_| Panes(panes)),
                 )
             })
-            .expect("window opens");
+            .unwrap_or_else(|error| {
+                eprintln!("the window did not open: {error}");
+                std::process::exit(1)
+            });
         cx.update_window(window.into(), |_, window, cx| window.draw(cx).clear(cx))
             .ok();
         if count == 1 {
@@ -315,7 +322,12 @@ fn main() {
             frames.push(began.elapsed().as_secs_f64() * 1e3);
         }
         frames.sort_by(f64::total_cmp);
-        let at = |q: f64| frames[((frames.len() - 1) as f64 * q).round() as usize];
+        let at = |q: f64| {
+            frames
+                .get(((frames.len() - 1) as f64 * q).round() as usize)
+                .copied()
+                .unwrap_or_default()
+        };
         println!(
             "{count} terminal(s) of {COLUMNS}x{ROWS}, 8 fresh lines each a frame: draw p50 {:.2} ms, p95 {:.2}, p99 {:.2}, max {:.2}",
             at(0.5),

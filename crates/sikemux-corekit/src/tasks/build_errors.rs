@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use super::read_text;
+use super::{read_text, regex};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Severity {
@@ -32,10 +32,6 @@ pub struct BuildError {
 }
 
 const MAX_ERRORS: usize = 2_000;
-
-fn regex(pattern: &str) -> Regex {
-    Regex::new(pattern).expect("valid regex")
-}
 
 /// `e: file:///src/Main.kt:12:5 Unresolved reference 'x'.`
 static KOTLIN: LazyLock<Regex> =

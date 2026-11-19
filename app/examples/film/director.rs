@@ -157,8 +157,8 @@ impl Director {
         }
         let at = (self.recorded as f64 / FPS * 1000.).round() / 1000.;
         let mut event = json!({ "kind": kind, "at": at });
-        if let Some(detail) = detail {
-            event["detail"] = detail;
+        if let (Some(detail), Some(fields)) = (detail, event.as_object_mut()) {
+            fields.insert("detail".to_owned(), detail);
         }
         self.events.push(event);
     }
@@ -765,7 +765,7 @@ impl Director {
         let seconds = |at: usize| step.number(at).map(f64::from);
         let background = step.background;
         match step.verb.as_str() {
-            "stage" | "window" | "replies" => {}
+            "stage" | "window" | "replies" | "team" | "origin" | "signed-in" => {}
             "settle" => self.settle(seconds(0).unwrap_or(3.))?,
             "hold" => {
                 let started = Instant::now();
@@ -907,6 +907,23 @@ impl Director {
                 account.staff = true;
                 account.flags = vec![sikemux_view::device::Flag::StaffFeed];
             }
+            "plan" => {
+                let account = self
+                    .signed_in
+                    .as_mut()
+                    .ok_or_else(|| anyhow!("line {}: plan needs a signed-in account", step.line))?;
+                match step.text(0)? {
+                    "free" => {
+                        account.features = Some(Vec::new());
+                        account.pro_given = false;
+                    }
+                    "given" => {
+                        account.features = None;
+                        account.pro_given = true;
+                    }
+                    other => anyhow::bail!("line {}: no plan called {other}", step.line),
+                }
+            }
             "updates" => {
                 let channel = match step.text(0)? {
                     "stable" => sikemux_view::prefs::UpdateChannel::Stable,
@@ -939,20 +956,20 @@ impl Director {
                     .map_err(|error| anyhow!("{error}"))?;
                 self.wait(0.3)?;
             }
-            "ask" => {
+            "task" => {
                 let title = step.text(0)?.to_owned();
                 let bench = self.bench.clone().ok_or_else(|| anyhow!("no workbench"))?;
                 self.cx
                     .update_window(self.window, |_, _, cx| {
                         bench.update(cx, |bench, cx| {
                             if title == "whole" {
-                                bench.narrow_ask(false, cx);
+                                bench.narrow_task(false, cx);
                                 return anyhow::Ok(());
                             }
-                            let id = bench.ask_titled(&title).ok_or_else(|| {
-                                anyhow!("line {}: no ask titled {title}", step.line)
+                            let id = bench.task_titled(&title).ok_or_else(|| {
+                                anyhow!("line {}: no task titled {title}", step.line)
                             })?;
-                            bench.open_ask(id, cx);
+                            bench.open_task(id, cx);
                             Ok(())
                         })
                     })

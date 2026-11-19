@@ -40,8 +40,7 @@ use sikemux_process::sync::Locked;
 use crate::agent_catalog::AgentKind;
 use crate::launch::model_feed::Feed;
 use crate::launch::named_account;
-use pricing::Prices;
-pub use pricing::{PriceOverride, PricingInfo};
+pub use pricing::{PriceOverride, Prices, PricingInfo};
 pub use report::{ReportedAgent, ReportedAnswers, ReportedDay, ReportedTokens};
 
 use super::Core;
@@ -328,6 +327,12 @@ impl ActivityLog {
             .and_then(|path| fs::read(path).ok())
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default()
+    }
+
+    /// What models cost: the prices the person entered over the published ones.
+    pub fn prices(&self) -> Prices {
+        let feed = self.feed.as_ref().map(Feed::current).unwrap_or_default();
+        Prices::new(&feed, &self.price_overrides())
     }
 
     /// Prices `model` at what the person entered, or at the published price
@@ -619,44 +624,6 @@ impl ActivityLog {
             });
         });
     }
-
-    /// The tokens chats on `account` spent between `from_ms` and `to_ms`, cached reads aside
-    /// as plans count them for little. Blocks on the database.
-    pub fn tokens_on(&self, account: &str, from_ms: u64, to_ms: u64) -> u64 {
-        self.with_database(|db| {
-            db.query_row(
-                "SELECT COALESCE(SUM(input + output + cache_write), 0) FROM tokens
-                 WHERE account = ?1 AND at_ms > ?2 AND at_ms <= ?3",
-                params![account, from_ms as i64, to_ms as i64],
-                |row| row.get::<_, i64>(0),
-            )
-        })
-        .map_or(0, |tokens| tokens.max(0) as u64)
-    }
-
-    /// The tokens a typical chat in the project at `cwd` spent over the last month: the middle
-    /// of its chats', once enough chats have run there to say. Blocks on the database.
-    pub fn typical_chat_tokens(&self, cwd: &str) -> Option<u64> {
-        const ENOUGH_CHATS: usize = 5;
-        const MONTH_MS: u64 = 30 * 24 * 60 * 60 * 1000;
-        let since = epoch_ms().saturating_sub(MONTH_MS) as i64;
-        let mut chats = self.with_database(|db| {
-            let mut query = db.prepare_cached(
-                "SELECT SUM(input + output + cache_write) FROM tokens
-                 WHERE project = ?1 AND chat != '' AND at_ms > ?2 GROUP BY chat",
-            )?;
-            let rows =
-                query.query_map(params![project_at(cwd), since], |row| row.get::<_, i64>(0))?;
-            rows.collect::<rusqlite::Result<Vec<i64>>>()
-        })?;
-        if chats.len() < ENOUGH_CHATS {
-            return None;
-        }
-        chats.sort_unstable();
-        chats
-            .get(chats.len() / 2)
-            .map(|tokens| (*tokens).max(0) as u64)
-    }
 }
 
 /// Everything after `offset` up to the last full line, and where that ends.
@@ -939,7 +906,7 @@ fn level(
         .iter()
         .filter_map(|quantile| {
             let at = ((quantile * sorted.len() as f64) as usize).min(sorted.len().checked_sub(1)?);
-            Some(sorted[at])
+            sorted.get(at).copied()
         })
         .collect();
     for day in days {
@@ -960,7 +927,8 @@ fn streaks(days: &[ActivityDay], today: i64) -> ActivityStreaks {
         .collect();
     let (mut longest, mut run) = (0, 0);
     for (index, day) in active.iter().enumerate() {
-        run = if index > 0 && active[index - 1] == day - 1 {
+        let before = index.checked_sub(1).and_then(|before| active.get(before));
+        run = if before == Some(&(day - 1)) {
             run + 1
         } else {
             1

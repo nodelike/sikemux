@@ -29,7 +29,8 @@ pub fn missing(
     for (at, line) in added {
         let placed = at
             .checked_sub(1)
-            .is_some_and(|above| lines[above].starts_with("#[path"));
+            .and_then(|above| lines.get(above))
+            .is_some_and(|above| above.starts_with("#[path"));
         let wants = if placed {
             None
         } else if path.ends_with(".rs") {
@@ -46,7 +47,7 @@ pub fn missing(
             {
                 lacking.push(format!(
                     "{path} adds {said}, but {} is not in this commit",
-                    files[0]
+                    files.first().map_or("", String::as_str)
                 ));
             }
         }
@@ -138,10 +139,11 @@ fn relative_import(path: &str, line: &str) -> Option<(String, Vec<String>)> {
     let quoted = ["from ", "import ", "import("]
         .iter()
         .filter_map(|word| line.find(word).map(|at| at + word.len()))
-        .filter(|at| line[*at..].starts_with(['"', '\'']))
+        .filter(|at| (line.get(*at..)).is_some_and(|rest| rest.starts_with(['"', '\''])))
         .min()?;
-    let quote = &line[quoted..=quoted];
-    let spec = line[quoted + 1..].split(quote).next()?;
+    let mut quoted = line.get(quoted..)?.chars();
+    let quote = quoted.next()?;
+    let spec = quoted.as_str().split(quote).next()?;
     if !(spec.starts_with("./") || spec.starts_with("../")) || spec.ends_with('/') {
         return None;
     }

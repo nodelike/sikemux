@@ -1,4 +1,4 @@
-//! Finished cards move to a file beside the boards a few days after they finish, and a full
+//! Finished and dropped cards move to a file beside the boards a few days after they finish, and a full
 //! board moves its oldest ones there at once, so a large reservoir keeps taking cards without
 //! the person clearing any.
 
@@ -15,7 +15,7 @@ pub const ROOM_KEPT: usize = 100;
 const KEPT_MS: u64 = 3 * 24 * 60 * 60 * 1000;
 
 fn may_archive(state: &State, project: &str, parents: &HashSet<u64>, card: &Card) -> bool {
-    card.status == CardStatus::Done
+    (card.status == CardStatus::Done || card.dropped.is_some())
         && !parents.contains(&card.id)
         && !state.work.contains_key(&(project.to_owned(), card.id))
         && (card.ticket.as_ref()).is_none_or(|ticket| ticket.synced == Some(CardStatus::Done))
@@ -31,7 +31,7 @@ pub fn make_room(boards: &Boards, state: &mut State, project: &str) {
         return;
     }
     let mut oldest: Vec<(u64, u64)> = (finished(state, project).into_iter())
-        .map(|card| (card.updated_at, card.id))
+        .map(|card| (card.ended_at(), card.id))
         .collect();
     oldest.sort_unstable();
     oldest.truncate(board.cards.len() + 2 * ROOM_KEPT - MAX_CARDS);
@@ -47,8 +47,8 @@ pub fn make_room(boards: &Boards, state: &mut State, project: &str) {
 /// that may go will have.
 pub fn finished_long_ago(core: &Core, state: &mut State, project: &str, now: u64) -> Option<u64> {
     let (old, young): (Vec<&Card>, Vec<&Card>) =
-        (finished(state, project).into_iter()).partition(|card| card.updated_at + KEPT_MS <= now);
-    let next = young.iter().map(|card| card.updated_at + KEPT_MS).min();
+        (finished(state, project).into_iter()).partition(|card| card.ended_at() + KEPT_MS <= now);
+    let next = young.iter().map(|card| card.ended_at() + KEPT_MS).min();
     let going = old.iter().map(|card| card.id).collect();
     move_off(core.boards(), state, project, going);
     next
@@ -87,6 +87,25 @@ fn move_off(boards: &Boards, state: &mut State, project: &str, going: HashSet<u6
     if let Some(data) = boards.folder.as_deref().and_then(Path::parent) {
         append(file(data, project), gone);
     }
+}
+
+/// The cards of the project at `folder` that moved off its board, by id and when they were made.
+pub fn archived(boards: &Boards, folder: &str) -> HashSet<(u64, u64)> {
+    #[derive(Deserialize)]
+    struct Archived {
+        id: u64,
+        at: u64,
+    }
+    let Some(data) = boards.folder.as_deref().and_then(Path::parent) else {
+        return HashSet::new();
+    };
+    let Ok(text) = std::fs::read_to_string(file(data, folder)) else {
+        return HashSet::new();
+    };
+    (text.lines())
+        .filter_map(|line| serde_json::from_str::<Archived>(line).ok())
+        .map(|card| (card.id, card.at))
+        .collect()
 }
 
 fn file(data: &Path, project: &str) -> PathBuf {

@@ -11,6 +11,7 @@
 
 mod common;
 
+use anyhow::Context as _;
 use sikemux_wire::protocol::ask;
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -69,9 +70,22 @@ impl Words {
 
     fn sentence(&mut self) -> String {
         let count = 6 + self.next(14);
-        let words: Vec<&str> = (0..count).map(|_| WORDS[self.next(WORDS.len())]).collect();
+        let words: Vec<&str> = (0..count)
+            .map(|_| {
+                WORDS
+                    .get(self.next(WORDS.len()))
+                    .copied()
+                    .unwrap_or_default()
+            })
+            .collect();
         let sentence = words.join(" ");
-        format!("{}{}. ", sentence[..1].to_uppercase(), &sentence[1..])
+        let mut chars = sentence.chars();
+        let first: String = chars
+            .next()
+            .into_iter()
+            .flat_map(char::to_uppercase)
+            .collect();
+        format!("{first}{}. ", chars.as_str())
     }
 
     /// Markdown, and how many characters of it a reader sees.
@@ -112,7 +126,7 @@ impl Words {
             0 => {
                 let level = 2 + self.next(2);
                 let sentence = self.sentence();
-                let text = &sentence[..sentence.len() - 2];
+                let text = sentence.strip_suffix(". ").unwrap_or(&sentence);
                 (format!("{} {text}", "#".repeat(level)), text.len())
             }
             1 | 2 => {
@@ -189,6 +203,10 @@ impl Words {
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "the bench's events are fixed shapes a ChatEvent always reads"
+)]
 fn event(kind: &str, payload: Value) -> ChatEvent {
     serde_json::from_value(json!({ "kind": kind, "payload": payload })).expect("a chat event")
 }
@@ -334,11 +352,12 @@ impl Folded {
     }
 
     /// The view a client opens on: the rows from `start`, with earlier ones paged in.
+    #[expect(clippy::expect_used, reason = "a ChatView always serializes")]
     fn view(&self, start: usize) -> Value {
         let older_before = (start > 0).then_some(start as u64 + 1);
         let view = ChatView {
             head: self.head.clone(),
-            rows: self.rows[start..].to_vec(),
+            rows: self.rows.get(start..).unwrap_or_default().to_vec(),
             subagents: BTreeMap::new(),
             older_before,
         };
@@ -676,7 +695,7 @@ fn main() -> anyhow::Result<()> {
             },
         )
     })?;
-    let bench = held.take().expect("the workbench");
+    let bench = held.take().context("the workbench")?;
     let mut run = Bench {
         cx,
         window: window.into(),
@@ -707,7 +726,7 @@ fn main() -> anyhow::Result<()> {
 
     run.open(0);
     run.frame();
-    let first = run.frames[0];
+    let first = run.frames.first().copied().unwrap_or_default();
     for _ in 0..59 {
         run.frame();
     }

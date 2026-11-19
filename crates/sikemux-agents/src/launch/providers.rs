@@ -77,6 +77,11 @@ pub fn routed_agents() -> impl Iterator<Item = &'static str> {
     routed.into_iter().map(|(_, kind)| kind)
 }
 
+/// An agent's model id that reaches a provider Sikemux routed it to, not one of its own.
+pub fn routed_model(model: &str) -> bool {
+    model.starts_with(AGENT_ID_PREFIX)
+}
+
 fn routed_api(agent: &str) -> Option<RoutedApi> {
     Some(agent_catalog::agent(agent)?.routed.as_ref()?.api)
 }
@@ -141,8 +146,8 @@ impl ListedProvider<'_> {
                     "contextWindow": model.limit.context,
                     "maxTokens": LISTED_MAX_OUTPUT_TOKENS,
                 });
-                if let Some(compat) = chat_compat(id) {
-                    entry["compat"] = compat;
+                if let (Some(compat), Some(fields)) = (chat_compat(id), entry.as_object_mut()) {
+                    fields.insert("compat".to_owned(), compat);
                 }
                 entry
             })
@@ -218,6 +223,41 @@ pub struct Provider {
     /// The person added it, rather than Sikemux's catalogue holding it.
     #[serde(default, skip_deserializing)]
     pub custom: bool,
+    /// An org's admin added its key for every member, rather than the person their own.
+    #[serde(default, skip)]
+    pub org: Option<ProviderOrg>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ProviderOrg {
+    pub id: String,
+    pub name: String,
+}
+
+impl ProviderOrg {
+    /// The catalogue provider an org's `route` runs on.
+    pub fn provider_in<'a>(&self, route: &'a str) -> &'a str {
+        route
+            .strip_prefix(&format!("org-{}-", self.id))
+            .unwrap_or(route)
+    }
+}
+
+/// A catalogue provider's key an org's vault holds for its members.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OrgKey {
+    pub org: ProviderOrg,
+    /// The catalogue provider it is a key of.
+    pub provider: String,
+    pub key: String,
+}
+
+impl OrgKey {
+    /// Its own route, apart from the person's own key to the same provider, so neither is ever
+    /// taken for the other.
+    pub fn route(&self) -> String {
+        format!("org-{}-{}", self.org.id, self.provider)
+    }
 }
 
 /// A provider the person added, as Sikemux writes it down.
@@ -260,6 +300,7 @@ impl Custom {
             model: None,
             agent_models: BTreeMap::new(),
             custom: true,
+            org: None,
         }
     }
 
@@ -300,6 +341,10 @@ pub enum AnthropicAuth {
     XApiKey,
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "the catalogue is compiled in, and its tests parse it"
+)]
 static CATALOGUE: LazyLock<Vec<Arc<Provider>>> = LazyLock::new(|| {
     serde_json::from_str::<Vec<Provider>>(include_str!("../../model-providers.json"))
         .expect("model-providers.json is a valid catalogue")
@@ -389,6 +434,25 @@ impl Helper {
 }
 
 impl Provider {
+    /// This catalogue provider as `key` routes it: its own id, and labelled with the org.
+    fn for_org(&self, key: &OrgKey) -> Self {
+        Self {
+            id: key.route(),
+            label: format!("{} ({})", self.label, key.org.name),
+            kind: self.kind,
+            sign_up_url: self.sign_up_url.clone(),
+            key: self.key.clone(),
+            openai: self.openai.clone(),
+            responses: self.responses,
+            anthropic: self.anthropic.clone(),
+            models_dev: self.models_dev.clone(),
+            model: self.model.clone(),
+            agent_models: self.agent_models.clone(),
+            custom: false,
+            org: Some(key.org.clone()),
+        }
+    }
+
     /// The model a chat of `agent` starts on here when none is picked: the
     /// recommended one while models.dev lists it and the provider serves it,
     /// else the newest that reasons and calls tools, else the first served.
@@ -643,11 +707,14 @@ struct State {
     custom_stamp: Option<SystemTime>,
     custom: Vec<Arc<Provider>>,
     keys: HashMap<String, String>,
+    /// The org keys this host's org vaults hold, by route. Never written to disk.
+    org: BTreeMap<String, (Arc<Provider>, String)>,
 }
 
 impl State {
     fn holds_key(&self, id: &str) -> bool {
         self.connected.contains(id)
+            || self.org.contains_key(id)
             || self
                 .custom
                 .iter()
@@ -676,7 +743,20 @@ impl Providers {
             .custom
             .iter()
             .find(|provider| provider.id == id)
+            .or_else(|| state.org.get(id).map(|(provider, _)| provider))
             .cloned()
+    }
+
+    /// Replaces the org keys this host holds. A key of a provider the catalogue lacks is left out.
+    pub fn set_org_keys(&self, keys: &[OrgKey]) {
+        let org = keys
+            .iter()
+            .filter_map(|key| {
+                let provider = catalogued(&key.provider)?.for_org(key);
+                Some((key.route(), (Arc::new(provider), key.key.clone())))
+            })
+            .collect();
+        self.state.locked().org = org;
     }
 
     /// The provider OMP or OpenCode names `name`, when it is one Sikemux handed them.
@@ -684,10 +764,16 @@ impl Providers {
         self.find(name.strip_prefix(AGENT_ID_PREFIX)?)
     }
 
-    /// The catalogue's providers, then those the person added.
+    /// The catalogue's providers, then those the person added, then the orgs' keys.
     pub fn all(&self) -> Vec<Arc<Provider>> {
-        let custom = self.fresh().custom.clone();
-        catalogue().iter().cloned().chain(custom).collect()
+        let state = self.fresh();
+        let org = state.org.values().map(|(provider, _)| provider.clone());
+        catalogue()
+            .iter()
+            .cloned()
+            .chain(state.custom.iter().cloned())
+            .chain(org)
+            .collect()
     }
 
     /// Keeps `custom` and its `key`, replacing a provider of the same id.
@@ -718,7 +804,11 @@ impl Providers {
                 "Sikemux holds no provider called {id} that you added"
             ));
         };
-        if state.custom[at].key.is_some() {
+        if state
+            .custom
+            .get(at)
+            .is_some_and(|provider| provider.key.is_some())
+        {
             sikemux_keychain::delete(KEY_SERVICE, id).map_err(|error| error.to_string())?;
         }
         state.custom.remove(at);
@@ -843,6 +933,9 @@ impl Providers {
             let state = self.fresh();
             if !state.holds_key(id) {
                 return None;
+            }
+            if let Some((_, key)) = state.org.get(id) {
+                return Some(key.clone());
             }
             if let Some(key) = state.keys.get(id) {
                 return Some(key.clone());

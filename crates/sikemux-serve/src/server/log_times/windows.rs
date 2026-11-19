@@ -146,6 +146,6 @@ pub fn write_all(log: Handle, mut bytes: &[u8]) {
         if ok == 0 || written == 0 {
             return;
         }
-        bytes = &bytes[written as usize..];
+        bytes = bytes.get(written as usize..).unwrap_or_default();
     }
 }

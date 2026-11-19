@@ -39,7 +39,7 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
     fn byte(&mut self) -> u8 {
-        let byte = self.bytes[self.at];
+        let byte = self.bytes.get(self.at).copied().unwrap_or_default();
         self.at += 1;
         byte
     }
@@ -70,7 +70,7 @@ impl<'a> Reader<'a> {
 
     fn text(&mut self) -> &'a str {
         let len = self.varint();
-        let bytes = &self.bytes[self.at..self.at + len];
+        let bytes = self.bytes.get(self.at..self.at + len).unwrap_or_default();
         self.at += len;
         std::str::from_utf8(bytes).unwrap_or_default()
     }
@@ -118,7 +118,9 @@ impl<'a> LineWriter<'a> {
     }
 
     pub(super) fn finish(self, wrapped: bool) -> &'a [u8] {
-        self.bytes[0] = u8::from(wrapped);
+        if let Some(flag) = self.bytes.first_mut() {
+            *flag = u8::from(wrapped);
+        }
         self.bytes
     }
 }
@@ -344,6 +346,11 @@ impl History {
         self.lines.len()
     }
 
+    #[expect(
+        clippy::indexing_slicing,
+        clippy::string_slice,
+        reason = "run and next stay below end, which stays within cells, and each cell's text range was cut from texts"
+    )]
     fn wrap_cells(&mut self, cells: &[Cell], texts: &str, styles: &[OwnedStyle], cols: usize) {
         let mut scratch = Vec::new();
         let mut start = 0;

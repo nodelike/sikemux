@@ -30,8 +30,12 @@ api.sikemux.com {
 	respond @internal 404
 	# /v1/live is one WebSocket per device. A reload leaves open ones up to 5 minutes before
 	# closing them, so devices reconnect spread out instead of all at once.
+	# While the API restarts on a deploy, a request waits for it instead of failing. Caddy sends
+	# a request again only if the API never received it, or if it is a GET.
 	reverse_proxy 127.0.0.1:4000 {
 		stream_close_delay 5m
+		lb_try_duration 15s
+		lb_try_interval 250ms
 	}
 	log {
 		output file /var/log/caddy/sikemux-api.log {
@@ -50,7 +54,7 @@ app.sikemux.com {
 	header {
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "DENY"
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://clerk.sikemux.com https://challenges.cloudflare.com https://cdn.paddle.com; connect-src 'self' https://clerk.sikemux.com https://api.sikemux.com wss://api.sikemux.com; img-src 'self' data: blob: https://img.clerk.com; style-src 'self' 'unsafe-inline' https://cdn.paddle.com https://sandbox-cdn.paddle.com; font-src 'self' data:; worker-src 'self' blob:; frame-src https://challenges.cloudflare.com https://buy.paddle.com https://sandbox-buy.paddle.com; form-action 'self' https://clerk.sikemux.com http://127.0.0.1:*; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://clerk.sikemux.com https://challenges.cloudflare.com https://cdn.paddle.com; connect-src 'self' https://clerk.sikemux.com https://api.sikemux.com wss://api.sikemux.com https://relay.sikemux.com wss://relay.sikemux.com; img-src 'self' data: blob: https://img.clerk.com; style-src 'self' 'unsafe-inline' https://cdn.paddle.com https://sandbox-cdn.paddle.com; font-src 'self' data:; worker-src 'self' blob:; frame-src https://challenges.cloudflare.com https://buy.paddle.com https://sandbox-buy.paddle.com; form-action 'self' https://clerk.sikemux.com http://127.0.0.1:*; frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
 	}
 	root * /srv/sikemux/current/app
 	encode zstd gzip
@@ -81,7 +85,10 @@ updates.sikemux.com {
 	encode zstd gzip
 	handle /manifest {
 		rewrite * /updates/manifest
-		reverse_proxy 127.0.0.1:4000
+		reverse_proxy 127.0.0.1:4000 {
+			lb_try_duration 15s
+			lb_try_interval 250ms
+		}
 	}
 	# Assets are stored as <sha256>.<type>.<subtype>, such as <sha256>.image.png, and served at
 	# /assets/<sha256> with the media type their name carries.

@@ -11,12 +11,15 @@ import type {
   PaymentCard,
 } from "@sikemux/protocol";
 
+import { ApiFailure } from "../http.ts";
 import { unitPrice } from "./catalog.ts";
 import type {
   BillingProvider,
+  PauseOutcome,
   ChangeOutcome,
   ChangePreview,
   CheckoutRequest,
+  HeldAs,
   HeldSubscription,
   ProviderEvent,
   ProviderRequest,
@@ -24,6 +27,11 @@ import type {
 } from "./provider.ts";
 
 const SIGNATURE_HEADER = "x-stand-in-signature";
+/**
+ * Like Paddle, the stand-in takes no pause or cancel in the half hour before the period's end, when
+ * it renews or a scheduled cancel ends it, and a pause drops a scheduled cancel.
+ */
+const RENEWAL_LOCK_MS = 30 * 60_000;
 
 function periodEnd(from: Date, interval: BillingInterval): Date {
   const end = new Date(from);
@@ -84,7 +92,16 @@ export class StandInProvider implements BillingProvider {
   private readonly secret = randomBytes(32);
   private readonly checkouts = new Map<string, CheckoutRequest>();
   private readonly paying = new Set<string>();
-  private readonly heldRefunds: string[] = [];
+  private readonly heldRefunds: {
+    providerPaymentId: string;
+    amount?: number;
+  }[] = [];
+  private readonly resumes = new Map<string, Date>();
+  /** When each subscription paused here was paused. */
+  private readonly pausedAt = new Map<string, Date>();
+  /** The subscriptions set here to cancel at their period's end. */
+  private readonly cancelling = new Set<string>();
+  private readonly ended = new Set<string>();
   private readonly payments = new Map<string, Money>();
   /** Refuses every charge taken mid-period, as a payment method that cannot be charged then. */
   declineChanges = false;
@@ -281,16 +298,41 @@ export class StandInProvider implements BillingProvider {
   }
 
   private async setCancel(held: HeldSubscription, cancelAtPeriodEnd: boolean) {
+    if (cancelAtPeriodEnd) this.cancelling.add(held.providerSubscriptionId);
+    else this.cancelling.delete(held.providerSubscriptionId);
     await this.send({
       ...this.event("subscription.changed"),
       subscription: { ...this.subscriptionOf(held), cancelAtPeriodEnd },
     });
   }
 
+  /** Whether the subscription is set here to cancel at its period's end. */
+  cancelsAtPeriodEnd(providerSubscriptionId: string) {
+    return this.cancelling.has(providerSubscriptionId);
+  }
+
+  private renewsShortly(held: HeldSubscription, now = Date.now()) {
+    const left = held.currentPeriodEnd.getTime() - now;
+    return left > 0 && left < RENEWAL_LOCK_MS;
+  }
+
   async cancel(held: HeldSubscription, when: "period_end" | "now") {
     if (this.refuseCancels)
       throw new Error("The stand-in provider cannot be reached.");
+    const paused = this.pausedAt.has(held.providerSubscriptionId);
+    if (when === "period_end" && paused)
+      throw new Error("A paused subscription can only be cancelled at once.");
+    if (!paused && this.renewsShortly(held))
+      throw new ApiFailure(
+        409,
+        "conflict",
+        "This subscription renews in the next few minutes. Change it after it renews.",
+      );
     if (when === "period_end") return this.setCancel(held, true);
+    this.cancelling.delete(held.providerSubscriptionId);
+    this.ended.add(held.providerSubscriptionId);
+    this.pausedAt.delete(held.providerSubscriptionId);
+    this.resumes.delete(held.providerSubscriptionId);
     await this.send({
       ...this.event("subscription.ended"),
       providerSubscriptionId: held.providerSubscriptionId,
@@ -301,26 +343,132 @@ export class StandInProvider implements BillingProvider {
     return this.setCancel(held, false);
   }
 
-  async refund(providerPaymentId: string) {
-    if (this.holdRefunds) this.heldRefunds.push(providerPaymentId);
-    else await this.settleRefund(providerPaymentId);
+  async pause(held: HeldSubscription, since: Date): Promise<PauseOutcome> {
+    const id = held.providerSubscriptionId;
+    const already = this.pausedAt.get(id);
+    if (already)
+      return already < since
+        ? { refused: "paused_elsewhere" }
+        : {
+            paidUntil: held.currentPeriodEnd,
+            pausedAt: already,
+            wasCancelling: false,
+          };
+    const now = new Date();
+    if (this.renewsShortly(held, now.getTime()))
+      return {
+        askAgainAt: new Date(held.currentPeriodEnd.getTime() + RENEWAL_LOCK_MS),
+      };
+    if (this.cancelling.has(id)) {
+      if (!held.cancelAtPeriodEnd) return { cancelScheduled: true };
+      await this.setCancel(held, false);
+    }
+    this.pausedAt.set(id, now);
+    await this.send({
+      ...this.event("subscription.paused", now),
+      providerSubscriptionId: id,
+    });
+    return {
+      paidUntil: held.currentPeriodEnd,
+      pausedAt: now,
+      wasCancelling: held.cancelAtPeriodEnd,
+    };
+  }
+
+  /** Resumes at once when `at` has passed; a later day is kept and never comes, as nothing here waits. */
+  private heldAs(providerSubscriptionId: string): HeldAs {
+    if (this.pausedAt.has(providerSubscriptionId)) return "paused";
+    return this.ended.has(providerSubscriptionId) ? "ended" : "active";
+  }
+
+  async resumeOn(held: HeldSubscription, at: Date): Promise<HeldAs> {
+    if (!this.pausedAt.has(held.providerSubscriptionId))
+      return this.heldAs(held.providerSubscriptionId);
+    const now = new Date();
+    if (at > now) {
+      this.resumes.set(held.providerSubscriptionId, at);
+      return "paused";
+    }
+    this.resumes.delete(held.providerSubscriptionId);
+    this.pausedAt.delete(held.providerSubscriptionId);
+    const currentPeriodEnd = periodEnd(now, held.interval);
+    await this.send(
+      {
+        ...this.event("subscription.changed", now),
+        subscription: { ...this.subscriptionOf(held), currentPeriodEnd },
+      },
+      {
+        ...this.event("payment.made", now),
+        providerPaymentId: `pay_${randomUUID()}`,
+        providerSubscriptionId: held.providerSubscriptionId,
+        lines: [{ product: held.product, quantity: held.quantity }],
+        reason: "renewal",
+        total: cents(
+          (unitPrice(held.product, held.interval)?.amount ?? 0) * held.quantity,
+        ),
+        periodEnd: currentPeriodEnd,
+      },
+    );
+    return "paused";
+  }
+
+  keepPaused(held: HeldSubscription) {
+    this.resumes.delete(held.providerSubscriptionId);
+    return Promise.resolve(this.heldAs(held.providerSubscriptionId));
+  }
+
+  /** When each paused subscription is set to resume. */
+  resumesOn(providerSubscriptionId: string): Date | undefined {
+    return this.resumes.get(providerSubscriptionId);
+  }
+
+  async refund(providerPaymentId: string, amount?: number) {
+    const refund =
+      amount === undefined
+        ? { providerPaymentId }
+        : { providerPaymentId, amount };
+    if (this.holdRefunds) this.heldRefunds.push(refund);
+    else await this.settleRefund(refund);
   }
 
   async approveRefunds() {
-    for (const providerPaymentId of this.heldRefunds.splice(0))
-      await this.settleRefund(providerPaymentId);
+    for (const refund of this.heldRefunds.splice(0))
+      await this.settleRefund(refund);
   }
 
-  private settleRefund(providerPaymentId: string) {
-    if (this.refuseRefunds)
+  /** Pays or refuses one refund that `holdRefunds` kept waiting. */
+  async answerRefund(providerPaymentId: string, refuse: boolean) {
+    const at = this.heldRefunds.findIndex(
+      (refund) => refund.providerPaymentId === providerPaymentId,
+    );
+    const [refund] = at < 0 ? [] : this.heldRefunds.splice(at, 1);
+    if (!refund) throw new Error(`No refund of ${providerPaymentId} waits.`);
+    await this.settleRefund(refund, refuse);
+  }
+
+  private settleRefund(
+    {
+      providerPaymentId,
+      amount,
+    }: {
+      providerPaymentId: string;
+      amount?: number;
+    },
+    refuse = this.refuseRefunds,
+  ) {
+    if (refuse)
       return this.send({
         ...this.event("payment.refund_refused"),
         providerPaymentId,
       });
+    const paid = this.payments.get(providerPaymentId) ?? cents(0);
     return this.send({
       ...this.event("payment.refunded"),
       providerPaymentId,
-      returned: this.payments.get(providerPaymentId) ?? cents(0),
+      returned:
+        amount === undefined
+          ? paid
+          : { ...paid, amount: Math.min(amount, paid.amount) },
       chargeback: false,
     });
   }

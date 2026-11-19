@@ -249,7 +249,7 @@ pub(super) fn ended_at<'a>(
     let Some(end) = rows.get(ix).and_then(|row| row.message.ended_at) else {
         return Vec::new();
     };
-    let before = (rows[..ix].iter().rev())
+    let before = (rows.iter().take(ix).rev())
         .find_map(|row| row.message.ended_at)
         .unwrap_or_default();
     (shown.iter())

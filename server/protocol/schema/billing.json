@@ -234,6 +234,9 @@
         "refundAmount": {
           "description": "What the refund returns, or returns once paid: every payment on the plan in its first refundDays.",
           "$ref": "#/$defs/Money"
+        },
+        "seatPause": {
+          "$ref": "#/$defs/SeatPause"
         }
       },
       "required": [
@@ -246,6 +249,24 @@
         "cancelAtPeriodEnd",
         "startedAt"
       ],
+      "additionalProperties": false
+    },
+    "SeatPause": {
+      "description": "A person's own Pro, paused at the provider while a seat in an org includes Pro, so it is never paid twice. Its status stays active: the paid time it had left is kept and counts as Pro once no seat does.",
+      "type": "object",
+      "properties": {
+        "orgs": {
+          "description": "The names of the orgs whose seat includes Pro now. Empty once the last seat ended and the kept time is running.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "resumesAt": {
+          "description": "Once no seat includes Pro: when the kept time runs out and the provider bills a new period.",
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["orgs"],
       "additionalProperties": false
     },
     "ScheduledChange": {
@@ -499,6 +520,10 @@
           "description": "A refund was asked of the provider, which has not made it yet.",
           "type": "string",
           "format": "date-time"
+        },
+        "partlyRefunded": {
+          "description": "What the provider paid back of a payment it did not refund in full, such as the unused days of a Pro paused for a seat.",
+          "$ref": "#/$defs/Money"
         },
         "refundableUntil": {
           "description": "Only on a plan's first payment, while the plan may still be refunded.",

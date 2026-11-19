@@ -129,6 +129,7 @@ interface Pruned {
   audit: number;
   shares: number;
   challenges: number;
+  folds: number;
 }
 
 async function inBatches(run: () => Promise<number>): Promise<number> {
@@ -206,7 +207,13 @@ export async function pruneHistory(
     return Number(rows[0]?.n ?? 0);
   });
   const challenges = await pruneChallenges(db);
-  const pruned = { events, removedDevices, audit, shares, challenges };
+  const unconfirmed = await db
+    .deleteFrom("account_folds")
+    .where("done_at", "is", null)
+    .where("expires_at", "<", sql<Date>`now() - interval '1 day'`)
+    .executeTakeFirst();
+  const folds = Number(unconfirmed.numDeletedRows);
+  const pruned = { events, removedDevices, audit, shares, challenges, folds };
   log.info(pruned, "pruned old history");
   return pruned;
 }

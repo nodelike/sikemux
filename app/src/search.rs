@@ -176,39 +176,43 @@ impl SearchPane {
 
     /// Makes the fields the first time the pane draws, which needs the window.
     fn fields(&mut self, window: &mut Window, cx: &mut Context<Self>) -> &Fields {
-        if self.fields.is_none() {
-            let field = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Self>| {
-                cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
-            };
-            let fields = Fields {
-                find: field(t!("find in project"), window, cx),
-                replace: field(t!("replace with…"), window, cx),
-                include: field("src/**/*.ts", window, cx),
-                exclude: field("**/*.test.ts", window, cx),
-            };
-            let typed =
-                |field: &Entity<InputState>, window: &mut Window, cx: &mut Context<Self>| {
-                    cx.subscribe_in(field, window, |pane, _, event: &InputEvent, window, cx| {
-                        match event {
-                            InputEvent::Change => pane.typed(cx),
-                            InputEvent::PressEnter {
-                                secondary: true, ..
-                            } if pane.replace_open => pane.replace_all(window, cx),
-                            InputEvent::PressEnter { .. } => pane.open(window, cx),
-                            _ => {}
-                        }
-                    })
+        let fields = match self.fields.take() {
+            Some(fields) => fields,
+            None => {
+                let field =
+                    |placeholder: &'static str, window: &mut Window, cx: &mut Context<Self>| {
+                        cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
+                    };
+                let fields = Fields {
+                    find: field(t!("find in project"), window, cx),
+                    replace: field(t!("replace with…"), window, cx),
+                    include: field("src/**/*.ts", window, cx),
+                    exclude: field("**/*.test.ts", window, cx),
                 };
-            self._typing = vec![
-                typed(&fields.find, window, cx),
-                typed(&fields.replace, window, cx),
-                typed(&fields.include, window, cx),
-                typed(&fields.exclude, window, cx),
-            ];
-            fields.find.update(cx, |find, cx| find.focus(window, cx));
-            self.fields = Some(fields);
-        }
-        self.fields.as_ref().expect("made above")
+                let typed =
+                    |field: &Entity<InputState>, window: &mut Window, cx: &mut Context<Self>| {
+                        cx.subscribe_in(field, window, |pane, _, event: &InputEvent, window, cx| {
+                            match event {
+                                InputEvent::Change => pane.typed(cx),
+                                InputEvent::PressEnter {
+                                    secondary: true, ..
+                                } if pane.replace_open => pane.replace_all(window, cx),
+                                InputEvent::PressEnter { .. } => pane.open(window, cx),
+                                _ => {}
+                            }
+                        })
+                    };
+                self._typing = vec![
+                    typed(&fields.find, window, cx),
+                    typed(&fields.replace, window, cx),
+                    typed(&fields.include, window, cx),
+                    typed(&fields.exclude, window, cx),
+                ];
+                fields.find.update(cx, |find, cx| find.focus(window, cx));
+                fields
+            }
+        };
+        self.fields.insert(fields)
     }
 
     /// Puts the keyboard in the find field, searching for `seed` when there is one, as ⌘⇧F does.
@@ -358,16 +362,22 @@ impl SearchPane {
             return;
         }
         let now = self.chosen.as_ref().and_then(|(path, at)| {
-            hits.iter()
-                .position(|(_, file, hit)| &self.files[*file].path == path && hit == at)
+            hits.iter().position(|(_, file, hit)| {
+                self.files.get(*file).is_some_and(|file| &file.path == path) && hit == at
+            })
         });
         let next = match now {
             Some(now) => (now as isize + step).clamp(0, hits.len() as isize - 1) as usize,
             None => 0,
         };
-        let (row, file, hit) = hits[next];
+        let Some(&(row, file, hit)) = hits.get(next) else {
+            return;
+        };
+        let Some(path) = self.files.get(file).map(|file| file.path.clone()) else {
+            return;
+        };
         self.list.scroll_to_reveal_item(row);
-        self.choose(self.files[file].path.clone(), hit, cx);
+        self.choose(path, hit, cx);
     }
 
     /// Reads the lines around the chosen match, unless a kept preview already holds them.
@@ -376,12 +386,15 @@ impl SearchPane {
             return;
         };
         let (path, line) = (file.path.clone(), hit.line);
-        if let Some(at) = self.windows.iter().position(|shown| {
-            shown.path == path
-                && line >= shown.window.start_line
-                && line < shown.window.start_line + shown.window.doc.lines().count().max(1) as u32
-        }) {
-            let shown = self.windows.remove(at).expect("found above");
+        let kept = (self.windows.iter())
+            .position(|shown| {
+                shown.path == path
+                    && line >= shown.window.start_line
+                    && line
+                        < shown.window.start_line + shown.window.doc.lines().count().max(1) as u32
+            })
+            .and_then(|at| self.windows.remove(at));
+        if let Some(shown) = kept {
             self.windows.push_front(shown);
             return;
         }
@@ -538,7 +551,7 @@ impl SearchPane {
             0 => return None,
             count if count > 3 => t!(
                 "Save or close unsaved files before replacing: {files} and {more} more",
-                files = unsaved[..3].join(", "),
+                files = unsaved.get(..3).unwrap_or_default().join(", "),
                 more = count - 3
             ),
             _ => t!(
@@ -643,8 +656,7 @@ async fn listen(
             if let Some(error) = part.error {
                 pane.status = Status::Failed;
                 pane.error = Some(
-                    error["message"]
-                        .as_str()
+                    (error.get("message").and_then(|message| message.as_str()))
                         .map_or_else(|| error.to_string(), str::to_owned),
                 );
             } else if done {
@@ -712,7 +724,9 @@ impl Render for SearchPane {
 
 fn head(pane: &SearchPane, cx: &mut Context<SearchPane>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let fields = pane.fields.as_ref().expect("made before drawing");
+    let Some(fields) = pane.fields.as_ref() else {
+        return div();
+    };
     let toggle = |id: &'static str,
                   label: &'static str,
                   tip: &'static str,
@@ -1076,9 +1090,13 @@ fn results(pane: &SearchPane, cx: &mut Context<SearchPane>) -> AnyElement {
     list(pane.list.clone(), move |index, _, cx| {
         let cx = &*cx;
         let pane = view.read(cx);
-        match pane.rows.get(index) {
-            Some(Row::Header { file }) => file_header(&view, &pane.files[*file], pane, cx),
-            Some(Row::Hit { file, hit }) => hit_row(&view, &pane.files[*file], *hit, pane, cx),
+        let row = pane.rows.get(index).and_then(|row| match row {
+            Row::Header { file } => Some((pane.files.get(*file)?, None)),
+            Row::Hit { file, hit } => Some((pane.files.get(*file)?, Some(*hit))),
+        });
+        match row {
+            Some((file, None)) => file_header(&view, file, pane, cx),
+            Some((file, Some(hit))) => hit_row(&view, file, hit, pane, cx),
             None => div().into_any_element(),
         }
     })
@@ -1179,7 +1197,9 @@ fn hit_row(
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let hit = &file.matches[at];
+    let Some(hit) = file.matches.get(at) else {
+        return div().into_any_element();
+    };
     let chosen = pane
         .chosen
         .as_ref()

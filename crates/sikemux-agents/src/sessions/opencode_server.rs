@@ -162,7 +162,10 @@ impl Client {
         })?;
         let body: Value = serde_json::from_str(&text).unwrap_or_default();
         if !status.is_success() {
-            let said = body["message"].as_str().filter(|said| !said.is_empty());
+            let said = body
+                .get("message")
+                .and_then(Value::as_str)
+                .filter(|said| !said.is_empty());
             return Err(Refused {
                 status: Some(status.as_u16()),
                 message: said.map_or_else(
@@ -197,7 +200,7 @@ impl Client {
         tokio::spawn(async move {
             while let Ok(Some(chunk)) = answer.chunk().await {
                 for event in reader.read(&chunk) {
-                    if event["type"] == "server.connected" {
+                    if event.get("type").and_then(Value::as_str) == Some("server.connected") {
                         if let Some(connected) = connected.take() {
                             let _ = connected.send(());
                         }

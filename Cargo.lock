@@ -2253,7 +2253,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2564,7 +2564,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3452,7 +3452,7 @@ dependencies = [
 [[package]]
 name = "gpui-base"
 version = "0.8.1"
-source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
+source = "git+https://github.com/sikemux/gpui-kit?rev=e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb#e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -3500,7 +3500,7 @@ dependencies = [
 [[package]]
 name = "gpui-component"
 version = "0.8.1"
-source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
+source = "git+https://github.com/sikemux/gpui-kit?rev=e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb#e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3547,7 +3547,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-macros"
 version = "0.8.1"
-source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
+source = "git+https://github.com/sikemux/gpui-kit?rev=e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb#e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb"
 dependencies = [
  "proc-macro-crate 3.5.0",
  "proc-macro2",
@@ -3639,7 +3639,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit"
 version = "0.8.1"
-source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
+source = "git+https://github.com/sikemux/gpui-kit?rev=e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb#e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb"
 dependencies = [
  "gpui-base",
  "gpui-component",
@@ -3652,7 +3652,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit-assets"
 version = "0.8.1"
-source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
+source = "git+https://github.com/sikemux/gpui-kit?rev=e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb#e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb"
 dependencies = [
  "anyhow",
  "gpui-pre",
@@ -3683,7 +3683,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -3755,7 +3755,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-apple"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "anyhow",
  "async-task",
@@ -3796,7 +3796,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-bench-metrics"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "anyhow",
  "criterion",
@@ -3807,7 +3807,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-collections"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "gpui-pre-util",
  "indexmap 2.14.2",
@@ -3817,7 +3817,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-derive-refineable"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3827,7 +3827,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-http-client"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3845,7 +3845,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-linux"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -3889,7 +3889,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-macos"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -3927,7 +3927,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-macros"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -3938,7 +3938,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-platform"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "anyhow",
  "gpui-pre",
@@ -3951,7 +3951,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-refineable"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "gpui-pre-derive-refineable",
 ]
@@ -4009,7 +4009,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-scheduler"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "async-task",
  "backtrace",
@@ -4025,7 +4025,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-shared-string"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "schemars 1.2.2",
  "serde",
@@ -4035,7 +4035,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-sum-tree"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "gpui-pre-ztracing",
  "heapless",
@@ -4046,7 +4046,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-util"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "anyhow",
  "log",
@@ -4086,7 +4086,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-wgpu"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -4114,7 +4114,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-windows"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "accesskit",
  "accesskit_windows",
@@ -4144,7 +4144,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-ztracing"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 dependencies = [
  "gpui-pre-ztracing-macro",
  "tracing",
@@ -4153,7 +4153,7 @@ dependencies = [
 [[package]]
 name = "gpui-pre-ztracing-macro"
 version = "0.3.10"
-source = "git+https://github.com/sikemux/gpui?rev=8efbd4dd93188d36bc0309d1a4118dc046044fa1#8efbd4dd93188d36bc0309d1a4118dc046044fa1"
+source = "git+https://github.com/sikemux/gpui?rev=95e4373d75bb809a208d3f75cc98918d452c2ce8#95e4373d75bb809a208d3f75cc98918d452c2ce8"
 
 [[package]]
 name = "gpui-terminal-grid"
@@ -4472,9 +4472,9 @@ dependencies = [
 
 [[package]]
 name = "heapless"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25ba4bd83f9415b58b4ed8dc5714c76e626a105be4646c02630ad730ad3b5aa4"
+checksum = "411fdef4df93751117bd9ef8caa0e7f99c65dafec5bd84313eb8e2fdd75e32f2"
 dependencies = [
  "hash32",
  "stable_deref_trait",
@@ -6718,7 +6718,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8381,7 +8381,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8996,7 +8996,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9074,7 +9074,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9757,9 +9757,10 @@ dependencies = [
 
 [[package]]
 name = "sikemux-app"
-version = "0.6.1"
+version = "0.6.1-nightly.22"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "block2 0.6.2",
  "core-foundation 0.10.1",
  "film-frame",
@@ -9770,13 +9771,17 @@ dependencies = [
  "gpui-pre",
  "gpui-pre-platform",
  "gpui-transcript",
+ "hex",
  "image",
+ "iroh",
  "libc",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "objc2-web-kit",
+ "ring",
  "serde_json",
+ "sha2 0.11.0",
  "sikemux-agents",
  "sikemux-base",
  "sikemux-browser",
@@ -9878,7 +9883,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-buildinfo"
-version = "0.6.1"
+version = "0.6.1-nightly.22"
 dependencies = [
  "hex",
  "sha2 0.11.0",
@@ -10137,7 +10142,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-gpui"
-version = "0.6.1"
+version = "0.6.1-nightly.22"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -10220,7 +10225,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-host"
-version = "0.6.1"
+version = "0.6.1-nightly.22"
 dependencies = [
  "backtrace",
  "base64 0.22.1",
@@ -10269,7 +10274,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-hostkit"
-version = "0.6.1"
+version = "0.6.1-nightly.22"
 dependencies = [
  "backtrace",
  "libc",
@@ -10650,7 +10655,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-remote"
-version = "0.6.1"
+version = "0.6.1-nightly.22"
 dependencies = [
  "base64 0.22.1",
  "block2 0.6.2",
@@ -10770,7 +10775,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-simulator"
-version = "0.6.1"
+version = "0.6.1-nightly.22"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -10793,7 +10798,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-trust"
-version = "0.6.1"
+version = "0.6.1-nightly.22"
 dependencies = [
  "base64 0.22.1",
  "minisign-verify",
@@ -10816,7 +10821,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-voice"
-version = "0.6.1"
+version = "0.6.1-nightly.22"
 dependencies = [
  "hex",
  "objc2-foundation 0.3.2",
@@ -11291,7 +11296,7 @@ version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c2499c2d826531388872b2268718aed907a39bd785ab0dcfe57fab26283f92e"
 dependencies = [
- "skrifa 0.39.0",
+ "skrifa 0.40.0",
  "yazi",
  "zeno",
 ]
@@ -11478,7 +11483,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -13234,7 +13239,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -13886,7 +13891,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6f32a0ff4a9f6f01231eb2059cc85479330739333e0e58cadf03b6af2cca10"
 dependencies = [
  "cfg-if",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

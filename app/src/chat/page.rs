@@ -3,6 +3,7 @@
 
 use crate::ui::Clicks;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
@@ -50,7 +51,11 @@ fn shown<'a>(page: &PageRef, looks: &Looks, window: &mut Window, cx: &'a mut App
             .insert(page.id.clone(), Shown::default());
         fetch(page, looks, window, cx);
     }
-    &cx.global::<Pages>().shown[&page.id]
+    const NOT_YET: &Shown = &Shown {
+        picture: None,
+        failed: None,
+    };
+    cx.global::<Pages>().shown.get(&page.id).unwrap_or(NOT_YET)
 }
 
 /// Pages shown in tabs on the desk, one row each in a shared frame: the top of the page, its
@@ -71,21 +76,15 @@ pub(super) fn tabs(
                 Some(failed) => t!("Could not show it: {failed}", failed = failed).into(),
                 None => t!("In a tab on the desk").into(),
             };
-            tab_row(
-                page,
-                picture,
-                place,
-                at > 0,
-                (&looks.agent, &looks.bench),
-                cx,
-            )
+            let open = opens_tab(&page.id, &looks.agent, &looks.bench);
+            tab_row(page, picture, place, at > 0, open, cx)
         })
         .collect();
     tab_frame(rows, cx)
 }
 
 /// A page one of the agent's workers showed, as the row a page in a tab gets, named as the
-/// worker's; Open brings it forward on the worker's desk.
+/// worker's; Open shows it on this chat's desk, so reading it never takes the person away.
 pub(super) fn worker_page(
     page: &WorkerPage,
     looks: &Looks,
@@ -98,14 +97,8 @@ pub(super) fn worker_page(
     };
     let picture = shown(&page_ref, looks, window, cx).picture.clone();
     let place = t!("@{name}'s page", name = page.name).into();
-    let row = tab_row(
-        &page_ref,
-        picture,
-        place,
-        false,
-        (&page.agent_id, &looks.bench),
-        cx,
-    );
+    let open = opens_tab(&page.id, &looks.agent, &looks.bench);
+    let row = tab_row(&page_ref, picture, place, false, open, cx);
     tab_frame(vec![row], cx)
 }
 
@@ -125,14 +118,14 @@ pub(crate) fn tab_frame(rows: Vec<AnyElement>, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// A page's row: the top of the page, its title over `place`, and Open, which brings its tab
-/// forward on `agent`'s desk, as a click anywhere on the row does.
+/// A page's row: the top of the page, its title over `place`, and Open, which runs `open`, as a
+/// click anywhere on the row does.
 pub(crate) fn tab_row(
     page: &PageRef,
     picture: Option<Arc<Image>>,
     place: SharedString,
     below_another: bool,
-    (agent, bench): (&str, &gpui_kit::WeakEntity<crate::workbench::Workbench>),
+    open: Rc<dyn Fn(&mut App)>,
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx);
@@ -171,7 +164,10 @@ pub(crate) fn tab_row(
             row.border_t(crate::theme::border()).border_color(t.border)
         })
         .hover(|row| row.bg(t.surface_hover))
-        .clicks(opens_tab(page, agent, bench))
+        .clicks({
+            let open = open.clone();
+            move |_, _, cx| open(cx)
+        })
         .children(ui::spot(|| format!("page-card-{}", page.id)))
         .child(thumb)
         .child(
@@ -197,20 +193,24 @@ pub(crate) fn tab_row(
             )
             .icon(Icon::Tabs)
             .sized(24., 10., 11.5)
-            .on_click(opens_tab(page, agent, bench)),
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                open(cx)
+            }),
         )
         .into_any_element()
 }
 
-fn opens_tab(
-    page: &PageRef,
+/// Shows page `id` in its tab on `agent`'s desk.
+pub(crate) fn opens_tab(
+    id: &str,
     agent: &str,
     bench: &gpui_kit::WeakEntity<crate::workbench::Workbench>,
-) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static {
-    let (id, agent, bench) = (page.id.clone(), agent.to_owned(), bench.clone());
-    move |_, _, cx| {
+) -> Rc<dyn Fn(&mut App)> {
+    let (id, agent, bench) = (id.to_owned(), agent.to_owned(), bench.clone());
+    Rc::new(move |cx| {
         let _ = bench.update(cx, |bench, cx| bench.open_page_in_tab(&agent, &id, cx));
-    }
+    })
 }
 
 /// The top of a desk tab's picture, as its row in the reply shows it, in base64.
@@ -268,4 +268,41 @@ fn fetch(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) {
             });
         })
         .detach();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{point, Modifiers, Render, TestAppContext};
+    use std::cell::Cell;
+
+    struct Card(Rc<Cell<u32>>);
+
+    impl Render for Card {
+        fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let page = PageRef {
+                id: "caa94d955d1b41af97d9ce4ccf0daba9".into(),
+                title: "Mockup".into(),
+            };
+            let opened = self.0.clone();
+            let open: Rc<dyn Fn(&mut App)> = Rc::new(move |_| opened.set(opened.get() + 1));
+            let row = tab_row(&page, None, "In a tab".into(), false, open, cx);
+            div().w(px(600.)).child(row)
+        }
+    }
+
+    #[gpui::test]
+    fn open_on_a_page_card_shows_the_page_once(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::install(cx);
+        });
+        let opened = Rc::new(Cell::new(0));
+        let card = Card(opened.clone());
+        let (_, cx) = cx.add_window_view(|_, _| card);
+        cx.simulate_click(point(px(566.), px(ROW_HEIGHT / 2.)), Modifiers::none());
+        assert_eq!(opened.get(), 1, "Open on the card");
+        cx.simulate_click(point(px(300.), px(ROW_HEIGHT / 2.)), Modifiers::none());
+        assert_eq!(opened.get(), 2, "a click on the row");
+    }
 }

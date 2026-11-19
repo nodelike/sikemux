@@ -114,7 +114,11 @@ impl Workbench {
                 self.parts.redraw(&self.parts.finder, cx);
                 cx.notify();
             }
-            None => self.show_strip(&places[at], cx),
+            None => {
+                if let Some(place) = places.get(at) {
+                    self.show_strip(place, cx);
+                }
+            }
         }
     }
 

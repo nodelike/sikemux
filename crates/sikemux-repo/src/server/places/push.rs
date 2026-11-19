@@ -80,7 +80,7 @@ pub fn run_in(what: &str, cwd: &Path) -> PathBuf {
     if !words.first().is_some_and(|program| is_git(program)) {
         return dir;
     }
-    let mut rest = &words[1..];
+    let mut rest = words.get(1..).unwrap_or_default();
     loop {
         match rest {
             ["-C", moved, after @ ..] => {
@@ -140,7 +140,7 @@ pub fn reach(what: &str, cwd: &Path) -> Reach {
                 }
             }
             arg if arg.starts_with('-') => {
-                let letters = &arg[1..];
+                let letters = arg.get(1..).unwrap_or_default();
                 if letters.starts_with('o') {
                     continue;
                 }
@@ -378,7 +378,7 @@ fn deleted_reach(
 pub fn deletes(what: &str) -> Option<Vec<String>> {
     let words: Vec<&str> = what.split_whitespace().collect();
     let at = words.iter().position(|word| *word == "push")?;
-    let args = &words[at + 1..];
+    let args = words.get(at + 1..).unwrap_or_default();
     let flagged = args.iter().any(|arg| {
         *arg == "--delete" || (arg.starts_with('-') && !arg.starts_with("--") && arg.contains('d'))
     });
@@ -443,6 +443,10 @@ fn branch_reach(branch: &str, remote: &str, cwd: &Path) -> Reach {
 pub mod tests {
     use super::*;
 
+    #[expect(
+        clippy::unwrap_used,
+        reason = "a test helper fails the test when git does"
+    )]
     pub fn git(dir: &Path, args: &[&str]) {
         let ran = sikemux_process::user_environment::command("git")
             .args(args)

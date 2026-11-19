@@ -471,7 +471,7 @@ impl Names {
             let leads_its_lead = book.leads(worker.agent_id, worker.lead);
             let entry = book
                 .entry_mut(worker.agent_id)
-                .expect("restore puts the agent back in the book");
+                .ok_or("Sikemux lost this agent's name; try again in a moment")?;
             if !leads_its_lead {
                 entry.parent = Some(worker.lead.to_owned());
                 entry.quiet = !worker.reports;
@@ -1091,10 +1091,8 @@ impl Book {
                 return (entry.view(), changed);
             }
         }
-        if self.restore(agent_id, &project, open, away).is_some() {
-            let entry = self
-                .entry_mut(agent_id)
-                .expect("restore puts the agent back in the book");
+        let restored = self.restore(agent_id, &project, open, away).is_some();
+        if let Some(entry) = self.entry_mut(agent_id).filter(|_| restored) {
             if let Some(provider) = provider {
                 entry.provider = Some(provider.to_owned());
             }

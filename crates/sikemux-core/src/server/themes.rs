@@ -7,7 +7,7 @@ mod files;
 mod omarchy;
 pub(crate) mod tools;
 
-pub(crate) use files::{delete, save};
+pub(crate) use files::{delete, folder, save};
 
 pub(crate) use omarchy::{follow_background as follow_omarchy_background, here as on_omarchy};
 

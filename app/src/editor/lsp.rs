@@ -540,12 +540,12 @@ fn file_path(uri: &Uri) -> Option<PathBuf> {
     let escaped = uri.path().as_str().as_bytes();
     let mut bytes = Vec::with_capacity(escaped.len());
     let mut at = 0;
-    while at < escaped.len() {
+    while let Some(&here) = escaped.get(at) {
         let hex = escaped
             .get(at + 1..at + 3)
             .and_then(|hex| std::str::from_utf8(hex).ok())
             .and_then(|hex| u8::from_str_radix(hex, 16).ok());
-        match (escaped[at], hex) {
+        match (here, hex) {
             (b'%', Some(byte)) => {
                 bytes.push(byte);
                 at += 3;

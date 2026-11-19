@@ -23,7 +23,7 @@ use super::calls::{self as asks, params_of, HostAsk};
 use super::route::pin;
 use super::spawn::{self as remote, LeadParams, MAX_PROMPT_BYTES, SPAWN_WAIT};
 use super::team::Foreign;
-use super::{call, find, name_of, Failed};
+use super::{call, find_to_move_work, name_of, Failed};
 
 /// The closed worker of `lead` called `wanted`, by name or agent id, that ran on a linked host.
 pub(crate) fn closed_elsewhere(core: &Core, lead: &str, wanted: &str) -> Option<Foreign> {
@@ -45,7 +45,7 @@ pub(crate) async fn reopen(
         .clone()
         .ok_or("agent_spawn needs the calling agent's id")?;
     let wanted = wanted.trim().trim_start_matches('@');
-    let link = host.map(|host| find(core, host)).transpose()?;
+    let link = host.map(|host| find_to_move_work(core, host)).transpose()?;
     let closed = core
         .hosts()
         .team
@@ -56,7 +56,7 @@ pub(crate) async fn reopen(
         })?;
     let link = match link {
         Some(link) => link,
-        None => find(core, &closed.host)?,
+        None => find_to_move_work(core, &closed.host)?,
     };
     let reports = !matches!(request.params.get("report"), Some(Value::Bool(false)));
     let lead = {
@@ -123,7 +123,7 @@ pub(crate) async fn reopen(
                 "agentId": closed.agent_id,
                 "host": link.name,
                 "cli": closed.cli,
-                "resumed": answer["resumed"],
+                "resumed": answer.get("resumed"),
                 "reportsBack": reports,
                 "note": format!(
                     "{} is reopening its session on {} in its checkout there, and gets your prompt once it is ready. Each time its turn ends, its new commits come back to a branch in your checkout{}.",
@@ -230,6 +230,8 @@ pub(super) async fn reopen_here(
     })
     .await
     .map_err(|error| error.to_string())?;
-    answer["resumed"] = session.into();
+    if let Some(fields) = answer.as_object_mut() {
+        fields.insert("resumed".into(), session.into());
+    }
     Ok(answer)
 }

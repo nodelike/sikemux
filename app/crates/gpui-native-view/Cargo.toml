@@ -34,3 +34,6 @@ gpui-clicks = { path = "../gpui-clicks" }
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.10", features = ["font-kit"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSScrollView", "NSText", "NSTextView", "NSView", "NSWindow", "NSClipView"] }
+
+[lints]
+workspace = true

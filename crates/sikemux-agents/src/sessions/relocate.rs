@@ -88,7 +88,7 @@ fn rewrite(from: &Path, to: &Path, from_cwd: &str, to_cwd: &str) -> Result<(), S
 pub(super) fn moved_cwds(text: &str, from_cwd: &str, to_cwd: &str) -> String {
     let quoted = |cwd: &str| format!("\"cwd\":{}", serde_json::Value::from(cwd));
     let (from_exact, to_exact) = (quoted(from_cwd), quoted(to_cwd));
-    let open = |exact: &str| format!("{}/", &exact[..exact.len() - 1]);
+    let open = |exact: &str| format!("{}/", exact.strip_suffix('"').unwrap_or(exact));
     text.replace(&from_exact, &to_exact)
         .replace(&open(&from_exact), &open(&to_exact))
 }

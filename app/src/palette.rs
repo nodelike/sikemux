@@ -33,6 +33,8 @@ const NUMBER_WIDTH: f32 = 8.;
 /// A row too narrow cuts its detail before its title.
 const META_GIVES_WAY: f32 = 1000.;
 const PAGE: isize = 8;
+/// The strip some palettes keep under their list, for the row chosen.
+const FOOT_HEIGHT: f32 = 40.;
 
 pub fn install(cx: &mut App) {
     let context = "Palette > Input";
@@ -164,6 +166,7 @@ impl Row {
 type Pick = Rc<dyn Fn(&Row, &mut Workbench, &mut Window, &mut Context<Workbench>)>;
 type Leave = Rc<dyn Fn(&mut Workbench, &mut Window, &mut Context<Workbench>)>;
 type Typed = Rc<dyn Fn(&str) -> Option<Row>>;
+type Foot = Rc<dyn Fn(&Row, &Workbench, &mut Context<Workbench>) -> Option<AnyElement>>;
 
 /// One palette as its opener describes it.
 pub struct Spec {
@@ -190,6 +193,8 @@ pub struct Spec {
     pub aside: Option<Aside>,
     /// A row made from what is typed, offered first, such as a folder named by its path.
     typed: Option<Typed>,
+    /// A strip under the list about the row chosen, such as the project folder it lies in.
+    foot: Option<Foot>,
     /// Drawn as the command deck: wider and taller, its rows' words in tracked capitals and
     /// their keys in keycaps.
     deck: bool,
@@ -244,6 +249,7 @@ impl Spec {
             choice: None,
             aside: None,
             typed: None,
+            foot: None,
             deck: false,
             numbered: false,
             on_stage: false,
@@ -293,6 +299,14 @@ impl Spec {
 
     pub fn typed(mut self, typed: impl Fn(&str) -> Option<Row> + 'static) -> Self {
         self.typed = Some(Rc::new(typed));
+        self
+    }
+
+    pub fn foot(
+        mut self,
+        foot: impl Fn(&Row, &Workbench, &mut Context<Workbench>) -> Option<AnyElement> + 'static,
+    ) -> Self {
+        self.foot = Some(Rc::new(foot));
         self
     }
 
@@ -369,8 +383,8 @@ impl Palette {
     /// The number `line` goes by in a numbered palette while nothing is typed.
     fn number_of(&self, line: usize, cx: &App) -> Option<usize> {
         let numbering = self.numbering(cx);
-        let rows = self.lines[..=line.min(self.lines.len().saturating_sub(1))]
-            .iter()
+        let rows = (self.lines.iter())
+            .take(line.saturating_add(1))
             .filter(|line| matches!(line, Line::Row(_)))
             .count();
         let numbered = numbering && matches!(self.lines.get(line), Some(Line::Row(_)));
@@ -431,12 +445,17 @@ impl Palette {
         let rows = &self.spec.rows;
         self.lines
             .iter()
-            .position(|line| matches!(line, Line::Row(place) if rows[*place].key == *key))
+            .position(|line| matches!(line, Line::Row(place) if rows.get(*place).is_some_and(|row| row.key == *key)))
     }
 
     /// What is typed in its field.
     pub fn query(&self, cx: &App) -> String {
         self.input.read(cx).value().to_string()
+    }
+
+    /// Gives the field its focus back, after a control in the palette took it.
+    pub fn refocus(&self, window: &mut Window, cx: &mut App) {
+        self.input.update(cx, |input, cx| input.focus(window, cx));
     }
 
     /// The key of the row highlighted now.
@@ -460,7 +479,7 @@ impl Palette {
     }
 
     fn choosable(&self, line: usize) -> bool {
-        matches!(self.lines.get(line), Some(Line::Row(place)) if !self.spec.rows[*place].disabled)
+        matches!(self.lines.get(line), Some(Line::Row(place)) if self.spec.rows.get(*place).is_some_and(|row| !row.disabled))
     }
 
     /// The next row that can be picked `by` lines on from `from`, wrapping.
@@ -500,18 +519,17 @@ impl Palette {
 fn ruled(rows: &[Row], query: &str) -> Vec<Line> {
     let mut lines = Vec::with_capacity(rows.len() + 2);
     let mut start = 0;
-    while start < rows.len() {
-        let group = &rows[start].group;
-        let end = rows[start..]
-            .iter()
-            .position(|row| row.group != *group)
-            .map_or(rows.len(), |length| start + length);
+    while let Some(tail @ [first, ..]) = rows.get(start..) {
+        let length = (tail.iter())
+            .position(|row| row.group != first.group)
+            .unwrap_or(tail.len());
+        let end = start + length;
         let found: Vec<usize> = if query.is_empty() {
             (start..end).collect()
         } else {
             let mut found: Vec<usize> = crate::fuzzy::rank(
                 query,
-                rows[start..end].iter().map(|row| row.search.as_str()),
+                tail.iter().take(length).map(|row| row.search.as_str()),
                 SHOWN,
             )
             .into_iter()
@@ -674,14 +692,14 @@ impl Workbench {
 }
 
 /// The tallest list a palette shows under its search, in whole rows so none is cut through.
-pub(crate) fn list_room(window: &Window, deck: bool) -> f32 {
+pub(crate) fn list_room(window: &Window, deck: bool, below: f32) -> f32 {
     let height = f32::from(window.viewport_size().height);
     let panel = match deck {
         true => 680_f32.min(height * 0.72),
         false => height * 0.62,
     };
     let row = crate::theme::dense(ROW_HEIGHT);
-    let rows = ((panel - HEAD_HEIGHT - 1. - 2. * INSET - 2.) / row).floor();
+    let rows = ((panel - HEAD_HEIGHT - below - 1. - 2. * INSET - 2.) / row).floor();
     rows.max(1.) * row
 }
 
@@ -696,7 +714,11 @@ pub fn overlay(
     let deck = palette.spec.deck;
     let lines_height: f32 = palette.lines.iter().map(|line| line.height()).sum();
     let viewport = window.viewport_size();
-    let list_height = lines_height.min(list_room(window, deck));
+    let foot = (palette.spec.foot.clone())
+        .zip(palette.selected.and_then(|line| palette.row(line)).cloned())
+        .and_then(|(foot, row)| foot(&row, bench, cx));
+    let below = if foot.is_some() { FOOT_HEIGHT + 1. } else { 0. };
+    let list_height = lines_height.min(list_room(window, deck, below));
     let stage = palette
         .spec
         .on_stage
@@ -840,7 +862,19 @@ pub fn overlay(
                             .flex_shrink(1.)
                             .py(px(INSET)),
                         )
-                    }),
+                    })
+                    .children(foot.map(|foot| {
+                        div()
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .h(px(FOOT_HEIGHT))
+                            .pl(px(2. * INSET))
+                            .pr(px(INSET + 2.))
+                            .border_t(crate::theme::border())
+                            .border_color(t.border)
+                            .child(foot)
+                    })),
             )
             .into_any_element(),
     )
@@ -853,7 +887,9 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
     };
     let row = match palette.lines.get(line) {
         Some(Line::Heading(place)) => {
-            let group = palette.spec.rows[*place].group.clone().unwrap_or_default();
+            let group = (palette.spec.rows.get(*place))
+                .and_then(|row| row.group.clone())
+                .unwrap_or_default();
             return div()
                 .h(px(crate::theme::dense(ROW_HEIGHT)))
                 .px(SPACE_2)
@@ -863,7 +899,10 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
                 .child(ui::caps(&group, cx))
                 .into_any_element();
         }
-        Some(Line::Row(place)) => &palette.spec.rows[*place],
+        Some(Line::Row(place)) => match palette.spec.rows.get(*place) {
+            Some(row) => row,
+            None => return div().into_any_element(),
+        },
         Some(Line::Rule) => {
             return div()
                 .w_full()

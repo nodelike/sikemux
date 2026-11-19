@@ -89,10 +89,22 @@ impl Words {
             "cheap", "to", "draw", "here",
         ];
         let count = 6 + self.next(14);
-        let mut words: Vec<&str> = (0..count).map(|_| WORDS[self.next(WORDS.len())]).collect();
-        let first = words[0].to_owned();
-        let mut sentence = first[..1].to_uppercase() + &first[1..];
-        words.remove(0);
+        let words: Vec<&str> = (0..count)
+            .map(|_| {
+                WORDS
+                    .get(self.next(WORDS.len()))
+                    .copied()
+                    .unwrap_or_default()
+            })
+            .collect();
+        let mut words = words.into_iter();
+        let mut first = words.next().unwrap_or_default().chars();
+        let mut sentence: String = first
+            .next()
+            .into_iter()
+            .flat_map(char::to_uppercase)
+            .collect();
+        sentence.push_str(first.as_str());
         for word in words {
             sentence.push(' ');
             sentence.push_str(word);
@@ -219,9 +231,15 @@ fn cut(node: &Value, chars: usize) -> Value {
         _ => {
             let mut node = node.clone();
             if let Some(code) = node.get("v").and_then(Value::as_str) {
-                node["v"] = json!(code.chars().take(chars).collect::<String>());
+                let shown = json!(code.chars().take(chars).collect::<String>());
+                if let Some(slot) = node.get_mut("v") {
+                    *slot = shown;
+                }
             } else if let Some(list) = node.get("c").and_then(Value::as_array) {
-                node["c"] = Value::Array(reveal(list, chars));
+                let shown = Value::Array(reveal(list, chars));
+                if let Some(slot) = node.get_mut("c") {
+                    *slot = shown;
+                }
             }
             node
         }
@@ -440,6 +458,7 @@ impl Bench {
     /// Drags from one point to another, shift-clicks a third, copying after each.
     fn select(&mut self, from: Point<Pixels>, to: Point<Pixels>, then: Point<Pixels>) {
         let copy = |bench: &mut Bench| {
+            #[expect(clippy::expect_used, reason = "the keystroke is a constant")]
             let keystroke = Keystroke::parse("cmd-c").expect("a keystroke");
             let key = KeyDownEvent {
                 keystroke,
@@ -646,7 +665,12 @@ fn main() {
                     return;
                 }
                 *held.borrow_mut() = start;
-                let page: Vec<Message> = pages[start..end].iter().map(Spec::message).collect();
+                let page: Vec<Message> = pages
+                    .get(start..end)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(Spec::message)
+                    .collect();
                 let this = this.clone();
                 cx.spawn(async move |cx| {
                     cx.background_executor()
@@ -675,7 +699,10 @@ fn main() {
                 |_, cx| cx.new(|_| Shell(shell)),
             )
         })
-        .expect("window opens")
+        .unwrap_or_else(|error| {
+            eprintln!("the window did not open: {error}");
+            std::process::exit(1)
+        })
         .into();
     let mut bench = Bench {
         cx,
@@ -715,7 +742,7 @@ fn main() {
 
     *first_held.borrow_mut() = ROWS - PAGE;
     bench.push(vec![Change::Reset(
-        specs[ROWS - PAGE..].iter().map(Spec::message).collect(),
+        specs.iter().skip(ROWS - PAGE).map(Spec::message).collect(),
     )]);
     bench.frame();
     bench.scroll_to_top(ROWS);
@@ -740,7 +767,7 @@ fn stream(bench: &mut Bench, specs: &[Spec], tokens: usize) {
     let lengths: Vec<usize> = answer.iter().map(visible).collect();
     let total: usize = lengths.iter().sum();
     bench.push(vec![
-        Change::Reset(specs[ROWS - 40..].iter().map(Spec::message).collect()),
+        Change::Reset(specs.iter().skip(ROWS - 40).map(Spec::message).collect()),
         Change::Put(Message {
             id: "ask".into(),
             user: true,
@@ -769,10 +796,16 @@ fn stream(bench: &mut Bench, specs: &[Spec], tokens: usize) {
             since_flush -= FLUSH;
             written = (written + CHARS_PER_FLUSH).min(total);
             let settled = held.len().saturating_sub(2);
-            let before: usize = lengths[..settled].iter().sum();
-            let tail = reveal(&answer[settled..], written - before);
+            let before: usize = lengths.iter().take(settled).sum();
+            let tail = reveal(answer.get(settled..).unwrap_or_default(), written - before);
             let mut ops = Vec::new();
-            diff(&[], &held[settled..], &tail, settled, &mut ops);
+            diff(
+                &[],
+                held.get(settled..).unwrap_or_default(),
+                &tail,
+                settled,
+                &mut ops,
+            );
             held.truncate(settled);
             held.extend(tail);
             let patch = json!({ "n": written, "o": ops });

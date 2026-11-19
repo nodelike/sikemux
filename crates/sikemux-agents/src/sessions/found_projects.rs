@@ -214,7 +214,10 @@ fn grouped(places: Vec<(Place, Activity)>, slow: &AtomicBool) -> Vec<Group> {
         (
             !group.git,
             std::cmp::Reverse(group.activity.active_ms),
-            group.checkouts[0].path.clone(),
+            group
+                .checkouts
+                .first()
+                .map(|checkout| checkout.path.clone()),
         )
     });
     groups

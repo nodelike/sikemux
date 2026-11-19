@@ -49,7 +49,7 @@ pub(super) fn sikemux_tool<'a>(title: &'a str, args: &Map<String, Value>) -> Cow
 /// Our own tools, under whatever server name a host put in front of them.
 pub(super) fn sikemux_tool_name(title: &str) -> &str {
     let named = title.find("sikemux-tools").and_then(|at| {
-        let rest = &title[at + "sikemux-tools".len()..];
+        let rest = title.get(at + "sikemux-tools".len()..)?;
         let rest = match rest.strip_prefix("__") {
             Some(rest) => rest,
             None => rest.strip_prefix(['.', '/', ':'])?.trim_start(),
@@ -58,7 +58,8 @@ pub(super) fn sikemux_tool_name(title: &str) -> &str {
             .find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'))
             .unwrap_or(rest.len());
         rest.starts_with(|c: char| c.is_ascii_lowercase())
-            .then(|| &rest[..end])
+            .then(|| rest.get(..end))
+            .flatten()
     });
     named.unwrap_or_else(|| title.trim())
 }
@@ -83,10 +84,9 @@ fn mark_pair(deleted: &mut DiffLine, added: &mut DiffLine) {
         return;
     }
     let start = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
-    let end = a[start..]
-        .iter()
-        .rev()
-        .zip(b[start..].iter().rev())
+    let end = (a.iter().rev())
+        .zip(b.iter().rev())
+        .take(a.len().min(b.len()) - start)
         .take_while(|(x, y)| x == y)
         .count();
     // Two lines that merely end in the same bracket are not an edit of one
@@ -100,18 +100,21 @@ fn mark_pair(deleted: &mut DiffLine, added: &mut DiffLine) {
 }
 
 fn mark_pairs(lines: &mut [DiffLine]) {
-    for index in 0..lines.len().saturating_sub(1) {
-        if lines[index].sign != "-" || lines[index + 1].sign != "+" {
+    for index in 1..lines.len() {
+        let (left, right) = lines.split_at_mut(index);
+        let ([before @ .., deleted], [added, after @ ..]) = (left, right) else {
+            continue;
+        };
+        if deleted.sign != "-" || added.sign != "+" {
             continue;
         }
-        if index > 0 && lines[index - 1].sign == "-" {
+        if before.last().is_some_and(|line| line.sign == "-") {
             continue;
         }
-        if lines.get(index + 2).is_some_and(|line| line.sign == "+") {
+        if after.first().is_some_and(|line| line.sign == "+") {
             continue;
         }
-        let (left, right) = lines.split_at_mut(index + 1);
-        mark_pair(&mut left[index], &mut right[0]);
+        mark_pair(deleted, added);
     }
 }
 
@@ -127,6 +130,10 @@ fn line(sign: &str, text: &str, old_line: Option<u64>, new_line: Option<u64>) ->
 
 /// The lines of `old` and `new` with what was taken out and put in, or none
 /// when there are too many to show.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "head and tail are counted within both lists, and the walk keeps i and j below rows and cols"
+)]
 pub(super) fn diff_lines(old: &str, new: &str) -> Option<Vec<DiffLine>> {
     let before = lines(old);
     let after = lines(new);
@@ -358,14 +365,14 @@ fn capped(text: &str) -> (String, bool) {
     let mut kept = text.trim_end();
     let mut cut = false;
     if let Some((at, _)) = kept.match_indices('\n').nth(MAX_OUTPUT_LINES - 1) {
-        kept = &kept[..at];
+        kept = kept.get(..at).unwrap_or(kept);
         cut = true;
     }
     let mut units = 0;
     for (at, char) in kept.char_indices() {
         units += char.len_utf16();
         if units > MAX_OUTPUT_CHARS {
-            kept = &kept[..at];
+            kept = kept.get(..at).unwrap_or(kept);
             cut = true;
             break;
         }
@@ -475,7 +482,7 @@ pub(super) fn tool_failure(status: Option<&str>, raw_output: Option<&Value>) -> 
     }
     let mut chars = trimmed.char_indices();
     Some(match chars.nth(MAX_FAILURE_CHARS) {
-        Some((at, _)) => format!("{}…", &trimmed[..at]),
+        Some((at, _)) => format!("{}…", trimmed.get(..at).unwrap_or(trimmed)),
         None => trimmed.to_owned(),
     })
 }
@@ -576,7 +583,7 @@ fn location(locations: Option<&Value>) -> Option<String> {
 fn first_line(text: &str) -> String {
     let line = text.split('\n').next().unwrap_or_default().trim();
     match line.char_indices().nth(MAX_ARGUMENT_CHARS) {
-        Some((at, _)) => format!("{}…", &line[..at]),
+        Some((at, _)) => format!("{}…", line.get(..at).unwrap_or(line)),
         None => line.to_owned(),
     }
 }

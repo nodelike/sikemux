@@ -77,10 +77,10 @@ pub fn matches_path(pattern: &str, path: &str) -> bool {
         return rest.is_empty();
     };
     for piece in middle {
-        let Some(at) = rest.find(piece) else {
+        let Some((_, after)) = rest.split_once(piece) else {
             return false;
         };
-        rest = &rest[at + piece.len()..];
+        rest = after;
     }
     rest.ends_with(last)
 }

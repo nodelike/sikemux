@@ -128,7 +128,9 @@ impl Rpc {
 
     fn send(&self, mut message: Value) -> Result<(), String> {
         if self.versioned {
-            message["jsonrpc"] = json!("2.0");
+            if let Some(fields) = message.as_object_mut() {
+                fields.insert("jsonrpc".to_owned(), json!("2.0"));
+            }
         }
         self.writer.send(&message)
     }
@@ -152,8 +154,9 @@ impl Rpc {
         let mut cursor = Value::Null;
         loop {
             let page = self.request(method, params(&cursor)).await?;
-            let next = page["nextCursor"]
-                .as_str()
+            let next = page
+                .get("nextCursor")
+                .and_then(Value::as_str)
                 .filter(|next| cursor != *next)
                 .map(Value::from);
             pages.push(page);
@@ -208,7 +211,9 @@ impl Rpc {
     pub fn notify(&self, method: &str, params: Value) -> Result<(), String> {
         let mut message = json!({ "method": method });
         if !(self.versioned && params.is_null()) {
-            message["params"] = params;
+            if let Some(fields) = message.as_object_mut() {
+                fields.insert("params".to_owned(), params);
+            }
         }
         self.send(message)
     }

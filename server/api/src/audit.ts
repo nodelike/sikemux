@@ -6,7 +6,7 @@ import type { Tables } from "./db.ts";
 export type Actor =
   `user:${string}` | `device:${string}` | "clerk" | "system" | "deploy";
 
-type AuditAction =
+export type AuditAction =
   | "device.registered"
   | "device.updated"
   | "device.renamed"
@@ -22,6 +22,10 @@ type AuditAction =
   | "account.apple_revoked"
   | "account.apple_revoke_failed"
   | "account.purged"
+  | "account.folded"
+  | "account.work_address_proven"
+  | "account.work_address_removed"
+  | "account.work_sign_in_removed"
   | "webhook.user_deleted"
   | "update.published"
   | "update.promoted"
@@ -32,12 +36,19 @@ type AuditAction =
   | "vault.key_added"
   | "vault.entry_written"
   | "vault.entry_removed"
+  | "org_vault.created"
+  | "org_vault.key_added"
+  | "org_vault.rotated"
+  | "org_vault.entry_written"
+  | "org_vault.entry_removed"
   | "mods.purged"
   | "billing.checkout_opened"
   | "billing.subscription_changed"
   | "billing.change_taken_back"
   | "billing.subscription_canceled"
   | "billing.subscription_resumed"
+  | "billing.subscription_paused"
+  | "billing.subscription_resume_set"
   | "billing.refund_requested"
   | "org.created"
   | "org.deleted"
@@ -46,7 +57,22 @@ type AuditAction =
   | "org.member_removed"
   | "org.role_changed"
   | "org.invite_created"
-  | "org.invite_revoked";
+  | "org.invite_revoked"
+  | "org.team_created"
+  | "org.team_renamed"
+  | "org.team_deleted"
+  | "org.team_member_added"
+  | "org.team_member_removed"
+  | "org.domain_added"
+  | "org.domain_verified"
+  | "org.domain_joining_changed"
+  | "org.domain_ours_changed"
+  | "org.domain_removed"
+  | "org.policy_changed"
+  | "org.seat_moved"
+  | "share.added"
+  | "share.moved"
+  | "share.removed";
 
 interface AuditEntry {
   /** The account it happened to, or null for what belongs to none. */

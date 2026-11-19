@@ -163,7 +163,7 @@ impl Drop for NativeTab {
     fn drop(&mut self) {
         let watched = [URL_KEY_PATH, TITLE_KEY_PATH, RESPONSIVE_KEY_PATH];
         let count = if self.watches_responsiveness { 3 } else { 2 };
-        for key_path in &watched[..count] {
+        for key_path in watched.iter().take(count) {
             // SAFETY: `adopt` registered this observer for this key path, and the tab
             // still retains both the observer and the webview. Tabs live only on the
             // main thread.

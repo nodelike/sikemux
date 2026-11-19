@@ -1,62 +1,106 @@
 use std::path::Path;
 
-fn main() {
-    faces();
-    shaders();
-    strings();
+/// Why the build stopped, printed as is so a shader's error keeps its lines.
+struct Failed(String);
+
+impl std::fmt::Debug for Failed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+type Result<T = ()> = std::result::Result<T, Failed>;
+
+fn failed(what: impl std::fmt::Display) -> impl FnOnce(std::io::Error) -> Failed {
+    move |error| Failed(format!("{what}: {error}"))
+}
+
+fn read(path: impl AsRef<Path>) -> Result<String> {
+    let path = path.as_ref();
+    std::fs::read_to_string(path).map_err(failed(path.display()))
+}
+
+fn out_dir() -> Result<std::path::PathBuf> {
+    std::env::var("OUT_DIR")
+        .map(Into::into)
+        .map_err(|error| Failed(format!("OUT_DIR: {error}")))
+}
+
+fn main() -> Result {
+    faces()?;
+    shaders()?;
+    strings()
 }
 
 /// The languages the app speaks besides English, as the catalog tags them, each named in itself.
-/// A language comes back here once someone has reviewed its translation.
-const LANGUAGES: [(&str, &str); 0] = [];
+/// A language goes here once its translation has been reviewed.
+const LANGUAGES: [(&str, &str); 8] = [
+    ("es", "Español"),
+    ("zh-Hans", "简体中文"),
+    ("de", "Deutsch"),
+    ("fr", "Français"),
+    ("ja", "日本語"),
+    ("ko", "한국어"),
+    ("ru", "Русский"),
+    ("pt-BR", "Português (Brasil)"),
+];
 
-/// Turns the string catalog into a table per language of each English string and what it
-/// says there, sorted by the English for `i18n::tr`'s binary search.
-fn strings() {
+/// Turns the string catalog into one sorted list of the English strings, for `i18n::tr`'s
+/// binary search, and per language all it says run together with where each English string's
+/// part ends; an English string the language leaves out ends where the one before it does.
+fn strings() -> Result {
     let path = "../locales/Localizable.xcstrings";
     println!("cargo:rerun-if-changed={path}");
-    let catalog: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(path).expect("the string catalog"))
-            .expect("the string catalog is JSON");
-    let strings = catalog["strings"]
-        .as_object()
-        .expect("the catalog's strings");
-    let mut out = String::from("pub static LANGUAGES: &[Language] = &[\n");
+    let catalog: serde_json::Value = serde_json::from_str(&read(path)?)
+        .map_err(|error| Failed(format!("the string catalog is not JSON: {error}")))?;
+    let strings = catalog
+        .get("strings")
+        .and_then(|strings| strings.as_object())
+        .ok_or_else(|| Failed("the catalog has no strings".to_owned()))?;
+    let mut english: Vec<&str> = strings.keys().map(String::as_str).collect();
+    english.sort();
+    let mut out = String::from("static ENGLISH: &[&str] = &[\n");
+    for key in &english {
+        out.push_str(&format!("    {key:?},\n"));
+    }
+    out.push_str("];\n\npub static LANGUAGES: &[Language] = &[\n");
     for (code, name) in LANGUAGES {
-        let mut words: Vec<(&str, &str)> = strings
-            .iter()
-            .filter_map(|(english, entry)| {
-                let said = entry["localizations"][code]["stringUnit"]["value"].as_str()?;
-                Some((english.as_str(), said))
-            })
-            .collect();
-        words.sort();
-        out.push_str(&format!(
-            "    Language {{ code: {code:?}, name: {name:?}, words: &[\n"
-        ));
-        for (english, said) in words {
-            out.push_str(&format!("        ({english:?}, {said:?}),\n"));
+        let (mut said, mut ends) = (String::new(), Vec::with_capacity(english.len()));
+        for key in &english {
+            if let Some(word) = strings[*key]
+                .get("localizations")
+                .and_then(|entry| entry.get(code))
+                .and_then(|entry| entry.get("stringUnit"))
+                .and_then(|unit| unit.get("value"))
+                .and_then(|value| value.as_str())
+            {
+                said.push_str(word);
+            }
+            ends.push(
+                u32::try_from(said.len()).map_err(|_| Failed(format!("{code} says too much")))?,
+            );
         }
-        out.push_str("    ] },\n");
+        out.push_str(&format!(
+            "    Language {{ code: {code:?}, name: {name:?}, said: {said:?}, ends: &{ends:?} }},\n"
+        ));
     }
     out.push_str("];\n");
-    let out_path = Path::new(&std::env::var("OUT_DIR").expect("OUT_DIR")).join("strings.rs");
-    std::fs::write(out_path, out).expect("write strings.rs");
+    std::fs::write(out_dir()?.join("strings.rs"), out).map_err(failed("write strings.rs"))
 }
 
-fn faces() {
+fn faces() -> Result {
     println!("cargo:rerun-if-changed=../assets/faces");
-    let mut shapes: Vec<String> = std::fs::read_dir("../assets/faces")
-        .expect("../assets/faces")
-        .map(|entry| {
-            entry
-                .expect("a face file")
-                .file_name()
-                .into_string()
-                .expect("a file name")
-        })
-        .filter(|name| name.ends_with(".json.gz"))
-        .collect();
+    let mut shapes = Vec::new();
+    for entry in std::fs::read_dir("../assets/faces").map_err(failed("../assets/faces"))? {
+        let name = entry
+            .map_err(failed("a face file"))?
+            .file_name()
+            .into_string()
+            .map_err(|name| Failed(format!("{name:?} is not a file name")))?;
+        if name.ends_with(".json.gz") {
+            shapes.push(name);
+        }
+    }
     shapes.sort();
     let entries: String = shapes
         .iter()
@@ -65,23 +109,22 @@ fn faces() {
             format!("    ({shape:?}, include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../assets/faces/{file}\"))),\n")
         })
         .collect();
-    let out = Path::new(&std::env::var("OUT_DIR").expect("OUT_DIR")).join("faces.rs");
     std::fs::write(
-        out,
+        out_dir()?.join("faces.rs"),
         format!("static DRAWINGS: &[(&str, &[u8])] = &[\n{entries}];\n"),
     )
-    .expect("write faces.rs");
+    .map_err(failed("write faces.rs"))
 }
 
 /// Puts the shared code and the backdrop kinds, which the phones draw too, in front of each
 /// shader in `assets/shaders`, and translates the whole to Metal Shading Language for the
 /// Mac's renderer, with the bindings GPUI hands an app shader at the buffers it sets.
-fn shaders() {
+fn shaders() -> Result {
     use naga::back::msl;
 
     println!("cargo:rerun-if-changed=../assets/shaders");
-    let out = Path::new(&std::env::var("OUT_DIR").expect("OUT_DIR")).join("shaders");
-    std::fs::create_dir_all(&out).expect("create the shaders folder");
+    let out = out_dir()?.join("shaders");
+    std::fs::create_dir_all(&out).map_err(failed("create the shaders folder"))?;
     let at = |group, binding, target| (naga::ResourceBinding { group, binding }, target);
     let resources = msl::EntryPointResources {
         resources: [
@@ -144,48 +187,58 @@ fn shaders() {
         fake_missing_bindings: false,
         ..Default::default()
     };
-    let mut kinds: Vec<_> = std::fs::read_dir("../assets/shaders/kinds")
-        .expect("../assets/shaders/kinds")
-        .map(|entry| entry.expect("a kind's file").path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "wgsl")
-        })
-        .collect();
+    let mut kinds = Vec::new();
+    for entry in
+        std::fs::read_dir("../assets/shaders/kinds").map_err(failed("../assets/shaders/kinds"))?
+    {
+        let path = entry.map_err(failed("a kind's file"))?.path();
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "wgsl")
+        {
+            kinds.push(path);
+        }
+    }
     kinds.sort();
-    let shared = kinds.iter().fold(
-        std::fs::read_to_string("../assets/shaders/dither.wgsl").expect("dither.wgsl"),
-        |shared, kind| shared + "\n" + &std::fs::read_to_string(kind).expect("read a kind"),
-    ) + "\n";
-    for entry in std::fs::read_dir("../assets/shaders").expect("../assets/shaders") {
-        let path = entry.expect("a shader file").path();
+    let mut shared = read("../assets/shaders/dither.wgsl")?;
+    for kind in &kinds {
+        shared = shared + "\n" + &read(kind)?;
+    }
+    shared += "\n";
+    for entry in std::fs::read_dir("../assets/shaders").map_err(failed("../assets/shaders"))? {
+        let path = entry.map_err(failed("a shader file"))?.path();
         if path.extension().is_none_or(|extension| extension != "wgsl")
             || path.file_stem().is_some_and(|stem| stem == "dither")
         {
             continue;
         }
-        let source = shared.clone() + &std::fs::read_to_string(&path).expect("read a shader");
+        let source = shared.clone() + &read(&path)?;
         let shown = path.display().to_string();
         let module = naga::front::wgsl::parse_str(&source)
-            .unwrap_or_else(|error| panic!("{}", error.emit_to_string_with_path(&source, &shown)));
+            .map_err(|error| Failed(error.emit_to_string_with_path(&source, &shown)))?;
         let info = naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
             naga::valid::Capabilities::empty(),
         )
         .validate(&module)
-        .unwrap_or_else(|error| panic!("{}", error.emit_to_string_with_path(&source, &shown)));
+        .map_err(|error| Failed(error.emit_to_string_with_path(&source, &shown)))?;
         let (metal, translated) =
             msl::write_string(&module, &info, &options, &msl::PipelineOptions::default())
-                .unwrap_or_else(|error| panic!("{shown}: {error}"));
+                .map_err(|error| Failed(format!("{shown}: {error}")))?;
         for name in translated.entry_point_names {
-            let name = name.unwrap_or_else(|error| panic!("{shown}: {error}"));
-            assert!(
-                name == "vs_main" || name == "fs_main",
-                "{shown}: entry point {name} is neither vs_main nor fs_main"
-            );
+            let name = name.map_err(|error| Failed(format!("{shown}: {error}")))?;
+            if name != "vs_main" && name != "fs_main" {
+                return Err(Failed(format!(
+                    "{shown}: entry point {name} is neither vs_main nor fs_main"
+                )));
+            }
         }
-        let name = out.join(path.file_stem().expect("a shader name"));
-        std::fs::write(name.with_extension("wgsl"), &source).expect("write a shader");
-        std::fs::write(name.with_extension("metal"), metal).expect("write a shader");
+        let Some(stem) = path.file_stem() else {
+            return Err(Failed(format!("{shown} has no name")));
+        };
+        let name = out.join(stem);
+        std::fs::write(name.with_extension("wgsl"), &source).map_err(failed("write a shader"))?;
+        std::fs::write(name.with_extension("metal"), metal).map_err(failed("write a shader"))?;
     }
+    Ok(())
 }

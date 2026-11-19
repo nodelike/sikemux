@@ -1,9 +1,12 @@
 //! The composer a call is answered with on its page: the chat's own, one line tall, which
-//! sends the call's answer in place of a message.
+//! sends the call's answer in place of a message, or with ⇧⏎ a note to its asker that leaves
+//! the call open.
 
 use std::rc::Rc;
 
 use gpui_kit::{AnyElement, App, Context, Entity, IntoElement, SharedString, Window};
+use sikemux_calls::call;
+use sikemux_calls::chat::PromptChatParams;
 use sikemux_view::calls::{AnswerCallParams, CallKind, PersonCall};
 
 use crate::chat::composer::Act;
@@ -108,5 +111,48 @@ impl Workbench {
             },
         };
         self.send_answer(params, cx);
+    }
+
+    /// Sends what call `id`'s composer holds to its asker's chat as a note on the call, and
+    /// leaves the call open.
+    pub(crate) fn follow_up(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let owner = owner(id);
+        let (Some(composing), Some((place, call))) =
+            (self.chats.replies.get(&owner), self.call_at(id))
+        else {
+            return;
+        };
+        let words = composing.draft.read(cx).value().trim().to_owned();
+        let paths = composing.outgoing(cx).0;
+        if words.is_empty() && paths.is_empty() {
+            return;
+        }
+        let about = (call.title.as_deref())
+            .or_else(|| {
+                call.question
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())
+            })
+            .unwrap_or_default();
+        let asker = call.asker.clone();
+        let params = PromptChatParams {
+            paths,
+            ..PromptChatParams::new(
+                asker.agent_id,
+                format!("On your call \"{about}\", which stays open: {words}"),
+            )
+        };
+        let sent =
+            crate::core::Target::new(&self.asks, place).request_typed::<call::PromptChat>(params);
+        self.emptied(&owner, window, cx);
+        cx.spawn(async move |bench, cx| {
+            let toast = match sent.await {
+                Ok(()) => crate::toast::info(t!("Sent to @{name}", name = asker.name)),
+                Err(error) => crate::toast::error(error),
+            };
+            bench.update(cx, |bench, cx| bench.notify(toast, cx)).ok();
+        })
+        .detach();
     }
 }

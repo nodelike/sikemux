@@ -81,6 +81,36 @@ struct Filter {
     typing: Option<Subscription>,
 }
 
+/// Each page's filter.
+#[derive(Default)]
+struct Filters([Filter; 4]);
+
+impl std::ops::Index<Page> for Filters {
+    type Output = Filter;
+
+    fn index(&self, page: Page) -> &Filter {
+        let [changes, history, branches, pulls] = &self.0;
+        match page {
+            Page::Changes => changes,
+            Page::History => history,
+            Page::Branches => branches,
+            Page::Pulls => pulls,
+        }
+    }
+}
+
+impl std::ops::IndexMut<Page> for Filters {
+    fn index_mut(&mut self, page: Page) -> &mut Filter {
+        let [changes, history, branches, pulls] = &mut self.0;
+        match page {
+            Page::Changes => changes,
+            Page::History => history,
+            Page::Branches => branches,
+            Page::Pulls => pulls,
+        }
+    }
+}
+
 /// What the review column shows.
 enum Shown {
     Changes,
@@ -278,7 +308,7 @@ pub struct GitPane {
     /// The commits the history's search finds, which the graph lays out.
     commits: Vec<GitCommit>,
     /// Each page's filter, by `Page`.
-    filters: [Filter; 4],
+    filters: Filters,
     draft: Entity<TextareaState>,
     /// A message written into the draft from outside the window's turn, set when it next draws.
     written: Option<String>,
@@ -493,7 +523,7 @@ impl GitPane {
     /// Lists the commits the history's search finds, laying the graph out again when
     /// they changed.
     fn list_commits(&mut self) {
-        let query = self.filters[Page::History as usize].query.clone();
+        let query = self.filters[Page::History].query.clone();
         let shown: Vec<GitCommit> = self
             .log()
             .iter()
@@ -526,7 +556,7 @@ impl GitPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Entity<InputState>> {
-        let filter = &self.filters[page as usize];
+        let filter = &self.filters[page];
         if page == Page::Changes && !filter.open && filter.query.is_empty() {
             return None;
         }
@@ -545,17 +575,17 @@ impl GitPane {
             window,
             move |pane, field, event: &InputEvent, window, cx| match event {
                 InputEvent::Change => {
-                    pane.filters[page as usize].query = field.read(cx).value().to_lowercase();
+                    pane.filters[page].query = field.read(cx).value().to_lowercase();
                     pane.refilter(page, cx);
                 }
                 InputEvent::PressEnter { .. } => {
-                    pane.filters[page as usize].open = false;
+                    pane.filters[page].open = false;
                     window.focus(&pane.focus, cx);
                 }
                 _ => {}
             },
         );
-        let filter = &mut self.filters[page as usize];
+        let filter = &mut self.filters[page];
         filter.field = Some(field.clone());
         filter.typing = Some(typing);
         Some(field)
@@ -584,7 +614,7 @@ impl GitPane {
 
     /// Puts the keyboard in the page's filter, opening the Changes one.
     fn find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.filters[self.page as usize].open = true;
+        self.filters[self.page].open = true;
         if let Some(field) = self.filter_field(self.page, window, cx) {
             field.update(cx, |field, cx| field.focus(window, cx));
         }
@@ -593,7 +623,7 @@ impl GitPane {
 
     /// Clears the page's filter, closing the Changes one; false when there was none.
     fn unfind(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let filter = &mut self.filters[self.page as usize];
+        let filter = &mut self.filters[self.page];
         if filter.query.is_empty() && !filter.open {
             return false;
         }
@@ -794,7 +824,7 @@ impl GitPane {
 
     /// The changed files the Changes filter finds.
     fn listed_files(&self) -> Vec<GitFile> {
-        let query = &self.filters[Page::Changes as usize].query;
+        let query = &self.filters[Page::Changes].query;
         let mut files = self.files();
         if !query.is_empty() {
             files.retain(|file| file.path.to_lowercase().contains(query.as_str()));
@@ -854,8 +884,12 @@ impl GitPane {
 
     /// Moves the selection by `step` files, over the groups' rows.
     fn step(&mut self, step: isize, cx: &mut Context<Self>) {
-        let files: Vec<usize> = (0..self.entries.len())
-            .filter(|index| matches!(self.entries[*index], Entry::File { .. }))
+        let files: Vec<usize> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| matches!(entry, Entry::File { .. }))
+            .map(|(index, _)| index)
             .collect();
         let Some(at) = files
             .iter()
@@ -865,8 +899,11 @@ impl GitPane {
             return;
         };
         let next = (at as isize + step).clamp(0, files.len() as isize - 1) as usize;
-        self.select(files[next], cx);
-        self.rows.scroll_to_reveal_item(files[next]);
+        let Some(&next) = files.get(next) else {
+            return;
+        };
+        self.select(next, cx);
+        self.rows.scroll_to_reveal_item(next);
     }
 
     /// The menu the keys opened, as its title and its choices' labels, for the test bundle's

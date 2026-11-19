@@ -1,4 +1,12 @@
 #![cfg(unix)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::panic,
+    clippy::unreachable,
+    reason = "a failing test helper is meant to panic"
+)]
 
 use std::collections::HashMap;
 use std::io::Write;

@@ -24,14 +24,23 @@ import { listed, Recent } from '@/devices/DeviceRecent';
 export type Tab = 'agents' | 'terminals' | 'calls';
 
 /** An agent the list draws: one here, or a worker an agent here started on a linked host. */
-type Item = { id: string; lead?: string; project?: string; snoozed: boolean; away: boolean; agent?: AgentShown; worker?: RemoteAgent };
+type Item = {
+  id: string;
+  lead?: string;
+  project?: string;
+  snoozed: boolean;
+  away: boolean;
+  chiefLed: boolean;
+  agent?: AgentShown;
+  worker?: RemoteAgent;
+};
 
 const leafOf = (item: Item) => item;
 
 /**
  * The agents the list draws, each hung under its lead: every open agent and worker shown, a chief only where a list
  * filtered to one kind has no @Chief row, and a settled one only while its team still works. A filtered list is flat,
- * as it may have left a lead out; an agent whose lead is a chief hangs under that chief's row.
+ * as it may have left a lead out; an agent a chief started hangs under that chief's row.
  */
 function itemsOf(snapshot: Snapshot, scope: ProjectInfo | undefined, provider: string) {
   const flat = provider !== 'all';
@@ -40,6 +49,7 @@ function itemsOf(snapshot: Snapshot, scope: ProjectInfo | undefined, provider: s
   const item = (shown: AgentShown | RemoteAgent, worker?: RemoteAgent): Item => ({
     id: shown.agentId,
     lead: leadOf(shown.lead),
+    chiefLed: !flat && shown.lead != null && chiefs.has(shown.lead),
     project: shown.project,
     snoozed: shown.snoozedUntil != null,
     away: shown.snoozedUntil != null || shown.settledAt != null,
@@ -70,6 +80,17 @@ function itemsOf(snapshot: Snapshot, scope: ProjectInfo | undefined, provider: s
 
 /** One project's chief and the agents under it; agents of no project shown go last with no chief. */
 type Team = { id: string; project?: ProjectInfo; items: Item[] };
+
+/**
+ * A project's team as the Mac's rail splits it: the trees whose top agent its chief started, which hang under the
+ * chief's row, and the person's own, which stand at the root below them.
+ */
+function byStarter(items: Item[]) {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const top = topOf(items);
+  const led = (item: Item) => byId.get(top.get(item.id) ?? '')?.chiefLed === true;
+  return { led: items.filter(led), own: items.filter((item) => !led(item)) };
+}
 
 /** Where a project goes in the list by how the core says it stands, as the Mac and the notch order it. */
 const RANK: Record<string, number> = { needsYou: 0, atWork: 1 };
@@ -207,7 +228,8 @@ export function Agents({
           onTouchCancel={() => setTouchOrder(undefined)}>
           <Rows style={styles.open}>
             {teams.map((team) => {
-              const placed = tree(team.items, leafOf, team.project ? 1 : 0, folded);
+              const { led, own } = team.project ? byStarter(team.items) : { led: [], own: team.items };
+              const placed = tree(led, leafOf, 1, folded);
               return (
                 <Fragment key={team.id}>
                   {team.project ? (
@@ -221,6 +243,7 @@ export function Agents({
                     />
                   ) : null}
                   {placed.map((placed) => row(placed, true))}
+                  {tree(own, leafOf, 0, folded).map((placed) => row(placed, true))}
                 </Fragment>
               );
             })}

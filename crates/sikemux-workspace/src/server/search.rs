@@ -105,14 +105,10 @@ impl<'a, M: Matcher> Sink for FileSink<'a, M> {
 }
 
 fn strip_eol(bytes: &[u8]) -> &[u8] {
-    let mut end = bytes.len();
-    if end > 0 && bytes[end - 1] == b'\n' {
-        end -= 1;
-        if end > 0 && bytes[end - 1] == b'\r' {
-            end -= 1;
-        }
-    }
-    &bytes[..end]
+    let Some(line) = bytes.strip_suffix(b"\n") else {
+        return bytes;
+    };
+    line.strip_suffix(b"\r").unwrap_or(line)
 }
 
 /// Cap the match-line text at MAX_MATCH_TEXT_BYTES. When the first match
@@ -142,7 +138,7 @@ fn clip_text_and_ranges(
     let window_start = floor_char_boundary(bytes, window_start);
     let window_end = floor_char_boundary(bytes, window_end);
 
-    let slice = &bytes[window_start..window_end];
+    let slice = bytes.get(window_start..window_end).unwrap_or_default();
     let mut text = String::with_capacity(slice.len() + 6);
     if window_start > 0 {
         text.push('…');
@@ -183,7 +179,11 @@ fn floor_char_boundary(bytes: &[u8], mut idx: usize) -> usize {
     if idx >= bytes.len() {
         return bytes.len();
     }
-    while idx > 0 && (bytes[idx] & 0b1100_0000) == 0b1000_0000 {
+    while idx > 0
+        && bytes
+            .get(idx)
+            .is_some_and(|byte| byte & 0b1100_0000 == 0b1000_0000)
+    {
         idx -= 1;
     }
     idx
@@ -311,7 +311,7 @@ fn repo_relative(repo: &str, path: &Path) -> Option<String> {
     if path_str.len() <= root_len {
         return None;
     }
-    Some(path_str[root_len..].to_string())
+    Some(path_str.get(root_len..)?.to_string())
 }
 
 // ---- search command (streaming) ----------------------------------------
@@ -832,7 +832,9 @@ pub fn window(params: WindowParams) -> SearchResult<FileWindow> {
     let center = line.saturating_sub(1).min(total.saturating_sub(1));
     let start = center.saturating_sub(before);
     let end = (center + after + 1).min(total);
-    let doc = lines[start as usize..end as usize].join("\n");
+    let doc = (lines.get(start as usize..end as usize))
+        .unwrap_or_default()
+        .join("\n");
     Ok(FileWindow {
         doc,
         start_line: start + 1,

@@ -19,6 +19,7 @@ use super::changed::{Topic, What};
 use super::Core;
 
 mod local;
+pub mod org;
 mod seal;
 pub mod shown;
 mod sync;
@@ -170,11 +171,17 @@ pub struct Vault {
     wake: Arc<Notify>,
     /// A use was logged that the disk does not hold yet.
     used: Arc<Notify>,
+    orgs: org::OrgVaults,
 }
 
 impl Vault {
     pub fn wake(&self) {
         self.wake.notify_one();
+    }
+
+    /// The vaults of the orgs the account is in, apart from its own.
+    pub fn orgs(&self) -> &org::OrgVaults {
+        &self.orgs
     }
 
     /// The account, the key's generation and the key, while this host holds the vault's key, for
@@ -293,6 +300,7 @@ pub fn start(core: &Arc<Core>) {
     sikemux_plugin_api::vault::keep(keeper);
     tokio::spawn(sync::run(Arc::downgrade(core)));
     tokio::spawn(sync::keep_uses(Arc::downgrade(core)));
+    org::start(core);
 }
 
 fn announce(core: &Core) {

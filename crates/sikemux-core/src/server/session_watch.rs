@@ -538,7 +538,7 @@ mod tests {
     #[test]
     fn the_cli_s_placeholder_is_no_title_and_its_own_name_is() {
         let id = "019fd81d-c861-7920-bc88-a41a6b17aca4";
-        assert_eq!(usable_title(&row(id, &id[..8])), None);
+        assert_eq!(usable_title(&row(id, "019fd81d")), None);
         assert_eq!(usable_title(&row(id, "  ")), None);
         assert_eq!(usable_title(&row(id, "Hello")).as_deref(), Some("Hello"));
     }

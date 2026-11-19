@@ -383,12 +383,20 @@ fn check_call(
             Ok(None)
         }
         Goes::Tells => {
+            #[expect(
+                clippy::expect_used,
+                reason = "a judgement that tells always names its place"
+            )]
             let told = judged.place.as_ref().expect("a place tells");
             let (key, _) = key_of(told, &ship, work::of(cwd).as_deref(), call.is_some());
             let raise = call_for(core, agent_id, &project, &ship, cwd, told, None);
             Ok(deploy(None, Some(Telling { key, raise })))
         }
         Goes::Asks => {
+            #[expect(
+                clippy::expect_used,
+                reason = "a judgement that asks always names its place"
+            )]
             let gated = judged.place.clone().expect("a place asks");
             let work = work::of(cwd);
             let (key, once) = key_of(&gated, &ship, work.as_deref(), call.is_some());
@@ -724,8 +732,9 @@ fn gate(
         let mine: Vec<&Hold> = (state.holds.iter())
             .filter(|hold| hold.agent_id == agent_id && hold.key.is_some())
             .collect();
-        (mine.len() >= MAX_HOLDS_PER_AGENT)
-            .then(|| (mine[0].token.clone(), mine[0].ship.what.clone()))
+        (mine.first())
+            .filter(|_| mine.len() >= MAX_HOLDS_PER_AGENT)
+            .map(|oldest| (oldest.token.clone(), oldest.ship.what.clone()))
     };
     if let Some((token, what)) = oldest {
         withdraw(
@@ -1033,15 +1042,21 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
     let Some(agent_id) = request.agent_id.clone() else {
         return Ok(json!({ "allowed": true }));
     };
-    let kind: ShipKind = serde_json::from_value(request.params["kind"].clone())
-        .map_err(|_| "kind must be what the action does")?;
-    let what = (request.params["what"].as_str())
+    let kind: ShipKind =
+        serde_json::from_value(request.params.get("kind").cloned().unwrap_or_default())
+            .map_err(|_| "kind must be what the action does")?;
+    let what = (request.params.get("what").and_then(Value::as_str))
         .ok_or("what must be the action's command")?
         .to_owned();
-    let target = serde_json::from_value::<Option<Target>>(request.params["target"].clone())
-        .ok()
-        .flatten();
-    let follows = request.params["follows"] == true;
+    let target = serde_json::from_value::<Option<Target>>(
+        request.params.get("target").cloned().unwrap_or_default(),
+    )
+    .ok()
+    .flatten();
+    let follows = request
+        .params
+        .get("follows")
+        .is_some_and(|follows| follows == true);
     let cwd = PathBuf::from(&request.project);
     let Some(ship) = at_production_database(core, Ship { kind, what, target }).await else {
         return Ok(json!({ "allowed": true }));
@@ -1172,7 +1187,7 @@ pub async fn check_hooked(
 
 /// How a deploy the shim followed ended, by the `went` the core gave it.
 pub fn ran_call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let went: u64 = (request.params["went"].as_str())
+    let went: u64 = (request.params.get("went").and_then(Value::as_str))
         .and_then(|went| went.parse().ok())
         .ok_or("went must be what the check answered with")?;
     let deploy = {
@@ -1184,7 +1199,7 @@ pub fn ran_call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, Str
             .ok_or("no such deploy is going")?;
         state.going.remove(at).map(|(_, deploy)| deploy)
     };
-    let exit = request.params["exit"].as_i64();
+    let exit = request.params.get("exit").and_then(Value::as_i64);
     let verdict = match exit {
         Some(0) => Verdict::Passed,
         _ => Verdict::Failed,
@@ -1223,8 +1238,8 @@ async fn tool_ship(
                 .ok();
             let target = place.and_then(|place| {
                 Some(Target::RundeckJob {
-                    path: place["path"].as_str()?.to_owned(),
-                    production: place["production"].as_bool()?,
+                    path: place.get("path")?.as_str()?.to_owned(),
+                    production: place.get("production")?.as_bool()?,
                 })
             });
             (ShipKind::Deploy, target)
@@ -1236,7 +1251,7 @@ async fn tool_ship(
                 None => plugged::call(core, VERCEL, "deployment", arguments.clone())
                     .await
                     .ok()
-                    .and_then(|read| read["target"].as_str().map(str::to_owned)),
+                    .and_then(|read| read.get("target")?.as_str().map(str::to_owned)),
             };
             let target = target.map(|target| Target::Vercel {
                 production: target == "production",
@@ -1565,8 +1580,12 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
         let delivered =
             (core.repo_above().messages_for_person)(core, asker.agent_id.clone(), text.clone())
                 .await;
-        let heard = delivered
-            .is_ok_and(|told| matches!(told["delivery"].as_str(), Some("steered" | "newTurn")));
+        let heard = delivered.is_ok_and(|told| {
+            matches!(
+                told.get("delivery").and_then(Value::as_str),
+                Some("steered" | "newTurn")
+            )
+        });
         if heard {
             core.ship().turn_started(&asker.agent_id);
         }
@@ -1665,8 +1684,12 @@ async fn permitted(
         heard: false,
     });
     let told = (core.repo_above().messages_for_person)(core, agent_id.clone(), text).await;
-    let heard =
-        told.is_ok_and(|told| matches!(told["delivery"].as_str(), Some("steered" | "newTurn")));
+    let heard = told.is_ok_and(|told| {
+        matches!(
+            told.get("delivery").and_then(Value::as_str),
+            Some("steered" | "newTurn")
+        )
+    });
     if heard {
         core.ship().turn_started(&agent_id);
     }
@@ -1769,6 +1792,8 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         joined: Vec::new(),
         about: None,
         page: None,
+        more_pages: Vec::new(),
+        shown_in: Vec::new(),
         link: None,
         question,
         context: hold.why.clone(),

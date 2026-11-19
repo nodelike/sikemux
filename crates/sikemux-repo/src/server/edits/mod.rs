@@ -590,7 +590,7 @@ fn located(file: &str, old: Option<&str>, new: &str) -> Lines {
     if new.is_empty() {
         return Vec::new();
     }
-    let Some(before) = file.find(new).map(|at| &file[..at]) else {
+    let Some((before, _)) = file.split_once(new) else {
         return Vec::new();
     };
     let first = before.matches('\n').count() as u64 + 1;
@@ -660,6 +660,10 @@ pub mod tests_git {
     use std::path::Path;
 
     /// Runs git in `dir` as a person named `t`, and what it said on its standard output.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "a test helper fails the test when git does"
+    )]
     pub fn git_in(dir: &Path, args: &[&str]) -> String {
         let mut command = sikemux_process::user_environment::command("git");
         let output = command

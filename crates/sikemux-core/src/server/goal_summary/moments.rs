@@ -344,7 +344,10 @@ fn chat_link(agent: &str, feed: Option<String>, index: Option<u64>) -> SourceLin
 /// When the line at `offset` was written, or the nearest before it.
 fn time_at(times: &[(u64, u64)], offset: u64) -> Option<u64> {
     let after = times.partition_point(|(at, _)| *at <= offset);
-    after.checked_sub(1).map(|at| times[at].1)
+    after
+        .checked_sub(1)
+        .and_then(|at| times.get(at))
+        .map(|(_, time)| *time)
 }
 
 /// What `worker` said in the end of its session file while it worked on the goal.
@@ -581,24 +584,26 @@ fn bounded(moments: Vec<Moment>) -> Vec<Moment> {
         SourceKind::Ran | SourceKind::TurnFailed => 3,
         _ => 0,
     };
-    let mut order: Vec<usize> = (0..moments.len()).collect();
-    order.sort_by_key(|at| {
-        let source = &moments[*at].source;
-        (rank(source.kind), std::cmp::Reverse(source.at))
+    let mut order: Vec<(usize, &Moment)> = moments.iter().enumerate().collect();
+    order.sort_by_key(|(_, moment)| {
+        (
+            rank(moment.source.kind),
+            std::cmp::Reverse(moment.source.at),
+        )
     });
     let mut bytes = 0;
-    let mut kept: Vec<usize> = Vec::new();
-    for at in order {
-        let size = moments[at].source.text.len() + 40;
+    let mut kept: Vec<(u64, usize)> = Vec::new();
+    for (at, moment) in order {
+        let size = moment.source.text.len() + 40;
         if kept.len() < MAX_MOMENTS && bytes + size <= MAX_BYTES {
             bytes += size;
-            kept.push(at);
+            kept.push((moment.source.at, at));
         }
     }
-    kept.sort_by_key(|at| (moments[*at].source.at, *at));
+    kept.sort();
     let mut slots: Vec<Option<Moment>> = moments.into_iter().map(Some).collect();
     (kept.into_iter())
-        .filter_map(|at| slots[at].take())
+        .filter_map(|(_, at)| slots.get_mut(at)?.take())
         .collect()
 }
 

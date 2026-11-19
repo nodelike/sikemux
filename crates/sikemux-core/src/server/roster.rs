@@ -120,7 +120,6 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
                 project,
                 cli: chat.provider,
                 title: chat.title,
-                model: chat.model,
                 status: chat.status,
                 parent,
                 active_at: chat.active_at,
@@ -144,7 +143,6 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
                 .clone()
                 .unwrap_or_else(|| "terminal".into()),
             title: session.title.clone(),
-            model: None,
             status,
             parent,
             active_at: session.active_at,
@@ -168,7 +166,6 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
             project,
             title: core.workspaces().title(&agent.id),
             cli: agent.provider,
-            model: None,
             status: AgentStatus::Asleep,
             parent,
             active_at: None,
@@ -185,7 +182,6 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
             project: foreign.project,
             cli: foreign.cli,
             title: shown.titled.then_some(shown.title),
-            model: None,
             status: foreign.status,
             parent: foreign.parent,
             active_at: shown.active_at,
@@ -194,15 +190,23 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
             agent_id: foreign.agent_id,
         }
     }));
+    let peers = core.hosts().peers.all().into_iter();
+    agents.extend(peers.filter(|peer| core.hosts().team.get(&peer.agent_id).is_none()));
     agents
 }
 
 /// The host an agent on a linked host runs on, as this host calls it.
-fn host_of(core: &Core, agent: &Listed) -> Option<String> {
-    (agent.reach == Reach::Remote)
-        .then(|| core.hosts().team.get(&agent.agent_id))
-        .flatten()
-        .map(|foreign| super::hosts::name_of(core, &foreign.host))
+pub(crate) fn host_of(core: &Core, agent: &Listed) -> Option<String> {
+    if agent.reach != Reach::Remote {
+        return None;
+    }
+    let host = (core
+        .hosts()
+        .team
+        .get(&agent.agent_id)
+        .map(|foreign| foreign.host))
+    .or_else(|| core.hosts().peers.host(&agent.agent_id))?;
+    Some(super::hosts::name_of(core, &host))
 }
 
 fn since(at: Option<u64>, now: u64) -> Option<String> {
@@ -297,27 +301,32 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
                     && agent.agent_id != caller
                     && super::messages::blind_between(core, caller, &agent.agent_id, "").is_ok(),
             });
-            let fields = row.as_object_mut().expect("a row is an object");
-            if let Some(parent) = &agent.parent {
-                fields.insert(
-                    "startedBy".into(),
-                    (names.get(parent).cloned())
-                        .or_else(|| core.names().get(parent).map(|named| named.name))
-                        .unwrap_or_else(|| parent.clone())
-                        .into(),
-                );
-            }
-            if agent.agent_id == caller {
-                fields.insert("you".into(), true.into());
-            }
-            if let Some(model) = &agent.model {
-                fields.insert("model".into(), model.clone().into());
-            }
-            if let Some(host) = host {
-                fields.insert("host".into(), host.into());
-            }
-            if project.is_none() {
-                fields.insert("project".into(), agent.project.clone().into());
+            if let Some(fields) = row.as_object_mut() {
+                if let Some(parent) = &agent.parent {
+                    fields.insert(
+                        "startedBy".into(),
+                        (names.get(parent).cloned())
+                            .or_else(|| core.names().get(parent).map(|named| named.name))
+                            .unwrap_or_else(|| parent.clone())
+                            .into(),
+                    );
+                }
+                if agent.agent_id == caller {
+                    fields.insert("you".into(), true.into());
+                }
+                let (model, effort) = super::follow::runs_on(core, &agent.agent_id);
+                if let Some(model) = model {
+                    fields.insert("model".into(), model.into());
+                }
+                if let Some(effort) = effort {
+                    fields.insert("effort".into(), effort.into());
+                }
+                if let Some(host) = host {
+                    fields.insert("host".into(), host.into());
+                }
+                if project.is_none() {
+                    fields.insert("project".into(), agent.project.clone().into());
+                }
             }
             row
         })
@@ -378,14 +387,15 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
             Err(why) => refused.push(json!({ "agent": agent_id, "reason": why })),
         }
     }
-    let mut result = json!({ "closed": closed });
+    let mut result = serde_json::Map::new();
+    result.insert("closed".to_owned(), closed.into());
     if !left.is_empty() {
-        result["left"] = left.into();
+        result.insert("left".to_owned(), left.into());
     }
     if !refused.is_empty() {
-        result["refused"] = refused.into();
+        result.insert("refused".to_owned(), refused.into());
     }
-    Ok(result)
+    Ok(Value::Object(result))
 }
 
 /// Moves agents' chats to another account of their agent, named by its name or id, where each
@@ -457,11 +467,12 @@ pub(crate) async fn move_account(
             Err(why) => refused.push(json!({ "agent": name, "reason": why.to_string() })),
         }
     }
-    let mut result = json!({ "moved": moved });
+    let mut result = serde_json::Map::new();
+    result.insert("moved".into(), moved.into());
     if !refused.is_empty() {
-        result["refused"] = refused.into();
+        result.insert("refused".into(), refused.into());
     }
-    Ok(result)
+    Ok(Value::Object(result))
 }
 
 /// The open agents other than `caller` that wait on another agent, by the agent each waits on.
@@ -548,9 +559,9 @@ pub(crate) fn resolve(
         .collect();
     match (here.as_slice(), reachable.as_slice(), called.as_slice()) {
         ([agent], _, _) | ([], [agent], _) => Ok((*agent).clone()),
-        ([], [], []) => Err(format!(
+        ([], [], []) => Err(teammates_work(core, project, wanted).unwrap_or_else(|| format!(
             "No open agent is called {wanted}; agent_list shows the agents you can message. One you started that closed is read by agent_read and reopened by agent_send; any other is found by agent_sessions, or who_wrote for its commit, and reopened by agent_spawn with resume set to its sessionId"
-        )),
+        ))),
         ([], [], elsewhere) => Err(format!(
             "No agent in your project or on your team is called {wanted}. {}; pass its agent id if you mean it",
             elsewhere
@@ -570,6 +581,19 @@ pub(crate) fn resolve(
                 .join(", ")
         )),
     }
+}
+
+/// Why `wanted` can't be reached when it names a teammate's task or their agent on it.
+fn teammates_work(core: &Core, project: &str, wanted: &str) -> Option<String> {
+    if super::peer::teammate_task(core, project, wanted).is_some() {
+        return Some(format!(
+            "{wanted} is a teammate's task; agent_read with it and a question asks about it"
+        ));
+    }
+    let holder = super::peer::held_by_teammate(core, project, wanted)?;
+    Some(format!(
+        "{holder}. Another person's agents can't be messaged, read, woken or closed; agent_read with their task and a question asks about it"
+    ))
 }
 
 /// Whether a bare name from `caller` may mean `agent`: it works in the

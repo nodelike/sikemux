@@ -15,8 +15,8 @@ use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{
     BoardAddParams, BoardAddTicketParams, BoardCard, BoardCardParams, BoardColumn, BoardParams,
     BoardSettings, BoardSettingsParams, BoardTicketCard, BoardTicketParams, BoardUpdateParams,
-    CardCommit, CardPull, CardStatus, CardTicket, ForgetInheritedParams, Landing, ProjectBoard,
-    PullState, Tracker,
+    CardCommit, CardDropped, CardPull, CardStatus, CardTicket, DroppedBy, ForgetInheritedParams,
+    Landing, ProjectBoard, PullState, Tracker,
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
@@ -50,9 +50,11 @@ pub mod goal;
 pub mod hand_off;
 mod key;
 mod migrate;
+pub mod own_writes;
 pub mod record;
 mod spend;
 pub mod steps;
+mod task_rows;
 pub mod tickets;
 mod tidy;
 
@@ -62,6 +64,7 @@ pub use hand_off::hand_off;
 pub use hand_off::{BoardHandOffParams, HandedOff};
 pub use key::rekey;
 pub use steps::{BoardProposalParams, PlacesProposal};
+pub use task_rows::task_rows;
 
 const FOLDER: &str = "boards";
 const MAX_CARDS: usize = 1000;
@@ -111,6 +114,9 @@ pub struct Card {
     /// The trigger whose firing added it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     trigger: Option<u64>,
+    /// The host whose trigger it is, since each host counts its own triggers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fired_on: Option<String>,
     /// What CI kept failing on, on the project's branch, that it was filed
     /// for or took since.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -131,10 +137,11 @@ pub struct Card {
     /// owner's latest claim is the card it works now.
     #[serde(default)]
     acted_at: u64,
-    /// When it was put aside in Later, having sat open and untouched; it stays off the board
-    /// until someone takes it up again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    aside_at: Option<u64>,
+    dropped: Option<CardDropped>,
+    /// When the person opened it once it was done.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    opened_at: Option<u64>,
     /// The landed commit of its owner's that the project's check passed on while the owner worked
     /// it. The card closes by itself once the owner leaves it or waits on the person.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,7 +157,7 @@ pub struct Card {
 
 /// Bumped by a change to what a board file holds that an earlier file needs
 /// carried over to, which `migrate` does.
-const VERSION: u32 = 7;
+const VERSION: u32 = 9;
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -182,6 +189,9 @@ pub struct Board {
     /// them to another home to fold in.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     shared: bool,
+    /// It is a copy of what another host, the project's home, sent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    mirrored: bool,
     /// The latest CI run that failed on the project's branch, while the core runs.
     #[serde(skip)]
     ci_failing: failing::Latest,
@@ -236,6 +246,7 @@ impl Board {
             decided,
             audits,
             shared,
+            mirrored,
             ci_failing: _,
             places: _,
         } = self;
@@ -249,6 +260,7 @@ impl Board {
             decided: decided.clone(),
             audits: audits.clone(),
             shared: *shared,
+            mirrored: *mirrored,
             ..Self::default()
         }
     }
@@ -445,6 +457,16 @@ impl State {
         (self.keys.iter())
             .find(|(_, kept)| *kept == key)
             .map_or_else(|| key.to_owned(), |(folder, _)| folder.clone())
+    }
+
+    /// The folder `folder` and every other folder on this host whose project is kept under the
+    /// same key, such as a second clone of one repository.
+    fn sharing_board(&self, folder: &str) -> Vec<String> {
+        let key = self.key(folder);
+        let clones = (self.keys.iter()).filter(|(_, kept)| **kept == key);
+        std::iter::once(folder.to_owned())
+            .chain(clones.map(|(clone, _)| clone.clone()))
+            .collect()
     }
 
     /// The board of the project at `folder`.
@@ -784,6 +806,8 @@ pub struct Adding {
     pub ticket: Option<CardTicket>,
     /// The trigger whose firing it is.
     pub trigger: Option<u64>,
+    /// The host whose trigger it is.
+    pub fired_on: Option<String>,
     /// What CI kept failing on, on the project's branch.
     pub ci: Option<failing::Broke>,
 }
@@ -821,11 +845,19 @@ pub struct Changes {
     pub result: Option<String>,
     pub depends_on: Option<Vec<u64>>,
     pub parent: Option<Option<u64>>,
+    pub drop: Option<Dropping>,
+    pub opened: bool,
+}
+
+#[derive(Clone)]
+pub enum Dropping {
+    Drop { why: String, instead: Option<u64> },
+    Undrop,
 }
 
 impl Changes {
     fn from_params(params: &Value) -> Result<Self, String> {
-        Ok(Self {
+        Self {
             title: match params.get("title") {
                 None | Some(Value::Null) => None,
                 Some(Value::String(title)) => Some(title_of(title)?),
@@ -835,8 +867,9 @@ impl Changes {
             acceptance: optional_text(params, "acceptance")?,
             status: match params.get("status") {
                 None | Some(Value::Null) => None,
+                Some(Value::String(status)) if status.trim() == "dropped" => None,
                 Some(Value::String(status)) => Some(CardStatus::parse(status)?),
-                Some(_) => return Err("status must be open, progress or done".into()),
+                Some(_) => return Err("status must be open, progress, done or dropped".into()),
             },
             result: optional_text(params, "result")?,
             depends_on: match params.get("dependsOn") {
@@ -844,7 +877,27 @@ impl Changes {
                 Some(value) => Some(card_ids(value, "dependsOn")?),
             },
             parent: optional_id(params.get("parent"), "parent")?,
-        })
+            drop: None,
+            opened: false,
+        }
+        .dropping(params)
+    }
+
+    fn dropping(mut self, params: &Value) -> Result<Self, String> {
+        let dropped =
+            params.get("status").and_then(Value::as_str).map(str::trim) == Some("dropped");
+        let instead = optional_id(params.get("replacedBy"), "replacedBy")?.flatten();
+        if !dropped {
+            return match instead {
+                Some(_) => Err("replacedBy goes with status dropped".into()),
+                None => Ok(self),
+            };
+        }
+        let why = (self.result.take())
+            .filter(|why| !why.trim().is_empty())
+            .ok_or("Say in result, in a few words, why it is dropped")?;
+        self.drop = Some(Dropping::Drop { why, instead });
+        Ok(self)
     }
 
     fn is_empty(&self) -> bool {
@@ -856,6 +909,8 @@ impl Changes {
             result,
             depends_on,
             parent,
+            drop,
+            opened,
         } = self;
         title.is_none()
             && details.is_none()
@@ -864,6 +919,8 @@ impl Changes {
             && result.is_none()
             && depends_on.is_none()
             && parent.is_none()
+            && drop.is_none()
+            && !opened
     }
 }
 
@@ -1042,7 +1099,9 @@ fn first_clause(card: &Card) -> String {
         .min()
         .unwrap_or(line.len());
     clipped(
-        line[..end].trim_end_matches(['.', '?', '!', ':']),
+        line.get(..end)
+            .unwrap_or(line)
+            .trim_end_matches(['.', '?', '!', ':']),
         MAX_CLAUSE_CHARS,
     )
 }
@@ -1052,6 +1111,7 @@ impl Card {
     fn hold(&mut self, owner: Owner) {
         self.owner = Some(owner);
         self.status = CardStatus::Progress;
+        self.dropped = None;
         self.updated_at = epoch_ms();
         self.acted_at = self.updated_at;
     }
@@ -1208,7 +1268,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
         arrivals: card.arrivals.clone(),
         at: card.at,
         updated_at: card.updated_at,
-        aside_at: card.aside_at,
+        dropped: card.dropped.clone(),
         commits: card.commits.clone(),
         pulls: card.pulls.clone(),
     }
@@ -1252,14 +1312,12 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
             clipped(text, LISTED_TEXT_CHARS)
         }
     };
-    let mut view = json!({
-        "task": card.id,
-        "title": card.title,
-        "status": card.status.words(),
-        "owner": card.owner_name(core),
-        "createdBy": card.creator_name(core),
-    });
-    let fields = view.as_object_mut().expect("a card is an object");
+    let mut fields = serde_json::Map::new();
+    fields.insert("task".into(), json!(card.id));
+    fields.insert("title".into(), json!(card.title));
+    fields.insert("status".into(), json!(card.status.words()));
+    fields.insert("owner".into(), json!(card.owner_name(core)));
+    fields.insert("createdBy".into(), json!(card.creator_name(core)));
     if let Some(owner) = card.owner_id() {
         fields.insert("ownerId".into(), owner.into());
     }
@@ -1299,8 +1357,11 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     if waits_on_person(core, card) {
         fields.insert("waitingOnThePerson".into(), true.into());
     }
-    if card.aside_at.is_some() {
-        fields.insert("later".into(), true.into());
+    if let Some(dropped) = &card.dropped {
+        fields.insert("dropped".into(), dropped.why.clone().into());
+        if let Some(instead) = dropped.instead {
+            fields.insert("replacedBy".into(), instead.into());
+        }
     }
     if full {
         let under: Vec<Value> = board
@@ -1324,7 +1385,45 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
             fields.insert("pulls".into(), json!(card.pulls));
         }
     }
-    view
+    Value::Object(fields)
+}
+
+/// What a teammate's agent asking about card `id` is told of it: the card as `task_list` gives it,
+/// with the decisions standing on it or a goal above it, and the agent that holds or held it.
+pub fn told_to_teammate(
+    core: &Core,
+    project: &str,
+    id: u64,
+) -> Result<(Value, Option<String>), String> {
+    let state = core.boards().state.locked();
+    let board = (state.of(project)).ok_or_else(|| format!("There is no task #{id} here"))?;
+    let card = board.card(id)?;
+    let mut facts = agent_view(core, board, card, true);
+    let mut above = vec![card.id];
+    let mut parent = card.parent;
+    while let Some(id) = parent.filter(|id| !above.contains(id)) {
+        above.push(id);
+        parent = board.card(id).ok().and_then(|card| card.parent);
+    }
+    let decisions: Vec<Value> = (board.decided.standing())
+        .filter(|decision| decision.goal.is_some_and(|goal| above.contains(&goal)))
+        .map(|decision| json!({ "decided": decision.says(), "why": decision.why, "by": decision.learned.name }))
+        .collect();
+    if let Some(fields) = facts.as_object_mut().filter(|_| !decisions.is_empty()) {
+        fields.insert("decisions".into(), decisions.into());
+    }
+    Ok((facts, card.owner_id().map(str::to_owned)))
+}
+
+/// The titles of `project`'s tasks `ids`, of those it still holds.
+pub fn titles(core: &Core, project: &str, ids: &[u64]) -> HashMap<u64, String> {
+    let state = core.boards().state.locked();
+    let Some(board) = state.of(project) else {
+        return HashMap::new();
+    };
+    (ids.iter())
+        .filter_map(|id| Some((*id, board.card(*id).ok()?.title.clone())))
+        .collect()
 }
 
 /// A card added as `adding` asks, by `maker`, or the person or Sikemux when none.
@@ -1347,6 +1446,7 @@ fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card
         result: None,
         ticket: adding.ticket,
         trigger: adding.trigger,
+        fired_on: adding.fired_on,
         ci: adding.ci.map(|broke| broke.failures).unwrap_or_default(),
         arrivals: Vec::new(),
         recordings: Vec::new(),
@@ -1354,7 +1454,8 @@ fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card
         at: now,
         updated_at: now,
         acted_at: now,
-        aside_at: None,
+        dropped: None,
+        opened_at: None,
         checked: None,
         commits: Vec::new(),
         pulls: Vec::new(),
@@ -1430,20 +1531,30 @@ pub fn add_card(
     Ok((id, view))
 }
 
-/// Adds a card for trigger `trigger` that came due, as the person's own; to the card it added
+/// Adds a card for trigger `trigger` of `host` that came due, as the person's own; to the card it added
 /// before instead, while that is still open. Answers the card and its task while nobody holds
 /// it, for an agent of its own to take up with `hand_off::take_up`.
 pub fn add_for_trigger(
     core: &Arc<Core>,
     project: &str,
-    trigger: u64,
+    (trigger, host): (u64, &str),
     title: &str,
     details: &str,
 ) -> Result<Option<(u64, String)>, String> {
+    let write = own_writes::OwnWrite::TriggerCard {
+        trigger,
+        host: host.to_owned(),
+        title: title.to_owned(),
+        details: details.to_owned(),
+    };
+    if own_writes::sent_home(core, project, write) {
+        return Ok(None);
+    }
     let adding = Adding {
         title: title.to_owned(),
         details: details.to_owned(),
         trigger: Some(trigger),
+        fired_on: Some(host.to_owned()),
         ..Adding::default()
     };
     let (id, _) = add_card(core, project, &By::Auto("Trigger"), adding, None)?;
@@ -1463,6 +1574,13 @@ pub fn triggers_changed(core: &Core, project: &str) {
 /// The project's check passed on `sha` of its branch, which holds commits of `agents`: the card
 /// each of them works now keeps it, to close by itself once its owner leaves it.
 pub fn check_passed(core: &Arc<Core>, project: &str, agents: &[String], sha: &str) {
+    let write = own_writes::OwnWrite::CheckPassed {
+        agents: agents.to_vec(),
+        sha: sha.to_owned(),
+    };
+    if own_writes::sent_home(core, project, write) {
+        return;
+    }
     let mut state = core.boards().state.locked();
     let Some(board) = state.of_mut(project) else {
         return;
@@ -1502,6 +1620,14 @@ pub fn committed(
     commits: &[(String, String)],
     landed: bool,
 ) {
+    let write = own_writes::OwnWrite::Committed {
+        agent: agent.to_owned(),
+        commits: commits.to_vec(),
+        landed,
+    };
+    if own_writes::sent_home(core, project, write) {
+        return;
+    }
     let mut state = core.boards().state.locked();
     let Some(board) = state.of_mut(project) else {
         return;
@@ -1535,6 +1661,13 @@ pub fn committed(
 
 /// What the code host says of `pull`, which card `id`'s commits went up in.
 pub fn pull_seen(core: &Core, project: &str, id: u64, pull: CardPull) {
+    let write = own_writes::OwnWrite::PullSeen {
+        card: id,
+        pull: pull.clone(),
+    };
+    if own_writes::sent_home(core, project, write) {
+        return;
+    }
     let mut state = core.boards().state.locked();
     let Some(card) = (state.of_mut(project)).and_then(|board| board.card_mut(id).ok()) else {
         return;
@@ -1661,6 +1794,19 @@ fn change_in(
     if let Some(depends_on) = &changes.depends_on {
         board.check_depends(Some(id), depends_on)?;
     }
+    if let Some(Dropping::Drop {
+        instead: Some(instead),
+        ..
+    }) = &changes.drop
+    {
+        if *instead == id {
+            return Err(format!("#{id} cannot replace itself"));
+        }
+        board.card(*instead)?;
+    }
+    if changes.opened && before.status != CardStatus::Done {
+        return Err(format!("#{id} is not done yet"));
+    }
     if let Some(parent) = changes.parent {
         board.check_parent(Some(id), parent)?;
         let keeps = !before.goal.is_none() || !board.decided.on_goal(id).is_empty();
@@ -1671,6 +1817,12 @@ fn change_in(
         }
     }
     let blocked_before = board.blocked();
+    let only_opened = changes.opened
+        && Changes {
+            opened: false,
+            ..changes.clone()
+        }
+        .is_empty();
     let card = board.card_mut(id)?;
     if let Some(title) = changes.title {
         card.title = title;
@@ -1711,7 +1863,26 @@ fn change_in(
         Some(CardStatus::Progress) => card.status = CardStatus::Progress,
         None => {}
     }
-    card.updated_at = epoch_ms();
+    let now = epoch_ms();
+    match changes.drop {
+        Some(Dropping::Drop { why, instead }) => {
+            card.dropped = Some(CardDropped {
+                at: now,
+                by: dropper(core, by),
+                why,
+                instead,
+            });
+        }
+        Some(Dropping::Undrop) => card.dropped = None,
+        None if changes.status.is_some() => card.dropped = None,
+        None => {}
+    }
+    if changes.opened {
+        card.opened_at = Some(now);
+    }
+    if !only_opened {
+        card.updated_at = now;
+    }
     remember_team(core, board, id);
     let after = board.card(id)?.clone();
     if after.status == CardStatus::Done {
@@ -1747,6 +1918,17 @@ fn change_in(
     }
     notices.extend(unblocked(board, &blocked_before, by));
     Ok((agent_view(core, board, &after, false), notices))
+}
+
+fn dropper(core: &Core, by: &By) -> DroppedBy {
+    match by {
+        By::Person => DroppedBy::Person,
+        By::Auto(_) => DroppedBy::Board,
+        By::Agent(agent) => DroppedBy::Agent {
+            id: agent.clone(),
+            name: name_of(core, agent),
+        },
+    }
 }
 
 fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, String> {
@@ -2070,6 +2252,18 @@ pub fn cards_done_since(core: &Core, since: u64) -> Vec<Summary> {
 
 /// Keeps a browser recording among the recordings of the card the agent works.
 pub fn attach_recording(core: &Arc<Core>, agent_id: &str, recording: InboxRecording) {
+    let held_in =
+        held_card(&mut core.boards().state.locked(), agent_id).map(|(project, _)| project.clone());
+    let Some(project) = held_in else {
+        return;
+    };
+    let write = own_writes::OwnWrite::Recording {
+        agent: agent_id.to_owned(),
+        recording: recording.clone(),
+    };
+    if own_writes::sent_home(core, &project, write) {
+        return;
+    }
     let mut state = core.boards().state.locked();
     let Some((project, card)) = held_card(&mut state, agent_id) else {
         return;
@@ -2176,6 +2370,8 @@ impl BoardUpdateParamsExt for BoardUpdateParams {
                 .map(|ids| distinct_cards(ids, "dependsOn"))
                 .transpose()?,
             parent: self.parent.map(|id| (id > 0).then_some(id)),
+            drop: self.undrop.then_some(Dropping::Undrop),
+            opened: self.opened,
         })
     }
 }
@@ -2283,6 +2479,46 @@ pub async fn person_settings(
         }
         core.changed(What::Read(super::changed::Topic::Playbook));
         Ok(project_view(&core, &project))
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+/// Shares the project's board with the org `org`, or with nobody. Answers the org it was shared
+/// with before.
+pub async fn person_share(
+    core: &Arc<Core>,
+    project: String,
+    org: Option<String>,
+) -> Result<Option<String>, String> {
+    let core = core.clone();
+    blocking(move || {
+        let project = project_at(&core, &project)?;
+        let mut state = core.boards().state.locked();
+        let board = state.made(&project);
+        let before = std::mem::replace(&mut board.settings.shared_with, org);
+        if board.settings.shared_with != before {
+            core.boards().save(&mut state, &project);
+        }
+        Ok(before)
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+/// The account no longer lists the project's share with `org`: its board stops being shared
+/// there, unless it was shared with another org meanwhile.
+pub async fn share_ended(core: &Arc<Core>, project: String, org: String) -> Result<(), String> {
+    let core = core.clone();
+    blocking(move || {
+        let project = project_at(&core, &project)?;
+        let mut state = core.boards().state.locked();
+        let board = state.made(&project);
+        if board.settings.shared_with.as_deref() == Some(org.as_str()) {
+            board.settings.shared_with = None;
+            core.boards().save(&mut state, &project);
+        }
+        Ok(())
     })
     .await
     .map_err(|error| error.to_string())
@@ -2456,7 +2692,13 @@ pub fn settle(core: &Arc<Core>) {
 
 /// Tells every client which boards changed, so each reads them again.
 fn tell_clients(core: &Core) {
-    let dirty = std::mem::take(&mut core.boards().state.locked().dirty);
+    let dirty: BTreeSet<String> = {
+        let mut state = core.boards().state.locked();
+        let dirty = std::mem::take(&mut state.dirty);
+        (dirty.iter())
+            .flat_map(|folder| state.sharing_board(folder))
+            .collect()
+    };
     if !dirty.is_empty() {
         (core.board_above().hosts_rows_moved)(core);
     }

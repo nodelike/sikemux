@@ -266,10 +266,10 @@ impl Command {
     }
 
     /// The child's variables, sorted without case as Windows expects them.
-    fn environment(&self) -> BTreeMap<Name, OsString> {
+    fn environment(&self) -> io::Result<BTreeMap<Name, OsString>> {
         let mut variables: BTreeMap<Name, OsString> = if self.clear_env {
             BTreeMap::new()
-        } else if let Some(child) = sikemux_trust::child() {
+        } else if let Some(child) = sikemux_trust::child()? {
             child
                 .environment
                 .iter()
@@ -286,11 +286,11 @@ impl Command {
                 variables.insert(key.clone(), value.clone());
             }
         }
-        variables
+        Ok(variables)
     }
 
     fn start(&self, defaults: [Default; 3]) -> io::Result<Started> {
-        let variables = self.environment();
+        let variables = self.environment()?;
         let changed_path = self
             .env
             .iter()
@@ -319,12 +319,12 @@ impl Command {
         let mut ours: [Option<OwnedHandle>; 3] = [None, None, None];
         let mut theirs: [Option<OwnedHandle>; 3] = [None, None, None];
         if self.pseudoconsole.is_none() {
-            for index in 0..3 {
+            let ends = theirs.iter_mut().zip(ours.iter_mut());
+            let wanted = slots.into_iter().zip(defaults).zip(ids);
+            for (index, (((slot, default), id), (their, our))) in wanted.zip(ends).enumerate() {
                 let input = index == 0;
-                let (child_end, our_end) = match (slots[index], defaults[index]) {
-                    (Some(Stdio::Inherit), _) | (None, Default::Inherit) => {
-                        (inherited(ids[index])?, None)
-                    }
+                let (child_end, our_end) = match (slot, default) {
+                    (Some(Stdio::Inherit), _) | (None, Default::Inherit) => (inherited(id)?, None),
                     (Some(Stdio::Null), _) | (None, Default::Null) => {
                         (Some(null_device(input)?), None)
                     }
@@ -336,8 +336,8 @@ impl Command {
                         (Some(inheritable(handle.as_raw_handle())?), None)
                     }
                 };
-                theirs[index] = child_end;
-                ours[index] = our_end;
+                *their = child_end;
+                *our = our_end;
             }
         }
 
@@ -387,7 +387,7 @@ impl Command {
         let mut startup: STARTUPINFOEXW = unsafe { std::mem::zeroed() };
         startup.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
         startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
-        let standard = |index: usize| match &theirs[index] {
+        let standard = |index: usize| match theirs.get(index).and_then(Option::as_ref) {
             Some(end) => end.as_raw_handle(),
             None if self.pseudoconsole.is_some() => INVALID_HANDLE_VALUE,
             None => null_mut(),
@@ -404,7 +404,7 @@ impl Command {
             flags |= EXTENDED_STARTUPINFO_PRESENT;
         }
 
-        let token = sikemux_trust::child().map_or(null_mut(), |child| child.token.handle());
+        let token = sikemux_trust::child()?.map_or(null_mut(), |child| child.token.handle());
         // SAFETY: plain data, for which zero is valid; CreateProcess fills it in.
         let mut started: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
         let inherit = i32::from(!handed.is_empty());
@@ -658,7 +658,7 @@ fn environment_block(variables: &BTreeMap<Name, OsString>) -> io::Result<Vec<u16
         block.extend(key.name.encode_wide());
         block.push(u16::from(b'='));
         block.extend(value.encode_wide());
-        if block[start..].contains(&0) {
+        if block.iter().skip(start).any(|&unit| unit == 0) {
             return Err(nul_error());
         }
         block.push(0);

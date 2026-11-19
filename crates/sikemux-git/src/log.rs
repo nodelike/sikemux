@@ -158,8 +158,10 @@ pub(super) fn children_before_parents(commits: Vec<git2::Commit<'_>>) -> Vec<git
     let mut waiting_on_children = vec![0usize; commits.len()];
     for commit in &commits {
         for parent in commit.parent_ids() {
-            if let Some(&i) = position.get(&parent) {
-                waiting_on_children[i] += 1;
+            if let Some(waiting) =
+                (position.get(&parent)).and_then(|&i| waiting_on_children.get_mut(i))
+            {
+                *waiting += 1;
             }
         }
     }
@@ -167,20 +169,36 @@ pub(super) fn children_before_parents(commits: Vec<git2::Commit<'_>>) -> Vec<git
     let mut taken = vec![false; commits.len()];
     let mut order = Vec::with_capacity(commits.len());
     while order.len() < commits.len() {
-        let next = (0..commits.len()).find(|&i| !taken[i] && waiting_on_children[i] == 0);
+        let next = (taken.iter().zip(&waiting_on_children))
+            .position(|(&done, &waiting)| !done && waiting == 0);
         let Some(next) = next else { break };
-        taken[next] = true;
-        for parent in commits[next].parent_ids() {
-            if let Some(&i) = position.get(&parent) {
-                waiting_on_children[i] -= 1;
+        if let Some(slot) = taken.get_mut(next) {
+            *slot = true;
+        }
+        for parent in commits
+            .get(next)
+            .into_iter()
+            .flat_map(|commit| commit.parent_ids())
+        {
+            if let Some(waiting) =
+                (position.get(&parent)).and_then(|&i| waiting_on_children.get_mut(i))
+            {
+                *waiting -= 1;
             }
         }
         order.push(next);
     }
-    order.extend((0..commits.len()).filter(|&i| !taken[i]));
+    order.extend(
+        (taken.iter().enumerate())
+            .filter(|(_, &done)| !done)
+            .map(|(i, _)| i),
+    );
 
     let mut slots: Vec<Option<git2::Commit<'_>>> = commits.into_iter().map(Some).collect();
-    order.into_iter().filter_map(|i| slots[i].take()).collect()
+    order
+        .into_iter()
+        .filter_map(|i| slots.get_mut(i)?.take())
+        .collect()
 }
 
 fn read_log(repo: &Repository, limit: usize) -> Result<Vec<GitCommit>, String> {
@@ -220,7 +238,7 @@ pub(super) fn describe_commits(
             .short_id()
             .ok()
             .and_then(|b| b.as_str().ok().map(String::from))
-            .unwrap_or_else(|| oid.to_string()[..7].to_string());
+            .unwrap_or_else(|| oid.to_string().chars().take(7).collect());
         out.push(GitCommit {
             hash: short,
             full_hash: oid.to_string(),
@@ -258,8 +276,8 @@ fn names(text: &str, key: &str) -> bool {
     let (text, key) = (text.to_lowercase(), key.to_lowercase());
     !key.is_empty()
         && text.match_indices(&key).any(|(at, _)| {
-            let before = text[..at].chars().next_back();
-            let after = text[at + key.len()..].chars().next();
+            let before = text.get(..at).and_then(|text| text.chars().next_back());
+            let after = (text.get(at + key.len()..)).and_then(|text| text.chars().next());
             !before.is_some_and(|c| c.is_ascii_alphanumeric())
                 && !after.is_some_and(|c| c.is_ascii_digit())
         })

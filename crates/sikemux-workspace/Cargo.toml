@@ -37,8 +37,8 @@ grep-searcher = "0.1"
 grep-matcher = "0.1"
 globset = "0.4"
 
-[lints.clippy]
-undocumented_unsafe_blocks = "deny"
-
 [target.'cfg(target_os = "macos")'.dependencies]
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

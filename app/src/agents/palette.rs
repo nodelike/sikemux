@@ -64,11 +64,11 @@ impl Workbench {
                         .map(|known| known.provider.clone())
                         .unwrap_or_default();
                     let kind = bench.reads.catalog.kind(&provider);
-                    let launch_mode = match MODES[mode.get()] {
-                        PermissionMode::Bypass if kind.is_some_and(|kind| kind.bypass) => {
+                    let launch_mode = match MODES.get(mode.get()) {
+                        Some(PermissionMode::Bypass) if kind.is_some_and(|kind| kind.bypass) => {
                             PermissionMode::Bypass
                         }
-                        PermissionMode::Auto if kind.is_some_and(|kind| kind.auto) => {
+                        Some(PermissionMode::Auto) if kind.is_some_and(|kind| kind.auto) => {
                             PermissionMode::Auto
                         }
                         _ => PermissionMode::WorkspaceWrite,

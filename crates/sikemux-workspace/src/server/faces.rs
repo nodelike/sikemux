@@ -17,7 +17,7 @@ use sikemux_process::sync::Locked;
 use super::kept::Kept;
 use super::{CoreError, CoreResult};
 use sikemux_view::device::FaceStyle;
-use sikemux_view::workspace::{AgentFace, WorkspaceAgent};
+use sikemux_view::workspace::{AgentBuddy, AgentFace, WorkspaceAgent};
 
 const FILE: &str = "face-style.json";
 const EVERY_PACK: &str = "all";
@@ -44,6 +44,10 @@ struct Shape {
     view_box: String,
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "the faces catalogue is built into the binary, generated and checked"
+)]
 fn catalogue() -> &'static Catalogue {
     static CATALOGUE: OnceLock<Catalogue> = OnceLock::new();
     CATALOGUE.get_or_init(|| {
@@ -68,14 +72,13 @@ fn hash(text: &str) -> u32 {
 
 /// The face `agent` wears under `style`, or none while faces are off and it
 /// shows its logo.
-fn face(style: &FaceStyle, agent: &WorkspaceAgent) -> Option<AgentFace> {
+fn face(style: &FaceStyle, id: &str, own: Option<&AgentBuddy>) -> Option<AgentFace> {
     if !style.on {
         return None;
     }
     let packs = &catalogue().packs;
     let first = packs.first()?;
-    let h = hash(&agent.id);
-    let own = agent.buddy.as_ref();
+    let h = hash(id);
     let named = own
         .and_then(|buddy| buddy.pack.as_deref())
         .and_then(|id| packs.iter().find(|pack| pack.id == id))
@@ -86,7 +89,7 @@ fn face(style: &FaceStyle, agent: &WorkspaceAgent) -> Option<AgentFace> {
     let (pack, shape) = named.or_else(|| {
         let every_pack = style.pack == EVERY_PACK;
         let pack = if every_pack {
-            &packs[h as usize % packs.len()]
+            packs.get(h as usize % packs.len())?
         } else {
             packs
                 .iter()
@@ -159,8 +162,13 @@ impl Faces {
     pub fn fill(&self, agents: &mut [WorkspaceAgent]) {
         let style = self.style();
         for agent in agents {
-            agent.face = face(&style, agent);
+            agent.face = face(&style, &agent.id, agent.buddy.as_ref());
         }
+    }
+
+    /// The face of a closed agent, from its id alone.
+    pub fn of_closed(&self, agent_id: &str) -> Option<AgentFace> {
+        face(&self.style(), agent_id, None)
     }
 }
 

@@ -19,6 +19,7 @@ struct Going {
     nested: bool,
     /// Running rather than paused.
     running: bool,
+    description: Option<String>,
 }
 
 /// The subagents and background tasks the agent has going, which end with
@@ -67,6 +68,7 @@ impl Work {
                         session: session.to_owned(),
                         nested,
                         running: true,
+                        description: None,
                     });
                 }
             }
@@ -82,6 +84,7 @@ impl Work {
                         session: session.to_owned(),
                         nested,
                         running: true,
+                        description: None,
                     });
                 }
             }
@@ -95,6 +98,7 @@ impl Work {
                         session: session.to_owned(),
                         nested,
                         running: true,
+                        description: text("description").map(str::to_owned),
                     });
                 }
             }
@@ -129,6 +133,12 @@ impl Work {
             .iter()
             .filter(|going| !going.nested && going.running)
             .count()
+    }
+
+    /// What the newest background task still running says it does, empty when it says nothing.
+    pub fn running_task(&self) -> Option<String> {
+        let going = (self.tasks.iter().rev()).find(|going| !going.nested && going.running)?;
+        Some(going.description.clone().unwrap_or_default())
     }
 
     /// The updates that end everything still going, the newest first.

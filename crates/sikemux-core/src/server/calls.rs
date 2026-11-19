@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_wire::protocol::DeviceAccess;
 
-use super::access::{Needs, Program, Setup};
+use super::access::{Needs, Peer, Program, Setup};
 use super::activity_log::Counted;
 use super::chat::calls as chat_calls;
 use super::connection::{blocking, ClientConn};
@@ -360,6 +360,7 @@ calls! { core, client, method, params;
     },
     "removeTrigger" = RemoveTrigger: Full => super::triggers::remove(&core, params.trigger),
     "holdTrigger" = HoldTrigger: Full => super::triggers::hold(&core, params),
+    "addTrigger" = AddTrigger: Full, counted => super::triggers::add_own(&core, params).await?,
     "cancelResume" = CancelResume: Full => super::chat::reset::cancel_by_person(&core, &params.agent_id),
     "setAgentAccounts": Owner => {
         agent_accounts::set(&core, parse(params)?).await?;
@@ -465,6 +466,9 @@ calls! { core, client, method, params;
     },
     "removeStash" = RemoveStash: Owner => super::stash::remove(&core, params).await?,
     "vault" = Vault: Owner => super::vault::shown::vault(&core),
+    "orgVaults" = OrgVaults: Owner => super::vault::org::shown(&core),
+    "orgModelKeyAdd" = OrgModelKeyAdd: Owner, counted => super::vault::org::add_model_key(&core, params).await?,
+    "orgModelKeyRemove" = OrgModelKeyRemove: Owner => super::vault::org::remove_entry(&core, params).await?,
     "vaultRecoverySaved" = VaultRecoverySaved: Owner => super::vault::shown::recovery_saved(&core).await?,
     "vaultShowRecovery" = VaultShowRecovery: Owner => super::vault::shown::show_recovery(&core).await?,
     "vaultRecover" = VaultRecover: Owner => super::vault::shown::recover(&core, params).await?,
@@ -551,6 +555,8 @@ calls! { core, client, method, params;
     },
     "boards" = Boards: Watch, any_program => board::boards(&core),
     "board" = Board: Watch, any_program => board::board(&core, params).await?,
+    "projectTasks" = ProjectTasks: Watch => super::task_list::read(&core, params).await?,
+    "teammateAsking" = TeammateAsking: Full, counted => super::teammate_asks::set_asking(&core, params).await?,
     "boardAdd" = BoardAdd: Full, counted => board::person_add(&core, params).await?,
     "boardHandOff" = BoardHandOff: Full => board::hand_off(&core, params).await?,
     "boardResumeOwner" = BoardResumeOwner: Full => board::retired(params)?,
@@ -598,6 +604,9 @@ calls! { core, client, method, params;
     "boardDecide" = BoardDecide: Full => {
         board::goal::person_decide(&core, params).await?
     },
+    "shareProject" = ShareProject: Full => super::shares::share(&core, params).await?,
+    "unshareProject" = UnshareProject: Full => super::shares::unshare(&core, params).await?,
+    "projectSharing" = ProjectSharing: Watch => super::shares::sharing(&core, &params.project).await,
     "triage" = Triage: Full => {
         super::triage::triage(&core, params).await?
     },
@@ -606,6 +615,7 @@ calls! { core, client, method, params;
     "memoryAdd" = MemoryAdd: Full => memory::person_add(&core, client.peer.clone(), params).await?,
     "memoryUpdate" = MemoryUpdate: Full => memory::person_update(&core, client.peer.clone(), params).await?,
     "promoteRule" = PromoteRule: Owner => memory::promote(&core, client.peer.clone(), params).await?,
+    "promoteRules" = PromoteRules: Owner => memory::promote_all(&core, client.peer.clone(), params).await?,
     "keepSeededRules" = KeepSeededRules: Owner => memory::keep_seeded(&core, client.peer.clone(), params).await?,
     "seedRules" = SeedRules: Owner => memory::seed_again(&core, client.peer.clone(), params).await?,
     "chatGoalUndo" = ChatGoalUndo: Full => {
@@ -749,7 +759,7 @@ async fn record_elsewhere(
             return Some(Err(error));
         }
     }
-    let answered = super::hosts::record::app_write(core, method, params).await?;
+    let answered = super::hosts::record::app_write(core, &client.peer, method, params).await?;
     Some(answered.map_err(CoreError::from))
 }
 
@@ -771,8 +781,76 @@ pub(crate) async fn record_write(
         "overruleDecision" => answer(board::goal::overrule(core, parse(params)?).await?),
         "undoOverrule" => answer(board::goal::undo_overrule(core, parse(params)?).await?),
         "boardDecide" => answer(board::goal::person_decide(core, parse(params)?).await?),
+        "shareProject" => answer(super::shares::share(core, parse(params)?).await?),
+        "unshareProject" => answer(super::shares::unshare(core, parse(params)?).await?),
         "boardHeldCard" => answer(board::hand_off::person_held_card(core, parse(params)?).await?),
-        method => Err(format!("{method} does not write a project's board").into()),
+        "memoryTake" => {
+            let core = core.clone();
+            blocking(move || {
+                let folder = (params.get("project").and_then(Value::as_str)).unwrap_or_default();
+                let id = (params.get("id").and_then(Value::as_u64))
+                    .ok_or("a move names what it moves")?;
+                let id = match params.get("kept").and_then(Value::as_bool) {
+                    Some(true) => memory::line_entry(
+                        &core,
+                        folder,
+                        id,
+                        params.get("words").and_then(Value::as_str),
+                    )?,
+                    _ => id,
+                };
+                let taken = memory::moving::take_out(
+                    &core,
+                    folder,
+                    id,
+                    sikemux_view::memory::Store::Project,
+                )?;
+                Ok(serde_json::json!({
+                    "record": memory::record_at(&core, folder),
+                    "was": taken.was,
+                    "entry": taken.going,
+                }))
+            })
+            .await
+        }
+        "memoryPut" => {
+            let core = core.clone();
+            blocking(move || {
+                let folder = (params.get("project").and_then(Value::as_str)).unwrap_or_default();
+                let entry =
+                    serde_json::from_value(params.get("entry").cloned().unwrap_or_default())
+                        .map_err(|error| error.to_string())?;
+                memory::moving::put_in(&core, folder, entry, sikemux_view::memory::Store::Project)?;
+                Ok(memory::record_at(&core, folder)
+                    .ok_or("the project keeps no rules or knowledge here")?)
+            })
+            .await
+        }
+        method if memory::APP_RECORD_WRITES.contains(&method) => {
+            let folder = (params.get("project").and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_owned();
+            match method {
+                "memoryAdd" => drop(memory::person_add(core, Peer::App, parse(params)?).await?),
+                "memoryUpdate" => {
+                    drop(memory::person_update(core, Peer::App, parse(params)?).await?)
+                }
+                "promoteRule" => drop(memory::promote(core, Peer::App, parse(params)?).await?),
+                "promoteRules" => drop(memory::promote_all(core, Peer::App, parse(params)?).await?),
+                "keepSeededRules" => {
+                    drop(memory::keep_seeded(core, Peer::App, parse(params)?).await?)
+                }
+                _ => drop(memory::seed_again(core, Peer::App, parse(params)?).await?),
+            }
+            Ok(memory::record_at(core, &folder).unwrap_or_default())
+        }
+        board::own_writes::METHOD => {
+            let at_home = board::own_writes::read(params)?;
+            let core = core.clone();
+            blocking(move || Ok(board::own_writes::write_here(&core, at_home)?)).await?;
+            Ok(Value::Null)
+        }
+        method => Err(format!("{method} does not write a project's record").into()),
     }
 }
 

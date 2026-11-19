@@ -628,7 +628,11 @@ fn updates_row(updates: &Value) -> String {
             text("current")
         );
     }
-    let newest = updates["available"]["version"].as_str();
+    let newest = updates
+        .get("available")
+        .and_then(|available| available.get("version"))
+        .and_then(Value::as_str);
+    let checked = updates.get("checked");
     let state = match (updates["state"].as_str(), newest) {
         (Some("downloading" | "installing"), Some(newest)) => format!("installing {newest}"),
         (Some("waiting"), Some(newest)) => {
@@ -639,8 +643,12 @@ fn updates_row(updates: &Value) -> String {
         (Some("failed"), _) => format!("the last update failed: {}", text("error")),
         (_, Some(newest)) => format!("{newest} installs once no chat is in a turn"),
         (_, None) => match (
-            updates["checked"]["at"].as_u64(),
-            updates["checked"]["error"].as_str(),
+            checked
+                .and_then(|checked| checked.get("at"))
+                .and_then(Value::as_u64),
+            checked
+                .and_then(|checked| checked.get("error"))
+                .and_then(Value::as_str),
         ) {
             (Some(_), Some(error)) => format!("the last check failed: {error}"),
             (Some(at), None) => format!("up to date, checked {}", ago(at)),
@@ -714,7 +722,7 @@ async fn plugin_login(socket: &Path, plugin: &str) -> Result<(), String> {
                     });
                 }
                 if let Some(error) = error {
-                    return Err(error["message"].as_str().unwrap_or("the sign-in failed").to_owned());
+                    return Err(error.get("message").and_then(Value::as_str).unwrap_or("the sign-in failed").to_owned());
                 }
                 if done {
                     style::done("Signed in", plugin);
@@ -760,7 +768,11 @@ async fn about(
                 true => core.call("trustReport", json!({})).await.ok(),
                 false => None,
             };
-            let name = host["name"].as_str().unwrap_or_default().to_owned();
+            let name = host
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
             Ok((remote, name, updates, trust))
         }
         _ => Err("the core answered with something else".into()),

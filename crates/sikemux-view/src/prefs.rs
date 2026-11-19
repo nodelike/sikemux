@@ -193,12 +193,15 @@ pub struct Preferences {
     /// How many builds agents start may run at once on this host; 0 sizes it from the
     /// host's cores and memory.
     pub build_runs: u32,
+    /// Settings that belong to the person, their skills and their themes follow them to every
+    /// host of theirs.
+    pub sync_across_hosts: bool,
 }
 
 /// Declares `PreferenceChange`, a row for each field of `Preferences`. The compiler refuses a field
 /// with no row and a row whose type is not its field's.
 macro_rules! preference_changes {
-    ($($variant:ident $field:ident: $type:ty,)*) => {
+    ($($variant:ident $field:ident: $type:ty => $belongs:ident,)*) => {
         /// One preference and its new value, `{ "key": "themeId", "value": "dracula" }` on the wire.
         #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
         #[serde(tag = "key", content = "value", rename_all = "camelCase")]
@@ -219,6 +222,20 @@ macro_rules! preference_changes {
                     $(Self::$variant(value) => *value == preferences.$field,)*
                 }
             }
+
+            pub fn belongs(&self) -> Belongs {
+                match self {
+                    $(Self::$variant(_) => Belongs::$belongs,)*
+                }
+            }
+
+            /// What `preferences` say of each preference that belongs to the person.
+            pub fn of_person(preferences: &Preferences) -> Vec<Self> {
+                [$(Self::$variant(preferences.$field.clone()),)*]
+                    .into_iter()
+                    .filter(|change| change.belongs() == Belongs::Person)
+                    .collect()
+            }
         }
 
         const _: fn(&Preferences) = |preferences| {
@@ -227,74 +244,83 @@ macro_rules! preference_changes {
     };
 }
 
+/// Whose a preference is: the person's follows them to every host of theirs while sync is on, a
+/// host's names its folders, devices, layout or install and stays on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Belongs {
+    Person,
+    Host,
+}
+
 preference_changes! {
-    MidTurnSend mid_turn_send: MidTurnSend,
-    ChiefRotation chief_rotation: bool,
-    UiTextScale ui_text_scale: f64,
-    Scrollbars scrollbars: Scrollbars,
-    Contrast contrast: Contrast,
-    Motion motion: Motion,
-    TerminalFontSize terminal_font_size: u32,
-    ChatTextScale chat_text_scale: f64,
-    ChatWidth chat_width: ChatWidth,
-    EditorTextScale editor_text_scale: f64,
-    ThemeId theme_id: String,
-    LastAgentType last_agent_type: Option<String>,
-    AgentWorktreeDefaults agent_worktree_defaults: BTreeMap<String, bool>,
-    RestoreAgentTabs restore_agent_tabs: bool,
-    AgentNotifications agent_notifications: bool,
-    GoalNotifications goal_notifications: bool,
-    ProjectRoots project_roots: Vec<ProjectRoot>,
-    DefaultGitRepos default_git_repos: BTreeMap<String, String>,
-    LanguageServerTrust language_server_trust: BTreeMap<String, bool>,
-    CustomCommands custom_commands: Vec<CustomCommand>,
-    IosSimulator ios_simulator: bool,
-    Notch notch: crate::notch::NotchSettings,
-    VoiceDictation voice_dictation: bool,
-    UpdateChannel update_channel: UpdateChannel,
-    UpdateWhenIdle update_when_idle: Option<bool>,
-    ShareUsageData share_usage_data: bool,
-    OnboardingComplete onboarding_complete: bool,
-    OnboardingTried onboarding_tried: bool,
-    LastSeenVersion last_seen_version: String,
-    NotificationsIntroduced notifications_introduced: bool,
-    KeptRunningNoticeShown kept_running_notice_shown: bool,
-    StarAsked star_asked: bool,
-    PaneBackdrop pane_backdrop: PaneBackdrop,
-    PaneImage pane_image: Option<String>,
-    PaneImageFollowsOmarchy pane_image_follows_omarchy: bool,
-    PaneStrength pane_strength: f64,
-    PaneColours pane_colours: PaneColours,
-    PaneInks pane_inks: Vec<String>,
-    PanePattern pane_pattern: PanePattern,
-    PaneDotSize pane_dot_size: f64,
-    PaneContrast pane_contrast: f64,
-    PaneBrightness pane_brightness: f64,
-    PaneGlow pane_glow: f64,
-    PaneGlowSize pane_glow_size: f64,
-    PaneCoverage pane_coverage: PaneCoverage,
-    WindowOpacity window_opacity: f64,
-    WindowBlur window_blur: f64,
-    RailDensity rail_density: RailDensity,
-    ScreenReader screen_reader: ScreenReader,
-    Language language: Option<String>,
-    SimulatorFrame simulator_frame: bool,
-    KeybindingOverrides keybinding_overrides: BTreeMap<String, Option<String>>,
-    SideRailOpen side_rail_open: bool,
-    SideRailWidth side_rail_width: f64,
-    TabRailOpen tab_rail_open: bool,
-    TabRailWidth tab_rail_width: f64,
-    TabRailPage tab_rail_page: TabRailPage,
-    TabRailScope tab_rail_scope: TabRailScope,
-    TabRailAllAgents tab_rail_all_agents: bool,
-    FoldedRailGroups folded_rail_groups: Vec<String>,
-    ProjectSort project_sort: ProjectSort,
-    WindowView window_view: WindowView,
-    RecentCommandKeys recent_command_keys: Vec<String>,
-    FrontCopies front_copies: BTreeMap<String, String>,
-    ElsewhereSpaces elsewhere_spaces: BTreeMap<String, String>,
-    ProjectOrder project_order: Vec<String>,
-    BuildRuns build_runs: u32,
+    MidTurnSend mid_turn_send: MidTurnSend => Person,
+    ChiefRotation chief_rotation: bool => Person,
+    UiTextScale ui_text_scale: f64 => Person,
+    Scrollbars scrollbars: Scrollbars => Person,
+    Contrast contrast: Contrast => Person,
+    Motion motion: Motion => Person,
+    TerminalFontSize terminal_font_size: u32 => Person,
+    ChatTextScale chat_text_scale: f64 => Person,
+    ChatWidth chat_width: ChatWidth => Person,
+    EditorTextScale editor_text_scale: f64 => Person,
+    ThemeId theme_id: String => Host,
+    LastAgentType last_agent_type: Option<String> => Host,
+    AgentWorktreeDefaults agent_worktree_defaults: BTreeMap<String, bool> => Host,
+    RestoreAgentTabs restore_agent_tabs: bool => Person,
+    AgentNotifications agent_notifications: bool => Person,
+    GoalNotifications goal_notifications: bool => Person,
+    ProjectRoots project_roots: Vec<ProjectRoot> => Host,
+    DefaultGitRepos default_git_repos: BTreeMap<String, String> => Host,
+    LanguageServerTrust language_server_trust: BTreeMap<String, bool> => Host,
+    CustomCommands custom_commands: Vec<CustomCommand> => Person,
+    IosSimulator ios_simulator: bool => Host,
+    Notch notch: crate::notch::NotchSettings => Host,
+    VoiceDictation voice_dictation: bool => Host,
+    UpdateChannel update_channel: UpdateChannel => Host,
+    UpdateWhenIdle update_when_idle: Option<bool> => Host,
+    ShareUsageData share_usage_data: bool => Person,
+    OnboardingComplete onboarding_complete: bool => Host,
+    OnboardingTried onboarding_tried: bool => Host,
+    LastSeenVersion last_seen_version: String => Host,
+    NotificationsIntroduced notifications_introduced: bool => Host,
+    KeptRunningNoticeShown kept_running_notice_shown: bool => Host,
+    StarAsked star_asked: bool => Host,
+    PaneBackdrop pane_backdrop: PaneBackdrop => Person,
+    PaneImage pane_image: Option<String> => Host,
+    PaneImageFollowsOmarchy pane_image_follows_omarchy: bool => Host,
+    PaneStrength pane_strength: f64 => Person,
+    PaneColours pane_colours: PaneColours => Person,
+    PaneInks pane_inks: Vec<String> => Person,
+    PanePattern pane_pattern: PanePattern => Person,
+    PaneDotSize pane_dot_size: f64 => Person,
+    PaneContrast pane_contrast: f64 => Person,
+    PaneBrightness pane_brightness: f64 => Person,
+    PaneGlow pane_glow: f64 => Person,
+    PaneGlowSize pane_glow_size: f64 => Person,
+    PaneCoverage pane_coverage: PaneCoverage => Person,
+    WindowOpacity window_opacity: f64 => Person,
+    WindowBlur window_blur: f64 => Person,
+    RailDensity rail_density: RailDensity => Person,
+    ScreenReader screen_reader: ScreenReader => Person,
+    Language language: Option<String> => Person,
+    SimulatorFrame simulator_frame: bool => Host,
+    KeybindingOverrides keybinding_overrides: BTreeMap<String, Option<String>> => Person,
+    SideRailOpen side_rail_open: bool => Host,
+    SideRailWidth side_rail_width: f64 => Host,
+    TabRailOpen tab_rail_open: bool => Host,
+    TabRailWidth tab_rail_width: f64 => Host,
+    TabRailPage tab_rail_page: TabRailPage => Host,
+    TabRailScope tab_rail_scope: TabRailScope => Host,
+    TabRailAllAgents tab_rail_all_agents: bool => Host,
+    FoldedRailGroups folded_rail_groups: Vec<String> => Host,
+    ProjectSort project_sort: ProjectSort => Host,
+    WindowView window_view: WindowView => Host,
+    RecentCommandKeys recent_command_keys: Vec<String> => Host,
+    FrontCopies front_copies: BTreeMap<String, String> => Host,
+    ElsewhereSpaces elsewhere_spaces: BTreeMap<String, String> => Host,
+    ProjectOrder project_order: Vec<String> => Host,
+    BuildRuns build_runs: u32 => Host,
+    SyncAcrossHosts sync_across_hosts: bool => Host,
 }
 
 /// What the window shows in place of the other.
@@ -528,6 +554,7 @@ impl Default for Preferences {
             elsewhere_spaces: BTreeMap::new(),
             project_order: Vec::new(),
             build_runs: 0,
+            sync_across_hosts: false,
         }
     }
 }

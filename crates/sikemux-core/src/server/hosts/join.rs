@@ -93,7 +93,10 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
         .await
         .map_err(|error| CoreError::from(format!("{name} is out of reach: {error}")))?;
     let mut hello = introduction(core);
-    hello["ticket"] = serde_json::to_value(&ticket)?;
+    let ticket_value = serde_json::to_value(&ticket)?;
+    if let Some(fields) = hello.as_object_mut() {
+        fields.insert("ticket".into(), ticket_value);
+    }
     let reply = link::ask(
         &connection,
         "join",
@@ -104,26 +107,32 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
     )
     .await
     .map_err(|error| CoreError::from(format!("{name} did not link: {error}")))?;
-    match reply["result"].as_str() {
+    match reply.get("result").and_then(Value::as_str) {
         Some("allowed") => {}
-        Some("denied") if reply["declined"].as_bool() == Some(true) => {
+        Some("denied") if reply.get("declined").and_then(Value::as_bool) == Some(true) => {
             return Ok(Linking::Declined)
         }
         Some("denied") => return Err(format!("{name} did not allow the link").into()),
         _ => {
             return Err(format!(
                 "{name} refused the link: {}",
-                reply["reason"].as_str().unwrap_or("no reason given")
+                reply
+                    .get("reason")
+                    .and_then(Value::as_str)
+                    .unwrap_or("no reason given")
             )
             .into())
         }
     }
-    let mut known = addresses_of(&reply["addresses"]);
+    let mut known = addresses_of(reply.get("addresses").unwrap_or(&Value::Null));
     known.extend(addresses);
     known.dedup();
     let platform = match clean(&params.platform, PLATFORM_LIMIT) {
         platform if platform.is_empty() => clean(
-            reply["platform"].as_str().unwrap_or_default(),
+            reply
+                .get("platform")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
             PLATFORM_LIMIT,
         ),
         platform => platform,
@@ -131,7 +140,10 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
     core.remote().add_link(StoredLink {
         id: ticket.host.clone(),
         name: if name.is_empty() {
-            clean(reply["name"].as_str().unwrap_or("Host"), NAME_LIMIT)
+            clean(
+                reply.get("name").and_then(Value::as_str).unwrap_or("Host"),
+                NAME_LIMIT,
+            )
         } else {
             name
         },
@@ -244,7 +256,9 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
         remote::announce(&core);
     }
     let mut reply = introduction(&core);
-    reply["result"] = "allowed".into();
+    if let Some(fields) = reply.as_object_mut() {
+        fields.insert("result".into(), "allowed".into());
+    }
     incoming.reply(Ok(reply)).await;
     adopt(&core, &host, connection);
     // The account's name for the new host replaces the one it gave itself.

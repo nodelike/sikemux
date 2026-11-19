@@ -73,9 +73,9 @@ pub struct Accounts {
     asking: HashSet<(String, Option<String>)>,
     pub signing: HashMap<String, SignIn>,
     pub dialog: Option<Dialog>,
-    /// What the core says each chat may move to, by the chat and the account it is on.
-    takers: HashMap<(String, String), ChatAccounts>,
-    asking_takers: HashSet<(String, String)>,
+    /// What the core says each chat may move to, by the chat, the account it is on and its model.
+    takers: HashMap<TakersKey, ChatAccounts>,
+    asking_takers: HashSet<TakersKey>,
     /// What the Limits panel and popover are holding open.
     pub limits: crate::agents::limits::Reveal,
     /// When coming back to the app last had the core check every agent's sign-in.
@@ -84,6 +84,8 @@ pub struct Accounts {
 
 /// Coming back to the app often comes in bursts, and each check starts the agents' CLIs, so it
 /// happens at most this often, as on the Mac.
+type TakersKey = (String, String, Option<String>);
+
 const CHECK_ON_RETURN_AT_MOST_EVERY: Duration = Duration::from_secs(30);
 
 /// An account's colour, which the person may have set as `#rrggbb`.
@@ -133,15 +135,15 @@ pub fn named<'a>(bench: &'a Workbench, provider: &str, label: &str) -> Option<&'
     })
 }
 
-/// An account as a row of a menu, as the Mac draws one: its letter, its name with a tick on the
-/// one in use, what it is signed in as under that, and how much of its plan it has used.
+/// An account as a row of a menu, as the Mac draws one: its picture, its name with a tick on the
+/// one in use and a tag on the one the core would pick, and how much of its plan it has used.
 pub fn popup_item(
     profile: &Profile,
     name: &str,
     picture: Arc<Image>,
-    detail: Option<String>,
     used: Option<f64>,
     current: bool,
+    smart: bool,
 ) -> PopupMenuItem {
     let (profile, name) = (profile.clone(), name.to_owned());
     PopupMenuItem::element(move |_, cx| {
@@ -160,28 +162,17 @@ pub fn popup_item(
                     .flex_1()
                     .min_w_0()
                     .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(5.))
-                            .child(div().min_w_0().truncate().child(name.clone()))
-                            .when(current, |line| {
-                                line.child(
-                                    crate::ui::icon(crate::icons::Icon::Check, 11.)
-                                        .text_color(t.accent),
-                                )
-                            }),
-                    )
-                    .children(detail.clone().map(|detail| {
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(theme::ui_text(TEXT_3XS_H))
-                            .text_color(t.text_tertiary)
-                            .child(detail)
-                    })),
+                    .items_center()
+                    .gap(px(5.))
+                    .child(div().min_w_0().truncate().child(name.clone()))
+                    .when(current, |line| {
+                        line.child(
+                            crate::ui::icon(crate::icons::Icon::Check, 11.).text_color(t.accent),
+                        )
+                    })
+                    .when(smart, |line| {
+                        line.child(crate::ui::caps(t!("Smart"), cx).flex_none())
+                    }),
             )
             .children(used.map(|used| {
                 div()
@@ -240,6 +231,11 @@ impl Accounts {
             .copied()
     }
 
+    /// Drops what the core said each chat may move to and would pick, so the next look asks again.
+    pub fn forget_takers(&mut self) {
+        self.takers.clear();
+    }
+
     /// Whether new chats go to the account whose week ends soonest, as they do unless the person
     /// turned it off.
     pub fn smart(&self) -> bool {
@@ -282,7 +278,11 @@ pub fn takers<'a>(
     on: &str,
     cx: &mut Context<Workbench>,
 ) -> Option<&'a ChatAccounts> {
-    let key = (agent.to_owned(), on.to_owned());
+    let model = (bench.shown().into_iter())
+        .flat_map(|view| &view.workspace.agents)
+        .find(|saved| saved.id == agent)
+        .and_then(|saved| saved.model.clone());
+    let key = (agent.to_owned(), on.to_owned(), model);
     let known = bench.accounts.takers.get(&key);
     if known.is_none() && !bench.accounts.asking_takers.contains(&key) {
         let this = cx.entity();
@@ -291,7 +291,7 @@ pub fn takers<'a>(
     known
 }
 
-fn ask_takers(bench: &mut Workbench, key: (String, String), cx: &mut Context<Workbench>) {
+fn ask_takers(bench: &mut Workbench, key: TakersKey, cx: &mut Context<Workbench>) {
     if bench.accounts.takers.contains_key(&key) || !bench.accounts.asking_takers.insert(key.clone())
     {
         return;

@@ -156,8 +156,13 @@ pub fn spawned(session: &str, name: &str, task: &str) -> Value {
 
 /// A subagent's name when its agent gave none, from the end of its id.
 pub fn unnamed(id: &str) -> String {
-    let start = id.char_indices().rev().nth(7).map_or(0, |(index, _)| index);
-    format!("Agent {}", &id[start..])
+    let tail = id
+        .char_indices()
+        .rev()
+        .nth(7)
+        .and_then(|(index, _)| id.get(index..))
+        .unwrap_or(id);
+    format!("Agent {tail}")
 }
 
 /// The first of `candidates` with something in it, trimmed.

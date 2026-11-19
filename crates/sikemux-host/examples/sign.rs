@@ -9,7 +9,7 @@ use sikemux_client::client::CoreClient;
 use sikemux_wire::protocol::ask;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> std::io::Result<()> {
     let mut args = std::env::args_os().skip(1).map(PathBuf::from);
     let (Some(socket), Some(out)) = (args.next(), args.next()) else {
         eprintln!("usage: sign <socket> <out>");
@@ -17,8 +17,7 @@ async fn main() {
     };
     #[cfg(windows)]
     if integrity() == "high" {
-        again_at_medium();
-        return;
+        return again_at_medium();
     }
     let answer = match CoreClient::connect(&socket).await {
         Ok((client, _events)) => client
@@ -32,7 +31,7 @@ async fn main() {
         Err(error) => format!("unreachable {error}"),
     };
     let report = format!("integrity {}\n{answer}\n", integrity());
-    std::fs::write(&out, report).expect("the report is written");
+    std::fs::write(&out, report)
 }
 
 #[cfg(windows)]
@@ -45,10 +44,8 @@ fn integrity() -> &'static str {
 }
 
 #[cfg(windows)]
-fn again_at_medium() {
-    let token = sikemux_trust::Token::own()
-        .and_then(|own| own.for_child())
-        .expect("a Medium copy of this process's token");
+fn again_at_medium() -> std::io::Result<()> {
+    let token = sikemux_trust::Token::own().and_then(|own| own.for_child())?;
     let environment: Vec<_> = std::env::vars_os().collect();
     let command_line = std::env::args()
         .map(|arg| format!("\"{arg}\""))
@@ -63,8 +60,8 @@ fn again_at_medium() {
         directory: None,
         process_access: None,
         on_desktop: false,
-    })
-    .expect("this program starts again at Medium");
+    })?;
+    Ok(())
 }
 
 #[cfg(not(windows))]

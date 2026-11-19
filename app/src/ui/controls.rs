@@ -273,6 +273,7 @@ pub struct Button {
     tooltip: Option<SharedString>,
     wide: bool,
     mouse_only: bool,
+    icon_only: bool,
 }
 
 /// A button can open a popover; it looks the same open or closed.
@@ -304,7 +305,14 @@ impl Button {
             tooltip: None,
             wide: false,
             mouse_only: false,
+            icon_only: false,
         }
+    }
+
+    /// Drawn as its icon alone, its label kept for VoiceOver and shown over it.
+    pub fn icon_only(mut self, icon_only: bool) -> Self {
+        self.icon_only = icon_only;
+        self
     }
 
     /// Across the whole column and taller, its words centred, as a sign-in form's buttons.
@@ -497,9 +505,10 @@ impl RenderOnce for Button {
             .when(self.pressed, |button| {
                 button.bg(t.surface_chosen).text_color(t.text_primary)
             })
-            .when_some(self.tooltip, |button, tip| {
-                button.tooltip(super::tooltip(tip))
-            });
+            .when_some(
+                (self.tooltip).or(self.icon_only.then(|| self.label.clone())),
+                |button, tip| button.tooltip(super::tooltip(tip)),
+            );
         base.when_some(on_click, |button, handler| {
             button.on_click(move |event, window, cx| handler(event, window, cx))
         })
@@ -507,7 +516,7 @@ impl RenderOnce for Button {
         .children(self.icon.map(|icon_name| {
             icon(icon_name, glyph).text_color(fade("glyph", if lit { hover } else { rest }))
         }))
-        .child(self.label)
+        .when(!self.icon_only, |button| button.child(self.label))
         .children(self.trail)
         .children(self.keys.map(|keys| {
             kbd(keys, cx)
@@ -1017,4 +1026,40 @@ impl RenderOnce for Toggle {
                     .text_color(tint)
             }))
     }
+}
+
+/// The amber count on a bell's top-right corner while calls wait; its parent must be `relative`.
+pub fn count_badge(count: usize, cx: &App) -> impl IntoElement {
+    let t = Tokens::get(cx);
+    corner_badge(t.warn, 14., cx)
+        .min_w(px(14.))
+        .px(px(3.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(crate::theme::ui_text(9.5))
+        .font_weight(FontWeight::SEMIBOLD)
+        .font_features(crate::theme::tabular())
+        .child(count.to_string())
+}
+
+/// A plain `color` dot in the same corner as `count_badge`, for a state without a count.
+pub fn corner_dot(color: Hsla, cx: &App) -> impl IntoElement {
+    corner_badge(color, 10., cx).w(px(10.))
+}
+
+/// A `height` tall badge centred 4px in from its parent's top-right corner, whatever its size.
+fn corner_badge(color: Hsla, height: f32, cx: &App) -> gpui_kit::Div {
+    let ground = crate::see_through::ground(Tokens::get(cx).surface, cx);
+    let out = px(4. - height / 2.);
+    div()
+        .absolute()
+        .top(out)
+        .right(out)
+        .h(px(height))
+        .rounded_full()
+        .bg(color)
+        .border_2()
+        .border_color(ground)
+        .text_color(ground)
 }

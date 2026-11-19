@@ -1,0 +1,29 @@
+{
+  "user_id": "user_edon",
+  "answer": {
+    "orgs": [
+      {
+        "id": "org_acme",
+        "name": "Acme",
+        "role": "user",
+        "plan": "active",
+        "policy": {
+          "ruleAdding": "every_member",
+          "asking": true,
+          "dailyQuestions": 30
+        }
+      },
+      {
+        "id": "org_northwind",
+        "name": "Northwind Labs",
+        "role": "user",
+        "plan": "active",
+        "policy": {
+          "ruleAdding": "every_member",
+          "asking": true,
+          "dailyQuestions": 30
+        }
+      }
+    ]
+  }
+}

@@ -141,7 +141,7 @@ impl ProgramStatus {
                         break;
                     };
                     self.scan = Scan::Escape;
-                    rest = &rest[escape + 1..];
+                    rest = rest.get(escape + 1..).unwrap_or_default();
                     continue;
                 }
                 Scan::Escape => match byte {
@@ -159,17 +159,19 @@ impl ProgramStatus {
                     _ => self.scan = Scan::Ground,
                 },
                 Scan::Osc => {
-                    let Some(end) = memchr::memchr2(b'\x07', b'\x1b', rest) else {
+                    let found = memchr::memchr2(b'\x07', b'\x1b', rest)
+                        .and_then(|end| rest.split_at_checked(end));
+                    let Some((body, [terminator, after @ ..])) = found else {
                         self.push(rest);
                         break;
                     };
-                    self.push(&rest[..end]);
-                    if rest[end] == b'\x07' {
+                    self.push(body);
+                    if *terminator == b'\x07' {
                         self.finish(&mut out);
                     } else {
                         self.scan = Scan::OscEscape;
                     }
-                    rest = &rest[end + 1..];
+                    rest = after;
                     continue;
                 }
                 Scan::OscEscape => match byte {
@@ -191,7 +193,8 @@ impl ProgramStatus {
         if bytes.len() > room {
             self.overflowed = true;
         }
-        self.osc.extend_from_slice(&bytes[..bytes.len().min(room)]);
+        self.osc
+            .extend_from_slice(bytes.get(..bytes.len().min(room)).unwrap_or(bytes));
     }
 
     fn finish(&mut self, out: &mut ProcessedStatus) {
@@ -291,11 +294,15 @@ fn parse_report(body: &[u8]) -> Option<Report> {
     let mut title = None;
     let mut msg = None;
     for pair in body.split(|byte| *byte == b':') {
-        let Some(equals) = pair.iter().position(|byte| *byte == b'=') else {
+        let split = pair
+            .iter()
+            .position(|byte| *byte == b'=')
+            .and_then(|equals| pair.split_at_checked(equals));
+        let Some((key, [_, value @ ..])) = split else {
             continue;
         };
-        let key = pair[..equals].trim_ascii();
-        let value = pair[equals + 1..].trim_ascii();
+        let key = key.trim_ascii();
+        let value = value.trim_ascii();
         if key.len() > MAX_KEY_BYTES {
             return None;
         }

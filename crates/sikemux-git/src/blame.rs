@@ -48,7 +48,7 @@ fn blame_commit(
         short: if uncommitted {
             String::new()
         } else {
-            sha[..8.min(sha.len())].to_string()
+            sha.get(..8).unwrap_or(&sha).to_string()
         },
         author: if uncommitted {
             "You".to_string()
@@ -107,9 +107,10 @@ fn parse_blame_porcelain(out: &str) -> GitBlame {
         }
 
         // Header: "<40-hex-sha> <orig-line> <final-line> [<group-count>]".
-        let b = line.as_bytes();
-        let is_header =
-            b.len() > 40 && b[40] == b' ' && b[..40].iter().all(|c| c.is_ascii_hexdigit());
+        let is_header = matches!(
+            line.as_bytes().split_at_checked(40),
+            Some((hex, [b' ', ..])) if hex.iter().all(u8::is_ascii_hexdigit)
+        );
         if is_header {
             let mut parts = line.split(' ');
             let sha = parts.next().unwrap_or("").to_string();
@@ -153,24 +154,23 @@ fn parse_blame_porcelain(out: &str) -> GitBlame {
 
     let commits: Vec<BlameCommit> = order
         .iter()
-        .map(|sha| {
-            let m = &meta[sha];
-            blame_commit(
+        .filter_map(|sha| {
+            let m = meta.get(sha)?;
+            Some(blame_commit(
                 sha.clone(),
                 m.author.clone(),
                 m.author_email.clone(),
                 m.timestamp,
                 m.summary.clone(),
-            )
+            ))
         })
         .collect();
 
     let mut lines = vec![0u32; max_line];
     for (ln, sha) in line_sha {
-        if ln >= 1 && ln <= max_line {
-            if let Some(&idx) = index_of.get(&sha) {
-                lines[ln - 1] = idx;
-            }
+        let slot = ln.checked_sub(1).and_then(|at| lines.get_mut(at));
+        if let (Some(slot), Some(&idx)) = (slot, index_of.get(&sha)) {
+            *slot = idx;
         }
     }
 
@@ -252,8 +252,8 @@ fn blame_with_libgit2(
         if lines.len() < end - 1 {
             lines.resize(end - 1, 0);
         }
-        for line in start..end {
-            lines[line - 1] = index;
+        if let Some(span) = lines.get_mut(start - 1..end - 1) {
+            span.fill(index);
         }
     }
     Ok(GitBlame { commits, lines })

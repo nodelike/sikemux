@@ -34,16 +34,25 @@ pub fn branch<'a>(entries: &'a [Value], leaf: Option<&str>) -> Vec<&'a Value> {
 /// The first user message among `entries`, the new ones since a turn began.
 /// The words of the first user message on a branch, to title a session Pi has no name for.
 pub(super) fn first_prompt(branch: &[&Value]) -> Option<String> {
-    let entry = branch
-        .iter()
-        .find(|entry| entry["type"] == "message" && entry["message"]["role"] == "user")?;
+    let entry = branch.iter().find(|entry| is_user_message(entry))?;
     crate::server::chat::feed::title(&user_text(&entry["message"]))
+}
+
+fn role(entry: &Value) -> Option<&str> {
+    entry
+        .get("message")
+        .and_then(|message| message.get("role"))
+        .and_then(Value::as_str)
+}
+
+fn is_user_message(entry: &Value) -> bool {
+    entry.get("type").and_then(Value::as_str) == Some("message") && role(entry) == Some("user")
 }
 
 pub(super) fn first_user_entry(entries: &[&Value]) -> Option<String> {
     entries
         .iter()
-        .find(|entry| entry["type"] == "message" && entry["message"]["role"] == "user")
+        .find(|entry| is_user_message(entry))
         .and_then(|entry| text(entry, "id"))
         .map(str::to_owned)
 }
@@ -118,7 +127,7 @@ fn bash_execution(id: &str, message: &Value, cwd: &str) -> Vec<Value> {
 pub fn replay(branch: &[&Value], cwd: &str) -> Vec<Value> {
     let results: HashMap<&str, &Value> = branch
         .iter()
-        .filter(|entry| entry["message"]["role"] == "toolResult")
+        .filter(|entry| role(entry) == Some("toolResult"))
         .filter_map(|entry| Some((text(&entry["message"], "toolCallId")?, &entry["message"])))
         .collect();
     let mut out = Vec::new();
@@ -148,7 +157,7 @@ pub fn replay(branch: &[&Value], cwd: &str) -> Vec<Value> {
             }
             _ => {}
         }
-        for update in &mut out[from..] {
+        for update in out.iter_mut().skip(from) {
             stamp_replayed(update, at, false);
         }
     }

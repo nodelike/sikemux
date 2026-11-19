@@ -113,7 +113,7 @@ impl AiStreamDecoder {
                     }
                 }
             }
-            AiOutputFormat::Text => unreachable!("text output is not line decoded"),
+            AiOutputFormat::Text => {}
         }
         Ok(())
     }
@@ -130,10 +130,8 @@ impl AiStreamDecoder {
                     }
                     Err(error) if error.valid_up_to() > 0 => {
                         let valid = error.valid_up_to();
-                        let text = std::str::from_utf8(&self.pending[..valid])
-                            .expect("validated UTF-8 prefix")
-                            .to_string();
-                        self.pending.drain(..valid);
+                        let text = String::from_utf8(self.pending.drain(..valid).collect())
+                            .map_err(|e| format!("Local AI returned invalid UTF-8: {e}"))?;
                         self.emit(&text)?;
                     }
                     Err(error) if error.error_len().is_none() => return Ok(()),
@@ -337,7 +335,7 @@ fn read_codex_app_server_lines(
                     let _ = sender.send(Err("Codex app-server output exceeds 1 MiB limit".into()));
                     return;
                 }
-                pending.extend_from_slice(&chunk[..read]);
+                pending.extend_from_slice(chunk.get(..read).unwrap_or_default());
                 while let Some(newline) = pending.iter().position(|byte| *byte == b'\n') {
                     let mut line = pending.drain(..=newline).collect::<Vec<_>>();
                     line.pop();
@@ -558,7 +556,7 @@ fn read_ai_pipe(
             return Err("Local AI response exceeds 1 MiB limit".into());
         }
         if decode_error.is_none() {
-            if let Err(error) = decoder.push(&chunk[..read]) {
+            if let Err(error) = decoder.push(chunk.get(..read).unwrap_or_default()) {
                 decode_error = Some(error);
             }
         }

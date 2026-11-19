@@ -72,12 +72,9 @@ impl Floating {
         else {
             return "";
         };
-        match done.address.get(..self.typed.len()) {
-            Some(head)
-                if done.address.len() > self.typed.len()
-                    && head.eq_ignore_ascii_case(&self.typed) =>
-            {
-                &done.address[self.typed.len()..]
+        match done.address.split_at_checked(self.typed.len()) {
+            Some((head, rest)) if !rest.is_empty() && head.eq_ignore_ascii_case(&self.typed) => {
+                rest
             }
             _ => "",
         }
@@ -130,7 +127,7 @@ impl Floating {
             },
         }];
         rows.extend(found.pages.iter().map(page));
-        if !rows[0].search && found.searches {
+        if rows.first().is_some_and(|row| !row.search) && found.searches {
             rows.push(search());
         }
         rows
@@ -503,9 +500,12 @@ fn marked(
     {
         for start in (0..=text.len() - word.len()).filter(|&start| {
             text.is_char_boundary(start)
-                && text.as_bytes()[start..start + word.len()].eq_ignore_ascii_case(word.as_bytes())
+                && (text.as_bytes().get(start..start + word.len()))
+                    .is_some_and(|bytes| bytes.eq_ignore_ascii_case(word.as_bytes()))
         }) {
-            hit[start..start + word.len()].fill(true);
+            if let Some(run) = hit.get_mut(start..start + word.len()) {
+                run.fill(true);
+            }
         }
     }
     let mut runs: Vec<(Range<usize>, HighlightStyle)> = Vec::new();

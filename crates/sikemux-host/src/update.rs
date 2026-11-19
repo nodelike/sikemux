@@ -147,7 +147,7 @@ fn install_as_root() -> Result<(), String> {
 
 #[cfg(not(target_os = "linux"))]
 fn install_as_root() -> Result<(), String> {
-    unreachable!("only Linux hosts update through root")
+    Err("only Linux hosts update through root".into())
 }
 
 fn set(on: bool) -> Result<(), String> {

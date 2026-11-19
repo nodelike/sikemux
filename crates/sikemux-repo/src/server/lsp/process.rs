@@ -20,16 +20,6 @@ use sikemux_process::sync::Locked;
 
 struct SpawnedProcessGuard(Option<Child>);
 
-impl SpawnedProcessGuard {
-    fn child_mut(&mut self) -> &mut Child {
-        self.0.as_mut().expect("spawned process guard empty")
-    }
-
-    fn into_inner(mut self) -> Child {
-        self.0.take().expect("spawned process guard empty")
-    }
-}
-
 impl Drop for SpawnedProcessGuard {
     fn drop(&mut self) {
         if let Some(mut child) = self.0.take() {
@@ -42,7 +32,7 @@ impl Drop for SpawnedProcessGuard {
 pub fn spawn_server(project: &str, language: &str, publish: Publish) -> LspResult<ServerHandle> {
     let (bin, args) = server_command(language)
         .ok_or_else(|| LspError::new(format!("no language server configured for `{language}`")))?;
-    let child = sikemux_process::user_environment::command(&bin)
+    let mut child = sikemux_process::user_environment::command(&bin)
         .args(&args)
         .envs(server_env(language))
         .current_dir(project)
@@ -57,25 +47,17 @@ pub fn spawn_server(project: &str, language: &str, publish: Publish) -> LspResul
                 LspError::new(format!("spawn {bin}: {e}"))
             }
         })?;
+    let (stdin, stdout, stderr) = (child.stdin.take(), child.stdout.take(), child.stderr.take());
     let mut child = SpawnedProcessGuard(Some(child));
-    let stdin = child
-        .child_mut()
-        .stdin
-        .take()
-        .ok_or(LspError::new("no stdin".into()))?;
-    let stdout = child
-        .child_mut()
-        .stdout
-        .take()
-        .ok_or(LspError::new("no stdout".into()))?;
-    let stderr = child.child_mut().stderr.take();
-    let child = child.into_inner();
+    let stdin = stdin.ok_or(LspError::new("no stdin".into()))?;
+    let stdout = stdout.ok_or(LspError::new("no stdout".into()))?;
+    let child = child.0.take();
 
     let server = Arc::new(Server {
         publish,
         project: project.to_owned(),
         language: language.to_owned(),
-        child: Mutex::new(Some(child)),
+        child: Mutex::new(child),
         stdin: Mutex::new(Some(stdin)),
         next_id: Mutex::new(1),
         pending: Mutex::new(HashMap::new()),

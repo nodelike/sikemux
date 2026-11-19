@@ -613,7 +613,7 @@ mod tools {
     /// Answers each request type the way sikemux-sim does, and records every request line.
     fn recording_helper(log: &std::path::Path) -> String {
         let tree = home_screen().to_string().replace('"', "\\\"");
-        let tree = &tree[1..tree.len() - 1];
+        let tree = tree.get(1..tree.len() - 1).unwrap_or_default();
         format!(
             r#"#!/bin/sh
 while IFS= read -r line; do

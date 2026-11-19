@@ -636,7 +636,10 @@ fn table(
     t: &Tokens,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    let column = |at: usize| div().w(relative(COLUMNS[at])).min_w_0().pr(SPACE_6);
+    let column = |at: usize| {
+        let width = COLUMNS.get(at).copied().unwrap_or_default();
+        div().w(relative(width)).min_w_0().pr(SPACE_6)
+    };
     let heads = [
         (t!("Host"), None),
         (t!("Status"), None),

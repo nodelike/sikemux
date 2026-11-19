@@ -236,11 +236,15 @@ impl Fields {
                     NotchDisplays::Pointer => 2,
                 },
                 |notch, at| {
-                    notch.displays = [
+                    if let Some(&displays) = [
                         NotchDisplays::All,
                         NotchDisplays::BuiltIn,
                         NotchDisplays::Pointer,
-                    ][at]
+                    ]
+                    .get(at)
+                    {
+                        notch.displays = displays;
+                    }
                 },
                 window,
                 cx,
@@ -251,7 +255,11 @@ impl Fields {
                     NotchOpenWith::Hover => 0,
                     NotchOpenWith::Click => 1,
                 },
-                |notch, at| notch.open_with = [NotchOpenWith::Hover, NotchOpenWith::Click][at],
+                |notch, at| {
+                    if let Some(&open_with) = [NotchOpenWith::Hover, NotchOpenWith::Click].get(at) {
+                        notch.open_with = open_with;
+                    }
+                },
                 window,
                 cx,
             ),
@@ -267,11 +275,15 @@ impl Fields {
                     NotchFullScreen::Never => 2,
                 },
                 |notch, at| {
-                    notch.full_screen = [
+                    if let Some(&full_screen) = [
                         NotchFullScreen::NeedsYou,
                         NotchFullScreen::Always,
                         NotchFullScreen::Never,
-                    ][at]
+                    ]
+                    .get(at)
+                    {
+                        notch.full_screen = full_screen;
+                    }
                 },
                 window,
                 cx,
@@ -288,7 +300,11 @@ impl Fields {
                     NotchPeeks::Never => 2,
                 },
                 |notch, at| {
-                    notch.peeks = [NotchPeeks::All, NotchPeeks::NeedsYou, NotchPeeks::Never][at]
+                    if let Some(&peeks) =
+                        [NotchPeeks::All, NotchPeeks::NeedsYou, NotchPeeks::Never].get(at)
+                    {
+                        notch.peeks = peeks;
+                    }
                 },
                 window,
                 cx,

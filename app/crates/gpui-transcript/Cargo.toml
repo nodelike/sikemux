@@ -23,3 +23,6 @@ serde_json = "1"
 gpui = { package = "gpui-pre", version = "=0.3.10", features = ["test-support"] }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.10", features = ["font-kit", "test-support", "bench-support"] }
 libc = "0.2"
+
+[lints]
+workspace = true

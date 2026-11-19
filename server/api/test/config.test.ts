@@ -17,6 +17,13 @@ const minimal = {
   JOIN_SIGNING_KEY_FILE: keyFile,
 };
 
+const proofKey = "ab".repeat(32);
+const releaseKeys = {
+  ADDRESS_PROOF_KEY: proofKey,
+  CLERK_SECRET_KEY: "sk_live_abc",
+};
+const releaseMinimal = { ...minimal, ...releaseKeys };
+
 describe("loadConfig", () => {
   it("listens only on this machine unless told otherwise", () => {
     expect(loadConfig(minimal)).toMatchObject({
@@ -56,7 +63,7 @@ describe("the join signing key", () => {
   const { JOIN_SIGNING_KEY_FILE: _file, ...withoutKey } = minimal;
 
   it("is prod-1 from JOIN_SIGNING_KEY_FILE in a release build", () => {
-    expect(loadConfig(minimal, { release: true }).join).toMatchObject({
+    expect(loadConfig(releaseMinimal, { release: true }).join).toMatchObject({
       keyId: "prod-1",
       publicKey: joinVector.publicKey,
       file: keyFile,
@@ -66,7 +73,10 @@ describe("the join signing key", () => {
   it("is required in a release build, which never makes its own", () => {
     const home = mkdtempSync(join(tmpdir(), "sikemux-home-"));
     expect(() =>
-      loadConfig({ ...withoutKey, HOME: home }, { release: true }),
+      loadConfig(
+        { ...withoutKey, ...releaseKeys, HOME: home },
+        { release: true },
+      ),
     ).toThrow("The API cannot start: JOIN_SIGNING_KEY_FILE is not set.");
     expect(() => statSync(devKeyFile(home))).toThrow();
   });

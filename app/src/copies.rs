@@ -165,7 +165,7 @@ impl Workbench {
         let own_index = (self.this_view().into_iter())
             .flat_map(|view| &view.workspace.projects)
             .position(|project| project.id == target);
-        let both_own = listed[from].own.is_some();
+        let both_own = listed.get(from).is_some_and(|row| row.own.is_some());
         if let (Some(index), true) = (own_index, both_own) {
             Target::here(&self.asks).call_typed::<call::MoveProject>(MoveProjectParams {
                 id: dragged.to_owned(),
@@ -230,12 +230,8 @@ impl Workbench {
         identity: Option<&str>,
         cx: &mut Context<Self>,
     ) {
-        let host = match &copy.place {
-            Place::Account(key) => key.clone(),
-            Place::This => match &self.remote {
-                Some(remote) => remote.core_id.clone(),
-                None => return,
-            },
+        let Some(host) = self.host_key(&copy.place) else {
+            return;
         };
         self.keep_draft(agent, cx);
         let moving = self
@@ -353,6 +349,14 @@ impl Workbench {
         })?;
         let front = self.front_copy(&folded)?;
         (front.place == target).then(|| front.project.clone())
+    }
+
+    /// The account's key for the host at `place`.
+    pub fn host_key(&self, place: &Place) -> Option<String> {
+        match place {
+            Place::Account(key) => Some(key.clone()),
+            Place::This => self.remote.as_ref().map(|remote| remote.core_id.clone()),
+        }
     }
 
     /// A project of the host at `place`, by its id there.
@@ -680,7 +684,7 @@ pub fn where_held(folded: &Folded, cx: &App) -> Option<AnyElement> {
             .items_center()
             .gap(px(3.))
             .text_color(t.host)
-            .child(ui::icon(Icon::Laptop, 11.).text_color(t.host))
+            .child(crate::rail::host_glyph(crate::theme::ROW_GLYPH, true, cx))
             .child(ui::text(label, TEXT_2XS, gpui_kit::FontWeight::MEDIUM))
             .into_any_element(),
     )

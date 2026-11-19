@@ -83,6 +83,49 @@
       "required": ["orgs"],
       "additionalProperties": false
     },
+    "OrgPlan": {
+      "description": "Whether the org's Team plan is paid up. lapsed: it has none, or it stopped being paid; invites and the org's features are frozen and its data is kept.",
+      "type": "string",
+      "enum": ["active", "lapsed"]
+    },
+    "OrgMembership": {
+      "description": "An org the account holds a seat in, as its hosts see it.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/OrgId"
+        },
+        "name": {
+          "$ref": "#/$defs/OrgName"
+        },
+        "role": {
+          "description": "The account's role in it.",
+          "$ref": "#/$defs/OrgRole"
+        },
+        "plan": {
+          "$ref": "#/$defs/OrgPlan"
+        },
+        "policy": {
+          "$ref": "#/$defs/OrgPolicy"
+        }
+      },
+      "required": ["id", "name", "role", "plan", "policy"],
+      "additionalProperties": false
+    },
+    "OrgMemberships": {
+      "description": "The orgs the account is in, oldest first. orgs.changed says when to read it again.",
+      "type": "object",
+      "properties": {
+        "orgs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrgMembership"
+          }
+        }
+      },
+      "required": ["orgs"],
+      "additionalProperties": false
+    },
     "OrgCreate": {
       "description": "A new org, with you as its owner.",
       "type": "object",
@@ -245,6 +288,455 @@
       },
       "required": ["token"],
       "additionalProperties": false
+    },
+    "OrgInvitePreview": {
+      "description": "What an invite link says before anyone signs in. Only a live invite names its org; a used, revoked, expired or unknown link answers null, so the answer tells nothing more.",
+      "type": "object",
+      "properties": {
+        "orgName": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": ["orgName"],
+      "additionalProperties": false
+    },
+    "OrgTeamId": {
+      "description": "A team's id, a UUID in lowercase.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "OrgTeamName": {
+      "description": "What a team is called; unique within its org.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "OrgTeam": {
+      "description": "A named list of an org's members. It owns nothing: it stands in wherever a list of people goes.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/OrgTeamId"
+        },
+        "name": {
+          "$ref": "#/$defs/OrgTeamName"
+        },
+        "members": {
+          "description": "Who is on it, by membership id, in the order they were added.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrgMemberId"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "name", "members", "createdAt"],
+      "additionalProperties": false
+    },
+    "OrgTeamList": {
+      "description": "The org's teams, by name.",
+      "type": "object",
+      "properties": {
+        "teams": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrgTeam"
+          }
+        }
+      },
+      "required": ["teams"],
+      "additionalProperties": false
+    },
+    "OrgTeamCreate": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/OrgTeamName"
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "OrgTeamRename": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/OrgTeamName"
+        }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    },
+    "OrgDomainId": {
+      "description": "An org domain's id, a UUID in lowercase.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "OrgDomainName": {
+      "description": "An email domain, such as example.com, in lowercase.",
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 253
+    },
+    "OrgDomainJoining": {
+      "description": "How someone whose verified sign-in email is at the domain comes in. open: they see the org on their Team page and may join it. offered: the org is also put to them when they sign in.",
+      "type": "string",
+      "enum": ["open", "offered"]
+    },
+    "OrgDomainRecord": {
+      "description": "The DNS TXT record that proves the org owns the domain.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Where the TXT record goes.",
+          "type": "string",
+          "maxLength": 300
+        },
+        "value": {
+          "description": "What the TXT record says.",
+          "type": "string",
+          "maxLength": 100
+        }
+      },
+      "required": ["name", "value"],
+      "additionalProperties": false
+    },
+    "OrgDomain": {
+      "description": "An email domain the org claims.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/OrgDomainId"
+        },
+        "domain": {
+          "$ref": "#/$defs/OrgDomainName"
+        },
+        "joining": {
+          "$ref": "#/$defs/OrgDomainJoining"
+        },
+        "record": {
+          "$ref": "#/$defs/OrgDomainRecord"
+        },
+        "verifiedAt": {
+          "description": "When the record was found; null until then, and nobody joins by the domain before it.",
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "oursSince": {
+          "description": "When an owner said addresses at the domain are the org's own; null while they haven't. Only an address added after it is refused a Sikemux account or sign-in of its own.",
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "domain",
+        "joining",
+        "record",
+        "verifiedAt",
+        "oursSince",
+        "createdAt"
+      ],
+      "additionalProperties": false
+    },
+    "OrgDomainList": {
+      "description": "The org's domains, oldest first.",
+      "type": "object",
+      "properties": {
+        "domains": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrgDomain"
+          }
+        }
+      },
+      "required": ["domains"],
+      "additionalProperties": false
+    },
+    "OrgDomainAdd": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "$ref": "#/$defs/OrgDomainName"
+        },
+        "joining": {
+          "$ref": "#/$defs/OrgDomainJoining"
+        }
+      },
+      "required": ["domain", "joining"],
+      "additionalProperties": false
+    },
+    "OrgDomainJoiningChange": {
+      "type": "object",
+      "properties": {
+        "joining": {
+          "$ref": "#/$defs/OrgDomainJoining"
+        }
+      },
+      "required": ["joining"],
+      "additionalProperties": false
+    },
+    "OrgDomainOursChange": {
+      "type": "object",
+      "properties": {
+        "ours": {
+          "description": "Whether addresses at the domain are the org's own.",
+          "type": "boolean"
+        }
+      },
+      "required": ["ours"],
+      "additionalProperties": false
+    },
+    "OrgOffer": {
+      "description": "An org you may join because your verified sign-in email is at a domain it proved it owns.",
+      "type": "object",
+      "properties": {
+        "orgId": {
+          "$ref": "#/$defs/OrgId"
+        },
+        "name": {
+          "$ref": "#/$defs/OrgName"
+        },
+        "domain": {
+          "$ref": "#/$defs/OrgDomainName"
+        },
+        "joining": {
+          "$ref": "#/$defs/OrgDomainJoining"
+        },
+        "seatFree": {
+          "description": "Whether a seat is free for you now; joining is refused while none is.",
+          "type": "boolean"
+        }
+      },
+      "required": ["orgId", "name", "domain", "joining", "seatFree"],
+      "additionalProperties": false
+    },
+    "OrgOfferList": {
+      "description": "The orgs your email's domain lets you join, leaving out those you are in and those with no live Team plan.",
+      "type": "object",
+      "properties": {
+        "offers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrgOffer"
+          }
+        }
+      },
+      "required": ["offers"],
+      "additionalProperties": false
+    },
+    "OrgDomainJoin": {
+      "description": "Joining an org through your email's domain, or through a work address you just proved.",
+      "type": "object",
+      "properties": {
+        "orgId": {
+          "$ref": "#/$defs/OrgId"
+        },
+        "sitting": {
+          "description": "The sitting a work address was just proven in on the Account page; the join stands on that proof instead of your sign-in addresses.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": ["orgId"],
+      "additionalProperties": false
+    },
+    "OrgRuleAdding": {
+      "description": "Who may add a rule to a project the org shares. every_member: it is kept at once. admins_approve: a member's rule waits for an owner or an admin.",
+      "type": "string",
+      "enum": ["every_member", "admins_approve"]
+    },
+    "OrgDailyQuestions": {
+      "description": "How many questions one person's agents may ask, a day, across all of the org's shared projects.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 500
+    },
+    "OrgPolicy": {
+      "description": "How the org's agents work together. Every member reads it; owners and admins change it. An org that never changed it reads as every_member, asking on and 30 a day.",
+      "type": "object",
+      "properties": {
+        "ruleAdding": {
+          "$ref": "#/$defs/OrgRuleAdding"
+        },
+        "asking": {
+          "description": "Whether teammates' agents may ask yours about a task.",
+          "type": "boolean"
+        },
+        "dailyQuestions": {
+          "$ref": "#/$defs/OrgDailyQuestions"
+        }
+      },
+      "required": ["ruleAdding", "asking", "dailyQuestions"],
+      "additionalProperties": false
+    },
+    "OrgAuditAction": {
+      "description": "What happened. ownership is handed over when role_changed has to: owner.",
+      "type": "string",
+      "enum": [
+        "created",
+        "joined",
+        "left",
+        "removed",
+        "role_changed",
+        "invite_created",
+        "invite_revoked",
+        "seats_changed",
+        "plan_canceled",
+        "plan_resumed",
+        "team_created",
+        "team_renamed",
+        "team_deleted",
+        "team_member_added",
+        "team_member_removed",
+        "domain_added",
+        "domain_verified",
+        "domain_joining_changed",
+        "domain_ours_changed",
+        "domain_removed",
+        "policy_changed",
+        "seat_moved",
+        "vault_created",
+        "vault_host_added",
+        "vault_rotated",
+        "vault_entry_written",
+        "vault_entry_removed"
+      ]
+    },
+    "OrgAuditEntry": {
+      "description": "One thing that happened in the org. It names people only by their sign-in's name and computers by what their member calls them; never an email or a host's key.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]{1,19}$"
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "action": {
+          "$ref": "#/$defs/OrgAuditAction"
+        },
+        "by": {
+          "description": "The name of who did it, from their sign-in; null when it has none, cannot be read right now, or the system did it.",
+          "type": ["string", "null"],
+          "maxLength": 256
+        },
+        "about": {
+          "description": "The name of the member it happened to, when that is not who did it; else null.",
+          "type": ["string", "null"],
+          "maxLength": 256
+        },
+        "role": {
+          "description": "The role someone joined, left or was invited with.",
+          "$ref": "#/$defs/OrgRole"
+        },
+        "from": {
+          "$ref": "#/$defs/OrgRole"
+        },
+        "to": {
+          "$ref": "#/$defs/OrgRole"
+        },
+        "via": {
+          "$ref": "#/$defs/OrgJoinedVia"
+        },
+        "team": {
+          "description": "The team's name at the time.",
+          "$ref": "#/$defs/OrgTeamName"
+        },
+        "previousName": {
+          "description": "A renamed team's old name.",
+          "$ref": "#/$defs/OrgTeamName"
+        },
+        "domain": {
+          "$ref": "#/$defs/OrgDomainName"
+        },
+        "joining": {
+          "$ref": "#/$defs/OrgDomainJoining"
+        },
+        "ours": {
+          "description": "Whether a domain's addresses are the org's own, as an owner set it.",
+          "type": "boolean"
+        },
+        "ruleAdding": {
+          "description": "Who may add a rule, as a policy change set it.",
+          "$ref": "#/$defs/OrgRuleAdding"
+        },
+        "asking": {
+          "description": "Whether teammates' agents may ask, as a policy change set it.",
+          "type": "boolean"
+        },
+        "dailyQuestions": {
+          "description": "The questions a day a policy change set.",
+          "$ref": "#/$defs/OrgDailyQuestions"
+        },
+        "entryKind": {
+          "description": "What a vault entry written or removed is, such as model-key.",
+          "type": "string"
+        },
+        "computer": {
+          "description": "What its member calls the computer given the vault's key, at the time.",
+          "type": "string",
+          "maxLength": 64
+        },
+        "seats": {
+          "description": "The seat count a change set.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "atRenewal": {
+          "description": "True when a seat change waits for the plan's renewal.",
+          "type": "boolean"
+        }
+      },
+      "required": ["id", "at", "action", "by", "about"],
+      "additionalProperties": false
+    },
+    "OrgAuditCursor": {
+      "description": "Where the next page of the audit log starts. Opaque to apps.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    },
+    "OrgAuditPage": {
+      "description": "Up to 50 of the org's audit entries, newest first.",
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrgAuditEntry"
+          }
+        },
+        "next": {
+          "description": "Pass as cursor for older entries; null at the start of the log.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrgAuditCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["entries", "next"],
+      "additionalProperties": false
+    },
+    "OrgJoinedVia": {
+      "description": "How someone joined an org.",
+      "type": "string",
+      "enum": ["invite", "domain"]
     }
   }
 }

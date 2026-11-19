@@ -10,7 +10,6 @@ import type {
   ChatMessage,
   ChatPart,
   ChatView,
-  ChiefAway,
   GoalMarker,
   InLine,
   PermissionAsk,
@@ -598,32 +597,6 @@ export function recordedView(chat: Recorded): Pick<ChatView, 'head' | 'rows' | '
 }
 
 /** How the demo chat stands, as the head of the view a host sends. */
-/** What happened while the person was away from the payments-api chief, as the core counts it. */
-const AWAY: ChiefAway = {
-  since: Date.now() - 7_380_000,
-  back: Date.now() - 60_000,
-  calls: ['call-ledger'],
-  decided: [
-    {
-      project: `${HOME}/payments-api`,
-      decision: 11,
-      text: 'Refunds over $500 wait for a second approval before they post',
-      why: '3 of 5 support tickets asked for it',
-      by: { agentId: 'chat-refunds', name: 'Flint' },
-      at: Date.now() - 3_600_000,
-    },
-    {
-      project: `${HOME}/payments-api`,
-      decision: 12,
-      text: 'Webhooks retry three times before giving up',
-      by: { agentId: 'chat-refunds', name: 'Flint' },
-      at: Date.now() - 3_000_000,
-      overruled: true,
-    },
-  ],
-  landed: [{ agentId: 'chat-refunds', name: 'Flint', title: 'Add refunds to the payments API', at: Date.now() - 2_400_000 }],
-};
-
 export function chatHead(chat: DemoChat): ChatView['head'] {
   const asking = permissionPayload(chat);
   return {
@@ -645,7 +618,6 @@ export function chatHead(chat: DemoChat): ChatView['head'] {
     turn: TURNS[chat.agentId],
     chief: chat.agentId === 'chat-team' || undefined,
     chiefHears: chat.project === 'p-api' && chat.agentId !== 'chat-team' ? 'chat-team' : undefined,
-    away: chat.agentId === 'chat-team' ? AWAY : undefined,
   };
 }
 

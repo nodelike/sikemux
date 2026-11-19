@@ -194,7 +194,9 @@ impl Element for NativeView {
             )
         };
         let frame = (!visible.is_empty()).then_some(Frame { bounds, visible });
-        let id = id.expect("a native view has an id");
+        let Some(id) = id else {
+            return hitbox;
+        };
         window.with_element_state(id, |placement: Option<Placement>, window| {
             let placement = placement
                 .filter(|placement| placement.shows(&self.surface))

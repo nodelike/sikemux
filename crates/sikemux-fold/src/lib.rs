@@ -37,12 +37,12 @@ use sikemux_wire::protocol::PermissionMode;
 use sikemux_view::chat::{
     AccountMove, AgentLetter, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo,
     ChatConnection, ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole,
-    ChatTrigger, ChiefAway, ClosedCard, Compactions, ContentBlock, ContextUsage, EndedTasks,
-    FailureKind, GifRef, GuestMessage, KeptRule, LetterKind, MoveReason, NoticeSeverity,
-    NoticeState, OverruledDecision, PermissionAsk, PermissionKind, PermissionOption, PlanEntry,
-    QueuedMessage, RestoredPart, Retrying, RuleChange, SentContext, SessionEnded, StopReason,
-    SubagentCard, SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail,
-    ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
+    ChatTrigger, ClosedCard, Compactions, ContentBlock, ContextUsage, EndedTasks, FailureKind,
+    GifRef, GuestMessage, KeptRule, LetterKind, MoveReason, NoticeSeverity, NoticeState,
+    OverruledDecision, PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage,
+    RestoredPart, Retrying, RuleChange, SentContext, SessionEnded, StopReason, SubagentCard,
+    SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail, ToolStatus, TurnStart,
+    Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -270,13 +270,17 @@ impl Transcript {
     }
 
     fn touch(&mut self, at: usize) {
-        self.rows[at].v = self.now;
+        if let Some(row) = self.rows.get_mut(at) {
+            row.v = self.now;
+        }
         self.queue(at);
     }
 
     /// Sends the row's changes with the next flush, without counting it as changed now.
     fn queue(&mut self, at: usize) {
-        let id = &self.rows[at].msg.id;
+        let Some(id) = self.rows.get(at).map(|row| &row.msg.id) else {
+            return;
+        };
         if !self.touched.iter().any(|touched| touched == id) {
             self.touched.push(id.clone());
         }
@@ -727,7 +731,8 @@ impl Fold {
     }
 
     fn read_pickers(&mut self) {
-        let (model, mut effort) = pickers::pickers(&self.head.setup["configOptions"]);
+        let options = self.head.setup.get("configOptions").unwrap_or(&Value::Null);
+        let (model, mut effort) = pickers::pickers(options);
         if effort.is_none() && self.offers_effort {
             effort = Some(sikemux_view::workspace::ConfigPicker {
                 id: "effort".into(),
@@ -743,12 +748,14 @@ impl Fold {
             self.head.effort = effort;
             self.set_head("effort");
         }
-        let speed = pickers::speed(&self.head.setup["configOptions"]);
+        let options = self.head.setup.get("configOptions").unwrap_or(&Value::Null);
+        let speed = pickers::speed(options);
         if self.head.speed != speed {
             self.head.speed = speed;
             self.set_head("speed");
         }
-        let session_mode = pickers::session_mode(&self.head.setup["configOptions"]);
+        let options = self.head.setup.get("configOptions").unwrap_or(&Value::Null);
+        let session_mode = pickers::session_mode(options);
         if self.head.session_mode != session_mode {
             self.head.session_mode = session_mode;
             self.set_head("sessionMode");
@@ -861,13 +868,6 @@ impl Fold {
         }
     }
 
-    pub fn set_away(&mut self, away: Option<ChiefAway>) {
-        if self.head.away != away {
-            self.head.away = away;
-            self.set_head("away");
-        }
-    }
-
     pub fn set_chief(&mut self, chief: bool) {
         if self.head.chief != chief {
             self.head.chief = chief;
@@ -925,7 +925,9 @@ impl Fold {
     /// A sent message read before the agent named its commands may have named one.
     fn read_sent_again(&mut self) {
         for at in 0..self.main.rows.len() {
-            let row = &mut self.main.rows[at];
+            let Some(row) = self.main.rows.get_mut(at) else {
+                continue;
+            };
             let sent = row.msg.role == ChatRole::User
                 && (row.raw.iter())
                     .any(|part| matches!(part, ChatPart::Text { text, .. } if text.contains('/')));
@@ -935,7 +937,6 @@ impl Fold {
             let before = std::mem::take(&mut row.msg.spans);
             let was_fresh = row.fresh;
             read_sent(row, &self.head.commands);
-            let row = &mut self.main.rows[at];
             if row.msg.spans == before {
                 row.fresh = was_fresh;
             } else {
@@ -1361,10 +1362,9 @@ impl Fold {
                     .rows
                     .last()
                     .is_some_and(|row| row.msg.role == ChatRole::Assistant);
-            if opened {
-                let last = self.main.rows.len() - 1;
-                self.main.rows[last].msg.opens_turn = opening.clone();
-                self.main.rows[last].set("opensTurn");
+            if let Some(last) = self.main.rows.last_mut().filter(|_| opened) {
+                last.msg.opens_turn = opening.clone();
+                last.set("opensTurn");
             }
             self.recorded_time(update, timed);
             let turn_opening = if opened { None } else { opening };
@@ -1678,7 +1678,9 @@ impl Fold {
                 position
             }
         };
-        let row = &mut transcript.rows[position];
+        let Some(row) = transcript.rows.get_mut(position) else {
+            return;
+        };
         if role == ChatRole::User {
             match (text, row.raw.last_mut()) {
                 (Some(more), Some(ChatPart::Text { text, .. })) => text.push_str(more),
@@ -1702,8 +1704,10 @@ impl Fold {
         let mut open = row.msg.parts.len().saturating_sub(1);
         while open > 0
             && matches!(
-                row.msg.parts[open],
-                ChatPart::Notice { .. } | ChatPart::Tasks { .. } | ChatPart::AgentNotice { .. }
+                row.msg.parts.get(open),
+                Some(
+                    ChatPart::Notice { .. } | ChatPart::Tasks { .. } | ChatPart::AgentNotice { .. }
+                )
             )
         {
             open -= 1;
@@ -1778,7 +1782,7 @@ impl Fold {
             let new_id = transcript.next_id(index);
             transcript.push(Row::new(new_id, ChatRole::Assistant, index))
         };
-        let row = &mut transcript.rows[position];
+        let row = transcript.rows.get_mut(position)?;
         let id = row.next_part_id();
         row.push_part(part(id));
         let place = (row.msg.id.clone(), row.msg.parts.len() - 1);
@@ -1825,7 +1829,9 @@ impl Fold {
             let (row, part, within) = (place.row.clone(), place.part, place.within.clone());
             let running = tools::running(text_of(raw.get("status")));
             if running {
-                self.tools.get_mut(&key).expect("held").raw = Some(raw.clone());
+                if let Some(held) = self.tools.get_mut(&key) {
+                    held.raw = Some(raw.clone());
+                }
                 let call = self.shown_call(&raw);
                 self.replace_tool(&within, &row, part, |part| {
                     if let ChatPart::Tool { tool, .. } = part {
@@ -2001,14 +2007,14 @@ impl Fold {
         let first = (transcript.rows.iter())
             .rposition(|row| row.index <= from)
             .unwrap_or(0);
-        let answer: Vec<usize> = (first..transcript.rows.len())
-            .filter(|&at| {
-                let row = &transcript.rows[at];
-                row.index <= until && row.msg.role == ChatRole::Assistant
-            })
+        let answer: Vec<usize> = (transcript.rows.iter().enumerate().skip(first))
+            .filter(|(_, row)| row.index <= until && row.msg.role == ChatRole::Assistant)
+            .map(|(at, _)| at)
             .collect();
         for &at in &answer {
-            let row = &mut transcript.rows[at];
+            let Some(row) = transcript.rows.get_mut(at) else {
+                continue;
+            };
             let mut changed = Vec::new();
             for (part, held) in row.msg.parts.iter_mut().enumerate() {
                 let ChatPart::Text { id, text, .. } = held else {
@@ -2020,7 +2026,7 @@ impl Fold {
                     row.msg.left_out.push(Unsourced {
                         part: id.clone(),
                         at: (cut.start - gone) as u64,
-                        text: text[cut.clone()].to_owned(),
+                        text: text.get(cut.clone()).unwrap_or_default().to_owned(),
                         sentences: *sentences as u64,
                     });
                     gone += cut.len();
@@ -2072,7 +2078,9 @@ impl Fold {
         let Some(position) = transcript.position(row) else {
             return;
         };
-        let held = &mut transcript.rows[position];
+        let Some(held) = transcript.rows.get_mut(position) else {
+            return;
+        };
         if let Some(found) = held.msg.parts.get_mut(part) {
             change(found);
             held.touch_part(part);
@@ -2198,7 +2206,7 @@ impl Fold {
             app: None,
             ended_at: Some(_),
             ..
-        } = &last.msg.parts[part]
+        } = last.msg.parts.get(part)?
         else {
             return None;
         };
@@ -2326,7 +2334,9 @@ impl Fold {
         let Some(position) = transcript.position(&row) else {
             return;
         };
-        let held = &mut transcript.rows[position];
+        let Some(held) = transcript.rows.get_mut(position) else {
+            return;
+        };
         let Some(ChatPart::Subagent { subagent, .. }) = held.msg.parts.get_mut(part) else {
             return;
         };
@@ -2485,7 +2495,9 @@ impl Fold {
             );
             return;
         }
-        let task = &mut self.head.tasks[position];
+        let Some(task) = self.head.tasks.get_mut(position) else {
+            return;
+        };
         let text = |key: &str| text_of(update.get(key)).map(str::to_owned);
         if let Some(state) = state {
             task.state = state;
@@ -2546,21 +2558,24 @@ impl Fold {
         };
         let rows = &transcript.rows;
         let joins = if between {
-            rows.len()
-                .checked_sub(1)
-                .filter(|&last| rows[last].msg.role == ChatRole::Assistant && !rows[last].local)
-                .map(|last| (last, rows[last].msg.parts.len().saturating_sub(1)))
+            (rows.iter().enumerate().next_back())
+                .filter(|(_, last)| last.msg.role == ChatRole::Assistant && !last.local)
+                .map(|(at, last)| (at, last.msg.parts.len().saturating_sub(1)))
         } else {
             turn_tasks.and_then(|(row, part)| Some((transcript.position(&row)?, part)))
         };
         let joins = joins.filter(|&(position, part)| {
             matches!(
-                transcript.rows[position].msg.parts.get(part),
+                transcript
+                    .rows
+                    .get(position)
+                    .and_then(|row| row.msg.parts.get(part)),
                 Some(ChatPart::Tasks { .. })
             )
         });
-        if let Some((position, part)) = joins {
-            let row = &mut transcript.rows[position];
+        if let Some((position, row, part)) = joins
+            .and_then(|(position, part)| Some((position, transcript.rows.get_mut(position)?, part)))
+        {
             if let Some(ChatPart::Tasks { tasks, .. }) = row.msg.parts.get_mut(part) {
                 ended::add(tasks, notice);
             }
@@ -2604,8 +2619,8 @@ impl Fold {
             let open = format!("<{name}>");
             let close = format!("</{name}>");
             let start = text.find(&open)? + open.len();
-            let len = text[start..].find(&close)?;
-            Some(text[start..start + len].trim().to_owned())
+            let (inside, _) = text.get(start..)?.split_once(&close)?;
+            Some(inside.trim().to_owned())
         };
         let (Some(task), Some(state)) = (
             tag("task-id"),
@@ -2617,9 +2632,9 @@ impl Fold {
         let name = summary
             .as_deref()
             .and_then(|summary| {
-                let start = summary.find('"')? + 1;
-                let len = summary[start..].find('"')?;
-                (len > 0).then(|| summary[start..start + len].to_owned())
+                let (_, after) = summary.split_once('"')?;
+                let (name, _) = after.split_once('"')?;
+                (!name.is_empty()).then(|| name.to_owned())
             })
             .or(summary)
             .unwrap_or_else(|| "Background task".into());
@@ -2765,7 +2780,9 @@ impl Fold {
         let Some((position, part)) = found else {
             return false;
         };
-        let held = &mut self.main.rows[position];
+        let Some(held) = self.main.rows.get_mut(position) else {
+            return false;
+        };
         if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
             notice.worker_page = Some(page.clone());
         }
@@ -2792,7 +2809,9 @@ impl Fold {
         let Some((position, part)) = found else {
             return false;
         };
-        let held = &mut self.main.rows[position];
+        let Some(held) = self.main.rows.get_mut(position) else {
+            return false;
+        };
         if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
             notice.closed_card = Some(Box::new(reopened.clone()));
             notice.title = title.to_owned();
@@ -2816,7 +2835,9 @@ impl Fold {
         let Some((position, part)) = found else {
             return false;
         };
-        let held = &mut self.main.rows[position];
+        let Some(held) = self.main.rows.get_mut(position) else {
+            return false;
+        };
         if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
             if let Some(line) = notice.rule_change.as_mut() {
                 line.restored = true;
@@ -2845,7 +2866,9 @@ impl Fold {
         let Some((position, part)) = found else {
             return false;
         };
-        let held = &mut self.main.rows[position];
+        let Some(held) = self.main.rows.get_mut(position) else {
+            return false;
+        };
         if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
             if let Some(rule) = notice.rule.as_mut() {
                 rule.undone = true;
@@ -2874,7 +2897,7 @@ impl Fold {
         let waiting = (self.decided_in_turn.iter_mut()).find(|(_, _, notice)| holds(notice));
         if let Some((_, _, notice)) = waiting {
             notice.decided = None;
-            notice.overruled = Some(now.clone());
+            notice.overruled = Some(Box::new(now.clone()));
             notice.title = title.to_owned();
             return true;
         }
@@ -2887,10 +2910,12 @@ impl Fold {
         let Some((position, part)) = found else {
             return false;
         };
-        let held = &mut self.main.rows[position];
+        let Some(held) = self.main.rows.get_mut(position) else {
+            return false;
+        };
         if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
             notice.decided = None;
-            notice.overruled = Some(now.clone());
+            notice.overruled = Some(Box::new(now.clone()));
             notice.title = title.to_owned();
         }
         held.touch_part(part);

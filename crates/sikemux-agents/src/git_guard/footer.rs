@@ -170,7 +170,7 @@ fn hooks_for(folder: &Path, theirs: &Path) -> std::io::Result<PathBuf> {
         .chain_update(names.join("\n"))
         .chain_update(&script)
         .finalize();
-    let set = hex::encode(&set[..6]);
+    let set = hex::encode(set.get(..6).unwrap_or(set.as_slice()));
     let hooks = folder.join(set);
     if hooks.is_dir() {
         return Ok(hooks);

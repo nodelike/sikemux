@@ -6,10 +6,10 @@ default-members = ["crates/*", "plugins/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.6.1"
+version = "0.6.1-nightly.22"
 
-# Only crates that set `lints.workspace = true` get these, which is every
-# plugin crate and not the app. A plugin that panics takes the app down.
+# Every crate sets `lints.workspace = true`, and a new one must too: a panic in
+# any of them takes the app or the core down.
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
@@ -77,6 +77,75 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.gpui-transcript]
 opt-level = 3
+
+# Accounts, pairing, sharing, sign-in keys, config files and web addresses are
+# read on a person's action, never per byte or per frame, so they are built for
+# the smallest size too.
+[profile.release.package.sikemux-remote]
+opt-level = "z"
+[profile.release.package.sikemux-hostkit]
+opt-level = "z"
+[profile.release.package.sikemux-trust]
+opt-level = "z"
+[profile.release.package.sikemux-keychain]
+opt-level = "z"
+[profile.release.package.toml_edit]
+opt-level = "z"
+[profile.release.package.toml_writer]
+opt-level = "z"
+[profile.release.package.url]
+opt-level = "z"
+[profile.release.package.idna]
+opt-level = "z"
+[profile.release.package.idna_adapter]
+opt-level = "z"
+[profile.release.package.icu_normalizer]
+opt-level = "z"
+[profile.release.package.icu_properties]
+opt-level = "z"
+[profile.release.package.icu_collections]
+opt-level = "z"
+[profile.release.package.icu_locale_core]
+opt-level = "z"
+[profile.release.package.icu_provider]
+opt-level = "z"
+# The board's cards change when the person or an agent acts on one.
+[profile.release.package.sikemux-board]
+opt-level = "z"
+
+# Diagrams and formulas are drawn once each, off the main thread.
+[profile.release.package.mermaid-svg]
+opt-level = "z"
+[profile.release.package.latex-rust]
+opt-level = "z"
+
+# Crash reports are written once, after a crash.
+[profile.release.package.sentry]
+opt-level = "z"
+[profile.release.package.sentry-core]
+opt-level = "z"
+[profile.release.package.sentry-types]
+opt-level = "z"
+[profile.release.package.sentry-contexts]
+opt-level = "z"
+[profile.release.package.sentry-debug-images]
+opt-level = "z"
+[profile.release.package.sentry-minidump]
+opt-level = "z"
+[profile.release.package.minidump-writer]
+opt-level = "z"
+[profile.release.package.minidump-common]
+opt-level = "z"
+[profile.release.package.minidumper]
+opt-level = "z"
+[profile.release.package.minidumper-child]
+opt-level = "z"
+# Phone simulators are driven at an agent's or the person's request, never per frame.
+[profile.release.package.sikemux-simulator]
+opt-level = "z"
+# The browser's tabs and tools act on a click or an agent's call; WebKit draws the pages.
+[profile.release.package.sikemux-browser]
+opt-level = "z"
 
 # Plugins never sit on a hot path, so they go further and are built for the
 # smallest size.
@@ -213,8 +282,6 @@ opt-level = "s"
 opt-level = "s"
 [profile.release.package.hyper-util]
 opt-level = "s"
-[profile.release.package.idna]
-opt-level = "s"
 [profile.release.package.regex-syntax]
 opt-level = "s"
 # The phone link carries terminal text and chat, and the database drivers wait
@@ -252,31 +319,31 @@ opt-level = "s"
 
 # GPUI from our fork of sonorahq/gpui, published under the gpui-pre names GPUI Kit pins.
 [patch.crates-io]
-gpui-pre = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-apple = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-collections = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-derive-refineable = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-http-client = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-linux = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-macos = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-macros = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-platform = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-refineable = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-scheduler = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-shared-string = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-sum-tree = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-util = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-wgpu = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-windows = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-ztracing = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-gpui-pre-ztracing-macro = { git = "https://github.com/sikemux/gpui", rev = "8efbd4dd93188d36bc0309d1a4118dc046044fa1" }
-# GPUI Kit with menu icons at the small size and a wider gap before their label; all its crates
+gpui-pre = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-apple = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-collections = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-derive-refineable = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-http-client = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-linux = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-macos = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-macros = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-platform = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-refineable = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-scheduler = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-shared-string = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-sum-tree = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-util = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-wgpu = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-windows = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-ztracing = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+gpui-pre-ztracing-macro = { git = "https://github.com/sikemux/gpui", rev = "95e4373d75bb809a208d3f75cc98918d452c2ce8" }
+# GPUI Kit with menu icons at the small size, and the pointing hand on every click; all its crates
 # come from the one commit, so they share their types.
-gpui-base = { git = "https://github.com/sikemux/gpui-kit", rev = "885582c8574a83ca836fc2590476bf637afd6c29" }
-gpui-component = { git = "https://github.com/sikemux/gpui-kit", rev = "885582c8574a83ca836fc2590476bf637afd6c29" }
-gpui-component-macros = { git = "https://github.com/sikemux/gpui-kit", rev = "885582c8574a83ca836fc2590476bf637afd6c29" }
-gpui-kit = { git = "https://github.com/sikemux/gpui-kit", rev = "885582c8574a83ca836fc2590476bf637afd6c29" }
-gpui-kit-assets = { git = "https://github.com/sikemux/gpui-kit", rev = "885582c8574a83ca836fc2590476bf637afd6c29" }
+gpui-base = { git = "https://github.com/sikemux/gpui-kit", rev = "e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb" }
+gpui-component = { git = "https://github.com/sikemux/gpui-kit", rev = "e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb" }
+gpui-component-macros = { git = "https://github.com/sikemux/gpui-kit", rev = "e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb" }
+gpui-kit = { git = "https://github.com/sikemux/gpui-kit", rev = "e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb" }
+gpui-kit-assets = { git = "https://github.com/sikemux/gpui-kit", rev = "e9bd79350a9b974c9fcd1a8b031a2e7fcdedbbeb" }
 # crash-handler 0.7 with 0.8.1's fix for crashing child processes, until minidumper-child takes 0.8.
 crash-handler = { git = "https://github.com/sikemux/crash-handling", rev = "7443679fda95eb546cd4ec33100a13d3c6674aab" }
 # irosashi with C Oniguruma and Shiki's injection rules, until frostybee/irosashi takes them.

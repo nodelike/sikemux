@@ -1,0 +1,15 @@
+# The Playbook's Rules page: the person's own rules beside the project's, the chief's offer to
+# move one that names this repository, a sensitive rule, and the project group's menu.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+project storefront shop
+core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Run pnpm check before every commit.\",\"goal\":null,\"sensitive\":false,\"store\":\"project\"}}"
+core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Never print the Stripe keys in a reply.\",\"goal\":null,\"sensitive\":true,\"store\":\"project\"}}"
+core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Keep each test in test/ beside the file it covers in src/.\",\"goal\":null,\"sensitive\":false,\"store\":\"personal\"}}"
+core memoryAdd "{\"project\":\"$project\",\"entry\":{\"kind\":\"rule\",\"text\":\"Keep replies short.\",\"goal\":null,\"sensitive\":false,\"store\":\"personal\"}}"
+chat Wren
+settle 4
+key cmd-alt-6
+settle 3
+snap rules

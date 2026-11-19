@@ -512,6 +512,9 @@ fn set_identities(core: &Core, identities: Vec<(PathBuf, Option<String>)>) {
             (old != new).then_some((old, new))
         })
         .collect();
+    if !renamed.is_empty() {
+        super::shares::renamed(core, &renamed);
+    }
     core.workspaces().set_identities(identities);
     super::board::rekey(core);
     super::memory::rekey(core, &renamed);

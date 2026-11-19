@@ -115,6 +115,8 @@ fn user_path() -> Option<String> {
 
     let own = std::env::var_os("PATH").unwrap_or_default();
     let existing = sikemux_trust::child()
+        .ok()
+        .flatten()
         .and_then(|child| path_of(&child.environment))
         .unwrap_or(own);
     let saved = sikemux_process::user_environment::was_reread()
@@ -139,7 +141,7 @@ fn user_path() -> Option<String> {
 #[cfg(windows)]
 fn saved_path() -> Option<std::ffi::OsString> {
     let own;
-    let token = match sikemux_trust::child() {
+    let token = match sikemux_trust::child().ok()? {
         Some(child) => &child.token,
         None => {
             own = sikemux_trust::Token::own().ok()?;

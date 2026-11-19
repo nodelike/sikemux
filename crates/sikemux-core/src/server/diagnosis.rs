@@ -123,7 +123,7 @@ fn chain(steps: &mut [DiagnosisStep]) {
     else {
         return;
     };
-    for step in &mut steps[first + 1..] {
+    for step in steps.iter_mut().skip(first + 1) {
         *step = unchecked(step.step);
     }
 }

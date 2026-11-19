@@ -1,17 +1,24 @@
 import { useUser } from "@clerk/react";
 import { IconMail, IconTrash } from "@shared/ui/Icons";
-import type { MouseEvent, ReactNode } from "react";
+import type { MouseEvent } from "react";
 
 import { Avatar } from "./Avatar.tsx";
-import { AppleMark, GitHubMark, GoogleMark } from "./icons.tsx";
 import { DELETE_ACCOUNT } from "./navigation.ts";
+import { PROVIDERS, SignInWaysSection } from "./SignInWays.tsx";
 import { ItemRow, PageHead, Row, Rows, Section } from "./ui.tsx";
+import { WorkAddressesSection } from "./WorkAddresses.tsx";
 
-const PROVIDERS: Record<string, { name: string; mark: ReactNode }> = {
-  google: { name: "Google", mark: <GoogleMark /> },
-  apple: { name: "Apple", mark: <AppleMark /> },
-  github: { name: "GitHub", mark: <GitHubMark /> },
-};
+/** The ways the signed-in account can sign in, as the person knows them. */
+export function useSignInWays() {
+  const { user } = useUser();
+  const providers = (user?.externalAccounts ?? []).flatMap((account) => {
+    const provider = PROVIDERS[account.provider];
+    return provider ? [provider] : [];
+  });
+  return providers.length > 0
+    ? providers
+    : [{ name: "Email code", mark: <IconMail size={16} /> }];
+}
 
 export function AccountPage({
   onDelete,
@@ -20,14 +27,6 @@ export function AccountPage({
 }) {
   const { user } = useUser();
   const email = user?.primaryEmailAddress?.emailAddress;
-  const providers = (user?.externalAccounts ?? []).flatMap((account) => {
-    const provider = PROVIDERS[account.provider];
-    return provider ? [provider] : [];
-  });
-  const ways =
-    providers.length > 0
-      ? providers
-      : [{ name: "Email code", mark: <IconMail size={16} /> }];
 
   return (
     <>
@@ -42,17 +41,10 @@ export function AccountPage({
               <span>{user?.fullName || user?.username || "No name yet"}</span>
             </Row>
             {email ? <Row label="Email">{email}</Row> : null}
-            <Row label="Signs in with">
-              {ways.map((way, index) => (
-                <span className="way" key={way.name}>
-                  {index > 0 ? <span className="quiet">·</span> : null}
-                  {way.mark}
-                  <span>{way.name}</span>
-                </span>
-              ))}
-            </Row>
           </Rows>
         </Section>
+        <SignInWaysSection />
+        <WorkAddressesSection />
         <Section label="Delete">
           <Rows>
             <ItemRow

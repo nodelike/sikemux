@@ -90,6 +90,8 @@ struct Held(Option<Retained<WKWebView>>);
 // in `Drop`, which sends it there.
 #[cfg(target_os = "macos")]
 unsafe impl Send for Held {}
+// SAFETY: a shared `Held` reaches its view only on the main thread: `webview_here`
+// checks for it first, and `run` sends its work there through `on_main`.
 #[cfg(target_os = "macos")]
 unsafe impl Sync for Held {}
 

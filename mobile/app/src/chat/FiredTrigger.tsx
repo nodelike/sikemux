@@ -10,13 +10,14 @@ import { From, makeBubbleStyles } from './Bubble';
 
 type Fired = NonNullable<NonNullable<ChatMessage['letters']>[number]['trigger']>;
 
-/** A trigger's prompt in a bubble at the left under the trigger's name, with the webhook request that fired it
- *  folded beneath. */
+/** A trigger that came due, folded to a line with its name, which opens onto its prompt in a bubble at the left and
+ *  the webhook request that fired it. */
 export function FiredTrigger({ id, fired, at }: { id: string; fired: Fired; at?: number }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const bubble = useStyles(makeBubbleStyles);
   const t = useT();
+  const [shown, setShown] = useFold(`${id}/fired`, false);
   const [open, setOpen] = useFold(`${id}/request`, false);
   const request = fired.request;
   const kind = request?.headers
@@ -30,18 +31,29 @@ export function FiredTrigger({ id, fired, at }: { id: string; fired: Fired; at?:
       <From
         at={at}
         who={
-          <>
+          <Pressable
+            onPress={() => setShown(!shown)}
+            style={styles.foldLine}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: shown }}
+            accessibilityLabel={fired.title}>
+            <View style={shown ? { transform: [{ rotate: '90deg' }] } : undefined}>
+              <Icon name="IconChevron" size={10} color={colors.inkFaint} />
+            </View>
             <Icon name="IconTimer" size={13} color={colors.cmd} />
             <Text style={styles.triggerTitle} numberOfLines={1}>
               {fired.title}
             </Text>
-          </>
+          </Pressable>
         }>
-        <Text style={bubble.text} selectable>
-          {fired.prompt}
-        </Text>
+        {shown ? (
+          <Text style={bubble.text} selectable>
+            {fired.prompt}
+          </Text>
+        ) : undefined}
       </From>
-      {request ? (
+      {shown && request ? (
         <>
           <Pressable
             onPress={() => setOpen(!open)}
@@ -79,6 +91,7 @@ export function FiredTrigger({ id, fired, at }: { id: string; fired: Fired; at?:
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     prose: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 23, color: colors.ink },
+    foldLine: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
     triggerTitle: { flexShrink: 1, fontFamily: fonts.uiSemibold, fontSize: 12.5, color: colors.ink },
     requestLine: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, paddingVertical: 4, paddingHorizontal: 8 },
     requestSummary: { fontFamily: fonts.mono, fontSize: 11, color: colors.inkFaint, flexShrink: 1 },

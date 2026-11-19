@@ -84,17 +84,21 @@ pub(crate) async fn open_there(
     let answer = asked(&opening, None)
         .await
         .map_err(|error| error.to_string())?;
-    if answer["needs"] != "bundle" {
+    if answer.get("needs").and_then(Value::as_str) != Some("bundle") {
         return Ok(answer);
     }
-    let tips: Vec<String> = answer["tips"]
-        .as_array()
+    let tips: Vec<String> = answer
+        .get("tips")
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect();
-    let into = answer["into"].as_str().map(PathBuf::from);
+    let into = answer
+        .get("into")
+        .and_then(Value::as_str)
+        .map(PathBuf::from);
     let (repo, commit) = (packed.repo, packed.code.commit);
     let bundled = blocking(move || code::bundle(&repo, &commit, &tips).map_err(Into::into)).await;
     let answer = match bundled {
@@ -109,7 +113,9 @@ pub(crate) async fn open_there(
         Err(error) => Err(error.to_string()),
     };
     let failed = match answer {
-        Ok(answer) if answer["needs"] != "bundle" => return Ok(answer),
+        Ok(answer) if answer.get("needs").and_then(Value::as_str) != Some("bundle") => {
+            return Ok(answer)
+        }
         Ok(_) => format!(
             "{} could not take the project from this host's bundle",
             link.name

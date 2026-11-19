@@ -153,6 +153,9 @@ pub const TEXT_MD: f32 = 14.;
 pub const TEXT_LG: f32 = 16.;
 pub const TEXT_XL: f32 = 20.;
 
+/// The glyph a rail row is marked with, such as a host's laptop, drawn in its 16px mark slot.
+pub const ROW_GLYPH: f32 = 14.;
+
 thread_local! {
     /// The worn theme's corner radii, which [`apply`] sets.
     static RADII: Cell<[f32; 4]> = const { Cell::new([4., 5., 10., 14.]) };
@@ -226,7 +229,7 @@ pub fn shadow_large() -> Vec<BoxShadow> {
 }
 
 fn radius(step: usize) -> Pixels {
-    px(RADII.with(|radii| radii.get()[step]))
+    px(RADII.with(|radii| radii.get().get(step).copied().unwrap_or_default()))
 }
 
 pub fn radius_1() -> Pixels {
@@ -452,6 +455,7 @@ pub fn install(cx: &mut App) {
         include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-BoldItalic-Base.ttf").as_slice(),
         include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Regular-Icons.ttf").as_slice(),
     ];
+    #[expect(clippy::expect_used, reason = "the fonts are compiled into the app")]
     cx.text_system()
         .add_fonts(fonts.into_iter().map(Cow::Borrowed).collect())
         .expect("bundled fonts load");
@@ -673,7 +677,7 @@ pub fn css(color: Hsla) -> String {
 /// `ground` is what the page draws behind itself; with none it lets what is under it show.
 pub fn page_rule(t: &Tokens, ground: Option<Hsla>) -> String {
     let ansi = |index: usize| {
-        let [r, g, b] = t.terminal.ansi[index];
+        let [r, g, b] = t.terminal.ansi.get(index).copied().unwrap_or_default();
         format!("rgb({r},{g},{b})")
     };
     let variables = BTreeMap::from([

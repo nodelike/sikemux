@@ -11,6 +11,7 @@
 
 mod folder_rows;
 mod folders;
+pub(crate) mod personal;
 mod rows;
 
 use std::collections::{BTreeSet, HashSet};
@@ -37,7 +38,8 @@ use super::super::triggers::{mod_written, ModWritten};
 use super::super::vault::{open_bound, random_key, seal_bound, Key};
 use super::super::{Core, CoreError, CoreResult};
 use super::data::Document;
-use crate::accounts::protocol::{AccountEvent, AccountEventType};
+use crate::accounts::allows;
+use crate::accounts::protocol::{AccountEvent, AccountEventType, PlanFeature};
 use crate::accounts::vault::{
     ModDocument, ModDocumentPut, ModsPulled, ModsPurged, ModsPush, ModsPushed,
 };
@@ -85,6 +87,8 @@ pub(crate) struct Sync {
     folders: Mutex<BTreeSet<String>>,
     /// Every mod's folder is to be looked at, as when the core starts or the account changes.
     every_folder: AtomicBool,
+    /// The person's files too large to sync, each told of once.
+    too_large: Mutex<BTreeSet<String>>,
 }
 
 impl Sync {
@@ -274,7 +278,8 @@ pub(super) async fn run(core: Weak<Core>) {
 }
 
 async fn round(core: &Arc<Core>) -> CoreResult<Next> {
-    if core.remote().signed_in_api().is_none() {
+    let plan = core.account().shown();
+    if core.remote().signed_in_api().is_none() || !allows(plan.as_ref(), PlanFeature::Sync) {
         return Ok(Next::Idle);
     }
     let Some((account, generation, key)) = core.vault().key() else {
@@ -311,6 +316,9 @@ async fn round(core: &Arc<Core>) -> CoreResult<Next> {
         .map(|copy| arrival(sealing, copy))
         .collect();
     take_in(core, arrivals).await?;
+    if let Err(error) = personal::step(core).await {
+        eprintln!("sikemux core: settings and skills did not sync: {error}");
+    }
     sweep(core).await?;
     if let Some(wait) = purge(core).await? {
         return Ok(Next::Later(wait));
@@ -355,6 +363,9 @@ async fn take_in(core: &Arc<Core>, arrivals: Vec<Incoming>) -> CoreResult<()> {
         doc,
     } in &merged
     {
+        if module == personal::MODULE {
+            continue;
+        }
         let of_folder = collection == folder_rows::FILES
             || (collection == super::data::OWN && id == folder_rows::FOLDER);
         if of_folder {
@@ -377,7 +388,8 @@ async fn take_in(core: &Arc<Core>, arrivals: Vec<Incoming>) -> CoreResult<()> {
 }
 
 /// Tells open panes which collections changed, and every client when a mod's badge did.
-fn announce(core: &Core, paths: BTreeSet<String>) {
+fn announce(core: &Core, mut paths: BTreeSet<String>) {
+    paths.retain(|path| !path.starts_with(&format!("{}/", personal::MODULE)));
     let own = format!("/{}", super::data::OWN);
     if paths.iter().any(|path| path.ends_with(&own)) {
         super::settled_changed(core);

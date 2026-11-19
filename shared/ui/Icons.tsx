@@ -181,6 +181,13 @@ export const IconRun = makeSvgIcon(
     { fill: "currentColor" },
 );
 export const IconStop = makeSvgIcon(<rect x="6" y="6" width="12" height="12" rx="2" stroke="none" />, { fill: "currentColor" });
+export const IconPause = makeSvgIcon(
+    <>
+        <rect x="6" y="5" width="4" height="14" rx="1" stroke="none" />
+        <rect x="14" y="5" width="4" height="14" rx="1" stroke="none" />
+    </>,
+    { fill: "currentColor" },
+);
 export const IconGit = makeSvgIcon(
     <>
         <path d="M15 6a9 9 0 0 0-9 9V3" />
@@ -674,15 +681,6 @@ export const IconServer = makeSvgIcon(
         <path d="M6 18L6.01 18" />
     </>,
 );
-export const IconRemoteHost = makeSvgIcon(
-    <>
-        <rect x="2" y="12" width="20" height="5" rx="1.5" />
-        <rect x="2" y="19" width="20" height="3.5" rx="1.25" />
-        <path d="M6 14.5h.01" />
-        <path d="M5 8.5a7.5 7.5 0 0 1 13.5-3" />
-        <path d="M19.5 1.5l-.8 4.3-4.2-.9" />
-    </>,
-);
 export const IconTerminal = makeSvgIcon(
     <>
         <path d="m7 11 2-2-2-2" />
@@ -812,6 +810,38 @@ export const IconCommit = makeSvgIcon(
         <circle cx="12" cy="12" r="3" />
         <path d="M3 12L9 12" />
         <path d="M15 12L21 12" />
+    </>,
+);
+
+export const IconListTodo = makeSvgIcon(
+    <>
+        <rect x="3" y="5" width="6" height="6" rx="1" />
+        <path d="m3 17 2 2 4-4" />
+        <path d="M13 6h8" />
+        <path d="M13 12h8" />
+        <path d="M13 18h8" />
+    </>,
+);
+
+export const IconCircleMoving = makeSvgIcon(<path d="M21 12a9 9 0 1 1-6.219-8.56" />);
+
+export const IconCircleDashed = makeSvgIcon(
+    <>
+        <path d="M10.1 2.182a10 10 0 0 1 3.8 0" />
+        <path d="M13.9 21.818a10 10 0 0 1-3.8 0" />
+        <path d="M17.609 3.721a10 10 0 0 1 2.69 2.7" />
+        <path d="M2.182 13.9a10 10 0 0 1 0-3.8" />
+        <path d="M20.279 17.609a10 10 0 0 1-2.7 2.69" />
+        <path d="M21.818 10.1a10 10 0 0 1 0 3.8" />
+        <path d="M3.721 6.391a10 10 0 0 1 2.7-2.69" />
+        <path d="M6.391 20.279a10 10 0 0 1-2.69-2.7" />
+    </>,
+);
+
+export const IconCircleSlash = makeSvgIcon(
+    <>
+        <circle cx="12" cy="12" r="10" />
+        <path d="M9 15L15 9" />
     </>,
 );
 

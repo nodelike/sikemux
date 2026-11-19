@@ -6,19 +6,23 @@
 
 use std::fmt;
 use std::io::ErrorKind;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::watch;
 
 /// Registered with each service as part of its callback, so it cannot move without changing them too.
 pub const PORT: u16 = 47123;
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a new sign-in waits for an earlier one it replaced to let go of the port.
+const TAKEOVER_WAIT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct LoopbackError(pub String);
@@ -75,12 +79,23 @@ pub struct Callback {
     /// form to the service.
     start: Option<(&'static str, String)>,
     relayed: Mutex<Option<UnboundedReceiver<String>>>,
+    id: u64,
+    replaced: watch::Receiver<bool>,
 }
 
-/// The sign-ins waiting for a browser, by their callback path.
-static WAITING: Mutex<Vec<(&'static str, UnboundedSender<String>)>> = Mutex::new(Vec::new());
+struct Waiting {
+    id: u64,
+    path: &'static str,
+    on_shared_port: bool,
+    relay: UnboundedSender<String>,
+    replace: watch::Sender<bool>,
+}
 
-fn waiting() -> std::sync::MutexGuard<'static, Vec<(&'static str, UnboundedSender<String>)>> {
+/// The sign-ins waiting for a browser.
+static WAITING: Mutex<Vec<Waiting>> = Mutex::new(Vec::new());
+static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+
+fn waiting() -> std::sync::MutexGuard<'static, Vec<Waiting>> {
     WAITING
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -101,8 +116,9 @@ pub fn relay(landed: &str) -> LoopbackResult<()> {
     let waiting = waiting();
     let sender = waiting
         .iter()
-        .find(|(waits_at, _)| *waits_at == path)
-        .map(|(_, sender)| sender)
+        .rev()
+        .find(|entry| entry.path == path)
+        .map(|entry| &entry.relay)
         .ok_or_else(|| LoopbackError("no sign-in is waiting for that address".into()))?;
     sender
         .send(target)
@@ -113,19 +129,23 @@ impl Callback {
     /// Listens on the shared port at both loopback addresses, since a browser
     /// may try `localhost` as either. Both are held before the browser is
     /// opened, so no other program can be listening on one of them for the code.
+    /// A sign-in still waiting on the port, such as one the person gave up on in
+    /// the browser, is stopped so this one can start.
     pub async fn bind(path: &'static str, service: &'static str) -> LoopbackResult<Self> {
-        let taken = || {
-            LoopbackError(format!(
-                "port {PORT} is taken, by another sign-in that is still waiting or by another app"
-            ))
-        };
-        let v4 = TcpListener::bind(("127.0.0.1", PORT))
-            .await
-            .map_err(|_| taken())?;
-        let v6 = match TcpListener::bind(("::1", PORT)).await {
-            Ok(v6) => Some(v6),
-            Err(error) if error.kind() == ErrorKind::AddrNotAvailable => None,
-            Err(_) => return Err(taken()),
+        Self::bind_at(PORT, path, service).await
+    }
+
+    async fn bind_at(port: u16, path: &'static str, service: &'static str) -> LoopbackResult<Self> {
+        let replacing = replace_shared_port_sign_ins();
+        let deadline = Instant::now() + TAKEOVER_WAIT;
+        let (v4, v6) = loop {
+            match bind_shared_port(port).await {
+                Ok(listeners) => break listeners,
+                Err(_) if replacing && Instant::now() < deadline => {
+                    tokio::time::sleep(Duration::from_millis(25)).await
+                }
+                Err(error) => return Err(error),
+            }
         };
         Ok(Self::waiting(
             v4,
@@ -133,6 +153,7 @@ impl Callback {
             redirect_uri(path),
             path,
             Finish::Page(service),
+            true,
         ))
     }
 
@@ -147,7 +168,7 @@ impl Callback {
             .map_err(|error| LoopbackError(error.to_string()))?
             .port();
         let redirect = format!("http://127.0.0.1:{port}{path}");
-        Ok(Self::waiting(v4, None, redirect, path, finish))
+        Ok(Self::waiting(v4, None, redirect, path, finish, false))
     }
 
     fn waiting(
@@ -156,9 +177,18 @@ impl Callback {
         redirect_uri: String,
         path: &'static str,
         finish: Finish,
+        on_shared_port: bool,
     ) -> Self {
-        let (sender, relayed) = unbounded_channel();
-        waiting().push((path, sender));
+        let (relay, relayed) = unbounded_channel();
+        let (replace, replaced) = watch::channel(false);
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        waiting().push(Waiting {
+            id,
+            path,
+            on_shared_port,
+            relay,
+            replace,
+        });
         Self {
             v4,
             v6,
@@ -167,6 +197,8 @@ impl Callback {
             finish,
             start: None,
             relayed: Mutex::new(Some(relayed)),
+            id,
+            replaced,
         }
     }
 
@@ -207,8 +239,13 @@ impl Callback {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take()
             .ok_or_else(|| LoopbackError("this sign-in is already waiting".into()))?;
+        let mut replaced = self.replaced.clone();
         loop {
+            if *replaced.borrow_and_update() {
+                return Err(LoopbackError("a newer sign-in took over".into()));
+            }
             let accepted = tokio::select! {
+                _ = replaced.changed() => continue,
                 accepted = self.accept() => accepted,
                 Some(target) = relayed.recv() => match answer_of(&target, self.path, state) {
                     Some(Answer::Done(answer)) => return answer,
@@ -260,8 +297,37 @@ impl Callback {
 
 impl Drop for Callback {
     fn drop(&mut self) {
-        waiting().retain(|(path, _)| *path != self.path);
+        waiting().retain(|entry| entry.id != self.id);
     }
+}
+
+fn port_taken(port: u16) -> LoopbackError {
+    LoopbackError(format!(
+        "port {port} is taken, by another sign-in that is still waiting or by another app"
+    ))
+}
+
+async fn bind_shared_port(port: u16) -> LoopbackResult<(TcpListener, Option<TcpListener>)> {
+    let v4 = TcpListener::bind(("127.0.0.1", port))
+        .await
+        .map_err(|_| port_taken(port))?;
+    let v6 = match TcpListener::bind(("::1", port)).await {
+        Ok(v6) => Some(v6),
+        Err(error) if error.kind() == ErrorKind::AddrNotAvailable => None,
+        Err(_) => return Err(port_taken(port)),
+    };
+    Ok((v4, v6))
+}
+
+/// Tells every sign-in on the shared port to stop, and says whether there was one.
+fn replace_shared_port_sign_ins() -> bool {
+    let waiting = waiting();
+    let mut replaced = false;
+    for entry in waiting.iter().filter(|entry| entry.on_shared_port) {
+        entry.replace.send_replace(true);
+        replaced = true;
+    }
+    replaced
 }
 
 async fn request_target(stream: &mut TcpStream) -> std::io::Result<String> {
@@ -399,6 +465,35 @@ mod tests {
         .is_none());
         assert!(answer_of("/favicon.ico", "/jira/callback", "s1").is_none());
         assert!(answer_of("", "/jira/callback", "s1").is_none());
+    }
+
+    #[tokio::test]
+    async fn a_new_sign_in_takes_over_from_one_left_waiting() {
+        let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let first = Callback::bind_at(port, "/github/app/callback", "GitHub")
+            .await
+            .unwrap();
+        let abandoned = tokio::spawn(async move {
+            let answer = first.code("first").await;
+            drop(first);
+            answer
+        });
+        tokio::task::yield_now().await;
+        let second = Callback::bind_at(port, "/jira/callback", "Jira")
+            .await
+            .expect("the second sign-in gets the port");
+        assert_eq!(
+            abandoned.await.unwrap(),
+            Err(LoopbackError("a newer sign-in took over".into()))
+        );
+        let waiting = tokio::spawn(async move { second.code("second").await });
+        tokio::task::yield_now().await;
+        relay("/jira/callback?code=abc&state=second").unwrap();
+        assert_eq!(waiting.await.unwrap(), Ok("abc".into()));
     }
 
     #[test]

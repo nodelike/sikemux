@@ -331,8 +331,8 @@ fn user_message(uuid: &str, content: Vec<Value>, priority: Option<&str>) -> Valu
         "parent_tool_use_id": null,
         "uuid": uuid,
     });
-    if let Some(priority) = priority {
-        message["priority"] = json!(priority);
+    if let (Some(priority), Some(fields)) = (priority, message.as_object_mut()) {
+        fields.insert("priority".to_owned(), json!(priority));
     }
     message
 }
@@ -1008,8 +1008,8 @@ impl Backend for Claude {
             "target_message_uuid": uuid,
             "interrupt_if_running": true,
         });
-        if let Some(newest) = newest {
-            request["last_seen_user_message_uuid"] = json!(newest);
+        if let (Some(newest), Some(fields)) = (newest, request.as_object_mut()) {
+            fields.insert("last_seen_user_message_uuid".to_owned(), json!(newest));
         }
         let rewound = self.running.control.request(request).await?;
         if rewound.get("rewound").and_then(Value::as_bool) == Some(true) {

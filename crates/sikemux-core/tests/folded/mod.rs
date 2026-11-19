@@ -153,6 +153,12 @@ impl Folded {
         self.ends.len()
     }
 
+    /// A turn has ended, counting one that ended before the client attached, which `ends` misses.
+    pub fn has_ended_a_turn(&self) -> bool {
+        let head = &self.view.head;
+        !self.ends.is_empty() || (!head.running && head.stop_reason.is_some())
+    }
+
     /// Everything the agent said, in order.
     pub fn text(&self) -> String {
         said(&self.view.rows)

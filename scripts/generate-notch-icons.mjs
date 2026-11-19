@@ -417,7 +417,6 @@ const PHONE_ICONS = [
   "IconPush",
   "IconRecord",
   "IconRefresh",
-  "IconRemoteHost",
   "IconReply",
   "IconResize",
   "IconRocket",

@@ -89,6 +89,9 @@ export function testApp(
     appOrigin: APP_ORIGIN,
     apiOrigin: "https://api.sikemux.com",
     verifier,
+    signInVerifier: verifier,
+    addressProofKey: null,
+    workGoogle: null,
     limiter,
     relayAccess: new RelayAccess(database.db),
     clerk: null,
@@ -101,6 +104,7 @@ export function testApp(
     relayAccessToken: null,
     stash: null,
     hookHosts: new HookHosts(),
+    txtRecords: async () => [],
     billing: {
       provider: new StandInProvider("https://api.sikemux.com"),
       live: false,

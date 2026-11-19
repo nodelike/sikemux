@@ -97,8 +97,8 @@ fn mark_superseded(found: &mut [(Option<&str>, ConfigChoice)]) {
             Some((*group, family, version))
         })
         .collect();
-    for (at, (_, choice)) in found.iter_mut().enumerate() {
-        let Some((group, family, version)) = &releases[at] else {
+    for ((_, choice), release) in found.iter_mut().zip(&releases) {
+        let Some((group, family, version)) = release else {
             continue;
         };
         choice.superseded = !choice.is_default
@@ -115,17 +115,18 @@ fn mark_superseded(found: &mut [(Option<&str>, ConfigChoice)]) {
 /// number: "Opus 5.5" is ("Opus #", [5, 5]), "gpt-5.4-mini" is ("gpt-#-mini", [5, 4]).
 fn release(label: &str) -> Option<(String, Vec<u64>)> {
     let start = label.find(|c: char| c.is_ascii_digit())?;
-    let rest = &label[start..];
-    let mut end = rest
+    let (before, rest) = label.split_at_checked(start)?;
+    let end = rest
         .find(|c: char| !c.is_ascii_digit() && c != '.')
         .unwrap_or(rest.len());
-    end = rest[..end].trim_end_matches('.').len();
-    let version = rest[..end]
+    let end = rest.get(..end)?.trim_end_matches('.').len();
+    let (number, after) = rest.split_at_checked(end)?;
+    let version = number
         .split('.')
         .map(str::parse)
         .collect::<Result<Vec<u64>, _>>()
         .ok()?;
-    Some((format!("{}#{}", &label[..start], &rest[end..]), version))
+    Some((format!("{before}#{after}"), version))
 }
 
 /// The model a provider Sikemux handed the agent serves, by the name its API gives it:
@@ -154,30 +155,29 @@ fn named_version(text: &str) -> Option<(&str, &str)> {
         .char_indices()
         .find(|(_, c)| !c.is_alphabetic())
         .map_or(text.len(), |(at, _)| at);
-    let rest = &text[family_end..];
+    let rest = text.get(family_end..)?;
     let gap = rest.len() - rest.trim_start().len();
     if family_end == 0 || gap == 0 {
         return None;
     }
     let digits = |text: &str| text.chars().take_while(char::is_ascii_digit).count();
     let start = family_end + gap;
-    let whole = digits(&text[start..]);
+    let whole = digits(text.get(start..)?);
     if whole == 0 {
         return None;
     }
     let whole_end = start + whole;
-    let fraction = text[whole_end..].strip_prefix('.').map_or(0, digits);
+    let fraction = text.get(whole_end..)?.strip_prefix('.').map_or(0, digits);
     let ends_word = |end: usize| {
-        text[end..]
-            .chars()
-            .next()
-            .is_none_or(|c| !c.is_alphanumeric() && c != '_')
+        text.get(end..).is_some_and(|after| {
+            (after.chars().next()).is_none_or(|c| !c.is_alphanumeric() && c != '_')
+        })
     };
     [whole_end + 1 + fraction, whole_end]
         .into_iter()
         .filter(|end| *end == whole_end || fraction > 0)
         .find(|end| ends_word(*end))
-        .map(|end| (&text[..family_end], &text[start..end]))
+        .and_then(|end| Some((text.get(..family_end)?, text.get(start..end)?)))
 }
 
 #[cfg(test)]

@@ -71,10 +71,12 @@ pub(super) fn open_work(core: &Core, agent_id: &str) -> Vec<String> {
     lines
 }
 
-/// The note for a teammate on a linked host, which messages and reads reach by its name and
+/// The note for an agent on a linked host, which messages and reads reach by its name and
 /// that host's.
 pub(super) fn note_elsewhere(core: &Core, id: &str) -> Option<String> {
-    let mate = core.hosts().team.get(id)?;
+    let Some(mate) = core.hosts().team.get(id) else {
+        return hosts::peers::note(core, id);
+    };
     let host = hosts::name_of(core, &mate.host);
     let to = format!("{} on {host}", mate.name);
     let shown = inbox::foreign_shown(core, &mate);

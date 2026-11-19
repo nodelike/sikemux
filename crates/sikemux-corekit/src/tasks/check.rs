@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::detect::build_tool_of;
 use super::java::JavaChoice;
-use super::{read_text, tools};
+use super::{read_text, regex, tools};
 
 const NODE_MANAGERS: [&str; 4] = ["npm", "pnpm", "yarn", "bun"];
 const SPRING_PROPERTIES: [&str; 3] = [
@@ -178,27 +178,20 @@ fn number(text: Option<&str>) -> Option<u16> {
     text?.parse().ok().filter(|port| *port > 0)
 }
 
-static SPRING_TASK: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"spring-boot:run|bootRun").expect("pattern"));
+static SPRING_TASK: LazyLock<Regex> = LazyLock::new(|| regex(r"spring-boot:run|bootRun"));
 static SPRING_PROPERTY: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^\s*server\.port\s*[=:]\s*([0-9]+)").expect("pattern"));
-static SPRING_YAML: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^server:\s*\n(?:\s+.*\n)*?\s+port:\s*([0-9]+)").expect("pattern")
-});
+    LazyLock::new(|| regex(r"(?m)^\s*server\.port\s*[=:]\s*([0-9]+)"));
+static SPRING_YAML: LazyLock<Regex> =
+    LazyLock::new(|| regex(r"(?m)^server:\s*\n(?:\s+.*\n)*?\s+port:\s*([0-9]+)"));
 static NEXT_SCRIPT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?-u:\b)next\s+(dev|start)(?-u:\b)").expect("pattern"));
-static PORT_FLAG: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?:-p|--port)[\s=]([0-9]+)").expect("pattern"));
-static LONG_PORT_FLAG: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"--port[\s=]([0-9]+)").expect("pattern"));
-static UVICORN: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"-m uvicorn(?-u:\b)").expect("pattern"));
-static FLASK: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"-m flask(?-u:\b).*(?-u:\b)run(?-u:\b)").expect("pattern"));
-static DJANGO: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"manage\.py runserver(?-u:\b)").expect("pattern"));
+    LazyLock::new(|| regex(r"(?-u:\b)next\s+(dev|start)(?-u:\b)"));
+static PORT_FLAG: LazyLock<Regex> = LazyLock::new(|| regex(r"(?:-p|--port)[\s=]([0-9]+)"));
+static LONG_PORT_FLAG: LazyLock<Regex> = LazyLock::new(|| regex(r"--port[\s=]([0-9]+)"));
+static UVICORN: LazyLock<Regex> = LazyLock::new(|| regex(r"-m uvicorn(?-u:\b)"));
+static FLASK: LazyLock<Regex> = LazyLock::new(|| regex(r"-m flask(?-u:\b).*(?-u:\b)run(?-u:\b)"));
+static DJANGO: LazyLock<Regex> = LazyLock::new(|| regex(r"manage\.py runserver(?-u:\b)"));
 static DJANGO_ADDRESS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"runserver\s+(?:[\w.]+:)?([0-9]+)").expect("pattern"));
+    LazyLock::new(|| regex(r"runserver\s+(?:[\w.]+:)?([0-9]+)"));
 
 fn captured<'a>(pattern: &Regex, text: &'a str) -> Option<&'a str> {
     Some(pattern.captures(text)?.get(1)?.as_str())

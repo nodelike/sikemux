@@ -1,0 +1,22 @@
+# Settings → API providers with an org's key as its admin, as a member, and paused by a lapsed plan.
+stage 1440 900
+window 1440 900
+signed-in
+project storefront shop
+orgkey here "Lumen Studio" openrouter
+orgrole admin "Fjord Labs"
+orgkey here "Fjord Labs" baseten
+orgrole user "Fjord Labs"
+orgplan active "Harbor Works"
+orgrole admin "Harbor Works"
+orgkey here "Harbor Works" deepseek
+orgplan lapsed "Harbor Works"
+orgrole user "Harbor Works"
+settle 5
+settings "API providers"
+settle 2
+snap org-keys
+cursor 900,600
+scroll -6000 1
+settle 1
+snap org-keys-lower

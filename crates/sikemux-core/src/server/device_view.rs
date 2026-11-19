@@ -314,8 +314,8 @@ impl DeviceViewCore for Core {
             }
         }
         goals::view_moved(self, &inbox);
-        let calls = super::person_calls::shown(self);
-        super::chief::refresh_away(self, &calls);
+        let mut calls = super::person_calls::shown(self);
+        place_calls(self, &chiefs, &mut calls);
         let mut workspace = self.workspace_view();
         stand_projects(self, &mut workspace.projects, &turns, &calls);
         let now = super::now::projects(
@@ -452,7 +452,10 @@ pub(super) async fn serve(core: Arc<Core>) {
             window = now;
             core.changed(What::Agents);
         }
-        moving = core.publish_device_view();
+        let publishing = core.clone();
+        moving = tokio::task::spawn_blocking(move || publishing.publish_device_view())
+            .await
+            .unwrap_or(true);
         built = tokio::time::Instant::now();
     }
 }
@@ -463,8 +466,9 @@ impl super::part::Part for DeviceViews {
     }
 }
 
-/// How each project stands for the person, from its open calls and its agents' turns. An agent
-/// the person snoozed does not make its project need them; a settled one that needs them does.
+/// How each project stands for the person, from its open calls and its agents' turns, and the
+/// org its board is shared with. An agent the person snoozed does not make its project need
+/// them; a settled one that needs them does.
 fn stand_projects(
     core: &Core,
     projects: &mut [ProjectInfo],
@@ -495,6 +499,7 @@ fn stand_projects(
         let open =
             (calls.iter()).filter(|call| call.project == path && call.state == CallState::Open);
         project.calls = open.clone().count() as u32;
+        project.shared = super::shares::shared_org(core, &path);
         let asks_you = open.clone().any(|call| call.kind != CallKind::Look);
         let phases = phases
             .get(&project.id)
@@ -509,5 +514,37 @@ fn stand_projects(
         } else {
             ProjectStanding::AtRest
         };
+    }
+}
+
+/// Names on each call the chats that show it: its askers', every lead above them or above the
+/// agent it is about, and its project's chief.
+fn place_calls(core: &Core, chiefs: &HashMap<String, String>, calls: &mut [PersonCall]) {
+    let leads = core.workspaces().agent_leads();
+    let chief_at: HashMap<String, &String> = (core.workspaces().projects().into_iter())
+        .filter_map(|project| {
+            let chief = chiefs.get(&project.id)?;
+            Some((project.path.to_string_lossy().into_owned(), chief))
+        })
+        .collect();
+    for call in calls {
+        let mut chats: Vec<String> = Vec::new();
+        let askers = std::iter::once(&call.asker).chain(&call.joined);
+        let starts = (askers.map(|asker| Some(&asker.agent_id)))
+            .chain((call.about.iter()).map(|about| leads.get(&about.agent_id)));
+        for start in starts {
+            let mut at = start;
+            while let Some(agent) = at.filter(|agent| !chats.contains(agent)) {
+                chats.push(agent.clone());
+                at = leads.get(agent);
+            }
+        }
+        if let Some(chief) = chief_at
+            .get(&call.project)
+            .filter(|chief| !chats.contains(chief))
+        {
+            chats.push((*chief).clone());
+        }
+        call.shown_in = chats;
     }
 }

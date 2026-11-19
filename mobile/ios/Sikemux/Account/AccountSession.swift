@@ -61,7 +61,7 @@ final class AccountSession {
         end()
         self.userId = userId
         HostJoins.shared.follow(userId)
-        guard userId != nil else { return }
+        guard userId != nil else { return Fold.shared.follow(nil) }
         live = LiveAccount(
             handlers: .init(
                 hostsChanged: { AccountHosts.shared.read() },
@@ -73,6 +73,12 @@ final class AccountSession {
                 }
             ))
         AccountHosts.shared.read()
+        Fold.shared.follow(userId)
+    }
+
+    /// Adds this phone to the account once the fold gate lets the account in.
+    func admit() {
+        guard userId != nil, !registered, !registering else { return }
         register()
     }
 
@@ -90,7 +96,7 @@ final class AccountSession {
 
     /// Tries adding this phone to the account again now, as the person asked.
     func retryNow() {
-        guard userId != nil, !registered, !registering else { return }
+        guard userId != nil, Fold.shared.gate == .open, !registered, !registering else { return }
         attempt = 0
         register()
     }
@@ -109,18 +115,20 @@ final class AccountSession {
         live = nil
         registered = false
         registering = false
+        attempt = 0
         status = nil
         newDevice = nil
         AccountHosts.shared.clear()
     }
 
     private func register() {
-        guard let userId, !registering else { return }
+        guard let userId, Fold.shared.gate == .open, !registering else { return }
         retrying?.cancel()
         registering = true
         status = .registering
         Task {
             do {
+                try await Fold.shared.askBeforeJoining(userId)
                 let phone = try await AccountCalls.registerPhone(userId: userId)
                 registering = false
                 guard self.userId == userId else { return }
@@ -131,21 +139,32 @@ final class AccountSession {
             } catch {
                 registering = false
                 guard self.userId == userId else { return }
+                if error is Fold.Asking || error is CancellationError {
+                    status = nil
+                    return
+                }
                 if let deleting = error as? AccountDeleting {
                     status = .deleting(deletesAt: deleting.deletesAt)
                     return
                 }
                 let problem = error as? ApiProblem
+                if problem?.code == .addressProven { return later { Fold.shared.askAgain() } }
                 let retryable = problem == nil || problem!.unreachable || problem!.status == 429
                 status = .failed(problem: Sikemux.problem(error), retrying: retryable)
-                guard retryable, front else { return }
-                let wait = Self.backoff(attempt)
-                attempt += 1
-                retrying = Task {
-                    try? await Task.sleep(for: .seconds(wait))
-                    if !Task.isCancelled { register() }
-                }
+                guard retryable else { return }
+                later { self.register() }
             }
+        }
+    }
+
+    /// Runs `step` after the backoff, while the app is in front; coming back to the front tries again at once.
+    private func later(_ step: @escaping @MainActor () -> Void) {
+        guard front else { return }
+        let wait = Self.backoff(attempt)
+        attempt += 1
+        retrying = Task {
+            try? await Task.sleep(for: .seconds(wait))
+            if !Task.isCancelled { step() }
         }
     }
 

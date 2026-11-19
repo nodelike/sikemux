@@ -62,7 +62,7 @@ pub async fn steer_chat(
 /// at once, in the order it came.
 pub fn must_wake(core: &Core, params: &PromptChatParams) -> bool {
     !core.workspaces().in_terminal(&params.agent_id)
-        && (super::stopped(core, &params.agent_id) || super::mentions::wakes(&params.context))
+        && (super::stopped(core, &params.agent_id) || super::mentions::wakes(core, &params.context))
 }
 
 /// Sends the person's message to an agent nothing need wake: a chat, or one in a terminal, where

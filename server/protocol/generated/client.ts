@@ -19,6 +19,12 @@ import type {
   DeviceRegistration,
   DeviceRename,
   DeviceRole,
+  FoldCatch,
+  FoldCatchRequest,
+  FoldIntent,
+  FoldPreview,
+  FoldSecret,
+  FoldStart,
   Health,
   Hook,
   HookAdd,
@@ -39,21 +45,51 @@ import type {
   ModsPushed,
   Network,
   Org,
+  OrgAuditCursor,
+  OrgAuditPage,
   OrgCreate,
+  OrgDomain,
+  OrgDomainAdd,
+  OrgDomainJoin,
+  OrgDomainJoiningChange,
+  OrgDomainList,
+  OrgDomainOursChange,
   OrgId,
   OrgInviteCreate,
   OrgInviteCreated,
   OrgInviteList,
+  OrgInvitePreview,
   OrgJoin,
   OrgList,
   OrgMember,
   OrgMemberList,
+  OrgMemberships,
+  OrgOfferList,
+  OrgPolicy,
   OrgRename,
   OrgRoleChange,
+  OrgTeam,
+  OrgTeamCreate,
+  OrgTeamList,
+  OrgTeamRename,
+  OrgVaultChangesParam,
+  OrgVaultCreate,
+  OrgVaultEntry,
+  OrgVaultEntryPut,
+  OrgVaultKeysAdd,
+  OrgVaultRotate,
+  OrgVaultState,
   PaddleCheckout,
+  PeerTicket,
+  PeerTicketRequest,
   PendingHost,
   PushTokenRegistration,
   PushTokenState,
+  ShareRegistration,
+  ShareRegistry,
+  ShareRemoval,
+  SignInAddressCheck,
+  SignInsTidied,
   StashAdd,
   StashItem,
   StashList,
@@ -73,6 +109,10 @@ import type {
   VaultState,
   VaultUses,
   VaultUsesAdd,
+  WorkAddressList,
+  WorkAddressProven,
+  WorkAddressVerifyFinish,
+  WorkAddressVerifyStart,
 } from "./types.ts";
 
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -166,16 +206,78 @@ export function apiClient(send: Send) {
       send<AccountDeletion>("DELETE", `/v1/account`, body),
     /** Take back a deletion before it is final. */
     restoreAccount: () => send<Account>("POST", `/v1/account/restore`),
+    /** Whether an address may become a way to sign in, before Clerk is asked to add it. */
+    checkSignInAddress: (body: SignInAddressCheck) =>
+      send<void>("POST", `/v1/account/sign-ins/check`, body),
+    /** Take work addresses off the account's sign-ins, and say once what was taken off. */
+    tidySignIns: () => send<SignInsTidied>("POST", `/v1/account/sign-ins/tidy`),
+    /** The work addresses the person proved they hold, by domain and org, never the address. */
+    listWorkAddresses: () =>
+      send<WorkAddressList>("GET", `/v1/account/work-addresses`),
+    /** Start proving a work address by signing in to its Google account. */
+    startWorkAddressVerify: () =>
+      send<WorkAddressVerifyStart>("POST", `/v1/account/work-addresses/verify`),
+    /** Prove the work address Google signed in, on the account that started it. */
+    finishWorkAddressVerify: (body: WorkAddressVerifyFinish) =>
+      send<WorkAddressProven>(
+        "POST",
+        `/v1/account/work-addresses/verify/finish`,
+        body,
+      ),
+    /** Forget a proven work address. */
+    removeWorkAddress: (id: string) =>
+      send<void>(
+        "DELETE",
+        `/v1/account/work-addresses/${encodeURIComponent(id)}`,
+      ),
+    /** Whether to ask a new account's person if they already have an account. */
+    getFoldCatch: (body: FoldCatchRequest) =>
+      send<FoldCatch>("POST", `/v1/account/fold/catch`, body),
+    /** Keep a new account as it is: the person has no other. */
+    keepNewAccount: () => send<void>("POST", `/v1/account/fold/keep-new`),
+    /** Start folding one of your accounts into another. */
+    startFold: (body: FoldStart) =>
+      send<FoldIntent>("POST", `/v1/account/folds`, body),
+    /** What confirming a fold does, read by the account that did not start it. */
+    previewFold: (foldId: string, body: FoldSecret) =>
+      send<FoldPreview>(
+        "POST",
+        `/v1/account/folds/${encodeURIComponent(foldId)}/preview`,
+        body,
+      ),
+    /** Fold the account: its seats and the work address's proof move, and it is deleted. */
+    confirmFold: (foldId: string, body: FoldSecret) =>
+      send<void>(
+        "POST",
+        `/v1/account/folds/${encodeURIComponent(foldId)}/confirm`,
+        body,
+      ),
     /** The name, email and picture of the account a host is on. */
     getAccountProfile: () => send<AccountProfile>("GET", `/v1/account/profile`),
     /** The plan of the account a host is on, and what it may use. */
     getAccountAllowance: () => send<Allowance>("GET", `/v1/account/allowance`),
+    /** The orgs the account a host is on is in, its role in each and whether each one's Team plan is paid. */
+    getAccountOrgs: () => send<OrgMemberships>("GET", `/v1/account/orgs`),
+    /** The projects teammates share with the account's orgs whose Team plan is paid, and who is in each. */
+    getShareRegistry: () => send<ShareRegistry>("GET", `/v1/account/shares`),
+    /** Share a project with an org, or move it to another of the account's hosts. */
+    registerShare: (body: ShareRegistration) =>
+      send<void>("PUT", `/v1/account/shares`, body),
+    /** Stop sharing a project with an org. */
+    removeShare: (body: ShareRemoval) =>
+      send<void>("POST", `/v1/account/shares/remove`, body),
+    /** A ticket for this host to read what a teammate's host shares with an org. */
+    createPeerTicket: (body: PeerTicketRequest) =>
+      send<PeerTicket>("POST", `/v1/account/peer-tickets`, body),
     /** Make an org, with you as its owner. */
     createOrg: (body: OrgCreate) => send<Org>("POST", `/v1/orgs`, body),
     /** The orgs you are in. */
     listOrgs: () => send<OrgList>("GET", `/v1/orgs`),
     /** Accept an invite and join its org. */
     joinOrg: (body: OrgJoin) => send<Org>("POST", `/v1/orgs/join`, body),
+    /** The name of the org an invite link joins, read before signing in. */
+    previewOrgInvite: (body: OrgJoin) =>
+      send<OrgInvitePreview>("POST", `/v1/orgs/join/preview`, body),
     /** Rename an org, as its owner or an admin. */
     renameOrg: (orgId: string, body: OrgRename) =>
       send<Org>("POST", `/v1/orgs/${encodeURIComponent(orgId)}/name`, body),
@@ -222,6 +324,109 @@ export function apiClient(send: Send) {
       send<void>(
         "DELETE",
         `/v1/orgs/${encodeURIComponent(orgId)}/invites/${encodeURIComponent(inviteId)}`,
+      ),
+    /** The orgs your email's domain lets you join. */
+    listOrgOffers: () => send<OrgOfferList>("GET", `/v1/orgs/offers`),
+    /** Join an org through your email's domain. */
+    joinOrgByDomain: (body: OrgDomainJoin) =>
+      send<Org>("POST", `/v1/orgs/offers/join`, body),
+    /** An org's teams. */
+    listOrgTeams: (orgId: string) =>
+      send<OrgTeamList>("GET", `/v1/orgs/${encodeURIComponent(orgId)}/teams`),
+    /** Make a team, as an owner or an admin. */
+    createOrgTeam: (orgId: string, body: OrgTeamCreate) =>
+      send<OrgTeam>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/teams`,
+        body,
+      ),
+    /** Rename a team, as an owner or an admin. */
+    renameOrgTeam: (orgId: string, teamId: string, body: OrgTeamRename) =>
+      send<OrgTeam>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/teams/${encodeURIComponent(teamId)}/name`,
+        body,
+      ),
+    /** Delete a team, as an owner or an admin. */
+    deleteOrgTeam: (orgId: string, teamId: string) =>
+      send<void>(
+        "DELETE",
+        `/v1/orgs/${encodeURIComponent(orgId)}/teams/${encodeURIComponent(teamId)}`,
+      ),
+    /** Put a member on a team, as an owner or an admin. */
+    addOrgTeamMember: (orgId: string, teamId: string, memberId: string) =>
+      send<OrgTeam>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(memberId)}`,
+      ),
+    /** Take a member off a team, as an owner or an admin. */
+    removeOrgTeamMember: (orgId: string, teamId: string, memberId: string) =>
+      send<OrgTeam>(
+        "DELETE",
+        `/v1/orgs/${encodeURIComponent(orgId)}/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(memberId)}`,
+      ),
+    /** An org's email domains, as an owner or an admin. */
+    listOrgDomains: (orgId: string) =>
+      send<OrgDomainList>(
+        "GET",
+        `/v1/orgs/${encodeURIComponent(orgId)}/domains`,
+      ),
+    /** Claim an email domain, as an owner or an admin. */
+    addOrgDomain: (orgId: string, body: OrgDomainAdd) =>
+      send<OrgDomain>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/domains`,
+        body,
+      ),
+    /** Look for a domain's TXT record, as an owner or an admin. */
+    verifyOrgDomain: (orgId: string, domainId: string) =>
+      send<OrgDomain>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}/verify`,
+      ),
+    /** Choose how people at a domain come in, as an owner or an admin. */
+    setOrgDomainJoining: (
+      orgId: string,
+      domainId: string,
+      body: OrgDomainJoiningChange,
+    ) =>
+      send<OrgDomain>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}/joining`,
+        body,
+      ),
+    /** Say whether addresses at a verified domain are the org's own, as an owner. */
+    setOrgDomainOurs: (
+      orgId: string,
+      domainId: string,
+      body: OrgDomainOursChange,
+    ) =>
+      send<OrgDomain>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}/ours`,
+        body,
+      ),
+    /** Give up a domain, as an owner or an admin. */
+    removeOrgDomain: (orgId: string, domainId: string) =>
+      send<void>(
+        "DELETE",
+        `/v1/orgs/${encodeURIComponent(orgId)}/domains/${encodeURIComponent(domainId)}`,
+      ),
+    /** What happened in an org, as an owner or an admin. */
+    listOrgAudit: (orgId: string, query: { cursor?: OrgAuditCursor } = {}) =>
+      send<OrgAuditPage>(
+        "GET",
+        `/v1/orgs/${encodeURIComponent(orgId)}/audit${search(query)}`,
+      ),
+    /** How an org's agents work together, as any member. */
+    getOrgPolicy: (orgId: string) =>
+      send<OrgPolicy>("GET", `/v1/orgs/${encodeURIComponent(orgId)}/policy`),
+    /** Change how an org's agents work together, as an owner or an admin. */
+    setOrgPolicy: (orgId: string, body: OrgPolicy) =>
+      send<OrgPolicy>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/policy`,
+        body,
       ),
     /** Stash a link, text or file on your account. */
     addStash: (body: StashAdd) => send<StashItem>("POST", `/v1/stash`, body),
@@ -278,6 +483,53 @@ export function apiClient(send: Send) {
     /** Which agents on which hosts used the vault's entries in the last 30 days. */
     listVaultUses: (query: { entry?: VaultEntryId } = {}) =>
       send<VaultUses>("GET", `/v1/vault/uses${search(query)}`),
+    /** An org's vault as this member's host sees it: its entries, the org's key sealed for this host, and the members' hosts still waiting for it. */
+    getOrgVault: (
+      orgId: string,
+      query: { after?: OrgVaultChangesParam } = {},
+    ) =>
+      send<OrgVaultState>(
+        "GET",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault${search(query)}`,
+      ),
+    /** Make the org's vault, as an owner's or admin's host, with its key sealed for this host. */
+    createOrgVault: (orgId: string, body: OrgVaultCreate) =>
+      send<OrgVaultState>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault`,
+        body,
+      ),
+    /** Seal the org's key for other members' hosts, as a host holding it. */
+    addOrgVaultKeys: (orgId: string, body: OrgVaultKeysAdd) =>
+      send<OrgVaultState>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault/keys`,
+        body,
+      ),
+    /** Replace the org's key, as an owner's or admin's host, sealing every entry again under the new one. */
+    rotateOrgVault: (orgId: string, body: OrgVaultRotate) =>
+      send<OrgVaultState>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault/rotate`,
+        body,
+      ),
+    /** Add an entry to the org's vault, or replace one, as an owner's or admin's host. */
+    putOrgVaultEntry: (orgId: string, id: string, body: OrgVaultEntryPut) =>
+      send<OrgVaultEntry>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault/entries/${encodeURIComponent(id)}`,
+        body,
+      ),
+    /** Take an entry out of the org's vault, as an owner's or admin's host. */
+    deleteOrgVaultEntry: (
+      orgId: string,
+      id: string,
+      query: { revision?: VaultRevisionParam } = {},
+    ) =>
+      send<void>(
+        "DELETE",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault/entries/${encodeURIComponent(id)}${search(query)}`,
+      ),
     /** Store the mod documents this host changed, each only if its revision is still the server's. */
     pushModDocuments: (body: ModsPush) =>
       send<ModsPushed>("POST", `/v1/mods/documents`, body),

@@ -32,6 +32,7 @@ use sikemux_hostkit::cli_paths;
 use sikemux_hostkit::core_start::{self, StartError};
 use sikemux_hostkit::login_item::{self, CoreLaunch};
 use sikemux_linked::{Happened, Linked};
+use sikemux_process::sync::Locked;
 use sikemux_view::device::DeviceView;
 use sikemux_wire::protocol::{
     ask, CallId, ChatAttachment, ChatContext, ChatMark, DeviceAccess, ErrorKind, Event,
@@ -221,8 +222,8 @@ impl Watch {
     }
 
     /// Whether `topic` changing for the project folder `project`, or for every project when
-    /// none, could move what `read` reads. Git and code host changes name the folder that
-    /// moved, so a watch on another project's folder lets them pass.
+    /// none, could move what `read` reads. Git, code host and board changes name the folder
+    /// that moved, so a watch on another project's folder lets them pass.
     fn moved_by(&self, read: Read, topic: Topic, project: Option<&str>) -> bool {
         if !read.topics().contains(&topic) {
             return false;
@@ -230,7 +231,7 @@ impl Watch {
         let folder = self
             .folder
             .as_deref()
-            .filter(|_| matches!(topic, Topic::Git | Topic::CodeHost));
+            .filter(|_| matches!(topic, Topic::Git | Topic::CodeHost | Topic::Boards));
         match (folder, project) {
             (Some(folder), Some(project)) => {
                 Path::new(folder).starts_with(project) || Path::new(project).starts_with(folder)
@@ -879,7 +880,7 @@ impl Watches {
     }
 
     fn next_generation(&self, host: Option<&str>, read: Read) -> u64 {
-        let mut current = self.generations.lock().expect("watch generations");
+        let mut current = self.generations.locked();
         let key = (host.map(str::to_owned), read);
         let next = current.get(&key).map_or(0, |generation| generation + 1);
         current.insert(key, next);
@@ -1212,6 +1213,10 @@ pub fn start(home: Home) -> Link {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let (updates_tx, updates) = mpsc::unbounded_channel();
     let (asks, asks_rx) = mpsc::unbounded_channel();
+    #[expect(
+        clippy::expect_used,
+        reason = "the app cannot run without its core thread and runtime"
+    )]
     std::thread::Builder::new()
         .name("core".into())
         .spawn(move || {
@@ -1371,7 +1376,7 @@ async fn run(
                             }
                             Some(ClientEvent::Event(Event::Network { change })) => {
                                 if change != NetworkChange::Offline {
-                                    let again: Vec<Read> = failed.lock().expect("failed watches").drain().collect();
+                                    let again: Vec<Read> = failed.locked().drain().collect();
                                     for (&key, watch) in watches.here.iter().filter(|(key, _)| again.contains(key)) {
                                         read(&client, key, watch, (&current, &failed), &updates);
                                     }
@@ -2345,7 +2350,7 @@ fn read(
     tokio::spawn(async move {
         let answer = client.call(key.method(), watch.params).await;
         let answer = answer.map_err(|error| error.to_string());
-        let mut failed = failed.lock().expect("failed watches");
+        let mut failed = failed.locked();
         match answer.is_ok() {
             true => failed.remove(&key),
             false => failed.insert(key),
@@ -2365,7 +2370,7 @@ fn send_read(
     updates: &mpsc::UnboundedSender<Update>,
 ) {
     let watched = (host, key);
-    if current.lock().expect("watch generations").get(&watched) != Some(&generation) {
+    if current.locked().get(&watched) != Some(&generation) {
         return;
     }
     let (host, key) = watched;

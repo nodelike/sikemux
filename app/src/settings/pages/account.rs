@@ -3,22 +3,28 @@
 use gpui_kit::{
     div, px, AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled,
 };
+use sikemux_corekit::accounts;
+use sikemux_view::device::{AccountOrg, OrgRole};
 use sikemux_wire::accounts::protocol::RevokeReason;
 use sikemux_wire::protocol::{AccountLink, AccountLinkState};
 
+use crate::icons::Icon;
 use crate::settings::index::Page::Account;
 use crate::settings::index::{section, Entry};
 use crate::settings::rows;
-use crate::theme::{Tokens, SPACE_1, SPACE_2, SPACE_4, TEXT_MD, TEXT_XS};
+use crate::theme::{Tokens, SPACE_1, SPACE_2, SPACE_4, TEXT_2XS_H, TEXT_MD, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
 
 /// What a search finds on this page.
-pub(in crate::settings) const ENTRIES: &[Entry] = &[section(
-    Account,
-    "Account",
-    "account sign in sign out login google github email delete",
-)];
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(
+        Account,
+        "Account",
+        "account sign in sign out login google github email delete",
+    ),
+    section(Account, "Orgs", "orgs org team teams plan billing members"),
+];
 
 const DELETE_ACCOUNT_URL: &str = "https://app.sikemux.com/delete-account";
 
@@ -120,6 +126,78 @@ fn sign_in_panel(
         .into_any_element()
 }
 
+fn role_name(role: OrgRole) -> &'static str {
+    match role {
+        OrgRole::Owner => t!("Owner"),
+        OrgRole::Admin => t!("Admin"),
+        OrgRole::User => t!("Member"),
+    }
+}
+
+fn plan_state(org: &AccountOrg, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    let (mark, label, color) = match org.active {
+        true => (
+            ui::dot(ui::Tone::Ok, cx).into_any_element(),
+            t!("Active"),
+            t.text_secondary,
+        ),
+        false => (
+            ui::plan_lapsed_mark(10., cx).into_any_element(),
+            t!("Plan lapsed"),
+            t.warn,
+        ),
+    };
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .text_size(crate::theme::ui_text(TEXT_2XS_H))
+        .text_color(color)
+        .child(mark)
+        .child(label)
+        .into_any_element()
+}
+
+/// The orgs the account is in, each with its role and whether its plan runs.
+fn orgs_section(orgs: &[AccountOrg], lit: bool, this: &Entity<Workbench>, cx: &App) -> AnyElement {
+    let this = this.clone();
+    let open = ui::Button::new("account-orgs-open", t!("Open"), ui::Variant::Outline)
+        .icon(Icon::ExternalLink)
+        .on_click(move |_, _, cx| {
+            this.update(cx, |_, cx| {
+                cx.open_url(&format!("{}/team", accounts::app_base()))
+            })
+        });
+    let body = div()
+        .flex()
+        .flex_col()
+        .children(orgs.iter().map(|org| {
+            rows::row_with(
+                Some(ui::org_mark(&org.name, &org.id, 24.).into_any_element()),
+                org.name.clone(),
+                Some(role_name(org.role).into()),
+                plan_state(org, cx),
+                cx,
+            )
+        }))
+        .child(rows::row_keeping_control(
+            None,
+            t!("People, teams, billing and each org's policy are on app.sikemux.com"),
+            None,
+            open,
+            cx,
+        ));
+    rows::section(
+        n!("Orgs"),
+        None,
+        Some(t!("The teams you're in. Their model keys and skills show beside your own.").into()),
+        lit,
+        body,
+        cx,
+    )
+}
+
 pub fn render(
     bench: &Workbench,
     lit: &dyn Fn(&str) -> bool,
@@ -148,10 +226,9 @@ pub fn render(
             top_row(
                 crate::rail::avatar(bench, account, 28., &t).into_any_element(),
                 account
-                    .email
+                    .name
                     .clone()
-                    .or_else(|| account.name.clone())
-                    .unwrap_or_else(|| t!("Signed in").into()),
+                    .unwrap_or_else(|| t!("Your account").into()),
                 account_line(link),
                 div()
                     .flex()
@@ -177,12 +254,17 @@ pub fn render(
             )
         }
     };
-    vec![rows::section(
+    let orgs = accounts::orgs(account);
+    let mut sections = vec![rows::section(
         n!("Account"),
         None,
         None,
         lit("Account"),
         body,
         cx,
-    )]
+    )];
+    if !orgs.is_empty() {
+        sections.push(orgs_section(orgs, lit("Orgs"), this, cx));
+    }
+    sections
 }

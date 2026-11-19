@@ -433,7 +433,7 @@ fn keychain_item(folder: Option<&Path>) -> String {
         None => "Claude Code-credentials".to_owned(),
         Some(folder) => {
             let hash = hex::encode(Sha256::digest(folder.to_string_lossy().as_bytes()));
-            format!("Claude Code-credentials-{}", &hash[..8])
+            format!("Claude Code-credentials-{}", hash.get(..8).unwrap_or(&hash))
         }
     }
 }

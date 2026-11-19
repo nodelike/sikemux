@@ -1,0 +1,11 @@
+{
+  "why": "domain",
+  "address": "maya@acme.example",
+  "keptName": "Maya Okafor",
+  "orgName": "Acme",
+  "seats": ["Acme"],
+  "title": "Bring this address to this account?",
+  "words": "The account you just made with it holds nothing but a seat. Its seat in Acme moves to this account. It's deleted, and the address is verified for Acme on this account. The address never signs you in: keep signing in as you do now.",
+  "doneTitle": "Brought over",
+  "doneWords": "The address is verified on this account now. The account made with it is deleted, and any seat it held is here."
+}

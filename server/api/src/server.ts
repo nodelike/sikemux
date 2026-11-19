@@ -1,8 +1,12 @@
+import { resolveTxt } from "node:dns/promises";
 import { mkdirSync } from "node:fs";
 import { serve } from "@hono/node-server";
 import type { Server } from "node:http";
+import type { Duplex } from "node:stream";
 
 import { appleSignIn } from "./account/apple.ts";
+import { workGoogle } from "./account/work-google.ts";
+import { admittingVerifier } from "./account/admission.ts";
 import { clerkBackend } from "./account/clerk.ts";
 import { sweepClerk } from "./account/clerk-sweeper.ts";
 import { makeDueCalls } from "./billing/calls.ts";
@@ -30,11 +34,13 @@ import { StandInProvider } from "./billing/stand-in.ts";
 
 /** How long a stop waits for requests in flight before closing them anyway. */
 const DRAIN_MS = 25_000;
+/** How long a stop waits for sockets to answer its goodbye before dropping the ones that haven't. */
+const GOODBYE_MS = 1_000;
 const SWEEP_MS = 60_000;
 
 export async function startServer(config: Config, log: Logger) {
   const database = openDatabase(config.databaseUrl, log);
-  const verifier = clerkVerifier({
+  const signInVerifier = clerkVerifier({
     issuer: config.clerkIssuer,
     macClientId: config.macClientId,
     authorizedParties: [config.appOrigin],
@@ -47,6 +53,13 @@ export async function startServer(config: Config, log: Logger) {
     log.warn(
       "CLERK_SECRET_KEY is not set: deleted accounts and removed phones' sessions wait to be deleted in Clerk",
     );
+  const verifier = admittingVerifier(
+    signInVerifier,
+    database.db,
+    clerk,
+    config.addressProofKey,
+    log,
+  );
   const apple = config.appleSignIn ? appleSignIn(config.appleSignIn) : null;
   if (apple)
     log.info(
@@ -142,6 +155,9 @@ export async function startServer(config: Config, log: Logger) {
     appOrigin: config.appOrigin,
     apiOrigin: config.apiOrigin,
     verifier,
+    signInVerifier,
+    addressProofKey: config.addressProofKey,
+    workGoogle: config.workGoogle ? workGoogle(config.workGoogle) : null,
     limiter,
     relayAccess,
     clerk,
@@ -154,6 +170,8 @@ export async function startServer(config: Config, log: Logger) {
     relayAccessToken: config.relayAccessToken,
     stash: config.stash ? new StashFiles(config.stash) : null,
     hookHosts,
+    txtRecords: async (name) =>
+      (await resolveTxt(name)).map((chunks) => chunks.join("")),
     billing: { provider, live: config.billing.live },
   });
   const server = serve(
@@ -214,6 +232,12 @@ export async function startServer(config: Config, log: Logger) {
     });
   }, SWEEP_MS);
 
+  const upgraded = new Set<Duplex>();
+  server.on("upgrade", (_request: unknown, socket: Duplex) => {
+    upgraded.add(socket);
+    socket.once("close", () => upgraded.delete(socket));
+  });
+
   let stopping = false;
   const stop = (signal: NodeJS.Signals) => {
     if (stopping) return;
@@ -222,13 +246,16 @@ export async function startServer(config: Config, log: Logger) {
     clearInterval(sweep);
     const force = setTimeout(() => server.closeAllConnections(), DRAIN_MS);
     force.unref();
-    const liveStopped = Promise.all([
-      live.stop(),
-      shares.stop(),
-      hooks.stop(),
-    ]).catch((error: unknown) =>
-      log.error({ err: error }, "closing live connections failed"),
-    );
+    const liveStopped = Promise.race([
+      Promise.all([live.stop(), shares.stop(), hooks.stop()]),
+      new Promise((resolve) => setTimeout(resolve, GOODBYE_MS)),
+    ])
+      .catch((error: unknown) =>
+        log.error({ err: error }, "closing live connections failed"),
+      )
+      .then(() => {
+        for (const socket of upgraded) socket.destroy();
+      });
     server.close(() => {
       clearTimeout(force);
       liveStopped

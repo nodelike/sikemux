@@ -268,6 +268,13 @@ pub struct PersonCall {
     /// The page that shows what the call is about, such as the mockup of its choices.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<CallPage>,
+    /// Pages after the first, when the call names several, drawn under it in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub more_pages: Vec<CallPage>,
+    /// The chats whose call bar lists it: its askers', every lead above them or above the agent
+    /// it is about, and its project's chief.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shown_in: Vec<String>,
     /// Where a do call's task is done, or the change a look call shows.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<CallLink>,
@@ -314,6 +321,13 @@ pub struct PersonCall {
     pub answer: Option<CallAnswer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<CallOutcome>,
+}
+
+impl PersonCall {
+    /// Every page the call names, the first one first.
+    pub fn pages(&self) -> impl Iterator<Item = &CallPage> {
+        self.page.iter().chain(&self.more_pages)
+    }
 }
 
 /// What answers a call: an option, with a note, or the person's own words, with any files.

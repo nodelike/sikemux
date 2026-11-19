@@ -72,10 +72,10 @@ pub fn resumed_session<'a>(provider: &str, args: &'a [String]) -> Option<&'a str
         Resume::Subcommand(subcommand) => (args.first()? == subcommand)
             .then(|| args.last().map(String::as_str))
             .flatten(),
-        Resume::Flag(flag) => args
-            .windows(2)
-            .find(|pair| pair[0] == flag)
-            .map(|pair| pair[1].as_str()),
+        Resume::Flag(flag) => args.windows(2).find_map(|pair| match pair {
+            [name, value] if name == flag => Some(value.as_str()),
+            _ => None,
+        }),
     }
 }
 

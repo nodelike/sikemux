@@ -30,7 +30,10 @@ struct CallsTab: View {
                     Rows {
                         ForEach(open, id: \.id) { call in
                             row(call) {
-                                Text(projectName(call)).foregroundStyle(palette.tertiary).lineLimit(1)
+                                HStack(spacing: 4) {
+                                    IconView(icon: Icons.folder, size: 11).foregroundStyle(palette.live)
+                                    Text(projectName(call)).foregroundStyle(palette.tertiary).lineLimit(1)
+                                }
                                 Text(Format.age(Format.date(millis: call.raisedAt)))
                                     .monospacedDigit()
                                     .foregroundStyle(palette.warn)
@@ -57,7 +60,7 @@ struct CallsTab: View {
     /// A call as one line: the asker's mark and the question, then at its end what the call's state says.
     private func row<End: View>(_ call: PersonCall, @ViewBuilder end: () -> End) -> some View {
         Row(
-            title: call.question,
+            title: CallWords.headline(call),
             onPress: press(call),
             mark: {
                 AskerMark(

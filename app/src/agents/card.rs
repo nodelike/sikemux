@@ -19,6 +19,7 @@ use sikemux_view::device::RecentInfo;
 use sikemux_view::workspace::WorkspaceAgent;
 
 use crate::agents::rows::AgentRow;
+use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_SM, TEXT_XS};
 use crate::ui;
@@ -117,19 +118,21 @@ impl Workbench {
             ..Card::default()
         };
         cx.notify();
-        let Some((folder, branch)) = known(self, &agent).and_then(|known| {
+        let Some(row) = self.agent_by_id(&agent) else {
+            return;
+        };
+        let Some((folder, branch)) = known(self, &row).and_then(|known| {
             let worktree = known.worktree.as_ref()?;
             let folder = worktree.path.to_str()?.to_owned();
             Some((folder, worktree.branch.clone()))
         }) else {
             return;
         };
-        let asked = crate::core::Target::here(&self.asks).request_typed::<call::CodeHostPulls>(
-            PullsParams {
+        let asked = crate::core::Target::new(&self.asks, row.place)
+            .request_typed::<call::CodeHostPulls>(PullsParams {
                 project: folder,
                 state: Some("all".to_owned()),
-            },
-        );
+            });
         cx.spawn(async move |bench, cx| {
             let Some(list) = asked
                 .await
@@ -159,13 +162,8 @@ impl Workbench {
     }
 }
 
-fn known<'a>(bench: &'a Workbench, id: &str) -> Option<&'a WorkspaceAgent> {
-    bench
-        .this_view()?
-        .workspace
-        .agents
-        .iter()
-        .find(|agent| agent.id == id)
+fn known<'a>(bench: &'a Workbench, row: &AgentRow) -> Option<&'a WorkspaceAgent> {
+    (bench.view_at(&row.place)?.workspace.agents.iter()).find(|agent| agent.id == row.id)
 }
 
 /// Laid over the row whose card shows: closes the card once the row moves on screen, as it
@@ -206,19 +204,16 @@ pub fn view(
         return None;
     }
     let t = Tokens::get(cx).clone();
-    let worktree = known(bench, &agent.id).and_then(|known| known.worktree.clone());
+    let worktree = known(bench, agent).and_then(|known| known.worktree.clone());
     let branch = worktree.as_ref().map(|worktree| worktree.branch.clone());
     let folder = worktree
         .as_ref()
         .and_then(|worktree| worktree.path.to_str())
-        .map(|path| {
-            crate::ui::path::tilde(
-                path,
-                bench
-                    .home_at(bench.chat_target(&agent.id).place())
-                    .as_deref(),
-            )
-        });
+        .map(|path| crate::ui::path::tilde(path, bench.home_at(&agent.place).as_deref()));
+    let host = match &agent.place {
+        Place::Account(key) => Some(bench.host_name(key)),
+        Place::This => None,
+    };
     let who: Vec<String> = agent
         .handle()
         .iter()
@@ -307,6 +302,9 @@ pub fn view(
             )
             .into_any_element(),
         );
+    }
+    if let Some(host) = host {
+        facts.push(fact(Some(Icon::Laptop), host.into_any_element()).into_any_element());
     }
     if let Some(folder) = folder {
         facts.push(

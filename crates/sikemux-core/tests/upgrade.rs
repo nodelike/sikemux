@@ -1,4 +1,11 @@
 #![cfg(unix)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    clippy::panic,
+    reason = "a failing test helper is meant to panic"
+)]
 
 //! A core replacing itself with another binary in the same process. These run
 //! the standalone core binary, since the core under test has to `exec`.
@@ -55,6 +62,10 @@ struct CoreProcess {
 
 impl CoreProcess {
     fn start(build: &str) -> Self {
+        Self::start_from(Path::new(CORE), build)
+    }
+
+    fn start_from(program: &Path, build: &str) -> Self {
         let dir = tempfile::tempdir().expect("temp dir");
         let socket = dir.path().join("core.sock");
         let endpoint = dir.path().join("cli.json");
@@ -62,7 +73,7 @@ impl CoreProcess {
             .expect("canonical")
             .join("project");
         std::fs::create_dir(&project).expect("project");
-        let child = Self::spawn(dir.path(), &socket, &endpoint, build);
+        let child = Self::spawn(program, dir.path(), &socket, &endpoint, build);
         let core = Self {
             child,
             dir,
@@ -74,13 +85,13 @@ impl CoreProcess {
         core
     }
 
-    fn spawn(dir: &Path, socket: &Path, endpoint: &Path, build: &str) -> Child {
+    fn spawn(program: &Path, dir: &Path, socket: &Path, endpoint: &Path, build: &str) -> Child {
         let log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(dir.join("core.log"))
             .expect("log");
-        sikemux_process::user_environment::command(CORE)
+        sikemux_process::user_environment::command(program)
             .arg("core")
             .arg("--socket")
             .arg(socket)
@@ -120,7 +131,13 @@ impl CoreProcess {
     fn crash_and_start_again(&mut self) {
         self.child.kill().expect("kill the core");
         self.child.wait().expect("reap the core");
-        self.child = Self::spawn(self.dir.path(), &self.socket, &self.endpoint, "first");
+        self.child = Self::spawn(
+            Path::new(CORE),
+            self.dir.path(),
+            &self.socket,
+            &self.endpoint,
+            "first",
+        );
         self.until_answering();
     }
 
@@ -137,8 +154,10 @@ impl CoreProcess {
             match std::fs::symlink_metadata(path) {
                 Ok(kind) if kind.is_dir() => std::fs::read_dir(path)
                     .map(|entries| {
+                        // A name starting with a dot is a file still being written.
                         entries
                             .flatten()
+                            .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
                             .map(|entry| holding(&entry.path(), text))
                             .sum()
                     })
@@ -602,6 +621,43 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
         .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
         .collect();
     assert!(left.is_empty(), "the hand-over was left behind: {left:?}");
+}
+
+/// On nexus, `sikemux restart` after pacman replaced the core's binary failed with
+/// "/usr/lib/sikemux/sikemux-host (deleted) cannot be read".
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restart_after_the_binary_was_replaced_runs_the_new_file() {
+    use std::os::unix::fs::MetadataExt;
+    let installed = tempfile::tempdir().expect("temp dir");
+    let binary = installed.path().join("sikemux-host");
+    std::fs::copy(CORE, &binary).expect("install the core");
+    let core = CoreProcess::start_from(&binary, "first");
+    let update = installed.path().join("sikemux-host.new");
+    std::fs::copy(CORE, &update).expect("download the update");
+    std::fs::rename(&update, &binary).expect("replace the core");
+    let exe = format!("/proc/{}/exe", core.pid());
+    assert!(std::fs::read_link(&exe)
+        .expect("exe")
+        .to_string_lossy()
+        .ends_with(" (deleted)"));
+
+    let socket = core.socket.clone();
+    let restart =
+        tokio::task::spawn_blocking(move || sikemux_core::client::restart(&socket, UPDATE_WAIT))
+            .await
+            .expect("join")
+            .unwrap_or_else(|error| panic!("{error}\n{}", core.log()));
+    assert!(
+        matches!(restart, sikemux_core::client::Restart::Done { pid } if pid == core.pid()),
+        "{}",
+        core.log()
+    );
+    assert_eq!(std::fs::read_link(&exe).expect("exe"), binary);
+    assert_eq!(
+        std::fs::metadata(&exe).expect("exe").ino(),
+        std::fs::metadata(&binary).expect("binary").ino()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1208,6 +1264,69 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
             1,
             "{agent_id}"
         );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_core_that_crashes_while_a_turn_waits_on_a_background_shell_wakes_the_agent() {
+    let mut core = CoreProcess::start("first");
+    let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let agent_id = "claude-waits".to_owned();
+    client
+        .acp_start(agent_launch(&core, "claude", &agent_id))
+        .await
+        .unwrap_or_else(|error| panic!("start: {error}\n{}", core.log()));
+    client
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.clone(),
+            message_id: None,
+            text: "background".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("prompt");
+    let mut waiting = HashMap::from([(agent_id.clone(), Folded::default())]);
+    until_chats(&mut events, &mut waiting, |_, chat| {
+        chat.text().contains("waiting on the render") && !chat.head().running
+    })
+    .await;
+    drop(client);
+    drop(events);
+    core.until_written(1, "Poll the render").await;
+    core.until_written(1, "waiting on the render").await;
+    core.until_written_in("chats", 1, "\"resumeId\":\"").await;
+
+    core.crash_and_start_again();
+
+    let deadline = Instant::now() + WAIT * 2;
+    loop {
+        let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+        let chat = attached(&client, &agent_id, None).await;
+        if chat.as_ref().is_some_and(|chat| {
+            chat.text().contains("wait was lost in the restart") && !chat.head().running
+        }) {
+            let chat = chat.expect("the chat");
+            assert!(
+                chat.text().contains("\"Poll the render\""),
+                "{}",
+                chat.text()
+            );
+            assert!(chat
+                .notices()
+                .iter()
+                .any(|title| title
+                    == "Sikemux restarted while this agent waited on a background task"));
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the agent was never woken: {:?}\n{}",
+            chat.map(|chat| chat.text()),
+            core.log()
+        );
+        drop(client);
+        tokio::time::sleep(Duration::from_millis(200)).await;
     }
 }
 

@@ -260,7 +260,7 @@ fn sweep(folder: &Path, by_id: &HashMap<String, Pin>) {
 /// `text` cut to `most` characters.
 fn cut(text: &str, most: usize) -> String {
     match text.char_indices().nth(most) {
-        Some((at, _)) => format!("{}…", text[..at].trim_end()),
+        Some((at, _)) => format!("{}…", text.get(..at).unwrap_or(text).trim_end()),
         None => text.to_owned(),
     }
 }
@@ -340,7 +340,8 @@ pub(crate) async fn place(core: &Arc<Core>, params: PlacePinParams) -> CoreResul
     };
     let markup = cut(&params.html, MAX_MARKUP);
     core.pins().keep(vec![pin.clone()]);
-    if let Err(error) = send(core, &pin, &pin.notes[0].words, Some(&markup)).await {
+    let words = pin.notes.first().map_or("", |note| note.words.as_str());
+    if let Err(error) = send(core, &pin, words, Some(&markup)).await {
         core.pins().keep(vec![Pin {
             state: PinState::Closed,
             ..pin

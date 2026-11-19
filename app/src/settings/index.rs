@@ -247,7 +247,7 @@ impl Page {
             true => (at + 1) % all.len(),
             false => (at + all.len() - 1) % all.len(),
         };
-        all[next]
+        all.get(next).copied().unwrap_or(self)
     }
 }
 

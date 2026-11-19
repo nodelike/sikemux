@@ -138,6 +138,8 @@ impl Raise {
             joined: Vec::new(),
             about: None,
             page: None,
+            more_pages: Vec::new(),
+            shown_in: Vec::new(),
             link: None,
             question: self.question,
             context: self.context,
@@ -198,6 +200,8 @@ fn outcome(result: CallResult) -> CallOutcome {
 
 /// The start of the key of a call Sikemux raises for chats an account's provider refused.
 pub const ACCOUNT_REFUSED: &str = "account-refused:";
+/// The start of the key of a call Sikemux raises for an entry waiting on an org's list.
+pub const ORG_WAITING: &str = "org-waiting:";
 
 /// The open calls of `project` raised with a key starting `prefix`, by id, with their keys.
 pub fn open_keyed(core: &Core, project: &str, prefix: &str) -> Vec<(String, String)> {
@@ -306,6 +310,15 @@ fn apply_with(book: &mut Book, entry: Entry, prune: bool) {
             }
         }
         Entry::Started { at, .. } => kept.started = Some(at),
+        Entry::Edited { call: edited, .. } => {
+            call.title = edited.title;
+            call.question = edited.question;
+            call.options = edited.options;
+            call.pick = edited.pick;
+            call.page = edited.page;
+            call.more_pages = edited.more_pages;
+            call.link = edited.link;
+        }
         Entry::Shown { by, at, .. } => {
             if !kept.seen.iter().any(|(seer, _)| *seer == by) {
                 kept.seen.push((by, at));
@@ -328,6 +341,27 @@ fn apply_with(book: &mut Book, entry: Entry, prune: bool) {
             call.outcome = Some(outcome);
         }
     }
+}
+
+/// Whether `now` asks something other than what the open `call` shows.
+fn edited(call: &PersonCall, now: &PersonCall) -> bool {
+    (
+        &call.title,
+        &call.question,
+        &call.options,
+        &call.pick,
+        &call.page,
+        &call.more_pages,
+        &call.link,
+    ) != (
+        &now.title,
+        &now.question,
+        &now.options,
+        &now.pick,
+        &now.page,
+        &now.more_pages,
+        &now.link,
+    )
 }
 
 /// What `entry` closes of a call still open, as the usage report counts it: its kind, who
@@ -625,6 +659,12 @@ impl PersonCalls {
                 Some(kept) if kept.call.state == CallState::Closed => {
                     let id = kept.call.id.clone();
                     entries.push(Entry::Reopened { id, at: epoch_ms() });
+                }
+                Some(kept) if kept.source == source && edited(&kept.call, &call) => {
+                    entries.push(Entry::Edited {
+                        id: kept.call.id.clone(),
+                        call: Box::new(call),
+                    });
                 }
                 Some(_) => {}
                 None => match book.iter().find(same) {
@@ -1195,6 +1235,12 @@ async fn deliver(
         {
             let key = key_of(core, &call.id).unwrap_or_default();
             (core.repo_above().accounts_call_answered)(core, call, &key).await;
+        }
+        Source::Raised
+            if key_of(core, &call.id).is_some_and(|key| key.starts_with(ORG_WAITING)) =>
+        {
+            let key = key_of(core, &call.id).unwrap_or_default();
+            (core.repo_above().memory_call_answered)(core, call, &key);
         }
         Source::Raised if key_of(core, &call.id).is_some_and(|key| workflows::is_key(&key)) => {
             let key = key_of(core, &call.id).unwrap_or_default();

@@ -1,7 +1,7 @@
 //! Each project's Now strip: its open agents in the person's four groups, each with one fact and
 //! since when, read off the turn states the device view works out anyway, and the agents closed
-//! lately, which closing writes in, and the person's asks. Agents read the same strip as one
-//! compact text.
+//! lately, which closing writes in, and the tasks the person asked for. Agents read the same strip, with the
+//! project's tasks, as one compact text.
 
 pub(crate) mod asks;
 
@@ -19,9 +19,9 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::FailureKind;
 use sikemux_view::now::{
-    AskStand, CiStand, ClosedWhy, FixAt, NowAsk, NowClosed, NowFact, NowGroup, NowRelease, NowRow,
-    ProjectNow,
+    CiStand, ClosedWhy, FixAt, NowClosed, NowFact, NowGroup, NowRelease, NowRow, ProjectNow,
 };
+use sikemux_view::task_list::ProjectTasks;
 use sikemux_view::turn::{ChecksStand, TurnPhase, TurnState, TurnWaitKind, WorkAt};
 
 use super::changed::{ChangedCore, What};
@@ -283,7 +283,12 @@ fn fix_at(changes: WorkAt) -> Option<FixAt> {
 }
 
 /// The strip as compact text for agents, one line per group, each agent as `@name`.
-pub(crate) fn text(now: &ProjectNow, name: impl Fn(&str) -> String, at: u64) -> String {
+pub(crate) fn text(
+    now: &ProjectNow,
+    tasks: &ProjectTasks,
+    name: impl Fn(&str) -> String,
+    at: u64,
+) -> String {
     let named = |agent: &str| format!("@{}", name(agent));
     let mut lines = Vec::new();
     let groups = [
@@ -311,7 +316,7 @@ pub(crate) fn text(now: &ProjectNow, name: impl Fn(&str) -> String, at: u64) -> 
             lines.push(format!("{title}: {}", rows.join("; ")));
         }
     }
-    lines.extend(asks_words(&now.asks, at));
+    lines.extend(super::task_list::words(tasks, |since| ago(since, at)));
     if let Some(release) = &now.release {
         lines.push(release_words(release, at));
     }
@@ -409,29 +414,6 @@ fn fact_words(fact: &NowFact, named: &impl Fn(&str) -> String) -> String {
     }
 }
 
-fn asks_words(asks: &[NowAsk], at: u64) -> Vec<String> {
-    let nobody: Vec<String> = (asks.iter())
-        .filter(|ask| ask.stand == AskStand::Nobody)
-        .map(|ask| format!("#{} \"{}\", {}", ask.id, ask.title, ago(ask.since, at)))
-        .collect();
-    let count = |kind: fn(&AskStand) -> bool| asks.iter().filter(|ask| kind(&ask.stand)).count();
-    let working = count(|stand| matches!(stand, AskStand::Working { .. }));
-    let on_branch = count(|stand| *stand == AskStand::OnBranch);
-    let mut lines = Vec::new();
-    if !nobody.is_empty() {
-        lines.push(format!(
-            "What the person asked for that nobody is on (give one to an agent with agent_spawn's or agent_send's task): {}",
-            nobody.join("; ")
-        ));
-    }
-    if working + on_branch > 0 {
-        lines.push(format!(
-            "The person's asks: {working} with agents, {on_branch} landed and not in the build they run"
-        ));
-    }
-    lines
-}
-
 fn release_words(release: &NowRelease, at: u64) -> String {
     let mut words = vec![match (&release.tag, release.tagged_at) {
         (Some(tag), Some(made)) => format!("Release: {tag}, {}", ago(made, at)),
@@ -472,9 +454,11 @@ fn ago(since: u64, at: u64) -> String {
 /// The strip of the project at `path` as agents read it, or none outside every project.
 pub(crate) fn text_of_path(core: &Arc<Core>, path: &str) -> Option<String> {
     let now = of_path(core, path)?;
+    let tasks = super::task_list::of_folder(core, path);
     let names = core.names();
     Some(text(
         &now,
+        &tasks,
         |agent| names.name(agent).unwrap_or_else(|| agent.to_owned()),
         epoch_ms(),
     ))
@@ -486,6 +470,8 @@ pub(crate) fn text_of_path(core: &Arc<Core>, path: &str) -> Option<String> {
 struct Fix {
     /// The commit that has its work: its newest own landed commit, else its checkout's head.
     commit: String,
+    /// Whether `commit` is one the agent made, rather than the head it stands on.
+    own: bool,
     at: FixAt,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     release: Option<String>,
@@ -713,9 +699,9 @@ fn fix_of(core: &Core, agent: &str) -> Option<Fix> {
         .and_then(|agent| agent.worktree.map(|worktree| worktree.repo))
         .unwrap_or_else(|| PathBuf::from(&work.project));
     let repo = repo_path.as_path();
-    let commit = (work.own.first())
-        .and_then(|own| own.split_whitespace().next().map(str::to_owned))
-        .or(work.head)?;
+    let own_commit = (work.own.first()).and_then(|own| own.split_whitespace().next());
+    let own = own_commit.is_some();
+    let commit = own_commit.map(str::to_owned).or(work.head)?;
     let contains = |tip: &str| {
         Git::quick(repo)
             .output(&["merge-base", "--is-ancestor", &commit, tip])
@@ -724,6 +710,7 @@ fn fix_of(core: &Core, agent: &str) -> Option<Fix> {
     if running_build(core, repo).is_some_and(|build| contains(&build)) {
         return Some(Fix {
             commit,
+            own,
             at: FixAt::Running,
             release: None,
         });
@@ -744,6 +731,7 @@ fn fix_of(core: &Core, agent: &str) -> Option<Fix> {
     };
     Some(Fix {
         commit,
+        own,
         at: match tag {
             Some(_) => FixAt::Released,
             None => FixAt::Landed,

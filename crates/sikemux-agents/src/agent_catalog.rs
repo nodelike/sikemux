@@ -208,7 +208,12 @@ pub const AGENTS: &[AgentEntry] = &[
         bypass: true,
         auto: true,
         commit_models: &[
-            "haiku", "sonnet", "opus", "opusplan", "sonnet[1m]", "default",
+            "haiku",
+            "sonnet",
+            "opus",
+            "opusplan",
+            "sonnet[1m]",
+            "default",
         ],
         careful_model: Some("opus"),
         efforts: &["low", "medium", "high", "xhigh", "max"],
@@ -247,9 +252,22 @@ pub const AGENTS: &[AgentEntry] = &[
             within: None,
             sessions: Some("projects"),
             account_links: Some(AccountLinks::Only(&[
-                "projects", "settings.json", "CLAUDE.md", "agents", "commands", "skills", "plugins",
-                "hooks", "output-styles", "todos", "plans", "file-history", "history.jsonl",
-                "keybindings.json", "session-env", "shell-snapshots",
+                "projects",
+                "settings.json",
+                "CLAUDE.md",
+                "agents",
+                "commands",
+                "skills",
+                "plugins",
+                "hooks",
+                "output-styles",
+                "todos",
+                "plans",
+                "file-history",
+                "history.jsonl",
+                "keybindings.json",
+                "session-env",
+                "shell-snapshots",
             ])),
             private: None,
         }),
@@ -286,7 +304,11 @@ pub const AGENTS: &[AgentEntry] = &[
         bypass: true,
         auto: true,
         commit_models: &[
-            "gpt-5.5", "gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1",
+            "gpt-5.5",
+            "gpt-5.1-codex-max",
+            "gpt-5.1-codex",
+            "gpt-5.1-codex-mini",
+            "gpt-5.1",
             "gpt-5",
         ],
         careful_model: None,
@@ -321,14 +343,23 @@ pub const AGENTS: &[AgentEntry] = &[
             within: None,
             sessions: Some("sessions"),
             account_links: Some(AccountLinks::AllBut(&[
-                "auth.json", "models_cache.json", "log", "memories", "tmp",
+                "auth.json",
+                "models_cache.json",
+                "log",
+                "memories",
+                "tmp",
             ])),
             private: None,
         }),
         terminal: Terminal {
             normal: &["--sandbox", "workspace-write"],
             bypass: Some(&["--dangerously-bypass-approvals-and-sandbox"]),
-            auto: Some(&["--sandbox", "workspace-write", "-c", "approvals_reviewer=\"auto_review\""]),
+            auto: Some(&[
+                "--sandbox",
+                "workspace-write",
+                "-c",
+                "approvals_reviewer=\"auto_review\"",
+            ]),
             effort: Some(["--config", "model_reasoning_effort=\"{}\""]),
             resume: Resume::Subcommand("resume"),
             with_choices: &[],
@@ -358,8 +389,11 @@ pub const AGENTS: &[AgentEntry] = &[
         bypass: true,
         auto: false,
         commit_models: &[
-            "openai/gpt-5.5", "openai/gpt-5.1", "anthropic/claude-sonnet-4.6",
-            "anthropic/claude-opus-4.1", "google/gemini-2.5-pro",
+            "openai/gpt-5.5",
+            "openai/gpt-5.1",
+            "anthropic/claude-sonnet-4.6",
+            "anthropic/claude-opus-4.1",
+            "google/gemini-2.5-pro",
         ],
         careful_model: None,
         efforts: &[
@@ -664,6 +698,10 @@ impl AgentKind {
         AgentKind::Muse,
     ];
 
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "AGENTS lists one entry per kind, in the kind's order"
+    )]
     pub fn entry(self) -> &'static AgentEntry {
         &AGENTS[self as usize]
     }

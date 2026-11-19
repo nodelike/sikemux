@@ -41,6 +41,10 @@ pub fn learned(core: &Core, agent: Option<&str>) -> Learned {
         turn: chat.as_ref().and_then(|chat| chat.feed.turn_start()),
         at: epoch_ms(),
         with: None,
+        person: agent
+            .is_none()
+            .then(|| (core.board_above().person_name)(core))
+            .flatten(),
     }
 }
 
@@ -56,6 +60,26 @@ pub struct Goal {
 impl Goal {
     pub fn is_none(&self) -> bool {
         self.last == 0
+    }
+
+    /// Takes in `other`'s rules as [`Decided::merge`] takes in decisions.
+    pub(super) fn merge(&mut self, other: Goal) {
+        for mut rule in other.rules {
+            let said = Said::rule(&rule);
+            match (self.rules.iter_mut()).find(|own| said.same(&Said::rule(own))) {
+                Some(own) if said.changed > Said::rule(own).changed => {
+                    rule.id = own.id;
+                    *own = rule;
+                }
+                Some(_) => {}
+                None => {
+                    make_room(&mut self.rules, MAX_RULES);
+                    self.last += 1;
+                    rule.id = self.last;
+                    self.rules.push(rule);
+                }
+            }
+        }
     }
 
     pub fn rules(&self) -> Vec<GoalRule> {
@@ -114,12 +138,77 @@ impl Decided {
         }
     }
 
+    /// Takes in `other`'s decisions: of two that are the same, the one changed last stands, and
+    /// one it lacks gets a new id.
+    pub(super) fn merge(&mut self, other: Decided, card: impl Fn(u64) -> u64) {
+        let mut decisions = other.decisions;
+        decisions.sort_by_key(|decision| decision.learned.at);
+        for mut decision in decisions {
+            decision.goal = decision.goal.map(&card);
+            let said = Said::decision(&decision);
+            let same = (self.decisions.iter_mut())
+                .find(|own| own.goal == decision.goal && said.same(&Said::decision(own)));
+            match same {
+                Some(own) if said.changed > Said::decision(own).changed => {
+                    decision.id = own.id;
+                    *own = decision;
+                }
+                Some(_) => {}
+                None => drop(self.add(decision)),
+            }
+        }
+    }
+
     fn add(&mut self, mut decision: Decision) -> (Decision, Option<u64>) {
         let dropped = make_room(&mut self.decisions, MAX_DECISIONS);
         self.last += 1;
         decision.id = self.last;
         self.decisions.push(decision.clone());
         (decision, dropped)
+    }
+}
+
+/// What tells a decision or a goal's rule kept on two hosts apart.
+struct Said<'a> {
+    id: u64,
+    text: &'a str,
+    at: u64,
+    was: Option<&'a str>,
+    /// When it was last made, corrected, retired or brought back.
+    changed: u64,
+}
+
+impl<'a> Said<'a> {
+    fn decision(decision: &'a Decision) -> Self {
+        let retired = decision.retired.as_ref().map_or(0, |by| by.at);
+        let restored = decision.restored.unwrap_or(0);
+        Said {
+            id: decision.id,
+            text: &decision.text,
+            at: decision.learned.at,
+            was: decision.was.as_deref(),
+            changed: decision.learned.at.max(retired).max(restored),
+        }
+    }
+
+    fn rule(rule: &'a GoalRule) -> Self {
+        let retired = rule.retired.as_ref().map_or(0, |by| by.at);
+        Said {
+            id: rule.id,
+            text: &rule.text,
+            at: rule.learned.at,
+            was: rule.was.as_deref(),
+            changed: rule.learned.at.max(retired),
+        }
+    }
+
+    /// The same words, or the same id where one was corrected from the other.
+    fn same(&self, other: &Said) -> bool {
+        self.text == other.text
+            || self.id == other.id
+                && (self.at == other.at
+                    || self.was == Some(other.text)
+                    || other.was == Some(self.text))
     }
 }
 
@@ -354,6 +443,7 @@ pub fn change(
                         learned: by,
                         was: None,
                         retired: None,
+                        restored: None,
                         asked: None,
                     });
                     let id = decision.id;
@@ -578,6 +668,7 @@ pub fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>, u64)>
         learned,
         was: None,
         retired: None,
+        restored: None,
         asked: (settled.asked).map(|asked| clipped(&asked, MAX_TEXT_CHARS)),
         holder: Some(settled.holder),
     });
@@ -717,6 +808,7 @@ pub async fn undo_overrule(
                         params.decision,
                     )?;
                     decision.retired = None;
+                    decision.restored = Some(epoch_ms());
                     Some((overrule, decision.text.clone()))
                 }
             };
@@ -763,5 +855,8 @@ pub fn counted_since(core: &Core, project: &str, from: u64, to: u64) -> (usize, 
 #[serde(rename_all = "camelCase")]
 pub struct Overrule {
     pub rule: Option<u64>,
+    /// The kept rule's words on one line, so undoing the Overrule retires only that rule.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub words: String,
     pub told: Vec<String>,
 }

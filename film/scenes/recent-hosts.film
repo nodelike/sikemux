@@ -1,0 +1,19 @@
+# The rail's Recent filtered to "orders", with hits from two other hosts and one that sleeps.
+stage 1440 900
+window 1440 900
+project storefront line-shop
+host mac-mini
+host ci-runner
+host nas
+saved here "Check the overnight orders"
+saved here "Refund flow for split orders"
+saved mac-mini "Backfill orders table"
+saved ci-runner "Slow orders query"
+settle 4
+asleep nas
+click "Filter recent chats"
+type "orders" 40
+wait 1
+snap recent-hosts-arriving
+settle 5
+snap recent-hosts-settled

@@ -225,11 +225,13 @@ fn fields(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) -> Vec<Field> {
-    let (key, _, _, colours) = GROUPS[group];
+    let Some(&(key, _, _, colours)) = GROUPS.get(group) else {
+        return Vec::new();
+    };
     colours
         .iter()
         .map(|(colour, label)| {
-            let value = draft[key][*colour].as_str().unwrap_or_default().to_owned();
+            let value = colour_of(draft, key, colour).to_owned();
             let text = cx.new(|cx| {
                 let mut input = InputState::new(window, cx);
                 input.set_value(value.clone(), window, cx);
@@ -273,14 +275,41 @@ fn fields(
 
 /// Sets one colour of the draft and wears it.
 fn set(bench: &mut Workbench, group: &str, key: &str, value: String, cx: &mut Context<Workbench>) {
-    let unchanged = editor(bench, cx).map(|editor| editor.draft[group][key] == value.as_str());
+    let unchanged = editor(bench, cx).map(|editor| {
+        editor
+            .draft
+            .get(group)
+            .and_then(|colours| colours.get(key))
+            .is_some_and(|colour| *colour == value)
+    });
     if unchanged != Some(false) {
         return;
     }
     change_editor(bench, cx, |editor, _| {
-        editor.draft[group][key] = json!(value)
+        if let Some(colours) = editor.draft.get_mut(group) {
+            put(colours, key, json!(value));
+        }
     });
     preview(bench, cx);
+}
+
+/// Colour `key` of group `group` in a theme, empty when it has none.
+fn colour_of<'a>(theme: &'a Value, group: &str, key: &str) -> &'a str {
+    theme
+        .get(group)
+        .and_then(|colours| colours.get(key))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+}
+
+fn name_of(theme: &Value) -> Option<&str> {
+    theme.get("name").and_then(Value::as_str)
+}
+
+fn put(object: &mut Value, key: &str, value: Value) {
+    if let Some(fields) = object.as_object_mut() {
+        fields.insert(key.to_owned(), value);
+    }
 }
 
 /// Opens the editor on `draft`, which started as `original`.
@@ -292,14 +321,10 @@ fn open(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let base = original["name"].as_str().unwrap_or_default().to_owned();
+    let base = name_of(&original).unwrap_or_default().to_owned();
     let name = cx.new(|cx| {
         let mut input = InputState::new(window, cx).placeholder(t!("theme name"));
-        input.set_value(
-            draft["name"].as_str().unwrap_or_default().to_owned(),
-            window,
-            cx,
-        );
+        input.set_value(name_of(&draft).unwrap_or_default().to_owned(), window, cx);
         input
     });
     let naming = cx.subscribe(&name, |bench, name, event: &InputEvent, cx| {
@@ -309,7 +334,7 @@ fn open(
                 let open = settings.open.as_mut();
                 let editor = open.and_then(|open| open.pages.appearance.as_mut()?.editor.as_mut());
                 if let Some(editor) = editor {
-                    editor.draft["name"] = json!(value);
+                    put(&mut editor.draft, "name", json!(value));
                 }
             });
         }
@@ -343,11 +368,12 @@ pub fn customize(bench: &Workbench, id: String, window: &mut Window, cx: &mut Co
             return;
         };
         let mut draft = original.clone();
-        draft["id"] = json!(new_id());
-        draft["name"] = json!(format!(
-            "{} custom",
-            original["name"].as_str().unwrap_or("theme")
-        ));
+        put(&mut draft, "id", json!(new_id()));
+        put(
+            &mut draft,
+            "name",
+            json!(format!("{} custom", name_of(&original).unwrap_or("theme"))),
+        );
         let _ = bench.update_in(cx, |bench, window, cx| {
             open(bench, draft, original, true, window, cx)
         });
@@ -435,7 +461,7 @@ pub fn from_picture(
             }
             if let Some(Ok(original)) = theme.map(serde_json::to_value) {
                 let mut draft = original.clone();
-                draft["id"] = json!(new_id());
+                put(&mut draft, "id", json!(new_id()));
                 open(bench, draft, original, true, window, cx);
             }
         });
@@ -474,13 +500,12 @@ fn save(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let Some(mut draft) = editor(bench, cx).map(|editor| editor.draft.clone()) else {
         return;
     };
-    let named = draft["name"]
-        .as_str()
+    let named = name_of(&draft)
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .unwrap_or("custom theme")
         .to_owned();
-    draft["name"] = json!(named);
+    put(&mut draft, "name", json!(named));
     match serde_json::from_value(draft) {
         Ok(theme) => {
             let asked = Target::here(&bench.asks)
@@ -511,10 +536,11 @@ fn show_group(
 /// Puts every colour back as the theme it started from had it, keeping its name.
 fn reset(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let Some(group) = change_editor(bench, cx, |editor, _| {
-        let (id, name) = (editor.draft["id"].clone(), editor.draft["name"].clone());
+        let kept = |key: &str| editor.draft.get(key).cloned().unwrap_or_default();
+        let (id, name) = (kept("id"), kept("name"));
         editor.draft = editor.original.clone();
-        editor.draft["id"] = id;
-        editor.draft["name"] = name;
+        put(&mut editor.draft, "id", id);
+        put(&mut editor.draft, "name", name);
         editor.group
     }) else {
         return;
@@ -525,8 +551,8 @@ fn reset(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>
 
 fn toggle_dark(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let flipped = change_editor(bench, cx, |editor, _| {
-        let dark = editor.draft["dark"] == true;
-        editor.draft["dark"] = json!(!dark);
+        let dark = editor.draft.get("dark") == Some(&Value::Bool(true));
+        put(&mut editor.draft, "dark", json!(!dark));
     });
     if flipped.is_some() {
         preview(bench, cx);
@@ -535,8 +561,7 @@ fn toggle_dark(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 
 /// A few lines of code and the terminal's colours, as the draft draws them.
 fn sample(draft: &Value) -> AnyElement {
-    let h = &draft["highlight"];
-    let paint = |key: &str| theme::color(h[key].as_str().unwrap_or_default());
+    let paint = |key: &str| theme::color(colour_of(draft, "highlight", key));
     let word = |text: &'static str, key: &str| div().text_color(paint(key)).child(text);
     let ansi = [
         "black",
@@ -567,12 +592,8 @@ fn sample(draft: &Value) -> AnyElement {
                 .gap(SPACE_0)
                 .p(SPACE_3)
                 .rounded(theme::radius_2())
-                .bg(theme::color(
-                    draft["editor"]["bg"].as_str().unwrap_or_default(),
-                ))
-                .text_color(theme::color(
-                    draft["editor"]["fg"].as_str().unwrap_or_default(),
-                ))
+                .bg(theme::color(colour_of(draft, "editor", "bg")))
+                .text_color(theme::color(colour_of(draft, "editor", "fg")))
                 .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .child(
@@ -601,13 +622,13 @@ fn sample(draft: &Value) -> AnyElement {
                 .gap(SPACE_0)
                 .p(SPACE_1H)
                 .rounded(theme::radius_2())
-                .bg(theme::color(
-                    draft["terminal"]["background"].as_str().unwrap_or_default(),
-                ))
+                .bg(theme::color(colour_of(draft, "terminal", "background")))
                 .children(ansi.iter().map(|key| {
-                    div().flex_1().h(px(12.)).rounded(px(2.)).bg(theme::color(
-                        draft["terminal"][*key].as_str().unwrap_or_default(),
-                    ))
+                    div()
+                        .flex_1()
+                        .h(px(12.))
+                        .rounded(px(2.))
+                        .bg(theme::color(colour_of(draft, "terminal", key)))
                 })),
         )
         .into_any_element()
@@ -631,8 +652,8 @@ fn button(
 /// The editor, under the theme list while a theme is being edited.
 pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let (_, _, hint, _) = GROUPS[editor.group];
-    let dark = editor.draft["dark"] == true;
+    let hint = GROUPS.get(editor.group).map_or("", |&(_, _, hint, _)| hint);
+    let dark = editor.draft.get("dark") == Some(&Value::Bool(true));
     let tabs = {
         let this = this.clone();
         ui::Segmented::new(
@@ -815,8 +836,8 @@ mod wallpaper {
             )
         };
         let length = path.iter().position(|&unit| unit == 0)?;
-        (read != 0 && length > 0)
-            .then(|| PathBuf::from(std::ffi::OsString::from_wide(&path[..length])))
+        let name = path.get(..length)?;
+        (read != 0 && !name.is_empty()).then(|| PathBuf::from(std::ffi::OsString::from_wide(name)))
     }
 
     /// GNOME keeps a light and a dark wallpaper, worn by the colour scheme it is set to.

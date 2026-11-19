@@ -255,8 +255,11 @@ impl Workbench {
             self.rest_chats_later(cx);
             self.look_for_older(false, crate::pickers::recent::PAGE, cx);
             self.front_moved(cx);
-            self.keep_opened_ask(cx);
-            self.keep_ask_sheet(cx);
+            self.keep_opened_task(cx);
+            self.keep_task_sheet(cx);
+            if calls_moved {
+                crate::task_list::reread(self);
+            }
             self.files.reveal(self.front_file(), &self.target());
             crate::settings::front_moved(self, cx);
         }
@@ -426,6 +429,7 @@ impl Workbench {
                     project: path.clone(),
                 };
                 target.watch::<call::Tasks>(Read::Tasks, of_project());
+                crate::task_list::watch(&target, path);
                 target.watch_plain(Read::Runs);
                 target.watch::<call::ProjectConfig>(Read::ProjectConfig, of_project());
                 target.watch::<call::Ports>(
@@ -445,6 +449,8 @@ impl Workbench {
             None => {
                 for read in [
                     Read::Tasks,
+                    Read::TaskList,
+                    Read::Sharing,
                     Read::Runs,
                     Read::ProjectConfig,
                     Read::Ports,
@@ -454,6 +460,8 @@ impl Workbench {
                 }
                 let feed = self.feeds.at_mut(&place);
                 feed.tasks = None;
+                feed.task_list = None;
+                feed.sharing = None;
                 feed.runs.clear();
                 feed.ports.clear();
             }

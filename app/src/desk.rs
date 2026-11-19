@@ -58,6 +58,7 @@ pub struct Desks {
     pub(crate) kinds: HashMap<String, DeskKind>,
     /// Each desk's calls page, made the first time the desk shows its calls.
     call_pages: HashMap<String, Entity<crate::calls::Page>>,
+    pub(crate) task_views: HashMap<String, crate::task_list::View>,
     /// The agents in the view as last heard, so those that leave it are let go.
     present: HashSet<String>,
     /// The agents in a turn as last heard, so each one's desk is tidied as its turn ends.
@@ -144,10 +145,33 @@ pub fn listen(desks: &Entity<Desks>, window: &mut Window, cx: &mut Context<Workb
 }
 
 /// The tab on a desk that shows `url`, which Open on its page brings forward.
-fn tab_showing<'a>(strip: &'a BrowserSnapshot, url: &str) -> Option<&'a str> {
+fn tab_showing<'a>(strip: &'a BrowserSnapshot, url: &str, file: Option<&Path>) -> Option<&'a str> {
     (strip.tabs.iter())
-        .find(|tab| tab.url == url)
+        .find(|tab| tab.url == url || (file.is_some() && tab.local_file.as_deref() == file))
         .map(|tab| tab.id.as_str())
+}
+
+/// Shows `url` on `agent`'s desk in the tab already showing its file, loaded again, or in a new
+/// tab. `front` brings that tab in front of the desk's others, as a new tab always comes.
+pub(crate) async fn show_once(
+    engine: &BrowserManager,
+    agent: &str,
+    url: &str,
+    front: bool,
+) -> Result<String, String> {
+    let file = engine.file_of(url);
+    let open = (engine.snapshot(agent).ok())
+        .and_then(|strip| tab_showing(&strip, url, file.as_deref()).map(str::to_owned));
+    let Some(tab) = open else {
+        return (engine.open_tab(agent, Some(url)).await).map_err(|error| error.to_string());
+    };
+    engine.reload_tab(agent, &tab);
+    if front {
+        engine
+            .switch_tab(agent, &tab)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(tab)
 }
 
 /// What a desk holds besides its pages: a file in an editor, the terminal of a task its
@@ -216,6 +240,7 @@ pub enum DeskKind {
     Terminals,
     Simulator,
     Calls,
+    Tasks,
 }
 
 /// One desk's page area and address bar.
@@ -286,6 +311,7 @@ impl Desks {
             known: HashMap::new(),
             kinds: HashMap::new(),
             call_pages: HashMap::new(),
+            task_views: HashMap::new(),
             present: HashSet::new(),
             working: HashSet::new(),
             finished_runs: HashSet::new(),
@@ -320,12 +346,19 @@ impl Desks {
         self.present.extend(agents);
     }
 
+    pub(crate) fn redraw_call_pages(&self, cx: &mut Context<Self>) {
+        for page in self.call_pages.values() {
+            page.update(cx, |_, cx| cx.notify());
+        }
+    }
+
     fn forget(&mut self, agent: &str) {
         self.strips.remove(agent);
         self.pages.remove(agent);
         self.known.remove(agent);
         self.kinds.remove(agent);
         self.call_pages.remove(agent);
+        self.task_views.remove(agent);
         self.items.remove(agent);
         self.front.remove(agent);
         self.last_front.retain(|(held, _), _| held != agent);
@@ -341,7 +374,9 @@ impl Desks {
     /// What the desk shows now: its simulator or its calls, else whatever is in front of its
     /// pages.
     fn kind_of(&self, agent: &str) -> DeskKind {
-        if let Some(kind @ (DeskKind::Simulator | DeskKind::Calls)) = self.kinds.get(agent) {
+        if let Some(kind @ (DeskKind::Simulator | DeskKind::Calls | DeskKind::Tasks)) =
+            self.kinds.get(agent)
+        {
             return *kind;
         }
         self.front
@@ -353,7 +388,9 @@ impl Desks {
     /// were asked for with none to show, so a blank one opens.
     fn pick_kind(&mut self, agent: &str, kind: DeskKind, cx: &mut Context<Self>) -> bool {
         match kind {
-            DeskKind::Simulator | DeskKind::Calls => self.show_kind(agent, kind, cx),
+            DeskKind::Simulator | DeskKind::Calls | DeskKind::Tasks => {
+                self.show_kind(agent, kind, cx)
+            }
             DeskKind::Pages => {
                 self.turn_to_pages(agent, cx);
                 return (self.strips.get(agent)).is_none_or(|strip| strip.tabs.is_empty());
@@ -526,6 +563,10 @@ impl Desks {
 }
 
 /// The browser's and the simulator's work, off the window's thread.
+#[expect(
+    clippy::expect_used,
+    reason = "the app cannot drive the browser without its runtime"
+)]
 fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
@@ -727,7 +768,7 @@ impl Workbench {
         let mut params = sikemux_view::goals::DesksParams {
             desks: self.desks.read(cx).held(self.sims.read(cx)),
         };
-        let opened = self.opened_ask.as_ref().filter(|ask| ask.narrowed);
+        let opened = self.opened_task.as_ref().filter(|ask| ask.narrowed);
         if let Some(opened) = opened {
             if let Some(desk) = params.desks.get_mut(&opened.agent) {
                 desk.ask = Some(opened.id);
@@ -888,7 +929,7 @@ impl Workbench {
     fn shut_empty_desk(&mut self, agent: &str, cx: &mut Context<Self>) {
         let empty = !matches!(
             self.desk_kind(agent, cx),
-            DeskKind::Simulator | DeskKind::Calls
+            DeskKind::Simulator | DeskKind::Calls | DeskKind::Tasks
         ) && self
             .desks
             .read(cx)
@@ -960,10 +1001,20 @@ impl Workbench {
         }
     }
 
-    /// Turns the agent's desk to the calls of its project, bringing the desk out if it is closed.
+    /// Turns the agent's desk to the calls its chat lists, bringing the desk out if it is
+    /// closed.
     pub(crate) fn show_calls(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.show_desk_kind(agent, DeskKind::Calls, cx);
+    }
+
+    /// Turns the agent's desk to the tasks of its project, bringing the desk out if it is closed.
+    pub(crate) fn show_tasks(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.show_desk_kind(agent, DeskKind::Tasks, cx);
+    }
+
+    fn show_desk_kind(&mut self, agent: &str, kind: DeskKind, cx: &mut Context<Self>) {
         self.desks
-            .update(cx, |desks, cx| desks.show_kind(agent, DeskKind::Calls, cx));
+            .update(cx, |desks, cx| desks.show_kind(agent, kind, cx));
         if !self.desk_open_anywhere(agent) {
             self.reveal_desk(agent);
         }
@@ -1369,6 +1420,13 @@ impl Workbench {
         }
     }
 
+    /// The nearest agent's desk, turned to its project's tasks.
+    pub fn front_tasks(&mut self, cx: &mut Context<Self>) {
+        if let Some((_, _, agent)) = self.nearest_agent(cx) {
+            self.show_tasks(&agent, cx);
+        }
+    }
+
     /// A new page on the nearest agent's desk, which opens if it is closed.
     pub fn new_front_page(&mut self, cx: &mut Context<Self>) {
         let Some((tab, view, agent)) = self.nearest_agent(cx) else {
@@ -1430,7 +1488,7 @@ impl Workbench {
             .copied()
             .unwrap_or_default()
         {
-            DeskKind::Simulator | DeskKind::Calls => {
+            DeskKind::Simulator | DeskKind::Calls | DeskKind::Tasks => {
                 self.desks
                     .update(cx, |desks, cx| desks.show_kind(&agent, DeskKind::Pages, cx));
                 true
@@ -1498,7 +1556,12 @@ impl Workbench {
             .iter()
             .position(|tab| Some(&tab.id) == strip.active_tab_id.as_ref())
             .unwrap_or(0) as i32;
-        let next = &strip.tabs[(at + by).rem_euclid(strip.tabs.len() as i32) as usize].id;
+        let Some(next) = (strip
+            .tabs
+            .get((at + by).rem_euclid(strip.tabs.len() as i32) as usize))
+        .map(|tab| &tab.id) else {
+            return false;
+        };
         self.with_engine(cx, |engine| engine.switch_tab(&agent, next));
         true
     }
@@ -1545,8 +1608,17 @@ impl Workbench {
         if self.desks.read(cx).engine.is_none() {
             return false;
         }
-        self.open_agent(agent, cx);
+        self.bring_pages_forward(agent, cx);
         self.show_on_desk(agent, url, cx)
+    }
+
+    /// Brings the agent and its desk's pages to the front, with the page wanted in the keys.
+    fn bring_pages_forward(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.open_agent(agent, cx);
+        self.desks.update(cx, |desks, cx| {
+            desks.turn_to_pages(agent, cx);
+            desks.want_page_focused(agent);
+        });
     }
 
     /// Brings forward the tab on `agent`'s desk that shows the page it showed with `page_show`,
@@ -1586,11 +1658,7 @@ impl Workbench {
         let Some(engine) = self.desks.read(cx).engine.clone() else {
             return;
         };
-        self.open_agent(agent, cx);
-        self.desks.update(cx, |desks, cx| {
-            desks.turn_to_pages(agent, cx);
-            desks.want_page_focused(agent);
-        });
+        self.bring_pages_forward(agent, cx);
         if !self.desk_open_anywhere(agent) {
             self.reveal_desk(agent);
         }
@@ -1599,21 +1667,9 @@ impl Workbench {
         runtime().spawn(async move {
             let shown = async {
                 let url = url.await?;
-                let open = (engine.snapshot(&agent).ok())
-                    .and_then(|strip| tab_showing(&strip, &url).map(str::to_owned));
-                match open {
-                    Some(tab) => engine
-                        .switch_tab(&agent, &tab)
-                        .map_err(|error| error.to_string()),
-                    None => {
-                        let tab_id = engine
-                            .open_tab(&agent, Some(&url))
-                            .await
-                            .map_err(|error| error.to_string())?;
-                        engine.keep(&agent, &tab_id);
-                        Ok(())
-                    }
-                }
+                let tab = show_once(&engine, &agent, &url, true).await?;
+                engine.keep(&agent, &tab);
+                Ok::<_, String>(())
             };
             if let Err(error) = shown.await {
                 eprintln!("sikemux: the page could not open in a tab: {error}");
@@ -1927,7 +1983,7 @@ const HEAD: f32 = 34.;
 const GAP: f32 = 5.;
 /// The kind switch's box: its kinds 2pt apart, a gap short of the head, each kind as far from
 /// the box's edge on every side.
-const KINDS: f32 = if cfg!(target_os = "macos") { 5. } else { 4. };
+const KINDS: f32 = if cfg!(target_os = "macos") { 6. } else { 5. };
 const KIND_W: f32 = 24.;
 const KIND_H: f32 = 21.;
 const KIND_GAP: f32 = 2.;
@@ -1974,6 +2030,7 @@ pub fn pane(
     match kind {
         DeskKind::Simulator => return simulator_desk(bench, agent, cx),
         DeskKind::Calls => return calls_desk(bench, agent, cx),
+        DeskKind::Tasks => return tasks_desk(bench, agent, cx),
         _ => {}
     }
     let desks = bench.desks.read(cx);
@@ -2680,8 +2737,6 @@ fn kinds(
         .map_or(&[][..], Vec::as_slice);
     let held = |kind: DeskKind| items.iter().filter(|item| item.kind() == kind).count();
     let calls = crate::calls::waiting_on_desk(bench, agent);
-    let t = Tokens::get(cx).clone();
-    let ground = crate::see_through::ground(t.surface, cx);
     let thumb_radius = (radius_3() - px(SWITCH_INSET)).max(px(0.));
     let mut row = div().flex().items_center().gap(px(KIND_GAP));
     for (id, icon, label, kind, count, busy) in [
@@ -2691,6 +2746,14 @@ fn kinds(
             t!("Calls"),
             DeskKind::Calls,
             calls,
+            false,
+        ),
+        (
+            "desk-tasks",
+            Icon::ListTodo,
+            t!("Tasks"),
+            DeskKind::Tasks,
+            0,
             false,
         ),
         (
@@ -2757,34 +2820,11 @@ fn kinds(
                         ),
                 )
                 .when(kind == DeskKind::Calls && count > 0, |button| {
-                    button.child(count_badge(count, ground, &t))
+                    button.child(ui::count_badge(count, cx))
                 }),
         );
     }
     row
-}
-
-/// The amber count on the calls' bell while calls wait.
-fn count_badge(count: usize, ground: gpui_kit::Hsla, t: &Tokens) -> impl IntoElement {
-    div()
-        .absolute()
-        .top(px(-3.))
-        .right(px(-3.))
-        .min_w(px(14.))
-        .h(px(14.))
-        .px(px(3.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .bg(t.warn)
-        .border_2()
-        .border_color(ground)
-        .text_color(ground)
-        .text_size(crate::theme::ui_text(9.5))
-        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-        .font_features(crate::theme::tabular())
-        .child(count.to_string())
 }
 
 fn calls_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElement {
@@ -2839,6 +2879,40 @@ fn calls_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> An
             .flex_col()
             .child(head)
             .child(div().flex_1().min_h_0().child(page)),
+        cx,
+    )
+}
+
+fn tasks_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElement {
+    let head = div()
+        .w_full()
+        .min_w_0()
+        .h(px(HEAD))
+        .flex_none()
+        .flex()
+        .items_center()
+        .pl(px(SWITCH_W + GAP + 14.))
+        .pr(SPACE_1H)
+        .child(crate::task_list::counts(bench, agent, cx))
+        .children(crate::task_share::button(bench, agent, cx));
+    let sheet = crate::task_sheet::sheet_over(bench, cx);
+    frame(
+        bench,
+        agent,
+        DeskKind::Tasks,
+        div()
+            .relative()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(head)
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(crate::task_list::body(bench, agent, cx)),
+            )
+            .children(sheet),
         cx,
     )
 }
@@ -2952,8 +3026,34 @@ mod tests {
             ],
             active_tab_id: Some("other".into()),
         };
-        assert_eq!(tab_showing(&strip, page), Some("page"));
-        assert_eq!(tab_showing(&strip, "file:///pages/tabs/gone.html"), None);
+        assert_eq!(tab_showing(&strip, page, None), Some("page"));
+        assert_eq!(
+            tab_showing(&strip, "file:///pages/tabs/gone.html", None),
+            None
+        );
+    }
+
+    #[test]
+    fn a_page_shown_by_path_then_by_its_id_finds_the_tab_it_opened() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let _inside = runtime.enter();
+        let files = sikemux_browser::local_files::LocalFiles::default();
+        let folder = std::env::temp_dir().join(format!("desk-tabs-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let page = folder.join("caa94d955d1b41af97d9ce4ccf0daba9.html");
+        std::fs::write(&page, "<p>mockup</p>").unwrap();
+        let by_path = files.url_for(&page).unwrap();
+        let mut opened = tab("page", &by_path, true);
+        opened.local_file = files.path_of(&by_path);
+        let strip = BrowserSnapshot {
+            tabs: vec![opened, tab("other", "https://example.com", false)],
+            active_tab_id: Some("page".into()),
+        };
+        std::fs::write(&page, "<p>mockup, edited</p>").unwrap();
+        let by_id = files.url_for(&page).unwrap();
+        let file = files.path_of(&by_id);
+        assert_eq!(tab_showing(&strip, &by_id, file.as_deref()), Some("page"));
+        std::fs::remove_dir_all(&folder).ok();
     }
 
     #[gpui::test]

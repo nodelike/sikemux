@@ -86,9 +86,21 @@
       ]
     },
     {
-      "label": "the Swift the wire types generate parses",
-      "command": "command -v swiftc >/dev/null || exit 0; node scripts/generate-wire-types.mjs && for f in helpers/notch/Sources/NotchKit/Wire.generated.swift mobile/ios/Sikemux/Core/Wire.generated.swift mobile/ios/Shared/Notify/Card.generated.swift mobile/ios/Shared/Glance/Glance.generated.swift; do swiftc -parse \"$f\" || exit 1; done",
-      "when": ["crates/**/*.rs", "scripts/generate-wire-types.mjs"]
+      "label": "the notch island builds, and the Swift the wire types generate fits the apps",
+      "command": "command -v swift >/dev/null || exit 0; node scripts/check-swift-wire-uses.mjs && node scripts/generate-notch-icons.mjs >/dev/null && node scripts/generate-notch-sources.mjs >/dev/null && swift build --package-path helpers/notch -q && for f in mobile/ios/Sikemux/Core/Wire.generated.swift mobile/ios/Shared/Notify/Card.generated.swift mobile/ios/Shared/Glance/Glance.generated.swift; do swiftc -parse \"$f\" || exit 1; done",
+      "when": [
+        "crates/**/*.rs",
+        "helpers/notch/**",
+        "mobile/ios/**/*.swift",
+        "scripts/generate-wire-types.mjs",
+        "scripts/generate-notch-*.mjs",
+        "scripts/check-swift-wire-uses.mjs"
+      ]
+    },
+    {
+      "label": "the server's protocol, types and lint",
+      "command": "cd server && pnpm install --frozen-lockfile --prefer-offline --silent && pnpm protocol:check && pnpm --filter ./protocol test && pnpm typecheck && pnpm lint",
+      "when": ["server/**"]
     }
   ],
   "worktree": {

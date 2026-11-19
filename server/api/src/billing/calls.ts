@@ -4,6 +4,7 @@ import type { Tables } from "../db.ts";
 import type { Logger } from "../log.ts";
 import { retryLater } from "../retry.ts";
 import type { BillingProvider, HeldSubscription } from "./provider.ts";
+import { settleSeatPause } from "./seat-pause.ts";
 
 /** Something to ask of the provider, kept until it is taken. */
 export type ProviderCall =
@@ -11,16 +12,25 @@ export type ProviderCall =
       action: "cancel_now" | "cancel_at_period_end";
       subscription: HeldSubscription;
     }
-  | { action: "refund"; providerPaymentId: string };
+  | { action: "refund"; providerPaymentId: string; amount?: number };
 
 export type Calling = Pick<
   BillingProvider,
-  "name" | "eventRetrySpanMs" | "cancel" | "refund"
+  | "name"
+  | "eventRetrySpanMs"
+  | "cancel"
+  | "refund"
+  | "pause"
+  | "resumeOn"
+  | "keepPaused"
 >;
 
 const BATCH = 50;
 
-/** Calls this provider object is making now, so a call it starts while making one is not repeated. */
+/**
+ * What this provider object is calling about now, so a call it starts while making one is not
+ * repeated, and two checks of one person's seats never run at once.
+ */
 const running = new WeakMap<Calling, Set<string>>();
 
 /** Records calls to make, in the transaction that decided them. */
@@ -40,6 +50,7 @@ export async function callLater(
               action: call.action,
               subscription: null,
               provider_payment_id: call.providerPaymentId,
+              refund_amount: call.amount ?? null,
             }
           : {
               provider,
@@ -62,7 +73,8 @@ function held(stored: Record<string, unknown>): HeldSubscription {
 
 /**
  * Makes the calls whose turn has come, oldest first. A call the provider takes is forgotten; one
- * that fails is tried again later. The provider treats a cancel or refund made twice as one.
+ * that fails is tried again later. The provider treats a cancel or refund made twice as one, and
+ * a seat check acts only on what it finds undone.
  */
 export async function makeDueCalls(
   db: Kysely<Tables>,
@@ -80,8 +92,9 @@ export async function makeDueCalls(
     .limit(BATCH)
     .execute();
   for (const call of due) {
-    if (busy.has(call.id)) continue;
-    busy.add(call.id);
+    const key = call.user_id ? `user:${call.user_id}` : call.id;
+    if (busy.has(key)) continue;
+    busy.add(key);
     try {
       const owed = await db
         .selectFrom("billing_calls")
@@ -89,8 +102,28 @@ export async function makeDueCalls(
         .where("id", "=", call.id)
         .executeTakeFirst();
       if (!owed) continue;
-      if (call.action === "refund" && call.provider_payment_id)
-        await provider.refund(call.provider_payment_id);
+      if (call.action === "settle_seat_pause" && call.user_id) {
+        const askAgainAt = await settleSeatPause(
+          db,
+          provider,
+          call.user_id,
+          log,
+        );
+        if (askAgainAt) {
+          await db
+            .updateTable("billing_calls")
+            .set({ retry_at: askAgainAt })
+            .where("id", "=", call.id)
+            .execute();
+          continue;
+        }
+      } else if (call.action === "refund" && call.provider_payment_id)
+        await (call.refund_amount === null
+          ? provider.refund(call.provider_payment_id)
+          : provider.refund(
+              call.provider_payment_id,
+              Number(call.refund_amount),
+            ));
       else if (call.subscription)
         await provider.cancel(
           held(call.subscription),
@@ -112,7 +145,7 @@ export async function makeDueCalls(
         .where("id", "=", call.id)
         .execute();
     } finally {
-      busy.delete(call.id);
+      busy.delete(key);
     }
   }
 }

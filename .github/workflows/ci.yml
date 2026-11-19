@@ -288,13 +288,14 @@ jobs:
       - name: Run Clippy on the GPUI app
         run: scripts/check-rust.sh gpui-clippy
 
+  # Only the GPUI app's tests and macOS Clippy need a Mac; GitHub's Macs are scarce, so the rest run on Linux.
   # The tests run as two jobs so that each compiles the core once: one runner compiling it with and
   # without its unit tests at once took ten minutes, and three to four for each alone.
   rust-core-tests:
     name: Core unit tests
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: macos-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -312,6 +313,9 @@ jobs:
           cache: "true"
           cache-from: rust-tests
 
+      - name: Install the Linux packages
+        uses: ./.github/actions/apt-install
+
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
 
@@ -322,7 +326,7 @@ jobs:
     name: Rust tests
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: macos-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -336,6 +340,9 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           cache: "true"
+
+      - name: Install the Linux packages
+        uses: ./.github/actions/apt-install
 
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest

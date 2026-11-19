@@ -31,8 +31,14 @@ pub(crate) fn ranges_in(text: &str, query: &Query) -> Vec<Range<usize>> {
     let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
     let whole = |range: &Range<usize>| {
         !query.whole_word
-            || (!text[..range.start].chars().next_back().is_some_and(word)
-                && !text[range.end..].chars().next().is_some_and(word))
+            || (!text
+                .get(..range.start)
+                .and_then(|before| before.chars().next_back())
+                .is_some_and(word)
+                && !text
+                    .get(range.end..)
+                    .and_then(|after| after.chars().next())
+                    .is_some_and(word))
     };
     let found: Vec<Range<usize>> = if query.match_case {
         found_in(text, &query.text)
@@ -64,8 +70,13 @@ fn folded_found_in(text: &str, needle: &str) -> Vec<Range<usize>> {
     found_in(&hay, &needle)
         .into_iter()
         .filter_map(|found| {
-            let (first, last) = (&from[found.start], &from[found.end - 1]);
-            let starts = found.start == 0 || from[found.start - 1] != *first;
+            let first = from.get(found.start)?;
+            let last = from.get(found.end.checked_sub(1)?)?;
+            let starts = found
+                .start
+                .checked_sub(1)
+                .and_then(|before| from.get(before))
+                .is_none_or(|before| before != first);
             let ends = from.get(found.end).is_none_or(|next| next != last);
             (starts && ends).then_some(first.start..last.end)
         })

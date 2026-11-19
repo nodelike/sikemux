@@ -15,8 +15,24 @@
 //! a control the window reports. Times are in seconds.
 //!   stage W H / window W H      the frame and the window in its middle, in points
 //!   replies FILE                the stand-in Claude's scripted replies (see sikemux-fake-claude)
-//!   project NAME FOLDER         copies FOLDER, beside the scene, into a new git project
-//!   chat NAME                   opens a Claude chat named NAME in the last project, first in its strip
+//!   team FOLDER ORIGIN          wakes the core on the account FOLDER, beside the scene, recorded:
+//!                               its orgs, what teammates share and its copies of their boards;
+//!                               each project step without its own REMOTE gets ORIGIN
+//!   project NAME FOLDER [REMOTE] copies FOLDER, beside the scene, into a new git project
+//!   signed-in                   signs the film's core in to a local accounts API, as the
+//!                               person, host and orgs the world's sikemuxAccount names; a
+//!                               scene with a host step and none of these signs in first
+//!   host NAME                   signs in another host on the same account, a throwaway core
+//!                               of its own holding a copy of the last project
+//!   saved HOST "TITLE"          saves a Claude chat titled TITLE in the last project, on HOST
+//!                               or `here`
+//!   asleep HOST                 stops HOST answering, as a computer gone to sleep
+//!   orgrole ROLE "ORG"          has the owner of ORG, an org the person is a member of, give
+//!                               them ROLE there: admin or user
+//!   orgplan active|lapsed "ORG" sets ORG's plan; hosts see it at the next orgrole
+//!   orgkey HOST "ORG" PROVIDER  saves a key to PROVIDER in ORG's vault from HOST, or `here`
+//!   chat NAME [AGENT [MODEL]]   opens a chat named NAME in the last project, first in its strip,
+//!                               on AGENT (Claude unless named) and MODEL
 //!   title "TEXT"                gives the last chat that title
 //!   trigger "TITLE" SECONDS     sets the last chat a trigger that sends it TITLE every SECONDS
 //!   say "TEXT" [FILE...]        sends the last chat TEXT, as the person, with no typing shown,
@@ -30,7 +46,7 @@
 //!                               for the checkout an earlier call answered
 //!   patch FILE                  applies FILE, a diff beside the scene, to the last project unstaged
 //!   prefer KEY [VALUE]          sets a preference, VALUE as JSON or else as text, or puts
-//!                               back the world's
+//!                               back the world's; $projects stands for the projects' folder
 //!   settle S                    lets the core and the window catch up, unfilmed
 //!   hold S                      gives the core S real seconds with the film's time stopped, so
 //!                               an answer that takes a round trip lands between two frames
@@ -45,8 +61,8 @@
 //!   pan DX,DY [S] / scroll DY [S]          two-finger scrolls at the cursor
 //!   shape arrow|hand|beam|auto  which pointer is drawn
 //!   settings PAGE               opens settings at the page of that name
-//!   ask TITLE / ask whole       opens the person's ask whose title starts with TITLE as its card
-//!                               does, or widens it to the whole chat
+//!   ask NAME AGENT TASK "TEXT"  the teammate NAME's agent AGENT asks the core about task TASK
+//!                               of the shared project over the peer link, on a recorded team
 //!   wait S / mark KIND / still NAME / end [HOLD]
 //!   snap NAME                   saves the window alone as drawn, without the stage or cursor
 //!   toast "TEXT"                shows a toast saying TEXT, as a finished download does
@@ -55,12 +71,15 @@
 //!                               project of its project's name, raised its raisedAt ms ago
 
 mod director;
+mod linked;
 #[cfg(target_os = "macos")]
 mod native;
 mod scene;
+mod teammates;
 mod world;
 
 use director::*;
+use linked::*;
 use scene::*;
 use sikemux_process::command::{Child, ChildStdin, Stdio};
 use sikemux_wire::protocol::ask;
@@ -70,6 +89,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use teammates::Teammates;
 use world::*;
 
 use anyhow::{anyhow, bail, Context as _};
@@ -165,10 +185,39 @@ fn main() -> anyhow::Result<()> {
     let replies = header("replies")
         .map(|step| step.text(0).map(|file| args.scene.with_file_name(file)))
         .transpose()?;
+    let team = header("team")
+        .map(|step| -> anyhow::Result<_> {
+            Ok((
+                args.scene.with_file_name(step.text(0)?),
+                step.text(1)?.to_owned(),
+            ))
+        })
+        .transpose()?;
     std::fs::create_dir_all(&args.work)?;
     let clock = args.work.join("clock");
     std::fs::write(&clock, "0")?;
-    let mut world = World::start(&args, replies, &clock)?;
+    let asks = steps.iter().any(|step| step.verb == "ask");
+    let account = (steps.iter())
+        .any(|step| matches!(step.verb.as_str(), "signed-in" | "host"))
+        .then(|| {
+            let account = (args.world.get("sikemuxAccount"))
+                .ok_or_else(|| anyhow!("the world names no sikemuxAccount"))?;
+            Account::start(&args.work, account)
+        })
+        .transpose()?;
+    let signs_in_at_step = steps.iter().any(|step| step.verb == "signed-in");
+    let mut world = World::start(
+        &args,
+        replies,
+        team,
+        asks,
+        &clock,
+        account,
+        signs_in_at_step,
+    )?;
+    if let Some(origin) = header("origin") {
+        world.origin = Some(origin.text(0)?.to_owned());
+    }
 
     let bench = Rc::new(RefCell::new(None));
     let kept = bench.clone();
@@ -313,17 +362,24 @@ fn main() -> anyhow::Result<()> {
         stand_in,
         calls: Vec::new(),
         update: None,
-        signed_in: args.world["signedIn"]["name"].as_str().map(|name| {
-            sikemux_view::device::AccountInfo {
+        signed_in: (world.account.is_none())
+            .then(|| args.world.pointer("/signedIn/name"))
+            .flatten()
+            .and_then(Value::as_str)
+            .map(|name| sikemux_view::device::AccountInfo {
                 name: Some(name.into()),
-                email: args.world["signedIn"]["email"].as_str().map(Into::into),
+                email: args
+                    .world
+                    .pointer("/signedIn/email")
+                    .and_then(Value::as_str)
+                    .map(Into::into),
                 picture_hash: None,
                 staff: false,
                 flags: Vec::new(),
                 features: None,
                 pro_given: false,
-            }
-        }),
+                orgs: Vec::new(),
+            }),
         compositor,
         output: (output_width, output_height),
         sink,

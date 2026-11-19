@@ -227,8 +227,8 @@ fn own_log() -> Option<PathBuf> {
     if unsafe { libc::fcntl(libc::STDERR_FILENO, libc::F_GETPATH, path.as_mut_ptr()) } != 0 {
         return None;
     }
-    let end = path.iter().position(|byte| *byte == 0)?;
-    let path = PathBuf::from(String::from_utf8_lossy(&path[..end]).into_owned());
+    let named = std::ffi::CStr::from_bytes_until_nul(&path).ok()?;
+    let path = PathBuf::from(named.to_string_lossy().into_owned());
     path.is_file().then_some(path)
 }
 

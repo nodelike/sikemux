@@ -115,12 +115,13 @@ impl AgentNow<'_> {
         })
     }
 
-    /// Something of its is moving: its turn, a subagent, mail on the way or a worker.
+    /// Something of its is moving: its turn, a subagent, a background task its CLI wakes it from
+    /// once it ends, mail on the way or a worker.
     pub fn at_work(&self) -> bool {
         self.mid_turn()
-            || self
-                .chat()
-                .is_some_and(|chat| chat.feed.running_subagents() > 0)
+            || self.chat().is_some_and(|chat| {
+                chat.feed.running_subagents() > 0 || chat.feed.running_tasks() > 0
+            })
             || (self.core.repo_above().mail_waiting)(self.core, self.id)
             || self.workers_busy(self.id)
     }

@@ -432,8 +432,17 @@ impl Workbench {
         let Some(engine) = self.desks.read(cx).engine.clone() else {
             return;
         };
-        let text = |key: &str| pin[key].as_str().unwrap_or_default().to_owned();
-        let size = |key: &str| pin["viewport"][key].as_f64().unwrap_or(0.).round() as u32;
+        let text = |key: &str| {
+            (pin.get(key).and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_owned()
+        };
+        let size = |key: &str| {
+            (pin.get("viewport").and_then(|viewport| viewport.get(key)))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.)
+                .round() as u32
+        };
         let mut params = PlacePinParams {
             agent_id: agent.to_owned(),
             url: text("url"),
@@ -452,7 +461,10 @@ impl Workbench {
             .unwrap_or_else(|| t!("the agent").to_owned());
         let target = self.chat_target(agent);
         let bench = cx.weak_entity();
-        let (agent, area) = (agent.to_owned(), pin["rect"].clone());
+        let (agent, area) = (
+            agent.to_owned(),
+            pin.get("rect").cloned().unwrap_or_default(),
+        );
         cx.spawn(async move |_, cx| {
             let taken =
                 super::run(async move { pins::spot(&engine, &agent, tab_id, &area).await.ok() })

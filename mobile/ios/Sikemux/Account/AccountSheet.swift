@@ -116,11 +116,8 @@ struct AccountSheet: View {
         return HStack(spacing: 12) {
             Avatar(size: 44)
             VStack(alignment: .leading, spacing: 0) {
-                Text(user?.name ?? user?.email ?? String(localized: "Signed in"))
+                Text(user?.name ?? String(localized: "Your account"))
                     .font(Theme.ui(16, .semibold)).tracking(-0.25).foregroundStyle(palette.ink).lineLimit(1)
-                if user?.name != nil, let email = user?.email {
-                    Text(email).metaStyle(palette).lineLimit(1)
-                }
                 Text("Signed in with \(user?.providerName ?? String(localized: "email"))").metaStyle(palette)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -216,6 +213,7 @@ struct FarewellScreen: View {
 struct RestoreAccountScreen: View {
     @Environment(\.palette) private var palette
     let deletesAt: String
+    var onRestored: () -> Void = { AccountSession.shared.retryNow() }
     @State private var busy = false
     @State private var problem: String?
 
@@ -254,7 +252,7 @@ struct RestoreAccountScreen: View {
             do {
                 _ = try await Account.shared.token(fresh: true)
                 _ = try await AccountCalls.restore()
-                AccountSession.shared.retryNow()
+                onRestored()
             } catch {
                 busy = false
                 problem = Sikemux.problem(error)

@@ -14,7 +14,7 @@ use gpui_kit::{
     IntoElement, KeyBinding, ParentElement, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
-use sikemux_view::workspace::{ConfigChoice, ConfigPicker};
+use sikemux_view::workspace::{ConfigChoice, ConfigPicker, RecentModel};
 
 use crate::agents::setup::Installing;
 use crate::core;
@@ -25,6 +25,7 @@ use crate::theme::{
 use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
 use crate::workbench::Workbench;
+use sikemux_agents::launch::providers::ProviderOrg;
 use sikemux_calls::call;
 use sikemux_calls::model_providers::{ModelRoute, RoutesParams};
 
@@ -121,6 +122,15 @@ pub struct Unread {
 
 type Route = ModelRoute;
 
+/// The mark of the provider a route runs on, an org's own key included.
+fn route_mark(route: &Route) -> Icon {
+    let provider = route
+        .org
+        .as_ref()
+        .map_or(route.id.as_str(), |org| org.provider_in(&route.id));
+    icons::model_provider(provider)
+}
+
 trait Named {
     /// `model` as the agent names it once a chat runs on this provider.
     fn named(&self, model: &str, current: &str) -> bool;
@@ -131,6 +141,11 @@ impl Named for Route {
         current == model || current == format!("sikemux-{}/{model}", self.id)
     }
 }
+
+/// The group of models new chats of the agent started on lately, drawn first.
+const RECENT: usize = 0;
+/// The group of the agent's own models.
+const OWN: usize = 1;
 
 /// What picking a row does.
 #[derive(Clone)]
@@ -294,7 +309,7 @@ impl Menu {
     /// The group headings and every row under them, matched to the search: the agent's own
     /// models under its maker, then those of each connected provider it runs, then the row that
     /// adds one.
-    fn options(&self, cx: &App) -> (Vec<String>, Vec<Row>) {
+    fn options(&self, cx: &App) -> (Vec<(String, Option<ProviderOrg>)>, Vec<Row>) {
         let Some(bench) = self.bench.upgrade() else {
             return (Vec::new(), Vec::new());
         };
@@ -324,13 +339,16 @@ impl Menu {
             .kind(own)
             .and_then(|kind| kind.maker.clone());
         let own_mark = match (paying, &maker) {
-            (Some(route), _) => icons::model_provider(&route.id),
+            (Some(route), _) => route_mark(route),
             (None, Some(maker)) => icons::model_provider(maker),
             (None, None) => icons::agent(own),
         };
         let paying = paying.map(|route| route.label.clone());
         let maker = maker.unwrap_or_else(|| bench.agent_name(own).to_owned());
-        let mut groups = vec![paying.unwrap_or(maker)];
+        let mut groups = vec![
+            (t!("Recent").to_owned(), None),
+            (paying.unwrap_or(maker), None),
+        ];
         let mut options: Vec<Row> = Vec::new();
         let query = self.query.read(cx).value().trim().to_lowercase();
         let unfolded = self.older || !query.is_empty();
@@ -347,7 +365,7 @@ impl Menu {
                     .filter(|choice| self.picked.locked || !choice.value.starts_with("sikemux-"))
                     .filter(|choice| shows(choice))
                     .map(|choice| Row {
-                        group: 0,
+                        group: OWN,
                         mark: Some(own_mark),
                         label: choice.label.clone(),
                         meta: choice.is_default.then(|| t!("Default").to_owned()),
@@ -375,7 +393,7 @@ impl Menu {
             };
             match offered.is_empty() {
                 true => options.push(Row {
-                    group: 0,
+                    group: OWN,
                     mark: Some(own_mark),
                     label: t!("Default model").into(),
                     meta: None,
@@ -383,7 +401,7 @@ impl Menu {
                     act: Act::Move(going(None)),
                 }),
                 false => options.extend(offered.iter().map(|choice| Row {
-                    group: 0,
+                    group: OWN,
                     mark: Some(own_mark),
                     label: choice.label.clone(),
                     meta: choice.is_default.then(|| t!("Default").to_owned()),
@@ -399,7 +417,7 @@ impl Menu {
             (self.picked.unread.as_ref()).and_then(|unread| unread.sign_in.clone())
         {
             options.push(Row {
-                group: 0,
+                group: OWN,
                 mark: None,
                 label: t!("Sign in to {agent}", agent = bench.agent_name(own)),
                 meta: None,
@@ -409,7 +427,7 @@ impl Menu {
         }
         if folded && query.is_empty() {
             options.push(Row {
-                group: 0,
+                group: OWN,
                 mark: None,
                 label: if self.older {
                     t!("Show less")
@@ -425,10 +443,11 @@ impl Menu {
         if !self.picked.locked {
             for route in &self.routes {
                 let here = self.picked.model_provider.as_deref() == Some(route.id.as_str());
-                groups.push(match route.local && !route.label.starts_with("Local") {
+                let heading = match route.local && !route.label.starts_with("Local") {
                     true => t!("{route} · local", route = route.label),
                     false => route.label.clone(),
-                });
+                };
+                groups.push((heading, route.org.clone()));
                 let group = groups.len() - 1;
                 options.extend(route.models.iter().map(|model| {
                     let chosen = here && route.named(model, &current);
@@ -451,7 +470,7 @@ impl Menu {
                     let meta = facts(route, model);
                     Row {
                         group,
-                        mark: Some(icons::model_provider(&route.id)),
+                        mark: Some(route_mark(route)),
                         label: model.clone(),
                         meta: (!meta.is_empty()).then(|| meta.join(" · ")),
                         current: chosen,
@@ -459,7 +478,7 @@ impl Menu {
                     }
                 }));
             }
-            groups.push(String::new());
+            groups.push((String::new(), None));
             options.push(Row {
                 group: groups.len() - 1,
                 mark: None,
@@ -477,12 +496,49 @@ impl Menu {
                 "{} {} {}",
                 option.label,
                 option.meta.as_deref().unwrap_or_default(),
-                groups[option.group]
+                groups
+                    .get(option.group)
+                    .map(|(heading, _)| heading.as_str())
+                    .unwrap_or_default()
             )
             .to_lowercase()
             .contains(&query)
         });
+        if query.is_empty() {
+            let recent = self.recent(bench, &options);
+            options.splice(0..0, recent);
+        }
         (groups, options)
+    }
+
+    /// The rows of the models new chats of the agent started on lately, as they stand below.
+    fn recent(&self, bench: &Workbench, options: &[Row]) -> Vec<Row> {
+        let paying = (self.routes.iter())
+            .find(|route| self.picked.model_provider.as_deref() == Some(route.id.as_str()));
+        let used = |row: &Row, recent: &RecentModel| match &row.act {
+            Act::Move(going) => {
+                going.model.as_ref() == Some(&recent.model)
+                    && going.model_provider == recent.provider
+            }
+            Act::Set(value) => {
+                recent.provider == self.picked.model_provider
+                    && paying.map_or(*value == recent.model, |route| {
+                        route.named(&recent.model, value)
+                    })
+            }
+            _ => false,
+        };
+        (bench.launchers().iter())
+            .find(|launcher| launcher.provider == self.picked.provider)
+            .map(|launcher| launcher.recent_models.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|recent| options.iter().find(|row| used(row, recent)))
+            .map(|row| Row {
+                group: RECENT,
+                ..row.clone()
+            })
+            .collect()
     }
 
     fn pick(&mut self, act: Act, window: &mut Window, cx: &mut Context<Self>) {
@@ -547,7 +603,7 @@ impl Menu {
             ),
         };
         Some(Row {
-            group: 0,
+            group: OWN,
             mark: None,
             label,
             meta: agent.latest.clone(),
@@ -1067,7 +1123,7 @@ impl Render for Menu {
             ui::found_mark(cx),
         );
         let this = cx.entity();
-        let empty_own = options.iter().all(|row| row.group != 0);
+        let empty_own = options.iter().all(|row| row.group != OWN);
         let unread = (self.picked.unread.as_ref())
             .filter(|_| typed.is_empty())
             .map(|unread| unread.said.clone());
@@ -1094,20 +1150,28 @@ impl Render for Menu {
         let speed = self.speed(&t);
         let mut list: Vec<AnyElement> = Vec::new();
         let mut chosen_at = None;
-        for (group, heading) in groups.iter().enumerate() {
+        for (group, (heading, org)) in groups.iter().enumerate() {
             let rows: Vec<(usize, Row)> = options
                 .iter()
                 .cloned()
                 .enumerate()
                 .filter(|(_, row)| row.group == group && !matches!(row.act, Act::AddProvider))
                 .collect();
-            let noted = group == 0 && note.is_some();
+            let noted = group == OWN && note.is_some();
             if rows.is_empty() && !noted {
                 continue;
             }
             if !heading.is_empty() {
                 list.push(
-                    ui::caps(heading, cx)
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(SPACE_1H)
+                        .children(
+                            org.as_ref()
+                                .map(|org| ui::org_mark(&org.name, &org.id, 14.)),
+                        )
+                        .child(ui::caps(heading, cx))
                         .flex_none()
                         .px(SPACE_2H)
                         .pt(px(if list.is_empty() { 6. } else { 10. }))

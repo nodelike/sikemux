@@ -20,7 +20,10 @@ pub fn resolve(input: &str) -> Address {
     if value.is_empty() {
         return Address::Url(BLANK_URL.into());
     }
-    if value.len() >= 5 && value[..5].eq_ignore_ascii_case("file:") {
+    if value
+        .get(..5)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("file:"))
+    {
         return match Url::parse(value)
             .ok()
             .and_then(|url| url.to_file_path().ok())

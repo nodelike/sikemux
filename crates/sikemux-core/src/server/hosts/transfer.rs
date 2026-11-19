@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map};
+use serde_json::{json, Map, Value};
 
 use super::super::connection::blocking;
 use super::super::{layout, workspace, Core, CoreError, CoreResult};
@@ -28,7 +28,7 @@ use super::calls::{self as asks, params_of, HostAsk};
 use super::code::Scratch;
 use super::link::{Answer, Received};
 use super::open::{self, OpenAs};
-use super::{ask, call, call_id, find, receipt, Failed, Stands, ASK_WAIT};
+use super::{ask, call, call_id, find_to_move_work, receipt, Failed, Stands, ASK_WAIT};
 use crate::agent_catalog::{self, AgentKind};
 use crate::sessions::{carry, delete, SavedRef};
 use sikemux_view::layout::Tab;
@@ -70,7 +70,7 @@ pub(super) struct Take {
 /// Sends the project's session to the linked host `host`, answering what went, what stayed and
 /// where it now is.
 pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreResult<SessionSent> {
-    let link = find(core, &params.host)?;
+    let link = find_to_move_work(core, &params.host)?;
     let project = core
         .workspaces()
         .project_info(&params.project)
@@ -104,7 +104,7 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
         params.there.clone(),
     )
     .await?;
-    if let Some(why) = opened["differs"].as_str() {
+    if let Some(why) = opened.get("differs").and_then(Value::as_str) {
         return Ok(SessionSent {
             host: link.id.clone(),
             host_name: link.name.clone(),
@@ -117,11 +117,13 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
             differs: Some(why.to_owned()),
         });
     }
-    let there = opened["project"]
-        .as_str()
+    let there = opened
+        .get("project")
+        .and_then(Value::as_str)
         .ok_or_else(|| CoreError::from(format!("{} did not open the project", link.name)))?
         .to_owned();
-    let failed = (opened["uncommitted"].as_str()).filter(|said| *said != "applied");
+    let failed =
+        (opened.get("uncommitted").and_then(Value::as_str)).filter(|said| *said != "applied");
     if let (true, Some(why)) = (params.moving, failed) {
         return Err(format!(
             "nothing moved, since the uncommitted changes did not go to {}: {why}",
@@ -141,8 +143,8 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
     let request = params_of::<asks::TakeSession>(&Take {
         project: there.clone(),
         from,
-        work: (opened["work"].as_str())
-            .filter(|work| Some(*work) != opened["path"].as_str())
+        work: (opened.get("work").and_then(Value::as_str))
+            .filter(|work| Some(*work) != opened.get("path").and_then(Value::as_str))
             .map(str::to_owned),
         chats,
         tabs,
@@ -165,7 +167,8 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
         error => error.to_string(),
     })?;
     let taken: HashMap<String, String> =
-        serde_json::from_value(answer["agents"].clone()).unwrap_or_default();
+        serde_json::from_value(answer.get("agents").cloned().unwrap_or_default())
+            .unwrap_or_default();
     let (went, stayed): (Vec<Sent>, Vec<Sent>) = sent
         .into_iter()
         .partition(|chat| taken.contains_key(&chat.id));
@@ -236,8 +239,11 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
         host: link.id.clone(),
         host_name: link.name.clone(),
         project: there,
-        path: opened["path"].as_str().map(str::to_owned),
-        uncommitted: opened["uncommitted"].as_str().map(str::to_owned),
+        path: opened
+            .get("path")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        uncommitted: (opened.get("uncommitted").and_then(Value::as_str)).map(str::to_owned),
         carried,
         closed,
         left,

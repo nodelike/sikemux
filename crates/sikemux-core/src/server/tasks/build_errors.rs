@@ -47,7 +47,9 @@ pub(super) fn publish(core: &Core, project: &str, cwd: &Path, lines: &[String]) 
             }
             None => continue,
         };
-        let diagnostics = &mut by_file[index].1;
+        let Some((_, diagnostics)) = by_file.get_mut(index) else {
+            continue;
+        };
         if diagnostics.len() < MAX_PER_FILE {
             diagnostics.push(diagnostic(error));
         }

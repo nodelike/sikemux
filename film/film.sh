@@ -38,8 +38,12 @@ command -v ffmpeg >/dev/null || fail "ffmpeg is needed (brew install ffmpeg)"
 
 say "building the core, the stand-in Claude and the film"
 cargo build --quiet --manifest-path "$ROOT/Cargo.toml" \
-  -p sikemux-host -p sikemux-core --bin sikemux-host --bin sikemux-fake-claude
-cargo build --quiet --manifest-path "$GPUI/Cargo.toml" --example film
+  -p sikemux-host -p sikemux-core --bin sikemux-host --bin sikemux-fake-claude \
+  --features sikemux-core/host-addresses-file
+cargo build --quiet --manifest-path "$GPUI/Cargo.toml" --example film --features drive
+if grep -qE '^(signed-in|host)\b' "$ROOT/film/scenes/$scene.film"; then
+  pnpm install --silent --frozen-lockfile --prefer-offline --dir "$ROOT/server"
+fi
 bin="$ROOT/target/debug"
 
 work="$(mktemp -d -t sxfilm)"

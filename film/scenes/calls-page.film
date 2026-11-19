@@ -14,7 +14,7 @@ say "Would SQLite hold up with three app servers reading the cache at once?"
 settle 8
 front Wren
 settle 2
-click 709,612
+click "Which store should the product page cache use?"
 settle 2
 snap calls-page
 key cmd-k

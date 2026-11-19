@@ -108,9 +108,10 @@ pub fn person_environment(token: &Token) -> io::Result<Vec<(OsString, OsString)>
                 .skip(1)
                 .position(|&unit| unit == u16::from(b'='))?
                 + 1;
+            let (name, value) = entry.split_at_checked(at)?;
             Some((
-                OsString::from_wide(&entry[..at]),
-                OsString::from_wide(&entry[at + 1..]),
+                OsString::from_wide(name),
+                OsString::from_wide(value.get(1..)?),
             ))
         })
         .collect();

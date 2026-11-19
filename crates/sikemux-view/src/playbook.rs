@@ -38,6 +38,41 @@ pub struct Entry {
     pub sensitive: bool,
     #[serde(default, skip_serializing_if = "crate::memory::Store::is_project")]
     pub store: crate::memory::Store,
+    /// Who last moved it between the person's store and the project's, and when.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved: Option<Learned>,
+    /// The person who said it, when someone other than whoever is signed in here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub someone: Option<String>,
+    /// In the org's store, written by another of the org's members, past or present.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub theirs: bool,
+    /// In the org's store, written by someone no longer in the org.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub left: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offer: Option<crate::memory::MoveOffer>,
+    /// The name of the org the project is shared with: whose store it is, or, for the project's
+    /// own entries, who does not get it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org: Option<String>,
+    /// Moved to the org's store, it waits there for an owner or admin to keep it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub waiting: bool,
+    /// The owner or admin who dropped it from the org's waiting list, by first name; empty when
+    /// not known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped: Option<String>,
+    /// Why the org's vault would not take it, so it stays only on this host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<String>,
+    /// A move to the org's store waits for an owner or admin.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub asks: bool,
+    /// The project is shared with `org`, but its vault is not set up on this host yet, so
+    /// nothing kept here reaches the org.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shut: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,5 +147,8 @@ pub enum RunsAlone {
         /// When the person paused it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         paused: Option<u64>,
+        /// Its webhook has been called by GitHub.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        from_github: bool,
     },
 }

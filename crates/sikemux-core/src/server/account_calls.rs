@@ -16,7 +16,7 @@ use super::chat_state::ChatParts;
 use super::person_calls::{self, Raise, ACCOUNT_REFUSED};
 use super::workspace_state::WorkspaceParts;
 use super::Core;
-use crate::agent_accounts::allocate::{self, Aim, Candidate};
+use crate::agent_accounts::allocate::{self, Candidate};
 use crate::agent_accounts::usage;
 
 const MOVE: &str = "move:";
@@ -190,7 +190,6 @@ fn call_for(
         .map(|(other, reading)| Candidate {
             id: &other.id,
             usage: reading.as_ref().map(|reading| &reading.usage),
-            typical: None,
             burn: (provider.as_deref()).map_or(0.0, |provider| {
                 let profile = book.profile(&other.id);
                 usage::burn(
@@ -200,7 +199,7 @@ fn call_for(
             }),
         })
         .collect();
-    let pick = allocate::place(&candidates, None, Aim::Headroom, epoch_ms())
+    let pick = allocate::place(&candidates, allocate::Chat::default(), epoch_ms())
         .map(|placed| placed.id)
         .or_else(|| to.first().map(|other| other.id.clone()));
     let mut moves: Vec<CallOption> = (readings.iter())
@@ -214,7 +213,7 @@ fn call_for(
             picture: None,
         })
         .collect();
-    moves.sort_by_key(|option| Some(&option.id[MOVE.len()..]) != pick.as_deref());
+    moves.sort_by_key(|option| option.id.strip_prefix(MOVE) != pick.as_deref());
     let option = |id: &str, (label, detail): (&str, &str)| CallOption {
         id: id.to_owned(),
         label: label.to_owned(),
@@ -288,16 +287,18 @@ pub(crate) async fn answered(core: &Arc<Core>, call: &PersonCall, key: &str) {
             .is_some_and(|current| current.id == account)
     };
     let chats: Vec<&String> = chats.iter().filter(|chat| still_on(chat)).collect();
-    match picked.as_deref() {
-        Some(option) if option.starts_with(MOVE) => {
-            let to = &option[MOVE.len()..];
+    let moving_to = picked
+        .as_deref()
+        .and_then(|option| option.strip_prefix(MOVE));
+    match (picked.as_deref(), moving_to) {
+        (_, Some(to)) => {
             for chat in chats {
                 if let Err(problem) = super::chat::move_to_account(core, chat, to).await {
                     eprintln!("sikemux core: a stopped chat did not move accounts: {problem}");
                 }
             }
         }
-        Some(RETRY) => {
+        (Some(RETRY), None) => {
             for chat in chats {
                 if let Ok(running) = core.chats().running(chat) {
                     let _ = running.retry_failed();

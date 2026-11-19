@@ -53,6 +53,29 @@ pub type OnLink = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 /// is now done.
 pub type OnTask = Rc<dyn Fn(usize, &str, bool, &mut Window, &mut App)>;
 pub type DrawFence = Rc<dyn Fn(Fence, &mut Window, &mut App) -> AnyElement>;
+
+/// Lets the reader reply to one paragraph or top-level list item of a text. Each such part is
+/// known by its place among them, in reading order.
+#[derive(Clone)]
+pub struct Reply {
+    pub hovered: Option<usize>,
+    /// The pointer is over the hovered part's button, which underlines the words it quotes.
+    pub pointed: bool,
+    /// The parts already in the reader's reply, which keep their button showing.
+    pub chosen: Rc<[usize]>,
+    /// The room to the right of the text that holds the button.
+    pub gutter: Pixels,
+    pub on_hover: OnPartHover,
+    pub on_point: OnButtonHover,
+    pub button: PartButton,
+}
+
+/// Hears the pointer come onto a part, or leave it.
+pub type OnPartHover = Rc<dyn Fn(usize, bool, &mut Window, &mut App)>;
+/// Hears the pointer come onto the hovered part's button, or leave it.
+pub type OnButtonHover = Rc<dyn Fn(bool, &mut Window, &mut App)>;
+/// Draws a part's button from its place, its words as markdown, and whether it is chosen.
+pub type PartButton = Rc<dyn Fn(usize, String, bool, &mut Window, &mut App) -> AnyElement>;
 /// Styled runs over a code block's text, in bytes from its start.
 pub type CodeRuns = Rc<[(Range<usize>, HighlightStyle)]>;
 /// A fenced code block's colours from its language and text, once the host has them.
@@ -184,6 +207,7 @@ pub struct Style {
     pub on_link: Option<OnLink>,
     /// Makes task boxes clickable.
     pub on_task: Option<OnTask>,
+    pub reply: Option<Reply>,
     /// Draws the names that are files the host holds as files, and opens them.
     pub file_of: Option<FileOf>,
     pub on_file: Option<OnFile>,
@@ -250,6 +274,7 @@ impl Default for Style {
             link_underline: None,
             on_link: None,
             on_task: None,
+            reply: None,
             file_of: None,
             on_file: None,
             file_icon: None,
@@ -356,8 +381,11 @@ impl Pen {
         if blocks.blocks.len() >= TALL && blocks.width.get().is_some() {
             return root.child(Tall(blocks)).id(id).into_any_element();
         }
-        let children: Vec<_> = (0..blocks.blocks.len())
-            .map(|ix| blocks.draw(ix, window, cx))
+        let children: Vec<_> = blocks
+            .blocks
+            .iter()
+            .enumerate()
+            .map(|(ix, block)| blocks.draw(ix, block, window, cx))
             .collect();
         root.children(children)
             .on_children_prepainted(move |bounds, _, _| {
@@ -389,9 +417,23 @@ struct Blocks {
 }
 
 impl Blocks {
-    fn draw(&self, ix: usize, window: &mut Window, cx: &mut App) -> AnyElement {
+    fn draw(&self, ix: usize, block: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
         let tasks = match self.style.on_task {
-            Some(_) => self.blocks[..ix].iter().map(|block| tasks_in(block)).sum(),
+            Some(_) => self
+                .blocks
+                .iter()
+                .take(ix)
+                .map(|block| tasks_in(block))
+                .sum(),
+            None => 0,
+        };
+        let parts = match self.style.reply {
+            Some(_) => self
+                .blocks
+                .iter()
+                .take(ix)
+                .map(|block| parts_in(block))
+                .sum(),
             None => 0,
         };
         let mut draw = Draw {
@@ -402,17 +444,26 @@ impl Blocks {
             folds: 0,
             depth: 0,
             tasks,
+            parts,
+            underlined: false,
             align: TextAlign::Left,
             capitals: false,
         };
-        draw.block(&self.blocks[ix], ix, window, cx)
+        draw.block(block, ix, window, cx)
     }
 
-    fn laid_out(&self, ix: usize, width: Pixels, window: &mut Window, cx: &mut App) -> AnyElement {
-        let mut element = self.draw(ix, window, cx);
+    fn laid_out(
+        &self,
+        ix: usize,
+        block: &Node,
+        width: Pixels,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        let mut element = self.draw(ix, block, window, cx);
         let space = size(AvailableSpace::Definite(width), AvailableSpace::MinContent);
         let height = element.layout_as_root(space, window, cx).height;
-        self.blocks[ix].size.set(Some(size(width, height)));
+        block.size.set(Some(size(width, height)));
         element
     }
 }
@@ -450,13 +501,13 @@ impl Element for Tall {
     ) -> (LayoutId, Self::RequestLayoutState) {
         let blocks = &self.0;
         let width = blocks.width.get().unwrap_or_default();
-        let laid: Vec<_> = (0..blocks.blocks.len())
-            .map(|ix| {
-                let fresh = blocks.blocks[ix]
-                    .size
-                    .get()
-                    .is_some_and(|size| size.width == width);
-                (!fresh).then(|| blocks.laid_out(ix, width, window, cx))
+        let laid: Vec<_> = blocks
+            .blocks
+            .iter()
+            .enumerate()
+            .map(|(ix, block)| {
+                let fresh = block.size.get().is_some_and(|size| size.width == width);
+                (!fresh).then(|| blocks.laid_out(ix, block, width, window, cx))
             })
             .collect();
         let heights = blocks
@@ -500,12 +551,12 @@ impl Element for Tall {
         let view = window.content_mask().bounds;
         let mut top = bounds.top();
         let mut shown = Vec::new();
-        for (ix, block) in blocks.blocks.iter().enumerate() {
+        for ((ix, block), laid) in blocks.blocks.iter().enumerate().zip(laid.iter_mut()) {
             let height = block.size.get().map_or(px(0.), |size| size.height);
             if top + height >= view.top() && top <= view.bottom() {
-                let mut element = laid[ix]
+                let mut element = laid
                     .take()
-                    .unwrap_or_else(|| blocks.laid_out(ix, width, window, cx));
+                    .unwrap_or_else(|| blocks.laid_out(ix, block, width, window, cx));
                 element.prepaint_at(point(bounds.left(), top), window, cx);
                 shown.push(element);
             }
@@ -585,7 +636,7 @@ impl Code {
             let (from, to) = (range.start.max(start), range.end.min(end));
             (from < to).then(|| (from - start..to - start, *look))
         });
-        let text = StyledText::new(SharedString::from(self.text[start..end].to_owned()))
+        let text = StyledText::new(SharedString::from(self.text.get(start..end)?.to_owned()))
             .with_highlights(looks);
         Some((text, lines, start, end))
     }
@@ -788,6 +839,10 @@ struct Draw<'a> {
     depth: usize,
     /// Task boxes drawn before the next, in the whole text.
     tasks: usize,
+    /// Parts a reply can quote drawn before the next, in the whole text.
+    parts: usize,
+    /// The text being drawn is underlined, as the part whose reply button the pointer is on.
+    underlined: bool,
     /// The side the blocks being drawn line up to.
     align: TextAlign,
     /// Draws the text's letters as capitals, for a heading set as a label.
@@ -812,14 +867,18 @@ impl Draw<'_> {
                     (_, true) => [1.52, 1.24, 0.72, 1., 1., 1.],
                     _ => [1.4, 1.2, 1.07, 1., 1., 1.],
                 };
-                let scale = scales[usize::from(level.clamp(&1, &6) - 1)];
+                let scale = scales
+                    .get(usize::from(level.clamp(&1, &6) - 1))
+                    .copied()
+                    .unwrap_or(1.);
                 let blocks = &self.on.blocks;
                 let top_level = blocks
                     .get(ix)
                     .is_some_and(|block| std::ptr::eq(&**block, node));
                 let number = (style.numbered_sections && *level == 2 && top_level).then(|| {
-                    let before = blocks[..ix]
+                    let before = blocks
                         .iter()
+                        .take(ix)
                         .filter(|block| matches!(block.kind, Kind::Heading(2)))
                         .count();
                     format!("{:02}", before + 1)
@@ -903,14 +962,71 @@ impl Draw<'_> {
             }
             Kind::Paragraph => match node.pictures() {
                 Some(pictures) => self.pictures(pictures, window, cx),
-                None if style.editorial && self.leads(node, ix) => div()
-                    .text_size(style.text_size * 1.07)
-                    .child(self.flow(node, window, cx))
-                    .into_any_element(),
-                None => self.flow(node, window, cx),
+                None if style.editorial && self.leads(node, ix) => {
+                    let size = style.text_size * 1.07;
+                    self.quotable(node, 0, window, cx, move |draw, window, cx| {
+                        div()
+                            .text_size(size)
+                            .child(draw.flow(node, window, cx))
+                            .into_any_element()
+                    })
+                }
+                None => self.quotable(node, 0, window, cx, |draw, window, cx| {
+                    draw.flow(node, window, cx)
+                }),
             },
             _ => self.flow(node, window, cx),
         }
+    }
+
+    /// A paragraph or top-level list item, with a reply button in the gutter while the pointer
+    /// is over it or the reader chose it, and its words underlined while the pointer is on that button.
+    fn quotable(
+        &mut self,
+        node: &Node,
+        depth: usize,
+        window: &mut Window,
+        cx: &mut App,
+        draw: impl FnOnce(&mut Self, &mut Window, &mut App) -> AnyElement,
+    ) -> AnyElement {
+        let reply = match &self.on.style.reply {
+            Some(reply) if self.depth == depth => reply.clone(),
+            _ => return draw(self, window, cx),
+        };
+        let place = self.parts;
+        self.parts += 1;
+        let hovered = reply.hovered == Some(place);
+        let chosen = reply.chosen.contains(&place);
+        let outer = std::mem::replace(&mut self.underlined, hovered && reply.pointed);
+        let drawn = draw(self, window, cx);
+        self.underlined = outer;
+        let button =
+            (hovered || chosen).then(|| (reply.button)(place, node.quoted(), chosen, window, cx));
+        let line = self.on.style.text_size * self.on.style.line_height;
+        let on_hover = reply.on_hover.clone();
+        let on_point = reply.on_point.clone();
+        div()
+            .id(self.id("part"))
+            .relative()
+            .mr(-reply.gutter)
+            .pr(reply.gutter)
+            .on_hover(move |hovered, window, cx| on_hover(place, *hovered, window, cx))
+            .child(drawn)
+            .children(button.map(|button| {
+                div()
+                    .id(self.id("reply"))
+                    .on_hover(move |over, window, cx| on_point(*over, window, cx))
+                    .absolute()
+                    .top_0()
+                    .right_0()
+                    .w(reply.gutter)
+                    .h(line)
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .child(button)
+            }))
+            .into_any_element()
     }
 
     /// An element's content: its inline runs as text, its blocks as blocks.
@@ -921,7 +1037,9 @@ impl Draw<'_> {
             && blocks
                 .get(ix)
                 .is_some_and(|block| std::ptr::eq(&**block, node))
-            && matches!(blocks[ix - 1].kind, Kind::Heading(1))
+            && blocks
+                .get(ix - 1)
+                .is_some_and(|block| matches!(block.kind, Kind::Heading(1)))
     }
 
     fn flow(&mut self, node: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
@@ -931,9 +1049,12 @@ impl Draw<'_> {
         }
         let children: Vec<_> = pieces
             .iter()
-            .map(|piece| match piece {
-                Piece::Text(rich) => self.rich(rich, cx),
-                Piece::Block(ix) => self.block(&node.children[*ix], *ix, window, cx),
+            .filter_map(|piece| match piece {
+                Piece::Text(rich) => Some(self.rich(rich, cx)),
+                Piece::Block(ix) => node
+                    .children
+                    .get(*ix)
+                    .map(|child| self.block(child, *ix, window, cx)),
             })
             .collect();
         let gap = self.on.style.gap;
@@ -1122,6 +1243,20 @@ impl Draw<'_> {
             }
         }
         let own = hide_chip_words(own, &chips);
+        let own = match self.underlined {
+            true => {
+                let line = HighlightStyle {
+                    underline: Some(UnderlineStyle {
+                        thickness: px(1.),
+                        color: Some(style.accent),
+                        wavy: false,
+                    }),
+                    ..HighlightStyle::default()
+                };
+                combine_highlights([(0..rich.text.len(), line)], own).collect()
+            }
+            false => own,
+        };
         let looks = match colours {
             Some(colours) => combine_highlights(colours.iter().cloned(), own).collect(),
             None => own,
@@ -1325,7 +1460,11 @@ impl Draw<'_> {
 
     fn list(&mut self, node: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
         let style = &*self.on.style;
-        let bullet = ["•", "◦", "▪"][self.depth % 3];
+        let bullet = match self.depth % 3 {
+            0 => "•",
+            1 => "◦",
+            _ => "▪",
+        };
         let editorial = style.editorial;
         let bullet_ink = match self.depth {
             0 => style.accent,
@@ -1374,10 +1513,13 @@ impl Draw<'_> {
                         .into_any_element(),
                     _ => div().pl(px(6.)).child(bullet).into_any_element(),
                 };
-                div()
-                    .flex()
-                    .child(div().w(px(22.)).flex_none().child(marker))
-                    .child(div().flex_1().min_w_0().child(self.flow(item, window, cx)))
+                self.quotable(item, 1, window, cx, move |draw, window, cx| {
+                    div()
+                        .flex()
+                        .child(div().w(px(22.)).flex_none().child(marker))
+                        .child(div().flex_1().min_w_0().child(draw.flow(item, window, cx)))
+                        .into_any_element()
+                })
             })
             .collect();
         self.depth -= 1;
@@ -1435,7 +1577,7 @@ impl Draw<'_> {
         let key = ElementId::NamedChild(Arc::new(id.clone()), "wrap".into());
         let wrap = window.use_keyed_state(key, cx, |_, _| false);
         let wrapped = *wrap.read(cx);
-        let block = self.on.blocks[self.block].clone();
+        let block = self.on.blocks.get(self.block).cloned();
         let wrap_id = self.id("wrap");
         let toggle = self
             .button(wrap_id, style.card.wrap.clone(), wrapped)
@@ -1444,7 +1586,9 @@ impl Draw<'_> {
                     *wrapped = !*wrapped;
                     cx.notify();
                 });
-                block.size.set(None);
+                if let Some(block) = &block {
+                    block.size.set(None);
+                }
                 window.refresh();
             });
         let (title, numbered) = match &name {
@@ -1829,7 +1973,7 @@ impl Draw<'_> {
         let key = (self.block, self.folds);
         let turned = self.on.turned.clone();
         let open = written_open != turned.borrow().contains(&key);
-        let block = self.on.blocks[self.block].clone();
+        let block = self.on.blocks.get(self.block).cloned();
         let summary = if summary.is_empty() {
             "Details".into()
         } else {
@@ -1847,7 +1991,9 @@ impl Draw<'_> {
                 if !turned.remove(&key) {
                     turned.insert(key);
                 }
-                block.size.set(None);
+                if let Some(block) = &block {
+                    block.size.set(None);
+                }
                 window.refresh();
             });
         let content = open.then(|| div().pl(px(16.)).child(self.flow(node, window, cx)));
@@ -1887,7 +2033,10 @@ fn highlights(
     edges
         .windows(2)
         .filter_map(|edge| {
-            let run = edge[0]..edge[1];
+            let &[start, end] = edge else {
+                return None;
+            };
+            let run = start..end;
             let marks = rich
                 .marks
                 .iter()
@@ -1943,9 +2092,15 @@ fn chips_in(
     longest.sort_by_key(|chip| std::cmp::Reverse(chip.written.len()));
     let mut found = linked;
     for chip in longest {
-        for (at, _) in rich.text.match_indices(chip.written.as_ref()) {
-            let range = at..at + chip.written.len();
-            let (before, after) = (&rich.text[..at], &rich.text[range.end..]);
+        for (at, written) in rich.text.match_indices(chip.written.as_ref()) {
+            let range = at..at + written.len();
+            let Some((before, after)) = rich
+                .text
+                .split_at_checked(at)
+                .and_then(|(before, rest)| Some((before, rest.strip_prefix(written)?)))
+            else {
+                continue;
+            };
             let apart = before
                 .chars()
                 .next_back()
@@ -1954,7 +2109,7 @@ fn chips_in(
                     letter => !letter.is_alphanumeric(),
                 })
                 && after.chars().next().is_none_or(|letter| match letter {
-                    '/' => after[1..].starts_with('@'),
+                    '/' => after.get(1..).is_some_and(|rest| rest.starts_with('@')),
                     letter => !letter.is_alphanumeric(),
                 });
             let taken = code.iter().any(|code| overlap(code, &range))
@@ -2043,6 +2198,15 @@ fn highlight(marks: Marks, style: &Style) -> HighlightStyle {
 
 fn spaced(row: Div) -> Div {
     row.letter_spacing(0.06)
+}
+
+/// The parts of `node` a reply can quote: its paragraphs of words and its lists' items.
+fn parts_in(node: &Node) -> usize {
+    match node.kind {
+        Kind::Paragraph => usize::from(node.pictures().is_none()),
+        Kind::Bullets | Kind::Numbers(_) => node.children.len(),
+        _ => node.children.iter().map(parts_in).sum(),
+    }
 }
 
 fn tasks_in(node: &Node) -> usize {

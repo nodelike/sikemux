@@ -25,7 +25,8 @@ pub fn is_command(text: &str) -> bool {
 pub(crate) fn command_parts(text: &str) -> Option<(&str, &str)> {
     let text = text.trim().strip_prefix('/')?.trim_start();
     let name = text.split_whitespace().next()?;
-    Some((name, text[name.len()..].trim()))
+    let args = text.strip_prefix(name)?.trim();
+    Some((name, args))
 }
 
 pub fn bounded_text(name: &str, value: &str, max: usize) -> Result<(), String> {
@@ -96,33 +97,37 @@ fn split_at_images(text: &str, attachments: usize) -> (Vec<(&str, usize)>, &str)
     const OPEN: &str = "[Image #";
     let mut pieces = Vec::new();
     let mut placed = vec![false; attachments];
-    let mut from = 0;
-    let mut search = 0;
-    while let Some(found) = text[search..].find(OPEN) {
-        let digits = search + found + OPEN.len();
-        let close = digits
-            + text[digits..]
-                .bytes()
-                .take_while(u8::is_ascii_digit)
-                .count();
-        search = digits;
-        if !text[close..].starts_with(']') {
+    let mut rest = text;
+    for (at, _) in text.match_indices(OPEN) {
+        let Some(after) = text.get(at + OPEN.len()..) else {
+            continue;
+        };
+        let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+        let Some((number, past_digits)) = after.split_at_checked(digits) else {
+            continue;
+        };
+        if !past_digits.starts_with(']') {
             continue;
         }
-        let Some(index) = text[digits..close]
+        let Some(index) = number
             .parse::<usize>()
             .ok()
             .and_then(|number| number.checked_sub(1))
-            .filter(|&index| index < attachments && !placed[index])
         else {
             continue;
         };
-        placed[index] = true;
-        pieces.push((&text[from..=close], index));
-        from = close + 1;
-        search = from;
+        let Some((piece, after_piece)) = rest.split_at_checked(rest.len() - past_digits.len() + 1)
+        else {
+            continue;
+        };
+        match placed.get_mut(index) {
+            Some(slot) if !*slot => *slot = true,
+            _ => continue,
+        }
+        pieces.push((piece, index));
+        rest = after_piece;
     }
-    (pieces, &text[from..])
+    (pieces, rest)
 }
 
 /// A user message an ACP or Pi agent tells back, as when it loads a saved session, without what
@@ -132,7 +137,13 @@ pub(crate) fn drop_for_agent(update: &mut Value) -> bool {
         return true;
     }
     let content = &mut update["content"];
-    if (content["resource"]["uri"].as_str()).is_some_and(|uri| uri.starts_with(FOR_AGENT_URI)) {
+    let uri = content
+        .get("resource")
+        .and_then(|resource| resource.get("uri"));
+    if uri
+        .and_then(Value::as_str)
+        .is_some_and(|uri| uri.starts_with(FOR_AGENT_URI))
+    {
         return false;
     }
     match content["text"].as_str() {
@@ -213,7 +224,7 @@ pub fn prompt_blocks(
     let mut blocks = Vec::with_capacity(paths.len() + resources.len() + pieces.len() + 1);
     for (said, index) in pieces {
         blocks.push(said.to_owned().into());
-        blocks.extend(links[index].take());
+        blocks.extend(links.get_mut(index).and_then(Option::take));
     }
     if !rest.trim().is_empty() {
         blocks.push(rest.into());

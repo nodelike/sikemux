@@ -9,8 +9,11 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
-pub use sikemux_calls::triggers::{HoldTriggerParams, TriggerParams};
+pub use sikemux_calls::triggers::{
+    AddTriggerParams, HoldTriggerParams, TriggerOn, TriggerParams, TriggerWakes,
+};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
@@ -111,6 +114,9 @@ struct Trigger {
     /// How many requests came while its chat was closed past the most it keeps.
     #[serde(default, skip_serializing_if = "is_zero")]
     dropped: u32,
+    /// Its webhook has been called by GitHub.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    from_github: bool,
 }
 
 fn is_zero(count: &u32) -> bool {
@@ -151,6 +157,24 @@ impl Trigger {
             when: self.when.clone(),
             next_at: self.shown_next_at(),
         }
+    }
+
+    /// Its row on the project's Automation page.
+    fn line(&self) -> RunsAlone {
+        RunsAlone::Trigger {
+            id: self.id,
+            title: self.title.clone(),
+            when: self.when.clone(),
+            next_at: self.shown_next_at(),
+            set: self.set.clone().map(Box::new),
+            paused: self.stopped,
+            from_github: self.from_github,
+        }
+    }
+
+    /// Whether the person set it up rather than an agent.
+    fn by_person(&self) -> bool {
+        self.set.as_ref().is_some_and(|set| set.agent.is_none())
     }
 
     /// When it is shown to fire next: never for CI, and for a Rundeck run when it gives up.
@@ -694,7 +718,9 @@ async fn fire(core: Arc<Core>, firing: Firing) {
             Some(request) => format!("{}\n\n{}", trigger.prompt, fired::request_text(request)),
             None => trigger.prompt.clone(),
         };
-        match super::board::add_for_trigger(&core, project, trigger.id, &trigger.title, &details) {
+        let here = core.remote().core_id().unwrap_or_default();
+        let fired = (trigger.id, here.as_str());
+        match super::board::add_for_trigger(&core, project, fired, &trigger.title, &details) {
             Ok(Some((card, task))) => {
                 super::board::hand_off::take_up(core.clone(), project.clone(), card, task).await
             }
@@ -753,10 +779,16 @@ async fn fire(core: Arc<Core>, firing: Firing) {
                 )
             }),
     };
-    let note = format!(
-        "Sent by trigger {} that this chat set with trigger_add, not by the person or another agent. {after}",
-        trigger.id
-    );
+    let note = match trigger.by_person() {
+        true => format!(
+            "Sent by trigger {} that the person set up for this chat, not typed by them now. {after}",
+            trigger.id
+        ),
+        false => format!(
+            "Sent by trigger {} that this chat set with trigger_add, not by the person or another agent. {after}",
+            trigger.id
+        ),
+    };
     if let Err(error) = messages::from_trigger(
         &core,
         trigger.agent_id.clone(),
@@ -1004,6 +1036,7 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             set: Some(learned(core, Some(&agent_id))),
             held: Vec::new(),
             dropped: 0,
+            from_github: false,
         };
         state.triggers.push(trigger.clone());
         Ok(trigger)
@@ -1026,44 +1059,199 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         Some(_) => "it adds a card to this project's board, titled as the trigger with its prompt as the details, which Auto carries when it is on. It stays after this chat closes.",
         None => "it sends this chat its prompt, as a message you read like any other.",
     };
-    let mut answer = json!({ "trigger": trigger.id });
+    let mut answer = serde_json::Map::new();
+    answer.insert("trigger".into(), trigger.id.into());
     if let Some((_, shown, at)) = &park {
-        answer["note"] = format!("Once {shown} does what you wait for, {what} It says what happened, so end your turn now rather than waiting or polling. If nothing happens by {}, it fires saying it timed out.", when(*at)).into();
-        return Ok(answer);
+        answer.insert("note".into(), format!("Once {shown} does what you wait for, {what} It says what happened, so end your turn now rather than waiting or polling. If nothing happens by {}, it fires saying it timed out.", when(*at)).into());
+        return Ok(Value::Object(answer));
     }
     if let Some((_, shown)) = &rundeck {
-        answer["note"] = format!("Once {shown} ends, {what} It says how the run ended, so end your turn now rather than waiting or polling. If it has not ended by {}, it fires saying it timed out.", when(trigger.shown_next_at().unwrap_or(now))).into();
-        return Ok(answer);
+        answer.insert("note".into(), format!("Once {shown} ends, {what} It says how the run ended, so end your turn now rather than waiting or polling. If it has not ended by {}, it fires saying it timed out.", when(trigger.shown_next_at().unwrap_or(now))).into());
+        return Ok(Value::Object(answer));
     }
     if let Some(check) = &trigger.check {
-        answer["check"] = check.said().into();
+        answer.insert("check".into(), check.said().into());
     }
     match (&trigger.when, next_at) {
         (TriggerWhen::Ci { on }, _) => {
-            answer["note"] = format!("Once CI on {on} ends, {what} It says how CI went, so end your turn now rather than waiting or polling.").into();
+            answer.insert("note".into(), format!("Once CI on {on} ends, {what} It says how CI went, so end your turn now rather than waiting or polling.").into());
         }
         (TriggerWhen::Mod { on }, _) => {
-            answer["note"] = format!("Each time anyone but you adds or changes documents in {on}{}, {what} The documents are named, a few seconds of changes at once; read them with mod_read.", match watch.as_ref().is_some_and(on_mod::Watch::filtered) {
+            answer.insert("note".into(), format!("Each time anyone but you adds or changes documents in {on}{}, {what} The documents are named, a few seconds of changes at once; read them with mod_read.", match watch.as_ref().is_some_and(on_mod::Watch::filtered) {
                 true => " that match where",
                 false => "",
-            }).into();
+            }).into());
         }
         (TriggerWhen::Webhook { url }, _) => {
-            answer["url"] = url.clone().into();
-            answer["note"] = format!("Each time something posts to url, {what} The request comes with it, marked as untrusted. Anyone with the url can fire it, so give it only to the service that needs it.").into();
+            answer.insert("url".into(), url.clone().into());
+            answer.insert("note".into(), format!("Each time something posts to url, {what} The request comes with it, marked as untrusted. Anyone with the url can fire it, so give it only to the service that needs it.").into());
         }
         (_, Some(next)) => {
-            answer["next"] = when(next).into();
-            answer["nextAt"] = next.into();
-            answer["note"] = match &trigger.check {
+            answer.insert("next".into(), when(next).into());
+            answer.insert("nextAt".into(), next.into());
+            answer.insert("note".into(), match &trigger.check {
                 Some(_) => format!("Each time it comes due its check runs, and only when the check says something other than the last time, {what} check holds what it says now."),
                 None => format!("When it fires, {what}"),
             }
-            .into();
+            .into());
         }
         (_, None) => {}
     }
-    Ok(answer)
+    Ok(Value::Object(answer))
+}
+
+/// Sets up a trigger the person made, which tells an open chat its prompt or starts a new chat in
+/// a project each time it fires. Answers its row, with the address of a webhook.
+pub(crate) async fn add_own(
+    core: &Arc<Core>,
+    params: AddTriggerParams,
+) -> Result<RunsAlone, String> {
+    let prompt = params.prompt.trim().to_owned();
+    if prompt.is_empty() || prompt.chars().count() > MAX_PROMPT_CHARS {
+        return Err(format!(
+            "What it sends must be 1 to {MAX_PROMPT_CHARS} characters"
+        ));
+    }
+    let title = own_title(params.title.as_deref(), &prompt);
+    let (agent_id, board) = match params.wakes {
+        TriggerWakes::Chat { agent } => {
+            if core.names().get(&agent).is_none() || core.workspaces().closed(&agent) {
+                return Err("That chat is not open".into());
+            }
+            (agent, None)
+        }
+        TriggerWakes::Project { project } => (
+            String::new(),
+            Some(super::board::project_at(core, &project)?),
+        ),
+    };
+    let now = epoch_ms();
+    let (rule, next_at, hook_id) = match params.when {
+        TriggerOn::Webhook => {
+            let hook = super::hooks::register_hook(core)
+                .await
+                .map_err(|error| format!("the webhook could not be made: {error}"))?;
+            (
+                TriggerWhen::Webhook { url: hook.url },
+                None,
+                Some(hook.hook_id),
+            )
+        }
+        on => {
+            let (rule, at) = own_when(on, now)?;
+            (rule, Some(at), None)
+        }
+    };
+    let added = core.triggers().change(|state| {
+        let (own, most) = match &board {
+            Some(project) => (
+                (state.triggers.iter())
+                    .filter(|trigger| trigger.board.as_ref() == Some(project))
+                    .count(),
+                MAX_PER_BOARD,
+            ),
+            None => (
+                (state.triggers.iter())
+                    .filter(|trigger| trigger.prompts(&agent_id))
+                    .count(),
+                MAX_PER_AGENT,
+            ),
+        };
+        if own >= most {
+            return Err(format!("It already has {most} triggers; remove one first"));
+        }
+        if state.triggers.len() >= MAX_TRIGGERS {
+            return Err(format!("This host already holds {MAX_TRIGGERS} triggers"));
+        }
+        state.next_id += 1;
+        let trigger = Trigger {
+            id: state.next_id,
+            agent_id,
+            board,
+            title,
+            prompt,
+            when: rule,
+            next_at,
+            hook_id: hook_id.clone(),
+            paused: None,
+            ci: None,
+            park: None,
+            rundeck: None,
+            check: None,
+            watch: None,
+            stopped: None,
+            set: Some(learned(core, None)),
+            held: Vec::new(),
+            dropped: 0,
+            from_github: false,
+        };
+        state.triggers.push(trigger.clone());
+        Ok(trigger)
+    });
+    let trigger = match added {
+        Ok(trigger) => trigger,
+        Err(error) => {
+            if let Some(hook_id) = hook_id {
+                drop(super::hooks::remove_hook(core, &hook_id).await);
+            }
+            return Err(error);
+        }
+    };
+    show(core, &trigger);
+    Ok(trigger.line())
+}
+
+/// The title the person gave, or else the first line of what it sends, cut to fit.
+fn own_title(given: Option<&str>, prompt: &str) -> String {
+    let title = given
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| prompt.lines().next().unwrap_or_default().trim());
+    match title.chars().count() > MAX_TITLE_CHARS {
+        true => {
+            let cut: String = title.chars().take(MAX_TITLE_CHARS - 1).collect();
+            format!("{}…", cut.trim_end())
+        }
+        false => title.to_owned(),
+    }
+}
+
+/// The time rule the person chose, and when it first fires.
+fn own_when(on: TriggerOn, now: u64) -> Result<(TriggerWhen, u64), String> {
+    let latest = now + MAX_AHEAD_SECONDS * 1000;
+    match on {
+        TriggerOn::Every { seconds } => {
+            if !(MIN_EVERY_SECONDS..=MAX_AHEAD_SECONDS).contains(&seconds) {
+                return Err("It must repeat at most once a minute and at least once a year".into());
+            }
+            Ok((TriggerWhen::Every { seconds }, now + seconds * 1000))
+        }
+        TriggerOn::Daily { minute, weekdays } => {
+            if minute >= 24 * 60
+                || weekdays
+                    .iter()
+                    .any(|day| usize::from(*day) >= WEEKDAYS.len())
+            {
+                return Err("That is not a time of day on chosen weekdays".into());
+            }
+            let mut weekdays = weekdays;
+            weekdays.sort_unstable();
+            weekdays.dedup();
+            if weekdays.len() == WEEKDAYS.len() {
+                weekdays.clear();
+            }
+            let at = next_daily(minute, &weekdays, now)
+                .ok_or("That time does not come on this host's clock")?;
+            Ok((TriggerWhen::Daily { minute, weekdays }, at))
+        }
+        TriggerOn::Once { at } => {
+            if at <= now || at > latest {
+                return Err("It must fire later than now and within a year".into());
+            }
+            Ok((TriggerWhen::Once { at }, at))
+        }
+        TriggerOn::Webhook => Err("A webhook fires on each request, not at a time".into()),
+    }
 }
 
 pub(crate) fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
@@ -1162,17 +1350,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str) -> Vec<RunsAlone> {
                 .get(&trigger.agent_id)
                 .is_some_and(|named| named.project == project),
         })
-        .map(|trigger| {
-            let line = RunsAlone::Trigger {
-                id: trigger.id,
-                title: trigger.title.clone(),
-                when: trigger.when.clone(),
-                next_at: trigger.shown_next_at(),
-                set: trigger.set.clone().map(Box::new),
-                paused: trigger.stopped,
-            };
-            (trigger.next_at, line)
-        })
+        .map(|trigger| (trigger.next_at, trigger.line()))
         .collect();
     lines.sort_by_key(|(next, _)| next.unwrap_or(u64::MAX));
     lines.into_iter().map(|(_, line)| line).collect()
@@ -1212,6 +1390,7 @@ pub(crate) fn park_in_line(
             set: Some(learned(core, Some(agent_id))),
             held: Vec::new(),
             dropped: 0,
+            from_github: false,
         };
         state.triggers.push(trigger.clone());
         trigger
@@ -1256,6 +1435,7 @@ pub(crate) fn park_for_thing(
             set: Some(learned(core, Some(agent_id))),
             held: Vec::new(),
             dropped: 0,
+            from_github: false,
         };
         state.triggers.push(trigger.clone());
         trigger
@@ -1381,17 +1561,18 @@ fn watch_after_push(core: &Arc<Core>, watch: ci::CiWatch) {
                 false => {}
             }
         }
-        match same_run {
-            Some(at) => {
-                if let Some(other) = state.triggers[at].ci.as_mut() {
+        match (same_run, watch.pushed_by().first().cloned()) {
+            (Some(at), _) => {
+                let same = state.triggers.get_mut(at).and_then(|same| same.ci.as_mut());
+                if let Some(other) = same {
                     other.join(watch.pushed_by());
                 }
             }
-            None if state.triggers.len() < MAX_TRIGGERS => {
+            (None, Some(agent_id)) if state.triggers.len() < MAX_TRIGGERS => {
                 state.next_id += 1;
                 state.triggers.push(Trigger {
                     id: state.next_id,
-                    agent_id: watch.pushed_by()[0].clone(),
+                    agent_id,
                     board: None,
                     title: format!("CI after the push of {}", watch.shown()),
                     prompt: String::new(),
@@ -1408,9 +1589,10 @@ fn watch_after_push(core: &Arc<Core>, watch: ci::CiWatch) {
                     set: None,
                     held: Vec::new(),
                     dropped: 0,
+                    from_github: false,
                 });
             }
-            None => {}
+            (None, _) => {}
         }
         state.triggers.retain(|trigger| {
             !(trigger.ci.as_ref()).is_some_and(|ci| ci.after_push() && ci.pushed_by().is_empty())
@@ -1581,6 +1763,16 @@ pub(crate) fn delivered(core: &Arc<Core>, delivery: HookDelivery) -> Result<(), 
         );
         return Ok(());
     };
+    let from_github =
+        (delivery.headers.iter()).any(|(name, _)| name.eq_ignore_ascii_case("x-github-event"));
+    if from_github && !trigger.from_github {
+        core.triggers().change(|state| {
+            if let Some(kept) = (state.triggers.iter_mut()).find(|kept| kept.id == trigger.id) {
+                kept.from_github = true;
+            }
+        });
+        core.changed(What::Read(super::changed::Topic::Playbook));
+    }
     if trigger.paused.is_some() && trigger.stopped.is_none() {
         let request = fired_request(delivery);
         core.triggers().change(|state| {

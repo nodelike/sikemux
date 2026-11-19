@@ -106,7 +106,10 @@ pub(crate) fn word_at(text: &str, at: usize) -> Range<usize> {
         }
     };
     let at = at.min(text.len());
-    let (before, after) = (text[..at].chars().next_back(), text[at..].chars().next());
+    let Some((head, tail)) = text.split_at_checked(at) else {
+        return at..at;
+    };
+    let (before, after) = (head.chars().next_back(), tail.chars().next());
     let Some(under) = (match (before, after) {
         (Some(b), Some(a)) if kind(a) != 0 && kind(b) == 0 => Some(b),
         (_, Some(a)) => Some(a),
@@ -115,13 +118,13 @@ pub(crate) fn word_at(text: &str, at: usize) -> Range<usize> {
         return at..at;
     };
     let class = kind(under);
-    let start = text[..at]
+    let start = head
         .char_indices()
         .rev()
         .take_while(|(_, c)| kind(*c) == class)
         .last()
         .map_or(at, |(i, _)| i);
-    let end = text[at..]
+    let end = tail
         .char_indices()
         .find(|(_, c)| kind(*c) != class)
         .map_or(text.len(), |(i, _)| at + i);

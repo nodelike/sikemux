@@ -217,7 +217,9 @@ impl<S: RpcAgent> Driver<S> {
     /// once it answers, which it never does for a turn that is not running.
     fn interrupt(&self, turn_id: String) {
         let mut params = S::addressed(&self.session_id());
-        params["turnId"] = json!(turn_id);
+        if let Some(fields) = params.as_object_mut() {
+            fields.insert("turnId".to_owned(), json!(turn_id));
+        }
         let _ = self
             .rpc
             .send_for("turn/interrupt", params, Purpose::Interrupt(turn_id));
@@ -286,9 +288,12 @@ impl<S: RpcAgent> Driver<S> {
         let Some(turn_id) = self.session.locked().turns().active() else {
             return Ok(None);
         };
+        let input = input()?;
         let mut params = S::addressed(&self.session_id());
-        params["expectedTurnId"] = json!(turn_id);
-        params["input"] = json!(input()?);
+        if let Some(fields) = params.as_object_mut() {
+            fields.insert("expectedTurnId".to_owned(), json!(turn_id));
+            fields.insert("input".to_owned(), json!(input));
+        }
         self.rpc
             .start_for(
                 "turn/steer",

@@ -30,10 +30,15 @@ pub fn same_secret(left: &str, right: &str) -> bool {
 
 fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
     let mut block = [0u8; 64];
-    if key.len() > block.len() {
-        block[..32].copy_from_slice(&Sha256::digest(key));
+    let digest;
+    let key = if key.len() > block.len() {
+        digest = Sha256::digest(key);
+        digest.as_slice()
     } else {
-        block[..key.len()].copy_from_slice(key);
+        key
+    };
+    for (slot, byte) in block.iter_mut().zip(key) {
+        *slot = *byte;
     }
     let inner = Sha256::new()
         .chain_update(block.map(|byte| byte ^ 0x36))

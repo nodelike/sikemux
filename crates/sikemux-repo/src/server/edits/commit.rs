@@ -75,10 +75,19 @@ struct Done {
     still_pushing: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     synced: Option<super::land::Synced>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    queued: Option<super::queue::Queued>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    queued: Option<Landing>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pushed: Option<super::push::Pushed>,
+}
+
+#[derive(Serialize)]
+enum Landing {
+    #[serde(rename = "queued")]
+    Here(super::queue::Queued),
+    /// A worker's commits went back to its lead on another host, whose host lands them.
+    #[serde(rename = "sentToLead")]
+    AtLead(String),
 }
 
 fn is_zero(count: &usize) -> bool {
@@ -156,6 +165,11 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
     let core = core.clone();
     blocking(move || {
         let (dir, named) = checkout_for(&core, &agent_id, &project, &named)?;
+        let own =
+            super::land::own_checkout(&core, &agent_id).filter(|tree| dir.starts_with(&tree.path));
+        if land && own.as_ref().is_some_and(|tree| super::push::on_release_line(&tree.path)) {
+            return Err("This checkout is on a release line, which never lands on the branch it was cut from; push it with push: true and no land".to_owned().into());
+        }
         let (committed, nothing_committed) = match &message {
             Some(message) => match commit(&core, &dir, &agent_id, message, &named) {
                 Ok(committed) => (Some(committed), None),
@@ -179,8 +193,6 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
             },
             false => None,
         };
-        let own =
-            super::land::own_checkout(&core, &agent_id).filter(|tree| dir.starts_with(&tree.path));
         let ship = || crate::ship::Ship {
             kind: sikemux_view::inbox::ShipKind::Push,
             what: "git push origin HEAD".to_owned(),
@@ -198,7 +210,15 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
                             false
                         }
                     };
-                match super::queue::enqueue(&core, &agent_id, push_after) {
+                let at_lead = match own {
+                    Some(_) => None,
+                    None => (core.repo_above().hosts_land_at_lead)(&core, &agent_id, push_after),
+                };
+                let queued = match at_lead {
+                    Some(sent) => sent.map(Landing::AtLead),
+                    None => super::queue::enqueue(&core, &agent_id, push_after).map(Landing::Here),
+                };
+                match queued {
                     Ok(queued) => Some(queued),
                     Err(why) if committed.is_some() || synced.is_some() => {
                         return Ok(Done {
@@ -217,7 +237,12 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
         let pushed = match push && !land {
             true => {
                 let from = match own {
-                    Some(tree) if super::land::unlanded(&tree)? => tree.path,
+                    Some(tree)
+                        if super::push::on_release_line(&tree.path)
+                            || super::land::unlanded(&tree)? =>
+                    {
+                        tree.path
+                    }
                     Some(tree) => tree.repo,
                     None => dir,
                 };
@@ -930,21 +955,22 @@ impl Planner<'_> {
     /// Whether `author` is another agent still open, for certain, not agents
     /// at work together that may include the committing one.
     fn theirs(&self, author: usize) -> bool {
-        let writer = &self.owners.authors[author];
-        !self.mine.contains(&author) && writer.shared.is_empty() && writer.open
+        !self.mine.contains(&author)
+            && (self.owners.authors.get(author))
+                .is_some_and(|writer| writer.shared.is_empty() && writer.open)
     }
 
     fn name(&self, author: Option<usize>) -> String {
-        author.map_or_else(
-            || "no agent".to_owned(),
-            |at| self.owners.authors[at].name.clone(),
-        )
+        (author.and_then(|at| self.owners.authors.get(at)))
+            .map_or_else(|| "no agent".to_owned(), |writer| writer.name.clone())
     }
 
     /// Whether `author` is the committing agent, or agents at work together
     /// that include it when the commit names the file and so claims them.
     fn is_mine(&self, author: usize, claimed: bool) -> bool {
-        self.mine.contains(&author) && (claimed || self.owners.authors[author].shared.is_empty())
+        self.mine.contains(&author)
+            && (claimed
+                || (self.owners.authors.get(author)).is_some_and(|writer| writer.shared.is_empty()))
     }
 
     /// Plans what the commit takes of `path`: all of it when `may_whole` and
@@ -978,10 +1004,8 @@ impl Planner<'_> {
         let leave = |by: BTreeSet<Option<usize>>, left: &mut Vec<Left>| {
             let open: Vec<String> = (by.iter().flatten())
                 .filter(|at| self.theirs(**at))
-                .map(|at| {
-                    let writer = &self.owners.authors[*at];
-                    crate::server::names::called(&writer.name, &writer.agent_id)
-                })
+                .filter_map(|at| self.owners.authors.get(*at))
+                .map(|writer| crate::server::names::called(&writer.name, &writer.agent_id))
                 .collect();
             let mut by: BTreeSet<String> = by.into_iter().map(|at| self.name(at)).collect();
             if by.is_empty() {

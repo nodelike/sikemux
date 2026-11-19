@@ -99,7 +99,7 @@ pub fn projects_folder(core: &Core) -> Option<PathBuf> {
     parents.sort();
     let mut groups: Vec<&[PathBuf]> = parents.chunk_by(|a, b| a == b).collect();
     groups.sort_by_key(|same| std::cmp::Reverse(same.len()));
-    let beside = groups.iter().map(|same| same[0].clone());
+    let beside = groups.iter().filter_map(|same| same.first().cloned());
     roots
         .chain(beside)
         .chain(sikemux_process::paths::home())
@@ -246,7 +246,7 @@ async fn clone_into(core: &Core, project: &str, url: &str, dir: &Path) -> Result
         if read == 0 {
             break;
         }
-        said.extend_from_slice(&chunk[..read]);
+        said.extend_from_slice(chunk.get(..read).unwrap_or_default());
         let text = String::from_utf8_lossy(&said);
         let mut lines = text
             .split(['\r', '\n'])

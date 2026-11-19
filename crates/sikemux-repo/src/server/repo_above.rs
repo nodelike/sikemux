@@ -12,7 +12,6 @@ use serde_json::Value;
 use sikemux_calls::board::{BoardSettingsParams, Landing, ProjectBoard};
 use sikemux_calls::questions::{AnswerParams, AnswersParams};
 use sikemux_plugin_api::vault::Caller;
-use sikemux_view::chat::LinesChanged;
 use sikemux_view::host_stats::HostEventKind;
 use sikemux_view::turn::Landed;
 use sikemux_wire::protocol::AgentStatus;
@@ -54,8 +53,6 @@ pub struct RepoAbove {
     pub board_project_at: fn(&Core, &str) -> Result<String, String>,
     /// Every project's chief, by agent id.
     pub chief_all: fn(&Core) -> HashSet<String>,
-    /// `agent` landed work in the project at `path` with a commit whose message is `message`.
-    pub chief_landed: fn(&Core, &str, &str, &str, Option<LinesChanged>),
     /// Whether question `id` asks for a change to production, which only its call answers.
     pub questions_asks_production: fn(&Core, &str) -> bool,
     /// The CLI the agent runs, or "agent" when it is not known.
@@ -76,6 +73,9 @@ pub struct RepoAbove {
     pub messages_reachable: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, bool>,
     /// The id a note reaches the agent by now, reopening it as it was when it had closed here.
     pub messages_reopened: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, Option<String>>,
+    /// Sends a worker's commits back to its lead on another host to land there, saying so; none
+    /// when the agent is not such a worker.
+    pub hosts_land_at_lead: fn(&Core, &str, bool) -> Option<Result<String, String>>,
     /// The status of an agent that runs on a linked host, as that host last said it.
     pub foreign_status: fn(&Core, &str) -> Option<AgentStatus>,
     /// The watch credited the agent with files it wrote outside an edit tool, which can come to
@@ -160,4 +160,6 @@ pub struct RepoAbove {
     pub plugins_run_agent_tool: AgentTool,
     /// The person answered a call about chats an account's provider refused, keyed `key`.
     pub accounts_call_answered: for<'a> fn(&'a Arc<Core>, &'a PersonCall, &'a str) -> Doing<'a, ()>,
+    /// The person kept or dropped an entry waiting on an org's list, keyed `key`.
+    pub memory_call_answered: fn(&Arc<Core>, &PersonCall, &str),
 }

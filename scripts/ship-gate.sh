@@ -2,11 +2,11 @@
 # Works out, from GitHub and Sentry, whether a stable candidate is ready to ship, and writes the
 # evidence on the run's page. Sets ready=true when it is, leaves it unset while the candidate is
 # still soaking, and exits 1 when something is wrong with it, so it never ships.
-#   SENTRY_READ_TOKEN=… scripts/ship-gate.sh <version> [minutes on staff] [Macs]
+#   SENTRY_READ_TOKEN=… scripts/ship-gate.sh <version> [minutes on staff] [most Macs]
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-VERSION="${1:?usage: $0 <version> [minutes on staff] [Macs]}"
+VERSION="${1:?usage: $0 <version> [minutes on staff] [most Macs]}"
 MINUTES="${2:-30}"
 MACS="${3:-2}"
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
@@ -49,7 +49,17 @@ macs="$(count "logger:update tags[update.to]:$VERSION tags[update.result]:done t
 ((crashes == 0)) || problems+=("$crashes crash reports from v$VERSION")
 ((failed == 0)) || problems+=("$failed updates to it failed")
 ((rolled_back == 0)) || problems+=("$rolled_back machines went back from it")
-((macs >= MACS)) || waiting+=("$macs Macs updated to it, under $MACS")
+
+# Waits for no more Macs than follow the staff feed: the most that took any of the last nightlies it served.
+staff_macs=0
+for nightly in $(gh release list --limit 40 --json tagName,name,publishedAt \
+  --jq ".[] | select((.tagName | test(\"-nightly\\\\.\")) and (.name | endswith(\"(pulled)\") | not) and .publishedAt < \"$published\") | .tagName[1:]" | head -5); do
+  took="$(count "logger:update tags[update.to]:$nightly tags[update.result]:done tags[update.channel]:staff tags[update.platform]:darwin*")"
+  ((took <= staff_macs)) || staff_macs=$took
+done
+needed=$((staff_macs < MACS ? staff_macs : MACS))
+((needed >= 1)) || needed=1
+((macs >= needed)) || waiting+=("$macs Macs updated to it, under $needed")
 
 headline="Ship v$VERSION · $minutes min on staff · $crashes crashes · $failed failed updates"
 {
@@ -57,7 +67,7 @@ headline="Ship v$VERSION · $minutes min on staff · $crashes crashes · $failed
   echo
   echo "| | |"
   echo "|-|-|"
-  echo "| Soak | $minutes min on the staff feed, $updated machines updated to it, $macs of them Macs |"
+  echo "| Soak | $minutes min on the staff feed, $updated machines updated to it, $macs of them Macs, of the $needed it waits for ($staff_macs took the last nightlies on staff) |"
   echo "| Updates | $updated done, $failed failed, $rolled_back went back |"
   echo "| Crashes | $crashes from v$VERSION |"
   echo "| Rehearsal | $(jq -r .url <<<"$run"): the last stable updated itself to these files |"

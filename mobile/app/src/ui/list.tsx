@@ -113,7 +113,7 @@ export function Row({
         <View style={styles.rowEnd}>
           {host ? (
             <View style={dim && styles.rowHostDim} accessible accessibilityLabel={host}>
-              <Icon name="IconRemoteHost" size={11} color={colors.live} />
+              <Icon name="IconLaptop" size={11} color={colors.host} />
             </View>
           ) : null}
           {lead ? (

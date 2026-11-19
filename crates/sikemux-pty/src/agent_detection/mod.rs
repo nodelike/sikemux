@@ -824,7 +824,10 @@ fn bottom_non_empty_lines(text: &str, count: usize) -> String {
         .lines()
         .filter(|line| !line.trim().is_empty())
         .collect();
-    lines[lines.len().saturating_sub(count)..].join("\n")
+    lines
+        .get(lines.len().saturating_sub(count)..)
+        .unwrap_or_default()
+        .join("\n")
 }
 
 fn after_last_horizontal_rule(text: &str) -> String {
@@ -833,7 +836,7 @@ fn after_last_horizontal_rule(text: &str) -> String {
         .iter()
         .rposition(|line| is_horizontal_rule(line))
         .map_or(0, |index| index + 1);
-    lines[start..].join("\n")
+    lines.get(start..).unwrap_or_default().join("\n")
 }
 
 fn is_horizontal_rule(line: &str) -> bool {
@@ -853,7 +856,7 @@ fn after_last_prompt_marker(text: &str) -> String {
             trimmed.starts_with('›') || trimmed.starts_with('❯') || trimmed.starts_with('>')
         })
         .unwrap_or(0);
-    lines[start..].join("\n")
+    lines.get(start..).unwrap_or_default().join("\n")
 }
 
 fn prompt_box_body(text: &str) -> String {

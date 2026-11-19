@@ -30,6 +30,7 @@ const DRIVE: &str = if cfg!(windows) {
 };
 
 static LOCAL_FILE: LazyLock<Regex> = LazyLock::new(|| {
+    #[expect(clippy::expect_used, reason = "the pattern is a constant")]
     Regex::new(&format!(
         r#"(["'(])\s*({DRIVE}[^"'()<>\s:]+?\.(?i:png|jpe?g|gif|webp|avif|svg|bmp|ico|woff2?|ttf|otf|mp4|m4v|webm|mov|mp3|m4a|wav|ogg|oga|opus|flac|aac))\s*(["')])"#,
     ))
@@ -50,16 +51,16 @@ pub fn is_page_id(id: &str) -> bool {
 the markup goes straight after the doctype and needs no parsing of the page. */
 pub fn insert_head(html: &str, markup: &str) -> String {
     let body = html.trim_start_matches('\u{feff}');
-    let lead = body.len() - body.trim_start().len();
-    let doctype = body[lead..]
-        .get(..9)
-        .is_some_and(|start| start.eq_ignore_ascii_case("<!doctype"));
+    let rest = body.trim_start();
+    let lead = body.len() - rest.len();
+    let doctype = (rest.get(..9)).is_some_and(|start| start.eq_ignore_ascii_case("<!doctype"));
     let at = if doctype {
-        body[lead..].find('>').map_or(0, |end| lead + end + 1)
+        rest.find('>').map_or(0, |end| lead + end + 1)
     } else {
         0
     };
-    format!("{}{markup}{}", &body[..at], &body[at..])
+    let (before, after) = body.split_at_checked(at).unwrap_or(("", body));
+    format!("{before}{markup}{after}")
 }
 
 fn escape_text(text: &str) -> String {
@@ -224,27 +225,45 @@ pub fn publish(dir: &Path, source: &Path, title: &str) -> Result<PageRef, String
         return Err("title must be nonempty".into());
     }
     let id = uuid::Uuid::new_v4().simple().to_string();
-    let media = media_folder(dir, &id);
-    let kept = build(source, Some(&media)).and_then(|mut page| {
-        if !page.to_ascii_lowercase().contains("<title") {
-            page = insert_head(&page, &format!("<title>{}</title>", escape_text(&title)));
-        }
-        std::fs::create_dir_all(dir)
-            .map_err(|error| format!("could not keep the page: {error}"))?;
-        std::fs::write(dir.join(format!("{id}.html")), page)
-            .map_err(|error| format!("could not keep the page: {error}"))?;
-        let written_in = source.parent().unwrap_or(source);
-        std::fs::write(
-            written_in_file(dir, &id),
-            written_in.to_string_lossy().as_bytes(),
-        )
-        .map_err(|error| format!("could not keep the page: {error}"))
-    });
-    if let Err(error) = kept {
-        let _ = std::fs::remove_dir_all(&media);
+    if let Err(error) = keep(dir, &id, source, &title) {
+        let _ = std::fs::remove_dir_all(media_folder(dir, &id));
         return Err(error);
     }
     Ok(PageRef { id, title })
+}
+
+/// Keeps page `id` again from the file it was first shown from, so a show by its id has the
+/// file as it is now. False when that file is gone, and the kept copy stays.
+pub fn refresh(dir: &Path, id: &str) -> Result<bool, String> {
+    let Some(source) = (std::fs::read_to_string(source_file(dir, id)).ok())
+        .map(PathBuf::from)
+        .filter(|source| source.is_file())
+    else {
+        return Ok(false);
+    };
+    let title = title(dir, id).unwrap_or_else(|| "Page".to_owned());
+    keep(dir, id, &source, &title).map(|()| true)
+}
+
+fn keep(dir: &Path, id: &str, source: &Path, title: &str) -> Result<(), String> {
+    let mut page = build(source, Some(&media_folder(dir, id)))?;
+    if !page.to_ascii_lowercase().contains("<title") {
+        page = insert_head(&page, &format!("<title>{}</title>", escape_text(title)));
+    }
+    let failed = |error: std::io::Error| format!("could not keep the page: {error}");
+    std::fs::create_dir_all(dir).map_err(failed)?;
+    std::fs::write(dir.join(format!("{id}.html")), page).map_err(failed)?;
+    let written_in = source.parent().unwrap_or(source);
+    std::fs::write(
+        written_in_file(dir, id),
+        written_in.to_string_lossy().as_bytes(),
+    )
+    .map_err(failed)?;
+    std::fs::write(source_file(dir, id), source.to_string_lossy().as_bytes()).map_err(failed)
+}
+
+fn source_file(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{id}.source"))
 }
 
 /// The folder beside page `id` that holds the videos and sounds it shows.
@@ -281,7 +300,7 @@ pub fn title(dir: &Path, id: &str) -> Option<String> {
         false => std::fs::read_to_string(&path).ok()?,
     };
     let start = page.to_ascii_lowercase().find("<title")?;
-    let (_, rest) = page[start..].split_once('>')?;
+    let (_, rest) = page.get(start..)?.split_once('>')?;
     let (title, _) = rest.split_once('<')?;
     let title = (title
         .replace("&lt;", "<")
@@ -306,11 +325,11 @@ pub fn theme_rule(dark: bool, variables: &BTreeMap<String, String>) -> String {
         if dark { "dark" } else { "light" }
     );
     for (name, value) in variables {
-        let named = name.len() > 2
-            && name.starts_with("--")
-            && name[2..]
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+        let named = (name.strip_prefix("--")).is_some_and(|rest| {
+            !rest.is_empty()
+                && (rest.bytes())
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        });
         if named {
             let value: String = value.chars().filter(|c| !";{}<>".contains(*c)).collect();
             rule.push_str(&format!("{name}:{value};"));
@@ -419,6 +438,19 @@ mod tests {
         let video = format!("{}/0-ademark.mp4", page.id);
         assert!(html.contains(&format!("src=\"{video}\"")), "{html}");
         assert_eq!(std::fs::read(kept.join(video)).unwrap(), [9u8; 4]);
+    }
+
+    #[test]
+    fn a_page_shown_again_by_id_has_the_file_as_it_is_now() {
+        let dir = tempfile::tempdir().unwrap();
+        let kept = dir.path().join("kept");
+        let source = dir.path().join("mockup.html");
+        std::fs::write(&source, "<p>first</p>").unwrap();
+        let page = publish(&kept, &source, "Mockup").unwrap();
+        std::fs::write(&source, "<p>redrawn</p>").unwrap();
+        assert!(refresh(&kept, &page.id).unwrap());
+        let html = std::fs::read_to_string(kept.join(format!("{}.html", page.id))).unwrap();
+        assert!(html.contains("redrawn") && html.contains("<title>Mockup</title>"));
     }
 
     #[test]

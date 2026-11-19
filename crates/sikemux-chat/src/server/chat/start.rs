@@ -37,6 +37,10 @@ pub fn idle(core: &Arc<Core>, agent_id: &str, provider: &str, cwd: &str) -> Arc<
         account: None,
         fallbacks: Vec::new(),
     };
+    #[expect(
+        clippy::panic,
+        reason = "a chat a test cannot list is meant to stop the test"
+    )]
     let (chat, _) = core
         .chats()
         .insert(core, launch, Origin::default(), None)
@@ -92,6 +96,7 @@ pub fn launch(
         if ending.unstarted() {
             ending.wanted.notified().await;
             crate::server::activity_log::chat_launched(&owner, &ending.launch);
+            owner.workspaces().note_started_model(&ending.launch);
             ending.keep(kept::Progress::STARTING);
         }
         // The agent can be started again under the chat, on another account
@@ -290,6 +295,7 @@ pub fn start(
     }
     if !waits_for_person {
         crate::server::activity_log::chat_launched(core, &chat.launch);
+        core.workspaces().note_started_model(&chat.launch);
     }
     if waits_for_person {
         wait_for_person(&chat);
@@ -386,6 +392,21 @@ pub fn carry_on_prompt(what: &str) -> rebind::Replay {
 }
 
 pub const RESTARTED: &str = "Sikemux restarted while this agent was working";
+
+const RESTARTED_WAITING: &str = "Sikemux restarted while this agent waited on a background task";
+
+fn lost_wait_prompt(task: &str) -> rebind::Replay {
+    let task = match task.is_empty() {
+        true => "the background task".to_owned(),
+        false => format!("the background task \"{task}\""),
+    };
+    rebind::Replay {
+        text: format!(
+            "Sikemux restarted, and {task} your turn ended waiting on is gone, so your wait was lost in the restart and nothing will wake you. Check what it got done, then start it again or carry on."
+        ),
+        ..carry_on_prompt("")
+    }
+}
 
 /// Takes up again every chat an earlier core was running when it stopped,
 /// but for those this core already runs and those put to sleep as it
@@ -502,10 +523,18 @@ pub fn carry_on(
     // The kept record is written after the feed, so it may still say a turn is at work
     // whose end the feed has on disk.
     let working = kept.working && !chat.feed.settled();
+    let waited_on = (chat.feed.running_task()).filter(|_| !working && kept.offline.is_none());
     chat.feed.agent_gone();
     chat.cut_turn();
     let resumes = kept.reloadable && launch_spec.resume_id.is_some();
     let (replay, notice) = match (working, resumes) {
+        (false, true) if waited_on.is_some() => (
+            Some(lost_wait_prompt(waited_on.as_deref().unwrap_or_default())),
+            Some(restart_notice(
+                RESTARTED_WAITING,
+                "It was told the background task it waited on ended with it.",
+            )),
+        ),
         (true, true) => (
             Some(carry_on_prompt("Sikemux restarted while you were working")),
             Some(restart_notice(

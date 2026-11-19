@@ -457,19 +457,27 @@ impl Diagram {
 
     fn spot_at(&self, at: Point<Pixels>) -> Option<Spot> {
         let world = self.to_world(at);
-        let table = *(self.order.iter())
-            .rev()
-            .find(|&&index| self.cards[index].contains(world))?;
-        let card = self.cards[table];
+        let table = *(self.order.iter()).rev().find(|&&index| {
+            self.cards
+                .get(index)
+                .is_some_and(|card| card.contains(world))
+        })?;
+        let card = *self.cards.get(table)?;
         let row = ((world.y - card.y - HEADER) / ROW).floor();
-        let column = (row >= 0. && (row as usize) < self.schema.tables[table].columns.len())
-            .then_some(row as usize);
+        let columns = self
+            .schema
+            .tables
+            .get(table)
+            .map_or(0, |table| table.columns.len());
+        let column = (row >= 0. && (row as usize) < columns).then_some(row as usize);
         Some(Spot { table, column })
     }
 
     /// Whether pointing at `spot` shows a tip, which follows the pointer.
     fn tells(&self, spot: Spot) -> bool {
-        let table = &self.schema.tables[spot.table];
+        let Some(table) = self.schema.tables.get(spot.table) else {
+            return false;
+        };
         match spot.column.and_then(|column| table.columns.get(column)) {
             Some(column) => {
                 column.pk
@@ -589,18 +597,18 @@ impl Diagram {
         let spot = self.spot_at(event.position);
         if event.click_count == 2 {
             match spot {
-                Some(spot) => return Some(self.schema.tables[spot.table].line),
+                Some(spot) => return self.schema.tables.get(spot.table).map(|table| table.line),
                 None => self.fit(cx),
             }
             return None;
         }
-        self.drag = Some(match spot {
-            Some(spot) => {
-                let card = self.cards[spot.table];
-                self.order.retain(|table| *table != spot.table);
-                self.order.push(spot.table);
+        let picked = spot.and_then(|spot| Some((spot.table, *self.cards.get(spot.table)?)));
+        self.drag = Some(match picked {
+            Some((table, card)) => {
+                self.order.retain(|&other| other != table);
+                self.order.push(table);
                 Drag::Card {
-                    table: spot.table,
+                    table,
                     from: event.position,
                     at: point(card.x, card.y),
                 }
@@ -630,9 +638,10 @@ impl Diagram {
             }
             Some(Drag::Card { table, from, at }) => {
                 self.touched = true;
-                let card = &mut self.cards[*table];
-                card.x = at.x + f32::from(event.position.x - from.x) / self.zoom;
-                card.y = at.y + f32::from(event.position.y - from.y) / self.zoom;
+                if let Some(card) = self.cards.get_mut(*table) {
+                    card.x = at.x + f32::from(event.position.x - from.x) / self.zoom;
+                    card.y = at.y + f32::from(event.position.y - from.y) / self.zoom;
+                }
                 cx.notify();
             }
             Some(Drag::Map) => {
@@ -1105,9 +1114,12 @@ impl Frame {
 
     fn paint_groups(&self, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
         for group in &self.schema.groups {
-            let Some((left, top, right, bottom)) =
-                extent_of(group.tables.iter().map(|&table| &self.cards[table]))
-            else {
+            let Some((left, top, right, bottom)) = extent_of(
+                group
+                    .tables
+                    .iter()
+                    .filter_map(|&table| self.cards.get(table)),
+            ) else {
                 continue;
             };
             let tint = group.color.map(rgb).unwrap_or(self.t.text_tertiary);
@@ -1143,8 +1155,7 @@ impl Frame {
         }
     }
 
-    fn anchor(&self, end: &dbml::End, row: Option<usize>) -> f32 {
-        let card = &self.cards[end.table];
+    fn anchor(card: &Card, row: Option<usize>) -> f32 {
         match row {
             Some(row) => card.y + HEADER + (row as f32 + 0.5) * ROW,
             None => card.y + HEADER / 2.,
@@ -1153,17 +1164,14 @@ impl Frame {
 
     /// The corners a reference's line turns at, in the diagram's units, and which way it
     /// leaves each table: 1 to the right, -1 to the left.
-    fn route(&self, index: usize) -> (Vec<Point<f32>>, f32, f32) {
-        let reference = &self.schema.refs[index];
+    fn route(&self, index: usize) -> Option<(Vec<Point<f32>>, f32, f32)> {
+        let reference = self.schema.refs.get(index)?;
         let (a, b) = (
-            &self.cards[reference.from.table],
-            &self.cards[reference.to.table],
+            self.cards.get(reference.from.table)?,
+            self.cards.get(reference.to.table)?,
         );
-        let (from, to) = self.anchors[index];
-        let (ya, yb) = (
-            self.anchor(&reference.from, from),
-            self.anchor(&reference.to, to),
-        );
+        let &(from, to) = self.anchors.get(index)?;
+        let (ya, yb) = (Self::anchor(a, from), Self::anchor(b, to));
         if reference.from.table == reference.to.table {
             let out = a.right() + STUB * 1.4;
             let points = vec![
@@ -1172,7 +1180,7 @@ impl Frame {
                 point(out, yb),
                 point(a.right(), yb),
             ];
-            return (points, 1., 1.);
+            return Some((points, 1., 1.));
         }
         let (xa, da, xb, db) = if a.right() + STUB * 2. <= b.x {
             (a.right(), 1., b.x, -1.)
@@ -1189,14 +1197,14 @@ impl Frame {
                 (a.x, b.x, left, -1.)
             };
             let points = vec![point(xa, ya), point(out, ya), point(out, yb), point(xb, yb)];
-            return (points, side, side);
+            return Some((points, side, side));
         };
         if (ya - yb).abs() < 0.5 {
-            return (vec![point(xa, ya), point(xb, yb)], da, db);
+            return Some((vec![point(xa, ya), point(xb, yb)], da, db));
         }
         let mid = self.lanes.get(&index).copied().unwrap_or((xa + xb) / 2.);
         let points = vec![point(xa, ya), point(mid, ya), point(mid, yb), point(xb, yb)];
-        (points, da, db)
+        Some((points, da, db))
     }
 
     fn paint_wire(
@@ -1208,12 +1216,19 @@ impl Frame {
         width: f32,
         window: &mut Window,
     ) {
-        let reference = &self.schema.refs[index];
-        let (corners, from_side, to_side) = self.route(index);
+        let Some(reference) = self.schema.refs.get(index) else {
+            return;
+        };
+        let Some((corners, from_side, to_side)) = self.route(index) else {
+            return;
+        };
         let points: Vec<Point<Pixels>> =
             corners.iter().map(|at| self.screen(bounds, *at)).collect();
+        let (Some(&first), Some(&last)) = (points.first(), points.last()) else {
+            return;
+        };
         let reach = px(16. * self.zoom);
-        let (mut low, mut high) = (points[0], points[0]);
+        let (mut low, mut high) = (first, first);
         for at in &points {
             low = point(low.x.min(at.x), low.y.min(at.y));
             high = point(high.x.max(at.x), high.y.max(at.y));
@@ -1223,9 +1238,11 @@ impl Frame {
             return;
         }
         let mut path = PathBuilder::stroke(px(width));
-        path.move_to(points[0]);
-        for index in 1..points.len() - 1 {
-            let (before, at, after) = (points[index - 1], points[index], points[index + 1]);
+        path.move_to(first);
+        for corner in points.windows(3) {
+            let &[before, at, after] = corner else {
+                continue;
+            };
             let reach = |from: Point<Pixels>| {
                 let d = from - at;
                 (f32::from(d.x).powi(2) + f32::from(d.y).powi(2)).sqrt()
@@ -1241,19 +1258,11 @@ impl Frame {
             path.line_to(toward(before, radius));
             path.curve_to(toward(after, radius), at);
         }
-        path.line_to(points[points.len() - 1]);
+        path.line_to(last);
         if let Ok(path) = path.build() {
             window.paint_path(path, ink);
         }
-        self.paint_end(
-            points[0],
-            from_side,
-            reference.from.many,
-            ink,
-            width,
-            window,
-        );
-        let last = points[points.len() - 1];
+        self.paint_end(first, from_side, reference.from.many, ink, width, window);
         self.paint_end(last, to_side, reference.to.many, ink, width, window);
     }
 
@@ -1297,8 +1306,10 @@ impl Frame {
         cx: &mut App,
     ) {
         let (t, z) = (&self.t, self.zoom);
-        let card = self.cards[index];
-        let table = &self.schema.tables[index];
+        let (Some(&card), Some(table)) = (self.cards.get(index), self.schema.tables.get(index))
+        else {
+            return;
+        };
         let frame = self.rect(bounds, card.x, card.y, card.w, card.h);
         if !frame.intersects(&seen) {
             return;
@@ -1495,7 +1506,9 @@ impl Frame {
         let (Some(spot), Some(pointer)) = (self.hover, self.pointer) else {
             return;
         };
-        let table = &self.schema.tables[spot.table];
+        let Some(table) = self.schema.tables.get(spot.table) else {
+            return;
+        };
         let mut lines: Vec<(String, bool)> = Vec::new();
         match spot.column.and_then(|column| table.columns.get(column)) {
             Some(column) => {
@@ -1711,7 +1724,10 @@ fn anchors(schema: &Schema) -> Vec<Anchors> {
     }
     let row = |end: &dbml::End| {
         (end.columns.iter().enumerate())
-            .min_by_key(|(at, column)| (uses[&(end.table, **column)], usize::MAX - at))
+            .min_by_key(|(at, column)| {
+                let shared = uses.get(&(end.table, **column)).copied().unwrap_or(0);
+                (shared, usize::MAX - at)
+            })
             .map(|(_, column)| *column)
     };
     (schema.refs.iter())
@@ -1723,8 +1739,13 @@ fn anchors(schema: &Schema) -> Vec<Anchors> {
 /// in the order of their height so they do not cross each other there.
 fn lanes(schema: &Schema, anchors: &[Anchors], cards: &[Card]) -> HashMap<usize, f32> {
     let mut gaps: HashMap<(i32, i32), Vec<(f32, usize)>> = HashMap::new();
-    for (index, reference) in schema.refs.iter().enumerate() {
-        let (a, b) = (&cards[reference.from.table], &cards[reference.to.table]);
+    for (index, (reference, &(from, to))) in schema.refs.iter().zip(anchors).enumerate() {
+        let (Some(a), Some(b)) = (
+            cards.get(reference.from.table),
+            cards.get(reference.to.table),
+        ) else {
+            continue;
+        };
         let gap = if a.right() + STUB * 2. <= b.x {
             (a.right(), b.x)
         } else if b.right() + STUB * 2. <= a.x {
@@ -1732,11 +1753,10 @@ fn lanes(schema: &Schema, anchors: &[Anchors], cards: &[Card]) -> HashMap<usize,
         } else {
             continue;
         };
-        let y = |end: &dbml::End, row: Option<usize>| {
-            cards[end.table].y + HEADER + row.map_or(0., |row| row as f32 * ROW)
+        let y = |card: &Card, row: Option<usize>| {
+            card.y + HEADER + row.map_or(0., |row| row as f32 * ROW)
         };
-        let (from, to) = anchors[index];
-        let height = y(&reference.from, from).min(y(&reference.to, to));
+        let height = y(a, from).min(y(b, to));
         let key = (gap.0.round() as i32, gap.1.round() as i32);
         gaps.entry(key).or_default().push((height, index));
     }
@@ -1776,8 +1796,11 @@ fn extent_of<'a>(cards: impl Iterator<Item = &'a Card>) -> Option<(f32, f32, f32
 fn arrange(schema: &Schema, cards: &mut [Card]) {
     let n = cards.len();
     let keyed = |end: &dbml::End| {
-        let columns = &schema.tables[end.table].columns;
-        end.columns.iter().all(|&column| columns[column].pk)
+        let columns = schema
+            .tables
+            .get(end.table)
+            .map_or(&[][..], |table| &table.columns);
+        (end.columns.iter()).all(|&column| columns.get(column).is_some_and(|column| column.pk))
     };
     let mut links: Vec<(usize, usize)> = Vec::new();
     for reference in &schema.refs {
@@ -1795,13 +1818,15 @@ fn arrange(schema: &Schema, cards: &mut [Card]) {
     let mut clusters: Vec<(Vec<usize>, bool)> = Vec::new();
     for group in &schema.groups {
         let members: Vec<usize> = (group.tables.iter().copied())
-            .filter(|&table| table < n && cluster_of[table] == usize::MAX)
+            .filter(|&table| cluster_of.get(table) == Some(&usize::MAX))
             .collect();
         if members.is_empty() {
             continue;
         }
         for &table in &members {
-            cluster_of[table] = clusters.len();
+            if let Some(cluster) = cluster_of.get_mut(table) {
+                *cluster = clusters.len();
+            }
         }
         clusters.push((members, true));
     }
@@ -1817,14 +1842,18 @@ fn arrange(schema: &Schema, cards: &mut [Card]) {
         let inner: Vec<(usize, usize)> = (links.iter())
             .filter_map(|&(child, parent)| Some((local(child)?, local(parent)?)))
             .collect();
-        let sizes: Vec<(f32, f32)> = members.iter().map(|&t| (cards[t].w, cards[t].h)).collect();
+        let sizes: Vec<(f32, f32)> = (members.iter())
+            .map(|&t| cards.get(t).map_or((0., 0.), |card| (card.w, card.h)))
+            .collect();
         let placed = layered(&sizes, &inner);
         for (&table, &(x, y)) in members.iter().zip(&placed) {
-            cards[table].x = x;
-            cards[table].y = y;
+            if let Some(card) = cards.get_mut(table) {
+                card.x = x;
+                card.y = y;
+            }
         }
         let (_, _, right, bottom) =
-            extent_of(members.iter().map(|&t| &cards[t])).unwrap_or_default();
+            extent_of(members.iter().filter_map(|&t| cards.get(t))).unwrap_or_default();
         let (left, top, below) = match grouped {
             true => (GROUP_PAD, GROUP_PAD + GROUP_LABEL, GROUP_PAD),
             false => (0., 0., 0.),
@@ -1833,18 +1862,24 @@ fn arrange(schema: &Schema, cards: &mut [Card]) {
     }
     let mut between: Vec<(usize, usize)> = Vec::new();
     for &(child, parent) in &links {
-        let link = (cluster_of[child], cluster_of[parent]);
+        let (Some(&from), Some(&to)) = (cluster_of.get(child), cluster_of.get(parent)) else {
+            continue;
+        };
+        let link = (from, to);
         if link.0 != link.1 && !between.contains(&link) {
             between.push(link);
         }
     }
     let sizes: Vec<(f32, f32)> = boxes.iter().map(|(size, _)| *size).collect();
     let placed = layered(&sizes, &between);
-    for (cluster, (members, _)) in clusters.iter().enumerate() {
-        let ((x, y), (_, (left, top))) = (placed[cluster], boxes[cluster]);
+    for ((members, _), (&(x, y), &(_, (left, top)))) in
+        clusters.iter().zip(placed.iter().zip(&boxes))
+    {
         for &table in members {
-            cards[table].x += x + left;
-            cards[table].y += y + top;
+            if let Some(card) = cards.get_mut(table) {
+                card.x += x + left;
+                card.y += y + top;
+            }
         }
     }
     for card in cards.iter_mut() {
@@ -1855,6 +1890,10 @@ fn arrange(schema: &Schema, cards: &mut [Card]) {
 /// Places boxes of `sizes` left to right in columns, each to the right of the boxes it links
 /// to as `(child, parent)`, lined up with its neighbours; boxes with no links sit in rows
 /// underneath. Answers each box's top left corner, the whole starting at the origin.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "every node is numbered below n, the length of each per-node list"
+)]
 fn layered(sizes: &[(f32, f32)], links: &[(usize, usize)]) -> Vec<(f32, f32)> {
     let n = sizes.len();
     let mut at = vec![(0f32, 0f32); n];
@@ -2006,6 +2045,10 @@ fn layered(sizes: &[(f32, f32)], links: &[(usize, usize)]) -> Vec<(f32, f32)> {
 
 /// Drops the references that lead back to a table that refers on to them, so every table
 /// can sit to the right of all it refers to.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "every node is numbered below n, the length of each per-node list"
+)]
 fn drop_cycles(parents: &mut [Vec<usize>], children: &mut [Vec<usize>]) {
     let n = parents.len();
     let mut state = vec![0u8; n];

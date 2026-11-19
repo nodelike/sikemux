@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use sikemux_view::chat::{chat_draft_key, DraftExtra};
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_wire::protocol::PermissionMode;
@@ -18,7 +18,7 @@ use super::super::{launching, layout, workspace, Core, CoreError, CoreResult};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::link::Answer;
 use super::transfer::call_once;
-use super::{find, Failed};
+use super::{find_to_move_work, Failed};
 
 const TAKE_WAIT: Duration = Duration::from_secs(30);
 
@@ -42,7 +42,7 @@ pub(crate) async fn move_chat(
     if agent.terminal || agent.resume_id.is_some() || agent.worktree.is_some() {
         return Err("only a new chat moves to another host, before its first message".into());
     }
-    let link = find(core, &params.host)?;
+    let link = find_to_move_work(core, &params.host)?;
     let draft = core.drafts().chat_draft(&agent.id);
     let attached = (draft.as_ref())
         .and_then(|draft| draft.extra.as_ref())
@@ -78,8 +78,9 @@ pub(crate) async fn move_chat(
             )),
             error => CoreError::from(error.to_string()),
         })?;
-    let agent_id = answer["agentId"]
-        .as_str()
+    let agent_id = answer
+        .get("agentId")
+        .and_then(Value::as_str)
         .ok_or_else(|| CoreError::from(format!("{} did not start the chat", link.name)))?
         .to_owned();
     workspace::close_agent(core, agent.id)?;

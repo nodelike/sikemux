@@ -1,0 +1,69 @@
+{
+  "user_id": "user_edon",
+  "answer": {
+    "orgs": [
+      {
+        "org": "org_acme",
+        "members": [
+          {
+            "id": "mem_edon",
+            "name": "Edon",
+            "imageUrl": null,
+            "you": true
+          },
+          {
+            "id": "mem_arjun",
+            "name": "Arjun",
+            "imageUrl": null,
+            "you": false
+          },
+          {
+            "id": "mem_maya",
+            "name": "Maya",
+            "imageUrl": null,
+            "you": false
+          },
+          {
+            "id": "mem_theo",
+            "name": "Theo",
+            "imageUrl": null,
+            "you": false
+          },
+          {
+            "id": "mem_priya",
+            "name": "Priya",
+            "imageUrl": null,
+            "you": false
+          }
+        ],
+        "shares": [
+          {
+            "project": "f2c9a6069483659f6956f074439775a752c24af9647f2000d727046abc240ecd",
+            "member": "mem_arjun",
+            "host": "da542130599d41a2783639bb43749fcbfa7a5ba637fd2ff22a9cc2116f07933b"
+          }
+        ],
+        "mine": []
+      },
+      {
+        "org": "org_northwind",
+        "members": [
+          {
+            "id": "mem_edon_nw",
+            "name": "Edon",
+            "imageUrl": null,
+            "you": true
+          },
+          {
+            "id": "mem_sam",
+            "name": "Sam",
+            "imageUrl": null,
+            "you": false
+          }
+        ],
+        "shares": [],
+        "mine": []
+      }
+    ]
+  }
+}

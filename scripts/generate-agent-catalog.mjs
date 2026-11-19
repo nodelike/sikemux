@@ -5,6 +5,7 @@
 // the showcase get the clients' view of it as a fixture. `--check` fails when
 // one is out of date instead of writing it.
 
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { format, resolveConfig } from "prettier";
@@ -301,6 +302,11 @@ ${BRANDED.flatMap(([selector, property]) =>
   ),
 );
 
+const rustfmt = (source) =>
+  execFileSync("rustfmt", ["--edition", "2021"], {
+    input: source,
+    encoding: "utf8",
+  });
 const pascal = (type) => type[0].toUpperCase() + type.slice(1);
 const snake = (name) =>
   name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
@@ -471,7 +477,7 @@ ${agents.map((agent) => `    (AgentKind::${pascal(agent.type)}, include_str!("ma
 
 await emit(
   rustPath,
-  `// ${banner}
+  rustfmt(`// ${banner}
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -658,6 +664,10 @@ impl AgentKind {
 ${agents.map((agent) => `        AgentKind::${pascal(agent.type)},`).join("\n")}
     ];
 
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "AGENTS lists one entry per kind, in the kind's order"
+    )]
     pub fn entry(self) -> &'static AgentEntry {
         &AGENTS[self as usize]
     }
@@ -674,7 +684,7 @@ ${agents.map((agent) => `        AgentKind::${pascal(agent.type)},`).join("\n")}
 pub fn agent(name: &str) -> Option<&'static AgentEntry> {
     AGENTS.iter().find(|entry| entry.kind == name)
 }
-`,
+`),
 );
 
 console.log(`✓ ${agents.length} agents in the catalog`);

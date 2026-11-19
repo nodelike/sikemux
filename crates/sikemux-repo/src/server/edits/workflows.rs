@@ -125,14 +125,14 @@ fn reaches_nothing(text: &str) -> bool {
     }
     let token = "secrets.github_token";
     let secrets_ok = text.match_indices("secrets").all(|(at, _)| {
-        let rest = &text[at..];
-        rest.starts_with(token)
-            && (rest[token.len()..].chars().next())
-                .is_some_and(|after| !after.is_alphanumeric() && after != '_')
+        (text.get(at..))
+            .and_then(|rest| rest.strip_prefix(token))
+            .and_then(|after| after.chars().next())
+            .is_some_and(|after| !after.is_alphanumeric() && after != '_')
     });
     let called = "/.github/workflows/";
     let local_only = (text.match_indices(called)).all(|(at, _)| {
-        let before = text[..at].strip_suffix('.');
+        let before = text.get(..at).and_then(|before| before.strip_suffix('.'));
         before.is_some_and(|before| {
             (before.chars().last())
                 .is_none_or(|last| last.is_whitespace() || matches!(last, '"' | '\''))
@@ -170,9 +170,8 @@ fn reads_contents(line: &str) -> bool {
 fn unescaped(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(at) = rest.find('\\') {
-        out.push_str(&rest[..at]);
-        let after = &rest[at + 1..];
+    while let Some((before, after)) = rest.split_once('\\') {
+        out.push_str(before);
         let joined = (after
             .strip_prefix("\r\n")
             .or_else(|| after.strip_prefix('\n')))
@@ -195,7 +194,7 @@ fn unescaped(text: &str) -> String {
         match spelled {
             Some(spelled) => {
                 out.push(spelled);
-                rest = &after[1 + digits..];
+                rest = after.get(1 + digits..).unwrap_or_default();
             }
             None => {
                 out.push('\\');
@@ -594,11 +593,13 @@ fn diffs(dir: &Path, commits: &[&String]) -> String {
         .map(|commit| show(commit))
         .collect::<Vec<_>>()
         .join("\n");
-    match full.char_indices().nth(DIFF_CHARS) {
+    let split =
+        (full.char_indices().nth(DIFF_CHARS)).and_then(|(cut, _)| full.split_at_checked(cut));
+    match split {
         None => full,
-        Some((cut, _)) => {
-            let more = full[cut..].lines().count();
-            format!("{}\n… {more} more lines", &full[..cut])
+        Some((shown, cut_off)) => {
+            let more = cut_off.lines().count();
+            format!("{shown}\n… {more} more lines")
         }
     }
 }

@@ -119,10 +119,11 @@ Agent tools are declared once in `tools/tools.json`. Add or change one there, ru
 
 - **Scope** — keep PRs focused. One feature or fix per PR is much easier to review.
 - **No regressions** — keep things efficient and performant; if a change touches the editor, terminal, or git panes, verify the affected views still behave.
+- **Screenshots for UI changes** — a PR that changes how something looks (layout, styling, a new screen or control) shows a before and after screenshot of each changed part in its description, cropped to that part. A change that only adds a label or a menu entry can describe it instead.
 
 ## Screenshots
 
-The site's Mac pictures stay as they are for now; the app has no Mac showcase of its own yet. `pnpm showcase` in `mobile/` renders the phone app's screens on demo data.
+`node scripts/shots.mjs mac <commit> <scene>…` draws the Mac window at a commit from a scene in `film/scenes/`, on a throwaway core, and `--compare` writes a page that stacks each before and after. `pnpm showcase` in `mobile/` renders the phone app's screens on demo data.
 
 ## Commit messages
 

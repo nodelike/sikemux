@@ -28,6 +28,52 @@ const { values: options, positionals: only } = parseArgs({
   },
 });
 
+/** What the accounts server says to a new account at Acme's proven domain, word for word from its fold words. */
+const CATCH_MUST = {
+  ask: true,
+  why: 'domain',
+  mustFold: true,
+  address: 'maya@acme.example',
+  orgName: 'Acme',
+  title: 'This is an Acme address',
+  words:
+    "Addresses at acme.example belong to Acme, so one can't have a Sikemux account of its own. Sign in with your own Google, Apple or email, and this address comes along to show you belong to Acme. It never signs you in.",
+};
+const CATCH_STAY = {
+  ask: true,
+  why: 'browser',
+  mustFold: false,
+  address: 'maya@acme.example',
+  title: 'Already on Sikemux?',
+  words:
+    'You just made a new account with this address. If you already have a Sikemux account, sign in with it and bring the address over, so you keep one account.',
+};
+const FOLD_STARTED = {
+  id: 'fold_showcase',
+  secret: 'showcase',
+  expiresAt: '2099-01-01T00:00:00Z',
+  waitingWords: 'Sign in with your own account to bring over the address you just used.',
+};
+const FOLD_PREVIEW = {
+  why: 'domain',
+  address: 'maya@acme.example',
+  keptName: 'Maya Okafor',
+  keptAddress: 'maya.okafor@example.com',
+  orgName: 'Acme',
+  seats: ['Acme'],
+  title: 'Bring this address to this account?',
+  words:
+    "The account you just made with it holds nothing but a seat. Its seat in Acme moves to this account. It's deleted, and the address is verified for Acme on this account. The address never signs you in: keep signing in as you do now.",
+  doneTitle: 'Brought over',
+  doneWords: 'The address is verified on this account now. The account made with it is deleted, and any seat it held is here.',
+};
+const SAME_ACCOUNT = {
+  error: {
+    code: 'same_account',
+    message: 'This is the account you started from. Sign in with your other account to confirm it.',
+  },
+};
+
 const SCENES = [
   { name: 'home', route: '/' },
   { name: 'account', route: '/', tapLabel: 'Account' },
@@ -65,6 +111,25 @@ const SCENES = [
     tapPart: 'Keep them short, and link each one.',
     tapLabel: 'Edit message',
   },
+  { name: 'fold-must', route: '/', api: { 'fold/catch': CATCH_MUST } },
+  { name: 'fold-stay', route: '/', api: { 'fold/catch': CATCH_STAY } },
+  {
+    name: 'fold-waiting',
+    route: '/',
+    api: { 'fold/catch': CATCH_MUST, folds: FOLD_STARTED },
+    tap: 'Use my account',
+  },
+  {
+    name: 'fold-nothing',
+    api: { [`folds/${FOLD_STARTED.id}/preview`]: { status: 409, json: SAME_ACCOUNT } },
+    tap: 'Continue with Google',
+  },
+  {
+    name: 'fold-confirm',
+    api: { [`folds/${FOLD_STARTED.id}/preview`]: FOLD_PREVIEW },
+    tap: ['Sign in with another account', 'Continue with Google'],
+  },
+  { name: 'fold-done', api: { [`folds/${FOLD_STARTED.id}/confirm`]: { status: 204 } }, tap: 'Bring it here' },
 ].filter((scene) => only.length === 0 || only.includes(scene.name));
 
 const root = resolve(here, '../..');
@@ -166,21 +231,30 @@ const page = await browser.newPage({
 });
 // The account sheet asks the accounts server about the account; the showcase's is staff.
 await page.route('**/v1/account', (route) => route.fulfill({ json: { status: 'active', restorableDays: 30, staff: true } }));
+/** What the scene being shot has the accounts server answer, by the path after /v1/account/. */
+let answers = {};
+await page.route('**/v1/account/**', (route) => {
+  const answer = answers[new URL(route.request().url()).pathname.replace('/v1/account/', '')];
+  if (!answer) return route.fallback();
+  return route.fulfill(answer.status ? answer : { json: answer });
+});
 const devtools = await page.context().newCDPSession(page);
 await devtools.send('Emulation.setSafeAreaInsetsOverride', { insets: INSETS });
 const problems = [];
 page.on('pageerror', (error) => problems.push(error.message.split('\n')[0]));
 
 for (const scene of SCENES) {
+  answers = scene.api ?? {};
   await page.setViewportSize({ width: SCREEN.width, height: scene.height ?? SCREEN.height });
-  await page.goto(origin + scene.route, { timeout: 180_000 });
+  // A scene with no route carries on from the one before it.
+  if (scene.route) await page.goto(origin + scene.route, { timeout: 180_000 });
   await page.waitForTimeout(3000);
   // On a cold server a chat can take longer than that pause to open.
   await page
     .waitForFunction(() => !document.body.innerText.includes('Opening the chat'), null, { timeout: 120_000 })
     .catch(() => problems.push(`${scene.name} never opened its chat`));
-  if (scene.tap) {
-    await page.getByText(scene.tap, { exact: true }).first().click();
+  for (const text of [scene.tap ?? []].flat()) {
+    await page.getByText(text, { exact: true }).first().click();
     await page.waitForTimeout(800);
   }
   if (scene.tapPart) {
