@@ -63,7 +63,7 @@ impl Peer {
             reading: Mutex::default(),
             copies: Mutex::new(kept.load()),
             kept,
-            shares: shares::Reconciling::default(),
+            shares: shares::Reconciling::new(data_dir),
         }
     }
 }

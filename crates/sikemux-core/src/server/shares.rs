@@ -3,6 +3,7 @@
 //! only at the person's Share tap. Nothing is shared, registered or served for an org whose Team
 //! plan is unpaid; the share stays in place.
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use sha2::{Digest, Sha256};
@@ -15,6 +16,7 @@ use crate::server::account::shares;
 use crate::server::board;
 use crate::server::board_state::BoardParts;
 use crate::server::changed::{ChangedCore, What};
+use crate::server::kept::Kept;
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -65,12 +67,31 @@ pub(crate) fn shared_org(core: &Core, folder: &str) -> Option<SharedOrg> {
 }
 
 /// One reconcile at a time, the renames still to move, and the shares it last acted on.
-#[derive(Default)]
 pub(crate) struct Reconciling {
     running: tokio::sync::Mutex<()>,
-    /// What renamed projects were known by before and are known by now.
+    /// What renamed projects were known by before and are known by now, kept across restarts so
+    /// a rename never ends a share.
     renames: Mutex<Vec<(String, String)>>,
+    renames_kept: Kept,
     held: Mutex<Vec<Held>>,
+}
+
+impl Reconciling {
+    pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+        let renames_kept = Kept::new(data_dir, "share-renames.json");
+        Self {
+            running: tokio::sync::Mutex::default(),
+            renames: Mutex::new(renames_kept.load()),
+            renames_kept,
+            held: Mutex::default(),
+        }
+    }
+
+    fn change_renames(&self, change: impl FnOnce(&mut Vec<(String, String)>)) {
+        let mut renames = self.renames.locked();
+        change(&mut renames);
+        self.renames_kept.save(&*renames);
+    }
 }
 
 /// A project this host keeps the record of: its key, the org its board is shared with, and
@@ -286,8 +307,9 @@ async fn move_renamed(core: &Arc<Core>, registry: &ShareRegistry) -> bool {
             }
         }
         if moved {
-            (core.peer().shares.renames.locked())
-                .retain(|rename| *rename != (old.clone(), new.clone()));
+            (core.peer().shares).change_renames(|renames| {
+                renames.retain(|rename| *rename != (old.clone(), new.clone()))
+            });
         }
     }
     reached
@@ -296,11 +318,7 @@ async fn move_renamed(core: &Arc<Core>, registry: &ShareRegistry) -> bool {
 /// Projects are about to be known by new names: their shares move at the next reconcile, which
 /// starts now.
 pub(crate) fn renamed(core: &Core, renamed: &[(String, String)]) {
-    core.peer()
-        .shares
-        .renames
-        .locked()
-        .extend_from_slice(renamed);
+    (core.peer().shares).change_renames(|renames| renames.extend_from_slice(renamed));
     let Some(core) = core.arc() else {
         return;
     };
@@ -343,41 +361,75 @@ pub(crate) async fn share(
     Ok(sharing(core, &params.project).await)
 }
 
-/// Stops sharing the project's board, at once and whether or not its org is paid.
+/// Stops sharing the project's board, at once and whether or not its org is paid. The account
+/// drops the share first, from every org it lists the project with; the board's setting is
+/// cleared only once that took, so the board never shows "Only you" while an org still holds it.
 pub(crate) async fn unshare(
     core: &Arc<Core>,
     params: sikemux_calls::board::BoardParams,
 ) -> Result<ProjectSharing, String> {
     let (folder, identity) =
         project(core, &params.project).ok_or("the project has no repository to share it by")?;
-    if let Some(org) = board::person_share(core, folder, None).await? {
-        take_back(core, org, &identity).await;
+    let project = key(&identity);
+    let registry = shares::refresh(core)
+        .await
+        .ok_or("the account couldn't be reached, so the board is still shared")?;
+    let mut orgs: Vec<String> = (registry.orgs.iter())
+        .filter(|list| list.mine.iter().any(|mine| mine.project == project))
+        .map(|list| list.org.clone())
+        .collect();
+    orgs.extend(shared_with(core, &folder).filter(|org| !orgs.contains(org)));
+    for org in orgs {
+        let removal = ShareRemoval {
+            org,
+            project: project.clone(),
+        };
+        shares::remove(core, &removal).await.map_err(|error| {
+            format!("the account didn't drop the share, so the board is still shared: {error}")
+        })?;
     }
+    board::person_share(core, folder, None).await?;
+    shares::refresh(core).await;
     super::peer::changed(core);
     core.changed(What::View);
     Ok(sharing(core, &params.project).await)
 }
 
-/// Ends the project's share with `org` at the person's tap, whichever of their hosts registered it.
+/// Ends the project's share with `org` once a Share tap moved it to another org.
 async fn take_back(core: &Arc<Core>, org: String, identity: &str) {
     let removal = ShareRemoval {
         org,
         project: key(identity),
     };
     if let Err(error) = shares::remove(core, &removal).await {
-        eprintln!("sikemux core: an unshared project stayed on the account's registry: {error}");
+        eprintln!("sikemux core: a project shared elsewhere stayed on its old org: {error}");
     }
 }
 
-/// Who the project's board is shared with, and the orgs it could be shared with.
+/// Who the project's board is shared with, as the account holds it whichever host registered it,
+/// and the orgs it could be shared with. The board's setting stands in while the account is unread
+/// or leaves the setting's org out, as it does one whose Team plan is unpaid.
 pub(crate) async fn sharing(core: &Arc<Core>, project_named: &str) -> ProjectSharing {
     let registry = shares::read(core).await;
     let list = |org: &str| -> Option<&OrgShareList> {
         (registry.as_ref()?.orgs.iter()).find(|list| list.org == org)
     };
     let orgs = orgs(core);
-    let folder = project(core, project_named).map(|(folder, _)| folder);
-    let shared = (folder.as_deref()).and_then(|folder| shared_org(core, folder));
+    let shared = project(core, project_named).and_then(|(folder, identity)| {
+        let setting = shared_with(core, &folder);
+        let Some(registry) = &registry else {
+            return setting;
+        };
+        let project = key(&identity);
+        let held = (registry.orgs.iter())
+            .find(|list| list.mine.iter().any(|mine| mine.project == project))
+            .map(|list| list.org.clone());
+        held.or(setting.filter(|org| list(org).is_none()))
+    });
+    let shared = shared.map(|org| SharedOrg {
+        name: org_name(core, &org).unwrap_or_default(),
+        org,
+    });
     ProjectSharing {
         project: project_named.to_owned(),
         shared: shared.map(|SharedOrg { org, name }| SharedWith {
