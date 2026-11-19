@@ -1208,6 +1208,8 @@ pub(super) fn shell(
         .args(["-c", script, name])
         .args(args)
         .envs(crate::git_guard::shim::environment(None))
+        // A land check's heavy commands start at once, so its time limit counts only its run.
+        .env(sikemux_process::vars::BUILD_TURN, "1")
         .current_dir(dir);
     match sikemux_process::run(&mut shell, input, limit, METADATA_OUTPUT_LIMIT, None) {
         Ok(ran) if ran.status.success() => Ok(String::from_utf8_lossy(&ran.stdout).into_owned()),
