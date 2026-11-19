@@ -1062,7 +1062,7 @@ fn project_tree(
             .shared
             .as_ref()
     });
-    let mark = match shared {
+    let mark = match shared.filter(|shared| !shared.name.is_empty()) {
         Some(shared) => ui::org_mark(&shared.name, &shared.org, 14.).into_any_element(),
         None => project_glyph(13., cx).into_any_element(),
     };
