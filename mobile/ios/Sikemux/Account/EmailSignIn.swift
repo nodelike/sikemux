@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Why an emailed code is asked for: a device new to the account, a new account, or a new password.
@@ -18,6 +19,7 @@ enum SignInStep: Equatable {
 final class EmailSignIn {
     private var signIn: Clerk.SignIn?
     private var signUp: Clerk.SignUp?
+    private var email = ""
 
     private static let unsupportedSignIn = String(
         localized: "This account needs a sign-in step the app does not do yet; sign in on the web first.")
@@ -27,9 +29,11 @@ final class EmailSignIn {
     func reset() {
         signIn = nil
         signUp = nil
+        email = ""
     }
 
     func submitEmail(_ email: String) async throws -> SignInStep {
+        self.email = email.trimmed
         do {
             signIn = try await Clerk.call("POST", "v1/client/sign_ins", ["identifier": email.trimmed]).0
             return .password
@@ -39,6 +43,18 @@ final class EmailSignIn {
     }
 
     func submitPassword(_ password: String) async throws -> SignInStep? {
+        if await DemoAccount.owns(email) {
+            let ticket = try await AccountAPI.send(
+                "POST", "/v1/review-sign-in", body: ReviewSignInRequest(email: email, password: password),
+                as: ReviewSignIn.self, signedOut: true
+            ).ticket
+            let (done, client) = try await Clerk.call(
+                "POST", "v1/client/sign_ins", ["strategy": "ticket", "ticket": ticket], as: Clerk.SignIn.self)
+            signIn = done
+            guard done.status == .complete else { throw Clerk.Problem(code: nil, message: Self.unsupportedSignIn) }
+            try await finish(done.createdSessionId, client)
+            return nil
+        }
         try await step(signIn: "attempt_first_factor", ["strategy": "password", "password": password])
         return try await afterPassword()
     }
@@ -120,6 +136,32 @@ final class EmailSignIn {
     private func finish(_ session: String?, _ client: Clerk.Client?) async throws {
         guard let session else { throw Clerk.Problem(code: nil, message: Self.unsupportedSignIn) }
         try await Account.shared.activate(session: session, client: client)
+    }
+}
+
+/// The store reviewers' demo account, which signs in without an emailed code. The accounts server publishes only its
+/// address's hash, so the phone tells it apart here and never sends another account's password to the server.
+@MainActor
+private enum DemoAccount {
+    /// The hash, or nil when the server has no demo account; asked once per launch.
+    private static var addressSha256: String??
+
+    static func owns(_ email: String) async -> Bool {
+        if addressSha256 == nil {
+            do {
+                addressSha256 = .some(
+                    try await AccountAPI.send(
+                        "GET", "/v1/review-sign-in", as: ReviewAccount.self, signedOut: true
+                    ).addressSha256)
+            } catch let problem as ApiProblem where problem.status == 404 {
+                addressSha256 = .some(nil)
+            } catch {
+                return false
+            }
+        }
+        guard let demo = addressSha256 ?? nil else { return false }
+        let typed = SHA256.hash(data: Data(email.lowercased().utf8)).map { String(format: "%02x", $0) }.joined()
+        return typed == demo
     }
 }
 

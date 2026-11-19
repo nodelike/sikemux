@@ -117,7 +117,7 @@ export function SignIn({ ready }: { ready: boolean }) {
   const submitEmail = () => attempt("submit", () => flow.submitEmail(email));
 
   const submitPassword = () =>
-    attempt("submit", () => flow.submitPassword(password));
+    attempt("submit", () => flow.submitPassword(email, password));
 
   const submitNewAccount = () =>
     attempt("submit", () => flow.submitNewAccount(email, password));
