@@ -38,6 +38,27 @@ use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_view::inbox::InboxRecording;
 use sikemux_view::slice::SliceState;
+use sikemux_wire::protocol::ChatLaunch;
+
+/// How the board starts an agent of its own, as `board_launch` says, on the agent's own model
+/// when the org's key it names may not run in `cwd`, with what its chat then says.
+fn launch_own(
+    core: &Core,
+    launcher: Option<&str>,
+    cwd: &Path,
+    provider: Option<&str>,
+    model: Option<String>,
+    picked_in: &str,
+) -> Result<(ChatLaunch, String, Option<Value>), String> {
+    let moved = (core.board_above().org_moved)(core, cwd, provider, model.as_deref());
+    let (provider, model) = match moved {
+        Some(_) => (None, None),
+        None => (provider, model),
+    };
+    let (launch, launcher) =
+        (core.workspaces()).board_launch(launcher, cwd, provider, model, picked_in)?;
+    Ok((launch, launcher, moved))
+}
 
 mod archive;
 mod arrival;
