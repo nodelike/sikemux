@@ -630,7 +630,8 @@ pub(crate) async fn digest(core: &Arc<Core>, chief: &str) -> Vec<ChatContext> {
 /// [`can_start`], unless the chief's session was told the same since it last lost what it was
 /// told, to a compaction or a fresh session.
 fn can_start_untold(core: &Core, chief: &str) -> Option<Vec<ChatContext>> {
-    let contexts = can_start(core);
+    let project = project_of_chief(core, chief).map(|project| project.path);
+    let contexts = can_start(core, project.as_deref().unwrap_or(Path::new("")));
     let text: String = contexts
         .iter()
         .map(|context| context.text.as_str())
@@ -650,7 +651,7 @@ fn can_start_untold(core: &Core, chief: &str) -> Option<Vec<ChatContext>> {
 /// offered, with what each model costs where that is known. Read from memory, with no model or
 /// provider asked. Accounts, keys and limits stay out: the core picks the account, moves chats
 /// off a full one and resumes them by itself.
-pub(crate) fn can_start(core: &Core) -> Vec<ChatContext> {
+pub(crate) fn can_start(core: &Core, project: &Path) -> Vec<ChatContext> {
     let mut kinds: Vec<String> = Vec::new();
     for launcher in core.workspaces().chat_launchers() {
         if matches!(launcher.status, Some(AgentStatus::Ready { .. }))
@@ -667,7 +668,8 @@ pub(crate) fn can_start(core: &Core) -> Vec<ChatContext> {
         Some((input, output)) => format!("{model} ${}/${}", dollars(input), dollars(output)),
         None => model.to_owned(),
     };
-    let connected: Vec<(String, Vec<String>)> = (super::model_providers::on_hand(core).into_iter())
+    let on_hand = super::model_providers::on_hand(core, project);
+    let connected: Vec<(String, Vec<String>)> = (on_hand.into_iter())
         .filter(|provider| provider.agents.iter().any(|agent| kinds.contains(agent)))
         .map(|provider| {
             let models = (provider.models.iter())

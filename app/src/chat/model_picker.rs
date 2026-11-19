@@ -102,6 +102,8 @@ pub struct Picked {
     pub speed: Option<ConfigPicker>,
     /// The connected provider paying for its turns, when one is.
     pub model_provider: Option<String>,
+    /// The chat's project, by id, which decides whether an org's providers are offered.
+    pub project: String,
     /// The chat has started, so it keeps its agent, account and provider.
     pub locked: bool,
     /// What the list says while the agent's models have not come yet.
@@ -293,6 +295,7 @@ impl Menu {
         let params = RoutesParams {
             agent: self.picked.provider.clone(),
             current: self.picked.model_provider.clone(),
+            project: Some(self.picked.project.clone()),
         };
         cx.spawn(async move |menu, cx| {
             let Ok(routes) = target.request_typed::<call::ModelRoutes>(params).await else {

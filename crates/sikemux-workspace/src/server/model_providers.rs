@@ -11,6 +11,7 @@ pub use sikemux_calls::model_providers::{
     RoutesParams, ServedModels,
 };
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -291,14 +292,16 @@ pub struct OnHand {
 
 /// The connected providers, read from memory with none asked, so a runner on this computer
 /// counts only once the person added it.
-pub fn on_hand(core: &Core) -> Vec<OnHand> {
+pub fn on_hand(core: &Core, cwd: &Path) -> Vec<OnHand> {
     let Some(store) = core.workspaces().providers() else {
         return Vec::new();
     };
     let (saved, feed) = (store.connected(), store.feed());
+    let org = project_org(core, cwd);
     (store.all().into_iter())
-        .filter(|provider| {
-            provider.custom || provider.org.is_some() || saved.contains(&provider.id)
+        .filter(|provider| match &provider.org {
+            Some(owner) => org.as_deref() == Some(owner.id.as_str()),
+            None => provider.custom || saved.contains(&provider.id),
         })
         .map(|provider| {
             let mut checked: Vec<_> = (core.workspaces().model_checks.of(&provider.id))
@@ -346,9 +349,17 @@ pub async fn models(core: &Arc<Core>, params: ProviderParams) -> CoreResult<Serv
 /// that lists none is left out, unless the chat already runs on it.
 pub async fn routes(core: &Arc<Core>, params: RoutesParams) -> CoreResult<Vec<ModelRoute>> {
     let listed = list(core).await?;
+    let org = match &params.project {
+        Some(project) => project_org(core, &core.workspaces().project_path(project)?),
+        None => None,
+    };
     let asking: Vec<_> = listed
         .into_iter()
         .filter(|provider| provider.connected && provider.agents.contains(&params.agent))
+        .filter(|provider| match &provider.org {
+            Some(owner) => org.as_deref() == Some(owner.id.as_str()),
+            None => true,
+        })
         .map(|provider| {
             let core = core.clone();
             tokio::spawn(async move {
@@ -398,6 +409,11 @@ pub async fn routes(core: &Arc<Core>, params: RoutesParams) -> CoreResult<Vec<Mo
         });
     }
     Ok(routes)
+}
+
+/// The org whose keys may run at `path`, if any.
+pub fn project_org(core: &Core, path: &Path) -> Option<String> {
+    (core.workspace_above().project_org)(core, path)
 }
 
 /// Asks the provider whether `model` calls tools the way agents need, now.
