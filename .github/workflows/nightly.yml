@@ -45,6 +45,15 @@ jobs:
             exit 0
           fi
 
+          # GitHub refuses this job's token a tag on a commit whose workflows differ from main's,
+          # so a commit behind a workflow change waits for that change to pass CI.
+          behind_workflows="$(gh api "repos/$GH_REPO/compare/$newest...main" \
+            --jq '[.files[].filename | select(startswith(".github/workflows/"))] | join(", ")')"
+          if [[ -n "$behind_workflows" ]]; then
+            echo "Waiting for CI on main's change to $behind_workflows; $newest can't be tagged" >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           last_tag="$(gh release list --limit 30 --json tagName --jq '[.[].tagName | select(test("^v.*-nightly\\."))][0] // empty')"
           last=""
           [[ -n "$last_tag" ]] && last="$(gh api "repos/$GH_REPO/commits/$last_tag" --jq .sha)"
