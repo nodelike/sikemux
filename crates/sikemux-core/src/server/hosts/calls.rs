@@ -183,7 +183,7 @@ async fn dispatch(
         Hire::METHOD => answered(route::hire_here(core, host, read::<Hire>(params)?)),
         Forget::METHOD => answered(route::forget_here(core, host, read::<Forget>(params)?)),
         "deliver" => route::deliver_here(core, host, params).await,
-        Read::METHOD => route::read_here(core, host, read::<Read>(params)?).await,
+        Read::METHOD => route::read_here(core, read::<Read>(params)?).await,
         Close::METHOD => answered(route::close_here(core, host, read::<Close>(params)?)),
         Permit::METHOD => answered(route::permit_here(core, host, read::<Permit>(params)?)),
         Act::METHOD => answered(route::act_here(core, read::<Act>(params)?).await),

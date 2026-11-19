@@ -359,6 +359,54 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
         .expect("prompt the lead");
     said.until_said("second-task").await;
 
+    let (mate_app, mate_events) = CoreClient::connect(&lead_core.socket)
+        .await
+        .expect("another app");
+    let (mate, _) = mate_app
+        .start_chat("omp:fake".into(), "widget".into(), None)
+        .await
+        .expect("another agent here starts");
+    let mut mate_said = Chat::new(mate_events, &mate);
+    mate_said.wait = WAIT;
+    mate_said.attached(&mate_app.acp_attach(mate.clone()).await.expect("attach"));
+    let read = json!({ "agent": format!("{worker_name} on studio") });
+    mate_app
+        .ask(ask::AcpPrompt {
+            agent_id: mate.clone(),
+            message_id: None,
+            text: format!("tool agent.read {read}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("prompt the other agent");
+    let read = mate_said.until_said("tool answered").await;
+    assert!(
+        read.contains("second-task"),
+        "an agent outside the worker's team could not read it on the person's own host: {read}"
+    );
+    let send = json!({ "to": format!("{worker_name} on studio"), "text": "run echo third-task" });
+    mate_app
+        .ask(ask::AcpPrompt {
+            agent_id: mate.clone(),
+            message_id: None,
+            text: format!("tool agent.send {send}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("prompt the other agent");
+    let sent = mate_said.until_said("tool answered").await;
+    assert!(
+        !sent.contains("not one of a team"),
+        "the worker's host refused a message from the person's own host: {sent}"
+    );
+    said.until_said("third-task").await;
+    lead_app
+        .call("closeAgents", json!({ "agentIds": [mate] }))
+        .await
+        .expect("the person closes the other agent");
+
     let inbox = lead_app.call("inbox", Value::Null).await.expect("inbox");
     let worker = inbox["remoteAgents"][0]["agentId"]
         .as_str()

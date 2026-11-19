@@ -726,9 +726,6 @@ pub(super) async fn deliver_here(
         && core.hosts().team.on(host).iter().any(|foreign| {
             foreign.role == Role::Worker && foreign.parent.as_deref() == Some(carried.to.as_str())
         });
-    if !teammate && !answer_copy {
-        return Err("that agent is not one of a team this host shares with yours".into());
-    }
     let landed = if carried.kind == MessageKind::Report {
         let mut landed = None;
         core.hosts()
@@ -738,7 +735,7 @@ pub(super) async fn deliver_here(
     } else {
         None
     };
-    let host = teammate.then(|| name_of(core, host));
+    let host = (teammate || !answer_copy).then(|| name_of(core, host));
     messages::from_host(core, host.as_deref(), carried, landed).await
 }
 
@@ -789,21 +786,8 @@ pub(super) struct ReadParams {
     cursor: Option<String>,
 }
 
-pub(super) async fn read_here(
-    core: &Arc<Core>,
-    host: &str,
-    params: ReadParams,
-) -> Result<Value, String> {
-    if core
-        .hosts()
-        .team
-        .get(&params.caller)
-        .is_none_or(|foreign| foreign.host != host)
-    {
-        return Err(
-            "only an agent of a team this host shares with yours may read its agents".into(),
-        );
-    }
+/// What an agent on one of the person's own linked hosts reads of an agent here.
+pub(super) async fn read_here(core: &Arc<Core>, params: ReadParams) -> Result<Value, String> {
     follow::read_here(core, params.agent_id, params.cursor).await
 }
 

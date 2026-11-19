@@ -1392,7 +1392,7 @@ async fn carry(
 }
 
 /// A letter a linked host carried here for one of this host's agents, sent
-/// by an agent of a team the two hosts share, on `host`, or the person's
+/// by an agent on `host`, or the person's
 /// answer to a question that went to a lead here first. `landed` names the
 /// branch the sender's latest commits came back on, for its report to say.
 pub(crate) async fn from_host(
