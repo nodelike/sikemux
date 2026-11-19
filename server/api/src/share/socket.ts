@@ -10,7 +10,7 @@ import { ShareCloseCode } from "@sikemux/protocol";
 import { sql } from "kysely";
 import type { WebSocket } from "ws";
 
-import { checkStanding, type Identity } from "../auth.ts";
+import { checkStanding, isSession, type Identity } from "../auth.ts";
 import { shareMessage, shareViewerMessage } from "../devices/signature.ts";
 import { hostAccounts } from "../devices/standing.ts";
 import {
@@ -244,7 +244,11 @@ export class ShareSocket
           return;
         case "auth":
           if (!this.userId) break;
-          this.reauthenticate(message.token, this.userId, () => !this.key);
+          this.reauthenticate(
+            message.token,
+            this.userId,
+            (identity) => !this.key && isSession(identity),
+          );
           return;
       }
     }
@@ -328,8 +332,8 @@ export class ShareSocket
   }
 
   /**
-   * Who a viewer is: a phone or the web app by its token, a Mac by its host's key, or nobody
-   * signed in, with an empty account, when it sends neither.
+   * Who a viewer is: a phone or the web app by its session token, a Mac by its host's key, or
+   * nobody signed in, with an empty account, when it sends neither.
    */
   private async viewer(
     hello: ShareHello,
@@ -337,6 +341,8 @@ export class ShareSocket
     const { db, verifier } = this.context;
     if (hello.token) {
       const identity = await verifier.verify(hello.token);
+      if (!isSession(identity))
+        throw new HelloRefused("a viewer signs in with a session token");
       await checkStanding(db, identity);
       return { userId: identity.userId, key: "", identity };
     }
