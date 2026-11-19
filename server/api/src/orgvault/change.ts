@@ -332,11 +332,12 @@ async function unmoved(
       .where("id", "in", ids)
       .execute(),
   ]);
-  const now = new Map(
-    [...ended, ...held].map((entry) => [entry.id, entry.revision]),
-  );
+  const now = new Map(held.map((entry) => [entry.id, entry.revision]));
+  const gone = new Set(ended.map((entry) => entry.id));
   const moved = read.find(
-    (entry) => (now.get(entry.id) ?? 0) !== entry.revision,
+    (entry) =>
+      (now.get(entry.id) ?? 0) !== entry.revision ||
+      (!now.has(entry.id) && gone.has(entry.id)),
   );
   if (moved)
     throw conflict(
