@@ -1053,9 +1053,8 @@ fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
                     .child(t!("Undo"))
                     .clicks(move |_, _, cx| {
                         let rule = rule.clone();
-                        let _ = bench.update(cx, |bench, cx| {
-                            crate::playbook::undo_rule(bench, &rule.project, rule.id, cx)
-                        });
+                        let _ = bench
+                            .update(cx, |bench, cx| crate::playbook::undo_rule(bench, &rule, cx));
                     }),
             )
         })

@@ -89,6 +89,7 @@ pub(crate) fn show_on(core: &Core, agent: &str, feed: &Arc<Feed>) {
                 lines.push(KeptRule {
                     id: removed.id,
                     project: removed.project.clone(),
+                    words: String::new(),
                     undone: true,
                     org: None,
                     waiting: false,

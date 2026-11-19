@@ -1933,6 +1933,10 @@ pub struct OverruledDecision {
 pub struct KeptRule {
     pub id: u64,
     pub project: String,
+    /// The rule's words on one line, which Undo sends so it never removes another entry that
+    /// has come to have the number.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub words: String,
     /// The person removed the rule again, from the line's Undo or the Playbook.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub undone: bool,

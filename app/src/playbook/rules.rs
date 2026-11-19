@@ -7,7 +7,7 @@ use gpui_kit::{
 };
 use sikemux_calls::call;
 use sikemux_calls::memory::{MemoryAddParams, MemoryParams, MemoryUpdateParams, NewMemory};
-use sikemux_view::chat::RuleChange;
+use sikemux_view::chat::{KeptRule, RuleChange};
 use sikemux_view::memory::{MoveOffer, Store};
 use sikemux_view::playbook::{Entry, Playbook};
 
@@ -606,10 +606,11 @@ fn retire(bench: &mut Workbench, folder: &str, id: u64, cx: &mut Context<Workben
 }
 
 /// Retires the rule a chat line says it kept, under whatever number it has now.
-pub(crate) fn undo_kept(bench: &mut Workbench, folder: &str, id: u64, cx: &mut Context<Workbench>) {
+pub(crate) fn undo_kept(bench: &mut Workbench, rule: &KeptRule, cx: &mut Context<Workbench>) {
     let kept = MemoryUpdateParams {
         kept: true,
-        ..update(folder, id)
+        words: Some(rule.words.clone()),
+        ..update(&rule.project, rule.id)
     };
     retire_as(bench, kept, cx);
 }

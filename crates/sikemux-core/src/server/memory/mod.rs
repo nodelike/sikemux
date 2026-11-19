@@ -1297,10 +1297,11 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 )?;
                 let note = format!("Kept as #{id}, as the person's rule.");
                 let note = json!(with_check_asked(note, &said, &[]));
-                if say_kept(&core, &agent, &project, id) {
+                let words = crate::text::one_line(&said);
+                if say_kept(&core, &agent, &project, id, &words) {
                     return Ok(json!({ "note": note }));
                 }
-                return Ok(json!({ "note": note, KEPT_ELSEWHERE: id }));
+                return Ok(json!({ "note": note, KEPT_ELSEWHERE: { "id": id, "words": words } }));
             }
             ToolAdd::Rule {
                 text,
@@ -1423,11 +1424,15 @@ impl Drop for SaidElsewhere<'_> {
 /// Says in `agent`'s chat on this host that the rule its home kept from the person's words is
 /// kept, when the home's `answer` names one.
 pub(crate) fn kept_at_home(core: &Core, agent: &str, project: &str, answer: &mut Value) {
-    let kept = (answer.as_object_mut())
-        .and_then(|answer| answer.remove(KEPT_ELSEWHERE))
-        .and_then(|id| id.as_u64());
-    if let Some(id) = kept {
-        say_kept(core, agent, project, id);
+    let Some(kept) = (answer.as_object_mut()).and_then(|answer| answer.remove(KEPT_ELSEWHERE))
+    else {
+        return;
+    };
+    if let (Some(id), Some(words)) = (
+        kept.get("id").and_then(Value::as_u64),
+        kept.get("words").and_then(Value::as_str),
+    ) {
+        say_kept(core, agent, project, id, words);
     }
 }
 
@@ -1435,7 +1440,7 @@ const KEPT_ELSEWHERE: &str = "keptForChat";
 
 /// The line in the agent's chat that says rule `id` was kept from the person's words; answers
 /// whether the chat is on this host.
-fn say_kept(core: &Core, agent: &str, project: &str, id: u64) -> bool {
+fn say_kept(core: &Core, agent: &str, project: &str, id: u64, words: &str) -> bool {
     let Some(chat) = core.chats().get(agent) else {
         return false;
     };
@@ -1446,6 +1451,7 @@ fn say_kept(core: &Core, agent: &str, project: &str, id: u64) -> bool {
     let rule = sikemux_view::chat::KeptRule {
         id,
         project: project.to_owned(),
+        words: words.to_owned(),
         undone: false,
         org,
         waiting,
