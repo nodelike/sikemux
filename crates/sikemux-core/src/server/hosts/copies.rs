@@ -241,6 +241,17 @@ impl Copies {
     /// the project's home, which keeps its record.
     pub(crate) fn home_of(&self, core: &Core, project: &ProjectInfo) -> Option<ChiefHome> {
         let identity = project.identity.as_deref()?;
+        self.home_by(core, project, &[identity])
+    }
+
+    /// The project's home as `home_of` finds it, with a linked host's copy known by any of
+    /// `identities` counted as the same repository.
+    pub(crate) fn home_by(
+        &self,
+        core: &Core,
+        project: &ProjectInfo,
+        identities: &[&str],
+    ) -> Option<ChiefHome> {
         if self.heard.locked().is_empty() {
             return None;
         }
@@ -254,8 +265,9 @@ impl Copies {
         let heard = self.heard.locked();
         let mut home = None;
         for link in &links {
-            let held = (heard.get(&link.id).into_iter().flatten())
-                .find(|held| held.identity.as_deref() == Some(identity));
+            let held = (heard.get(&link.id).into_iter().flatten()).find(|held| {
+                (held.identity.as_deref()).is_some_and(|known| identities.contains(&known))
+            });
             let Some((held, chief)) = held.and_then(|held| Some((held, held.chief.as_ref()?)))
             else {
                 continue;
@@ -310,6 +322,7 @@ fn held_here(core: &Core) -> Vec<Held> {
 /// Tells each linked host in reach this host's projects, when they changed since it was last
 /// told.
 pub(crate) fn share(core: &Arc<Core>) {
+    crate::server::shares::takeover_moved(core);
     let reached: Vec<String> = core
         .hosts()
         .state
@@ -367,6 +380,7 @@ pub(super) fn heard(core: &Core, host: &str, params: HeldParams) -> Answer {
     if changed {
         super::rehome::follow(core, host);
         stand_down(core);
+        crate::server::shares::takeover_moved(core);
         core.changed(What::View);
     }
     if let Some(core) = core.arc() {
