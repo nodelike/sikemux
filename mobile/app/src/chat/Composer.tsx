@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
 import { unknownCommand } from '@shared/chat/composerInput';
-import { currentLabel, useAgents } from '@/chat/sessionConfig';
+import { currentLabel, useAgents, useRecentModels } from '@/chat/sessionConfig';
 import { ModelChip } from '@/chat/ModelChip';
 import type { ChatRows } from '@shared/chat/rows';
 import type { ChatCommandInfo, ChatFailure, ExpiredCache, PermissionAsk } from '@shared/wire.generated';
@@ -164,6 +164,7 @@ export const Composer = memo(function Composer({
   };
   const effortLabel = currentLabel(effort);
   const agents = useAgents(core);
+  const recentModels = useRecentModels(core, provider);
   const pulls = !draft && onRecent !== undefined;
   const pullUp = useMemo(
     () =>
@@ -393,6 +394,7 @@ export const Composer = memo(function Composer({
           session.setConfig(picker.id, value);
           if (picker.id === model?.id) setSheet(false);
         }}
+        recent={recentModels}
       />
     </SafeAreaView>
   );

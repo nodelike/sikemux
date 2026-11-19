@@ -15,6 +15,7 @@ import {
   quoted,
   ruleChange,
   STANDS_AGAIN,
+  STILL_KEPT,
   UNDO,
   weekCame,
   weekCount,
@@ -130,7 +131,11 @@ export function OverruledLine({ overruled }: { overruled: OverruledDecision }) {
   const t = useT();
   const acts = useContext(ActsContext);
   const { send, sending, refused } = useDecisionCall('undoOverrule', overruled);
-  const why = overruled.undone ? t(STANDS_AGAIN) : overruled.rule !== undefined ? t(FROM_NOW_ON) : undefined;
+  const why = overruled.undone
+    ? t(overruled.stillKept ? STILL_KEPT : STANDS_AGAIN)
+    : overruled.rule !== undefined
+      ? t(FROM_NOW_ON)
+      : undefined;
   const offersUndo = acts && !overruled.undone;
   return (
     <DecisionLine

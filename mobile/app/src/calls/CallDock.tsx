@@ -143,11 +143,18 @@ export const CallDock = memo(function CallDock({
             {queue.length > 1 && at >= 0 ? <Text style={styles.place}>{place(at + 1, queue.length, t)}</Text> : null}
           </View>
         </HostContext>
-        <Text style={styles.question}>{headline}</Text>
-        {headline !== call.question ? <Text style={styles.prose}>{call.question}</Text> : null}
+        <Text style={styles.question} selectable>
+          {headline}
+        </Text>
+        {headline !== call.question ? (
+          <Text style={styles.prose} selectable>
+            {call.question}
+          </Text>
+        ) : null}
         {context ? (
           <Text
             style={styles.context}
+            selectable
             numberOfLines={whole || contextOpen ? undefined : 2}
             onPress={whole ? undefined : () => setContextOpen(!contextOpen)}
             accessibilityRole={whole ? undefined : 'button'}
@@ -171,7 +178,7 @@ export const CallDock = memo(function CallDock({
         {(call.evidence ?? [])
           .filter((evidence) => !evidence.picture)
           .map((evidence, index) => (
-            <Text key={index} style={styles.context}>
+            <Text key={index} style={styles.context} selectable>
               {evidence.what}
             </Text>
           ))}
@@ -235,7 +242,7 @@ export const CallDock = memo(function CallDock({
           </View>
         )}
         {call.against ? (
-          <Text style={styles.against}>
+          <Text style={styles.against} selectable>
             <Text style={{ color: colors.tertiary }}>{t(AGAINST_IT)} </Text>
             {call.against}
           </Text>

@@ -174,7 +174,8 @@ private struct NewChatContent: View {
                     onRoute: {
                         routed = $0
                         sheet = nil
-                    }
+                    },
+                    recent: launcher.recentModels ?? []
                 )
             }
         }

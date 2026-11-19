@@ -553,6 +553,7 @@ export default function NewChat() {
             setRouted(pick);
             setSheet(undefined);
           }}
+          recent={launcher.recentModels}
         />
       ) : null}
       {launcher ? (

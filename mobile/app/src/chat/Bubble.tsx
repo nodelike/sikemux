@@ -20,8 +20,8 @@ export function TheirBubble({ children }: { children: ReactNode }) {
   return <View style={styles.theirs}>{children}</View>;
 }
 
-/** Who sent a bubble at the left, over it, with when at the line's end. */
-export function From({ who, at, children }: { who: ReactNode; at?: number | null; children: ReactNode }) {
+/** Who sent a bubble at the left, over it, with when at the line's end. Without `children` it is the line alone. */
+export function From({ who, at, children }: { who: ReactNode; at?: number | null; children?: ReactNode }) {
   const styles = useStyles(makeBubbleStyles);
   const t = useT();
   return (
@@ -30,7 +30,7 @@ export function From({ who, at, children }: { who: ReactNode; at?: number | null
         {who}
         {at ? <Text style={styles.fromWhen}>{clockLabel(at, undefined, undefined, t)}</Text> : null}
       </View>
-      <TheirBubble>{children}</TheirBubble>
+      {children === undefined ? null : <TheirBubble>{children}</TheirBubble>}
     </View>
   );
 }

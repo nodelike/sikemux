@@ -30,7 +30,6 @@ import { CallDock } from '@/calls/CallDock';
 import { TurnLine } from '@/calls/TurnLine';
 import { queueOf, useKept, waitingCall } from '@/calls/hostCalls';
 import { TELL_CHIEF, sendToTold } from '@shared/calls/words';
-import { NowCard } from '@/calls/NowCard';
 import { useOnScreen } from '@/calls/onScreen';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
 import { stripOf, stripOwner } from '@/chat/messageMeta';
@@ -252,18 +251,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
       report={session.report}
     />
   ) : null;
-  // A chief's chat carries its project's Now card while anything stands on it or closed lately.
-  const now = state.chief ? live.snapshot?.now?.find((shown) => shown.project === saved?.project) : undefined;
-  const nowCard =
-    now && (now.rows?.length || now.closed?.length) ? (
-      <NowCard
-        now={now}
-        agents={live.snapshot?.workspace.agents}
-        connection={connection}
-        full={access === 'full'}
-        onOpen={(other) => router.push(`/device/${core}/chat/${other}`)}
-      />
-    ) : null;
   const unreachable = chat.attached !== 'live' && live.status === 'closed';
   const status = unreachable ? (
     <View style={styles.missing}>
@@ -466,7 +453,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                 </Pressable>
                               </KeyboardStickyView>
                             ) : null}
-                            {nowCard}
                           </View>
                         </ToolDetailContext>
                       </SubagentsContext>

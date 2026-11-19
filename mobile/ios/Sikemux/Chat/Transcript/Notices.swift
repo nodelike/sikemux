@@ -489,8 +489,8 @@ struct WorktreeLine: View {
     }
 }
 
-/// A trigger's prompt in a bubble at the left under the trigger's name, with the webhook request that fired it folded
-/// beneath.
+/// A trigger that came due, folded to a line with its name, which opens onto its prompt in a bubble at the left and the
+/// webhook request that fired it.
 struct FiredTrigger: View {
     @Environment(\.palette) private var palette
     @Environment(\.displayScale) private var scale
@@ -500,16 +500,29 @@ struct FiredTrigger: View {
     var at: Int?
 
     var body: some View {
+        let shown = context.folds.isOpen("\(id)/fired", false)
         let open = context.folds.isOpen("\(id)/request", false)
         VStack(alignment: .leading, spacing: 0) {
-            From(at: at) {
-                IconView(icon: Icons.timer, size: 13).foregroundStyle(palette.cmd)
-                Text(fired.title).font(Theme.ui(12.5, .semibold)).foregroundStyle(palette.ink).lineLimit(1)
+            From(at: at, bubbled: shown) {
+                Button {
+                    context.folds.set("\(id)/fired", !shown)
+                } label: {
+                    HStack(spacing: 6) {
+                        IconView(icon: Icons.chevron, size: 10).foregroundStyle(palette.inkFaint).rotationEffect(
+                            .degrees(shown ? 90 : 0))
+                        IconView(icon: Icons.timer, size: 13).foregroundStyle(palette.cmd)
+                        Text(fired.title).font(Theme.ui(12.5, .semibold)).foregroundStyle(palette.ink).lineLimit(1)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(fired.title)
+                .accessibilityValue(shown ? "expanded" : "collapsed")
             } content: {
                 Text(fired.prompt).sentWords(palette).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let request = fired.request {
+            if shown, let request = fired.request {
                 Button {
                     context.folds.set("\(id)/request", !open)
                 } label: {

@@ -320,6 +320,7 @@
     "It may be asleep, offline, or have remote access turned off." : {},
     "It shows up here and connects by itself" : {},
     "It stands again" : {},
+    "It stands again, but decisions like this still come to you: remove the rule in the Playbook" : {},
     "It turned down the invitation (%@). Try again." : {},
     "It will be deleted for good on %@." : {},
     "Jump to latest message" : {},

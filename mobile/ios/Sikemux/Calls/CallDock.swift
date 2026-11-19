@@ -41,15 +41,17 @@ struct CallDock: View {
                     .font(Theme.ui(17, .semibold))
                     .tracking(-0.2)
                     .foregroundStyle(palette.ink)
+                    .textSelection(.enabled)
                     .padding(.top, 8)
                 if headline != call.question {
-                    Text(call.question).font(Theme.ui(15)).foregroundStyle(palette.secondary).padding(.top, 4)
+                    Text(call.question).font(Theme.ui(15)).foregroundStyle(palette.secondary).textSelection(.enabled)
+                        .padding(.top, 4)
                 }
                 if let context = CallWords.context(call) {
                     // What a step to production, or anything that can't be undone, rests on is read whole; any
                     // other call's opens on a tap.
                     let whole = call.kind == .production || call.brief?.cannotUndo.isEmpty == false
-                    Text(context).font(Theme.ui(14)).foregroundStyle(palette.tertiary)
+                    Text(context).font(Theme.ui(14)).foregroundStyle(palette.tertiary).textSelection(.enabled)
                         .lineLimit(whole || contextOpen ? nil : 2)
                         .padding(.top, 2)
                         .onTapGesture { if !whole { contextOpen.toggle() } }
@@ -65,7 +67,8 @@ struct CallDock: View {
                     PageCard(page: PageRef(id: page.id, title: page.title))
                 }
                 ForEach(Array((call.evidence ?? []).filter { $0.picture == nil }.enumerated()), id: \.offset) {
-                    Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary).padding(.top, 4)
+                    Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary).textSelection(.enabled)
+                        .padding(.top, 4)
                 }
                 pictures
                 if call.kind != .look { options }
@@ -73,6 +76,7 @@ struct CallDock: View {
                     (Text("\(CallWords.againstIt) ").foregroundStyle(palette.tertiary)
                         + Text(against).foregroundStyle(palette.secondary))
                         .font(Theme.ui(13.5))
+                        .textSelection(.enabled)
                         .padding(.top, 10)
                 }
                 extras

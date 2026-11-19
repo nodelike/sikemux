@@ -338,6 +338,8 @@ enum CallWords {
     static let overruled = String(localized: "Overruled")
     static let overruledUndone = String(localized: "Overruled, then undone")
     static let standsAgain = String(localized: "It stands again")
+    static let stillKept = String(
+        localized: "It stands again, but decisions like this still come to you: remove the rule in the Playbook")
     static let fromNowOn = String(localized: "Decisions like this come to you from now on")
     /// The line the board leaves when it closed a card by itself.
     static let closedByItself = String(localized: "Closed by itself")

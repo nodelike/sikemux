@@ -172,11 +172,13 @@ struct Composer: View {
                 },
                 model: rows.model, effort: rows.effort, speed: rows.speed, usage: rows.usage,
                 unread: rows.modelsUnread, hostName: hostName,
-                expiredCache: session.expiredCache, onSummarise: session.setSummarise
-            ) { picker, value in
-                session.setConfig(picker.id, value)
-                if picker.id == rows.model?.id { configuring = false }
-            }
+                expiredCache: session.expiredCache, onSummarise: session.setSummarise,
+                onPick: { picker, value in
+                    session.setConfig(picker.id, value)
+                    if picker.id == rows.model?.id { configuring = false }
+                },
+                recent: Self.recentModels(core: core, provider: provider)
+            )
         }
     }
 
@@ -357,6 +359,10 @@ struct Composer: View {
         return (Hub.shared.live(core).view?.workspace.launchers ?? []).map(\.provider).filter {
             seen.insert($0).inserted
         }
+    }
+
+    static func recentModels(core: String, provider: String) -> [RecentModel] {
+        Hub.shared.live(core).view?.workspace.launchers.first { $0.provider == provider }?.recentModels ?? []
     }
 
     static func label(_ picker: ConfigPicker?) -> String? {

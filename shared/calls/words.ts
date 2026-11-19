@@ -299,6 +299,8 @@ export const DECIDED = "Decided";
 export const OVERRULED = "Overruled";
 export const OVERRULED_UNDONE = "Overruled, then undone";
 export const STANDS_AGAIN = "It stands again";
+/** Undoing an Overrule could not remove the rule it kept. */
+export const STILL_KEPT = "It stands again, but decisions like this still come to you: remove the rule in the Playbook";
 export const FROM_NOW_ON = "Decisions like this come to you from now on";
 /** The line the board leaves when it closed a card by itself. */
 export const CLOSED_BY_ITSELF = "Closed by itself";
