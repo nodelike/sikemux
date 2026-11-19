@@ -716,6 +716,7 @@ pub(super) fn composer(
             effort: effort.clone(),
             speed: head.and_then(|head| head.speed.clone()).filter(|_| started),
             model_provider: saved.model_provider.clone(),
+            project: saved.project.clone(),
             locked: !fresh,
             pending: match (started, reads_models) {
                 (true, _) => None,
