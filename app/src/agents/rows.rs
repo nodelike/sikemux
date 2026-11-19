@@ -156,6 +156,24 @@ impl Workbench {
         )
     }
 
+    /// Every agent the rail lists on any host this window holds, with its project's name, those
+    /// of `agent`'s own project first: who `agent` can name with an @.
+    pub fn nameable_by(&self, agent: &str) -> Vec<(String, AgentRow)> {
+        let own = self.agent_by_id(agent).map(|row| (row.place, row.project));
+        let holds_own = |folded: &Folded| {
+            (folded.copies.iter())
+                .any(|copy| own.as_ref() == Some(&(copy.place.clone(), copy.project.clone())))
+        };
+        let mut folded = self.folded();
+        folded.sort_by_key(|folded| !holds_own(folded));
+        (folded.into_iter())
+            .flat_map(|folded| {
+                (self.agents_of_folded(&folded).into_iter())
+                    .map(move |row| (folded.name.clone(), row))
+            })
+            .collect()
+    }
+
     /// The rows the agent rail lists: this project's, or every project's.
     pub fn listed_agents(&self) -> Vec<AgentRow> {
         let rows: Vec<AgentRow> = if self.rails.all_projects {

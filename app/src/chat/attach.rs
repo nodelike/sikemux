@@ -1239,14 +1239,8 @@ pub(crate) struct Mention {
 /// The agents a text by `writer` may name, `(name, id)`, its own project's first, so a name two
 /// projects share is the writer's own.
 pub(crate) fn named_agents(bench: &Workbench, writer: &str) -> Vec<(String, String)> {
-    let own = bench.agent_by_id(writer).map(|row| row.project);
-    let mut projects: Vec<&str> = (bench.projects().iter())
-        .map(|project| project.id.as_str())
-        .collect();
-    projects.sort_by_key(|project| Some(*project) != own.as_deref());
-    (projects.into_iter())
-        .flat_map(|project| bench.agents_of(project))
-        .filter_map(|row| Some((row.name?, row.id)))
+    (bench.nameable_by(writer).into_iter())
+        .filter_map(|(_, row)| Some((row.name?, row.id)))
         .collect()
 }
 

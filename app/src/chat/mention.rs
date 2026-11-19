@@ -28,7 +28,6 @@ use sikemux_view::workspace::ProjectInfo;
 use sikemux_wire::protocol::{ChatContext, PermissionMode};
 
 use super::Composing;
-use crate::copies::Folded;
 use crate::drag::DraggedChat;
 use crate::icons::Icon;
 use crate::ui::{self, DockMenu, DockRow, DockScope};
@@ -536,30 +535,17 @@ impl Workbench {
         let agent = (crate::calls::reply::call_of(agent))
             .and_then(|call| self.call_at(call))
             .map_or(agent, |(_, call)| call.asker.agent_id.as_str());
-        let own = self.agent_by_id(agent).map(|row| (row.place, row.project));
-        let holds_own = |folded: &Folded| {
-            (folded.copies.iter())
-                .any(|copy| own.as_ref() == Some(&(copy.place.clone(), copy.project.clone())))
-        };
-        let mut folded = self.folded();
-        folded.sort_by_key(|folded| !holds_own(folded));
-        folded
-            .into_iter()
-            .flat_map(|folded| {
-                self.agents_of_folded(&folded)
-                    .into_iter()
-                    .filter_map(move |row| {
-                        let mate = row.name.clone().filter(|mate| {
-                            row.id != agent && mate.to_lowercase().starts_with(needle)
-                        })?;
-                        Some(Choice::Mate {
-                            id: row.id,
-                            name: mate,
-                            title: row.titled.then_some(row.title),
-                            project: folded.name.clone(),
-                            provider: row.provider,
-                        })
-                    })
+        (self.nameable_by(agent).into_iter())
+            .filter_map(|(project, row)| {
+                let mate = (row.name.clone())
+                    .filter(|mate| row.id != agent && mate.to_lowercase().starts_with(needle))?;
+                Some(Choice::Mate {
+                    id: row.id,
+                    name: mate,
+                    title: row.titled.then_some(row.title),
+                    project,
+                    provider: row.provider,
+                })
             })
             .take(SHOWN)
             .collect()
