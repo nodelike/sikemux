@@ -28,7 +28,7 @@ use sikemux_client::remote::SecretKey;
 use sikemux_core::client::probe;
 use sikemux_core::server::{self, ServerConfig, ServerError};
 use sikemux_wire::accounts::protocol::JoinTicket;
-use sikemux_wire::protocol::RemoteStatus;
+use sikemux_wire::protocol::{ChatContext, RemoteStatus};
 
 const WAIT: Duration = Duration::from_secs(90);
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_sikemux-fake-acp-agent");
@@ -402,6 +402,61 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
         "the worker's host refused a message from the person's own host: {sent}"
     );
     said.until_said("third-task").await;
+
+    let (loner_app, loner_events) = CoreClient::connect(&studio_core.socket)
+        .await
+        .expect("an app on studio");
+    let (loner, _) = loner_app
+        .start_chat("omp:fake".into(), "widget".into(), None)
+        .await
+        .expect("an agent on studio starts on no team");
+    let mut loner_said = Chat::new(loner_events, &loner);
+    loner_said.wait = WAIT;
+    loner_said.attached(&loner_app.acp_attach(loner.clone()).await.expect("attach"));
+    mate_app
+        .ask(ask::AcpPrompt {
+            agent_id: mate.clone(),
+            message_id: None,
+            text: "context".into(),
+            paths: Vec::new(),
+            context: vec![ChatContext {
+                uri: format!("sikemux://agent/{loner}"),
+                title: "@loner".into(),
+                text: String::new(),
+            }],
+        })
+        .await
+        .expect("the person mentions the agent on studio");
+    let note = mate_said.until_said(&format!("Agent id: {loner}")).await;
+    assert!(note.contains("on studio"), "{note}");
+    let send = json!({ "to": loner, "text": "run echo fourth-task" });
+    mate_app
+        .ask(ask::AcpPrompt {
+            agent_id: mate.clone(),
+            message_id: None,
+            text: format!("tool agent.send {send}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("prompt the other agent");
+    loner_said.until_said("fourth-task").await;
+    let reply = json!({ "to": mate, "text": "run echo fifth-task" });
+    loner_app
+        .ask(ask::AcpPrompt {
+            agent_id: loner.clone(),
+            message_id: None,
+            text: format!("tool agent.send {reply}"),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("prompt the agent on studio");
+    mate_said.until_said("fifth-task").await;
+    loner_app
+        .call("closeAgents", json!({ "agentIds": [loner] }))
+        .await
+        .expect("the person closes the agent on studio");
     lead_app
         .call("closeAgents", json!({ "agentIds": [mate] }))
         .await

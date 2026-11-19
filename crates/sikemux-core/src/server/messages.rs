@@ -1107,6 +1107,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             .collect();
         return Ok(send_each(core, request, named).await);
     }
+    super::hosts::peers::find(core, &to).await;
     let found = {
         let (core, request, answers) = (core.clone(), request.clone(), answers.clone());
         blocking(move || {

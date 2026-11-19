@@ -190,15 +190,23 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
             agent_id: foreign.agent_id,
         }
     }));
+    let peers = core.hosts().peers.all().into_iter();
+    agents.extend(peers.filter(|peer| core.hosts().team.get(&peer.agent_id).is_none()));
     agents
 }
 
 /// The host an agent on a linked host runs on, as this host calls it.
-fn host_of(core: &Core, agent: &Listed) -> Option<String> {
-    (agent.reach == Reach::Remote)
-        .then(|| core.hosts().team.get(&agent.agent_id))
-        .flatten()
-        .map(|foreign| super::hosts::name_of(core, &foreign.host))
+pub(crate) fn host_of(core: &Core, agent: &Listed) -> Option<String> {
+    if agent.reach != Reach::Remote {
+        return None;
+    }
+    let host = (core
+        .hosts()
+        .team
+        .get(&agent.agent_id)
+        .map(|foreign| foreign.host))
+    .or_else(|| core.hosts().peers.host(&agent.agent_id))?;
+    Some(super::hosts::name_of(core, &host))
 }
 
 fn since(at: Option<u64>, now: u64) -> Option<String> {

@@ -21,6 +21,7 @@ mod listed;
 mod machine;
 pub mod open;
 mod outbox;
+pub(crate) mod peers;
 pub(crate) mod probe;
 mod receipts;
 pub(crate) mod record;
@@ -139,6 +140,8 @@ pub(crate) struct Hosts {
     pub(crate) outbox: outbox::Outbox,
     receipts: receipts::Receipts,
     pub(crate) team: team::Team,
+    /// Agents on the other hosts that are on no team here, heard of while this core runs.
+    pub(crate) peers: peers::Peers,
     /// What the other hosts hold of the account's projects.
     pub(crate) copies: copies::Copies,
     /// How big each linked host is, by its key.
@@ -177,6 +180,7 @@ impl Hosts {
             outbox: outbox::Outbox::new(data_dir),
             receipts: receipts::Receipts::new(data_dir),
             team: team::Team::new(data_dir),
+            peers: peers::Peers::default(),
             copies: copies::Copies::new(data_dir),
             machines: machine::Machines::default(),
             wake: Wake::default(),

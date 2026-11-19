@@ -155,8 +155,10 @@ pub struct ChatAbove {
     pub ship_held: ShipHeldFor,
     /// Finds a saved session by its id, of this CLI when given.
     pub locate_saved: fn(&Core, &str, Option<&str>) -> Result<Saved, String>,
-    /// The note for a teammate on a linked host.
+    /// The note for an agent on a linked host.
     pub note_elsewhere: fn(&Core, &str) -> Option<String>,
+    /// Asks the linked hosts for an agent by id, name or `Name on host`, when none here goes by it.
+    pub find_elsewhere: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, ()>,
     /// The calls open to the person in the chat's project, what the chat waits on, and where
     /// each of its workers stands.
     pub open_work: fn(&Core, &str) -> Vec<String>,

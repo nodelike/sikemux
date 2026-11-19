@@ -692,6 +692,7 @@ pub(crate) async fn read(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             return super::peer::ask(core, &project, &task, question.clone(), name, cli).await;
         }
     }
+    super::hosts::peers::find(core, &agent).await;
     let target = {
         let (core, request, caller) = (core.clone(), request.clone(), caller.clone());
         blocking(move || {

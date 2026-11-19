@@ -16,19 +16,38 @@ use sikemux_view::chat::{AGENT_URI, EARLIER_URI, WOKEN_URI};
 use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::{ChatContext, ChatState};
 
-/// Whether `context` names an earlier chat to open again before the message goes.
-pub fn wakes(context: &[ChatContext]) -> bool {
-    context
-        .iter()
-        .any(|item| item.text.is_empty() && item.uri.starts_with(EARLIER_URI))
+/// Whether `context` names an earlier chat to open again, or an agent to find on a linked host,
+/// before the message goes.
+pub fn wakes(core: &Core, context: &[ChatContext]) -> bool {
+    context.iter().any(|item| {
+        item.text.is_empty()
+            && (item.uri.starts_with(EARLIER_URI)
+                || item
+                    .uri
+                    .strip_prefix(AGENT_URI)
+                    .is_some_and(|id| !known(core, id)))
+    })
+}
+
+fn known(core: &Core, id: &str) -> bool {
+    core.workspaces().agent(id).is_some() || (core.chat_above().note_elsewhere)(core, id).is_some()
 }
 
 /// Opens again each earlier chat `context` names for the message `caller` is
 /// about to get, and writes what the message tells it about the agent now
-/// running it. A chat that cannot be opened again fails the message.
+/// running it. A chat that cannot be opened again fails the message. An agent
+/// named that this host doesn't know is asked for on the linked hosts.
 pub async fn wake(core: &Arc<Core>, caller: &str, context: &mut [ChatContext]) -> CoreResult<()> {
     for item in context.iter_mut() {
         if !item.text.is_empty() {
+            continue;
+        }
+        if let Some(id) = item
+            .uri
+            .strip_prefix(AGENT_URI)
+            .filter(|id| !known(core, id))
+        {
+            (core.chat_above().find_elsewhere)(core, id).await;
             continue;
         }
         let Some((cli, session)) = item
