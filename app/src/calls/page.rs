@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::chat::composer::{self, Act};
+use crate::ui::selectable;
 use crate::ui::Clicks;
 use gpui_kit::MouseButton;
 use gpui_kit::StatefulInteractiveElement;
@@ -254,13 +255,16 @@ fn body(
         .children(changes(call, &t))
         .child(div().ml_auto().child(open_chat));
     let who = who(call, through, Some(tail.into_any_element()), cx);
-    let prose = |text: String| {
+    let prose = |part: &str, text: String| {
         div()
             .max_w(px(PROSE))
             .text_size(theme::ui_text(13.5))
             .line_height(relative(1.6))
             .text_color(t.text_secondary)
-            .child(text)
+            .child(selectable::plain(
+                SharedString::from(format!("call-page-{part}-{}", call.id)),
+                text,
+            ))
     };
     let mut lines = (call.question.lines().map(str::trim)).filter(|line| !line.is_empty());
     let formed = matches!(call.kind, CallKind::Do | CallKind::Look);
@@ -274,9 +278,13 @@ fn body(
         .font_weight(FontWeight::SEMIBOLD)
         .line_height(relative(1.3))
         .text_color(t.text_primary)
-        .child(headline);
+        .child(selectable::plain(
+            SharedString::from(format!("call-page-question-{}", call.id)),
+            headline,
+        ));
     let more: Vec<gpui_kit::Div> = lines
-        .map(|line| prose(line.to_owned()).mt(px(10.)))
+        .enumerate()
+        .map(|(ix, line)| prose(&format!("line-{ix}"), line.to_owned()).mt(px(10.)))
         .collect();
     let link = (call.link.as_ref())
         .map(|link| div().mt(px(16.)).child(link_tile(call, link, through, &t)));
@@ -303,11 +311,16 @@ fn body(
         .flatten()
         .map(|action| runs(call, action, &t));
     let go = go_row(call, (&chosen, noted), sending, next, through);
-    let why: Vec<gpui_kit::Div> = (context_words(call).into_iter().map(prose))
+    let context = context_words(call).map(|words| prose("context", words));
+    let why: Vec<gpui_kit::Div> = (context.into_iter())
         .chain(
             (call.evidence.iter())
-                .filter(|evidence| evidence.picture.is_none())
-                .map(|evidence| prose(evidence.what.clone()).text_color(t.text_tertiary)),
+                .enumerate()
+                .filter(|(_, evidence)| evidence.picture.is_none())
+                .map(|(ix, evidence)| {
+                    prose(&format!("evidence-{ix}"), evidence.what.clone())
+                        .text_color(t.text_tertiary)
+                }),
         )
         .collect();
     let why = (!why.is_empty()).then(|| {
@@ -457,7 +470,10 @@ fn tile(
                 .text_size(theme::ui_text(13.5))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(t.text_primary)
-                .child(option.label.clone()),
+                .child(selectable::plain(
+                    SharedString::from(format!("call-option-label-{}-{ix}", call.id)),
+                    option.label.clone(),
+                )),
         )
         .children((picked && !pictured).then(|| pick_mark(t)));
     let detail = option.detail.clone().map(|detail| {
@@ -466,7 +482,10 @@ fn tile(
             .text_size(theme::ui_text(12.5))
             .line_height(relative(1.5))
             .text_color(t.text_tertiary)
-            .child(detail)
+            .child(selectable::plain(
+                SharedString::from(format!("call-option-detail-{}-{ix}", call.id)),
+                detail,
+            ))
     });
     let (cards, held, id) = (cards.clone(), call.clone(), option.id.clone());
     let hover = t.surface_hover;
@@ -484,7 +503,10 @@ fn tile(
             false => (tile.bg(t.surface_composer).border_color(t.border))
                 .hover(move |style| style.bg(hover)),
         })
-        .on_click(move |_, _, cx| {
+        .on_click(move |click, window, cx| {
+            if selectable::selected_by(click, window, cx) {
+                return;
+            }
             cards.update(cx, |cards, cx| cards.choose(&held, &id, cx));
         })
         .children(preview)
@@ -585,10 +607,9 @@ fn runs(call: &PersonCall, action: &str, t: &Tokens) -> gpui_kit::Div {
                 .text_size(theme::ui_text(12.))
                 .line_height(relative(1.55))
                 .text_color(t.text_secondary)
-                .child(crate::ui::selectable::selectable(
+                .child(selectable::plain(
                     SharedString::from(format!("call-page-action-{}", call.id)),
                     action.to_owned(),
-                    std::iter::empty(),
                 )),
         )
 }

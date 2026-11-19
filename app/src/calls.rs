@@ -27,7 +27,7 @@ use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::picture::Picture;
 use crate::theme::{self, radius_2, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2};
-use crate::ui::{self, Button, Variant};
+use crate::ui::{self, selectable, Button, Variant};
 use crate::workbench::Workbench;
 
 mod page;
@@ -609,19 +609,28 @@ fn card(
         .font_weight(FontWeight::SEMIBOLD)
         .line_height(relative(1.35))
         .text_color(t.text_primary)
-        .child(call.question.clone());
-    let context = context_words(call);
+        .child(selectable::plain(
+            SharedString::from(format!("call-question-{}", call.id)),
+            call.question.clone(),
+        ));
     let page = linked_page(call, through, cx).map(|page| div().mt(SPACE_3_PX).child(page));
-    let prose = |text: String| {
+    let prose = |part: &str, text: String| {
         div()
             .text_size(theme::ui_text(12.5))
             .line_height(relative(1.5))
             .text_color(t.text_secondary)
-            .child(text)
+            .child(selectable::plain(
+                SharedString::from(format!("call-{part}-{}", call.id)),
+                text,
+            ))
     };
+    let context = context_words(call).map(|words| prose("context", words));
     let evidence_lines = (call.evidence.iter())
-        .filter(|evidence| evidence.picture.is_none())
-        .map(|evidence| prose(evidence.what.clone()).text_color(t.text_tertiary));
+        .enumerate()
+        .filter(|(_, evidence)| evidence.picture.is_none())
+        .map(|(ix, evidence)| {
+            prose(&format!("evidence-{ix}"), evidence.what.clone()).text_color(t.text_tertiary)
+        });
     let options_pictured =
         !call.secret && call.options.iter().any(|option| option.picture.is_some());
     let pictures = match options_pictured {
@@ -722,7 +731,7 @@ fn card(
         .flex_col()
         .child(who)
         .child(question)
-        .children(context.map(prose))
+        .children(context)
         .children(page)
         .children(evidence_lines)
         .map(|card| match pictures {
@@ -822,13 +831,19 @@ fn option_row(
         .min_w_0()
         .flex()
         .flex_col()
-        .child(div().child(option.label.clone()))
+        .child(div().child(selectable::plain(
+            SharedString::from(format!("call-label-{}-{}", call.id, option.id)),
+            option.label.clone(),
+        )))
         .children(option.detail.clone().map(|detail| {
             div()
                 .text_size(theme::ui_text(11.5))
                 .line_height(relative(1.4))
                 .text_color(t.text_tertiary)
-                .child(detail)
+                .child(selectable::plain(
+                    SharedString::from(format!("call-detail-{}-{}", call.id, option.id)),
+                    detail,
+                ))
         }));
     let (cards, call) = (cards.clone(), call.clone());
     let option = option.id.clone();
@@ -848,8 +863,11 @@ fn option_row(
             true => row.bg(t.surface_chosen),
             false => row.hover(move |style| style.bg(hover)),
         })
-        .on_click(move |_, _, cx| {
+        .on_click(move |click, window, cx| {
             cx.stop_propagation();
+            if selectable::selected_by(click, window, cx) {
+                return;
+            }
             cards.update(cx, |cards, cx| cards.choose(&call, &option, cx));
         })
         .child(key)
@@ -929,15 +947,17 @@ fn against_line(call: &PersonCall, t: &Tokens) -> Option<gpui_kit::Div> {
             .text_size(theme::ui_text(12.5))
             .line_height(relative(1.5))
             .text_color(t.text_secondary)
-            .child(
-                gpui_kit::StyledText::new(format!("{lead} {against}")).with_highlights([(
+            .child(selectable::selectable(
+                SharedString::from(format!("call-against-{}", call.id)),
+                format!("{lead} {against}"),
+                [(
                     0..lead.len(),
                     gpui_kit::HighlightStyle {
                         color: Some(t.text_tertiary),
                         ..Default::default()
                     },
-                )]),
-            )
+                )],
+            ))
     })
 }
 
@@ -1015,10 +1035,9 @@ fn what_runs(
             .text_size(theme::ui_text(12.))
             .line_height(relative(1.5))
             .text_color(t.text_secondary)
-            .child(crate::ui::selectable::selectable(
+            .child(selectable::plain(
                 SharedString::from(format!("call-action-{}", call.id)),
                 action.to_owned(),
-                std::iter::empty(),
             ))
     });
     div().mt(SPACE_2).child(row).children(command)
