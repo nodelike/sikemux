@@ -34685,54 +34685,54 @@
         }
       }
     },
-    "Every device and host on your account stops reaching it at once. To add it again, sign it in again.": {
+    "Every device and host on your account stops reaching it at once. Your account is signed out everywhere else too, phones included. To add it again, sign it in again.": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tous les appareils et hôtes de votre compte cessent aussitôt de l'atteindre. Pour l'ajouter à nouveau, reconnectez-le."
+            "value": "Tous les appareils et hôtes de votre compte cessent aussitôt de l'atteindre. Votre compte est aussi déconnecté partout ailleurs, téléphones compris. Pour l'ajouter à nouveau, reconnectez-le."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Todos los dispositivos y hosts de tu cuenta dejan de acceder a él al instante. Para volver a añadirlo, inicia sesión de nuevo en él."
+            "value": "Todos los dispositivos y hosts de tu cuenta dejan de acceder a él al instante. También se cierra la sesión de tu cuenta en todos los demás sitios, teléfonos incluidos. Para volver a añadirlo, inicia sesión de nuevo en él."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jedes Gerät und jeder Host auf deinem Account erreicht es sofort nicht mehr. Um es wieder hinzuzufügen, melde es erneut an."
+            "value": "Jedes Gerät und jeder Host auf deinem Account erreicht es sofort nicht mehr. Dein Account wird auch überall sonst abgemeldet, Handys eingeschlossen. Um es wieder hinzuzufügen, melde es erneut an."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你账户上的每台设备和主机都会立即无法访问它。要再次添加，请重新登录。"
+            "value": "你账户上的每台设备和主机都会立即无法访问它。你的账户在其他所有地方也会退出登录，包括手机。要再次添加，请重新登录。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アカウント上のすべてのデバイスとホストがすぐに接続できなくなります。再度追加するには、もう一度サインインしてください。"
+            "value": "アカウント上のすべてのデバイスとホストがすぐに接続できなくなります。ほかの場所でも、スマートフォンを含めてアカウントからサインアウトされます。再度追加するには、もう一度サインインしてください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "계정의 모든 기기와 호스트가 즉시 접근할 수 없게 됩니다. 다시 추가하려면 다시 로그인하세요."
+            "value": "계정의 모든 기기와 호스트가 즉시 접근할 수 없게 됩니다. 휴대폰을 포함해 다른 모든 곳에서도 계정이 로그아웃됩니다. 다시 추가하려면 다시 로그인하세요."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Все устройства и хосты в вашей учётной записи сразу теряют к нему доступ. Чтобы добавить его снова, войдите в нём заново."
+            "value": "Все устройства и хосты в вашей учётной записи сразу теряют к нему доступ. Во всех остальных местах, включая телефоны, тоже выполняется выход из учётной записи. Чтобы добавить его снова, войдите в нём заново."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Todos os dispositivos e hosts da sua conta deixam de acessá-lo imediatamente. Para adicioná-lo de novo, faça login nele novamente."
+            "value": "Todos os dispositivos e hosts da sua conta deixam de acessá-lo imediatamente. Sua conta também é desconectada em todos os outros lugares, inclusive nos celulares. Para adicioná-lo de novo, faça login nele novamente."
           }
         }
       }

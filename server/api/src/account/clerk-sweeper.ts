@@ -3,6 +3,7 @@ import { sql, type Kysely } from "kysely";
 import type { Tables } from "../db.ts";
 import type { Logger } from "../log.ts";
 import type { ClerkBackend } from "./clerk.ts";
+import { dueSignOuts, endSignOut } from "../devices/sign-outs.ts";
 import { deleteInClerk, revokeRemovedSession } from "./deletion.ts";
 import { retryEndedSessions } from "./sign-ins.ts";
 
@@ -36,6 +37,9 @@ export async function sweepClerk(
     .execute();
   for (const { key } of sessions)
     await revokeRemovedSession(db, clerk, log, key);
+
+  for (const id of await dueSignOuts(db, BATCH))
+    await endSignOut(db, clerk, log, id);
 
   await retryEndedSessions(db, clerk, proofKey, log, BATCH);
 }

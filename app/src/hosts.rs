@@ -782,7 +782,7 @@ impl Workbench {
         let key = host.to_owned();
         self.confirm(
             t!("Remove {name} from your account?", name = name),
-            t!("Every device and host on your account stops reaching it at once. To add it again, sign it in again."),
+            t!("Every device and host on your account stops reaching it at once. Your account is signed out everywhere else too, phones included. To add it again, sign it in again."),
             t!("Remove"),
             true,
             move |bench, yes, _, _| {

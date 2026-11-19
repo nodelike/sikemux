@@ -847,6 +847,20 @@ Table pages {
   }
 }
 
+Table host_removal_sign_outs {
+  id uuid [pk, default: `gen_random_uuid()`]
+  user_id text [not null]
+  kept_session text
+  removed_at timestamptz [not null, default: `now()`]
+  clerk_attempts integer [not null, default: 0]
+  clerk_retry_at timestamptz [not null, default: `now()`]
+  done_at timestamptz
+
+  indexes {
+    clerk_retry_at [name: 'host_removal_sign_outs_due', note: 'where (done_at IS NULL)']
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -903,3 +917,4 @@ Ref: ended_sessions.user_id > users.id [delete: cascade]
 Ref: invoice_refunds.invoice_id > invoices.id [delete: cascade]
 Ref: vault_ended.user_id > vaults.user_id [delete: cascade]
 Ref: pages.user_id > users.id [delete: cascade]
+Ref: host_removal_sign_outs.user_id > users.id [delete: cascade]

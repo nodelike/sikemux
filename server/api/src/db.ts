@@ -131,6 +131,15 @@ export interface Tables {
     ended_at: Date | null;
     could_sign_in: Generated<boolean>;
   };
+  host_removal_sign_outs: {
+    id: Generated<string>;
+    user_id: string;
+    kept_session: string | null;
+    removed_at: CreatedAt;
+    clerk_attempts: Generated<number>;
+    clerk_retry_at: Generated<Date>;
+    done_at: Date | null;
+  };
   ended_sessions: {
     session_id: string;
     user_id: string;

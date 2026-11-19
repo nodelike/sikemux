@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import { sql } from "kysely";
 
 import { revokeRemovedSession } from "../account/deletion.ts";
+import { endSignOut, signOutAfterHostRemoval } from "./sign-outs.ts";
 import { allow, requireIdentity, type AuthEnv } from "../auth.ts";
 import { audit } from "../audit.ts";
 import { appendEvent } from "../events/log.ts";
@@ -75,7 +76,7 @@ export function deviceRoutes(
           const key = c.req.param("key");
           if (key === deviceKey)
             throw badRequest("A host leaves the account by signing out.");
-          const { device, reason } = await db
+          const { device, reason, signOut } = await db
             .transaction()
             .execute(async (trx) => {
               const device = await ownedDevice(trx, userId, key, {
@@ -93,7 +94,15 @@ export function deviceRoutes(
                 detail: { via },
                 endsSession: clerk !== null,
               });
-              return { device, reason };
+              const signOut =
+                clerk && device.role === "host" && reason === "removed"
+                  ? await signOutAfterHostRemoval(
+                      trx,
+                      userId,
+                      sessionId ?? null,
+                    )
+                  : null;
+              return { device, reason, signOut };
             });
           c.get("log").info(
             { key, role: device.role, reason },
@@ -105,6 +114,13 @@ export function deviceRoutes(
                 c
                   .get("log")
                   .warn({ err: error }, "could not revoke the session"),
+            );
+          if (clerk && signOut)
+            await endSignOut(db, clerk, c.get("log"), signOut).catch(
+              (error: unknown) =>
+                c
+                  .get("log")
+                  .warn({ err: error }, "could not sign the account out"),
             );
           return c.body(null, 204);
         },

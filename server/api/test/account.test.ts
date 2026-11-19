@@ -556,6 +556,53 @@ describe("a removed phone's session Clerk refuses to revoke", () => {
   });
 });
 
+describe("removing a host", () => {
+  const before = new Date(Date.now() - 60_000);
+
+  async function hostAndPhone() {
+    const host = await registered(app, "user_a", "host");
+    await registered(app, "user_a", "client", { sessionId: "sess_phone" });
+    clerk.userSessions.set("user_a", [
+      { id: "sess_phone", createdAt: before },
+      { id: "sess_web", createdAt: before },
+      { id: "sess_remover", createdAt: before },
+      { id: "sess_later", createdAt: new Date(Date.now() + 60_000) },
+    ]);
+    return host;
+  }
+
+  const remove = async (key: string) =>
+    call(
+      `/v1/devices/${key}`,
+      await sessionToken("user_a", { claims: { sid: "sess_remover" } }),
+      { method: "DELETE" },
+    );
+
+  it("signs out every other sign-in made before it, phones too, keeping only the remover's", async () => {
+    const host = await hostAndPhone();
+    expect((await remove(host.key)).status).toBe(204);
+    expect(clerk.revoked).toEqual(["sess_phone", "sess_web"]);
+    await database.pool.query(
+      "update host_removal_sign_outs set clerk_retry_at = now()",
+    );
+    await sweepClerk(database.db, clerk, null, log);
+    expect(clerk.revoked).toEqual(["sess_phone", "sess_web"]);
+  });
+
+  it("removes the host even when Clerk fails, and signs the account out later", async () => {
+    const host = await hostAndPhone();
+    clerk.failing = true;
+    expect((await remove(host.key)).status).toBe(204);
+    expect(clerk.revoked).toEqual([]);
+    clerk.failing = false;
+    await database.pool.query(
+      "update host_removal_sign_outs set clerk_retry_at = now()",
+    );
+    await sweepClerk(database.db, clerk, null, log);
+    expect(clerk.revoked).toEqual(["sess_phone", "sess_web"]);
+  });
+});
+
 describe("purging", () => {
   it("erases every trace of the account after 30 days, keeping only a count", async () => {
     await accountWithDevices("user_a");
