@@ -178,6 +178,8 @@ async fn move_across(
     params: &Value,
 ) -> Result<Value, String> {
     let id = (params.get("id").and_then(Value::as_u64)).ok_or("a move names what it moves")?;
+    let kept = params.get("kept").and_then(Value::as_bool) == Some(true);
+    let words = params.get("words").and_then(Value::as_str);
     let asked = |method: &str, params: Value| RecordAct {
         identity: identity.to_owned(),
         method: method.to_owned(),
@@ -187,6 +189,10 @@ async fn move_across(
     };
     let record = match to {
         Store::Project => {
+            let id = match kept {
+                true => memory::line_entry(core, folder, id, words)?,
+                false => id,
+            };
             let taken = moving::take_out(core, folder, id, Store::Personal)?;
             let put = json!({ "project": identity, "entry": taken.going });
             match act(core, home, asked("memoryPut", put)).await {
@@ -206,8 +212,12 @@ async fn move_across(
         }
         Store::Org => return Err("the project's home moves entries to its org".into()),
         Store::Personal => {
-            moving::can_take_in(core, folder, id, to)?;
-            let take = json!({ "project": identity, "id": id });
+            let here = match kept {
+                true => memory::line_entry(core, folder, id, None)?,
+                false => id,
+            };
+            moving::can_take_in(core, folder, here, to)?;
+            let take = json!({ "project": identity, "id": id, "kept": kept, "words": words });
             let answer = act(core, home, asked("memoryTake", take)).await?;
             let entry = |name: &str| -> Result<moving::Moving, String> {
                 serde_json::from_value(answer.get(name).cloned().unwrap_or_default())

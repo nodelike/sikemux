@@ -790,6 +790,15 @@ pub(crate) async fn record_write(
                 let folder = (params.get("project").and_then(Value::as_str)).unwrap_or_default();
                 let id = (params.get("id").and_then(Value::as_u64))
                     .ok_or("a move names what it moves")?;
+                let id = match params.get("kept").and_then(Value::as_bool) {
+                    Some(true) => memory::line_entry(
+                        &core,
+                        folder,
+                        id,
+                        params.get("words").and_then(Value::as_str),
+                    )?,
+                    _ => id,
+                };
                 let taken = memory::moving::take_out(
                     &core,
                     folder,

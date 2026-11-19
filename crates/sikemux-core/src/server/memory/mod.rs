@@ -1702,6 +1702,30 @@ pub(crate) async fn person_add(
     .await
 }
 
+/// The number a chat line's entry has now, past any renumbering since the line was written.
+/// Refused when the line's `words` were sent and no entry under that number has them.
+pub(crate) fn line_entry(
+    core: &Core,
+    project: &str,
+    id: u64,
+    words: Option<&str>,
+) -> Result<u64, String> {
+    let state = core.memory().state.locked();
+    let id = state.kept_id(project, id);
+    let Some(words) = words.map(crate::text::one_line) else {
+        return Ok(id);
+    };
+    let same = state.applying(project).any(|held| {
+        (held.rules.iter().map(|rule| (rule.id, &rule.text)))
+            .chain(held.knowledge.iter().map(|known| (known.id, &known.text)))
+            .any(|(at, text)| at == id && crate::text::one_line(text) == words)
+    });
+    match same {
+        true => Ok(id),
+        false => Err("That entry has changed since, so nothing was undone".to_owned()),
+    }
+}
+
 pub(crate) async fn person_update(
     core: &Arc<Core>,
     peer: Peer,
@@ -1711,15 +1735,7 @@ pub(crate) async fn person_update(
     let core = core.clone();
     run(move || {
         if params.kept {
-            let state = core.memory().state.locked();
-            params.id = state.kept_id(&project, params.id);
-            let now = (state.applying(&project))
-                .find_map(|held| held.rules.iter().find(|rule| rule.id == params.id));
-            if let (Some(words), Some(now)) = (&params.words, now) {
-                if now.text != *words {
-                    return Err("That rule has changed since, so nothing was undone".to_owned());
-                }
-            }
+            params.id = line_entry(&core, &project, params.id, params.words.as_deref())?;
         }
         amend(&core, &project, params, learned(&core, None))?;
         Ok(view(&core, &project, &peer))
