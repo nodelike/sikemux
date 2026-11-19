@@ -16,7 +16,7 @@ export function addressHash(key: Buffer, address: string): Buffer {
  */
 export function domainOf(address: string): string | null {
   const at = address.lastIndexOf("@");
-  return at > 0 && !/clerk_test/i.test(address)
+  return at > 0 && !/clerk_test/iu.test(address)
     ? address
         .slice(at + 1)
         .trim()
