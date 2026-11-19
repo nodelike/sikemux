@@ -38,6 +38,11 @@ pub(crate) fn org_name(core: &Core, org: &str) -> Option<String> {
         .map(|known| known.name)
 }
 
+/// The org whose key `route` names, among those the account is in.
+pub(crate) fn org_of_route(core: &Core, route: &str) -> Option<AccountOrg> {
+    (orgs(core).into_iter()).find(|org| crate::launch::providers::route_of_org(route, &org.id))
+}
+
 pub(crate) fn active(core: &Core, org: &str) -> bool {
     orgs(core)
         .iter()
@@ -57,6 +62,11 @@ fn project(core: &Core, project: &str) -> Option<(String, String)> {
 pub(crate) fn shared_with(core: &Core, folder: &str) -> Option<String> {
     let state = core.boards().state.locked();
     state.of(folder)?.settings.shared_with.clone()
+}
+
+pub(crate) fn project_org(core: &Core, path: &Path) -> Option<String> {
+    let folder = core.workspaces().project_of(path);
+    shared_with(core, &folder).filter(|org| active(core, org))
 }
 
 /// The org the project's board is shared with, as both the rail and the Share control show it.
@@ -144,12 +154,14 @@ pub(crate) fn heard(core: &Arc<Core>, registry: Option<ShareRegistry>) {
 fn told(core: &Arc<Core>) {
     super::peer::heard(core);
     super::memory::shares_changed(core);
+    super::org_routes::sweep(core);
     core.changed(What::View);
 }
 
 /// A board this host keeps was saved. Teammates look again when one of them is shared, and the
 /// registry is read again only when what this host shares, or where, changed.
 pub(crate) fn records_changed(core: &Arc<Core>, keys: &[String]) {
+    super::org_routes::sweep(core);
     let state = core.boards().state.locked();
     let shared = (keys.iter())
         .any(|key| (state.of(key)).is_some_and(|board| board.settings.shared_with.is_some()));

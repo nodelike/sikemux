@@ -62,4 +62,9 @@ pub struct WorkspaceAbove {
     pub preference_changed: fn(&Core, &PreferenceChange) -> CoreResult<()>,
     /// The preferences as clients are sent them.
     pub shown_preferences: fn(&Core) -> Preferences,
+    /// The org whose models and keys may run at this path: the one its project is shared with,
+    /// while the person holds a seat there.
+    pub project_org: fn(&Core, &Path) -> Option<String>,
+    /// The orgs' keys this computer holds changed.
+    pub org_keys_changed: fn(&Arc<Core>),
 }

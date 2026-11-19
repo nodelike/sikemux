@@ -78,6 +78,11 @@ pub fn routed_agents() -> impl Iterator<Item = &'static str> {
 }
 
 /// An agent's model id that reaches a provider Sikemux routed it to, not one of its own.
+/// The provider id in a model OMP or OpenCode names `sikemux-<id>/<model>`.
+pub fn routed_id(model: &str) -> Option<&str> {
+    model.split_once('/')?.0.strip_prefix(AGENT_ID_PREFIX)
+}
+
 pub fn routed_model(model: &str) -> bool {
     model.starts_with(AGENT_ID_PREFIX)
 }
@@ -234,13 +239,27 @@ pub struct ProviderOrg {
     pub name: String,
 }
 
+const ORG_ROUTE: &str = "org-";
+
 impl ProviderOrg {
     /// The catalogue provider an org's `route` runs on.
     pub fn provider_in<'a>(&self, route: &'a str) -> &'a str {
         route
-            .strip_prefix(&format!("org-{}-", self.id))
+            .strip_prefix(&format!("{ORG_ROUTE}{}-", self.id))
             .unwrap_or(route)
     }
+}
+
+/// Whether `route` names an org's key, whether or not this computer still holds it.
+pub fn org_route(route: &str) -> bool {
+    route.starts_with(ORG_ROUTE)
+}
+
+/// Whether `route` names a key of the org `org`.
+pub fn route_of_org(route: &str, org: &str) -> bool {
+    (route.strip_prefix(ORG_ROUTE))
+        .and_then(|rest| rest.strip_prefix(org))
+        .is_some_and(|rest| rest.starts_with('-'))
 }
 
 /// A catalogue provider's key an org's vault holds for its members.
@@ -256,7 +275,7 @@ impl OrgKey {
     /// Its own route, apart from the person's own key to the same provider, so neither is ever
     /// taken for the other.
     pub fn route(&self) -> String {
-        format!("org-{}-{}", self.org.id, self.provider)
+        format!("{ORG_ROUTE}{}-{}", self.org.id, self.provider)
     }
 }
 
@@ -766,7 +785,7 @@ impl Providers {
 
     /// The provider a model OMP or OpenCode names `sikemux-<id>/<model>` runs on.
     pub fn routing(&self, model: &str) -> Option<Arc<Provider>> {
-        self.named_by_agent(model.split_once('/')?.0)
+        self.find(routed_id(model)?)
     }
 
     /// The catalogue's providers, then those the person added, then the orgs' keys.

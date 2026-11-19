@@ -37,7 +37,7 @@ use super::{
     lifecycle, messages, pins, requests, session_watch, ssh, tasks, themes, triggers, upgrade,
     worktree, Core, CoreResult,
 };
-use super::{finished, hooks, inbox, mods, shares, stash};
+use super::{finished, hooks, inbox, mods, org_routes, shares, stash};
 use serde_json::Value;
 use sikemux_wire::protocol::ChatLaunch;
 
@@ -132,6 +132,8 @@ pub(super) fn workspace_above() -> WorkspaceAbove {
         chat_place,
         preference_changed,
         shown_preferences: |core| core.shown_preferences(),
+        project_org: shares::project_org,
+        org_keys_changed: org_routes::sweep,
     }
 }
 
