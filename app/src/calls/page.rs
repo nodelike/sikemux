@@ -31,27 +31,19 @@ pub(crate) fn project_of(bench: &Workbench, agent: &str) -> Option<String> {
         .map(|project| project.path.to_string_lossy().into_owned())
 }
 
-/// How many calls wait on the person in the project of agent `agent`'s desk.
+/// How many calls wait on the person in agent `agent`'s chat.
 pub(crate) fn waiting_on_desk(bench: &Workbench, agent: &str) -> usize {
-    project_of(bench, agent).map_or(0, |project| {
-        bench.open_calls(&bench.place(), &project).len()
-    })
+    bench.open_calls(&bench.place(), agent).len()
 }
 
-/// The calls waiting on the person in the project of agent `agent`'s desk, oldest first.
+/// The calls waiting on the person in agent `agent`'s chat, oldest first.
 pub(crate) fn on_desk(bench: &Workbench, agent: &str) -> Vec<PersonCall> {
-    let mut calls: Vec<PersonCall> = project_of(bench, agent)
-        .map(|project| {
-            (bench.open_calls(&bench.place(), &project).into_iter())
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default();
-    calls.sort_by_key(|call| call.raised_at);
-    calls
+    (bench.open_calls(&bench.place(), agent).into_iter())
+        .cloned()
+        .collect()
 }
 
-/// The Calls page of one agent's desk, over the calls of its project.
+/// The Calls page of one agent's desk, over the calls its chat lists.
 pub struct Page {
     bench: WeakEntity<Workbench>,
     cards: Entity<Cards>,

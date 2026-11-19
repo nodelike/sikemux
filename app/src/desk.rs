@@ -1001,7 +1001,8 @@ impl Workbench {
         }
     }
 
-    /// Turns the agent's desk to the calls of its project, bringing the desk out if it is closed.
+    /// Turns the agent's desk to the calls its chat lists, bringing the desk out if it is
+    /// closed.
     pub(crate) fn show_calls(&mut self, agent: &str, cx: &mut Context<Self>) {
         self.show_desk_kind(agent, DeskKind::Calls, cx);
     }

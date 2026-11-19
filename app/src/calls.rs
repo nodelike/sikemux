@@ -34,6 +34,20 @@ mod page;
 pub(crate) mod reply;
 pub(crate) use page::{on_desk, project_of, waiting_on_desk, Page};
 
+/// Whether agent `agent`'s chat lists `call`, as the core places it.
+pub(crate) fn listed_in(call: &PersonCall, agent: &str) -> bool {
+    call.shown_in.iter().any(|chat| chat == agent)
+}
+
+/// Of `calls`, those waiting on the person that agent `agent`'s chat lists, oldest first.
+fn open_in<'a>(calls: &'a [PersonCall], agent: &str) -> Vec<&'a PersonCall> {
+    let mut open: Vec<&PersonCall> = (calls.iter())
+        .filter(|call| call.state == CallState::Open && listed_in(call, agent))
+        .collect();
+    open.sort_by_key(|call| call.raised_at);
+    open
+}
+
 /// The mark of a call of `kind`, as its tab shows it.
 pub(crate) fn kind_mark(kind: CallKind, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
@@ -340,16 +354,11 @@ impl Workbench {
         CallPlace { project, host }
     }
 
-    /// The calls of `project` on the host at `place` that wait on the person, newest first.
-    pub(crate) fn open_calls(&self, place: &Place, project: &str) -> Vec<&PersonCall> {
-        let Some(view) = self.view_at(place) else {
-            return Vec::new();
-        };
-        let mut open: Vec<&PersonCall> = (view.calls.iter())
-            .filter(|call| call.state == CallState::Open && call.project == project)
-            .collect();
-        open.sort_by_key(|call| std::cmp::Reverse(call.raised_at));
-        open
+    /// The calls on the host at `place` that wait on the person and that agent `agent`'s chat
+    /// lists, oldest first.
+    pub(crate) fn open_calls(&self, place: &Place, agent: &str) -> Vec<&PersonCall> {
+        self.view_at(place)
+            .map_or_else(Vec::new, |view| open_in(&view.calls, agent))
     }
 
     /// The calls agent `agent`'s chat lists, as the core places them, oldest first, and those
@@ -359,9 +368,7 @@ impl Workbench {
             return CallsOf::default();
         };
         let mut of = CallsOf::default();
-        for call in
-            (view.calls.iter()).filter(|call| call.shown_in.iter().any(|chat| chat == agent))
-        {
+        for call in (view.calls.iter()).filter(|call| listed_in(call, agent)) {
             match call.state {
                 CallState::Open => of.open.push(call.clone()),
                 _ if settled_at(call) >= last_row => of.settled.push(call.clone()),
@@ -1684,4 +1691,44 @@ fn call_keys<E: InteractiveElement>(keyed: E, id: &str, bench: &WeakEntity<Workb
         .on_action(on(id, bench, |_: &PreviousChoice| Press::Up))
         .on_action(on(id, bench, |_: &NextChoice| Press::Down))
         .on_action(on(id, bench, |_: &Confirm| Press::Pick))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn call(id: &str, asker: &str, about: &str, shown_in: &[&str]) -> PersonCall {
+        let agent = |id: &str| serde_json::json!({ "agentId": id, "name": id, "cli": "claude" });
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "project": "/sikemux",
+            "kind": "taste",
+            "asker": agent(asker),
+            "about": agent(about),
+            "question": "?",
+            "options": [],
+            "canHandBack": false,
+            "state": "open",
+            "raisedAt": 1,
+            "shownIn": shown_in,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_chiefs_call_about_another_tree_stays_out_of_a_leads_desk() {
+        let calls = [
+            call("github", "hazamada", "verdia", &["hazamada", "chief"]),
+            call("nexus", "chief", "rui", &["chief", "rui"]),
+        ];
+        let ids = |agent| {
+            open_in(&calls, agent)
+                .iter()
+                .map(|call| call.id.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids("hazamada"), ["github"]);
+        assert_eq!(ids("rui"), ["nexus"]);
+        assert_eq!(ids("chief"), ["github", "nexus"]);
+    }
 }
