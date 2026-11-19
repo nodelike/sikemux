@@ -1,7 +1,7 @@
 //! The words the app says, in the language the person picked, else the system's when the app
 //! speaks it, else English. They come from `app/locales/Localizable.xcstrings`, which the build
-//! turns into a table per language, sorted for a binary search. English is the key, so English
-//! looks nothing up.
+//! turns into one sorted list of the English strings and, per language, its words run together
+//! with where each one ends. English is the key, so English looks nothing up.
 
 use std::fmt::Display;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -14,7 +14,10 @@ pub struct Language {
     pub code: &'static str,
     /// Its name in itself.
     pub name: &'static str,
-    words: &'static [(&'static str, &'static str)],
+    /// Every word it says, run together in the order of `ENGLISH`.
+    said: &'static str,
+    /// Where in `said` the word for each of `ENGLISH` ends.
+    ends: &'static [u32],
 }
 
 /// The language spoken, as a place in `LANGUAGES`; past its end is English.
@@ -25,11 +28,14 @@ pub fn tr(english: &str) -> &str {
     let Some(language) = LANGUAGES.get(SPOKEN.load(Ordering::Relaxed)) else {
         return english;
     };
-    (language.words)
-        .binary_search_by(|(key, _)| (*key).cmp(english))
-        .ok()
-        .and_then(|at| language.words.get(at))
-        .map_or(english, |(_, word)| word)
+    let Ok(at) = ENGLISH.binary_search(&english) else {
+        return english;
+    };
+    let start = at.checked_sub(1).map_or(0, |before| language.ends[before]) as usize;
+    match language.said.get(start..language.ends[at] as usize) {
+        Some(word) if !word.is_empty() => word,
+        _ => english,
+    }
 }
 
 /// The BCP 47 tag of the language spoken.

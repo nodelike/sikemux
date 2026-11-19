@@ -45,8 +45,9 @@ const LANGUAGES: [(&str, &str); 8] = [
     ("pt-BR", "Português (Brasil)"),
 ];
 
-/// Turns the string catalog into a table per language of each English string and what it
-/// says there, sorted by the English for `i18n::tr`'s binary search.
+/// Turns the string catalog into one sorted list of the English strings, for `i18n::tr`'s
+/// binary search, and per language all it says run together with where each English string's
+/// part ends; an English string the language leaves out ends where the one before it does.
 fn strings() -> Result {
     let path = "../locales/Localizable.xcstrings";
     println!("cargo:rerun-if-changed={path}");
@@ -56,28 +57,32 @@ fn strings() -> Result {
         .get("strings")
         .and_then(|strings| strings.as_object())
         .ok_or_else(|| Failed("the catalog has no strings".to_owned()))?;
-    let mut out = String::from("pub static LANGUAGES: &[Language] = &[\n");
+    let mut english: Vec<&str> = strings.keys().map(String::as_str).collect();
+    english.sort();
+    let mut out = String::from("static ENGLISH: &[&str] = &[\n");
+    for key in &english {
+        out.push_str(&format!("    {key:?},\n"));
+    }
+    out.push_str("];\n\npub static LANGUAGES: &[Language] = &[\n");
     for (code, name) in LANGUAGES {
-        let mut words: Vec<(&str, &str)> = strings
-            .iter()
-            .filter_map(|(english, entry)| {
-                let said = entry
-                    .get("localizations")?
-                    .get(code)?
-                    .get("stringUnit")?
-                    .get("value")?
-                    .as_str()?;
-                Some((english.as_str(), said))
-            })
-            .collect();
-        words.sort();
-        out.push_str(&format!(
-            "    Language {{ code: {code:?}, name: {name:?}, words: &[\n"
-        ));
-        for (english, said) in words {
-            out.push_str(&format!("        ({english:?}, {said:?}),\n"));
+        let (mut said, mut ends) = (String::new(), Vec::with_capacity(english.len()));
+        for key in &english {
+            if let Some(word) = strings[*key]
+                .get("localizations")
+                .and_then(|entry| entry.get(code))
+                .and_then(|entry| entry.get("stringUnit"))
+                .and_then(|unit| unit.get("value"))
+                .and_then(|value| value.as_str())
+            {
+                said.push_str(word);
+            }
+            ends.push(
+                u32::try_from(said.len()).map_err(|_| Failed(format!("{code} says too much")))?,
+            );
         }
-        out.push_str("    ] },\n");
+        out.push_str(&format!(
+            "    Language {{ code: {code:?}, name: {name:?}, said: {said:?}, ends: &{ends:?} }},\n"
+        ));
     }
     out.push_str("];\n");
     std::fs::write(out_dir()?.join("strings.rs"), out).map_err(failed("write strings.rs"))
