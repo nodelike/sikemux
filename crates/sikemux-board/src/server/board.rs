@@ -2506,6 +2506,24 @@ pub async fn person_share(
     .map_err(|error| error.to_string())
 }
 
+/// The account no longer lists the project's share with `org`: its board stops being shared
+/// there, unless it was shared with another org meanwhile.
+pub async fn share_ended(core: &Arc<Core>, project: String, org: String) -> Result<(), String> {
+    let core = core.clone();
+    blocking(move || {
+        let project = project_at(&core, &project)?;
+        let mut state = core.boards().state.locked();
+        let board = state.made(&project);
+        if board.settings.shared_with.as_deref() == Some(org.as_str()) {
+            board.settings.shared_with = None;
+            core.boards().save(&mut state, &project);
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
 pub async fn person_answer_proposal(
     core: &Arc<Core>,
     params: BoardProposalParams,

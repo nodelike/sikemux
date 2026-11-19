@@ -137,7 +137,9 @@ pub(crate) fn records_changed(core: &Arc<Core>, keys: &[String]) {
 }
 
 /// Acts on the registry as the account just answered it. It never registers a share: the person's
-/// Share tap does. It moves a registration to this host when this host is the project's home,
+/// Share tap does. A share the registry no longer lists with an org it lists has ended, and its
+/// board's setting is cleared; an org the registry leaves out, as it does one whose Team plan is
+/// unpaid, keeps its share. It moves a registration to this host when this host is the project's home,
 /// moves the registration of a renamed project to its new name, and takes back this host's own
 /// registrations for projects no longer shared there. While no host holds the project's chief,
 /// another of the person's hosts can count as its home too, so a registration a linked host made
@@ -159,6 +161,7 @@ async fn reconcile(core: &Arc<Core>, mut registry: ShareRegistry) {
     let linked: Vec<String> = (core.remote().links().into_iter())
         .map(|link| link.id)
         .collect();
+    let mut ended = Vec::new();
     for Held {
         project,
         org,
@@ -168,6 +171,9 @@ async fn reconcile(core: &Arc<Core>, mut registry: ShareRegistry) {
         for list in &registry.orgs {
             let wanted = org.as_deref() == Some(list.org.as_str());
             let Some(mine) = (list.mine.iter()).find(|mine| mine.project == project) else {
+                if wanted {
+                    ended.push((project.clone(), list.org.clone()));
+                }
                 continue;
             };
             let outcome = if mine.host == host && !wanted {
@@ -193,6 +199,41 @@ async fn reconcile(core: &Arc<Core>, mut registry: ShareRegistry) {
             }
         }
     }
+    if !ended.is_empty() {
+        end_shares(core, ended).await;
+    }
+}
+
+/// Clears the board's setting of each share the account no longer lists, so a share ended on one
+/// of the person's hosts ends on all of them. The registry is read once more first: one read
+/// before a Share tap saved its board's setting would not list the share yet. A renamed project's
+/// share is left until it has moved.
+async fn end_shares(core: &Arc<Core>, ended: Vec<(String, String)>) {
+    let Some(registry) = shares::refresh(core).await else {
+        return;
+    };
+    let renaming: Vec<String> = (core.peer().shares.renames.locked().iter())
+        .map(|(_, new)| key(new))
+        .collect();
+    for (project, org) in ended {
+        let Some(list) = (registry.orgs.iter()).find(|list| list.org == org) else {
+            continue;
+        };
+        if renaming.contains(&project) || list.mine.iter().any(|mine| mine.project == project) {
+            continue;
+        }
+        let Some(folder) = (core.workspaces().projects().into_iter())
+            .find(|known| known.identity.as_deref().map(key).as_deref() == Some(project.as_str()))
+            .map(|known| known.path.to_string_lossy().into_owned())
+        else {
+            continue;
+        };
+        if let Err(error) = board::share_ended(core, folder, org).await {
+            eprintln!("sikemux core: an ended share stayed on its board: {error}");
+        }
+    }
+    super::peer::changed(core);
+    core.changed(What::View);
 }
 
 /// Moves each renamed project's registrations to its new name, registering the new name before
