@@ -157,7 +157,7 @@ pub struct Card {
 
 /// Bumped by a change to what a board file holds that an earlier file needs
 /// carried over to, which `migrate` does.
-const VERSION: u32 = 8;
+const VERSION: u32 = 9;
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

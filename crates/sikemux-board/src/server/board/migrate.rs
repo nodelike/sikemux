@@ -16,6 +16,10 @@
 //! now, each tagged with its goal and keeping its id, and new ids start above every old one.
 //! Version 8: a card nobody touched for a week, once put aside in Later, is dropped by the board,
 //! and the cards already done count as opened by the person.
+//! Version 9: a person's message became a task only once an agent handed it on as work, and landed
+//! only with a commit of its holder's own. Those an earlier core made of every message an agent
+//! passed on in its turn, which no start named, go; a commit pinned from a holder's checkout head,
+//! kept in full where its own commits are short, comes off, and its task goes once nobody holds it.
 
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
@@ -58,7 +62,35 @@ pub fn carry_over(mut board: Value, folders: Option<&Vec<(String, Vec<Value>)>>)
     if version < 8 {
         later_to_dropped(&mut board);
     }
+    if version < 9 {
+        asks_to_marked_work(&mut board);
+    }
     board
+}
+
+fn asks_to_marked_work(board: &mut Value) {
+    let Some(cards) = board.get_mut("cards").and_then(Value::as_array_mut) else {
+        return;
+    };
+    cards.retain_mut(|card| {
+        let Some(asked) = card.get_mut("asked").and_then(Value::as_object_mut) else {
+            return true;
+        };
+        if asked.get("name").is_none_or(Value::is_null) {
+            return false;
+        }
+        let head_pin =
+            (asked.get("commit").and_then(Value::as_str)).is_some_and(|it| it.len() == 40);
+        if !head_pin {
+            return true;
+        }
+        let held = (asked.get("owners").and_then(Value::as_array)).is_some_and(|it| !it.is_empty());
+        for pinned in ["commit", "landedAt", "inBuildAt"] {
+            asked.remove(pinned);
+        }
+        card["status"] = json!("progress");
+        held
+    });
 }
 
 fn later_to_dropped(board: &mut Value) {

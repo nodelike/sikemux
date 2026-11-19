@@ -790,12 +790,14 @@ Carry on rather than waiting for it.
 
 ### What the person asked for
 
-Each message the person sends an agent is kept, by number, until its change
-is in the app they run. Pass its number as `task` to `agent_spawn` or
-`agent_send` when you hand it on. One handled some other way, by earlier work
-or by a hand-off without its number, still counts as having nobody on it:
-close it with `task_update`, its number as `asked`, naming the `commit` that
-did it, or none when it needed no change.
+A message from the person becomes their task only when you hand it on as
+work: pass `work: true` to the `agent_spawn` or `agent_send` that starts the
+work they asked for this turn. Never pass it for a question, a remark, a reply
+to a call or a message about other work. A task is kept, by number, until the
+first commit of its own a holder lands is in the app they run. Pass an earlier
+task's number as `task` to hand it on again. One with nobody on it that was
+handled some other way: close it with `task_update`, its number as `asked`,
+naming the `commit` that did it, or none when it needed no change.
 
 ### Starting an agent on another host
 

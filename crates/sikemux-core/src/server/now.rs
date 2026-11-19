@@ -470,6 +470,8 @@ pub(crate) fn text_of_path(core: &Arc<Core>, path: &str) -> Option<String> {
 struct Fix {
     /// The commit that has its work: its newest own landed commit, else its checkout's head.
     commit: String,
+    /// Whether `commit` is one the agent made, rather than the head it stands on.
+    own: bool,
     at: FixAt,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     release: Option<String>,
@@ -697,9 +699,9 @@ fn fix_of(core: &Core, agent: &str) -> Option<Fix> {
         .and_then(|agent| agent.worktree.map(|worktree| worktree.repo))
         .unwrap_or_else(|| PathBuf::from(&work.project));
     let repo = repo_path.as_path();
-    let commit = (work.own.first())
-        .and_then(|own| own.split_whitespace().next().map(str::to_owned))
-        .or(work.head)?;
+    let own_commit = (work.own.first()).and_then(|own| own.split_whitespace().next());
+    let own = own_commit.is_some();
+    let commit = own_commit.map(str::to_owned).or(work.head)?;
     let contains = |tip: &str| {
         Git::quick(repo)
             .output(&["merge-base", "--is-ancestor", &commit, tip])
@@ -708,6 +710,7 @@ fn fix_of(core: &Core, agent: &str) -> Option<Fix> {
     if running_build(core, repo).is_some_and(|build| contains(&build)) {
         return Some(Fix {
             commit,
+            own,
             at: FixAt::Running,
             release: None,
         });
@@ -728,6 +731,7 @@ fn fix_of(core: &Core, agent: &str) -> Option<Fix> {
     };
     Some(Fix {
         commit,
+        own,
         at: match tag {
             Some(_) => FixAt::Released,
             None => FixAt::Landed,

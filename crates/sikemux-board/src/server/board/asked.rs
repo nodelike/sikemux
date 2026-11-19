@@ -1,6 +1,7 @@
 //! What a card keeps when the person asked for it: what they sent and to which agent, the agents
 //! that took it on, and how far their work got, from the project's branch to the build they run.
-//! It is listed once an agent took it on; until then the turn it came in may still answer it.
+//! It is listed once an agent took it on as work; until then the turn it came in may still answer
+//! it.
 
 use serde::{Deserialize, Serialize};
 use sikemux_view::goals::DeskPage;
@@ -22,10 +23,7 @@ pub struct Asked {
     /// What the person sent under it, the ask itself first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub said: Vec<AskSaid>,
-    /// Where the work of `to` stood as the person sent it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub to_before: Option<Stood>,
-    /// Still in the turn of `to` it came in, whose starts and messages hand it on.
+    /// Still in the turn of `to` it came in, whose starts and messages hand it on as work.
     #[serde(default)]
     pub in_turn: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -35,7 +33,7 @@ pub struct Asked {
     /// The `nobody_since` its project's chief was last told of.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub told_since: Option<u64>,
-    /// The newest commit of its owners' work on the project's branch.
+    /// The commit its holder made for it, on the project's branch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

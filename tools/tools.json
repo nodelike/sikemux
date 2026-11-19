@@ -1691,6 +1691,10 @@
           "type": "integer",
           "minimum": 1
         },
+        "work": {
+          "description": "true: hands on work the person asked for this turn, making it a task; never for a question or remark",
+          "type": "boolean"
+        },
         "to": {
           "description": "Name or id, comma-separated, or team",
           "type": "string",
@@ -1730,6 +1734,10 @@
           "description": "Number of what the person asked for that this hands on",
           "type": "integer",
           "minimum": 1
+        },
+        "work": {
+          "description": "true: hands on work the person asked for this turn, making it a task; never for a question or remark",
+          "type": "boolean"
         },
         "cli": {
           "description": "e.g. claude, codex; omit for a helper",

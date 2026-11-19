@@ -706,7 +706,8 @@ async fn dispatch(
     }
 }
 
-/// The agents a start or a message reached take the asks of the caller's turn, and those it names.
+/// The agents a start or a message reached take the asks it names, and those of the caller's turn
+/// when it hands them on as work.
 fn handing(
     core: &Core,
     request: &HarnessRequest,
@@ -723,7 +724,8 @@ fn handing(
         .into_iter()
         .collect();
     let title = request.params.get("title").and_then(Value::as_str);
-    super::now::asks::handed(core, from, &reached, &named, title);
+    let work = request.params.get("work").and_then(Value::as_bool) == Some(true);
+    super::now::asks::handed(core, from, &reached, &named, title, work);
     answer
 }
 
