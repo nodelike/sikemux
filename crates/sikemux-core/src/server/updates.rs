@@ -377,11 +377,51 @@ fn read_switch() -> bool {
         })
 }
 
-/// No agent here is in a turn, or might be: a chat, or one in a terminal, including a
-/// terminal whose agent the core cannot read. An update that goes in by itself waits for this.
-fn no_agent_mid_turn(core: &Core) -> bool {
-    core.chats().in_turn() == 0
-        && !(core.running_agents().iter()).any(|agent| core.agent_now(agent).maybe_mid_turn())
+/// The agents an update waits on: those it would stop and start again rather than carry
+/// over, and, for one that goes in by itself, every other agent here in a turn or that might
+/// be, including one in a terminal the core cannot read.
+fn waits_on(core: &Core, by_itself: bool) -> Vec<UpdateBlocker> {
+    let chats = core.chats();
+    let mut blockers: Vec<UpdateBlocker> = chats
+        .blockers()
+        .into_iter()
+        .map(|blocker| UpdateBlocker {
+            agent_id: blocker.agent_id,
+            provider: blocker.provider,
+            title: blocker.title,
+            reason: blocker.reason,
+        })
+        .collect();
+    if !by_itself {
+        return blockers;
+    }
+    let in_turn = |agent_id: String, provider: String, title: Option<String>| UpdateBlocker {
+        agent_id,
+        provider,
+        title,
+        reason: "turn".to_owned(),
+    };
+    for chat in chats.all() {
+        let counted = blockers.iter().any(|b| b.agent_id == chat.agent_id());
+        if !counted && (chat.state_now().busy() || chat.turn_running()) {
+            blockers.push(in_turn(
+                chat.agent_id().to_owned(),
+                chat.provider().to_owned(),
+                chat.feed.title(),
+            ));
+        }
+    }
+    for agent in core.running_agents() {
+        let counted = blockers.iter().any(|b| b.agent_id == agent);
+        let now = core.agent_now(&agent);
+        if !counted && now.maybe_mid_turn() {
+            let provider = now.cli().unwrap_or_default();
+            let title = core.names().name(&agent).map(|name| format!("@{name}"));
+            blockers.push(in_turn(agent, provider, title));
+        }
+    }
+    blockers.sort_by(|a, b| a.agent_id.cmp(&b.agent_id));
+    blockers
 }
 
 /// Whether the desktop app installs updates by itself: the person's choice, else on for the
@@ -435,7 +475,7 @@ async fn update_when_quiet(core: &Arc<Core>) {
     let until = tokio::time::Instant::now() + check_every(core);
     loop {
         let rested = core.updates().quiet.notified();
-        if no_agent_mid_turn(core) || core.remote().too_old() {
+        if waits_on(core, true).is_empty() || core.remote().too_old() {
             break;
         }
         if tokio::time::timeout_at(until, rested).await.is_err() {
@@ -1105,20 +1145,9 @@ async fn wait_for_chats(core: &Core) {
         {
             return;
         }
-        let blockers: Vec<UpdateBlocker> = core
-            .chats()
-            .blockers()
-            .into_iter()
-            .map(|blocker| UpdateBlocker {
-                agent_id: blocker.agent_id,
-                provider: blocker.provider,
-                title: blocker.title,
-                reason: blocker.reason,
-            })
-            .collect();
+        let blockers = waits_on(core, status.by_itself);
         let out_of_patience = !status.by_itself && tokio::time::Instant::now() >= patience;
-        let rested = blockers.is_empty() && (!status.by_itself || no_agent_mid_turn(core));
-        let ready = status.forced || rested || out_of_patience;
+        let ready = status.forced || blockers.is_empty() || out_of_patience;
         core.updates().edit(core, |held| {
             held.status.forced |= out_of_patience && !blockers.is_empty();
             held.status.blockers = blockers;

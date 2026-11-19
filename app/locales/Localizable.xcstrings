@@ -47997,6 +47997,7 @@
         }
       }
     },
+    "It installs on its own once none of these is in the middle of a turn. Updating now carries them over without stopping them.": {},
     "It installs once no agent is in the middle of a turn. Open to update now.": {
       "localizations": {
         "fr": {
@@ -119861,6 +119862,7 @@
         }
       }
     },
+    "Update now": {},
     "Update to v{to} undone: {reason}. Back on v{from}; running terminals stopped, chats picked up again.": {
       "localizations": {
         "fr": {
@@ -140609,6 +140611,7 @@
         }
       }
     },
+    "in a turn": {},
     "in line": {
       "localizations": {
         "fr": {

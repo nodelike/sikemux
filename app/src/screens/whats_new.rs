@@ -820,7 +820,11 @@ fn waiting(
     let t = Tokens::get(cx).clone();
     let blockers = update.blockers.as_slice();
     let count = blockers.len();
-    let one = count == 1;
+    let stopping = blockers
+        .iter()
+        .filter(|blocker| blocker.reason != "turn")
+        .count();
+    let one = stopping == 1;
     let paragraph = |text: String| div().line_height(relative(1.5)).child(text);
     let confirm = |confirming: bool| {
         let this = this.clone();
@@ -841,10 +845,10 @@ fn waiting(
             })
         }
     };
-    let force = {
+    let update_now = |force: bool| {
         let this = this.clone();
         move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
-            this.update(cx, |bench, _| install(bench, true))
+            this.update(cx, |bench, _| install(bench, force))
         }
     };
     let action = |id: &'static str, label: String, danger: bool| {
@@ -876,20 +880,24 @@ fn waiting(
             .clicks(confirm(false)),
         false => action("whats-new-not-now", t!("Not now").into(), false).clicks(not_now),
     };
-    let go = match news.confirming {
-        true => action(
+    let go = match (stopping, news.confirming) {
+        (0, _) => {
+            action("whats-new-update-now", t!("Update now").into(), false).clicks(update_now(false))
+        }
+        (_, true) => action(
             "whats-new-force",
             match one {
                 true => t!("Stop it and update").into(),
-                false => t!("Stop {count} agents and update", count = count),
+                false => t!("Stop {count} agents and update", count = stopping),
             },
             true,
         )
-        .clicks(force),
-        false => {
+        .clicks(update_now(true)),
+        (_, false) => {
             action("whats-new-ask-force", t!("Force update").into(), true).clicks(confirm(true))
         }
     };
+    let confirming = news.confirming && stopping > 0;
     div()
         .flex()
         .flex_col()
@@ -910,17 +918,19 @@ fn waiting(
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(waiting_label(count)),
                 )
-                .child(match one {
-                    true => t!("Agents at work keep running through an update, but this one is still starting or in the middle of a request. The update installs on its own once it is ready."),
-                    false => t!("Agents at work keep running through an update, but these are still starting or in the middle of a request. The update installs on its own once they are ready."),
+                .child(match (stopping, one) {
+                    (0, _) => t!("It installs on its own once none of these is in the middle of a turn. Updating now carries them over without stopping them."),
+                    (_, true) => t!("Agents at work keep running through an update, but this one is still starting or in the middle of a request. The update installs on its own once it is ready."),
+                    (_, false) => t!("Agents at work keep running through an update, but these are still starting or in the middle of a request. The update installs on its own once they are ready."),
                 }),
         )
-        .when(news.confirming, |section| {
-            section
-                .child(div().flex().flex_col().gap(SPACE_1H).children(blockers.iter().map(|blocker| {
+        .when(stopping == 0 || confirming, |section| {
+            let listed = blockers.iter().filter(|blocker| stopping == 0 || blocker.reason != "turn");
+            section.child(div().flex().flex_col().gap(SPACE_1H).children(listed.map(|blocker| {
                     let title = blocker.title.clone().unwrap_or_else(|| blocker.agent_id.clone());
                     let state = match blocker.reason.as_str() {
                         "starting" => t!("starting"),
+                        "turn" => t!("in a turn"),
                         _ => t!("busy"),
                     };
                     div()
@@ -943,6 +953,9 @@ fn waiting(
                                 .child(format!("{} · {state}", blocker.provider)),
                         )
                 })))
+        })
+        .when(confirming, |section| {
+            section
                 .child(paragraph(match one {
                     true => t!("Updating now stops it and starts it again on the same chat. Whatever it was doing stops.").to_owned(),
                     false => t!("Updating now stops them and starts them again on the same chat. Whatever they were doing stops.").to_owned(),
