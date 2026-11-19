@@ -45,18 +45,20 @@ export function SignInWaysSection() {
   const tidied = useRef(false);
   const [removals, setRemovals] = useState<SignInRemoval[]>([]);
 
+  const tidy = async () => {
+    const token = await signedInToken(getToken, "check your sign-ins");
+    const { removed } = await api(token).tidySignIns();
+    if (removed.length > 0) setRemovals((shown) => [...shown, ...removed]);
+    return removed.length;
+  };
+
   useEffect(() => {
     if (tidied.current || !user) return;
     tidied.current = true;
-    void (async () => {
-      const token = await getToken();
-      if (!token) return;
-      const { removed } = await api(token).tidySignIns();
-      if (removed.length === 0) return;
-      await user.reload();
-      setRemovals(removed);
-    })().catch(() => undefined);
-  }, [user, getToken]);
+    void tidy()
+      .then((removed) => (removed > 0 ? user.reload() : undefined))
+      .catch(() => undefined);
+  });
 
   if (confirm) return confirm;
   if (!user) return null;
@@ -165,8 +167,18 @@ export function SignInWaysSection() {
             onDone={async (email) => {
               setAdding(false);
               if (!email) return;
-              await user.reload();
-              show(`${email} now signs in to your account.`);
+              const tidiedNow = await tidy().then(
+                () => true,
+                () => false,
+              );
+              const fresh = await user.reload();
+              const kept = fresh.emailAddresses.some(
+                (address) =>
+                  address.emailAddress.toLowerCase() === email.toLowerCase() &&
+                  address.verification.status === "verified",
+              );
+              if (tidiedNow && kept)
+                show(`${email} now signs in to your account.`);
             }}
           />
         ) : (
