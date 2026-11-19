@@ -201,6 +201,10 @@ fn row(
     let refused = entry.refused.as_deref().unwrap_or_default();
     match (&entry.dropped, org) {
         _ if entry.waiting => words.push(t!("Waits for an admin").to_owned()),
+        _ if store == Store::Org && entry.refused.is_some() => words.push(t!(
+            "Not removed, {why}",
+            why = refused.trim_end_matches('.')
+        )),
         (_, Some(org)) if entry.refused.is_some() => words.push(t!(
             "Only you, {org} didn't take it: {why}",
             org = org,
