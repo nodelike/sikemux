@@ -1,5 +1,6 @@
 -- A person registers a project with at most one of their orgs. Each share names its person, kept
--- equal to its membership's, so the database holds that rule; earlier duplicates keep the newest.
+-- equal to its membership's, so the database holds that rule. Of earlier duplicates, the one
+-- tapped last stays; a move to another host changes updated_at, so created_at decides.
 alter table org_users add constraint org_users_id_user_id_key unique (id, user_id);
 
 alter table org_shares add column user_id text;
@@ -18,7 +19,7 @@ where (member_id, project) in (
       project,
       row_number() over (
         partition by user_id, project
-        order by updated_at desc, created_at desc, member_id
+        order by created_at desc, updated_at desc, member_id
       ) as place
     from org_shares
   ) ranked
