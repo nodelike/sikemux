@@ -80,6 +80,9 @@ pub(crate) fn shared_org(core: &Core, folder: &str) -> Option<SharedOrg> {
     Some(SharedOrg { org, name })
 }
 
+/// The registry and this host's standing when a rename was found held elsewhere.
+type Waiting = (ShareRegistry, Option<Takeover>);
+
 /// One reconcile at a time, the renames still to move, and the shares it last acted on.
 pub(crate) struct Reconciling {
     running: tokio::sync::Mutex<()>,
@@ -88,8 +91,9 @@ pub(crate) struct Reconciling {
     renames: Mutex<Vec<(String, String)>>,
     renames_kept: Kept,
     /// Renames another of the person's hosts holds the share of, with the registry and this
-    /// host's standing as they were then: asked again only once either changes.
-    held_elsewhere: Mutex<HashMap<(String, String), (ShareRegistry, Takeover)>>,
+    /// host's standing as they were then: asked again only once either changes. A project gone
+    /// from the workspace has no standing, and waits for the registry alone.
+    held_elsewhere: Mutex<HashMap<(String, String), Waiting>>,
     asking_again: AtomicBool,
     held: Mutex<Vec<Held>>,
 }
@@ -189,8 +193,9 @@ pub(crate) fn takeover_moved(core: &Core) {
         return;
     }
     let linked = linked(core);
-    let moved = (waiting.iter())
-        .any(|((old, new), (_, then))| takeover(core, old, new, &linked).as_ref() != Some(then));
+    let moved = (waiting.iter()).any(|((old, new), (_, then))| {
+        takeover(core, old, new, &linked).is_some_and(|now| Some(now) != *then)
+    });
     let Some(core) = core.arc() else {
         return;
     };
@@ -441,11 +446,11 @@ async fn move_renamed(
     for (old, new) in renames {
         let pending = (old.clone(), new.clone());
         let takeover = takeover(core, &old, &new, linked);
-        let basis = takeover
-            .clone()
-            .map(|takeover| (registry.clone(), takeover));
-        if basis.is_some() && shares.held_elsewhere.locked().get(&pending) == basis.as_ref() {
-            continue;
+        let waiting = shares.held_elsewhere.locked().get(&pending).cloned();
+        if let Some((then_registry, then)) = waiting {
+            if then_registry == *registry && (takeover.is_none() || takeover == then) {
+                continue;
+            }
         }
         let rename = ShareRename {
             from: key(&old),
@@ -460,9 +465,7 @@ async fn move_renamed(
         }
         match shares::rename_share(core, &rename).await {
             Ok(Renamed::HeldElsewhere) => {
-                if let Some(basis) = basis {
-                    shares.held_elsewhere.locked().insert(pending, basis);
-                }
+                (shares.held_elsewhere.locked()).insert(pending, (registry.clone(), takeover));
             }
             Ok(answer) => {
                 moved |= answer == Renamed::Moved;
@@ -470,10 +473,8 @@ async fn move_renamed(
                 shares.change_renames(|renames| renames.retain(|rename| *rename != pending));
             }
             Err(error) => {
-                if let (Some(waiting), Some(basis)) =
-                    (shares.held_elsewhere.locked().get_mut(&pending), basis)
-                {
-                    *waiting = basis;
+                if let Some(waiting) = shares.held_elsewhere.locked().get_mut(&pending) {
+                    *waiting = (registry.clone(), takeover);
                 }
                 eprintln!(
                     "sikemux core: a renamed project's share did not move on the account: {error}"

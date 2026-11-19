@@ -316,7 +316,8 @@ export function shareRoutes({
           .where("host", "=", deviceKey ?? "")
           .returning(["member_id", "host", "tapped_at"])
           .execute();
-        if (moved.length === 0) {
+        const [tapped] = moved;
+        if (!tapped) {
           const held = await trx
             .selectFrom("org_shares")
             .select("host")
@@ -331,30 +332,29 @@ export function shareRoutes({
             "You share that project with no org, so there is nothing to move.",
           );
         }
-        const tapped = moved.reduce((later, row) =>
-          row.tapped_at > later.tapped_at ? row : later,
-        );
         const already = await trx
           .selectFrom("org_shares")
           .select(["member_id", "tapped_at"])
           .where("user_id", "=", userId)
           .where("project", "=", project)
           .executeTakeFirst();
-        const ended: string[] = [];
-        if (!already || already.tapped_at < tapped.tapped_at) {
-          if (already) {
+        const wins = !already || already.tapped_at < tapped.tapped_at;
+        if (wins) {
+          if (already)
             await trx
               .deleteFrom("org_shares")
               .where("member_id", "=", already.member_id)
               .where("project", "=", project)
               .execute();
-            ended.push(already.member_id);
-          }
           await trx
             .insertInto("org_shares")
             .values({ ...tapped, user_id: userId, project })
             .execute();
         }
+        const holding = already && !wins ? already.member_id : tapped.member_id;
+        const ended = [tapped.member_id, already?.member_id].filter(
+          (member): member is string => !!member && member !== holding,
+        );
         for (const org of await orgsOf(trx, ended)) {
           await dropUnshared(trx, org);
           await audit(trx, {
@@ -365,10 +365,8 @@ export function shareRoutes({
           });
           await sharesChanged(trx, org);
         }
-        for (const org of await orgsOf(
-          trx,
-          moved.map(({ member_id }) => member_id),
-        )) {
+        if (!wins) return;
+        for (const org of await orgsOf(trx, [holding])) {
           await dropUnshared(trx, org);
           await audit(trx, {
             userId,
