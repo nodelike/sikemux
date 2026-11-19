@@ -1685,6 +1685,14 @@ pub(crate) fn retire_persons_rule(
     change(core, project, update, learned(core, None))
 }
 
+/// Whether an entry applying to the project still has the number a chat line's entry `id` has now.
+pub(crate) fn still_held(core: &Core, project: &str, id: u64) -> bool {
+    let state = core.memory().state.locked();
+    let id = state.kept_id(project, id);
+    let held = state.applying(project).any(|held| held.holds(id));
+    held
+}
+
 pub(crate) async fn person_add(
     core: &Arc<Core>,
     peer: Peer,

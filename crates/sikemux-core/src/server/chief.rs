@@ -1514,6 +1514,7 @@ pub(crate) async fn overrule_undone(
                 eprintln!("sikemux core: an undone Overrule's rule was not retired: {error}");
             })
             .is_err()
+            && super::memory::still_held(core, project, rule)
     });
     let said = first_sentence(text);
     let stands = format!(
