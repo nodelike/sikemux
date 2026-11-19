@@ -513,6 +513,10 @@ pub(super) fn board_above() -> BoardAbove {
         },
         chief_card_closed: chief::card_closed,
         chief_card_reopened: chief::card_reopened,
+        org_moved: |core, cwd, provider, model| {
+            org_routes::refused(core, cwd, provider, model)
+                .map(|why| org_routes::moved_notice(&why))
+        },
         hosts_started_by: |core, agent| core.hosts().team.get(agent)?.parent,
         hosts_rows_moved: hosts::route::rows_moved,
         records_changed: |core, keys| {

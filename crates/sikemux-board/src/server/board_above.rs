@@ -3,6 +3,7 @@
 //! features, so a core is built with these, one function for each.
 
 use std::future::Future;
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -71,6 +72,9 @@ pub struct BoardAbove {
     pub chief_card_closed: fn(&Core, &str, u64, &str, &str),
     /// The person reopened a card the board closed by itself.
     pub chief_card_reopened: fn(&Core, &str, u64),
+    /// What a chat says when it starts on its agent's own model because an org's key, named by
+    /// the provider or routed model, may not run in the folder.
+    pub org_moved: fn(&Core, &Path, Option<&str>, Option<&str>) -> Option<Value>,
     /// The agent that started the agent, when it runs on a linked host.
     pub hosts_started_by: fn(&Core, &str) -> Option<String>,
     /// The rows of linked hosts' agents changed.

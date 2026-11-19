@@ -191,7 +191,8 @@ async fn start_worker(
             let folder = Path::new(&project);
             let (checkout, cwd) = agent::cut_for(folder, folder, &worktree::branch_for(&text))?;
             let mut unclaimed = Unclaimed(Some(checkout.clone()));
-            let (mut launch, launcher) = core.workspaces().board_launch(
+            let (mut launch, launcher, notice) = super::launch_own(
+                &core,
                 worker.launcher.as_deref(),
                 &cwd,
                 worker.provider.as_deref(),
@@ -212,7 +213,12 @@ async fn start_worker(
                 core.open_agents(),
             );
             launch.agent_id = agent.clone();
-            let chat = chat::begin(&core, launch, None, Some(launcher), false, false)
+            let starting = chat::Starting {
+                waits_for_person: false,
+                briefed: false,
+                notice,
+            };
+            let chat = chat::begin_as(&core, launch, None, Some(launcher), starting)
                 .inspect_err(|_| core.names().forget(&agent))?;
             let mut kept = checkout.clone();
             crate::server::ports::checkout::claim(&core, &mut kept);
