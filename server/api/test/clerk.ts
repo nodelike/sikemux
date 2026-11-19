@@ -1,4 +1,9 @@
-import type { ClerkBackend, SignIns, SignUp } from "../src/account/clerk.ts";
+import type {
+  ClerkBackend,
+  DemoAccount,
+  SignIns,
+  SignUp,
+} from "../src/account/clerk.ts";
 
 /** Clerk's Backend API as the tests want it to answer: done, or failing until told otherwise. */
 export class FakeClerk implements ClerkBackend {
@@ -105,5 +110,27 @@ export class FakeClerk implements ClerkBackend {
   async replacePassword(userId: string) {
     const user = this.users.get(userId);
     if (user) user.passwordSetAt = new Date(Date.now() + 1);
+  }
+
+  /** The users marked as the demo account, and each user's password. */
+  readonly demos = new Map<string, DemoAccount>();
+  readonly passwords = new Map<string, string>();
+  readonly signInTokens: string[] = [];
+
+  async demoAccount(userId: string) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return this.demos.get(userId) ?? null;
+  }
+
+  async passwordMatches(userId: string, password: string) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return this.passwords.get(userId) === password;
+  }
+
+  async signInToken(userId: string) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    const token = `sign-in token ${this.signInTokens.length} for ${userId}`;
+    this.signInTokens.push(token);
+    return token;
   }
 }

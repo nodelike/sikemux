@@ -88,6 +88,9 @@ import type {
   PendingHost,
   PushTokenRegistration,
   PushTokenState,
+  ReviewAccount,
+  ReviewSignIn,
+  ReviewSignInRequest,
   ShareMove,
   ShareRegistration,
   ShareRegistry,
@@ -174,6 +177,11 @@ export function apiClient(send: Send) {
         `/v1/devices/${encodeURIComponent(key)}/join`,
         body,
       ),
+    /** Which address is the store reviewers' demo account. */
+    getReviewAccount: () => send<ReviewAccount>("GET", `/v1/review-sign-in`),
+    /** Sign in to the store reviewers' demo account with its password, without an emailed code. */
+    reviewSignIn: (body: ReviewSignInRequest) =>
+      send<ReviewSignIn>("POST", `/v1/review-sign-in`, body),
     /** Start signing in a host that has no browser, such as a server reached over SSH. */
     startHostSignIn: (body: HostSignInStart) =>
       send<HostSignIn>("POST", `/v1/host-sign-ins`, body),

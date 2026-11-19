@@ -30,6 +30,12 @@ export interface ClerkBackend {
   removeWallet(userId: string, walletId: string): Promise<void>;
   /** Sets a long random password nobody keeps, so the one before stops working. */
   replacePassword(userId: string): Promise<void>;
+  /** The user, if it carries the demo mark and its main address is verified; null otherwise or once it is gone. */
+  demoAccount(userId: string): Promise<DemoAccount | null>;
+  /** Whether this is the user's password; false when the user has none or is gone. Never log the password. */
+  passwordMatches(userId: string, password: string): Promise<boolean>;
+  /** A token that signs the user in once by Clerk's ticket strategy, without a password or a new-device check. */
+  signInToken(userId: string, expiresInSeconds: number): Promise<string>;
 }
 
 export type SignIns = {
@@ -59,6 +65,18 @@ export type SignIns = {
 export class ClerkRefusal extends Error {}
 
 export type ClerkSession = { id: string; createdAt: Date; live: boolean };
+
+/** The mark in a Clerk user's private metadata that makes it the store reviewers' demo account. */
+export const DEMO_MARK = "storeReviewDemo";
+
+export interface DemoAccount {
+  /** The verified main address reviewers sign in with. */
+  address: string;
+  /** Every address that signs in to the user: verified, or reserved by Clerk. */
+  addresses: string[];
+  passwordSetAt: number | null;
+  secondFactor: boolean;
+}
 
 export type Person = Pick<AccountProfile, "name" | "imageUrl">;
 
@@ -94,6 +112,8 @@ interface ClerkUser {
   image_url?: string | null;
   created_at?: number;
   primary_email_address_id?: string | null;
+  private_metadata?: Record<string, unknown> | null;
+  two_factor_enabled?: boolean;
   email_addresses?: {
     id?: string;
     email_address?: string;
@@ -138,12 +158,23 @@ function personOf(user: ClerkUser | undefined): Person {
   };
 }
 
+/** A path with its ids and query hidden, so a logged failure names no person. */
+const withoutIds = (path: string) =>
+  path
+    .replace(/\?.*$/, "")
+    .replace(/\b(user|idn|sess|eac)_[A-Za-z0-9]+/g, "$1_…");
+
 export function clerkBackend(
   secretKey: string,
   fetcher: Fetch = fetch,
   base = CLERK_API,
 ): ClerkBackend {
-  const request = async (method: string, path: string, body?: object) => {
+  const request = async (
+    method: string,
+    path: string,
+    body?: object,
+    refusals: readonly number[] = [404],
+  ) => {
     const response = await fetcher(`${base}${path}`, {
       method,
       headers: {
@@ -155,8 +186,8 @@ export function clerkBackend(
     });
     if (response.ok) return response;
     await response.body?.cancel();
-    if (response.status === 404) return null;
-    const said = `Clerk answered ${response.status} to ${method} ${path.replace(/user_[A-Za-z0-9]+/g, "user_…")}`;
+    if (refusals.includes(response.status)) return null;
+    const said = `Clerk answered ${response.status} to ${method} ${withoutIds(path)}`;
     throw response.status < 500 ? new ClerkRefusal(said) : new Error(said);
   };
   const call = async (method: string, path: string, body?: object) => {
@@ -385,5 +416,39 @@ export function clerkBackend(
         password: randomBytes(48).toString("base64url"),
         skip_password_checks: true,
       }),
+    demoAccount: async (userId) => {
+      const { user, verified } = await primaryEmail(userId);
+      if (!verified || user?.private_metadata?.[DEMO_MARK] !== true)
+        return null;
+      return {
+        address: verified,
+        addresses: (user.email_addresses ?? []).flatMap((held) =>
+          signsIn(held) && held.email_address ? [held.email_address] : [],
+        ),
+        passwordSetAt: user.password_last_updated_at ?? null,
+        secondFactor: user.two_factor_enabled === true,
+      };
+    },
+    passwordMatches: async (userId, password) => {
+      const response = await request(
+        "POST",
+        `/v1/users/${checked(userId, "user")}/verify_password`,
+        { password },
+        [400, 404, 422],
+      );
+      const answer = (await response?.json()) as
+        { verified?: unknown } | undefined;
+      return answer?.verified === true;
+    },
+    signInToken: async (userId, expiresInSeconds) => {
+      const response = await request("POST", "/v1/sign_in_tokens", {
+        user_id: checked(userId, "user"),
+        expires_in_seconds: expiresInSeconds,
+      });
+      const made = (await response?.json()) as { token?: unknown } | undefined;
+      if (typeof made?.token !== "string" || !made.token)
+        throw new Error("Clerk made no sign-in token");
+      return made.token;
+    },
   };
 }

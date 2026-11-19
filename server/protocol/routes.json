@@ -176,6 +176,57 @@
       }
     },
     {
+      "method": "get",
+      "path": "/v1/review-sign-in",
+      "operationId": "getReviewAccount",
+      "summary": "Which address is the store reviewers' demo account",
+      "auth": "none",
+      "responses": {
+        "200": {
+          "description": "The demo account's address, hashed.",
+          "body": "ReviewAccount"
+        },
+        "404": {
+          "description": "No demo account is set up.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "Too many requests from this address.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/review-sign-in",
+      "operationId": "reviewSignIn",
+      "summary": "Sign in to the store reviewers' demo account with its password, without an emailed code",
+      "auth": "none",
+      "request": "ReviewSignInRequest",
+      "responses": {
+        "200": {
+          "description": "A sign-in token for the demo account, good once for two minutes.",
+          "body": "ReviewSignIn"
+        },
+        "400": {
+          "description": "The body is not a valid ReviewSignInRequest.",
+          "body": "ApiError"
+        },
+        "401": {
+          "description": "Refused: the same answer for any other address and for a wrong password.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No demo account is set up.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "Too many sign-ins from this address, or to the demo account from everyone.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
       "method": "post",
       "path": "/v1/host-sign-ins",
       "operationId": "startHostSignIn",

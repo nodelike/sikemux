@@ -1737,6 +1737,29 @@ pub struct RenewalCharge {
     pub amount: Money,
 }
 
+/// Which address is the store reviewers' demo account, so an app can tell it apart before sending a password anywhere but Clerk.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewAccount {
+    /// SHA-256 of the address, trimmed and lowercased, in lowercase hex.
+    pub address_sha256: String,
+}
+
+/// A one-time Clerk sign-in token for the demo account, which the app signs in with by Clerk's ticket strategy.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewSignIn {
+    pub ticket: String,
+}
+
+/// The demo account's address and password, sent only once the app has matched the address against ReviewAccount.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewSignInRequest {
+    pub email: String,
+    pub password: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScheduledChange {
@@ -2316,6 +2339,9 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "PushTokenRegistration" => through::<PushTokenRegistration>(json),
         "PushTokenState" => through::<PushTokenState>(json),
         "RenewalCharge" => through::<RenewalCharge>(json),
+        "ReviewAccount" => through::<ReviewAccount>(json),
+        "ReviewSignIn" => through::<ReviewSignIn>(json),
+        "ReviewSignInRequest" => through::<ReviewSignInRequest>(json),
         "ScheduledChange" => through::<ScheduledChange>(json),
         "SeatPause" => through::<SeatPause>(json),
         "SharedProject" => through::<SharedProject>(json),

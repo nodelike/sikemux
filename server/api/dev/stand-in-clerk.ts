@@ -10,7 +10,8 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
  * Under /google it is Google too, for proving a work address, signing in whatever address is typed.
  * Maya and Kofi each have two accounts: a personal one, and one made with a work address at
  * acme.example, Maya's just now. Maya also has a third, made just now with another address of
- * her own, for the catch that only asks.
+ * her own, for the catch that only asks. Rae is the store reviewers' demo account, whose password
+ * signs in through the API's review sign-in.
  */
 const LONG_AGO = Date.parse("2025-06-01T09:00:00Z");
 const ADDED_LATER = Date.parse("2025-09-01T09:00:00Z");
@@ -24,6 +25,7 @@ const PEOPLE: {
   address?: string;
   alsoAt?: string[];
   createdAt?: number;
+  password?: string;
 }[] = [
   {
     key: "ines",
@@ -90,6 +92,13 @@ const PEOPLE: {
     domain: "okafor.example",
     address: "maya.okafor@okafor.example",
     createdAt: STARTED,
+  },
+  {
+    key: "review",
+    id: "user_standinreview",
+    name: "Rae Reviewer",
+    domain: "acme.example",
+    password: "the demo account's password",
   },
 ];
 const deleted = new Set<string>();
@@ -171,6 +180,9 @@ function user(person: (typeof PEOPLE)[number]) {
     primary_email_address_id: kept.primary,
     email_addresses: kept.addresses,
     created_at: person.createdAt ?? LONG_AGO,
+    private_metadata: person.key === "review" ? { storeReviewDemo: true } : {},
+    password_last_updated_at: LONG_AGO,
+    two_factor_enabled: false,
     external_accounts: kept.accounts.map((account) => ({
       ...account,
       provider: `oauth_${account.provider}`,
@@ -352,6 +364,8 @@ createServer(async (request, response) => {
     if (session) session.revoked = true;
     return send(200, { id: revoking, status: "revoked" });
   }
+  if (url.pathname === "/v1/sign_in_tokens" && method === "POST")
+    return send(200, { token: randomBytes(16).toString("hex") });
   const one = standing().find((p) => url.pathname === `/v1/users/${p.id}`);
   if (one && request.method === "DELETE") {
     deleted.add(one.id);
@@ -365,6 +379,14 @@ createServer(async (request, response) => {
   if (byId) {
     const kept = holding(byId);
     const rest = url.pathname.slice(`/v1/users/${byId.id}`.length);
+    if (rest === "/verify_password" && method === "POST") {
+      const { password } = await bodyOf(request);
+      if (!byId.password)
+        return send(400, { errors: [{ code: "no_password" }] });
+      if (password !== byId.password)
+        return send(422, { errors: [{ code: "incorrect_password" }] });
+      return send(200, { verified: true });
+    }
     if (rest === "" && method === "PATCH") {
       kept.primary =
         (await bodyOf(request)).primary_email_address_id ?? kept.primary;

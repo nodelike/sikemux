@@ -1689,6 +1689,23 @@ export interface RenewalCharge {
   amount: Money;
 }
 
+/** Which address is the store reviewers' demo account, so an app can tell it apart before sending a password anywhere but Clerk. */
+export interface ReviewAccount {
+  /** SHA-256 of the address, trimmed and lowercased, in lowercase hex. */
+  addressSha256: string;
+}
+
+/** A one-time Clerk sign-in token for the demo account, which the app signs in with by Clerk's ticket strategy. */
+export interface ReviewSignIn {
+  ticket: string;
+}
+
+/** The demo account's address and password, sent only once the app has matched the address against ReviewAccount. */
+export interface ReviewSignInRequest {
+  email: string;
+  password: string;
+}
+
 /** Why a device left its account: removed from another device or the web, signed out on the device itself, or the account was deleted. */
 export type RevokeReason = "removed" | "signed_out" | "account_deleted";
 export const revokeReasonValues: readonly RevokeReason[] = [
@@ -2590,6 +2607,9 @@ export interface Definitions {
   RecoveryKey: RecoveryKey;
   Relay: Relay;
   RenewalCharge: RenewalCharge;
+  ReviewAccount: ReviewAccount;
+  ReviewSignIn: ReviewSignIn;
+  ReviewSignInRequest: ReviewSignInRequest;
   RevokeReason: RevokeReason;
   ScheduledChange: ScheduledChange;
   Sealed: Sealed;

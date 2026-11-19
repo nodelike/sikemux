@@ -10,6 +10,7 @@ import { workGoogle } from "./account/work-google.ts";
 import { admittingVerifier } from "./account/admission.ts";
 import { clerkBackend } from "./account/clerk.ts";
 import { sweepClerk } from "./account/clerk-sweeper.ts";
+import { ReviewAccount } from "./account/review-sign-in.ts";
 import { makeDueCalls } from "./billing/calls.ts";
 import { sweepDeletedBilling } from "./billing/deleted.ts";
 import { alertWaitingKeptRefunds } from "./billing/seat-pause.ts";
@@ -62,6 +63,16 @@ export async function startServer(config: Config, log: Logger) {
     config.addressProofKey,
     log,
   );
+  const review =
+    config.reviewAccountUserId && clerk
+      ? new ReviewAccount(config.reviewAccountUserId)
+      : null;
+  if (review && clerk) {
+    review.keepLoading(clerk, log);
+    log.info(
+      "the store reviewers' demo account signs in without an emailed code",
+    );
+  }
   const apple = config.appleSignIn ? appleSignIn(config.appleSignIn) : null;
   if (apple)
     log.info(
@@ -163,6 +174,7 @@ export async function startServer(config: Config, log: Logger) {
     limiter,
     relayAccess,
     clerk,
+    review,
     appleSignIn: apple,
     macSignIn: clerkMacSignIn(config.clerkIssuer, config.macClientId),
     webhookSecret: config.clerkWebhookSecret,

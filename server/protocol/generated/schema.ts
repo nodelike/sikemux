@@ -3015,6 +3015,40 @@ export const schema = {
       required: ["at", "amount"],
       additionalProperties: false,
     },
+    ReviewAccount: {
+      description:
+        "Which address is the store reviewers' demo account, so an app can tell it apart before sending a password anywhere but Clerk.",
+      type: "object",
+      properties: {
+        addressSha256: {
+          description:
+            "SHA-256 of the address, trimmed and lowercased, in lowercase hex.",
+          type: "string",
+          pattern: "^[0-9a-f]{64}$",
+        },
+      },
+      required: ["addressSha256"],
+      additionalProperties: false,
+    },
+    ReviewSignIn: {
+      description:
+        "A one-time Clerk sign-in token for the demo account, which the app signs in with by Clerk's ticket strategy.",
+      type: "object",
+      properties: { ticket: { type: "string", minLength: 1, maxLength: 4096 } },
+      required: ["ticket"],
+      additionalProperties: false,
+    },
+    ReviewSignInRequest: {
+      description:
+        "The demo account's address and password, sent only once the app has matched the address against ReviewAccount.",
+      type: "object",
+      properties: {
+        email: { type: "string", minLength: 1, maxLength: 320 },
+        password: { type: "string", minLength: 1, maxLength: 256 },
+      },
+      required: ["email", "password"],
+      additionalProperties: false,
+    },
     RevokeReason: {
       description:
         "Why a device left its account: removed from another device or the web, signed out on the device itself, or the account was deleted.",
