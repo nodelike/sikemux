@@ -119,11 +119,16 @@ impl Workbench {
             .and_then(|row| agent_row(row, &place))
     }
 
+    /// The agent `id` as the rail shows it, on the host in front or any other this window holds.
     pub fn agent_by_id(&self, id: &str) -> Option<AgentRow> {
-        let place = self.place();
-        rows_of(self.view_at(&place)?)
-            .find(|row| row.agent_id == id)
-            .and_then(|row| agent_row(row, &place))
+        let mut places = std::iter::once(self.place())
+            .chain(std::iter::once(Place::This))
+            .chain((self.feeds.hosts()).map(|(host, _)| Place::Account(host.clone())));
+        places.find_map(|place| {
+            rows_of(self.view_at(&place)?)
+                .find(|row| row.agent_id == id)
+                .and_then(|row| agent_row(row, &place))
+        })
     }
 
     /// The project's agents on the host in front, in the order the core lists them.

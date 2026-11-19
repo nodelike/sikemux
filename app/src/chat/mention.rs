@@ -28,6 +28,7 @@ use sikemux_view::workspace::ProjectInfo;
 use sikemux_wire::protocol::{ChatContext, PermissionMode};
 
 use super::Composing;
+use crate::copies::Folded;
 use crate::drag::DraggedChat;
 use crate::icons::Icon;
 use crate::ui::{self, DockMenu, DockRow, DockScope};
@@ -535,16 +536,17 @@ impl Workbench {
         let agent = (crate::calls::reply::call_of(agent))
             .and_then(|call| self.call_at(call))
             .map_or(agent, |(_, call)| call.asker.agent_id.as_str());
-        let own = self
-            .shown()
-            .and_then(|view| view.workspace.agents.iter().find(|saved| saved.id == agent))
-            .map(|saved| saved.project.clone());
-        let mut projects: Vec<&ProjectInfo> = self.projects().iter().collect();
-        projects.sort_by_key(|project| Some(&project.id) != own.as_ref());
-        projects
+        let own = self.agent_by_id(agent).map(|row| (row.place, row.project));
+        let holds_own = |folded: &Folded| {
+            (folded.copies.iter())
+                .any(|copy| own.as_ref() == Some(&(copy.place.clone(), copy.project.clone())))
+        };
+        let mut folded = self.folded();
+        folded.sort_by_key(|folded| !holds_own(folded));
+        folded
             .into_iter()
-            .flat_map(|project| {
-                self.agents_of(&project.id)
+            .flat_map(|folded| {
+                self.agents_of_folded(&folded)
                     .into_iter()
                     .filter_map(move |row| {
                         let mate = row.name.clone().filter(|mate| {
@@ -554,7 +556,7 @@ impl Workbench {
                             id: row.id,
                             name: mate,
                             title: row.titled.then_some(row.title),
-                            project: project.name.clone(),
+                            project: folded.name.clone(),
                             provider: row.provider,
                         })
                     })
