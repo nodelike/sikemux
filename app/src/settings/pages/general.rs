@@ -415,7 +415,7 @@ pub fn render(
                             .child(pro)
                     })),
                 Some(rows::about_line(
-                    t!("Your theme, shortcuts, chat and agent choices, skills and themes follow you to every linked host.").into(),
+                    t!("Your shortcuts, chat and agent choices, skills and saved themes follow you to every linked host. Each host keeps the theme it shows.").into(),
                     Tokens::get(cx).text_tertiary,
                 )),
                 rows::switch(

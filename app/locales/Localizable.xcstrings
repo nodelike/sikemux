@@ -128911,54 +128911,54 @@
         }
       }
     },
-    "Your theme, shortcuts, chat and agent choices, skills and themes follow you to every linked host.": {
+    "Your shortcuts, chat and agent choices, skills and saved themes follow you to every linked host. Each host keeps the theme it shows.": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre thème, vos raccourcis, vos choix de chat et d'agent, vos skills et vos thèmes vous suivent sur chaque hôte lié."
+            "value": "Vos raccourcis, vos choix de chat et d'agent, vos skills et vos thèmes enregistrés vous suivent sur chaque hôte lié. Chaque hôte garde le thème qu'il affiche."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tu tema, atajos, elecciones de chat y agente, habilidades y temas te siguen a todos los hosts enlazados."
+            "value": "Tus atajos, elecciones de chat y agente, habilidades y temas guardados te siguen a todos los hosts enlazados. Cada host mantiene el tema que muestra."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dein Theme, Tastenkürzel, Chat- und Agent-Auswahl, Skills und Themes folgen dir auf jeden verknüpften Host."
+            "value": "Deine Tastenkürzel, Chat- und Agent-Auswahl, Skills und gespeicherten Themes folgen dir auf jeden verknüpften Host. Jeder Host behält das Theme, das er zeigt."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的主题、快捷键、聊天和智能体选择、技能会跟随你到每台已关联的主机。"
+            "value": "你的快捷键、聊天和智能体选择、技能和已保存的主题会跟随你到每台已关联的主机。每台主机保留它显示的主题。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "テーマ、ショートカット、チャットとエージェントの設定、スキルは、リンクしたすべてのホストに引き継がれます。"
+            "value": "ショートカット、チャットとエージェントの設定、スキル、保存したテーマは、リンクしたすべてのホストに引き継がれます。表示するテーマはホストごとに保たれます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "테마, 단축키, 채팅·에이전트 설정, 스킬, 추가한 테마가 연결된 모든 호스트에서 그대로 유지됩니다."
+            "value": "단축키, 채팅·에이전트 설정, 스킬, 저장한 테마가 연결된 모든 호스트에서 그대로 유지됩니다. 표시하는 테마는 호스트마다 따로 유지됩니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваша тема, сочетания клавиш, выбор чатов и агентов, навыки и темы следуют за вами на каждый соединённый хост."
+            "value": "Ваши сочетания клавиш, выбор чатов и агентов, навыки и сохранённые темы следуют за вами на каждый соединённый хост. Каждый хост сохраняет свою тему оформления."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seu tema, atalhos, escolhas de chat e de agente, skills e temas acompanham você em todos os hosts vinculados."
+            "value": "Seus atalhos, escolhas de chat e de agente, skills e temas salvos acompanham você em todos os hosts vinculados. Cada host mantém o tema que mostra."
           }
         }
       }

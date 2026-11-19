@@ -263,7 +263,7 @@ preference_changes! {
     ChatTextScale chat_text_scale: f64 => Person,
     ChatWidth chat_width: ChatWidth => Person,
     EditorTextScale editor_text_scale: f64 => Person,
-    ThemeId theme_id: String => Person,
+    ThemeId theme_id: String => Host,
     LastAgentType last_agent_type: Option<String> => Host,
     AgentWorktreeDefaults agent_worktree_defaults: BTreeMap<String, bool> => Host,
     RestoreAgentTabs restore_agent_tabs: bool => Person,
