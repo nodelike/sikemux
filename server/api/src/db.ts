@@ -57,6 +57,7 @@ export interface Tables {
     stash_seen_at: ColumnType<Date | null, never, Date>;
     staff: ColumnType<boolean, never, boolean>;
     admitted_at: ColumnType<Date | null, Date | undefined, Date>;
+    frozen_at: ColumnType<Date | null, never, Date | null>;
     new_kept_at: ColumnType<Date | null, never, Date>;
   };
   address_proofs: {
@@ -80,6 +81,11 @@ export interface Tables {
     created_at: CreatedAt;
     expires_at: Date;
     done_at: ColumnType<Date | null, never, Date>;
+    started_session: ColumnType<
+      string | null,
+      string | null | undefined,
+      never
+    >;
   };
   events: {
     id: Generated<string>;
@@ -110,6 +116,24 @@ export interface Tables {
     provider: string | null;
     removed_at: CreatedAt;
     told_at: Date | null;
+    end_sessions_from: Date | null;
+    swept_from: Date | null;
+    address_seen_id: string | null;
+  };
+  addresses_seen: {
+    id: Generated<string>;
+    user_id: string;
+    address_hash: Buffer;
+    domain_hash: Buffer;
+    first_seen: Date;
+    ended_at: Date | null;
+    could_sign_in: Generated<boolean>;
+  };
+  ended_sessions: {
+    session_id: string;
+    user_id: string;
+    made_at: Date;
+    ended_at: CreatedAt;
   };
   removed_devices: {
     key: string;
@@ -154,6 +178,16 @@ export interface Tables {
     >;
     /** Its join tickets say it never signs for the person. */
     hands_only: ColumnType<boolean, boolean | undefined, boolean>;
+    sign_in_session: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
+    >;
+    mac_signed_in_at: ColumnType<
+      Date | null,
+      Date | null | undefined,
+      Date | null
+    >;
   };
   challenges: { nonce: string; user_id: string; expires_at: Date };
   host_sign_ins: {
@@ -164,6 +198,11 @@ export interface Tables {
     platform: Platform;
     channel: Channel;
     approved_by: string | null;
+    approved_session: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
+    >;
     requested_from: string | null;
     created_at: CreatedAt;
     expires_at: Date;

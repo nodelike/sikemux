@@ -11,7 +11,8 @@ import { sql, type ExpressionBuilder, type Kysely } from "kysely";
 import { audit } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { issueChallenge } from "../devices/challenge.ts";
-import { registerDevice } from "../devices/register.ts";
+import type { Identity } from "../auth.ts";
+import { registerDevice, signInSessionOf } from "../devices/register.ts";
 import { badRequest, notFound, type ApiFailure } from "../http.ts";
 import type { Places } from "../places.ts";
 
@@ -100,12 +101,14 @@ export async function pendingHost(
 /** Lets the host behind `userCode` onto `userId`'s account, answering which host it is. */
 export async function approveHost(
   db: Kysely<Tables>,
-  { userId, via }: { userId: string; via: string },
+  { userId, via, sessionId, deviceKey }: Identity,
   userCode: string,
 ) {
+  const approvedSession =
+    via === "host" ? await signInSessionOf(db, deviceKey) : (sessionId ?? null);
   const row = await db
     .updateTable("host_sign_ins")
-    .set({ approved_by: userId })
+    .set({ approved_by: userId, approved_session: approvedSession })
     .where(openTo(userId, userCode))
     .returning(["key", "name"])
     .executeTakeFirst();
@@ -204,7 +207,11 @@ export async function finishSignIn(
   if (!row?.approved_by) throw gone();
   const registered = await registerDevice(
     db,
-    { userId: row.approved_by, via: "code" },
+    {
+      userId: row.approved_by,
+      via: "code",
+      sessionId: row.approved_session ?? undefined,
+    },
     {
       key: row.key,
       role: "host",

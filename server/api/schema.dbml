@@ -15,6 +15,7 @@ Table users {
   billing_retry_at timestamptz
   admitted_at timestamptz
   new_kept_at timestamptz
+  frozen_at timestamptz
 
   indexes {
     billing_retry_at [name: 'users_awaiting_billing', note: 'where (billing_retry_at IS NOT NULL)']
@@ -37,9 +38,12 @@ Table devices {
   clerk_session_id text
   registered_by text
   hands_only boolean [not null, default: `false`]
+  sign_in_session text
+  mac_signed_in_at timestamptz
 
   indexes {
     (user_id, created_at) [name: 'devices_by_user', note: 'created_at desc']
+    sign_in_session [name: 'devices_sign_in_session', note: 'where (sign_in_session IS NOT NULL)']
   }
 }
 
@@ -193,6 +197,7 @@ Table host_sign_ins {
   created_at timestamptz [not null, default: `now()`]
   expires_at timestamptz [not null]
   requested_from text
+  approved_session text
 
   indexes {
     expires_at [name: 'host_sign_ins_by_expiry']
@@ -714,6 +719,7 @@ Table account_folds {
   created_at timestamptz [not null, default: `now()`]
   expires_at timestamptz [not null]
   done_at timestamptz
+  started_session text
 
   indexes {
     from_user [name: 'account_folds_by_from', note: 'where (done_at IS NOT NULL)']
@@ -731,9 +737,13 @@ Table sign_in_removals {
   provider text
   removed_at timestamptz [not null, default: `now()`]
   told_at timestamptz
+  end_sessions_from timestamptz
+  swept_from timestamptz
+  address_seen_id bigint
 
   indexes {
     (user_id, address_id) [unique]
+    user_id [name: 'sign_in_removals_sessions_left', note: 'where (end_sessions_from IS NOT NULL)']
     user_id [name: 'sign_in_removals_untold', note: 'where (told_at IS NULL)']
   }
 }
@@ -751,6 +761,32 @@ Table work_address_sittings {
 
   indexes {
     user_id [name: 'work_address_sittings_by_user']
+  }
+}
+
+Table addresses_seen {
+  id bigint [pk, increment]
+  user_id text [not null]
+  address_hash bytea [not null]
+  domain_hash bytea [not null]
+  first_seen timestamptz [not null]
+  ended_at timestamptz
+  could_sign_in boolean [not null, default: `false`]
+
+  indexes {
+    (user_id, address_hash, ended_at) [name: 'addresses_seen_ended', note: 'where (ended_at IS NOT NULL)']
+    (user_id, address_hash) [name: 'addresses_seen_open', unique, note: 'where (ended_at IS NULL)']
+  }
+}
+
+Table ended_sessions {
+  session_id text [pk]
+  user_id text [not null]
+  made_at timestamptz [not null]
+  ended_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    user_id [name: 'ended_sessions_user']
   }
 }
 
@@ -802,5 +838,8 @@ Ref: address_proofs.user_id > users.id [delete: cascade]
 Ref: account_folds.from_user > users.id [delete: cascade]
 Ref: account_folds.into_user > users.id [delete: cascade]
 Ref: account_folds.org_id > orgs.id [delete: set null]
+Ref: sign_in_removals.address_seen_id > addresses_seen.id [delete: cascade]
 Ref: sign_in_removals.user_id > users.id [delete: cascade]
 Ref: work_address_sittings.user_id > users.id [delete: cascade]
+Ref: addresses_seen.user_id > users.id [delete: cascade]
+Ref: ended_sessions.user_id > users.id [delete: cascade]

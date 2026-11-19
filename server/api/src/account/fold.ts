@@ -133,7 +133,7 @@ async function signUpOf(clerk: ClerkBackend | null, userId: string) {
 function provableAddress(found: SignUpRefusal): string {
   if (!found.verified)
     throw conflict(
-      "This address isn't verified yet, so it can't be brought over. Verify it, then start again.",
+      "This address isn't verified, so it can't be brought over. Delete this account, then sign in with your own Google or Apple.",
     );
   return found.address;
 }
@@ -593,11 +593,12 @@ export function foldRoutes({
     })
     .post("/folds", requireRecentSignIn(), async (c) => {
       const key = requireProofKey();
-      const { userId } = c.get("identity");
+      const { userId, sessionId } = c.get("identity");
       const { why, inviteToken } = await readBody(c, "FoldStart");
       const secret = randomBytes(32).toString("base64url");
       const base = {
         secret_hash: secretHash(secret),
+        started_session: sessionId ?? null,
         why,
         expires_at: new Date(Date.now() + INTENT_MINUTES * 60_000),
       };

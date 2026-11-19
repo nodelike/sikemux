@@ -2,7 +2,7 @@ import type { Device, DeviceRegistration } from "@sikemux/protocol";
 import { sql, type Kysely, type Selectable } from "kysely";
 
 import { audit } from "../audit.ts";
-import { holdStanding } from "../auth.ts";
+import { checkStanding, holdStanding, type Identity } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
 import { ApiFailure, badRequest, forbidden } from "../http.ts";
@@ -29,8 +29,11 @@ export function toDevice(row: Selectable<Tables["devices"]>): Device {
  */
 interface Registrant {
   userId: string;
-  via: string;
+  via: Identity["via"] | "code";
+  /** The Clerk session behind the registration: the caller's, or the one that approved a host's code. */
   sessionId?: string | undefined;
+  /** When a Mac's sign-in was made. */
+  issuedAt?: Date | undefined;
   /** The host that signed the request, when one did. */
   deviceKey?: string | undefined;
 }
@@ -41,7 +44,7 @@ interface Registrant {
  */
 export async function registerDevice(
   db: Kysely<Tables>,
-  { userId, via, sessionId, deviceKey }: Registrant,
+  { userId, via, sessionId, issuedAt, deviceKey }: Registrant,
   registration: DeviceRegistration,
 ): Promise<{ row: Selectable<Tables["devices"]>; added: boolean }> {
   if (via === "host" && registration.role !== "client")
@@ -65,6 +68,16 @@ export async function registerDevice(
 
   return db.transaction().execute(async (trx) => {
     await holdStanding(trx, userId);
+    const signInSession =
+      via === "host"
+        ? await signInSessionOf(trx, deviceKey)
+        : (sessionId ?? null);
+    await checkStanding(trx, {
+      userId,
+      via: via === "code" ? "session" : via,
+      sessionId: signInSession ?? undefined,
+      issuedAt,
+    });
     const existing = await trx
       .selectFrom("devices")
       .selectAll()
@@ -117,6 +130,12 @@ export async function registerDevice(
       hands_only: Boolean(existing?.hands_only || registration.handsOnly),
       clerk_session_id:
         registration.role === "client" ? (sessionId ?? null) : null,
+      ...(existing
+        ? {}
+        : {
+            sign_in_session: signInSession,
+            mac_signed_in_at: via === "mac" ? (issuedAt ?? null) : null,
+          }),
     };
     const eventId = await appendEvent(trx, {
       userId,
@@ -171,4 +190,18 @@ export async function registerDevice(
     });
     return { row, added: !existing };
   });
+}
+
+/** The Clerk session that put a device on the account, which also stands behind what it adds. */
+export async function signInSessionOf(
+  db: Kysely<Tables>,
+  key: string | undefined,
+): Promise<string | null> {
+  if (!key) return null;
+  const row = await db
+    .selectFrom("devices")
+    .select("sign_in_session")
+    .where("key", "=", key)
+    .executeTakeFirst();
+  return row?.sign_in_session ?? null;
 }

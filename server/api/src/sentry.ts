@@ -120,5 +120,21 @@ export function reportAs(userId: string) {
   if (Sentry.isEnabled()) Sentry.setUser({ id: accountHash(userId) });
 }
 
+/** Raises an issue of its own for one account, named only by its pseudonym, for staff to look at. */
+export function alertStaff(
+  userId: string,
+  what: string,
+  detail?: Record<string, unknown>,
+) {
+  if (!Sentry.isEnabled()) return;
+  const account = accountHash(userId);
+  Sentry.captureMessage(what, {
+    level: "error",
+    fingerprint: [what, account],
+    user: { id: account },
+    ...(detail && { extra: detail }),
+  });
+}
+
 /** Sends what is queued before the process exits. */
 export const flushSentry = () => Sentry.close(2000);

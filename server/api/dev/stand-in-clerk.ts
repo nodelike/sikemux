@@ -103,8 +103,13 @@ const jwks = {
   keys: [{ ...(await exportJWK(publicKey)), kid: "stand-in", alg: "RS256" }],
 };
 
+const sessions = new Map<string, { createdAt: number; revoked: boolean }>();
+
 function token(userId: string) {
-  return new SignJWT({ sid: `sess_${userId}`, azp: appOrigin, fva: [0, -1] })
+  const sid = `sess_${userId}`;
+  if (!sessions.has(sid))
+    sessions.set(sid, { createdAt: Date.now(), revoked: false });
+  return new SignJWT({ sid, azp: appOrigin, fva: [0, -1] })
     .setProtectedHeader({ alg: "RS256", kid: "stand-in", typ: "JWT" })
     .setIssuer(issuer)
     .setSubject(userId)
@@ -120,7 +125,12 @@ type Address = {
   verification: { status: string };
   linked_to: { type: string; id: string }[];
 };
-type Account = { id: string; provider: string; email_address: string };
+type Account = {
+  id: string;
+  provider: string;
+  email_address: string;
+  created_at: number;
+};
 type Held = { primary: string; addresses: Address[]; accounts: Account[] };
 
 const CODE = "424242";
@@ -327,6 +337,21 @@ createServer(async (request, response) => {
         .map(user),
     );
   }
+  if (url.pathname === "/v1/sessions") {
+    const sid = `sess_${url.searchParams.get("user_id")}`;
+    const session = sessions.get(sid);
+    const status = session?.revoked ? "revoked" : "active";
+    return send(
+      200,
+      session ? [{ id: sid, status, created_at: session.createdAt }] : [],
+    );
+  }
+  const revoking = url.pathname.match(/^\/v1\/sessions\/(.+)\/revoke$/)?.[1];
+  if (revoking && method === "POST") {
+    const session = sessions.get(revoking);
+    if (session) session.revoked = true;
+    return send(200, { id: revoking, status: "revoked" });
+  }
   const one = standing().find((p) => url.pathname === `/v1/users/${p.id}`);
   if (one && request.method === "DELETE") {
     deleted.add(one.id);
@@ -362,6 +387,8 @@ createServer(async (request, response) => {
   const me = standing().find((p) => p.key === url.searchParams.get("as"));
   if (url.pathname === "/token") {
     if (!me) return send(404, { error: "no such person" });
+    if (sessions.get(`sess_${me.id}`)?.revoked)
+      return send(401, { error: "the session was ended" });
     return send(200, { token: await token(me.id) });
   }
   if (url.pathname.startsWith("/me") && me) {
@@ -425,6 +452,7 @@ createServer(async (request, response) => {
       id,
       provider: form.provider,
       email_address: form.email,
+      created_at: Date.now(),
     });
     if (!kept.addresses.some((a) => a.email_address === form.email))
       kept.addresses.push({

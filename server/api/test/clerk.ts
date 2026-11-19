@@ -52,6 +52,16 @@ export class FakeClerk implements ClerkBackend {
     this.revoked.push(sessionId);
   }
 
+  readonly userSessions = new Map<string, { id: string; createdAt: Date }[]>();
+
+  async sessions(userId: string) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return (this.userSessions.get(userId) ?? []).map((session) => ({
+      ...session,
+      live: !this.revoked.includes(session.id),
+    }));
+  }
+
   async appleAccessTokens(userId: string) {
     if (this.failing) throw new Error("Clerk answered 500");
     return this.appleTokens.get(userId) ?? [];
@@ -80,5 +90,20 @@ export class FakeClerk implements ClerkBackend {
       user.externalAccounts = user.externalAccounts.filter(
         (a) => a.id !== accountId,
       );
+  }
+
+  async removePhone(phoneId: string) {
+    for (const user of this.users.values())
+      user.phones = user.phones.filter((phone) => phone.id !== phoneId);
+  }
+
+  async removeWallet(userId: string, walletId: string) {
+    const user = this.users.get(userId);
+    if (user) user.wallets = user.wallets.filter((w) => w.id !== walletId);
+  }
+
+  async replacePassword(userId: string) {
+    const user = this.users.get(userId);
+    if (user) user.passwordSetAt = new Date(Date.now() + 1);
   }
 }

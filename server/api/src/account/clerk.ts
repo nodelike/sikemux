@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { AccountProfile } from "@sikemux/protocol";
 
 import { domainOf } from "./proofs.ts";
@@ -16,6 +17,8 @@ export interface ClerkBackend {
   /** The names and pictures of up to 100 users, by id; a user who is gone is left out. */
   people(userIds: string[]): Promise<Map<string, Person>>;
   revokeSession(sessionId: string): Promise<void>;
+  /** Every session of the user, ended ones too, with when each was made and whether it can still be used. Throws on an answer it can't read. */
+  sessions(userId: string): Promise<ClerkSession[]>;
   /** The access tokens Clerk holds from the user's web sign-ins with Apple; none for the phone's. */
   appleAccessTokens(userId: string): Promise<string[]>;
   /** Every address and connected account on the user, for the API's own checks; null once the user is gone. Never log what it holds. */
@@ -23,6 +26,10 @@ export interface ClerkBackend {
   setPrimaryAddress(userId: string, addressId: string): Promise<void>;
   removeAddress(addressId: string): Promise<void>;
   removeExternalAccount(userId: string, accountId: string): Promise<void>;
+  removePhone(phoneId: string): Promise<void>;
+  removeWallet(userId: string, walletId: string): Promise<void>;
+  /** Sets a long random password nobody keeps, so the one before stops working. */
+  replacePassword(userId: string): Promise<void>;
 }
 
 export type SignIns = {
@@ -34,8 +41,24 @@ export type SignIns = {
     verified: boolean;
     addedAt: Date;
   }[];
-  externalAccounts: { id: string; provider: string; email: string }[];
+  externalAccounts: {
+    id: string;
+    provider: string;
+    email: string;
+    addedAt: Date;
+  }[];
+  phones: { id: string; signsIn: boolean; addedAt: Date }[];
+  wallets: { id: string; addedAt: Date }[];
+  /** Null too for a password Clerk keeps no time for, which is in `undated`. */
+  passwordSetAt: Date | null;
+  /** The kinds of sign-in the account holds that Clerk keeps no time for. */
+  undated: string[];
 };
+
+/** Clerk turned a request down, as against failing to answer it. */
+export class ClerkRefusal extends Error {}
+
+export type ClerkSession = { id: string; createdAt: Date; live: boolean };
 
 export type Person = Pick<AccountProfile, "name" | "imageUrl">;
 
@@ -53,7 +76,7 @@ type Fetch = (
 ) => Promise<Response>;
 
 /** Clerk lets a reserved address sign in before it is verified. */
-function signsIn(address: {
+export function signsIn(address: {
   reserved?: boolean;
   verification?: { status?: string } | null;
 }) {
@@ -82,9 +105,26 @@ interface ClerkUser {
     id?: string;
     provider?: string;
     email_address?: string;
+    created_at?: number;
   }[];
+  phone_numbers?: {
+    id?: string;
+    created_at?: number;
+    reserved_for_second_factor?: boolean;
+    verification?: { status?: string } | null;
+  }[];
+  web3_wallets?: { id?: string; created_at?: number }[];
+  passkeys?: unknown[];
+  saml_accounts?: unknown[];
+  enterprise_accounts?: unknown[];
+  totp_enabled?: boolean;
+  backup_code_enabled?: boolean;
+  username?: string | null;
+  password_enabled?: boolean;
+  password_last_updated_at?: number | null;
 }
 const TIMEOUT_MS = 10_000;
+const SESSIONS_PAGE = 500;
 
 function personOf(user: ClerkUser | undefined): Person {
   const name = [user?.first_name, user?.last_name]
@@ -116,7 +156,8 @@ export function clerkBackend(
     if (response.ok) return response;
     await response.body?.cancel();
     if (response.status === 404) return null;
-    throw new Error(`Clerk answered ${response.status} to ${method} ${path}`);
+    const said = `Clerk answered ${response.status} to ${method} ${path.replace(/user_[A-Za-z0-9]+/g, "user_…")}`;
+    throw response.status < 500 ? new ClerkRefusal(said) : new Error(said);
   };
   const call = async (method: string, path: string, body?: object) => {
     const response = await request(method, path, body);
@@ -208,6 +249,41 @@ export function clerkBackend(
     },
     revokeSession: async (sessionId) =>
       call("POST", `/v1/sessions/${checked(sessionId, "sess")}/revoke`),
+    sessions: async (userId) => {
+      const sessions: ClerkSession[] = [];
+      for (let offset = 0; ; offset += SESSIONS_PAGE) {
+        const query = new URLSearchParams({
+          user_id: checked(userId, "user"),
+          limit: String(SESSIONS_PAGE),
+          offset: String(offset),
+        });
+        const response = await request("GET", `/v1/sessions?${query}`);
+        const listed: unknown = await response?.json();
+        const page = Array.isArray(listed)
+          ? listed
+          : (listed as { data?: unknown } | undefined)?.data;
+        if (!Array.isArray(page))
+          throw new Error("Clerk's list of sessions was not a list");
+        for (const session of page as {
+          id?: unknown;
+          status?: unknown;
+          created_at?: unknown;
+        }[]) {
+          if (
+            typeof session?.id !== "string" ||
+            typeof session.created_at !== "number" ||
+            typeof session.status !== "string"
+          )
+            throw new Error("Clerk listed a session it didn't describe");
+          sessions.push({
+            id: session.id,
+            createdAt: new Date(session.created_at),
+            live: session.status === "active" || session.status === "pending",
+          });
+        }
+        if (page.length < SESSIONS_PAGE) return sessions;
+      }
+    },
     appleAccessTokens: async (userId) => {
       const response = await request(
         "GET",
@@ -244,10 +320,46 @@ export function clerkBackend(
                   id: account.id,
                   provider: account.provider.replace(/^oauth_/, ""),
                   email: account.email_address ?? "",
+                  addedAt: new Date(account.created_at ?? 0),
                 },
               ]
             : [],
         ),
+        phones: (user.phone_numbers ?? []).flatMap((phone) =>
+          phone.id
+            ? [
+                {
+                  id: phone.id,
+                  signsIn:
+                    phone.verification?.status === "verified" &&
+                    !phone.reserved_for_second_factor,
+                  addedAt: new Date(phone.created_at ?? 0),
+                },
+              ]
+            : [],
+        ),
+        wallets: (user.web3_wallets ?? []).flatMap((wallet) =>
+          wallet.id
+            ? [{ id: wallet.id, addedAt: new Date(wallet.created_at ?? 0) }]
+            : [],
+        ),
+        passwordSetAt:
+          user.password_enabled &&
+          typeof user.password_last_updated_at === "number"
+            ? new Date(user.password_last_updated_at)
+            : null,
+        undated: [
+          ...(user.passkeys?.length ? ["passkey"] : []),
+          ...(user.saml_accounts?.length ? ["SAML account"] : []),
+          ...(user.enterprise_accounts?.length ? ["enterprise account"] : []),
+          ...(user.totp_enabled ? ["authenticator app"] : []),
+          ...(user.backup_code_enabled ? ["backup codes"] : []),
+          ...(user.username ? ["username"] : []),
+          ...(user.password_enabled &&
+          typeof user.password_last_updated_at !== "number"
+            ? ["password"]
+            : []),
+        ],
       };
     },
     setPrimaryAddress: async (userId, addressId) =>
@@ -261,5 +373,17 @@ export function clerkBackend(
         "DELETE",
         `/v1/users/${checked(userId, "user")}/external_accounts/${checked(accountId, "(?:idn|eac)")}`,
       ),
+    removePhone: async (phoneId) =>
+      call("DELETE", `/v1/phone_numbers/${checked(phoneId, "idn")}`),
+    removeWallet: async (userId, walletId) =>
+      call(
+        "DELETE",
+        `/v1/users/${checked(userId, "user")}/web3_wallets/${checked(walletId, "idn")}`,
+      ),
+    replacePassword: async (userId) =>
+      call("PATCH", `/v1/users/${checked(userId, "user")}`, {
+        password: randomBytes(48).toString("base64url"),
+        skip_password_checks: true,
+      }),
   };
 }
