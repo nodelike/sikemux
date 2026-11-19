@@ -110,13 +110,22 @@ pub fn unlanded(worktree: &AgentWorktree) -> Result<bool, String> {
         &["rev-parse", &format!("refs/heads/{base}")],
     )?);
     let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
-    Ok(!own_commits(&worktree.path, &tip, &head)?.is_empty())
+    Ok(!own_commits(&worktree.path, &tip, &head, None)?.is_empty())
 }
 
-/// The commits of `head` that `tip` lacks, by their changes, oldest first.
-fn own_commits(tree: &Path, tip: &str, head: &str) -> Result<Vec<Unpushed>, String> {
+/// The commits of `head` that `tip` lacks, by their changes, oldest first, after `since` when
+/// given.
+fn own_commits(
+    tree: &Path,
+    tip: &str,
+    head: &str,
+    since: Option<&str>,
+) -> Result<Vec<Unpushed>, String> {
     let range = format!("{tip}..{head}");
-    if git(tree, &["rev-list", "--merges", "--count", &range])?.trim() != "0" {
+    let not_since = since.map(|since| format!("^{since}"));
+    let not_since = not_since.as_deref();
+    let merges = ["rev-list", "--merges", "--count", &range];
+    if git(tree, &[&merges[..], not_since.as_slice()].concat())?.trim() != "0" {
         return Err("Your commits include a merge, which the land queue doesn't take; rebase them onto the branch they land on so they form one line, then land again".into());
     }
     let listed = git(
@@ -128,7 +137,10 @@ fn own_commits(tree: &Path, tip: &str, head: &str) -> Result<Vec<Unpushed>, Stri
             "--right-only",
             "--format=%H%x00%s",
             &format!("{tip}...{head}"),
-        ],
+        ]
+        .into_iter()
+        .chain(not_since)
+        .collect::<Vec<_>>(),
     )?;
     Ok(listed
         .lines()
@@ -163,7 +175,7 @@ fn sync_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Synced, Stri
     for _ in 0..ATTEMPTS {
         let tip = line(git(&worktree.repo, &["rev-parse", &target])?);
         let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
-        let commits = own_commits(&worktree.path, &tip, &head)?;
+        let commits = own_commits(&worktree.path, &tip, &head, None)?;
         let synced = replay(
             signing,
             &worktree.path,
@@ -241,17 +253,18 @@ pub fn follow(tree: &Path, before: &str, after: &str) -> Option<String> {
     None
 }
 
-/// The commits of `head` that `onto` lacks, made again on it in the repository
-/// at `repo`, their footers signed again with `signing`. None when `onto` holds
+/// The commits of `head` that `onto` lacks, after `since` when given, made again on it in the
+/// repository at `repo`, their footers signed again with `signing`. None when `onto` holds
 /// every one of their changes, even as commits made again elsewhere.
 pub fn lay(
     signing: &Signing,
     repo: &Path,
     head: &str,
+    since: Option<&str>,
     onto: &str,
     base: &str,
 ) -> Result<Option<Laid>, String> {
-    let commits = own_commits(repo, onto, head)?;
+    let commits = own_commits(repo, onto, head, since)?;
     if commits.is_empty() {
         return Ok(None);
     }
@@ -508,7 +521,8 @@ mod tests {
         let base = worktree.base.as_deref().unwrap_or_default();
         let tip = line(git(&worktree.repo, &["rev-parse", base])?);
         let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
-        let laid = lay(signing, &worktree.repo, &head, &tip, base)?.ok_or("nothing to land")?;
+        let laid =
+            lay(signing, &worktree.repo, &head, None, &tip, base)?.ok_or("nothing to land")?;
         let merged = put(&worktree.repo, base, &tip, &laid.tip).map_err(|not| match not {
             NotPut::Clash(paths) => format!("{paths:?}"),
             NotPut::Moved => "moved".to_owned(),
@@ -635,7 +649,7 @@ mod tests {
             hosts: Vec::new(),
         };
         let head = git_in(&tree, &["rev-parse", "HEAD"]);
-        assert!(lay(&signing, &main, &head, &before, "main")
+        assert!(lay(&signing, &main, &head, None, &before, "main")
             .unwrap()
             .is_none());
         assert!(land_from(&worktree, &signing).is_err());

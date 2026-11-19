@@ -75,10 +75,19 @@ struct Done {
     still_pushing: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     synced: Option<super::land::Synced>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    queued: Option<super::queue::Queued>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    queued: Option<Landing>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pushed: Option<super::push::Pushed>,
+}
+
+#[derive(Serialize)]
+enum Landing {
+    #[serde(rename = "queued")]
+    Here(super::queue::Queued),
+    /// A worker's commits went back to its lead on another host, whose host lands them.
+    #[serde(rename = "sentToLead")]
+    AtLead(String),
 }
 
 fn is_zero(count: &usize) -> bool {
@@ -201,7 +210,15 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
                             false
                         }
                     };
-                match super::queue::enqueue(&core, &agent_id, push_after) {
+                let at_lead = match own {
+                    Some(_) => None,
+                    None => (core.repo_above().hosts_land_at_lead)(&core, &agent_id, push_after),
+                };
+                let queued = match at_lead {
+                    Some(sent) => sent.map(Landing::AtLead),
+                    None => super::queue::enqueue(&core, &agent_id, push_after).map(Landing::Here),
+                };
+                match queued {
                     Ok(queued) => Some(queued),
                     Err(why) if committed.is_some() || synced.is_some() => {
                         return Ok(Done {

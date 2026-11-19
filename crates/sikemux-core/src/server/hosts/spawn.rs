@@ -748,6 +748,7 @@ async fn send_commits_to(core: &Arc<Core>, worker: &str, tree: Tree, host: &str)
                         agent_id: worker.to_owned(),
                         head: head.clone(),
                         count,
+                        land: None,
                     }),
                 )
                 .keyed(format!("commits:{worker}"))
@@ -764,6 +765,64 @@ async fn send_commits_to(core: &Arc<Core>, worker: &str, tree: Tree, host: &str)
             eprintln!("sikemux core: a worker's commits did not go back to its lead: {error}");
         }
     }
+}
+
+/// A worker here whose lead is on another host lands by sending its commits back with the ask,
+/// and its lead's host puts them in line as it would a checkout's of its own. None when the agent
+/// works in no checkout cut for a lead elsewhere.
+pub(crate) fn land_at_lead(
+    core: &Core,
+    worker: &str,
+    push: bool,
+) -> Option<Result<String, String>> {
+    let tree = core.hosts().team.tree(worker)?;
+    Some(send_land(core, worker, tree, push))
+}
+
+fn send_land(core: &Core, worker: &str, tree: Tree, push: bool) -> Result<String, String> {
+    let lead = (core.names().get(worker).and_then(|named| named.parent))
+        .and_then(|lead| core.hosts().team.get(&lead))
+        .ok_or("Your lead's host is no longer linked to this one, so your commits have nowhere to land")?;
+    let into = core.hosts().outbox.body_path(&format!(
+        "{worker}-{}.bundle",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let since = tree
+        .lead_changes
+        .clone()
+        .unwrap_or_else(|| tree.base.clone());
+    let made = code::commits(&Tree { sent: None, ..tree }, &into).inspect_err(|_| {
+        let _ = std::fs::remove_file(&into);
+    })?;
+    let Some((head, count)) = made else {
+        return Err("Nothing to land: you have no commits since the code your lead sent".into());
+    };
+    post(
+        core,
+        &lead.host,
+        Sending::new(
+            asks::CommitsReady::METHOD,
+            params_of::<asks::CommitsReady>(&code::ArrivingCommits {
+                agent_id: worker.to_owned(),
+                head: head.clone(),
+                count,
+                land: Some(code::Landing { since, push }),
+            }),
+        )
+        .keyed(format!("land:{worker}"))
+        .pulled(into)
+        .kept()
+        .from(worker)
+        .about(worker),
+    );
+    core.hosts().team.tree_sent(worker, &head);
+    let short = head.get(..9).unwrap_or(&head);
+    let pushed = if push { " and pushed" } else { "" };
+    Ok(format!(
+        "Sent your commits up to {short} back to {} on {}, whose host puts them in line for the branch its lands go on, checked and landed{pushed} as a checkout there would be. A message tells you how it ended, naming {short}.",
+        lead.name,
+        name_of(core, &lead.host)
+    ))
 }
 
 /// The bundle of a worker's commits that its lead's host, `host`, fetches after hearing they are

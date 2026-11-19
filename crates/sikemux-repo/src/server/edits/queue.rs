@@ -33,7 +33,6 @@ use crate::server::connection::blocking;
 use crate::server::merge_queue::{self, Lane};
 use crate::server::Core;
 use crate::tasks::config::LandCheck;
-use sikemux_view::workspace::AgentWorktree;
 
 const ATTEMPTS: usize = 4;
 /// Files that change how every crate builds.
@@ -60,9 +59,13 @@ struct Line {
 #[derive(Clone)]
 struct Waiting {
     agent: String,
-    worktree: AgentWorktree,
+    /// The agent's own checkout here, which follows its landed commits; none for commits a
+    /// worker on another host sent back.
+    checkout: Option<PathBuf>,
     /// The commit its checkout stood on when it asked to land.
     head: String,
+    /// Where its own commits begin, when its branch starts with commits that are not its own.
+    since: Option<String>,
     push: bool,
     queued_at: u64,
     /// A check holding it is running, so a newer land of its agent queues behind it.
@@ -98,6 +101,12 @@ pub struct Queued {
     note: String,
 }
 
+impl Queued {
+    pub fn note(&self) -> &str {
+        &self.note
+    }
+}
+
 /// What a new land of an agent did to the one it had in line already.
 enum Replaced {
     Took(String),
@@ -110,18 +119,61 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
     let worktree = land::own_checkout(core, agent_id).ok_or("You work in the project's own checkout, so your commits are on its branch already; there is nothing to land")?;
     let base = (worktree.base.clone())
         .ok_or("Your checkout was cut from no branch, so there is nowhere to land it")?;
-    let tip = line(git(
-        &worktree.repo,
-        &["rev-parse", &format!("refs/heads/{base}")],
-    )?);
     let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
-    let laid = land::lay(&Signing::of(core), &worktree.repo, &head, &tip, &base)?
-        .ok_or_else(|| format!("Nothing to land: {base} has every commit of yours"))?;
-    let key = (worktree.repo.clone(), base.clone());
+    let sent = Sent {
+        repo: worktree.repo,
+        base,
+        head,
+        since: None,
+    };
+    put_in_line(core, agent_id, sent, Some(worktree.path), push)
+}
+
+/// Commits a worker on another host sent back to land: `head` is in `repo` here, and its own
+/// commits are those after `since`.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Sent {
+    pub repo: PathBuf,
+    pub base: String,
+    pub head: String,
+    pub since: Option<String>,
+}
+
+/// Puts commits a worker on another host sent back in line for `sent.base`, as its own
+/// checkout's would be.
+pub fn enqueue_sent(core: &Core, agent_id: &str, sent: Sent, push: bool) -> Result<Queued, String> {
+    put_in_line(core, agent_id, sent, None, push)
+}
+
+fn put_in_line(
+    core: &Core,
+    agent_id: &str,
+    sent: Sent,
+    checkout: Option<PathBuf>,
+    push: bool,
+) -> Result<Queued, String> {
+    let Sent {
+        repo,
+        base,
+        head,
+        since,
+    } = sent;
+    let tip = line(git(&repo, &["rev-parse", &format!("refs/heads/{base}")])?);
+    let laid = land::lay(
+        &Signing::of(core),
+        &repo,
+        &head,
+        since.as_deref(),
+        &tip,
+        &base,
+    )?
+    .ok_or_else(|| format!("Nothing to land: {base} has every commit of yours"))?;
+    let key = (repo, base.clone());
     let waiting = Waiting {
         agent: agent_id.to_owned(),
-        worktree,
+        checkout,
         head,
+        since,
         push,
         queued_at: epoch_ms(),
         checking: false,
@@ -292,17 +344,27 @@ struct Saved {
     agent: String,
     head: String,
     push: bool,
+    /// Where commits a worker on another host sent back wait, as its checkout here is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sent: Option<Sent>,
 }
 
 fn save(core: &Core, lines: &HashMap<Key, Line>) {
     let Some(path) = core.data_dir().as_ref().map(|dir| dir.join(SAVED)) else {
         return;
     };
-    let saved: Vec<Saved> = (lines.values().flat_map(|line| &line.waiting))
-        .map(|w| Saved {
+    let saved: Vec<Saved> = (lines.iter())
+        .flat_map(|((repo, base), line)| line.waiting.iter().map(move |w| (repo, base, w)))
+        .map(|(repo, base, w)| Saved {
             agent: w.agent.clone(),
             head: w.head.clone(),
             push: w.push,
+            sent: w.checkout.is_none().then(|| Sent {
+                repo: repo.clone(),
+                base: base.clone(),
+                head: w.head.clone(),
+                since: w.since.clone(),
+            }),
         })
         .collect();
     let written = serde_json::to_vec(&saved)
@@ -326,20 +388,26 @@ pub fn resume(core: &Arc<Core>) {
     {
         let mut lines = core.land_queue().0.locked();
         for saved in saved {
-            let Some(worktree) = land::own_checkout(core, &saved.agent) else {
-                eprintln!(
-                    "sikemux core: a land of {} was dropped, as its agent's checkout is gone",
-                    saved.agent
-                );
-                continue;
+            let (key, checkout, since) = match saved.sent {
+                Some(sent) => ((sent.repo, sent.base), None, sent.since),
+                None => {
+                    let Some(worktree) = land::own_checkout(core, &saved.agent) else {
+                        eprintln!(
+                            "sikemux core: a land of {} was dropped, as its agent's checkout is gone",
+                            saved.agent
+                        );
+                        continue;
+                    };
+                    let Some(base) = worktree.base.clone() else {
+                        continue;
+                    };
+                    ((worktree.repo, base), Some(worktree.path), None)
+                }
             };
-            let Some(base) = worktree.base.clone() else {
-                continue;
-            };
-            let key = (worktree.repo.clone(), base);
             lines.entry(key.clone()).or_default().waiting.push(Waiting {
                 agent: saved.agent,
-                worktree,
+                checkout,
+                since,
                 head: saved.head,
                 push: saved.push,
                 queued_at: epoch_ms(),
@@ -467,7 +535,8 @@ fn lay(
     waiting: &Waiting,
     on: &str,
 ) -> Result<Option<Laid>, String> {
-    let Some(laid) = land::lay(signing, repo, &waiting.head, on, base)? else {
+    let since = waiting.since.as_deref();
+    let Some(laid) = land::lay(signing, repo, &waiting.head, since, on, base)? else {
         return Ok(None);
     };
     let commits = git(
@@ -940,7 +1009,8 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
     let mut landed = Vec::with_capacity(stacked.laid.len());
     for laid in &stacked.laid {
         let waiting = &laid.waiting;
-        let stays = land::follow(&waiting.worktree.path, &waiting.head, &laid.tip);
+        let stays = (waiting.checkout.as_deref())
+            .and_then(|checkout| land::follow(checkout, &waiting.head, &laid.tip));
         core.build_outputs().landed(&waiting.agent);
         (core.repo_above().turn_state_committed)(core, &waiting.agent);
         let made = format!("{onto}..{}", laid.tip);
