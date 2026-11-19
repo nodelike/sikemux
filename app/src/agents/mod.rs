@@ -1329,9 +1329,7 @@ fn agent_row(
     .children(turn_time)
     .children(counts);
     let lines = hang_lines(hang, cx);
-    let card = (!elsewhere)
-        .then(|| crate::agents::card::view(bench, agent, project.as_deref(), cx))
-        .flatten();
+    let card = crate::agents::card::view(bench, agent, project.as_deref(), cx);
     let close = agent.id.clone();
     let actions = ui::hover_actions(AGENT_ROW)
         .top_0()
