@@ -7,7 +7,7 @@ use reqwest::Method;
 use super::api::{as_host, host_request};
 use super::{folder, kept};
 use crate::accounts::protocol::{
-    PeerTicket, PeerTicketRequest, ShareRegistration, ShareRegistry, ShareRemoval,
+    PeerTicket, PeerTicketRequest, ShareMove, ShareRegistration, ShareRegistry, ShareRemoval,
 };
 use crate::server::remote_state::RemoteParts;
 use crate::server::{Core, CoreResult};
@@ -30,6 +30,13 @@ pub async fn refresh(core: &Core) -> Option<ShareRegistry> {
 pub async fn register(core: &Core, registration: &ShareRegistration) -> CoreResult<()> {
     let body = serde_json::to_value(registration)?;
     host_request(core, Method::PUT, PATH, Some(body)).await?;
+    Ok(())
+}
+
+/// Moves a share to the project's home or new name. The account refuses when the share is gone.
+pub async fn move_share(core: &Core, share: &ShareMove) -> CoreResult<()> {
+    let body = serde_json::to_value(share)?;
+    host_request(core, Method::POST, &format!("{PATH}/move"), Some(body)).await?;
     Ok(())
 }
 

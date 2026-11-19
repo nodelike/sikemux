@@ -11,7 +11,9 @@ use sikemux_process::sync::Locked;
 use sikemux_view::device::AccountOrg;
 use sikemux_view::teammates::{OrgChoice, ProjectSharing, SharedOrg, SharedWith, Teammate};
 
-use crate::accounts::protocol::{OrgShareList, ShareRegistration, ShareRegistry, ShareRemoval};
+use crate::accounts::protocol::{
+    OrgShareList, ShareMove, ShareRegistration, ShareRegistry, ShareRemoval,
+};
 use crate::server::account::shares;
 use crate::server::board;
 use crate::server::board_state::BoardParts;
@@ -154,9 +156,16 @@ fn keys(core: &Core, identity: &str) -> Vec<String> {
 }
 
 /// Drops the renames whose old name `registry`, read under the reconcile lock, no longer lists:
-/// their shares have moved, or ended. Answers the renames left.
+/// their shares have moved, or ended. While the read leaves out one of the account's orgs, as it
+/// does one whose Team plan is unpaid, the old name may still be shared there, so every rename
+/// stays. Answers the renames left.
 fn drop_moved(core: &Core, registry: &ShareRegistry) -> Vec<(String, String)> {
+    let left_out =
+        (orgs(core).iter()).any(|org| !(registry.orgs.iter()).any(|list| list.org == org.id));
     let listed = |name: &str| {
+        if left_out {
+            return true;
+        }
         let old = key(name);
         (registry.orgs.iter()).any(|list| list.mine.iter().any(|mine| mine.project == old))
     };
@@ -214,7 +223,7 @@ pub(crate) fn records_changed(core: &Arc<Core>, keys: &[String]) {
 /// What reconcile asks of the account, or of a board this host keeps.
 #[derive(Debug, PartialEq, Eq)]
 enum Step {
-    Register(ShareRegistration),
+    Move(ShareMove),
     /// The board's setting follows the account, unless it changed from `was` meanwhile.
     Setting {
         project: String,
@@ -250,8 +259,9 @@ fn plan(
         let now = match account {
             Some(&(org, at)) => {
                 if at != host && takes_over(item, at, linked) {
-                    steps.push(Step::Register(ShareRegistration {
+                    steps.push(Step::Move(ShareMove {
                         org: org.to_owned(),
+                        from: item.project.clone(),
                         project: item.project.clone(),
                         host: host.to_owned(),
                     }));
@@ -302,11 +312,9 @@ async fn reconcile(core: &Arc<Core>, mut registry: ShareRegistry) {
     let mut followed = false;
     for step in plan(&held, &registry, &host, &linked, &renaming(core)) {
         match step {
-            Step::Register(registration) => {
-                if let Err(error) = shares::register(core, &registration).await {
-                    eprintln!(
-                        "sikemux core: a shared project's registration did not reach the account: {error}"
-                    );
+            Step::Move(share) => {
+                if let Err(error) = shares::move_share(core, &share).await {
+                    eprintln!("sikemux core: a shared project did not move here: {error}");
                 }
             }
             Step::Setting { project, was, now } => {
@@ -335,14 +343,6 @@ async fn follow_account(core: &Arc<Core>, project: &str, was: Option<String>, no
     }
 }
 
-/// A renamed project's registration moving to its new name: registered under the new name first,
-/// then removed under the old.
-#[derive(Debug, PartialEq, Eq)]
-struct Move {
-    register: ShareRegistration,
-    remove: ShareRemoval,
-}
-
 /// How the registrations under a renamed project's old key move to `item`, its new key. A
 /// registration moves only by the host that acts for it, so a host that sees the rename first
 /// never moves its home's share out from under it.
@@ -352,20 +352,15 @@ fn plan_move(
     registry: &ShareRegistry,
     host: &str,
     linked: &[String],
-) -> Vec<Move> {
+) -> Vec<ShareMove> {
     (registry.orgs.iter())
         .filter_map(|list| {
             let mine = (list.mine.iter()).find(|mine| mine.project == old)?;
-            (mine.host == host || takes_over(item, &mine.host, linked)).then(|| Move {
-                register: ShareRegistration {
-                    org: list.org.clone(),
-                    project: item.project.clone(),
-                    host: host.to_owned(),
-                },
-                remove: ShareRemoval {
-                    org: list.org.clone(),
-                    project: old.to_owned(),
-                },
+            (mine.host == host || takes_over(item, &mine.host, linked)).then(|| ShareMove {
+                org: list.org.clone(),
+                from: old.to_owned(),
+                project: item.project.clone(),
+                host: host.to_owned(),
             })
         })
         .collect()
@@ -386,12 +381,8 @@ async fn move_renamed(core: &Arc<Core>, host: &str, linked: &[String]) -> bool {
         let Some(item) = (held.iter()).find(|item| item.project == key(&new)) else {
             continue;
         };
-        for Move { register, remove } in plan_move(&key(&old), item, &registry, host, linked) {
-            let moved = match shares::register(core, &register).await {
-                Ok(()) => shares::remove(core, &remove).await,
-                Err(error) => Err(error),
-            };
-            match moved {
+        for share in plan_move(&key(&old), item, &registry, host, linked) {
+            match shares::move_share(core, &share).await {
                 Ok(()) => reached = true,
                 Err(error) => eprintln!(
                     "sikemux core: a renamed project's share did not move on the account: {error}"
@@ -718,8 +709,9 @@ mod tests {
         assert_eq!(
             plan(&held, &registry, "here", &["away".to_owned()], &[]),
             [
-                Step::Register(ShareRegistration {
+                Step::Move(ShareMove {
                     org: "x".into(),
+                    from: "project".into(),
                     project: "project".into(),
                     host: "here".into(),
                 }),
