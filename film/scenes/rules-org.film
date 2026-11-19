@@ -35,3 +35,12 @@ snap rules-org-sensitive
 move 1000,320 0.3
 settle 1
 snap rules-org-sensitive-hover
+move 120,173 0.3
+settle 1
+snap rules-org-rail-hover
+project marketing shop-site https://lumen.invalid/marketing.git
+orgshare "Lumen Studio"
+settle 5
+move 1000,760 0.3
+settle 1
+snap rules-org-rail-two

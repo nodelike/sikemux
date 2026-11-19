@@ -550,7 +550,8 @@ impl World {
             "project" => {
                 let name = step.text(0)?.to_owned();
                 let from = self.scenes.join(step.text(1)?);
-                let path = self.add_project(&name, Some(&from), self.origin.as_deref())?;
+                let remote = step.text(2).ok().or(self.origin.as_deref());
+                let path = self.add_project(&name, Some(&from), remote)?;
                 if self.project.is_none() {
                     self.populate(&name, &path)?;
                 }
