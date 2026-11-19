@@ -133,6 +133,7 @@ pub use sikemux_serve::server::session;
 pub use sikemux_workspace::server::saved_sessions;
 pub use sikemux_workspace::server::search;
 pub(crate) use sikemux_workspace::server::seen;
+mod org_routes;
 pub(crate) mod peer;
 mod session_watch;
 pub mod settling;

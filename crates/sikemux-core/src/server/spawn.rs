@@ -456,9 +456,18 @@ fn start(
         (Some(helper), None) => (helper.model, Paid::By(helper.provider)),
         (None, None) => (model, Paid::AsLead),
     };
-    let (mut launch, launcher) = core
+    let as_lead = matches!(paid, Paid::AsLead);
+    let (mut launch, mut launcher) = core
         .workspaces()
         .worker_launch(&lead, &provider, &cwd, model, paid)?;
+    let route = launch.model_provider.as_deref();
+    if let Some(why) = super::org_routes::refused(core, &cwd, route, launch.model.as_deref()) {
+        if !as_lead {
+            return Err(why);
+        }
+        (launch, launcher) =
+            (core.workspaces()).worker_launch(&lead, &provider, &cwd, None, Paid::By(None))?;
+    }
     if let Some(was) = &was {
         launch.effort = was.effort.clone();
         launch.permission_mode = was.permission_mode;
