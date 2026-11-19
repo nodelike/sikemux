@@ -3,11 +3,13 @@
 
 use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
+use std::collections::HashSet;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use serde_json::Value;
 use sikemux_fold::update::notice;
+use sikemux_process::sync::Locked;
 
 use crate::launch::providers;
 
@@ -71,6 +73,18 @@ pub(crate) fn forget_route(core: &Core, agent_id: &str) {
     }
 }
 
+/// The chats waiting to move, so a sweep while one waits adds no second mover. Each is kept by
+/// where it lives, which stays its own while its mover holds it.
+static MOVING: LazyLock<Mutex<HashSet<usize>>> = LazyLock::new(Mutex::default);
+
+struct Mover(usize);
+
+impl Drop for Mover {
+    fn drop(&mut self) {
+        MOVING.locked().remove(&self.0);
+    }
+}
+
 /// Moves every running chat on an org's key it may no longer use, once its turn is over.
 pub(crate) fn sweep(core: &Arc<Core>) {
     for chat in core.chats().all() {
@@ -79,8 +93,14 @@ pub(crate) fn sweep(core: &Arc<Core>) {
         if refused(core, &launch.cwd, provider, launch.model.as_deref()).is_none() {
             continue;
         }
+        let at = Arc::as_ptr(&chat) as usize;
+        if !MOVING.locked().insert(at) {
+            continue;
+        }
+        let mover = Mover(at);
         let core = core.clone();
         tokio::spawn(async move {
+            let _mover = mover;
             chat.turn_ended().await;
             let agent_id = chat.agent_id().to_owned();
             if !(core.chats().get(&agent_id)).is_some_and(|now| Arc::ptr_eq(&now, &chat)) {
