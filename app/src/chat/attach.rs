@@ -1371,7 +1371,7 @@ pub fn tiles(
             .when_some(opens, |tile, opens| tile.on_click(opens))
             .on_remove(move |_, window, cx| remove(index, window, cx));
         match fresh == Some(path.as_path()) {
-            true => flashed(tile, path, t.accent).into_any_element(),
+            true => flashed(tile, path, &t).into_any_element(),
             false => tile.into_any_element(),
         }
     });
@@ -1399,13 +1399,14 @@ pub fn tiles(
 /// How long after a file is attached its tile still flashes when it first draws.
 pub const FRESH: std::time::Duration = std::time::Duration::from_millis(800);
 
-/// A tile just attached, its edge lit in `accent` and fading out.
-fn flashed(tile: Attachment, path: &Path, accent: Hsla) -> impl IntoElement {
+/// A tile just attached, its edge lit in the accent and fading back to its border.
+fn flashed(tile: Attachment, path: &Path, t: &Tokens) -> impl IntoElement {
     let id = SharedString::from(format!("attachment-flash-{}", path.to_string_lossy()));
+    let (accent, border) = (t.accent, t.border);
     tile.with_animation(
         id,
         crate::motion::entrance(crate::motion::ATTACHED),
-        move |tile, shown| tile.border_color(accent.opacity(1. - shown)),
+        move |tile, shown| tile.border_color(theme::mix(accent, border, 1. - shown)),
     )
 }
 
@@ -1426,30 +1427,23 @@ fn framed(
         .w(px(FRAMED_WIDTH))
         .p(px(3.))
         .gap(px(3.))
-        .bg(t.surface_chosen)
-        .border_color(gpui_kit::transparent_black())
         .tooltip(path.to_string_lossy().into_owned())
         .media(media(path, t, cx).h(px(FRAMED_PREVIEW)))
-        .content(AttachmentContent::new().child(caption(number, name, t, cx)))
+        .content(AttachmentContent::new().child(caption(number, name, cx)))
 }
 
 const FRAMED_WIDTH: f32 = 64.;
 const FRAMED_PREVIEW: f32 = 40.;
 
 /// The line under a draft's framed card: a picture's `#n`, then the file's name.
-fn caption(number: Option<usize>, name: String, t: &Tokens, cx: &App) -> Div {
+fn caption(number: Option<usize>, name: String, cx: &App) -> Div {
     div()
         .flex()
         .items_center()
         .gap(px(3.))
         .min_w_0()
         .text_size(px(theme::TEXT_3XS))
-        .text_color(t.text_secondary)
-        .children(number.map(|number| {
-            ui::mono(format!("#{number}"), 9., cx)
-                .flex_none()
-                .text_color(t.text_tertiary)
-        }))
+        .children(number.map(|number| ui::mono(format!("#{number}"), 9., cx).flex_none()))
         .child(div().min_w_0().truncate().child(name))
 }
 
