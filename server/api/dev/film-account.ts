@@ -1,4 +1,5 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, join } from "node:path";
@@ -208,6 +209,14 @@ const seeded = new Map<
 >();
 for (const org of account.orgs ?? []) {
   const owner = org.role === "admin" ? person : other;
+  // Each org's id comes from its name, so the hue a client draws it in holds from run to run.
+  const fixed = createHash("sha256")
+    .update(org.name)
+    .digest("hex")
+    .slice(0, 32);
+  await db.query(
+    `alter table orgs alter column id set default '${fixed}'::uuid`,
+  );
   const { id } = await as<{ id: string }>(owner, "/v1/orgs", {
     method: "POST",
     body: JSON.stringify({ name: org.name }),
@@ -243,6 +252,9 @@ for (const org of account.orgs ?? []) {
     });
   }
   seeded.set(org.name, { id, owner, customer: rows[0].id });
+  await db.query(
+    "alter table orgs alter column id set default gen_random_uuid()",
+  );
   if (org.plan === "lapsed")
     await db.query(
       "update subscriptions set status = 'ended', ended_at = now() where customer_id = $1",
