@@ -239,7 +239,6 @@ fn place_row(
         "playbook-place-row-{}",
         place.id
     )))
-    .group(said::ROW)
     .into_any_element()
 }
 

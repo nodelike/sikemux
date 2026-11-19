@@ -2,8 +2,8 @@
 //! noted while working.
 
 use gpui_kit::{
-    AnyElement, Context, Entity, Hsla, InteractiveElement, IntoElement, ParentElement,
-    SharedString, Styled,
+    AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
+    Styled,
 };
 use sikemux_calls::call;
 use sikemux_calls::memory::{MemoryAddParams, MemoryParams, MemoryUpdateParams, NewMemory};
@@ -15,7 +15,7 @@ use super::said::{self, Action, Moment};
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::settings::rows;
-use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_6, TEXT_LG, TEXT_XS};
+use crate::theme::{self, Tokens, SPACE_1, SPACE_2, SPACE_2H, TEXT_LG, TEXT_XS};
 use crate::toast;
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
@@ -357,33 +357,28 @@ fn row(
             .into_any_element(),
         );
     }
-    let fade = gpui_kit::div()
-        .w(SPACE_6)
-        .self_stretch()
-        .bg(gpui_kit::linear_gradient(
-            90.,
-            gpui_kit::linear_color_stop(Hsla { a: 0., ..t.surface }, 0.),
-            gpui_kit::linear_color_stop(t.surface, 1.),
-        ));
     let buttons = gpui_kit::div()
+        .id("playbook-entry-buttons")
         .flex()
+        .flex_none()
+        .w_0()
+        .overflow_x_hidden()
+        .opacity(0.)
+        .group_hover(said::ROW, |shown| shown.w_auto().pl(SPACE_2).opacity(1.))
         .items_center()
         .gap(SPACE_1)
-        .bg(t.surface)
+        .h(theme::ui_text(TEXT_LG))
         .children(hover);
-    let hover = gpui_kit::div()
-        .absolute()
-        .top(-SPACE_0)
-        .right_0()
-        .flex()
-        .opacity(0.)
-        .group_hover(said::ROW, |shown| shown.opacity(1.))
-        .child(fade)
-        .child(buttons);
     let about = gpui_kit::div()
         .flex()
         .flex_col()
-        .child(gpui_kit::div().relative().child(line).child(hover))
+        .child(
+            gpui_kit::div()
+                .flex()
+                .items_center()
+                .child(gpui_kit::div().flex_1().min_w_0().child(line))
+                .child(buttons),
+        )
         .children(
             entry
                 .offer

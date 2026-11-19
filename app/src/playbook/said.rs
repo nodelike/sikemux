@@ -118,13 +118,21 @@ pub(super) fn line(
         )
     };
     div()
+        .id(SharedString::from(format!("{id}-line")))
         .flex()
         .flex_wrap()
+        .group_hover(ROW, |line| line.flex_nowrap())
         .gap(SPACE_1)
         .text_size(theme::ui_text(TEXT_2XS_H))
         .line_height(theme::ui_text(TEXT_LG))
         .text_color(t.text_tertiary)
-        .child(div().min_w_0().child(words.into()))
+        .child(
+            div()
+                .id(SharedString::from(format!("{id}-words")))
+                .min_w_0()
+                .group_hover(ROW, |words| words.truncate())
+                .child(words.into()),
+        )
         .children(
             open.into_iter()
                 .chain(actions)
