@@ -349,6 +349,7 @@ fn restart_chats(core: &Arc<Core>, chats: Vec<HandOver>) {
             HandOver::Resume(record) => chat::resume(core, *record),
         }
     }
+    super::super::org_routes::sweep(core);
 }
 
 fn thaw(core: &Arc<Core>) {

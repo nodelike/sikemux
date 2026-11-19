@@ -292,7 +292,13 @@ pub(super) async fn run(
                 client.answer::<ask::List>(request_id, Ok(core.session_infos()));
             }
             Request::AcpStart(ask::AcpStart { launch }) => {
-                match chat::begin(&core, *launch, Some(&client), None, false, false) {
+                let provider = launch.model_provider.as_deref();
+                let model = launch.model.as_deref();
+                let refused = super::org_routes::refused(&core, &launch.cwd, provider, model);
+                match refused.map_or_else(
+                    || chat::begin(&core, *launch, Some(&client), None, false, false),
+                    |why| Err(why.into()),
+                ) {
                     Ok(started) => {
                         tokio::spawn(async move {
                             let result = chat::until_started(&core, started).await;
