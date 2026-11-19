@@ -6,10 +6,10 @@ Subject: [PATCH] Add sikemux-bin
 Sikemux, a native desktop app for running coding agents side by side (Claude Code, Codex and others), from its GitHub releases for x86_64 and aarch64.
 ---
  pkgbuilds/sikemux-bin/.omarchy/package.json | 10 +++
- pkgbuilds/sikemux-bin/PKGBUILD              | 68 +++++++++++++++++++++
+ pkgbuilds/sikemux-bin/PKGBUILD              | 69 +++++++++++++++++++++
  pkgbuilds/sikemux-bin/sikemux.sysusers      |  1 +
  pkgbuilds/sikemux-bin/sikemux.tmpfiles      |  4 ++
- 4 files changed, 83 insertions(+)
+ 4 files changed, 84 insertions(+)
  create mode 100644 pkgbuilds/sikemux-bin/.omarchy/package.json
  create mode 100644 pkgbuilds/sikemux-bin/PKGBUILD
  create mode 100644 pkgbuilds/sikemux-bin/sikemux.sysusers
@@ -36,7 +36,7 @@ new file mode 100644
 index 0000000..dd4c1bd
 --- /dev/null
 +++ b/pkgbuilds/sikemux-bin/PKGBUILD
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,69 @@
 +# Maintainer: nodelike
 +
 +pkgname=sikemux-bin
@@ -74,6 +74,7 @@ index 0000000..dd4c1bd
 +)
 +optdepends=(
 +  'gst-plugins-ugly: browser recordings as MP4 rather than WebM'
++  'noto-fonts-cjk: Chinese, Japanese and Korean text, such as the Simplified Chinese interface'
 +  'vulkan-driver: the GPU driver the window draws with, such as vulkan-intel or vulkan-radeon'
 +)
 +provides=('sikemux')
