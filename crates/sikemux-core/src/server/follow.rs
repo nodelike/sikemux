@@ -490,6 +490,36 @@ fn asleep_session_file(
     Some((cli, session, path))
 }
 
+/// The model and effort an agent runs on: the model its last reply came from, else the one it was
+/// started on, never its CLI's "default"; the effort its picker holds, else the one it started on.
+pub(crate) fn runs_on(core: &Core, agent_id: &str) -> (Option<String>, Option<String>) {
+    let picked =
+        |value: Option<String>| value.filter(|value| !value.eq_ignore_ascii_case("default"));
+    let (transcript, model, effort) = match core.chats().get(agent_id) {
+        Some(chat) => {
+            let launch = chat.current_now();
+            let session = (chat.feed.start().map(|start| start.session_id))
+                .or_else(|| launch.resume_id.clone());
+            let transcript = AgentKind::from_name(&launch.provider).and_then(|kind| {
+                let home = account_root(kind, None, &launch.env);
+                Some((kind, transcript::locate(kind, home.as_deref(), &session?)?))
+            });
+            (transcript, launch.model, launch.effort)
+        }
+        None => {
+            let kept = (core.workspaces().agent(agent_id))
+                .or_else(|| core.workspaces().closed_agent(agent_id));
+            let transcript = session_file(core, agent_id).map(|(kind, _, path)| (kind, path));
+            let (model, effort) = kept.map_or((None, None), |agent| (agent.model, agent.effort));
+            (transcript, model, effort)
+        }
+    };
+    let replied = transcript
+        .and_then(|(kind, path)| crate::sessions::context::transcript_context(kind, &path))
+        .and_then(|context| context.model);
+    (replied.or_else(|| picked(model)), picked(effort))
+}
+
 /// Whether an agent standing at `status` has ended the turn it was on.
 fn at_rest(status: AgentStatus) -> bool {
     !matches!(
@@ -712,7 +742,6 @@ fn closed_worker(core: &Core, lead: &str, wanted: &str) -> Option<Listed> {
         project: ran.project,
         cli: ran.provider,
         title: ran.title,
-        model: None,
         status: AgentStatus::Stopped,
         parent: Some(lead.to_owned()),
         active_at: None,
@@ -789,6 +818,13 @@ pub(crate) fn read_target(
             "status".into(),
             roster::status_word(crate::server::roster::standing(target, core)).into(),
         );
+        let (model, effort) = runs_on(core, &target.agent_id);
+        if let Some(model) = model {
+            fields.insert("model".into(), model.into());
+        }
+        if let Some(effort) = effort {
+            fields.insert("effort".into(), effort.into());
+        }
     }
     Ok(answer)
 }

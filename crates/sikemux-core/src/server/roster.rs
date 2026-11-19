@@ -120,7 +120,6 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
                 project,
                 cli: chat.provider,
                 title: chat.title,
-                model: chat.model,
                 status: chat.status,
                 parent,
                 active_at: chat.active_at,
@@ -144,7 +143,6 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
                 .clone()
                 .unwrap_or_else(|| "terminal".into()),
             title: session.title.clone(),
-            model: None,
             status,
             parent,
             active_at: session.active_at,
@@ -168,7 +166,6 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
             project,
             title: core.workspaces().title(&agent.id),
             cli: agent.provider,
-            model: None,
             status: AgentStatus::Asleep,
             parent,
             active_at: None,
@@ -185,7 +182,6 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
             project: foreign.project,
             cli: foreign.cli,
             title: shown.titled.then_some(shown.title),
-            model: None,
             status: foreign.status,
             parent: foreign.parent,
             active_at: shown.active_at,
@@ -310,8 +306,12 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
                 if agent.agent_id == caller {
                     fields.insert("you".into(), true.into());
                 }
-                if let Some(model) = &agent.model {
-                    fields.insert("model".into(), model.clone().into());
+                let (model, effort) = super::follow::runs_on(core, &agent.agent_id);
+                if let Some(model) = model {
+                    fields.insert("model".into(), model.into());
+                }
+                if let Some(effort) = effort {
+                    fields.insert("effort".into(), effort.into());
                 }
                 if let Some(host) = host {
                     fields.insert("host".into(), host.into());

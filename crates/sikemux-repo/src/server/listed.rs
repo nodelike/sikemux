@@ -19,7 +19,6 @@ pub struct Listed {
     pub project: String,
     pub cli: String,
     pub title: Option<String>,
-    pub model: Option<String>,
     pub status: AgentStatus,
     pub parent: Option<String>,
     pub active_at: Option<u64>,

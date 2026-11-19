@@ -30,7 +30,12 @@ pub fn read_session_context(
     config_path: Option<&str>,
 ) -> Option<SessionContext> {
     let path = session_transcript_path(agent, cwd, session_id, config_path)?;
-    agent.ops().context(&path)
+    transcript_context(agent, &path)
+}
+
+/// How full the window was when the transcript at `path` was last written.
+pub fn transcript_context(agent: AgentKind, path: &Path) -> Option<SessionContext> {
+    agent.ops().context(path)
 }
 
 /// Where `agent` writes a session's transcript, for agents whose transcripts Sikemux reads.
