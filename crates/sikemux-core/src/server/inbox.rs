@@ -306,6 +306,9 @@ struct Turn {
     /// Where its work is will be read again, for a file it wrote that came to light late.
     #[serde(skip)]
     rereading: bool,
+    /// Whoever hears of the agent was told of the work this turn left behind.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    told_left: bool,
 }
 
 pub(crate) struct Turns {
@@ -371,6 +374,24 @@ impl Turns {
         (turn.started_at >= since && turn.ended_at.is_some())
             .then(|| turn.work.as_ref().map(|work| work.changes))
             .flatten()
+    }
+
+    /// Whether whoever hears of the agent was told of the work its latest turn left behind.
+    pub(crate) fn told_left(&self, agent_id: &str) -> bool {
+        (self.turns.locked().get(agent_id)).is_some_and(|turn| turn.told_left)
+    }
+
+    pub(crate) fn tell_left(&self, agent_id: &str) {
+        self.change(|turns| {
+            if let Some(turn) = turns.get_mut(agent_id) {
+                turn.told_left = true;
+            }
+        });
+    }
+
+    #[cfg(test)]
+    pub(crate) fn flush(&self) {
+        self.kept.flush();
     }
 
     /// The turn ended by itself; `problem` says what went wrong, if anything.

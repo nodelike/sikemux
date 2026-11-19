@@ -29,14 +29,11 @@ pub(crate) struct Left {
 }
 
 /// The idle agents whose left work is due to be told of now, and when the next one falls due.
-/// `told` keeps, per agent, the end of the turn it was last told about.
 pub(crate) fn read(
     core: &Core,
     turns: &HashMap<String, TurnState>,
-    told: &mut HashMap<String, u64>,
     now: u64,
 ) -> (Vec<Left>, Option<u64>) {
-    told.retain(|agent, _| core.workspaces().agent(agent).is_some());
     let mut left = Vec::new();
     let mut next: Option<u64> = None;
     for agent in core.workspaces().agents() {
@@ -46,7 +43,7 @@ pub(crate) fn read(
         let Some(changes) = idle_with_work(core, &agent.id, turn) else {
             continue;
         };
-        if told.get(&agent.id) == Some(&turn.since) {
+        if core.inbox().told_left(&agent.id) {
             continue;
         }
         let due = turn.since + GRACE_MS;
@@ -58,7 +55,7 @@ pub(crate) fn read(
         let Some(to) = hears.agent().map(str::to_owned) else {
             continue;
         };
-        told.insert(agent.id.clone(), turn.since);
+        core.inbox().tell_left(&agent.id);
         let text = match changes {
             WorkAt::Committed => unlanded_text(core, &agent, &hears),
             _ => uncommitted_text(core, &agent, &hears),
@@ -452,5 +449,24 @@ mod tests {
             left_by_close(&core, "worker", "@Worker").as_deref(),
             Some("@Worker left a commit off main, and nothing tells anyone of them now.")
         );
+    }
+
+    /// @Kiyal heard of @Miroku's unlanded commits after each of three core starts on 18-19 Nov,
+    /// while @Miroku stayed idle.
+    #[test]
+    fn the_lead_is_told_once_per_idle_stretch_across_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let turns = crate::server::inbox::Turns::new(Some(dir.path()));
+        turns.started("worker");
+        turns.ended("worker", None, None);
+        turns.tell_left("worker");
+        turns.flush();
+
+        let restarted = crate::server::inbox::Turns::new(Some(dir.path()));
+        assert!(restarted.told_left("worker"));
+
+        restarted.started("worker");
+        restarted.ended("worker", None, None);
+        assert!(!restarted.told_left("worker"));
     }
 }

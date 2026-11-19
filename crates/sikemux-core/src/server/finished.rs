@@ -33,8 +33,6 @@ pub(crate) struct Finishing {
     started: u64,
     reading: AtomicBool,
     again: AtomicBool,
-    /// Per agent, the end of the idle turn its left work was last told about.
-    told_left: Mutex<HashMap<String, u64>>,
     /// Per agent, the start of the long watch it was last told about.
     told_long_watch: Mutex<HashMap<String, u64>>,
 }
@@ -46,7 +44,6 @@ impl Default for Finishing {
             started: epoch_ms(),
             reading: AtomicBool::new(false),
             again: AtomicBool::new(false),
-            told_left: Mutex::default(),
             told_long_watch: Mutex::default(),
         }
     }
@@ -87,10 +84,7 @@ fn settle(core: &Arc<Core>) {
         if !finished.is_empty() {
             close(&core, finished);
         }
-        let (left, due) = {
-            let mut told = core.finishing().told_left.locked();
-            super::left_behind::read(&core, &turns, &mut told, epoch_ms())
-        };
+        let (left, due) = super::left_behind::read(&core, &turns, epoch_ms());
         super::left_behind::tell(&core, left);
         let (asks, asks_due) = super::left_behind::asks(&core, epoch_ms());
         super::left_behind::tell_chiefs(&core, asks);
