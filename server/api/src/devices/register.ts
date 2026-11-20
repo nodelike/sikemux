@@ -1,11 +1,11 @@
 import type { Device, DeviceRegistration } from "@sikemux/protocol";
-import { sql, type Kysely, type Selectable } from "kysely";
+import { sql, type Kysely, type Selectable, type Transaction } from "kysely";
 
 import { audit } from "../audit.ts";
 import { checkStanding, holdStanding, type Identity } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
-import { ApiFailure, badRequest, forbidden } from "../http.ts";
+import { ApiFailure, badRequest, forbidden, unauthorized } from "../http.ts";
 import { vaultChanged } from "../orgvault/change.ts";
 import { proveKey } from "./challenge.ts";
 import { registrationMessage } from "./signature.ts";
@@ -81,7 +81,7 @@ export async function registerDevice(
     await holdStanding(trx, userId);
     const signInSession =
       via === "host"
-        ? (await signInOf(trx, deviceKey)).session
+        ? (await signInOf(trx, userId, deviceKey)).session
         : (sessionId ?? null);
     const macSignedInAt =
       via === "mac" || via === "code" ? issuedAt : undefined;
@@ -206,20 +206,26 @@ export async function registerDevice(
   });
 }
 
-/** The Clerk session or Mac sign-in that put a device on the account, which also stands behind what it adds. */
+/**
+ * The Clerk session or Mac sign-in that put the host signing as `key` on the account, which also
+ * stands behind what it adds. Read under `holdStanding`, so a host the strip just removed is refused.
+ */
 export async function signInOf(
-  db: Kysely<Tables>,
+  trx: Transaction<Tables>,
+  userId: string,
   key: string | undefined,
 ): Promise<{ session: string | null; macSignedInAt: Date | null }> {
   const row = key
-    ? await db
+    ? await trx
         .selectFrom("devices")
         .select(["sign_in_session", "mac_signed_in_at"])
         .where("key", "=", key)
+        .where("user_id", "=", userId)
         .executeTakeFirst()
     : undefined;
+  if (!row) throw unauthorized("This host is not on an account.");
   return {
-    session: row?.sign_in_session ?? null,
-    macSignedInAt: row?.mac_signed_in_at ?? null,
+    session: row.sign_in_session,
+    macSignedInAt: row.mac_signed_in_at,
   };
 }

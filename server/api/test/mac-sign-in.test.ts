@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from "vitest";
 
 import type { Database } from "../src/db.ts";
+import { registerDevice } from "../src/devices/register.ts";
+import { approveHost } from "../src/host/codes.ts";
 import {
   bodySha256,
   registrationMessage,
@@ -154,6 +156,41 @@ it("adds a Mac only with the challenge its traded code got", async () => {
     }),
   });
   expect(throughBearer.status).toBe(400);
+});
+
+it("lets a Mac removed after its request was checked approve no code and register no phone", async () => {
+  const app = testApp(database);
+  const mac = await signInMac(app, MAYA);
+  const box = newDevice();
+  const { userCode } = await body(
+    await post(app, "/v1/host-sign-ins", {
+      key: box.key,
+      name: "Build box",
+      platform: "linux",
+      channel: "stable",
+    }),
+    "HostSignIn",
+  );
+  const session = await sessionToken(MAYA);
+  const phone = await registration(app, newDevice(), MAYA, session, {
+    role: "client",
+    platform: "ios",
+    name: "Maya's iPhone",
+  });
+  await caller(app)(`/v1/devices/${mac.key}`, session, { method: "DELETE" });
+
+  const asMac = {
+    userId: MAYA,
+    via: "host" as const,
+    deviceKey: mac.key,
+    expiresAt: new Date(Date.now() + 60_000),
+  };
+  await expect(approveHost(database.db, asMac, userCode)).rejects.toMatchObject(
+    { status: 401 },
+  );
+  await expect(registerDevice(database.db, asMac, phone)).rejects.toMatchObject(
+    { status: 401 },
+  );
 });
 
 it("lets a removed Mac reach nothing", async () => {
