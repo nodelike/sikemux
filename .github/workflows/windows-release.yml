@@ -74,7 +74,7 @@ jobs:
         run: |
           if [ -z "$VERSION" ]; then
             VERSION="$(scripts/stamp-nightly.sh)"
-          else
+          elif ! grep -q "\"version\": \"$VERSION\"" package.json; then
             scripts/set-version.sh "$VERSION"
           fi
           echo "version=$VERSION" >>"$GITHUB_OUTPUT"
