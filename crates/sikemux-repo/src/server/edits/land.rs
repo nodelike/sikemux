@@ -8,6 +8,7 @@
 //! branch's tip in that way too, its commits made again on it.
 
 use crate::server::workspace_state::WorkspaceParts;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -110,24 +111,43 @@ pub fn unlanded(worktree: &AgentWorktree) -> Result<bool, String> {
         &["rev-parse", &format!("refs/heads/{base}")],
     )?);
     let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
-    Ok(!own_commits(&worktree.path, &tip, &head, None)?.is_empty())
+    Ok(!own_commits(&worktree.path, base, &tip, &head, None)?.is_empty())
 }
 
 /// The commits of `head` that `tip` lacks, by their changes, oldest first, after `since` when
-/// given.
+/// given. Commits the remote holds on `base` or its main are never the caller's, however far
+/// behind the branch here is.
 fn own_commits(
     tree: &Path,
+    base: &str,
     tip: &str,
     head: &str,
     since: Option<&str>,
 ) -> Result<Vec<Unpushed>, String> {
-    let range = format!("{tip}..{head}");
     let not_since = since.map(|since| format!("^{since}"));
-    let not_since = not_since.as_deref();
-    let merges = ["rev-list", "--merges", "--count", &range];
-    if git(tree, &[&merges[..], not_since.as_slice()].concat())?.trim() != "0" {
+    let not_mine: Vec<String> = (not_since.iter().cloned())
+        .chain(
+            on_remote(tree, base)
+                .iter()
+                .map(|commit| format!("^{commit}")),
+        )
+        .collect();
+    let range = format!("{tip}..{head}");
+    let mine = git(
+        tree,
+        &[
+            &["rev-list", "--parents", range.as_str()][..],
+            &not_mine.iter().map(String::as_str).collect::<Vec<_>>(),
+        ]
+        .concat(),
+    )?;
+    if mine.lines().any(|commit| commit.split(' ').count() > 2) {
         return Err("Your commits include a merge, which the land queue doesn't take; rebase them onto the branch they land on so they form one line, then land again".into());
     }
+    let mine: HashSet<&str> = mine
+        .lines()
+        .filter_map(|commit| commit.split(' ').next())
+        .collect();
     let listed = git(
         tree,
         &[
@@ -139,12 +159,13 @@ fn own_commits(
             &format!("{tip}...{head}"),
         ]
         .into_iter()
-        .chain(not_since)
+        .chain(not_since.as_deref())
         .collect::<Vec<_>>(),
     )?;
     Ok(listed
         .lines()
         .filter_map(|entry| entry.split_once('\0'))
+        .filter(|(id, _)| mine.contains(id))
         .map(|(id, subject)| Unpushed {
             id: id.to_owned(),
             mine: true,
@@ -153,6 +174,28 @@ fn own_commits(
             waits: false,
         })
         .collect())
+}
+
+/// What `base` is on the remote, by its upstream or its namesake there, and the remote's main.
+fn on_remote(tree: &Path, base: &str) -> Vec<String> {
+    let named = [
+        format!("{base}@{{upstream}}"),
+        format!("refs/remotes/origin/{base}"),
+        "refs/remotes/origin/HEAD".to_owned(),
+    ];
+    let mut found: Vec<String> = (named.iter())
+        .filter_map(|name| {
+            git(
+                tree,
+                &["rev-parse", "--verify", "-q", &format!("{name}^{{commit}}")],
+            )
+            .ok()
+        })
+        .map(line)
+        .collect();
+    found.sort();
+    found.dedup();
+    found
 }
 
 pub fn listed(commits: &[Unpushed]) -> Vec<String> {
@@ -175,7 +218,7 @@ fn sync_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Synced, Stri
     for _ in 0..ATTEMPTS {
         let tip = line(git(&worktree.repo, &["rev-parse", &target])?);
         let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
-        let commits = own_commits(&worktree.path, &tip, &head, None)?;
+        let commits = own_commits(&worktree.path, &base, &tip, &head, None)?;
         let synced = replay(
             signing,
             &worktree.path,
@@ -264,7 +307,7 @@ pub fn lay(
     onto: &str,
     base: &str,
 ) -> Result<Option<Laid>, String> {
-    let commits = own_commits(repo, onto, head, since)?;
+    let commits = own_commits(repo, base, onto, head, since)?;
     if commits.is_empty() {
         return Ok(None);
     }
@@ -779,5 +822,114 @@ mod tests {
             git_in(&web, &["log", "-1", "--format=%s", "main"]),
             "worker: c"
         );
+    }
+
+    #[test]
+    fn merges_the_remote_holds_are_not_yours_when_the_branch_here_split_from_it() {
+        let root = tempfile::tempdir().unwrap();
+        let root = sikemux_process::files::real_path(root.path()).unwrap();
+        let remote = root.join("remote.git");
+        git_in(
+            &root,
+            &[
+                "init",
+                "-q",
+                "--bare",
+                "-b",
+                "main",
+                &remote.to_string_lossy(),
+            ],
+        );
+        let main = root.join("project");
+        std::fs::create_dir(&main).unwrap();
+        git_in(&main, &["init", "-q", "-b", "main"]);
+        git_in(&main, &["commit", "-q", "--allow-empty", "-m", "base"]);
+        git_in(
+            &main,
+            &["remote", "add", "origin", &remote.to_string_lossy()],
+        );
+        git_in(&main, &["push", "-q", "-u", "origin", "main"]);
+        for squashed in ["l1", "l2"] {
+            std::fs::write(main.join(format!("{squashed}.txt")), "x\n").unwrap();
+            git_in(&main, &["add", "."]);
+            git_in(&main, &["commit", "-qm", squashed]);
+        }
+        let stale = git_in(&main, &["rev-parse", "HEAD"]);
+
+        let other = root.join("other");
+        git_in(
+            &root,
+            &[
+                "clone",
+                "-q",
+                &remote.to_string_lossy(),
+                &other.to_string_lossy(),
+            ],
+        );
+        for squashed in ["l1", "l2"] {
+            std::fs::write(other.join(format!("{squashed}.txt")), "x\n").unwrap();
+        }
+        git_in(&other, &["add", "."]);
+        git_in(&other, &["commit", "-qm", "l1 and l2, squashed"]);
+        for merged in ["one", "two"] {
+            git_in(&other, &["checkout", "-q", "-b", merged]);
+            std::fs::write(other.join(format!("{merged}.txt")), "x\n").unwrap();
+            git_in(&other, &["add", "."]);
+            git_in(&other, &["commit", "-qm", merged]);
+            git_in(&other, &["checkout", "-q", "main"]);
+            git_in(
+                &other,
+                &[
+                    "merge",
+                    "-q",
+                    "--no-ff",
+                    "-m",
+                    &format!("Merge {merged}"),
+                    merged,
+                ],
+            );
+        }
+        git_in(&other, &["push", "-q", "origin", "main"]);
+        git_in(&main, &["fetch", "-q", "origin"]);
+        assert_eq!(git_in(&main, &["rev-parse", "main"]), stale);
+
+        let tree = root.join("tree");
+        git_in(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "sikemux/work",
+                &tree.to_string_lossy(),
+                "origin/main",
+            ],
+        );
+        for file in ["a", "b", "c"] {
+            std::fs::write(tree.join(format!("{file}.txt")), "x\n").unwrap();
+            git_in(&tree, &["add", "."]);
+            git_in(&tree, &["commit", "-qm", &format!("worker: {file}")]);
+        }
+        let worktree = AgentWorktree {
+            repo: main.clone(),
+            path: tree.clone(),
+            branch: "sikemux/work".into(),
+            base: Some("main".into()),
+            start_sha: stale.clone(),
+            name: String::new(),
+            first_port: None,
+        };
+        assert!(unlanded(&worktree).unwrap());
+        let signing = Signing {
+            key: None,
+            hosts: Vec::new(),
+        };
+        let head = git_in(&tree, &["rev-parse", "HEAD"]);
+        let laid = lay(&signing, &main, &head, None, &stale, "main")
+            .unwrap()
+            .unwrap();
+        assert_eq!(laid.listed.len(), 3);
+        assert!(laid.listed.iter().all(|commit| commit.contains("worker: ")));
     }
 }
