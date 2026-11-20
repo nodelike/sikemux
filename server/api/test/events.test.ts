@@ -194,12 +194,12 @@ describe("a removed client registering again", () => {
     const phone = await registered(app, "user_a", "client", {
       sessionId: "sess_old",
     });
+    await registered(app, "user_a", "host");
     await call(
       `/v1/devices/${phone.key}`,
       await sessionToken("user_a", { claims: { sid: "sess_web" } }),
       { method: "DELETE" },
     );
-    await registered(app, "user_a", "host");
     await registered(app, "user_a", "client", {
       device: phone,
       sessionId: "sess_new",
@@ -298,8 +298,8 @@ describe("what each device may read from the log", () => {
   });
 
   it("shows a host another host renamed, so it shows the new name", async () => {
-    const a = await account("user_a");
     const renamed = await registered(app, "user_a", "host");
+    const a = await account("user_a");
     const before = await latestEventId(database.db, "user_a");
     await call(
       `/v1/devices/${renamed.key}/name`,

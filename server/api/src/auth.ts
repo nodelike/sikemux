@@ -172,8 +172,8 @@ export const MAC_SIGN_IN_CODE_MS = 11 * 60_000;
 /**
  * Refuses a token that is still unexpired but no longer stands: its account was deleted or frozen, it
  * belongs to the session of a phone removed from the account or of one the strip ended, or it is
- * a Mac's sign-in made while such a session was open, or any Mac's while the strip has yet to end one,
- * or while a host removal's sign-out is unfinished or so recent that a code minted before it may still be good.
+ * a Mac's sign-in made while such a session was open, or any Mac's while the strip has yet to end one
+ * or during `waitAfterEndedSessions`.
  */
 export async function checkStanding(
   db: Kysely<Tables>,
@@ -190,14 +190,12 @@ export async function checkStanding(
   const macSignedInAt =
     identity.macSignedInAt ??
     (identity.via === "mac" ? identity.issuedAt : undefined);
-  const codeLife = `${MAC_SIGN_IN_CODE_MS} milliseconds`;
   const { rows } = await sql<{
     deleted: boolean;
     frozen: boolean;
     removed: boolean;
     ended: boolean;
     ending: boolean;
-    removal_wait_s: number | null;
   }>`
     select
       exists (select 1 from users where id = ${identity.userId} and deleted_at is not null) as deleted,
@@ -220,32 +218,12 @@ export async function checkStanding(
       ${macSignedInAt !== undefined} and exists (
         select 1 from ended_sessions
         where user_id = ${identity.userId} and ended_at is null
-      ) as ending,
-      (
-        select ceil(extract(epoch from
-          case when bool_or(done_at is null) then ${codeLife}::interval
-          else max(done_at) + ${codeLife}::interval - now() end
-        ))::int
-        from host_removal_sign_outs
-        where user_id = ${identity.userId}
-          and ${identity.via === "mac"}
-          and (done_at is null or done_at > now() - ${codeLife}::interval)
-      ) as removal_wait_s`.execute(db);
+      ) as ending`.execute(db);
   if (rows[0]?.deleted && !allowDeleted) throw accountDeleted();
   if (rows[0]?.frozen) throw accountFrozen();
   if (rows[0]?.removed)
     throw unauthorized("This sign-in was removed from the account.");
-  const removalWait = rows[0]?.removal_wait_s;
-  if (removalWait !== null && removalWait !== undefined) {
-    const minutes = Math.max(1, Math.ceil(removalWait / 60));
-    throw new ApiFailure(
-      401,
-      "unauthorized",
-      `A computer was just removed from this account. Try again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
-      {},
-      minutes * 60,
-    );
-  }
+  if (identity.via === "mac") await waitAfterEndedSessions(db, identity.userId);
   if (rows[0]?.ended)
     throw unauthorized(
       "This sign-in was ended because it came through a work address. Sign in again with your own.",
@@ -254,6 +232,45 @@ export async function checkStanding(
     throw unauthorized(
       "This account is still being signed out of what a removed work address opened. Try again in a few minutes.",
     );
+}
+
+/**
+ * Refuses, until a sign-in code made before it can no longer be traded, while a session the API ended
+ * outside the strip may still have made one: a host removal's sign-out or a removed device's session,
+ * from the moment it is recorded until Clerk has ended it and a code's life after.
+ */
+export async function waitAfterEndedSessions(
+  db: Kysely<Tables>,
+  userId: string,
+): Promise<void> {
+  const codeLife = `${MAC_SIGN_IN_CODE_MS} milliseconds`;
+  const { rows } = await sql<{ wait_s: number | null }>`
+    select ceil(extract(epoch from
+      case when bool_or(ended_at is null) then ${codeLife}::interval
+      else max(ended_at) + ${codeLife}::interval - now() end
+    ))::int as wait_s
+    from (
+      select done_at as ended_at from host_removal_sign_outs
+      where user_id = ${userId}
+        and (done_at is null or done_at > now() - ${codeLife}::interval)
+      union all
+      select clerk_revoked_at from removed_devices
+      where user_id = ${userId}
+        and reason = 'removed'
+        and clerk_session_id is not null
+        and (clerk_revoked_at > now() - ${codeLife}::interval
+          or clerk_revoked_at is null and clerk_retry_at is not null)
+    ) ended`.execute(db);
+  const wait = rows[0]?.wait_s;
+  if (wait === null || wait === undefined) return;
+  const minutes = Math.max(1, Math.ceil(wait / 60));
+  throw new ApiFailure(
+    401,
+    "unauthorized",
+    `This account was just signed out somewhere. Try again in ${minutes} ${minutes === 1 ? "minute" : "minutes"}.`,
+    {},
+    minutes * 60,
+  );
 }
 
 export type AuthEnv = Env & {

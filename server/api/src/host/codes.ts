@@ -11,7 +11,11 @@ import { sql, type ExpressionBuilder, type Kysely } from "kysely";
 import { audit } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { issueChallenge } from "../devices/challenge.ts";
-import { holdStanding, type Identity } from "../auth.ts";
+import {
+  holdStanding,
+  waitAfterEndedSessions,
+  type Identity,
+} from "../auth.ts";
 import { registerDevice, signInOf } from "../devices/register.ts";
 import { badRequest, notFound, type ApiFailure } from "../http.ts";
 import type { Places } from "../places.ts";
@@ -104,6 +108,7 @@ export async function approveHost(
   { userId, via, sessionId, deviceKey }: Identity,
   userCode: string,
 ) {
+  if (via === "session") await waitAfterEndedSessions(db, userId);
   const row = await db.transaction().execute(async (trx) => {
     await holdStanding(trx, userId);
     const approver =

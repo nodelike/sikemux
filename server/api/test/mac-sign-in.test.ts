@@ -56,20 +56,22 @@ const SIGN_IN = {
 
 let skew = 0;
 
-function signedGet(
+function signed(
   app: ReturnType<typeof testApp>,
   host: TestDevice,
   path: string,
+  method = "GET",
 ) {
   const time = String(Math.floor(Date.now() / 1000) - skew++);
   const message = requestMessage(
     "host",
-    "GET",
+    method,
     path,
     time,
     bodySha256(new Uint8Array()),
   );
   return app.request(path, {
+    method,
     headers: {
       authorization: `SikemuxHost ${host.key}.${time}.${signText(host, message)}`,
     },
@@ -153,9 +155,9 @@ it("refuses a Mac sign-in until a host removal has signed the account out and it
   const stuck = await trade();
   expect(stuck.status).toBe(401);
   expect((await body(stuck, "ApiError")).error.message).toBe(
-    "A computer was just removed from this account. Try again in 10 minutes.",
+    "This account was just signed out somewhere. Try again in 11 minutes.",
   );
-  expect(stuck.headers.get("retry-after")).toBe("600");
+  expect(stuck.headers.get("retry-after")).toBe("660");
   const device = newDevice();
   const finish = await post(app, "/v1/mac-sign-ins/finish", {
     key: device.key,
@@ -175,9 +177,71 @@ it("refuses a Mac sign-in until a host removal has signed the account out and it
   expect((await trade()).status).toBe(401);
 
   await database.pool.query(
-    "update host_removal_sign_outs set done_at = now() - interval '11 minutes'",
+    "update host_removal_sign_outs set done_at = now() - interval '12 minutes'",
   );
   expect((await trade()).status).toBe(200);
+});
+
+it("refuses a Mac sign-in after a phone's removal ended its session, until its codes ran out", async () => {
+  const clerk = new FakeClerk();
+  const app = testApp(database, undefined, { clerk });
+  const phone = await registered(app, MAYA, "client", {
+    sessionId: "sess_phone",
+  });
+  const removed = await app.request(`/v1/devices/${phone.key}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${await sessionToken(MAYA)}` },
+  });
+  expect(removed.status).toBe(204);
+  expect(clerk.revoked).toEqual(["sess_phone"]);
+
+  macCodes.set("code_after", await macToken(MAYA));
+  const refused = await post(app, "/v1/mac-sign-ins", {
+    ...SIGN_IN,
+    code: "code_after",
+  });
+  expect(refused.status).toBe(401);
+  expect(refused.headers.get("retry-after")).toBe("660");
+
+  await database.pool.query(
+    "update removed_devices set clerk_revoked_at = now() - interval '12 minutes'",
+  );
+  expect((await signInMac(app, MAYA)).response.status).toBe(201);
+});
+
+it("lets no session approve a `sikemux login` code while the wait runs, and a host still can", async () => {
+  const clerk = new FakeClerk();
+  const app = testApp(database, undefined, { clerk });
+  const mac = await signInMac(app, MAYA);
+  const phone = await registered(app, MAYA, "client", {
+    sessionId: "sess_phone",
+  });
+  const fresh = await sessionToken(MAYA, { claims: { fva: [0, -1] } });
+  await caller(app)(`/v1/devices/${phone.key}`, fresh, { method: "DELETE" });
+
+  const box = newDevice();
+  const { userCode } = await body(
+    await post(app, "/v1/host-sign-ins", {
+      key: box.key,
+      name: "Build box",
+      platform: "linux",
+      channel: "stable",
+    }),
+    "HostSignIn",
+  );
+  const fromSession = await caller(app)(
+    `/v1/host-sign-ins/${userCode}/approve`,
+    fresh,
+    { method: "POST" },
+  );
+  expect(fromSession.status).toBe(401);
+  const fromHost = await signed(
+    app,
+    mac,
+    `/v1/host-sign-ins/${userCode}/approve-from-host`,
+    "POST",
+  );
+  expect(fromHost.status).toBe(200);
 });
 
 it("adds a Mac only with the challenge its traded code got", async () => {
@@ -252,7 +316,7 @@ it("lets a removed Mac reach nothing", async () => {
   const app = testApp(database);
   const mac = await signInMac(app, MAYA);
   expect(mac.response.status).toBe(201);
-  expect((await signedGet(app, mac, "/v1/devices")).status).toBe(200);
+  expect((await signed(app, mac, "/v1/devices")).status).toBe(200);
 
   const removed = await caller(app)(
     `/v1/devices/${mac.key}`,
@@ -261,8 +325,8 @@ it("lets a removed Mac reach nothing", async () => {
   );
   expect(removed.status).toBe(204);
 
-  expect((await signedGet(app, mac, "/v1/devices")).status).toBe(401);
-  expect((await signedGet(app, mac, "/v1/vault/uses")).status).toBe(401);
+  expect((await signed(app, mac, "/v1/devices")).status).toBe(401);
+  expect((await signed(app, mac, "/v1/vault/uses")).status).toBe(401);
 });
 
 it("holds no Mac sign-in after a phone removed with no Clerk signs in again", async () => {
