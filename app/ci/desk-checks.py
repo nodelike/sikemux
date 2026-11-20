@@ -109,7 +109,7 @@ class Run:
         if sys.platform != "darwin":
             # A second start finds the running app by a socket in here, so it must not reach a real session's app.
             self.env["XDG_RUNTIME_DIR"] = str(self.sockets)
-        core = subprocess.Popen([self.core_exe, "--socket", self.socket, "--data-dir", self.root / "data"],
+        core = subprocess.Popen([self.core_exe, "--socket", self.socket, "--data-dir", self.root / "data", "--throwaway"],
                                 env=self.env, stdout=open(self.root / "core.log", "w"), stderr=subprocess.STDOUT)
         self.processes.append(core)
         if os.environ.get("SANDBOX_WATCH"):

@@ -121,6 +121,7 @@ impl World {
             .arg(work.join("data"))
             .arg("--cli-endpoint")
             .arg(work.join("cli.json"))
+            .arg("--throwaway")
             .env("HOME", &home)
             // Agents' commands find the core by the endpoint it hands them only when it lies in
             // their config folder, so the core keeps the throwaway home's.
@@ -132,9 +133,7 @@ impl World {
             .stdout(log.try_clone()?)
             .stderr(log);
         if let Some(account) = &account {
-            command
-                .arg("--throwaway")
-                .env(sikemux_process::vars::API_URL, &account.api);
+            command.env(sikemux_process::vars::API_URL, &account.api);
         }
         if let Some(replies) = &replies {
             command.env("FAKE_CLAUDE_SCRIPT", replies);
