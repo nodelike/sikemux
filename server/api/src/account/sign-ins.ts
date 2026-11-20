@@ -473,6 +473,11 @@ async function endSessions(
   });
   for (const session of opened)
     if (session.live) await clerk.revokeSession(session.id);
+  await db
+    .updateTable("ended_sessions")
+    .set({ ended_at: sql<Date>`clock_timestamp()` })
+    .where("session_id", "in", ids)
+    .execute();
   return devices;
 }
 
