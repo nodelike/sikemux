@@ -29,6 +29,7 @@ await build({
       silent: true,
       sourcemaps: { disable: true },
       release: { inject: false, create: false },
+      bundleSizeOptimizations: { excludeChannelInjection: true },
     }),
   ],
 });
