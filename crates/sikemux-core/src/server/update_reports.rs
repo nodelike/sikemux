@@ -44,7 +44,7 @@ pub(crate) fn step_of(state: UpdateState) -> &'static str {
     match state {
         UpdateState::Downloading => "download",
         UpdateState::Installing => "install",
-        UpdateState::Waiting | UpdateState::Ready => "hand over",
+        UpdateState::Ready => "hand over",
         UpdateState::Idle | UpdateState::Failed => "check",
     }
 }

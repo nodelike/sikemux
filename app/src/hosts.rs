@@ -1110,10 +1110,9 @@ pub fn updates_label(updates: &UpdateStatus) -> Option<String> {
         None => {}
     }
     match updates.state {
-        UpdateState::Downloading
-        | UpdateState::Installing
-        | UpdateState::Waiting
-        | UpdateState::Ready => Some(t!("updating").to_owned()),
+        UpdateState::Downloading | UpdateState::Installing | UpdateState::Ready => {
+            Some(t!("updating").to_owned())
+        }
         UpdateState::Idle | UpdateState::Failed => None,
     }
 }
@@ -1132,21 +1131,6 @@ pub fn updates_items(
             .checked(on)
             .on_click(move |_, _, cx| set(!on, cx)),
     );
-    let restarting = updates.forced
-        && !updates.blockers.is_empty()
-        && matches!(updates.state, UpdateState::Ready | UpdateState::Installing);
-    if restarting {
-        let count = updates.blockers.len();
-        let said = match count {
-            1 => t!("Restarting into the update now: 1 chat stops and picks up again after")
-                .to_owned(),
-            count => t!(
-                "Restarting into the update now: {count} chats stop and pick up again after",
-                count = count
-            ),
-        };
-        return popup.item(PopupMenuItem::label(said));
-    }
     match failed_update(updates) {
         Some((UpdateOutcomeState::RolledBack, reason)) => popup.item(PopupMenuItem::label(t!(
             "The last update was undone: {reason}",

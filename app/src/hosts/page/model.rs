@@ -329,10 +329,7 @@ fn state(feed: Option<&Feed>, reached: bool, alert: Option<&HostAlert>) -> State
         .is_some_and(|updates| {
             matches!(
                 updates.state,
-                UpdateState::Downloading
-                    | UpdateState::Installing
-                    | UpdateState::Waiting
-                    | UpdateState::Ready
+                UpdateState::Downloading | UpdateState::Installing | UpdateState::Ready
             )
         });
     if updating {

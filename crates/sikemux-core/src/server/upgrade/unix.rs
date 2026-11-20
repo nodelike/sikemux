@@ -104,30 +104,13 @@ async fn hand_over_when_ready(
     finish(core, binary).await
 }
 
-/// Replaces this core with `binary` once every chat can hand its agent over, giving up after
-/// `limit`, or, when `force`d, once the chats have had a moment to settle. Returns only if
-/// that failed.
-pub(crate) async fn replace_with(
-    core: &Arc<Core>,
-    binary: PathBuf,
-    force: bool,
-    limit: Duration,
-) -> String {
+/// Replaces this core with `binary` once every chat can hand its agent over, or once the chats
+/// have had the core's patience, a moment when `force`d. Returns only if that failed.
+pub(crate) async fn replace_with(core: &Arc<Core>, binary: PathBuf, force: bool) -> String {
     if let Err(error) = begin(core, &binary, Replacement::Update).await {
         return error;
     }
-    if force {
-        settle_chats(core, true).await;
-    } else {
-        let deadline = tokio::time::Instant::now() + limit;
-        while !core.chats().all_handable() {
-            if tokio::time::Instant::now() >= deadline {
-                core.updating().started.store(false, Ordering::Release);
-                return "a chat could not hand its agent over".into();
-            }
-            tokio::time::sleep(HANDOVER_POLL).await;
-        }
-    }
+    settle_chats(core, force).await;
     core.updating().frozen.send_replace(true);
     finish(core, binary).await
 }

@@ -9153,110 +9153,6 @@
         }
       }
     },
-    "Agents at work keep running through an update, but these are still starting or in the middle of a request. The update installs on its own once they are ready.": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les agents au travail continuent pendant une mise à jour, mais ceux-ci démarrent encore ou sont au milieu d'une requête. La mise à jour s'installe d'elle-même dès qu'ils sont prêts."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los agentes en marcha siguen funcionando durante una actualización, pero estos aún se están iniciando o están a mitad de una solicitud. La actualización se instala sola cuando estén listos."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arbeitende Agents laufen während eines Updates weiter, aber diese starten noch oder sind mitten in einer Anfrage. Das Update installiert sich von selbst, sobald sie bereit sind."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新期间工作中的智能体会继续运行，但这些智能体仍在启动或正处于请求中。它们就绪后更新会自动安装。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作業中のエージェントはアップデート中も動作し続けますが、これらのエージェントはまだ起動中かリクエストの途中です。準備ができるとアップデートは自動的にインストールされます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "업데이트 중에도 작업 중인 에이전트는 계속 실행되지만, 이 에이전트들은 아직 시작 중이거나 요청을 처리하는 중입니다. 준비되면 업데이트가 자동으로 설치됩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Работающие агенты продолжают работу во время обновления, но эти ещё запускаются или выполняют запрос. Обновление установится само, когда они будут готовы."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentes em ação continuam rodando durante uma atualização, mas estes ainda estão iniciando ou no meio de uma solicitação. A atualização é instalada sozinha assim que estiverem prontos."
-          }
-        }
-      }
-    },
-    "Agents at work keep running through an update, but this one is still starting or in the middle of a request. The update installs on its own once it is ready.": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les agents au travail continuent pendant une mise à jour, mais celui-ci démarre encore ou est au milieu d'une requête. La mise à jour s'installe d'elle-même dès qu'il est prêt."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Los agentes en marcha siguen funcionando durante una actualización, pero este aún se está iniciando o está a mitad de una solicitud. La actualización se instala sola cuando esté listo."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arbeitende Agents laufen während eines Updates weiter, aber dieser startet noch oder ist mitten in einer Anfrage. Das Update installiert sich von selbst, sobald er bereit ist."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新期间工作中的智能体会继续运行，但这个智能体仍在启动或正处于请求中。它就绪后更新会自动安装。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作業中のエージェントはアップデート中も動作し続けますが、このエージェントはまだ起動中かリクエストの途中です。準備ができるとアップデートは自動的にインストールされます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "업데이트 중에도 작업 중인 에이전트는 계속 실행되지만, 이 에이전트는 아직 시작 중이거나 요청을 처리하는 중입니다. 준비되면 업데이트가 자동으로 설치됩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Работающие агенты продолжают работу во время обновления, но этот ещё запускается или выполняет запрос. Обновление установится само, когда он будет готов."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentes em ação continuam rodando durante uma atualização, mas este ainda está iniciando ou no meio de uma solicitação. A atualização é instalada sozinha assim que ele estiver pronto."
-          }
-        }
-      }
-    },
     "Agents get a character in place of their harness logo.": {
       "localizations": {
         "fr": {
@@ -39365,58 +39261,6 @@
         }
       }
     },
-    "Force update": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forcer la mise à jour"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forzar actualización"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update erzwingen"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "强制更新"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "強制アップデート"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "강제 업데이트"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Принудительно обновить"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forçar atualização"
-          }
-        }
-      }
-    },
     "Forget": {
       "localizations": {
         "fr": {
@@ -47997,59 +47841,6 @@
         }
       }
     },
-    "It installs on its own once none of these is in the middle of a turn. Updating now carries them over without stopping them.": {},
-    "It installs once no agent is in the middle of a turn. Open to update now.": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il s'installe dès qu'aucun agent n'est en plein tour. Ouvrez pour mettre à jour maintenant."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se instala cuando ningún agente está a mitad de un turno. Ábrelo para actualizar ahora."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Es installiert sich, sobald kein Agent mitten in einem Zug ist. Öffnen, um jetzt zu aktualisieren."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "没有智能体正在运行一轮时自动安装。打开即可立即更新。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターン中のエージェントがなくなるとインストールされます。今すぐ更新するには開いてください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "턴 중인 에이전트가 없으면 설치됩니다. 지금 업데이트하려면 여세요."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Установится, когда ни один агент не в середине хода. Откройте, чтобы обновить сейчас."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Instala quando nenhum agente está no meio de um turno. Abra para atualizar agora."
-          }
-        }
-      }
-    },
     "It is not signed in yet.": {
       "localizations": {
         "fr": {
@@ -51062,58 +50853,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Continuar usando {name}"
-          }
-        }
-      }
-    },
-    "Keep waiting": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continuer d'attendre"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seguir esperando"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Weiter warten"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "继续等待"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "待ち続ける"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "계속 기다리기"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ждать дальше"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Continuar aguardando"
           }
         }
       }
@@ -86790,110 +86529,6 @@
         }
       }
     },
-    "Restarting into the update now: 1 chat stops and picks up again after": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Redémarrage pour la mise à jour : 1 chat s'arrête puis reprend ensuite"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reiniciando con la actualización: 1 chat se detiene y continúa después"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neustart ins Update jetzt: 1 Chat stoppt und macht danach weiter"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在重启以完成更新：1 个聊天将停止，之后继续"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アップデートのため再起動します：1 件のチャットが停止し、再起動後に再開します"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "지금 업데이트로 다시 시작합니다. 채팅 1개가 중지되었다가 이후에 이어집니다"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перезапуск с обновлением: 1 чат остановится и затем продолжит"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reiniciando com a atualização agora: 1 chat para e continua depois"
-          }
-        }
-      }
-    },
-    "Restarting into the update now: {count} chats stop and pick up again after": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Redémarrage pour la mise à jour : {count} chats s'arrêtent puis reprennent ensuite"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reiniciando con la actualización: {count} chats se detienen y continúan después"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neustart ins Update jetzt: {count} Chats stoppen und machen danach weiter"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在重启以完成更新：{count} 个聊天将停止，之后继续"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アップデートのため再起動します：{count} 件のチャットが停止し、再起動後に再開します"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "지금 업데이트로 다시 시작합니다. 채팅 {count}개가 중지되었다가 이후에 이어집니다"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перезапуск с обновлением: чаты ({count}) остановятся и затем продолжат"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reiniciando com a atualização agora: {count} chats param e continuam depois"
-          }
-        }
-      }
-    },
     "Restarting…": {
       "localizations": {
         "fr": {
@@ -101766,58 +101401,6 @@
         }
       }
     },
-    "Some agents can't be carried over yet. Within two minutes the update goes on and starts them again on their sessions. Open to see them or update now.": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Certains agents ne peuvent pas encore être repris. Dans deux minutes, la mise à jour continue et les redémarre sur leurs sessions. Ouvrez pour les voir ou mettez à jour maintenant."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Algunos agentes aún no se pueden trasladar. En dos minutos la actualización sigue adelante y los inicia de nuevo en sus sesiones. Ábrelo para verlos o actualiza ahora."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Einige Agents lassen sich noch nicht mitnehmen. Binnen zwei Minuten läuft das Update weiter und startet sie in ihren Sitzungen neu. Öffnen, um sie zu sehen, oder jetzt aktualisieren."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "有些智能体暂时无法带过去。两分钟内更新会继续，并在它们原来的会话上重新启动它们。点开查看，或立即更新。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一部のエージェントはまだ引き継げません。2 分以内にアップデートが進み、各セッションでエージェントを再起動します。開いて確認するか、今すぐアップデートできます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "일부 에이전트는 아직 이어갈 수 없습니다. 2분 안에 업데이트가 진행되며 에이전트가 각자의 세션에서 다시 시작됩니다. 열어서 확인하거나 지금 업데이트하세요."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Некоторых агентов пока нельзя перенести. Через две минуты обновление продолжится и заново запустит их в их сеансах. Откройте, чтобы посмотреть, или обновите сейчас."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alguns agentes ainda não podem ser levados adiante. Em até dois minutos a atualização segue e os inicia de novo nas sessões deles. Abra para vê-los ou atualize agora."
-          }
-        }
-      }
-    },
     "Something happened outside #{id}": {
       "localizations": {
         "fr": {
@@ -106550,58 +106133,6 @@
         }
       }
     },
-    "Stop it and update": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "L'arrêter et mettre à jour"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detenerlo y actualizar"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stoppen und aktualisieren"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止并更新"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止してアップデート"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "중지하고 업데이트"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Остановить и обновить"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Parar e atualizar"
-          }
-        }
-      }
-    },
     "Stop language servers for this project": {
       "localizations": {
         "fr": {
@@ -106910,58 +106441,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pará-los agora e não iniciá-los de novo"
-          }
-        }
-      }
-    },
-    "Stop {count} agents and update": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Arrêter {count} agents et mettre à jour"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Detener {count} agentes y actualizar"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} Agents stoppen und aktualisieren"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "停止 {count} 个智能体并更新"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "{count} 件のエージェントを停止してアップデート"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 {count}개 중지 후 업데이트"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Остановить агентов ({count}) и обновить"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Parar {count} agentes e atualizar"
           }
         }
       }
@@ -119862,7 +119341,6 @@
         }
       }
     },
-    "Update now": {},
     "Update to v{to} undone: {reason}. Back on v{from}; running terminals stopped, chats picked up again.": {
       "localizations": {
         "fr": {
@@ -120227,110 +119705,6 @@
         }
       }
     },
-    "Update waiting on 1 agent": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mise à jour en attente d'un agent"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La actualización espera a 1 agente"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update wartet auf 1 Agent"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新正在等待 1 个智能体"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アップデートは 1 件のエージェントを待っています"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 1개를 기다리는 업데이트"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обновление ждёт 1 агента"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atualização aguardando 1 agente"
-          }
-        }
-      }
-    },
-    "Update waiting on {count} agents": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mise à jour en attente de {count} agents"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La actualización espera a {count} agentes"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update wartet auf {count} Agents"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新正在等待 {count} 个智能体"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アップデートは {count} 件のエージェントを待っています"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 {count}개를 기다리는 업데이트"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обновление ждёт агентов: {count}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atualização aguardando {count} agentes"
-          }
-        }
-      }
-    },
     "Update {agent} to use {models}": {
       "localizations": {
         "fr": {
@@ -120535,110 +119909,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Atualizando"
-          }
-        }
-      }
-    },
-    "Updating now stops it and starts it again on the same chat. Whatever it was doing stops.": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mettre à jour maintenant l'arrête et le redémarre sur le même chat. Ce qu'il faisait s'arrête."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Al actualizar ahora se detiene y vuelve a empezar en el mismo chat. Lo que estuviera haciendo se detiene."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jetzt zu aktualisieren stoppt ihn und startet ihn im selben Chat neu. Was er gerade tat, stoppt."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "现在更新会停止它，并在同一聊天上重新启动。它正在做的事会中止。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今アップデートすると停止し、同じチャットで再起動します。実行中の作業は停止します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "지금 업데이트하면 중지된 후 같은 채팅에서 다시 시작합니다. 하던 작업은 중지됩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обновление сейчас остановит его и снова запустит в том же чате. Всё, что он делал, прервётся."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atualizar agora o para e o inicia de novo no mesmo chat. O que ele estava fazendo para."
-          }
-        }
-      }
-    },
-    "Updating now stops them and starts them again on the same chat. Whatever they were doing stops.": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mettre à jour maintenant les arrête et les redémarre sur le même chat. Ce qu'ils faisaient s'arrête."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Al actualizar ahora se detienen y vuelven a empezar en el mismo chat. Lo que estuvieran haciendo se detiene."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Jetzt zu aktualisieren stoppt sie und startet sie im selben Chat neu. Was sie gerade taten, stoppt."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "现在更新会停止它们，并在同一聊天上重新启动。它们正在做的事会中止。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "今アップデートするとそれらを停止し、同じチャットで再起動します。実行中の作業は停止します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "지금 업데이트하면 중지된 후 같은 채팅에서 다시 시작합니다. 하던 작업은 중지됩니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обновление сейчас остановит их и снова запустит в том же чате. Всё, что они делали, прервётся."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atualizar agora os para e os inicia de novo no mesmo chat. O que eles estavam fazendo para."
           }
         }
       }
@@ -140611,7 +139881,6 @@
         }
       }
     },
-    "in a turn": {},
     "in line": {
       "localizations": {
         "fr": {
