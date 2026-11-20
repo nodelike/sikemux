@@ -1221,12 +1221,10 @@ impl Workbench {
                     InputEvent::PressEnter {
                         shift: false,
                         secondary,
-                    } => bench.send(&owner, *secondary, window, cx),
-                    InputEvent::PressEnter { shift: true, .. } => {
-                        if let Some(call) = crate::calls::reply::call_of(&owner) {
-                            bench.follow_up(call, window, cx);
-                        }
-                    }
+                    } => match crate::calls::reply::call_of(&owner) {
+                        Some(call) if *secondary => bench.follow_up(call, window, cx),
+                        _ => bench.send(&owner, *secondary, window, cx),
+                    },
                     InputEvent::Change => {
                         let empty = draft.read(cx).value().is_empty();
                         if was_empty.replace(empty) != empty {

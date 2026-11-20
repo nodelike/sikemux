@@ -1,5 +1,5 @@
 //! The composer a call is answered with on its page: the chat's own, one line tall, which
-//! sends the call's answer in place of a message, or with ⇧⏎ a note to its asker that leaves
+//! sends the call's answer in place of a message, or with ⌘⏎ a note to its asker that leaves
 //! the call open.
 
 use std::rc::Rc;

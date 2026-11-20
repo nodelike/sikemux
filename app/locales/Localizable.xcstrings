@@ -6293,54 +6293,54 @@
         }
       }
     },
-    "Add a note · ⏎ sends and closes · ⇧⏎ keeps it open": {
+    "Add a note · ⏎ sends and closes · ⌘⏎ keeps it open": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajouter une note · ⏎ envoie et ferme · ⇧⏎ la garde ouverte"
+            "value": "Ajouter une note · ⏎ envoie et ferme · ⌘⏎ la garde ouverte"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade una nota · ⏎ envía y cierra · ⇧⏎ la deja abierta"
+            "value": "Añade una nota · ⏎ envía y cierra · ⌘⏎ la deja abierta"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Notiz hinzufügen · ⏎ sendet und schließt · ⇧⏎ lässt es offen"
+            "value": "Notiz hinzufügen · ⏎ sendet und schließt · ⌘⏎ lässt es offen"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "添加备注 · ⏎ 发送并关闭 · ⇧⏎ 保持打开"
+            "value": "添加备注 · ⏎ 发送并关闭 · ⌘⏎ 保持打开"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メモを追加 · ⏎ で送信して閉じる · ⇧⏎ で開いたまま"
+            "value": "メモを追加 · ⏎ で送信して閉じる · ⌘⏎ で開いたまま"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "메모 추가 · ⏎ 보내고 닫기 · ⇧⏎ 열어 둠"
+            "value": "메모 추가 · ⏎ 보내고 닫기 · ⌘⏎ 열어 둠"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавьте заметку · ⏎ отправляет и закрывает · ⇧⏎ оставляет открытым"
+            "value": "Добавьте заметку · ⏎ отправляет и закрывает · ⌘⏎ оставляет открытым"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adicione uma nota · ⏎ envia e fecha · ⇧⏎ mantém aberta"
+            "value": "Adicione uma nota · ⏎ envia e fecha · ⌘⏎ mantém aberta"
           }
         }
       }
@@ -11961,54 +11961,54 @@
         }
       }
     },
-    "Answer or drop a screenshot · ⏎ sends and closes · ⇧⏎ keeps it open": {
+    "Answer or drop a screenshot · ⏎ sends and closes · ⌘⏎ keeps it open": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Répondez ou déposez une capture d'écran · ⏎ envoie et ferme · ⇧⏎ la garde ouverte"
+            "value": "Répondez ou déposez une capture d'écran · ⏎ envoie et ferme · ⌘⏎ la garde ouverte"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Responde o suelta una captura · ⏎ envía y cierra · ⇧⏎ la deja abierta"
+            "value": "Responde o suelta una captura · ⏎ envía y cierra · ⌘⏎ la deja abierta"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Antworte oder zieh einen Screenshot hinein · ⏎ sendet und schließt · ⇧⏎ lässt es offen"
+            "value": "Antworte oder zieh einen Screenshot hinein · ⏎ sendet und schließt · ⌘⏎ lässt es offen"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "回答或放入截图 · ⏎ 发送并关闭 · ⇧⏎ 保持打开"
+            "value": "回答或放入截图 · ⏎ 发送并关闭 · ⌘⏎ 保持打开"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "回答するかスクリーンショットをドロップ · ⏎ で送信して閉じる · ⇧⏎ で開いたまま"
+            "value": "回答するかスクリーンショットをドロップ · ⏎ で送信して閉じる · ⌘⏎ で開いたまま"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "답하거나 스크린샷을 놓으세요 · ⏎ 보내고 닫기 · ⇧⏎ 열어 둠"
+            "value": "답하거나 스크린샷을 놓으세요 · ⏎ 보내고 닫기 · ⌘⏎ 열어 둠"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ответьте или бросьте скриншот · ⏎ отправляет и закрывает · ⇧⏎ оставляет открытым"
+            "value": "Ответьте или бросьте скриншот · ⏎ отправляет и закрывает · ⌘⏎ оставляет открытым"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Responda ou solte uma captura de tela · ⏎ envia e fecha · ⇧⏎ mantém aberta"
+            "value": "Responda ou solte uma captura de tela · ⏎ envia e fecha · ⌘⏎ mantém aberta"
           }
         }
       }
