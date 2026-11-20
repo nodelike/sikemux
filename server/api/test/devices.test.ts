@@ -39,7 +39,9 @@ function registration(
   fields: Partial<DeviceRegistration> = {},
 ) {
   return harness.registration(app, device, userId, token, {
-    channel: "stable",
+    role: "client",
+    platform: "ios",
+    name: "iPhone",
     ...fields,
   });
 }
@@ -79,12 +81,7 @@ describe("registering a device", () => {
   it("adds a phone, which has no channel", async () => {
     const token = await sessionToken("user_a");
     const phone = newDevice();
-    const json = await registration(phone, "user_a", token, {
-      role: "client",
-      platform: "ios",
-      name: "iPhone",
-    });
-    delete json.channel;
+    const json = await registration(phone, "user_a", token);
     const response = await call("/v1/devices", token, { method: "POST", json });
     expect(response.status).toBe(201);
     expect(await body(response, "Device")).not.toHaveProperty("channel");
@@ -92,23 +89,19 @@ describe("registering a device", () => {
 
   it("updates a device registered again, keeping one row and its name", async () => {
     const token = await sessionToken("user_a");
-    const mac = newDevice();
+    const phone = newDevice();
     await call("/v1/devices", token, {
       method: "POST",
-      json: await registration(mac, "user_a", token),
+      json: await registration(phone, "user_a", token),
     });
     const again = await call("/v1/devices", token, {
       method: "POST",
-      json: await registration(mac, "user_a", token, {
-        name: "Renamed Mac",
-        channel: "nightly",
+      json: await registration(phone, "user_a", token, {
+        name: "Renamed iPhone",
       }),
     });
     expect(again.status).toBe(200);
-    expect(await body(again, "Device")).toMatchObject({
-      name: "Studio Mac",
-      channel: "nightly",
-    });
+    expect(await body(again, "Device")).toMatchObject({ name: "iPhone" });
     expect(
       (await database.pool.query("select count(*)::int as n from devices"))
         .rows[0].n,
@@ -195,16 +188,27 @@ describe("registering a device", () => {
     expect(response.status).toBe(400);
   });
 
-  it("requires a channel from hosts and refuses one from clients", async () => {
+  it("adds no computer for a browser or phone sign-in", async () => {
     const token = await sessionToken("user_a");
-    const host = await registration(newDevice(), "user_a", token);
-    delete host.channel;
+    const host = await registration(newDevice(), "user_a", token, {
+      role: "host",
+      platform: "macos",
+      channel: "stable",
+    });
     expect(
       (await call("/v1/devices", token, { method: "POST", json: host })).status,
-    ).toBe(400);
+    ).toBe(403);
+    expect(
+      (await database.pool.query("select count(*)::int as n from devices"))
+        .rows[0].n,
+    ).toBe(0);
+  });
+
+  it("refuses a channel from clients", async () => {
+    const token = await sessionToken("user_a");
     const client = await registration(newDevice(), "user_a", token, {
-      role: "client",
       platform: "android",
+      channel: "stable",
     });
     expect(
       (await call("/v1/devices", token, { method: "POST", json: client }))
@@ -233,24 +237,13 @@ describe("registering a device", () => {
 describe("listing devices", () => {
   it("shows only your own, newest first, filtered by role", async () => {
     const mine = await sessionToken("user_a");
-    const mac = newDevice();
+    const mac = await harness.registered(app, "user_a", "host");
     const phone = newDevice();
     await call("/v1/devices", mine, {
       method: "POST",
-      json: await registration(mac, "user_a", mine),
+      json: await registration(phone, "user_a", mine),
     });
-    const phoneJson = await registration(phone, "user_a", mine, {
-      role: "client",
-      platform: "ios",
-      name: "iPhone",
-    });
-    delete phoneJson.channel;
-    await call("/v1/devices", mine, { method: "POST", json: phoneJson });
-    const theirs = await sessionToken("user_b");
-    await call("/v1/devices", theirs, {
-      method: "POST",
-      json: await registration(newDevice(), "user_b", theirs),
-    });
+    await harness.registered(app, "user_b", "host");
 
     const all = await body(
       await call("/v1/devices", await sessionToken("user_a")),
@@ -278,7 +271,9 @@ describe("listing devices", () => {
 
 describe("removing a device", () => {
   it("takes one of your devices off the account and records it", async () => {
-    const token = await sessionToken("user_a");
+    const token = await sessionToken("user_a", {
+      claims: { sid: "sess_phone" },
+    });
     const mac = newDevice();
     await call("/v1/devices", token, {
       method: "POST",

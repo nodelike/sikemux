@@ -206,6 +206,8 @@ it("adds a Mac only with the challenge its traded code got", async () => {
     method: "POST",
     json: await registration(app, device, MAYA, session, {
       nonce: state.nonce,
+      role: "client",
+      platform: "ios",
     }),
   });
   expect(throughBearer.status).toBe(400);

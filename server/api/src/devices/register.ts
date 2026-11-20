@@ -51,6 +51,10 @@ export async function registerDevice(
 ): Promise<{ row: Selectable<Tables["devices"]>; added: boolean }> {
   if (via === "host" && registration.role !== "client")
     throw forbidden("A host may add only its own app to the account.");
+  if (via === "session" && registration.role === "host")
+    throw forbidden(
+      "A computer joins the account only by signing in to Sikemux on it.",
+    );
   if (registration.platform === "web" && registration.role !== "client")
     throw badRequest("A browser joins hosts only as a client.");
   if (registration.handsOnly && registration.role !== "client")
