@@ -615,6 +615,14 @@ async fn apply_through_service(_core: &Core) -> CoreResult<()> {
     ))
 }
 
+#[cfg(target_os = "macos")]
+fn on_read_only_disk(bundle: &Path) -> bool {
+    bundle.parent().is_some_and(|folder| {
+        rustix::fs::statvfs(folder)
+            .is_ok_and(|disk| disk.f_flag.contains(rustix::fs::StatVfsMountFlags::RDONLY))
+    })
+}
+
 /// `by_itself` is an update a desktop app began on its own, which waits for every chat to rest
 /// however long that takes and stops none.
 fn begin_install(core: &Arc<Core>, force: bool, by_itself: bool) -> CoreResult<UpdateStatus> {
@@ -626,6 +634,13 @@ fn begin_install(core: &Arc<Core>, force: bool, by_itself: bool) -> CoreResult<U
         return Ok(status);
     }
     let app = own_app().ok_or_else(|| CoreError::from("this build does not update itself"))?;
+    #[cfg(target_os = "macos")]
+    if matches!(&app, OwnApp::Bundle(bundle) if on_read_only_disk(bundle)) {
+        return Err(CoreError::from(
+            "Sikemux is running from its disk image, which it cannot change. Drag it to \
+             Applications and open it from there to get updates.",
+        ));
+    }
     let (found, installed) = {
         let held = core.updates().held.locked();
         (held.found.clone(), held.installed)
