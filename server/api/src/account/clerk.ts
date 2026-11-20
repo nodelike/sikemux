@@ -66,6 +66,26 @@ export class ClerkRefusal extends Error {}
 
 export type ClerkSession = { id: string; createdAt: Date; live: boolean };
 
+/**
+ * Ends a session at Clerk. A refusal counts as done once Clerk no longer lists the session as
+ * live, as when it ran out before it could be revoked.
+ */
+export async function endSessionInClerk(
+  clerk: ClerkBackend,
+  userId: string,
+  sessionId: string,
+): Promise<void> {
+  try {
+    await clerk.revokeSession(sessionId);
+  } catch (error) {
+    if (!(error instanceof ClerkRefusal)) throw error;
+    const listed = (await clerk.sessions(userId)).find(
+      (session) => session.id === sessionId,
+    );
+    if (listed?.live) throw error;
+  }
+}
+
 /** Whether Clerk itself said it has no such thing, rather than a 404 from something in between. */
 async function clerkFoundNothing(response: Response): Promise<boolean> {
   if (response.status !== 404) return false;

@@ -15,6 +15,7 @@ import { retryLater } from "../retry.ts";
 import { alertStaff } from "../sentry.ts";
 import {
   ClerkRefusal,
+  endSessionInClerk,
   type ClerkBackend,
   type ClerkSession,
   type SignIns,
@@ -515,7 +516,7 @@ export async function retryEndedSessions(
         .executeTakeFirst();
       if (!row) return null;
       try {
-        await clerk.revokeSession(session_id);
+        await endSessionInClerk(clerk, row.user_id, session_id);
       } catch (error) {
         const attempts = row.clerk_attempts + 1;
         await trx

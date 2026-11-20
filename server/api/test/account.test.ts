@@ -11,7 +11,7 @@ import {
 } from "vitest";
 
 import type { AppleSignIn } from "../src/account/apple.ts";
-import { clerkBackend } from "../src/account/clerk.ts";
+import { ClerkRefusal, clerkBackend } from "../src/account/clerk.ts";
 import { sweepClerk } from "../src/account/clerk-sweeper.ts";
 import { purgeAccounts, pruneHistory } from "../src/account/purge.ts";
 import type { Database } from "../src/db.ts";
@@ -510,6 +510,49 @@ describe("removing a phone from elsewhere", () => {
     await sweepClerk(database.db, clerk, null, log);
     expect(clerk.revoked).toEqual(["sess_phone"]);
     expect((await call("/v1/devices", old)).status).toBe(401);
+  });
+});
+
+describe("a removed phone's session Clerk refuses to revoke", () => {
+  async function removedThenBack() {
+    const phone = await registered(app, "user_a", "client", {
+      sessionId: "sess_phone",
+    });
+    clerk.revokeSession = () =>
+      Promise.reject(new ClerkRefusal("Clerk answered 400"));
+    await call(
+      `/v1/devices/${phone.key}`,
+      await sessionToken("user_a", { claims: { sid: "sess_web" } }),
+      { method: "DELETE" },
+    );
+    await registered(app, "user_a", "client", {
+      device: phone,
+      sessionId: "sess_phone_again",
+    });
+    await database.pool.query(
+      "update ended_sessions set clerk_retry_at = now()",
+    );
+  }
+  const unfinished = async () =>
+    (
+      await database.pool.query(
+        "select 1 from ended_sessions where ended_at is null",
+      )
+    ).rowCount;
+
+  it("stays owed while Clerk still lists the session as live", async () => {
+    clerk.userSessions.set("user_a", [
+      { id: "sess_phone", createdAt: new Date() },
+    ]);
+    await removedThenBack();
+    await sweepClerk(database.db, clerk, null, log);
+    expect(await unfinished()).toBe(1);
+  });
+
+  it("counts as done once Clerk no longer lists the session as live", async () => {
+    await removedThenBack();
+    await sweepClerk(database.db, clerk, null, log);
+    expect(await unfinished()).toBe(0);
   });
 });
 
