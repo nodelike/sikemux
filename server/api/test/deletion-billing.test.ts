@@ -983,6 +983,72 @@ describe("cancelling a Pro a seat pauses", () => {
     });
   });
 
+  it("N11: a plan keeping its days unrefunded ends once staff refunds made since, on an older payment, reach the kept days' share less a day, each counted once", async () => {
+    await buy(MEMBER, "pro");
+    await paidDaysAgo(40);
+    await database.pool.query(
+      "update subscriptions set current_period_end = now() + interval '10 days' where product = 'pro'",
+    );
+    const orgId = await createOrg(3);
+    await addMember(orgId, MEMBER, "user");
+    const frozen = await pro();
+    const {
+      rows: [older],
+    } = await database.pool.query<{
+      provider_payment_id: string;
+      price: string;
+      worth: number;
+    }>(
+      `select invoices.provider_payment_id, invoices.amount as price,
+              floor(invoices.amount * greatest(extract(epoch from subscriptions.paid_left) - 86400, 0)
+                / extract(epoch from subscriptions.current_period_end - (subscriptions.current_period_end - interval '1 month')))::int as worth
+         from invoices join subscriptions using (provider_subscription_id)`,
+    );
+    if (!older?.worth) throw new Error("no kept days");
+    expect(older.worth).toBeLessThan(Number(older.price));
+
+    await provider.refund(older.provider_payment_id, older.worth);
+    expect((await cancelPro(frozen.id)).status).toBe(200);
+    expect(
+      await count(
+        "select count(*)::int as n from subscriptions where kept_without_refund_at is not null",
+      ),
+    ).toBe(1);
+    expect((await pro()).status).toBe("paused");
+
+    const half = Math.ceil(older.worth / 2);
+    const refunded = (
+      eventId: string,
+      providerRefundId: string,
+      amount: number,
+    ) =>
+      applyProviderEvents(
+        database.db,
+        provider,
+        [
+          {
+            eventId,
+            at: new Date(),
+            type: "payment.refunded",
+            providerPaymentId: older.provider_payment_id,
+            providerRefundId,
+            returned: { amount, currency: "usd" },
+            chargeback: false,
+          },
+        ],
+        log,
+      );
+    await refunded("evt_half", "ref_half", half);
+    await refunded("evt_half_again", "ref_half", half);
+    expect((await pro()).status).toBe("paused");
+
+    await refunded("evt_short", "ref_short", older.worth - half - 1);
+    expect((await pro()).status).toBe("paused");
+
+    await refunded("evt_last", "ref_last", 1);
+    expect((await pro()).status).toBe("ended");
+  });
+
   async function cancelledOnTwoPayments() {
     await buy(MEMBER, "pro");
     const { id } = await pro();

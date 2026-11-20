@@ -21,7 +21,7 @@ import {
 } from "../src/billing/paddle-api.ts";
 import type { Database } from "../src/db.ts";
 import { RateLimiter } from "../src/limits.ts";
-import { makeDueCalls } from "../src/billing/calls.ts";
+import { makeDueCalls, takeCancelTurn } from "../src/billing/calls.ts";
 import { settleSeatPause } from "../src/billing/seat-pause.ts";
 import { seatLimit } from "../src/billing/seats.ts";
 import { caller, emptyTables, migratedDatabase } from "./accounts.ts";
@@ -1814,6 +1814,60 @@ describe("a sale paid on a checkout the API has no record of, sixth read", () =>
   });
 });
 
+/** Holds the first Paddle request that matches until released, and fails it if asked to. */
+function holdNext(matches: (method: string, path: string) => boolean) {
+  const request = paddle.request.bind(paddle);
+  let reached = () => {};
+  let release: (fail: boolean) => void = () => {};
+  const atGate = new Promise<void>((resolve) => (reached = resolve));
+  const gate = new Promise<boolean>((resolve) => (release = resolve));
+  let held = false;
+  paddle.request = async (method, path, body) => {
+    if (!held && matches(method, path)) {
+      held = true;
+      reached();
+      if (await gate)
+        throw new PaddleError(500, "internal_error", "Paddle failed");
+    }
+    return request(method, path, body);
+  };
+  return { atGate, release };
+}
+
+/** Holds a plan's cancel turn, as a take-back or a re-cancel does, until released. */
+function holdCancelTurn(providerSubscriptionId: string) {
+  let taken = () => {};
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (taken = resolve));
+  const done = database.db.transaction().execute(async (turn) => {
+    await takeCancelTurn(turn, providerSubscriptionId);
+    taken();
+    await new Promise<void>((resolve) => (release = resolve));
+  });
+  return { held, release: () => (release(), done) };
+}
+
+/** Resolves once someone waits for a cancel turn another holds. */
+async function waitingForTurn() {
+  for (;;) {
+    const { rows } = await database.pool.query<{ n: number }>(
+      "select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted",
+    );
+    if (rows[0]?.n) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function proCancel() {
+  const { rows } = await database.pool.query<{
+    cancel_at_period_end: boolean;
+    cancel_asked_at: Date | null;
+  }>(
+    "select cancel_at_period_end, cancel_asked_at from subscriptions where product = 'pro'",
+  );
+  return rows[0];
+}
+
 describe("a seat pausing a Pro its person set to cancel", () => {
   const provider = () =>
     new PaddleProvider({
@@ -2101,6 +2155,108 @@ describe("a seat pausing a Pro its person set to cancel", () => {
       currentPeriodEnd: renewal.current_billing_period.ends_at,
     });
   });
+
+  /** A Pro cancelled at its period's end, whose pause for a seat failed once and waits to be asked again. */
+  async function cancelledAndPausing() {
+    const paidEnd = new Date(Date.now() + 10 * DAY_MS);
+    const { sub } = await pay(OWNER, "pro", { ends: paidEnd.toISOString() });
+    const [pro] = (await overview(OWNER)).subscriptions;
+    expect(
+      (
+        await as(OWNER, `/v1/billing/subscriptions/${pro?.id}/cancel`, {
+          method: "POST",
+        })
+      ).status,
+    ).toBe(200);
+    paddle.failPauses = true;
+    await team(1);
+    paddle.failPauses = false;
+    expect(sub.scheduled_change?.action).toBe("cancel");
+    return { sub, id: pro?.id };
+  }
+
+  it("N13a: a pause failing at Paddle while a take-back waits for the turn leaves no cancel", async () => {
+    const paidEnd = new Date(Date.now() + 10 * DAY_MS);
+    const { sub } = await pay(OWNER, "pro", { ends: paidEnd.toISOString() });
+    const [pro] = (await overview(OWNER)).subscriptions;
+    expect(
+      (
+        await as(OWNER, `/v1/billing/subscriptions/${pro?.id}/cancel`, {
+          method: "POST",
+        })
+      ).status,
+    ).toBe(200);
+    const pause = holdNext(
+      (method, path) => method === "POST" && path.endsWith("/pause"),
+    );
+    const joining = team(1);
+    await pause.atGate;
+    const takingBack = as(
+      OWNER,
+      `/v1/billing/subscriptions/${pro?.id}/resume`,
+      {
+        method: "POST",
+      },
+    );
+    await waitingForTurn();
+    pause.release(true);
+    await joining;
+    expect((await takingBack).status).toBe(200);
+
+    expect({
+      cancelAtPaddle: sub.scheduled_change?.action === "cancel",
+      cancel: await proCancel(),
+    }).toEqual({
+      cancelAtPaddle: false,
+      cancel: { cancel_at_period_end: false, cancel_asked_at: null },
+    });
+  });
+
+  it("N13b: while another holds the cancel turn, a settle asks nothing of Paddle and tries again in 30 s", async () => {
+    const { sub } = await pay(OWNER, "pro");
+    const turn = holdCancelTurn(sub.id);
+    await turn.held;
+    await team(1);
+    const asked = paddle.calls.length;
+    const again = await settleSeatPause(database.db, provider(), OWNER, log);
+    const waits = (again?.getTime() ?? 0) - Date.now();
+    await turn.release();
+
+    expect({
+      asked: paddle.calls.length - asked,
+      status: sub.status,
+      waitsAboutHalfAMinute: waits > 25_000 && waits <= 30_000,
+    }).toEqual({ asked: 0, status: "active", waitsAboutHalfAMinute: true });
+  });
+
+  it("N14: a settle while a take-back's call to Paddle is out adopts no cancel, and the plan pauses with none", async () => {
+    const { sub, id } = await cancelledAndPausing();
+    const takeBack = holdNext(
+      (method, path) =>
+        method === "PATCH" && path === `/subscriptions/${sub.id}`,
+    );
+    const takingBack = as(OWNER, `/v1/billing/subscriptions/${id}/resume`, {
+      method: "POST",
+    });
+    await takeBack.atGate;
+    const asked = paddle.calls.length;
+    const during = await settleSeatPause(database.db, provider(), OWNER, log);
+    expect(paddle.calls.length).toBe(asked);
+    expect(during).not.toBeNull();
+    takeBack.release(false);
+    expect((await takingBack).status).toBe(200);
+    await settleSeatPause(database.db, provider(), OWNER, log);
+
+    expect({
+      status: sub.status,
+      cancelAtPaddle: sub.scheduled_change?.action === "cancel",
+      cancel: await proCancel(),
+    }).toEqual({
+      status: "paused",
+      cancelAtPaddle: false,
+      cancel: { cancel_at_period_end: false, cancel_asked_at: null },
+    });
+  });
 });
 
 describe("the charge Paddle takes when it resumes a Pro paused for a seat", () => {
@@ -2131,6 +2287,16 @@ describe("the charge Paddle takes when it resumes a Pro paused for a seat", () =
     return { sub, id: pro?.id };
   }
 
+  async function resumeRecord() {
+    const { rows } = await database.pool.query<{
+      resume_asked_at: Date | null;
+      resume_asked_for: Date | null;
+    }>(
+      "select resume_asked_at, resume_asked_for from subscriptions where product = 'pro'",
+    );
+    return rows[0];
+  }
+
   const fullRefunds = () =>
     paddle.calls.filter(
       (each) =>
@@ -2145,7 +2311,7 @@ describe("the charge Paddle takes when it resumes a Pro paused for a seat", () =
       paddle.resumeOrigin = origin;
       const { sub } = await resumeAsked();
       await database.pool.query(
-        "update subscriptions set resume_asked_at = now() - interval '3 minutes', cancel_at_period_end = true, cancel_asked_at = now() - interval '2 minutes' where product = 'pro'",
+        "update subscriptions set paused_for_seat_at = now() - interval '4 minutes', seat_pause_asked_for = now() - interval '4 minutes', resume_asked_at = now() - interval '3 minutes', cancel_at_period_end = true, cancel_asked_at = now() - interval '2 minutes' where product = 'pro'",
       );
       const { at, charge } = resumedByPaddle(sub, ago(1));
       expect(
@@ -2162,6 +2328,108 @@ describe("the charge Paddle takes when it resumes a Pro paused for a seat", () =
       }).toEqual({ refunded: [charge.id], status: "ended" });
     },
   );
+
+  it.each([
+    ["subscription_recurring", "after the cancel"],
+    ["subscription_update", "after the cancel"],
+    [
+      "subscription_recurring",
+      "before the cancel, while Paddle still answers paused",
+    ],
+    [
+      "subscription_update",
+      "before the cancel, while Paddle still answers paused",
+    ],
+  ] as const)(
+    "N10, labelled %s, heard %s: a cancel tapped after the resume charge, before Paddle reports the plan running, refunds that charge in full and ends the plan",
+    async (origin, heard) => {
+      paddle.resumeOrigin = origin;
+      const { sub, id } = await resumeAsked();
+      await database.pool.query(
+        "update subscriptions set paused_for_seat_at = now() - interval '4 minutes', seat_pause_asked_for = now() - interval '4 minutes', resume_asked_at = now() - interval '3 minutes' where product = 'pro'",
+      );
+      const { at, charge } = resumedByPaddle(sub, ago(1));
+      const chargeHeardFirst = heard.startsWith("before");
+      if (chargeHeardFirst) {
+        sub.status = "paused";
+        expect(await deliver("transaction.completed", charge, at)).toBe(204);
+        sub.status = "active";
+      }
+      expect(
+        (
+          await as(OWNER, `/v1/billing/subscriptions/${id}/cancel`, {
+            method: "POST",
+          })
+        ).status,
+      ).toBe(200);
+      if (!chargeHeardFirst)
+        expect(await deliver("transaction.completed", charge, at)).toBe(204);
+      await database.pool.query(
+        "update billing_calls set retry_at = now() - interval '1 second'",
+      );
+      await makeDueCalls(database.db, provider(), log);
+
+      const [plan] = (await overview(OWNER)).subscriptions;
+      expect({
+        refunded: fullRefunds().map(
+          (each) => (each.body as { transaction_id?: string }).transaction_id,
+        ),
+        status: plan?.status,
+      }).toEqual({ refunded: [charge.id], status: "ended" });
+    },
+  );
+
+  it("N12: a change whose period starts more than a day after the resume we asked for stays a change", async () => {
+    const { sub } = await resumeAsked();
+    const { at } = resumedByPaddle(sub);
+    const renewal = renewed(sub, new Date(at.getTime() + 30 * DAY_MS));
+    const changed = { ...paddleTxn(renewal), origin: "subscription_update" };
+    expect(await deliver("transaction.completed", changed, clockNow())).toBe(
+      204,
+    );
+
+    const { rows } = await database.pool.query<{ reason: string }>(
+      "select reason from invoices where provider_payment_id = $1",
+      [changed.id],
+    );
+    expect(rows).toEqual([{ reason: "change" }]);
+  });
+
+  it("N12: a resume asked during an earlier pause is cleared once the plan is found running", async () => {
+    paddle.resumeOrigin = "subscription_update";
+    const { sub } = await resumeAsked();
+    await database.pool.query(
+      "update subscriptions set resume_asked_at = now() - interval '3 minutes', paused_for_seat_at = now() - interval '2 minutes', seat_pause_asked_for = now() - interval '2 minutes' where product = 'pro'",
+    );
+    resumedByPaddle(sub, ago(1));
+    expect(
+      await settleSeatPause(database.db, provider(), OWNER, log),
+    ).toBeNull();
+    expect(await resumeRecord()).toEqual({
+      resume_asked_at: null,
+      resume_asked_for: null,
+    });
+  });
+
+  it("N12: a resume taken back when a seat comes again clears what we asked", async () => {
+    const { sub } = await resumeAsked();
+    expect(await resumeRecord()).not.toEqual({
+      resume_asked_at: null,
+      resume_asked_for: null,
+    });
+    await database.pool.query(
+      "update subscriptions set status = 'active', ended_at = null where product = 'team'",
+    );
+    await settleSeatPause(database.db, provider(), OWNER, log);
+    expect({ status: sub.status, scheduled: sub.scheduled_change }).toEqual({
+      status: "paused",
+      scheduled: null,
+    });
+    expect(await resumeRecord()).toEqual({
+      resume_asked_at: null,
+      resume_asked_for: null,
+    });
+  });
 
   it.each(["subscription_recurring", "subscription_update"] as const)(
     "N6b, labelled %s: seat, seat gone, seat again, then a cancel refunds kept time of the resumed period's charge alone",
