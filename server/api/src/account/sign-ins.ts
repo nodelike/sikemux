@@ -333,7 +333,8 @@ export async function noteAddresses(
   }
   await sql`
     update sign_in_removals removal
-    set end_sessions_from = stretch.first_seen
+    set end_sessions_from = stretch.first_seen,
+      rerun_at = greatest(removal.rerun_at, now() + interval '1 minute')
     from addresses_seen stretch
     where removal.user_id = ${userId}
       and removal.address_seen_id = stretch.id
@@ -400,6 +401,7 @@ async function endSessionsOfRemoved(
     .set({
       swept_from: sql<Date>`least(swept_from, end_sessions_from)`,
       end_sessions_from: null,
+      rerun_attempts: 0,
     })
     .where(
       "id",
@@ -485,8 +487,8 @@ async function endSessions(
 
 /**
  * Ends at Clerk, by their own ids, the sessions a strip recorded but could not end, then runs the
- * strip again for each account that had one or still has a removal waiting, so a strip that failed
- * finishes without waiting on Clerk to list the session again or on the account's next change.
+ * strip again for each account that had one or has a removal waiting that is due, backing off one
+ * that keeps waiting, so a strip that failed finishes without waiting on Clerk to list the session again or on the account's next change.
  */
 export async function retryEndedSessions(
   db: Kysely<Tables>,
@@ -545,16 +547,53 @@ export async function retryEndedSessions(
   const waiting = await db
     .selectFrom("sign_in_removals")
     .select("user_id")
-    .distinct()
     .where("end_sessions_from", "is not", null)
+    .where("rerun_at", "<=", sql<Date>`now()`)
+    .groupBy("user_id")
+    .orderBy(sql`min(rerun_at)`)
     .limit(limit)
     .execute();
   for (const { user_id } of waiting) accounts.add(user_id);
-  for (const userId of accounts)
-    await stripWorkSignIns(db, clerk, proofKey, log, userId).catch(
-      (error: unknown) =>
-        log.warn({ err: error, userId }, "running a strip again failed"),
-    );
+  for (const userId of accounts) {
+    const failure = await stripWorkSignIns(db, clerk, proofKey, log, userId)
+      .then(() => null)
+      .catch((error: unknown) => error);
+    await rerunLater(db, log, userId, failure);
+  }
+}
+
+/** Backs off the account's removals that still wait after a strip ran again, as a failed call to Clerk. */
+async function rerunLater(
+  db: Kysely<Tables>,
+  log: Logger,
+  userId: string,
+  failure: unknown,
+) {
+  const left = await db
+    .selectFrom("sign_in_removals")
+    .select(({ fn }) => fn.max("rerun_attempts").as("attempts"))
+    .where("user_id", "=", userId)
+    .where("end_sessions_from", "is not", null)
+    .executeTakeFirst();
+  if (left?.attempts === null || left?.attempts === undefined) return;
+  const attempts = left.attempts + 1;
+  await db
+    .updateTable("sign_in_removals")
+    .set({
+      rerun_attempts: attempts,
+      rerun_at: retryLater(
+        log,
+        { service: "Clerk", what: "finish a removal's strip" },
+        {
+          error: failure ?? new Error("the removal still waits"),
+          attempts,
+          userId,
+        },
+      ),
+    })
+    .where("user_id", "=", userId)
+    .where("end_sessions_from", "is not", null)
+    .execute();
 }
 
 type Window = { since: Date; admittedAt: Date };

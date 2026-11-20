@@ -119,6 +119,8 @@ export interface Tables {
     end_sessions_from: Date | null;
     swept_from: Date | null;
     address_seen_id: string | null;
+    rerun_attempts: Generated<number>;
+    rerun_at: Generated<Date>;
   };
   addresses_seen: {
     id: Generated<string>;

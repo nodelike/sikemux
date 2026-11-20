@@ -748,9 +748,12 @@ Table sign_in_removals {
   end_sessions_from timestamptz
   swept_from timestamptz
   address_seen_id bigint
+  rerun_attempts integer [not null, default: 0]
+  rerun_at timestamptz [not null, default: `(now() + '00:01:00'::interval)`]
 
   indexes {
     (user_id, address_id) [unique]
+    rerun_at [name: 'sign_in_removals_rerun_due', note: 'where (end_sessions_from IS NOT NULL)']
     user_id [name: 'sign_in_removals_sessions_left', note: 'where (end_sessions_from IS NOT NULL)']
     user_id [name: 'sign_in_removals_untold', note: 'where (told_at IS NULL)']
   }

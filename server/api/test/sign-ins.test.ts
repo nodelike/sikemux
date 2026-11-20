@@ -353,8 +353,55 @@ it("runs the strip again for a removal still waiting after the pass ended its se
   expect(await waiting()).not.toBeNull();
 
   clerk.signIns = signIns;
+  await database.db
+    .updateTable("sign_in_removals")
+    .set({ rerun_at: new Date() })
+    .execute();
   await sweepClerk(database.db, clerk, null, log);
   expect(await waiting()).toBeNull();
+});
+
+it("backs off running the strip again for a removal that keeps waiting", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  const revoke = clerk.revokeSession.bind(clerk);
+  clerk.revokeSession = () => Promise.reject(new Error("Clerk answered 500"));
+  await expect(
+    stripWorkSignIns(database.db, clerk, null, log, MAYA),
+  ).rejects.toThrow();
+  clerk.revokeSession = revoke;
+  let reads = 0;
+  clerk.signIns = () => {
+    reads++;
+    return Promise.reject(new Error("Clerk answered 500"));
+  };
+  const rerun = () =>
+    database.db
+      .selectFrom("sign_in_removals")
+      .select(["rerun_attempts", "rerun_at"])
+      .executeTakeFirstOrThrow();
+
+  for (const [attempts, minutes] of [
+    [1, 1],
+    [2, 2],
+    [3, 4],
+  ] as const) {
+    await database.db
+      .updateTable("sign_in_removals")
+      .set({ rerun_at: new Date() })
+      .execute();
+    await sweepClerk(database.db, clerk, null, log);
+    const row = await rerun();
+    expect(row.rerun_attempts).toBe(attempts);
+    expect(row.rerun_at.getTime() - Date.now()).toBeGreaterThan(
+      (minutes - 0.5) * 60_000,
+    );
+  }
+  const before = reads;
+  await sweepClerk(database.db, clerk, null, log);
+  expect(reads).toBe(before);
 });
 
 /** A host `approver` lets onto Maya's account with the code `sikemux login` showed on it. */
