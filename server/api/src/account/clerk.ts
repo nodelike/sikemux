@@ -66,6 +66,18 @@ export class ClerkRefusal extends Error {}
 
 export type ClerkSession = { id: string; createdAt: Date; live: boolean };
 
+/** Whether Clerk itself said it has no such thing, rather than a 404 from something in between. */
+async function clerkFoundNothing(response: Response): Promise<boolean> {
+  if (response.status !== 404) return false;
+  const answer = (await response.json().catch(() => null)) as {
+    errors?: { code?: unknown }[];
+  } | null;
+  return (
+    answer?.errors?.some((error) => error.code === "resource_not_found") ===
+    true
+  );
+}
+
 /** The mark in a Clerk user's private metadata that makes it the store reviewers' demo account. */
 export const DEMO_MARK = "storeReviewDemo";
 
@@ -173,7 +185,9 @@ export function clerkBackend(
     method: string,
     path: string,
     body?: object,
-    refusals: readonly number[] = [404],
+    refusals: readonly number[] | ((response: Response) => Promise<boolean>) = [
+      404,
+    ],
   ) => {
     const response = await fetcher(`${base}${path}`, {
       method,
@@ -185,8 +199,14 @@ export function clerkBackend(
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (response.ok) return response;
-    await response.body?.cancel();
-    if (refusals.includes(response.status)) return null;
+    if (typeof refusals === "function") {
+      const refused = await refusals(response);
+      await response.body?.cancel().catch(() => undefined);
+      if (refused) return null;
+    } else {
+      await response.body?.cancel();
+      if (refusals.includes(response.status)) return null;
+    }
     const said = `Clerk answered ${response.status} to ${method} ${withoutIds(path)}`;
     throw response.status < 500 ? new ClerkRefusal(said) : new Error(said);
   };
@@ -278,8 +298,15 @@ export function clerkBackend(
         ),
       );
     },
-    revokeSession: async (sessionId) =>
-      call("POST", `/v1/sessions/${checked(sessionId, "sess")}/revoke`),
+    revokeSession: async (sessionId) => {
+      const response = await request(
+        "POST",
+        `/v1/sessions/${checked(sessionId, "sess")}/revoke`,
+        undefined,
+        clerkFoundNothing,
+      );
+      await response?.body?.cancel();
+    },
     sessions: async (userId) => {
       const sessions: ClerkSession[] = [];
       for (let offset = 0; ; offset += SESSIONS_PAGE) {

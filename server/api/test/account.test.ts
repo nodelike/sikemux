@@ -634,9 +634,19 @@ describe("the Clerk Backend API client", () => {
   });
 
   it("counts a user or session Clerk no longer has as done", async () => {
-    const client = clerkBackend("sk_test_abc", stub(404).fetcher);
+    const client = clerkBackend(
+      "sk_test_abc",
+      stub(404, { errors: [{ code: "resource_not_found" }] }).fetcher,
+    );
     await expect(client.deleteUser("user_a")).resolves.toBeUndefined();
     await expect(client.revokeSession("sess_1")).resolves.toBeUndefined();
+  });
+
+  it("does not count a 404 from something other than Clerk as a revoked session", async () => {
+    const fetcher = async () =>
+      new Response("<html>Not Found</html>", { status: 404 });
+    const client = clerkBackend("sk_test_abc", fetcher);
+    await expect(client.revokeSession("sess_1")).rejects.toThrow("404");
   });
 
   it("fails on anything else, so the sweeper retries", async () => {
