@@ -485,6 +485,32 @@ describe("removing a phone from elsewhere", () => {
     await sweepClerk(database.db, clerk, null, log);
     expect(clerk.revoked).toEqual(["sess_phone"]);
   });
+
+  it("keeps the revocation owed and the old session refused when the phone signs in again", async () => {
+    const phone = await registered(app, "user_a", "client", {
+      sessionId: "sess_phone",
+    });
+    clerk.failing = true;
+    await call(
+      `/v1/devices/${phone.key}`,
+      await sessionToken("user_a", { claims: { sid: "sess_web" } }),
+      { method: "DELETE" },
+    );
+    clerk.failing = false;
+    await registered(app, "user_a", "client", {
+      device: phone,
+      sessionId: "sess_phone_again",
+    });
+
+    const old = await sessionToken("user_a", { claims: { sid: "sess_phone" } });
+    expect((await call("/v1/devices", old)).status).toBe(401);
+    await database.pool.query(
+      "update ended_sessions set clerk_retry_at = now()",
+    );
+    await sweepClerk(database.db, clerk, null, log);
+    expect(clerk.revoked).toEqual(["sess_phone"]);
+    expect((await call("/v1/devices", old)).status).toBe(401);
+  });
 });
 
 describe("purging", () => {

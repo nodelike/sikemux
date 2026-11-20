@@ -176,11 +176,32 @@ export async function registerDevice(
           })
           .returningAll()
           .executeTakeFirstOrThrow();
-    if (!existing)
+    if (!existing) {
+      await trx
+        .insertInto("ended_sessions")
+        .columns(["session_id", "user_id", "made_at", "clerk_retry_at"])
+        .expression(
+          trx
+            .selectFrom("removed_devices")
+            .select([
+              "clerk_session_id",
+              "user_id",
+              sql<Date>`now()`.as("made_at"),
+              sql<Date>`now()`.as("clerk_retry_at"),
+            ])
+            .where("key", "=", registration.key)
+            .where("reason", "=", "removed")
+            .where("clerk_session_id", "is not", null)
+            .where("clerk_revoked_at", "is", null)
+            .where("clerk_retry_at", "is not", null),
+        )
+        .onConflict((conflict) => conflict.column("session_id").doNothing())
+        .execute();
       await trx
         .deleteFrom("removed_devices")
         .where("key", "=", registration.key)
         .execute();
+    }
     if (!existing && registration.role === "host") {
       const vaults = await trx
         .selectFrom("org_users")
