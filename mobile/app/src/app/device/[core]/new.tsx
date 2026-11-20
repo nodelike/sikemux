@@ -301,9 +301,9 @@ export default function NewChat() {
   ).data;
 
   const routes = useHostCall(
-    launcher && live.status === 'open' ? live.connection : undefined,
+    launcher && project && live.status === 'open' ? live.connection : undefined,
     'modelRoutes',
-    { agent: launcher?.provider ?? '' },
+    { agent: launcher?.provider ?? '', project: project?.id ?? '' },
     '',
   ).data;
 
