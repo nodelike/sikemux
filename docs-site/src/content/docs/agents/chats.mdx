@@ -72,7 +72,7 @@ On your phone the same line ends the chat, with the same buttons; over a call do
 
 An agent can set a trigger on its own chat, to be sent a prompt later: once, such as "check the deploy in 20 minutes", or on a schedule, such as every hour or each weekday at 9:00. Ask it to, in your own words.
 
-Its triggers are listed above the composer, each with when it next fires. **×** removes one. When a trigger fires, its message arrives in the chat folded to the trigger's name; click it to read the prompt, and an agent that was asleep wakes for it. A time that passes while the host is off fires once the host is back: a one-time trigger always, a repeating one only within 15 minutes of its time.
+Its triggers are listed above the composer, each with when it next fires. **×** removes one. When a trigger fires, its message arrives in the chat folded to the trigger's name; click it to read the prompt, and an agent that was asleep wakes for it. Your phone folds it the same way. A time that passes while the host is off fires once the host is back: a one-time trigger always, a repeating one only within 15 minutes of its time.
 
 A trigger can also fire on a [mod's](/getting-started/mods/#agents) data: each time someone other than the agent adds or changes documents in one of the mod's collections, naming them.
 
@@ -104,7 +104,7 @@ Background tasks the agent started, such as a command it left running or a watch
 
 ## Messages between agents
 
-When agents on a team message a chat, what they say folds to one line, so your prompt and its answer stay close together. The line shows who wrote, as the agent's pill, how many messages there are, the latest of them and how long it went on. A pill opens that agent in one click, wherever an agent is named: on a call, in a message, in @Chief's away summary or in Git history. Click the line to open it where it is, on the last five messages; **Show N earlier** brings the rest.
+When agents on a team message a chat, what they say folds to one line, so your prompt and its answer stay close together. The line shows who wrote, as the agent's pill, how many messages there are, the latest of them and how long it went on. A pill opens that agent in one click, wherever an agent is named, including agents on your linked hosts: on a call, in a message, in @Chief's away summary or in Git history. Click the line to open it where it is, on the last five messages; **Show N earlier** brings the rest.
 
 Everything in a turn another agent started folds except that turn's last message, and a message that arrives while the agent answers you folds on its own. Whatever stays in view ends the line, so a long job reads as its answers with one line between each. When someone in a line needs you, because it asked you something, waits on a permission, failed its turn or stopped, the line says so in red until that is settled.
 
@@ -114,7 +114,7 @@ When a lead starts a worker, its chat shows the worker's name, task and model fr
 
 A worker whose turn ends on something set to wake it, such as a trigger, a run or its commits in line to land, asks nothing and wakes nobody: its row says what it waits on, such as **Waiting to land on main · 2nd in line**, or **Waiting on** and the trigger's title while it watches with a repeating check, until that check first fires. A worker that ends its turn saying it waits, with nothing set to wake it, is sent back once to set something; if it does that again, its lead hears at once. A turn that ends with no answer sends its lead nothing.
 
-Its lead hears at once when it fails, stops, asks something or has its land sent back. When it finishes with its work landed or nothing changed, or a land goes in, the lead hears with its next turn, or after 5 minutes, and that report shows as a line in the lead's chat; a lead with one open worker hears at once. A lead also hears, once, when a worker sits idle for 5 minutes with commits that never landed or changes it never committed, and once when a worker has watched a repeating check for an hour. Once a lead has closed, all of this goes to the project's @Chief. A lead's turn that a worker started may end without a reply when nothing changed for you, and sends no notification.
+Its lead hears at once when it fails, stops, asks something, has its land sent back or ends a turn that changed nothing. When it finishes calmly with its work landed, or a land goes in, the lead hears with its next turn, or after 5 minutes, and that report shows as a line in the lead's chat; a lead with one open worker hears at once. A lead also hears, once, when a worker sits idle for 5 minutes with commits that never landed or changes it never committed, and once when a worker has watched a repeating check for an hour. Once a lead has closed, all of this goes to the project's @Chief. A lead's turn that a worker started may end without a reply when nothing changed for you, and sends no notification.
 
 An agent that has been working for 30 minutes without calling a tool, such as one stuck behind a build waiting in line, is said to be stalled. Sikemux tells its lead once, which wakes the lead even if it is asleep. With no lead open, the project's @Chief is told instead; only in a project with no chief does the agent show in the inbox under **Needs you**, until it calls a tool again or its turn ends.
 
@@ -182,7 +182,7 @@ Sikemux closes an agent by itself once it is finished: its work is on the projec
 
 A task closes by itself once the project's check passes on its agent's landed work and that agent has closed or waits on you. The chief's chat then shows **Closed by itself** with the task and the commit, and **Undo** puts the task back to being worked.
 
-Your phone shows a **Now** card under the chief's chat header: the agents waiting on you, the ones ready to look at and the ones moving, and the agents the chief closed lately, with **Reopen**. On the Mac, open [Tasks](#tasks) with `⌘⌥7` or the counts in the top bar.
+Open [Tasks](#tasks) with `⌘⌥7` or the counts in the top bar.
 
 The first time you open a project's chief, it writes to you first: who it is, the chats open in the project and how each stands, and what waits on you. Your chats stay where they are, and you can still talk to any of them.
 
@@ -192,7 +192,7 @@ When an agent decides something itself, such as recording a decision on its goal
 
 On Monday mornings, the chief's chat shows a count of last week when anything was decided or answered: **Last week I decided 212 things, and you overruled 3. You answered 12 of 14 calls as I picked.**
 
-Your phone shows all of this in the chief's chat too, and a rule's lines (**Now a check**, **Rule changed**, **Rule removed**, **Rule back**) without Undo. It shows an agent's decided line in that agent's chat, with **Overrule** beside **Decided** and the decision and its reason under them. **Overrule** and **Undo** need a phone with full access. In a worker's chat, the composer says **Send to @Name · @Chief is told**, since the chief hears what you write there.
+Your phone shows all of this in the chief's chat too, and a rule's lines (**Now a check**, **Rule changed**, **Rule removed**, **Rule back**) without Undo. It shows an agent's decided line in that agent's chat, with **Overrule** beside **Decided** and the decision and its reason under them. **Overrule** and **Undo** need a phone with full access, and an undone Overrule says so there too when its rule still stands. In a worker's chat, the composer says **Send to @Name · @Chief is told**, since the chief hears what you write there.
 
 A project has one chief across your hosts. When it is open on more than one, the chief lives on the host where it was made, and the row on your other hosts opens that one and carries the server mark; hover it for the host's name. While that host is out of reach, the mark says so with when: **Runs on throne, out of reach since 14:02**. After a couple of minutes out of reach, a question one of its agents on another host asks goes straight to you there, rather than waiting for the chief.
 
@@ -288,7 +288,7 @@ After a restart this happens when Sikemux's background process starts again: at 
 
 When an agent needs something from you and has no lead to ask, it raises a call. Most calls ask you to decide something. A **Do** call is a task only you can do, such as signing in somewhere, with a link to where to do it: you answer **Done**, or **Not doing** with your reason. A **Look** call, which only a lead or @Chief raises, shows you finished work, such as a page; it asks for no answer, clears once you open it, and never marks anyone as needing you. When a lead puts its worker's question to you, that is one call, and your answer reaches both.
 
-In the asker's chat a call is one row at the end: a bell, the asker's pill, the question and how long it has waited. Two or more open calls fold into one **N calls** row with the newest question; click it to list them. Hover a call's row for **Open in Calls**, and click it to answer the call.
+In the asker's chat a call is one row at the end: a bell, the asker's pill, the question and how long it has waited. Two or more open calls fold into one **N calls** row with the newest question; click it to list them. Hover a call's row for **Open in Calls**, and click it to answer the call. On your phone a call's text can be selected and copied.
 
 Calls are answered on the **Calls** page of the agent's desk, behind the bell, the first icon in the desk's switcher. It lists the calls that chat shows; the chief's lists every call of the project. Each call waiting is a tab across the top, named by the call's title, oldest first. The page shows who asks and the question, then the page the call links, such as a mockup or a report, which a click opens on the desk. Its options are tiles, with a picture over the words when the options have pictures. The one the agent would take is chosen from the start, marked with Sikemux's **S** and **pick**. A tile only chooses: **Go with** and the option, under the tiles, sends it, and **Next call** turns to the next one waiting. Under them, **Against it** gives the strongest point against the pick, and on a call to ship to production, **What runs** shows the exact command it runs. Then come why the call came up and the files, pages and changes the agent opened before asking. **Open chat** goes to the asker. The question, its details and the choices can be selected and copied.
 

@@ -49,7 +49,7 @@ The mode menu also lists OpenCode's own agents, **Build** and **Plan**, and the 
 
 Before a new chat starts, its model and effort menus list what OpenCode offers, read from a short-lived server. Each model has its own efforts, such as low to max on Claude Opus, and **Default** leaves it to the provider. The effort you pick is kept for your next OpenCode chat on a model that has it.
 
-On a [model provider](/agents/providers/), Sikemux adds that provider to the inline config it gives the chat, reached through Sikemux so the key stays out of the agent, and your own OpenCode config stays untouched. A reasoning model there offers low, medium and high, and OpenCode knows its context window, so the chat shows how full it is.
+On a [model provider](/agents/providers/), Sikemux adds that provider to the inline config it gives the chat, reached through Sikemux so the key stays out of the agent, and your own OpenCode config stays untouched. A chat started with `--model sikemux-<provider>/<model>` runs on that provider. A reasoning model there offers low, medium and high, and OpenCode knows its context window, so the chat shows how full it is.
 
 Chats turn on OpenCode's todo list, which shows as the chat's plan. Each subagent OpenCode starts gets a card in the chat with what it says and how many tokens it has used, and the card stays live after the turn that started it ends, since OpenCode runs subagents in the background. A question OpenCode asks goes to your inbox like any agent's, and `/compact` shows its progress in the chat. The chat list, search and renaming read the sessions OpenCode 2 keeps.
 
