@@ -6,7 +6,7 @@ default-members = ["crates/*", "plugins/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.6.1-nightly.22"
+version = "0.6.2"
 
 # Every crate sets `lints.workspace = true`, and a new one must too: a panic in
 # any of them takes the app or the core down.
