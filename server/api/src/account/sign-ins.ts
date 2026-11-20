@@ -485,8 +485,8 @@ async function endSessions(
 
 /**
  * Ends at Clerk, by their own ids, the sessions a strip recorded but could not end, then runs the
- * strip again for each account that had one, so a strip that failed finishes without waiting on
- * Clerk to list the session again or on the account's next change. A failure is retried later.
+ * strip again for each account that had one or still has a removal waiting, so a strip that failed
+ * finishes without waiting on Clerk to list the session again or on the account's next change.
  */
 export async function retryEndedSessions(
   db: Kysely<Tables>,
@@ -542,6 +542,14 @@ export async function retryEndedSessions(
     });
     if (ended) accounts.add(ended);
   }
+  const waiting = await db
+    .selectFrom("sign_in_removals")
+    .select("user_id")
+    .distinct()
+    .where("end_sessions_from", "is not", null)
+    .limit(limit)
+    .execute();
+  for (const { user_id } of waiting) accounts.add(user_id);
   for (const userId of accounts)
     await stripWorkSignIns(db, clerk, proofKey, log, userId).catch(
       (error: unknown) =>

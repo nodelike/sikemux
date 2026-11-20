@@ -324,6 +324,39 @@ it("finishes a strip whose session Clerk stopped listing, on the sweep's timer",
   expect((await signInMac(testApp(database), MAYA)).response.status).toBe(201);
 });
 
+it("runs the strip again for a removal still waiting after the pass ended its sessions", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  const revoke = clerk.revokeSession.bind(clerk);
+  clerk.revokeSession = () => Promise.reject(new Error("Clerk answered 500"));
+  await expect(
+    stripWorkSignIns(database.db, clerk, null, log, MAYA),
+  ).rejects.toThrow();
+  clerk.revokeSession = revoke;
+  const signIns = clerk.signIns.bind(clerk);
+  clerk.signIns = () => Promise.reject(new Error("Clerk answered 500"));
+  await database.db
+    .updateTable("ended_sessions")
+    .set({ clerk_retry_at: new Date() })
+    .execute();
+  await sweepClerk(database.db, clerk, null, log);
+  expect(clerk.revoked).toEqual(["sess_work"]);
+  const waiting = async () =>
+    (
+      await database.db
+        .selectFrom("sign_in_removals")
+        .select("end_sessions_from")
+        .executeTakeFirstOrThrow()
+    ).end_sessions_from;
+  expect(await waiting()).not.toBeNull();
+
+  clerk.signIns = signIns;
+  await sweepClerk(database.db, clerk, null, log);
+  expect(await waiting()).toBeNull();
+});
+
 /** A host `approver` lets onto Maya's account with the code `sikemux login` showed on it. */
 async function approvedFromHost(
   app: ReturnType<typeof testApp>,
