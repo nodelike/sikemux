@@ -14,6 +14,7 @@ import {
   emptyTables,
   migratedDatabase,
   newDevice,
+  registered,
   registration,
   signInMac,
   signText,
@@ -208,4 +209,22 @@ it("lets a removed Mac reach nothing", async () => {
 
   expect((await signedGet(app, mac, "/v1/devices")).status).toBe(401);
   expect((await signedGet(app, mac, "/v1/vault/uses")).status).toBe(401);
+});
+
+it("holds no Mac sign-in after a phone removed with no Clerk signs in again", async () => {
+  const app = testApp(database);
+  const phone = await registered(app, MAYA, "client", {
+    sessionId: "sess_phone",
+  });
+  const removed = await caller(app)(
+    `/v1/devices/${phone.key}`,
+    await sessionToken(MAYA),
+    { method: "DELETE" },
+  );
+  expect(removed.status).toBe(204);
+  await registered(app, MAYA, "client", {
+    device: phone,
+    sessionId: "sess_phone_again",
+  });
+  expect((await signInMac(app, MAYA)).response.status).toBe(201);
 });

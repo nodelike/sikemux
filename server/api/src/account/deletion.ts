@@ -354,7 +354,7 @@ export async function revokeRemovedSession(
   if (!clerk) {
     log.warn(
       { key: key.slice(0, 8) },
-      "CLERK_SECRET_KEY is not set, so revoking the removed phone's session waits until it is",
+      "CLERK_SECRET_KEY is not set, so the removed phone's session stays signed in",
     );
     return;
   }
