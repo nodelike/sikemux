@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Adds a published nightly's signed Windows installers to its release and its latest.json, then
-# repoints any feed already serving that nightly, so the Mac and Linux builds never wait for Windows.
+# Adds a published release's signed Windows installers to its release and its latest.json, then
+# repoints any feed already serving it, so the Mac and Linux builds never wait for Windows.
 #   publish-windows.sh <version>
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 VERSION="${1:-}"
-[[ "$VERSION" == *-nightly.* ]] || { echo "Usage: $0 <nightly version>" >&2; exit 2; }
+[[ -n "$VERSION" ]] || { echo "Usage: $0 <version>" >&2; exit 2; }
 [[ "${GITHUB_ACTIONS:-}" == "true" ]] || { echo "releases publish from the Release workflow" >&2; exit 1; }
 
 shopt -s nullglob
@@ -39,6 +39,7 @@ gh release upload "v$VERSION" "${INSTALLERS[@]}"
 gh release upload "v$VERSION" "$dir/latest.json" --clobber
 echo "✓ v$VERSION carries the Windows installers"
 for feed in staff nightly; do
+  [[ "$feed" == nightly && "$VERSION" != *-nightly.* ]] && continue
   serving="$(gh release download "$feed" -p latest.json -O - 2>/dev/null | jq -r .version || true)"
   if [[ "$serving" == "$VERSION" ]]; then scripts/move-feed.sh "$feed" "$VERSION"; fi
 done
