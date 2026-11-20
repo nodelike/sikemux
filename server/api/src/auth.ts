@@ -167,7 +167,7 @@ export function accountFrozen(): ApiFailure {
 }
 
 /** How long Clerk keeps a Mac's sign-in code good for, so a code minted before a session ended can still be traded after it. */
-export const MAC_SIGN_IN_CODE_MS = 10 * 60_000;
+export const MAC_SIGN_IN_CODE_MS = 11 * 60_000;
 
 /**
  * Refuses a token that is still unexpired but no longer stands: its account was deleted or frozen, it
