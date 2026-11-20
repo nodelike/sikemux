@@ -108,6 +108,7 @@ async function mayaWithAcmeAddress() {
     phones: [],
     wallets: [],
     undated: [],
+    accountsWithoutId: [],
     passwordSetAt: hourAgo,
   });
   return { clerk, added };
@@ -586,26 +587,48 @@ it("freezes the account when Clerk refuses to take off a way the Acme session ad
   expect(removal.end_sessions_from).toBeNull();
 });
 
-it("keeps waiting on an Acme Google with no address of its own while Clerk still lists it", async () => {
+it("freezes the account when Clerk refuses to take off the Acme Google itself", async () => {
   const { clerk, added } = await mayaWithAcmeAddress();
   clerk.userSessions.set(MAYA, [
     { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
   ]);
-  const maya = clerk.users.get(MAYA);
-  if (!maya) throw new Error("no Maya");
-  maya.addresses = maya.addresses.filter((a) => a.id !== "idn_work");
-  clerk.removeExternalAccount = () => Promise.resolve();
+  clerk.removeExternalAccount = () =>
+    Promise.reject(new ClerkRefusal("Clerk answered 404"));
 
   await stripWorkSignIns(database.db, clerk, null, log, MAYA);
 
-  expect(maya.externalAccounts.map((a) => a.id)).toEqual(["eac_work"]);
-  expect(clerk.revoked).toEqual([]);
+  expect(await frozenAt()).not.toBeNull();
+  expect(alertStaff).toHaveBeenLastCalledWith(
+    MAYA,
+    expect.stringContaining("Froze an account"),
+    expect.objectContaining({
+      why: "Clerk refused to take off the work address",
+      added: expect.arrayContaining([
+        { kind: "google account", id: "eac_work" },
+      ]),
+    }),
+  );
+  expect(clerk.revoked).toEqual(["sess_work"]);
   const removal = await database.db
     .selectFrom("sign_in_removals")
-    .select(["address_id", "end_sessions_from"])
+    .select("end_sessions_from")
     .executeTakeFirstOrThrow();
-  expect(removal.address_id).toBe("eac_work");
-  expect(removal.end_sessions_from).not.toBeNull();
+  expect(removal.end_sessions_from).toBeNull();
+});
+
+it("tells staff when Clerk lists a connected account without the id it is removed by", async () => {
+  const { clerk } = await mayaWithAcmeAddress();
+  const maya = clerk.users.get(MAYA);
+  if (!maya) throw new Error("no Maya");
+  maya.accountsWithoutId = ["google"];
+
+  await stripWorkSignIns(database.db, clerk, null, log, MAYA);
+
+  expect(alertStaff).toHaveBeenCalledWith(
+    MAYA,
+    expect.stringContaining("without the id"),
+    { providers: ["google"] },
+  );
 });
 
 it("keeps the ways Maya was admitted with though the Acme address was first seen before them", async () => {

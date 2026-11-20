@@ -25,6 +25,8 @@ import { addressHash, domainOf } from "./proofs.ts";
 const FROZEN =
   "Froze an account: a session through a work address may have taken it over";
 const UNDATED = "Left kinds of sign-in the end of a work sign-in can't date";
+const UNREMOVABLE =
+  "Clerk listed connected accounts without the id the strip removes them by";
 const STRANDED =
   "Left a work address on an account: taking it off would leave no way in";
 const LIFT =
@@ -54,6 +56,13 @@ export async function stripWorkSignIns(
   if (!user) return;
   const signIns = await clerk.signIns(userId);
   if (!signIns) return;
+  if (signIns.accountsWithoutId.length) {
+    log.error(
+      { userId, providers: signIns.accountsWithoutId },
+      "Clerk listed connected accounts without an eac_ id",
+    );
+    alertStaff(userId, UNREMOVABLE, { providers: signIns.accountsWithoutId });
+  }
   const seen = await noteAddresses(db, proofKey, userId, [
     ...signIns.addresses,
     ...signIns.externalAccounts
@@ -122,24 +131,44 @@ export async function stripWorkSignIns(
       });
       continue;
     }
+    const clerkId = address?.id ?? brought[0]?.id ?? "";
     await recordRemoval(db, userId, {
-      clerkId: address?.id ?? brought[0]?.id ?? "",
+      clerkId,
       refusal,
       provider: brought[0]?.provider ?? null,
       appeared,
       stretch: stretch?.id ?? null,
     });
-    if (primary) {
-      await clerk.setPrimaryAddress(userId, primary.id);
-      signIns.primaryAddressId = primary.id;
+    try {
+      if (primary) {
+        await clerk.setPrimaryAddress(userId, primary.id);
+        signIns.primaryAddressId = primary.id;
+      }
+      for (const account of brought) {
+        await clerk.removeExternalAccount(userId, account.id);
+        signIns.externalAccounts = signIns.externalAccounts.filter(
+          (a) => a !== account,
+        );
+      }
+      if (address) await clerk.removeAddress(address.id);
+      signIns.addresses = signIns.addresses.filter((a) => a !== address);
+    } catch (error) {
+      if (!(error instanceof ClerkRefusal)) throw error;
+      const window = { since: appeared, admittedAt };
+      const opened = (await clerk.sessions(userId)).filter(
+        (session) => session.createdAt >= appeared,
+      );
+      if (opened.length) await endSessions(db, clerk, userId, opened);
+      await freeze(
+        db,
+        log,
+        userId,
+        "Clerk refused to take off the work address",
+        addedIn(signIns, window),
+      );
+      await stopWaiting(db, userId, [clerkId]);
+      continue;
     }
-    for (const account of brought)
-      await clerk.removeExternalAccount(userId, account.id);
-    if (address) await clerk.removeAddress(address.id);
-    signIns.addresses = signIns.addresses.filter((a) => a !== address);
-    signIns.externalAccounts = signIns.externalAccounts.filter(
-      (account) => !brought.includes(account),
-    );
     log.info(
       { userId, domain: refusal.domain },
       "took a work address off a sign-in",
@@ -398,6 +427,24 @@ async function endSessionsOfRemoved(
       admittedAt,
     });
   }
+  await stopWaiting(
+    db,
+    userId,
+    gone.map((row) => row.address_id),
+  );
+  if (opened.length > 0)
+    log.info(
+      { userId, sessions: opened.length, devices },
+      "ended the sessions a removed work address could have opened",
+    );
+}
+
+/** Marks the account's removals of these Clerk ids as no longer waiting for their sessions to end. */
+async function stopWaiting(
+  db: Kysely<Tables>,
+  userId: string,
+  addressIds: string[],
+) {
   await db
     .updateTable("sign_in_removals")
     .set({
@@ -405,17 +452,9 @@ async function endSessionsOfRemoved(
       end_sessions_from: null,
       rerun_attempts: 0,
     })
-    .where(
-      "id",
-      "in",
-      gone.map((row) => row.id),
-    )
+    .where("user_id", "=", userId)
+    .where("address_id", "in", addressIds)
     .execute();
-  if (opened.length > 0)
-    log.info(
-      { userId, sessions: opened.length, devices },
-      "ended the sessions a removed work address could have opened",
-    );
 }
 
 /** Ends the sessions, refuses their tokens, and removes the devices and open folds they made. */
@@ -668,16 +707,36 @@ async function takeWaysAddedSince(
     await freeze(db, log, userId, "nothing older would be left", ways);
     return;
   }
+  const taken = new Set<string>();
   try {
     if (primary) await clerk.setPrimaryAddress(userId, primary.id);
-    for (const account of accounts)
+    for (const account of accounts) {
       await clerk.removeExternalAccount(userId, account.id);
-    for (const address of addresses) await clerk.removeAddress(address.id);
-    for (const phone of phones) await clerk.removePhone(phone.id);
-    for (const wallet of wallets) await clerk.removeWallet(userId, wallet.id);
+      taken.add(account.id);
+    }
+    for (const address of addresses) {
+      await clerk.removeAddress(address.id);
+      taken.add(address.id);
+    }
+    for (const phone of phones) {
+      await clerk.removePhone(phone.id);
+      taken.add(phone.id);
+    }
+    for (const wallet of wallets) {
+      await clerk.removeWallet(userId, wallet.id);
+      taken.add(wallet.id);
+    }
   } catch (error) {
     if (!(error instanceof ClerkRefusal)) throw error;
-    await freeze(db, log, userId, "Clerk refused to take off a way", ways);
+    const left = <T extends { id: string }>(held: T[]) =>
+      held.filter((way) => !taken.has(way.id));
+    await freeze(db, log, userId, "Clerk refused to take off a way", {
+      addresses: left(addresses),
+      accounts: left(accounts),
+      phones: left(phones),
+      wallets: left(wallets),
+      password,
+    });
     return;
   }
   if (password && !(await replacedPassword(clerk, userId, signIns))) {

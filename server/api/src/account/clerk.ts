@@ -62,6 +62,8 @@ export type SignIns = {
   passwordSetAt: Date | null;
   /** The kinds of sign-in the account holds that Clerk keeps no time for. */
   undated: string[];
+  /** The providers of connected accounts Clerk listed without the id they are removed by. */
+  accountsWithoutId: string[];
 };
 
 /** Clerk turned a request down, as against failing to answer it. */
@@ -463,12 +465,10 @@ export function clerkBackend(
           typeof user.password_last_updated_at === "number"
             ? new Date(user.password_last_updated_at)
             : null,
+        accountsWithoutId: (user.external_accounts ?? []).flatMap((account) =>
+          account.external_account_id ? [] : [providerOf(account)],
+        ),
         undated: [
-          ...(user.external_accounts ?? []).flatMap((account) =>
-            account.external_account_id
-              ? []
-              : [`${providerOf(account)} account Clerk gave no id`],
-          ),
           ...(user.passkeys?.length ? ["passkey"] : []),
           ...(user.saml_accounts?.length ? ["SAML account"] : []),
           ...(user.enterprise_accounts?.length ? ["enterprise account"] : []),

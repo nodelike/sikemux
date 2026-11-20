@@ -811,14 +811,14 @@ describe("the Clerk Backend API client", () => {
       ).resolves.toBeUndefined();
     });
 
-    it("is reported among the ways the strip can't date when Clerk gives it no eac_ id", async () => {
+    it("is reported, not dropped, when Clerk gives it no eac_ id", async () => {
       const { client } = clerkHolding(
         [{ ...google, external_account_id: undefined }],
         { deletes: true },
       );
       const signIns = await client.signIns("user_a");
       expect(signIns?.externalAccounts).toEqual([]);
-      expect(signIns?.undated).toEqual(["google account Clerk gave no id"]);
+      expect(signIns?.accountsWithoutId).toEqual(["google"]);
     });
   });
 
