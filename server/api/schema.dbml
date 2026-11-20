@@ -791,7 +791,7 @@ Table ended_sessions {
   session_id text [pk]
   user_id text [not null]
   made_at timestamptz [not null]
-  ended_at timestamptz [not null, default: `now()`]
+  ended_at timestamptz
 
   indexes {
     user_id [name: 'ended_sessions_user']

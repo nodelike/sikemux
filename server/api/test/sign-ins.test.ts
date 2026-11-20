@@ -21,8 +21,8 @@ import {
 } from "./accounts.ts";
 import { FakeClerk } from "./clerk.ts";
 import { RateLimiter } from "../src/limits.ts";
-import { body, log, testApp } from "./support.ts";
-import { sessionToken } from "./tokens.ts";
+import { body, log, macCodes, testApp } from "./support.ts";
+import { macToken, sessionToken } from "./tokens.ts";
 import type * as Sentry from "../src/sentry.ts";
 import { alertStaff } from "../src/sentry.ts";
 
@@ -256,6 +256,38 @@ it("takes off a host a Mac signed in during the Acme session approved, and the h
 
   for (const host of [mac, box, second])
     expect((await signedAsHost(app, host)).status).toBe(401);
+});
+
+it("adds no Mac while Clerk has yet to end the Acme session", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  const revoke = clerk.revokeSession.bind(clerk);
+  clerk.revokeSession = () => Promise.reject(new Error("Clerk answered 500"));
+  await expect(
+    stripWorkSignIns(database.db, clerk, null, log, MAYA),
+  ).rejects.toThrow();
+
+  macCodes.set("code_unfinished", await macToken(MAYA));
+  const refused = await testApp(database).request("/v1/mac-sign-ins", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      code: "code_unfinished",
+      codeVerifier: "v".repeat(43),
+      redirectUri: "http://127.0.0.1:53682/callback",
+    }),
+  });
+  expect(refused.status).toBe(401);
+
+  clerk.revokeSession = revoke;
+  await stripWorkSignIns(database.db, clerk, null, log, MAYA);
+  await database.db
+    .updateTable("ended_sessions")
+    .set({ ended_at: new Date(Date.now() - 3_600_000) })
+    .execute();
+  expect((await signInMac(testApp(database), MAYA)).response.status).toBe(201);
 });
 
 /** A host `approver` lets onto Maya's account with the code `sikemux login` showed on it. */

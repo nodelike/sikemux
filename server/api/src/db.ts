@@ -133,7 +133,7 @@ export interface Tables {
     session_id: string;
     user_id: string;
     made_at: Date;
-    ended_at: ColumnType<Date, never, Date>;
+    ended_at: ColumnType<Date | null, never, Date>;
   };
   removed_devices: {
     key: string;
