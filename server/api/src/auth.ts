@@ -181,10 +181,14 @@ export async function checkStanding(
     via: Identity["via"];
     sessionId?: string | undefined;
     issuedAt?: Date | undefined;
+    /** The Mac sign-in a host's code was approved under, when a Mac's host approved it. */
+    macSignedInAt?: Date | undefined;
   },
   { allowDeleted = false } = {},
 ): Promise<void> {
-  const macSignedInAt = identity.via === "mac" ? identity.issuedAt : undefined;
+  const macSignedInAt =
+    identity.macSignedInAt ??
+    (identity.via === "mac" ? identity.issuedAt : undefined);
   const { rows } = await sql<{
     deleted: boolean;
     frozen: boolean;

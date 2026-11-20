@@ -12,7 +12,7 @@ import { audit } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { issueChallenge } from "../devices/challenge.ts";
 import type { Identity } from "../auth.ts";
-import { registerDevice, signInSessionOf } from "../devices/register.ts";
+import { registerDevice, signInOf } from "../devices/register.ts";
 import { badRequest, notFound, type ApiFailure } from "../http.ts";
 import type { Places } from "../places.ts";
 
@@ -104,11 +104,17 @@ export async function approveHost(
   { userId, via, sessionId, deviceKey }: Identity,
   userCode: string,
 ) {
-  const approvedSession =
-    via === "host" ? await signInSessionOf(db, deviceKey) : (sessionId ?? null);
+  const approver =
+    via === "host"
+      ? await signInOf(db, deviceKey)
+      : { session: sessionId ?? null, macSignedInAt: null };
   const row = await db
     .updateTable("host_sign_ins")
-    .set({ approved_by: userId, approved_session: approvedSession })
+    .set({
+      approved_by: userId,
+      approved_session: approver.session,
+      approved_mac_signed_in_at: approver.macSignedInAt,
+    })
     .where(openTo(userId, userCode))
     .returning(["key", "name"])
     .executeTakeFirst();
@@ -211,6 +217,7 @@ export async function finishSignIn(
       userId: row.approved_by,
       via: "code",
       sessionId: row.approved_session ?? undefined,
+      issuedAt: row.approved_mac_signed_in_at ?? undefined,
     },
     {
       key: row.key,

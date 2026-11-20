@@ -15,6 +15,7 @@ import {
   migratedDatabase,
   newDevice,
   registered,
+  signInMac,
   signText,
   type TestDevice,
 } from "./accounts.ts";
@@ -239,10 +240,72 @@ it("refuses the Acme session's token as soon as the strip ends it, before it exp
   expect((await challenge()).status).toBe(401);
 });
 
+it("takes off a host a Mac signed in during the Acme session approved, and the host that one approved", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  const app = testApp(database);
+  const mac = await signInMac(app, MAYA);
+  expect(mac.response.status).toBe(201);
+  const box = await approvedFromHost(app, mac);
+  const second = await approvedFromHost(app, box);
+  expect((await signedAsHost(app, second)).status).toBe(200);
+
+  await stripWorkSignIns(database.db, clerk, null, log, MAYA);
+
+  for (const host of [mac, box, second])
+    expect((await signedAsHost(app, host)).status).toBe(401);
+});
+
+/** A host `approver` lets onto Maya's account with the code `sikemux login` showed on it. */
+async function approvedFromHost(
+  app: ReturnType<typeof testApp>,
+  approver: TestDevice,
+) {
+  const host = newDevice();
+  const post = (path: string, json: unknown) =>
+    app.request(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(json),
+    });
+  const started = await post("/v1/host-sign-ins", {
+    key: host.key,
+    name: "Build box",
+    platform: "linux",
+    channel: "stable",
+  });
+  const { code, userCode } = await body(started, "HostSignIn");
+  expect(
+    (
+      await signedAsHost(
+        app,
+        approver,
+        `/v1/host-sign-ins/${userCode}/approve-from-host`,
+      )
+    ).status,
+  ).toBe(200);
+  const { nonce } = await body(
+    await post("/v1/host-sign-ins/poll", { code }),
+    "HostSignInState",
+  );
+  const finished = await post("/v1/host-sign-ins/finish", {
+    code,
+    nonce,
+    signature: signText(host, registrationMessage(nonce ?? "", MAYA, host.key)),
+  });
+  expect(finished.status).toBe(201);
+  return host;
+}
+
 let signed = 0;
 
-function signedAsHost(app: ReturnType<typeof testApp>, host: TestDevice) {
-  const path = "/v1/devices/challenge";
+function signedAsHost(
+  app: ReturnType<typeof testApp>,
+  host: TestDevice,
+  path = "/v1/devices/challenge",
+) {
   const time = String(Math.floor(Date.now() / 1000) - signed++);
   const message = requestMessage(
     "host",

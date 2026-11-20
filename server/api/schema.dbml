@@ -199,6 +199,7 @@ Table host_sign_ins {
   expires_at timestamptz [not null]
   requested_from text
   approved_session text
+  approved_mac_signed_in_at timestamptz
 
   indexes {
     expires_at [name: 'host_sign_ins_by_expiry']

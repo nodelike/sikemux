@@ -208,6 +208,11 @@ export interface Tables {
       string | null | undefined,
       string | null
     >;
+    approved_mac_signed_in_at: ColumnType<
+      Date | null,
+      Date | null | undefined,
+      Date | null
+    >;
     requested_from: string | null;
     created_at: CreatedAt;
     expires_at: Date;

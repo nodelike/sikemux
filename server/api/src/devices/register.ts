@@ -32,7 +32,7 @@ interface Registrant {
   via: Identity["via"] | "code";
   /** The Clerk session behind the registration: the caller's, or the one that approved a host's code. */
   sessionId?: string | undefined;
-  /** When a Mac's sign-in was made. */
+  /** When the Mac sign-in behind it was made: the Mac's own, or, for a code, the approving host's. */
   issuedAt?: Date | undefined;
   /** The host that signed the request, when one did. */
   deviceKey?: string | undefined;
@@ -81,13 +81,16 @@ export async function registerDevice(
     await holdStanding(trx, userId);
     const signInSession =
       via === "host"
-        ? await signInSessionOf(trx, deviceKey)
+        ? (await signInOf(trx, deviceKey)).session
         : (sessionId ?? null);
+    const macSignedInAt =
+      via === "mac" || via === "code" ? issuedAt : undefined;
     await checkStanding(trx, {
       userId,
       via: via === "code" ? "session" : via,
       sessionId: signInSession ?? undefined,
       issuedAt,
+      macSignedInAt,
     });
     const existing = await trx
       .selectFrom("devices")
@@ -145,7 +148,7 @@ export async function registerDevice(
         ? {}
         : {
             sign_in_session: signInSession,
-            mac_signed_in_at: via === "mac" ? (issuedAt ?? null) : null,
+            mac_signed_in_at: macSignedInAt ?? null,
           }),
     };
     const eventId = await appendEvent(trx, {
@@ -203,16 +206,20 @@ export async function registerDevice(
   });
 }
 
-/** The Clerk session that put a device on the account, which also stands behind what it adds. */
-export async function signInSessionOf(
+/** The Clerk session or Mac sign-in that put a device on the account, which also stands behind what it adds. */
+export async function signInOf(
   db: Kysely<Tables>,
   key: string | undefined,
-): Promise<string | null> {
-  if (!key) return null;
-  const row = await db
-    .selectFrom("devices")
-    .select("sign_in_session")
-    .where("key", "=", key)
-    .executeTakeFirst();
-  return row?.sign_in_session ?? null;
+): Promise<{ session: string | null; macSignedInAt: Date | null }> {
+  const row = key
+    ? await db
+        .selectFrom("devices")
+        .select(["sign_in_session", "mac_signed_in_at"])
+        .where("key", "=", key)
+        .executeTakeFirst()
+    : undefined;
+  return {
+    session: row?.sign_in_session ?? null,
+    macSignedInAt: row?.mac_signed_in_at ?? null,
+  };
 }
