@@ -244,6 +244,65 @@ it("lets no session approve a `sikemux login` code while the wait runs, and a ho
   expect(fromHost.status).toBe(200);
 });
 
+it("finishes no `sikemux login` code a session approved before a removal while the wait runs, and one a host approved", async () => {
+  const clerk = new FakeClerk();
+  const app = testApp(database, undefined, { clerk });
+  const mac = await signInMac(app, MAYA);
+  const phone = await registered(app, MAYA, "client", {
+    sessionId: "sess_phone",
+  });
+  const fresh = await sessionToken(MAYA, { claims: { fva: [0, -1] } });
+  const started = async () => {
+    const box = newDevice();
+    const sign = await body(
+      await post(app, "/v1/host-sign-ins", {
+        key: box.key,
+        name: "Build box",
+        platform: "linux",
+        channel: "stable",
+      }),
+      "HostSignIn",
+    );
+    return { box, ...sign };
+  };
+  const bySession = await started();
+  expect(
+    (
+      await caller(app)(
+        `/v1/host-sign-ins/${bySession.userCode}/approve`,
+        fresh,
+        { method: "POST" },
+      )
+    ).status,
+  ).toBe(204);
+  const byHost = await started();
+  expect(
+    (
+      await signed(
+        app,
+        mac,
+        `/v1/host-sign-ins/${byHost.userCode}/approve-from-host`,
+        "POST",
+      )
+    ).status,
+  ).toBe(200);
+  await caller(app)(`/v1/devices/${phone.key}`, fresh, { method: "DELETE" });
+
+  const finish = async ({ box, code }: Awaited<ReturnType<typeof started>>) => {
+    const { nonce } = await body(
+      await post(app, "/v1/host-sign-ins/poll", { code }),
+      "HostSignInState",
+    );
+    return post(app, "/v1/host-sign-ins/finish", {
+      code,
+      nonce,
+      signature: signText(box, registrationMessage(nonce ?? "", MAYA, box.key)),
+    });
+  };
+  expect((await finish(bySession)).status).toBe(401);
+  expect((await finish(byHost)).status).toBe(201);
+});
+
 it("adds a Mac only with the challenge its traded code got", async () => {
   const app = testApp(database);
   const device = newDevice();

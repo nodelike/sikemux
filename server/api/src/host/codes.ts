@@ -121,6 +121,7 @@ export async function approveHost(
         approved_by: userId,
         approved_session: approver.session,
         approved_mac_signed_in_at: approver.macSignedInAt,
+        approved_by_host: via === "host",
       })
       .where(openTo(userId, userCode))
       .returning(["key", "name"])
@@ -219,6 +220,7 @@ export async function finishSignIn(
 ) {
   const row = await waiting(db, finish.code);
   if (!row?.approved_by) throw gone();
+  if (!row.approved_by_host) await waitAfterEndedSessions(db, row.approved_by);
   const registered = await registerDevice(
     db,
     {

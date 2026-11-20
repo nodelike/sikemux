@@ -226,6 +226,7 @@ export interface Tables {
       Date | null | undefined,
       Date | null
     >;
+    approved_by_host: Generated<boolean>;
     requested_from: string | null;
     created_at: CreatedAt;
     expires_at: Date;
