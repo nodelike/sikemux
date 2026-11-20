@@ -330,22 +330,6 @@ pub fn project_of(cwd: &Path, projects: &[PathBuf]) -> String {
         .into_owned()
 }
 
-/// The open project that is `cwd`'s own repository or a folder in it, never a parent
-/// such as the home folder that merely holds the repository.
-pub fn repo_project_of(cwd: &Path, projects: &[PathBuf]) -> Option<String> {
-    let canonical =
-        |path: &Path| sikemux_process::files::real_path(path).unwrap_or_else(|_| path.to_owned());
-    let cwd = canonical(cwd);
-    let path = in_main_checkout(&cwd).unwrap_or(cwd);
-    let repo = sikemux_process::files::repo_root(&path).unwrap_or(&path);
-    projects
-        .iter()
-        .map(|project| canonical(project))
-        .filter(|project| path.starts_with(project) && project.starts_with(repo))
-        .max_by_key(|project| project.as_os_str().len())
-        .map(|project| project.to_string_lossy().into_owned())
-}
-
 /// The folder in the main checkout matching `cwd` in a linked git worktree.
 fn in_main_checkout(cwd: &Path) -> Option<PathBuf> {
     let root = sikemux_process::files::repo_root(cwd)?;
@@ -1138,8 +1122,8 @@ impl Workspaces {
         }
         let lead = started_by.and_then(|lead| self.agent(lead));
         let project = match &lead {
-            Some(lead) if launch.cwd.starts_with(&lead.cwd) => lead.project.clone(),
-            _ => match self.project_for(&launch.cwd) {
+            Some(lead) => lead.project.clone(),
+            None => match self.project_for(&launch.cwd) {
                 Ok(project) => project,
                 Err(error) => {
                     eprintln!("sikemux core: a chat that started was not kept: {error}");
@@ -1313,12 +1297,6 @@ impl Workspaces {
     /// this host's projects.
     pub fn project_of(&self, cwd: &Path) -> String {
         project_of(cwd, &self.project_paths())
-    }
-
-    /// The project a worker in `cwd` belongs to: its repository's own project when that
-    /// is open here, else its lead's.
-    pub fn worker_project(&self, cwd: &Path, lead_project: String) -> String {
-        repo_project_of(cwd, &self.project_paths()).unwrap_or(lead_project)
     }
 
     /// The project the checkout at `top` belongs to, and whether it is that
@@ -1917,6 +1895,22 @@ mod tests {
             launch.env.get("CLAUDE_CONFIG_DIR").map(String::as_str),
             Some("/Users/me/.claude-work")
         );
+    }
+
+    #[test]
+    fn a_worker_cut_from_another_repo_stays_in_its_leads_project() {
+        let workspaces = Workspaces::new(None, None);
+        offer(&workspaces, vec![launcher()]);
+        let home = Path::new(PROJECT_PATH).parent().unwrap().to_owned();
+        let home = workspaces.add_project(home, None, None).unwrap();
+        let mut lead = launch(&workspaces, choice()).unwrap();
+        lead.agent_id = "agent-lead".into();
+        workspaces.note_begun(&lead, None, None);
+        let mut worker = lead.clone();
+        worker.agent_id = "agent-worker".into();
+        worker.cwd = home.path.join("site.worktrees").join("fix-hero");
+        workspaces.note_begun(&worker, Some("agent-lead"), None);
+        assert_eq!(workspaces.agent("agent-worker").unwrap().project, "sess-1");
     }
 
     #[test]

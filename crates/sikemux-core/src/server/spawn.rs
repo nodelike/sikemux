@@ -479,9 +479,7 @@ fn start(
         saved::same_account(&provider, &launch, saved)?;
     }
     launch.resume_id = resume.map(|saved| saved.session_id.clone());
-    let project = core
-        .workspaces()
-        .worker_project(&launch.cwd, super::caller::project_of(core, request));
+    let project = super::caller::project_of(core, request);
     let (agent_id, named) = match hired {
         Some(hired) => {
             let named = core.names().adopt(

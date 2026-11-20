@@ -151,9 +151,12 @@ impl WorkspaceCore for Core {
         provider: Option<&str>,
         resume_id: Option<&str>,
     ) -> (names::AgentName, Option<names::Returned>) {
+        let workspaces = self.workspaces();
+        let kept_in = (workspaces.agent(agent_id))
+            .and_then(|agent| workspaces.project_path(&agent.project).ok());
         let starting = names::Starting {
             agent_id,
-            project: self.workspaces().project_of(cwd),
+            project: workspaces.project_of(kept_in.as_deref().unwrap_or(cwd)),
             provider,
             resume_id,
         };
