@@ -18,9 +18,14 @@ version="$core-nightly.$(git rev-list --count "$(git merge-base HEAD "$stable").
 last="$(git tag -l 'v*-nightly.*' --merged HEAD --sort=-v:refname | head -1)"
 
 sed -i.bak "s/\"version\": \"$from\"/\"version\": \"$version\"/" package.json
-for file in Cargo.toml Cargo.lock; do
-  sed -i.bak "s/^version = \"$from\"$/version = \"$version\"/" "$file"
-done
+sed -i.bak "s/^version = \"$from\"$/version = \"$version\"/" Cargo.toml
+# Crates from a registry or Git may share the version too; only the workspace's own have no source.
+awk -v from="version = \"$from\"" -v to="version = \"$version\"" '
+  held != "" { print ($0 ~ /^source = / ? held : to); held = "" }
+  $0 == from { held = $0; next }
+  { print }
+  END { if (held != "") print to }
+' Cargo.lock >Cargo.lock.bak && mv Cargo.lock.bak Cargo.lock
 rm -f package.json.bak Cargo.toml.bak Cargo.lock.bak
 
 {
