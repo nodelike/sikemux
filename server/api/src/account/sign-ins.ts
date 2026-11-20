@@ -11,6 +11,7 @@ import {
 } from "./admission.ts";
 import { CLERK_CLOCK_SLACK_MS } from "../auth.ts";
 import { removeDevice } from "../devices/removal.ts";
+import { retryLater } from "../retry.ts";
 import { alertStaff } from "../sentry.ts";
 import {
   ClerkRefusal,
@@ -479,6 +480,72 @@ async function endSessions(
     .where("session_id", "in", ids)
     .execute();
   return devices;
+}
+
+/**
+ * Ends at Clerk, by their own ids, the sessions a strip recorded but could not end, then runs the
+ * strip again for each account that had one, so a strip that failed finishes without waiting on
+ * Clerk to list the session again or on the account's next change. A failure is retried later.
+ */
+export async function retryEndedSessions(
+  db: Kysely<Tables>,
+  clerk: ClerkBackend,
+  proofKey: Buffer | null,
+  log: Logger,
+  limit: number,
+): Promise<void> {
+  const due = await db
+    .selectFrom("ended_sessions")
+    .select("session_id")
+    .where("ended_at", "is", null)
+    .where("clerk_retry_at", "<=", sql<Date>`now()`)
+    .orderBy("clerk_retry_at")
+    .limit(limit)
+    .execute();
+  const accounts = new Set<string>();
+  for (const { session_id } of due) {
+    const ended = await db.transaction().execute(async (trx) => {
+      const row = await trx
+        .selectFrom("ended_sessions")
+        .select(["user_id", "clerk_attempts"])
+        .where("session_id", "=", session_id)
+        .where("ended_at", "is", null)
+        .forUpdate()
+        .skipLocked()
+        .executeTakeFirst();
+      if (!row) return null;
+      try {
+        await clerk.revokeSession(session_id);
+      } catch (error) {
+        const attempts = row.clerk_attempts + 1;
+        await trx
+          .updateTable("ended_sessions")
+          .set({
+            clerk_attempts: attempts,
+            clerk_retry_at: retryLater(
+              log,
+              { service: "Clerk", what: "end a session a strip ended" },
+              { error, attempts, userId: row.user_id },
+            ),
+          })
+          .where("session_id", "=", session_id)
+          .execute();
+        return null;
+      }
+      await trx
+        .updateTable("ended_sessions")
+        .set({ ended_at: sql<Date>`clock_timestamp()` })
+        .where("session_id", "=", session_id)
+        .execute();
+      return row.user_id;
+    });
+    if (ended) accounts.add(ended);
+  }
+  for (const userId of accounts)
+    await stripWorkSignIns(db, clerk, proofKey, log, userId).catch(
+      (error: unknown) =>
+        log.warn({ err: error, userId }, "running a strip again failed"),
+    );
 }
 
 type Window = { since: Date; admittedAt: Date };

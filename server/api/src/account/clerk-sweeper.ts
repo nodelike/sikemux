@@ -4,12 +4,14 @@ import type { Tables } from "../db.ts";
 import type { Logger } from "../log.ts";
 import type { ClerkBackend } from "./clerk.ts";
 import { deleteInClerk, revokeRemovedSession } from "./deletion.ts";
+import { retryEndedSessions } from "./sign-ins.ts";
 
 const BATCH = 20;
 
 export async function sweepClerk(
   db: Kysely<Tables>,
   clerk: ClerkBackend,
+  proofKey: Buffer | null,
   log: Logger,
 ): Promise<void> {
   const users = await db
@@ -34,4 +36,6 @@ export async function sweepClerk(
     .execute();
   for (const { key } of sessions)
     await revokeRemovedSession(db, clerk, log, key);
+
+  await retryEndedSessions(db, clerk, proofKey, log, BATCH);
 }

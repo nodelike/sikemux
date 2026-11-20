@@ -134,6 +134,8 @@ export interface Tables {
     user_id: string;
     made_at: Date;
     ended_at: ColumnType<Date | null, never, Date>;
+    clerk_attempts: Generated<number>;
+    clerk_retry_at: Generated<Date>;
   };
   removed_devices: {
     key: string;

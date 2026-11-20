@@ -1,6 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
 
+import { sweepClerk } from "../src/account/clerk-sweeper.ts";
 import { addressHash } from "../src/account/proofs.ts";
 import { stripWorkSignIns } from "../src/account/sign-ins.ts";
 import type { Database } from "../src/db.ts";
@@ -283,6 +284,39 @@ it("adds no Mac while Clerk has yet to end the Acme session", async () => {
 
   clerk.revokeSession = revoke;
   await stripWorkSignIns(database.db, clerk, null, log, MAYA);
+  await database.db
+    .updateTable("ended_sessions")
+    .set({ ended_at: new Date(Date.now() - 3_600_000) })
+    .execute();
+  expect((await signInMac(testApp(database), MAYA)).response.status).toBe(201);
+});
+
+it("finishes a strip whose session Clerk stopped listing, on the sweep's timer", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  const revoke = clerk.revokeSession.bind(clerk);
+  clerk.revokeSession = () => Promise.reject(new Error("Clerk answered 500"));
+  await expect(
+    stripWorkSignIns(database.db, clerk, null, log, MAYA),
+  ).rejects.toThrow();
+  clerk.revokeSession = revoke;
+  clerk.userSessions.set(MAYA, []);
+  await sweepClerk(database.db, clerk, null, log);
+  expect(clerk.revoked).toEqual([]);
+
+  await database.db
+    .updateTable("ended_sessions")
+    .set({ clerk_retry_at: new Date() })
+    .execute();
+  await sweepClerk(database.db, clerk, null, log);
+  expect(clerk.revoked).toEqual(["sess_work"]);
+  const removal = await database.db
+    .selectFrom("sign_in_removals")
+    .select("end_sessions_from")
+    .executeTakeFirstOrThrow();
+  expect(removal.end_sessions_from).toBeNull();
   await database.db
     .updateTable("ended_sessions")
     .set({ ended_at: new Date(Date.now() - 3_600_000) })

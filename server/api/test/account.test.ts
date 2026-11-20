@@ -125,7 +125,7 @@ async function restoreWindowEnds() {
   await database.pool.query(
     "update users set clerk_retry_at = now() where deleted_at is not null",
   );
-  await sweepClerk(database.db, clerk, log);
+  await sweepClerk(database.db, clerk, null, log);
 }
 
 async function count(sql: string, params: unknown[] = []) {
@@ -144,7 +144,7 @@ describe("deleting an account", () => {
       (Date.parse(deletion.deletesAt) - Date.parse(deletion.requestedAt)) /
       86_400_000;
     expect(days).toBe(30);
-    await sweepClerk(database.db, clerk, log);
+    await sweepClerk(database.db, clerk, null, log);
     expect(clerk.deleted).toEqual([]);
     await restoreWindowEnds();
     expect(clerk.deleted).toEqual(["user_a"]);
@@ -257,12 +257,12 @@ describe("deleting an account", () => {
     );
     expect(rows).toEqual([{ clerk_attempts: 1, later: true }]);
 
-    await sweepClerk(database.db, clerk, log);
+    await sweepClerk(database.db, clerk, null, log);
     expect(clerk.deleted).toEqual([]);
 
     clerk.failing = false;
     await database.pool.query("update users set clerk_retry_at = now()");
-    await sweepClerk(database.db, clerk, log);
+    await sweepClerk(database.db, clerk, null, log);
     expect(clerk.deleted).toEqual(["user_a"]);
     expect(
       await count(
@@ -281,7 +281,7 @@ describe("deleting an account", () => {
     const error = vi.spyOn(log, "error");
     for (let attempt = 1; attempt <= 6; attempt++) {
       await database.pool.query("update users set clerk_retry_at = now()");
-      await sweepClerk(database.db, clerk, log);
+      await sweepClerk(database.db, clerk, null, log);
     }
     const { rows } = await database.pool.query(
       "select clerk_attempts, extract(epoch from clerk_retry_at - now())::int as wait from users",
@@ -480,9 +480,9 @@ describe("removing a phone from elsewhere", () => {
     await database.pool.query(
       "update removed_devices set clerk_retry_at = now()",
     );
-    await sweepClerk(database.db, clerk, log);
+    await sweepClerk(database.db, clerk, null, log);
     expect(clerk.revoked).toEqual(["sess_phone"]);
-    await sweepClerk(database.db, clerk, log);
+    await sweepClerk(database.db, clerk, null, log);
     expect(clerk.revoked).toEqual(["sess_phone"]);
   });
 });

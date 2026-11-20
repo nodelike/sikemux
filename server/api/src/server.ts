@@ -226,8 +226,9 @@ export async function startServer(config: Config, log: Logger) {
     sweeping = true;
     Promise.all([
       clerk &&
-        sweepClerk(database.db, clerk, log).catch((error: unknown) =>
-          log.error({ err: error }, "retrying calls to Clerk failed"),
+        sweepClerk(database.db, clerk, config.addressProofKey, log).catch(
+          (error: unknown) =>
+            log.error({ err: error }, "retrying calls to Clerk failed"),
         ),
       provider &&
         makeDueCalls(database.db, provider, log).catch((error: unknown) =>

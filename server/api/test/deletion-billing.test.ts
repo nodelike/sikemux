@@ -210,7 +210,7 @@ async function dueForPurge(userId: string) {
     "update users set clerk_retry_at = now() where id = $1",
     [userId],
   );
-  await sweepClerk(database.db, clerk, log);
+  await sweepClerk(database.db, clerk, null, log);
   await database.pool.query(
     "update users set purge_after = now() - interval '1 second', billing_retry_at = now() where id = $1",
     [userId],
