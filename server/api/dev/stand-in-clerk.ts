@@ -358,6 +358,14 @@ createServer(async (request, response) => {
       session ? [{ id: sid, status, created_at: session.createdAt }] : [],
     );
   }
+  const asked = url.pathname.match(/^\/v1\/sessions\/([^/]+)$/)?.[1];
+  if (asked && method === "GET") {
+    const session = sessions.get(asked);
+    if (!session)
+      return send(404, { errors: [{ code: "resource_not_found" }] });
+    const status = session.revoked ? "revoked" : "active";
+    return send(200, { id: asked, status, created_at: session.createdAt });
+  }
   const revoking = url.pathname.match(/^\/v1\/sessions\/(.+)\/revoke$/)?.[1];
   if (revoking && method === "POST") {
     const session = sessions.get(revoking);

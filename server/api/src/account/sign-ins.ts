@@ -516,7 +516,7 @@ export async function retryEndedSessions(
         .executeTakeFirst();
       if (!row) return null;
       try {
-        await endSessionInClerk(clerk, row.user_id, session_id);
+        await endSessionInClerk(clerk, session_id);
       } catch (error) {
         const attempts = row.clerk_attempts + 1;
         await trx

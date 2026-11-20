@@ -361,7 +361,7 @@ export async function revokeRemovedSession(
   await db.transaction().execute(async (trx) => {
     const tombstone = await trx
       .selectFrom("removed_devices")
-      .select(["user_id", "clerk_session_id", "clerk_attempts"])
+      .select(["clerk_session_id", "clerk_attempts"])
       .where("key", "=", key)
       .where("clerk_revoked_at", "is", null)
       .where("clerk_retry_at", "is not", null)
@@ -370,11 +370,7 @@ export async function revokeRemovedSession(
       .executeTakeFirst();
     if (!tombstone?.clerk_session_id) return;
     try {
-      await endSessionInClerk(
-        clerk,
-        tombstone.user_id,
-        tombstone.clerk_session_id,
-      );
+      await endSessionInClerk(clerk, tombstone.clerk_session_id);
     } catch (error) {
       await trx
         .updateTable("removed_devices")

@@ -17,6 +17,8 @@ export interface ClerkBackend {
   /** The names and pictures of up to 100 users, by id; a user who is gone is left out. */
   people(userIds: string[]): Promise<Map<string, Person>>;
   revokeSession(sessionId: string): Promise<void>;
+  /** Whether Clerk says the session can no longer be used, or has no such session. Throws on an answer it can't read. */
+  sessionOver(sessionId: string): Promise<boolean>;
   /** Every session of the user, ended ones too, with when each was made and whether it can still be used. Throws on an answer it can't read. */
   sessions(userId: string): Promise<ClerkSession[]>;
   /** The access tokens Clerk holds from the user's web sign-ins with Apple; none for the phone's. */
@@ -66,23 +68,29 @@ export class ClerkRefusal extends Error {}
 
 export type ClerkSession = { id: string; createdAt: Date; live: boolean };
 
+/** The session statuses Clerk documents as over; any other, one it adds later included, counts as live. */
+const OVER = new Set([
+  "ended",
+  "expired",
+  "removed",
+  "replaced",
+  "revoked",
+  "abandoned",
+]);
+
 /**
- * Ends a session at Clerk. A refusal counts as done once Clerk no longer lists the session as
- * live, as when it ran out before it could be revoked.
+ * Ends a session at Clerk. A refusal counts as done once Clerk says the session is over or gone,
+ * as when it ran out before it could be revoked.
  */
 export async function endSessionInClerk(
   clerk: ClerkBackend,
-  userId: string,
   sessionId: string,
 ): Promise<void> {
   try {
     await clerk.revokeSession(sessionId);
   } catch (error) {
     if (!(error instanceof ClerkRefusal)) throw error;
-    const listed = (await clerk.sessions(userId)).find(
-      (session) => session.id === sessionId,
-    );
-    if (listed?.live) throw error;
+    if (!(await clerk.sessionOver(sessionId))) throw error;
   }
 }
 
@@ -258,8 +266,15 @@ export function clerkBackend(
     };
   };
   return {
-    deleteUser: async (userId) =>
-      call("DELETE", `/v1/users/${checked(userId, "user")}`),
+    deleteUser: async (userId) => {
+      const response = await request(
+        "DELETE",
+        `/v1/users/${checked(userId, "user")}`,
+        undefined,
+        clerkFoundNothing,
+      );
+      await response?.body?.cancel();
+    },
     profile: async (userId) => {
       const { user, address } = await primaryEmail(userId);
       const email = address?.email_address?.slice(0, 320) ?? null;
@@ -327,6 +342,19 @@ export function clerkBackend(
       );
       await response?.body?.cancel();
     },
+    sessionOver: async (sessionId) => {
+      const response = await request(
+        "GET",
+        `/v1/sessions/${checked(sessionId, "sess")}`,
+        undefined,
+        clerkFoundNothing,
+      );
+      if (!response) return true;
+      const session = (await response.json()) as { status?: unknown } | null;
+      if (typeof session?.status !== "string")
+        throw new Error("Clerk answered a session it didn't describe");
+      return OVER.has(session.status);
+    },
     sessions: async (userId) => {
       const sessions: ClerkSession[] = [];
       for (let offset = 0; ; offset += SESSIONS_PAGE) {
@@ -356,7 +384,7 @@ export function clerkBackend(
           sessions.push({
             id: session.id,
             createdAt: new Date(session.created_at),
-            live: session.status === "active" || session.status === "pending",
+            live: !OVER.has(session.status),
           });
         }
         if (page.length < SESSIONS_PAGE) return sessions;

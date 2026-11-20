@@ -685,11 +685,35 @@ describe("the Clerk Backend API client", () => {
     await expect(client.revokeSession("sess_1")).resolves.toBeUndefined();
   });
 
-  it("does not count a 404 from something other than Clerk as a revoked session", async () => {
+  it("does not count a 404 from something other than Clerk as a revoked session or a deleted user", async () => {
     const fetcher = async () =>
       new Response("<html>Not Found</html>", { status: 404 });
     const client = clerkBackend("sk_test_abc", fetcher);
     await expect(client.revokeSession("sess_1")).rejects.toThrow("404");
+    await expect(client.deleteUser("user_a")).rejects.toThrow("404");
+    await expect(client.sessionOver("sess_1")).rejects.toThrow("404");
+  });
+
+  it("counts a session over only by a status Clerk documents as over, or Clerk not having it", async () => {
+    const over = (status: number, answer: unknown) =>
+      clerkBackend("sk_test_abc", stub(status, answer).fetcher).sessionOver(
+        "sess_1",
+      );
+    for (const status of [
+      "ended",
+      "expired",
+      "removed",
+      "replaced",
+      "revoked",
+      "abandoned",
+    ])
+      expect(await over(200, { id: "sess_1", status })).toBe(true);
+    for (const status of ["active", "pending", "Active", "suspended"])
+      expect(await over(200, { id: "sess_1", status })).toBe(false);
+    expect(await over(404, { errors: [{ code: "resource_not_found" }] })).toBe(
+      true,
+    );
+    await expect(over(200, {})).rejects.toThrow();
   });
 
   it("fails on anything else, so the sweeper retries", async () => {

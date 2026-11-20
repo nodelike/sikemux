@@ -57,6 +57,14 @@ export class FakeClerk implements ClerkBackend {
     this.revoked.push(sessionId);
   }
 
+  async sessionOver(sessionId: string) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    const known = [...this.userSessions.values()]
+      .flat()
+      .some((session) => session.id === sessionId);
+    return !known || this.revoked.includes(sessionId);
+  }
+
   readonly userSessions = new Map<string, { id: string; createdAt: Date }[]>();
 
   async sessions(userId: string) {
