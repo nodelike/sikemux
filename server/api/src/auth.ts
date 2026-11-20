@@ -172,8 +172,8 @@ export const MAC_SIGN_IN_CODE_MS = 11 * 60_000;
 /**
  * Refuses a token that is still unexpired but no longer stands: its account was deleted or frozen, it
  * belongs to the session of a phone removed from the account or of one the strip ended, or it is
- * a Mac's sign-in made while such a session was open, or any Mac's while the strip has yet to end one
- * or during `waitAfterEndedSessions`.
+ * a Mac's sign-in made while a session the strip ended was open, or any Mac's while the strip has yet
+ * to end one or during `waitAfterEndedSessions`.
  */
 export async function checkStanding(
   db: Kysely<Tables>,
@@ -205,10 +205,16 @@ export async function checkStanding(
         where clerk_session_id = ${identity.sessionId ?? null}
           and user_id = ${identity.userId}
           and reason = 'removed'
+        union all
+        select 1 from ended_sessions
+        where session_id = ${identity.sessionId ?? null}
+          and user_id = ${identity.userId}
+          and cause = 'device_removed'
       ) as removed,
       exists (
         select 1 from ended_sessions
         where user_id = ${identity.userId}
+          and cause = 'work_address'
           and (
             session_id = ${identity.sessionId ?? null}
             or ${macSignedInAt ?? null}::timestamptz between made_at - ${`${CLERK_CLOCK_SLACK_MS} milliseconds`}::interval
@@ -217,7 +223,7 @@ export async function checkStanding(
       ) as ended,
       ${macSignedInAt !== undefined} and exists (
         select 1 from ended_sessions
-        where user_id = ${identity.userId} and ended_at is null
+        where user_id = ${identity.userId} and cause = 'work_address' and ended_at is null
       ) as ending`.execute(db);
   if (rows[0]?.deleted && !allowDeleted) throw accountDeleted();
   if (rows[0]?.frozen) throw accountFrozen();
@@ -237,7 +243,8 @@ export async function checkStanding(
 /**
  * Refuses, until a sign-in code made before it can no longer be traded, while a session the API ended
  * outside the strip may still have made one: a host removal's sign-out or a removed device's session,
- * from the moment it is recorded until Clerk has ended it and a code's life after.
+ * kept on the device's row or, once the device registers again, on the session's own, from the moment
+ * it is recorded until Clerk has ended it and a code's life after.
  */
 export async function waitAfterEndedSessions(
   db: Kysely<Tables>,
@@ -260,6 +267,11 @@ export async function waitAfterEndedSessions(
         and clerk_session_id is not null
         and (clerk_revoked_at > now() - ${codeLife}::interval
           or clerk_revoked_at is null and clerk_retry_at is not null)
+      union all
+      select ended_at from ended_sessions
+      where user_id = ${userId}
+        and cause = 'device_removed'
+        and (ended_at is null or ended_at > now() - ${codeLife}::interval)
     ) ended`.execute(db);
   const wait = rows[0]?.wait_s;
   if (wait === null || wait === undefined) return;

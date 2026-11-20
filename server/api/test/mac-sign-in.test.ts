@@ -406,6 +406,99 @@ it("holds no Mac sign-in after a phone removed with no Clerk signs in again", as
   expect((await signInMac(app, MAYA)).response.status).toBe(201);
 });
 
+async function phoneRemovedThenBack(
+  app: ReturnType<typeof testApp>,
+  clerk: FakeClerk,
+  { clerkFails }: { clerkFails: boolean },
+) {
+  const phone = await registered(app, MAYA, "client", {
+    sessionId: "sess_phone",
+  });
+  clerk.failing = clerkFails;
+  await caller(app)(`/v1/devices/${phone.key}`, await sessionToken(MAYA), {
+    method: "DELETE",
+  });
+  clerk.failing = false;
+  await registered(app, MAYA, "client", {
+    device: phone,
+    sessionId: "sess_phone_again",
+  });
+}
+
+async function tradeCode(app: ReturnType<typeof testApp>) {
+  const code = `code_${crypto.randomUUID()}`;
+  macCodes.set(code, await macToken(MAYA));
+  return post(app, "/v1/mac-sign-ins", { ...SIGN_IN, code });
+}
+
+it("keeps a Mac sign-in waiting out a removed phone's session after the phone signs in again", async () => {
+  const clerk = new FakeClerk();
+  const app = testApp(database, undefined, { clerk });
+  await phoneRemovedThenBack(app, clerk, { clerkFails: true });
+
+  const owed = await tradeCode(app);
+  expect(owed.status).toBe(401);
+  expect((await body(owed, "ApiError")).error.message).toBe(
+    "This account was just signed out somewhere. Try again in 11 minutes.",
+  );
+  await database.pool.query("update ended_sessions set clerk_retry_at = now()");
+  await sweepClerk(database.db, clerk, null, log);
+  expect(clerk.revoked).toEqual(["sess_phone"]);
+  expect((await tradeCode(app)).status).toBe(401);
+
+  await database.pool.query(
+    "update ended_sessions set ended_at = now() - interval '12 minutes'",
+  );
+  expect((await tradeCode(app)).status).toBe(200);
+});
+
+it("keeps a Mac sign-in waiting after a phone Clerk signed out comes back within a code's life", async () => {
+  const clerk = new FakeClerk();
+  const app = testApp(database, undefined, { clerk });
+  await phoneRemovedThenBack(app, clerk, { clerkFails: false });
+  expect((await tradeCode(app)).status).toBe(401);
+});
+
+it("finishes `sikemux login` codes a Mac signed in just before a removed phone's return approves", async () => {
+  const clerk = new FakeClerk();
+  const app = testApp(database, undefined, { clerk });
+  const mac = await signInMac(app, MAYA);
+  await phoneRemovedThenBack(app, clerk, { clerkFails: true });
+
+  const approvedAndFinished = async () => {
+    const box = newDevice();
+    const { code, userCode } = await body(
+      await post(app, "/v1/host-sign-ins", {
+        key: box.key,
+        name: "Build box",
+        platform: "linux",
+        channel: "stable",
+      }),
+      "HostSignIn",
+    );
+    const approved = await signed(
+      app,
+      mac,
+      `/v1/host-sign-ins/${userCode}/approve-from-host`,
+      "POST",
+    );
+    expect(approved.status).toBe(200);
+    const { nonce } = await body(
+      await post(app, "/v1/host-sign-ins/poll", { code }),
+      "HostSignInState",
+    );
+    return post(app, "/v1/host-sign-ins/finish", {
+      code,
+      nonce,
+      signature: signText(box, registrationMessage(nonce ?? "", MAYA, box.key)),
+    });
+  };
+  expect((await approvedAndFinished()).status).toBe(201);
+  await database.pool.query("update ended_sessions set clerk_retry_at = now()");
+  await sweepClerk(database.db, clerk, null, log);
+  expect((await approvedAndFinished()).status).toBe(201);
+});
+
 it("lets a Mac's sign-in token of any age reach nothing", async () => {
   const app = testApp(database);
   const mac = await signInMac(app, MAYA);

@@ -144,9 +144,10 @@ export interface Tables {
     session_id: string;
     user_id: string;
     made_at: Date;
-    ended_at: ColumnType<Date | null, never, Date>;
+    ended_at: ColumnType<Date | null, Date | null | undefined, Date>;
     clerk_attempts: Generated<number>;
     clerk_retry_at: Generated<Date>;
+    cause: Generated<"work_address" | "device_removed">;
   };
   removed_devices: {
     key: string;

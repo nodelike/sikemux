@@ -800,6 +800,7 @@ Table ended_sessions {
   ended_at timestamptz
   clerk_attempts integer [not null, default: 0]
   clerk_retry_at timestamptz [not null, default: `(now() + '00:01:00'::interval)`]
+  cause text [not null, default: 'work_address', note: 'cause = ANY (ARRAY[\'work_address\', \'device_removed\'])']
 
   indexes {
     clerk_retry_at [name: 'ended_sessions_unfinished', note: 'where (ended_at IS NULL)']

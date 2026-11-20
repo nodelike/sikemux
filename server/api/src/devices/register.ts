@@ -2,7 +2,12 @@ import type { Device, DeviceRegistration } from "@sikemux/protocol";
 import { sql, type Kysely, type Selectable, type Transaction } from "kysely";
 
 import { audit } from "../audit.ts";
-import { checkStanding, holdStanding, type Identity } from "../auth.ts";
+import {
+  checkStanding,
+  holdStanding,
+  MAC_SIGN_IN_CODE_MS,
+  type Identity,
+} from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
 import { ApiFailure, badRequest, forbidden, unauthorized } from "../http.ts";
@@ -183,7 +188,14 @@ export async function registerDevice(
     if (!existing) {
       await trx
         .insertInto("ended_sessions")
-        .columns(["session_id", "user_id", "made_at", "clerk_retry_at"])
+        .columns([
+          "session_id",
+          "user_id",
+          "made_at",
+          "ended_at",
+          "clerk_retry_at",
+          "cause",
+        ])
         .expression(
           trx
             .selectFrom("removed_devices")
@@ -191,13 +203,26 @@ export async function registerDevice(
               "clerk_session_id",
               "user_id",
               sql<Date>`now()`.as("made_at"),
+              "clerk_revoked_at",
               sql<Date>`now()`.as("clerk_retry_at"),
+              sql<"device_removed">`'device_removed'`.as("cause"),
             ])
             .where("key", "=", registration.key)
             .where("reason", "=", "removed")
             .where("clerk_session_id", "is not", null)
-            .where("clerk_revoked_at", "is", null)
-            .where("clerk_retry_at", "is not", null),
+            .where((eb) =>
+              eb.or([
+                eb.and([
+                  eb("clerk_revoked_at", "is", null),
+                  eb("clerk_retry_at", "is not", null),
+                ]),
+                eb(
+                  "clerk_revoked_at",
+                  ">",
+                  sql<Date>`now() - ${`${MAC_SIGN_IN_CODE_MS} milliseconds`}::interval`,
+                ),
+              ]),
+            ),
         )
         .onConflict((conflict) => conflict.column("session_id").doNothing())
         .execute();

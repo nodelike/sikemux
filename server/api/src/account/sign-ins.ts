@@ -527,9 +527,10 @@ async function endSessions(
 }
 
 /**
- * Ends at Clerk, by their own ids, the sessions a strip recorded but could not end, then runs the
- * strip again for each account that had one or has a removal waiting that is due, backing off one
- * that keeps waiting, so a strip that failed finishes without waiting on Clerk to list the session again or on the account's next change.
+ * Ends at Clerk, by their own ids, the sessions the API recorded but could not end, then runs the
+ * strip again for each account that had one of the strip's or has a removal waiting that is due,
+ * backing off one that keeps waiting, so a strip that failed finishes without waiting on Clerk to
+ * list the session again or on the account's next change.
  */
 export async function retryEndedSessions(
   db: Kysely<Tables>,
@@ -551,7 +552,7 @@ export async function retryEndedSessions(
     const ended = await db.transaction().execute(async (trx) => {
       const row = await trx
         .selectFrom("ended_sessions")
-        .select(["user_id", "clerk_attempts"])
+        .select(["user_id", "clerk_attempts", "cause"])
         .where("session_id", "=", session_id)
         .where("ended_at", "is", null)
         .forUpdate()
@@ -568,7 +569,7 @@ export async function retryEndedSessions(
             clerk_attempts: attempts,
             clerk_retry_at: retryLater(
               log,
-              { service: "Clerk", what: "end a session a strip ended" },
+              { service: "Clerk", what: "end a session the API ended" },
               { error, attempts, userId: row.user_id },
             ),
           })
@@ -581,7 +582,7 @@ export async function retryEndedSessions(
         .set({ ended_at: sql<Date>`clock_timestamp()` })
         .where("session_id", "=", session_id)
         .execute();
-      return row.user_id;
+      return row.cause === "work_address" ? row.user_id : null;
     });
     if (ended) accounts.add(ended);
   }
