@@ -1097,7 +1097,7 @@ async fn spawn_terminal(
 }
 
 /// What a lead is told of a worker it starts that reports to it.
-const REPORTS: &str = " When its turn fails, stops or asks something, or its land is sent back, you hear at once. A turn that finished calmly, or a land that went in, comes as one line with your next turn, or wakes you after 5 minutes, at once when no other worker of yours is open. A turn that ends on something set to wake it sends nothing.";
+const REPORTS: &str = " When its turn fails, stops or asks something, or its land is sent back, you hear at once. A turn that finished calmly with its work landed, or a land that went in, comes as one line with your next turn, or wakes you after 5 minutes, at once when no other worker of yours is open. A turn that ends on something set to wake it sends nothing.";
 
 /// Sends a worker's lead how its turn ended, unless it finished on something set to wake it and
 /// asks nothing: its row says what it waits on, and the lead hears once a land of its goes in.
@@ -1168,14 +1168,20 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
 /// What of a worker's report quotes its final answer, for a calm one.
 const CALM_QUOTE_CHARS: usize = 200;
 
-/// Whether the worker's work is landed or unchanged, and its turn left nothing of its plan open.
+/// Whether the worker's work went in and its turn left nothing of its plan open.
 fn work_settled(core: &Arc<Core>, worker: &str) -> bool {
+    went_in(super::turn_state::work_now(core, worker))
+        && super::turn_state::left_open(core, worker).is_none()
+}
+
+/// A turn that changed nothing leaves only its answer, which may say a run failed or ask
+/// something in words no check reads, so only work that went in lets a report wait.
+fn went_in(work: Option<sikemux_view::turn::WorkAt>) -> bool {
     use sikemux_view::turn::WorkAt;
-    let landed = matches!(
-        super::turn_state::work_now(core, worker),
-        Some(WorkAt::None | WorkAt::Landed | WorkAt::Staged | WorkAt::Shipped)
-    );
-    landed && super::turn_state::left_open(core, worker).is_none()
+    matches!(
+        work,
+        Some(WorkAt::Landed | WorkAt::Staged | WorkAt::Shipped)
+    )
 }
 
 /// Whether a report can wait for its lead's next turn: the turn finished with its work
@@ -1338,4 +1344,26 @@ fn cut(answer: &str) -> String {
         (start - end).div_ceil(1024),
         answer.get(start..).unwrap_or_default().trim_start()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sikemux_view::turn::WorkAt;
+
+    /// @Jinichi's final answer after a terraform apply failed on all 24 resources, which reached
+    /// its lead only as a line in the person's next message.
+    const FAILED_APPLY: &str = "I didn't apply PR #88. The dev apply failed before it changed \
+        anything, and I didn't touch production.\n\n\
+        **Fix:** remove the parentheses. It needs a small terraform PR (Irwan wrote #88).\n\n\
+        **Decision for you:** should I open the one-line fix PR and, once it's merged, redo the \
+        dev targeted plan and apply? Or does it go back to Irwan? The plan files and logs are \
+        next to the worktree, in `~/proj/swishx/worktrees/`.";
+
+    #[test]
+    fn a_turn_that_changed_nothing_reaches_its_lead_at_once() {
+        let answer = TerminalAnswer::Said(FAILED_APPLY.to_owned());
+        let settled = went_in(Some(WorkAt::None));
+        assert!(!is_calm(&Ending::Finished, Some(&answer), settled, false));
+    }
 }
