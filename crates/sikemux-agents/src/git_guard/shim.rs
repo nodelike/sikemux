@@ -373,7 +373,7 @@ fn run_hook(ship_only: bool) -> i32 {
         return 0;
     };
     if let Some(refusal) = (!ship_only)
-        .then(|| super::refusal(command, &cwd, &others))
+        .then(|| super::refusal(command, &cwd, &others, &in_project))
         .flatten()
     {
         eprintln!("{refusal}");
@@ -845,7 +845,7 @@ fn run(args: Vec<OsString>) -> i32 {
         .collect();
     let private_index = std::env::var_os("GIT_INDEX_FILE").is_some();
     let real = || sikemux_process::user_environment::command(&git);
-    if let Some(refusal) = super::refused(&words, private_index, &real, &others) {
+    if let Some(refusal) = super::refused(&words, private_index, &real, &others, &in_project) {
         eprintln!("{refusal}");
         return 1;
     }
@@ -912,6 +912,24 @@ fn others(dir: &Path, paths: &[String]) -> Option<Vec<String>> {
     )
     .ok()?;
     serde_json::from_value(answer.get("others")?.clone()).ok()
+}
+
+/// Whether `dir` is in a project checkout the core that started this agent manages. Git run
+/// outside every agent's processes, or by a build, is never in one.
+fn in_project(dir: &Path) -> Option<bool> {
+    if std::env::var_os(vars::AGENT_ID).is_none() || std::env::var_os(vars::BUILD_TURN).is_some() {
+        return Some(false);
+    }
+    let answer = crate::cli::client::attempt(
+        &footer::endpoint()?,
+        &dir.to_string_lossy(),
+        None,
+        crate::cli::protocol::GIT_GUARD_METHOD,
+        &json!({ "in_project": true }),
+        GUARD_WAIT,
+    )
+    .ok()?;
+    answer.get("in_project")?.as_bool()
 }
 
 const GUARD_WAIT: Duration = Duration::from_secs(10);

@@ -88,9 +88,30 @@ fn recorded(
         .collect())
 }
 
+/// Whether the checkout `dir` is in is one of the project checkouts Sikemux manages, rather
+/// than a clone of an outside repository.
+pub fn in_project(core: &Core, dir: &Path) -> Result<bool, String> {
+    let top = git(dir, &["rev-parse", "--show-toplevel"])?;
+    let top = PathBuf::from(top.trim());
+    let top = sikemux_process::files::real_path(&top).unwrap_or(top);
+    Ok(core.workspaces().project_paths().iter().any(|project| {
+        sikemux_process::files::real_path(project)
+            .unwrap_or_else(|_| project.clone())
+            .starts_with(&top)
+    }))
+}
+
 /// What the git shim asks before a command that could take in or throw away
-/// other agents' work: `paths` it names, or none for the whole checkout.
+/// other agents' work: `paths` it names, or none for the whole checkout. With
+/// `in_project`, whether a push goes from a project checkout.
 pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
+    if request.params.get("in_project").is_some() {
+        let (core, dir) = (core.clone(), PathBuf::from(&request.project));
+        return blocking(move || Ok(in_project(&core, &dir)?))
+            .await
+            .map_err(|error| error.to_string())
+            .map(|in_project| serde_json::json!({ "in_project": in_project }));
+    }
     let paths: Vec<String> = match request.params.get("paths") {
         None | Some(Value::Null) => Vec::new(),
         Some(paths) => {
