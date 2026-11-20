@@ -464,6 +464,7 @@ Table subscriptions {
   cancel_asked_at timestamptz
   kept_without_refund_at timestamptz
   resume_asked_at timestamptz
+  resume_asked_for timestamptz
 
   indexes {
     customer_id [name: 'subscriptions_by_customer', note: 'where (status <> \'ended\')']
@@ -799,6 +800,7 @@ Table invoice_refunds {
   provider_refund_id text [pk]
   invoice_id uuid [not null]
   amount bigint [not null, note: 'amount >= 0']
+  at timestamptz [not null]
 
   indexes {
     invoice_id [name: 'invoice_refunds_by_invoice']

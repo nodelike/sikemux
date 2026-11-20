@@ -20,7 +20,7 @@ import {
   type ProviderSubscription,
 } from "./provider.ts";
 import { refundPending } from "./refunds.ts";
-import { checkSeatPauses, keptShare } from "./seat-pause.ts";
+import { checkSeatPauses } from "./seat-pause.ts";
 import { claimSettledBy } from "./seats.ts";
 
 /** An event about something erased, which is acknowledged and changes nothing. */
@@ -84,6 +84,7 @@ async function rowsOf(
       "subscriptions.cancel_at_period_end",
       "subscriptions.cancel_asked_at",
       "subscriptions.resume_asked_at",
+      "subscriptions.resume_asked_for",
       "billing_customers.provider_customer_id",
     ])
     .where("billing_customers.provider", "=", from.name)
@@ -329,13 +330,33 @@ function cancelledWhilePausedForSeat(row: Row) {
   return row.cancel_at_period_end && row.paused_for_seat_at !== null;
 }
 
+/** How long after the time we asked it to resume a plan the provider may still start its period. */
+const RESUME_SLACK_MS = 24 * 60 * 60 * 1000;
+
+/** Whether a period starting then is the one the provider starts on our resume of a plan paused for a seat. */
+function startsOnResume(row: Row, periodStart: Date) {
+  return (
+    row.resume_asked_at !== null &&
+    row.resume_asked_for !== null &&
+    row.resume_asked_at <= periodStart &&
+    periodStart.getTime() <= row.resume_asked_for.getTime() + RESUME_SLACK_MS
+  );
+}
+
 /**
  * A plan its person cancelled never renews, though the provider can still charge a renewal when it
- * lost the cancel or never took it. A renewal for a period begun after the cancel is refunded.
+ * lost the cancel or never took it. A renewal for a period begun after the cancel is refunded, as is
+ * the charge of a resume we asked during a pause the person cancelled, whenever they cancelled.
  */
 function renewedAfterCancel(rows: readonly Row[], periodStart: Date) {
   return rows.some(
-    (row) => row.cancel_asked_at !== null && row.cancel_asked_at < periodStart,
+    (row) =>
+      (row.cancel_asked_at !== null && row.cancel_asked_at < periodStart) ||
+      (cancelledWhilePausedForSeat(row) &&
+        row.resume_asked_at !== null &&
+        row.paused_for_seat_at !== null &&
+        row.resume_asked_at >= row.paused_for_seat_at &&
+        startsOnResume(row, periodStart)),
   );
 }
 
@@ -350,9 +371,11 @@ async function chargedOnResume(
   periodStart: Date,
 ) {
   if (event.reason !== "change") return false;
-  const asked = rows
-    .map((row) => row.resume_asked_at)
-    .filter((at): at is Date => at !== null && at <= periodStart);
+  const asked = rows.flatMap((row) =>
+    row.resume_asked_at && startsOnResume(row, periodStart)
+      ? [row.resume_asked_at]
+      : [],
+  );
   if (!asked.length) return false;
   const since = new Date(Math.max(...asked.map((at) => at.getTime())));
   const renewal = await trx
@@ -688,6 +711,7 @@ async function apply(
             provider_refund_id: event.providerRefundId,
             invoice_id: invoice.id,
             amount: event.returned.amount,
+            at,
           })
           .onConflict((oc) => oc.column("provider_refund_id").doNothing())
           .returning("provider_refund_id")
@@ -759,7 +783,7 @@ async function apply(
           .where("id", "=", invoice.id)
           .execute();
       if (
-        (await keptTimeRefunded(trx, customerId, subscriptionId, invoice.id)) ||
+        (await keptTimeRefunded(trx, customerId, subscriptionId)) ||
         (whole &&
           invoice.refund_requested_at &&
           (await refundGiven(trx, customerId, subscriptionId)))
@@ -842,23 +866,23 @@ async function refundGiven(
 
 /**
  * Whether staff have refunded by hand the kept time of a cancelled plan whose payment never came in
- * time to refund it: the refunds of its current period's payments reach what the kept time would
- * have refunded, short of a day's worth. Less is goodwill, and the plan keeps its time.
+ * time to refund it: the refunds made since, of any of its payments, reach what the kept time is
+ * worth at the plan's last price, short of a day's worth. Less is goodwill, and the plan keeps its
+ * time.
  */
 async function keptTimeRefunded(
   trx: Transaction<Tables>,
   customerId: string,
   providerSubscriptionId: string,
-  invoiceId: string,
 ) {
   const kept = await trx
     .selectFrom("subscriptions")
     .select([
-      "current_period_end",
-      sql<Date>`current_period_end - case interval when 'year' then interval '1 year' else interval '1 month' end - interval '3 days'`.as(
-        "period_started_before",
+      "kept_without_refund_at",
+      sql<number>`extract(epoch from current_period_end - (current_period_end - case interval when 'year' then interval '1 year' else interval '1 month' end))::float8`.as(
+        "period_seconds",
       ),
-      sql<number>`extract(epoch from coalesce(paid_left, greatest(resumes_at - now(), interval '0')))::float8 - 86400`.as(
+      sql<number>`greatest(extract(epoch from coalesce(paid_left, greatest(resumes_at - now(), interval '0')))::float8 - 86400, 0)`.as(
         "kept_seconds",
       ),
     ])
@@ -868,45 +892,29 @@ async function keptTimeRefunded(
     .where("kept_without_refund_at", "is not", null)
     .where("cancel_asked_at", "is not", null)
     .executeTakeFirst();
-  if (!kept) return false;
+  if (!kept?.kept_without_refund_at) return false;
   const ofPlan = trx
     .selectFrom("invoices")
     .where("customer_id", "=", customerId)
-    .where("provider_subscription_id", "=", providerSubscriptionId)
-    .where("status", "in", ["paid", "refunded"]);
-  const started = await ofPlan
-    .select("at")
+    .where("provider_subscription_id", "=", providerSubscriptionId);
+  const price = await ofPlan
+    .select("amount")
     .where("reason", "in", ["first_payment", "renewal"])
-    .where("at", ">=", kept.period_started_before)
+    .where("status", "in", ["paid", "refunded"])
     .orderBy("at", "desc")
     .limit(1)
     .executeTakeFirst();
-  if (!started) return false;
-  const period = await ofPlan
-    .select([
-      "invoices.id",
-      "invoices.amount",
-      "invoices.at",
-      (eb) =>
-        eb
-          .selectFrom("invoice_refunds")
-          .select(sql<string>`coalesce(sum(amount), 0)`.as("refunded"))
-          .whereRef("invoice_refunds.invoice_id", "=", "invoices.id")
-          .as("refunded"),
-    ])
-    .where("at", ">=", started.at)
-    .execute();
-  if (!period.some((invoice) => invoice.id === invoiceId)) return false;
-  let owed = 0;
-  let refunded = 0;
-  for (const invoice of period) {
-    owed += Math.max(
-      0,
-      keptShare(invoice, kept.current_period_end, kept.kept_seconds),
-    );
-    refunded += Number(invoice.refunded);
-  }
-  return refunded >= owed;
+  const refunds = await ofPlan
+    .innerJoin("invoice_refunds", "invoice_refunds.invoice_id", "invoices.id")
+    .select(
+      sql<string>`coalesce(sum(invoice_refunds.amount), 0)`.as("refunded"),
+    )
+    .where("invoice_refunds.at", ">=", kept.kept_without_refund_at)
+    .executeTakeFirstOrThrow();
+  const worth = Math.floor(
+    (Number(price?.amount ?? 0) * kept.kept_seconds) / kept.period_seconds,
+  );
+  return Number(refunds.refunded) >= worth;
 }
 
 /** A plan refunded, or whose payment the bank took back, ends now, here and with the provider. */

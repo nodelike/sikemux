@@ -5,7 +5,7 @@ import { audit } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
 import type { Logger } from "../log.ts";
-import { callLater } from "./calls.ts";
+import { callLater, takeCancelTurn } from "./calls.ts";
 import {
   heldSubscription,
   type BillingProvider,
@@ -13,6 +13,7 @@ import {
 } from "./provider.ts";
 
 const PAYMENT_WAIT_MS = 60 * 60_000;
+const CANCEL_TURN_WAIT_MS = 30_000;
 
 export type Pausing = Pick<
   BillingProvider,
@@ -111,7 +112,28 @@ type Held = Parameters<typeof heldSubscription>[0] & {
   id: string;
   customer_id: string;
   provider_customer_id: string | null;
+  paused_for_seat_at: Date | null;
+  resume_asked_at: Date | null;
 };
+
+/** When we asked the provider to resume this pause, if we did. */
+function resumeAskedThisPause(row: Held) {
+  return row.resume_asked_at &&
+    row.paused_for_seat_at &&
+    row.resume_asked_at >= row.paused_for_seat_at
+    ? row.resume_asked_at
+    : null;
+}
+
+/**
+ * Narrows our record of a resume asked during this pause to charges that started by now, as the
+ * provider already holds the plan as running; one asked during an earlier pause is dropped.
+ */
+function settleResumeAsk(row: Held) {
+  return resumeAskedThisPause(row)
+    ? { resume_asked_for: sql<Date>`least(resume_asked_for, now())` }
+    : { resume_asked_at: null, resume_asked_for: null };
+}
 
 /** A person's own Pro that has not ended, with how long its kept paid time lasts from now. */
 function proOf(db: Kysely<Tables>, userId: string, provider: string) {
@@ -196,23 +218,49 @@ async function forgetPause(
       .where("refund_requested_at", "is not", null)
       .execute();
   if (row.cancel_at_period_end && !ended) {
-    await db.transaction().execute(async (trx) =>
-      callLater(
+    await db.transaction().execute(async (trx) => {
+      await trx
+        .updateTable("subscriptions")
+        .set(settleResumeAsk(row))
+        .where("id", "=", row.id)
+        .execute();
+      const resumeAsked = resumeAskedThisPause(row);
+      const resumeCharges = resumeAsked
+        ? await trx
+            .selectFrom("invoices")
+            .select("provider_payment_id")
+            .where("customer_id", "=", row.customer_id)
+            .where(
+              "provider_subscription_id",
+              "=",
+              row.provider_subscription_id,
+            )
+            .where("status", "=", "paid")
+            .where("reason", "=", "renewal")
+            .where("at", ">=", resumeAsked)
+            .execute()
+        : [];
+      await callLater(
         trx,
         provider.name,
-        (await firstDaysOf(trx)).map((invoice) => ({
+        [...(await firstDaysOf(trx)), ...resumeCharges].map((invoice) => ({
           action: "refund" as const,
           providerPaymentId: invoice.provider_payment_id,
         })),
-      ),
-    );
+      );
+    });
     await endNow(db, provider, userId, row, "renewed_after_cancel");
     return null;
   }
   const refunding = await db.transaction().execute(async (trx) => {
     await trx
       .updateTable("subscriptions")
-      .set({ paused_for_seat_at: null, paid_left: null, resumes_at: null })
+      .set({
+        paused_for_seat_at: null,
+        paid_left: null,
+        resumes_at: null,
+        ...settleResumeAsk(row),
+      })
       .where("id", "=", row.id)
       .execute();
     await trx
@@ -362,30 +410,48 @@ export async function settleSeatPause(
   const held = heldSubscription(row, row.provider_customer_id);
 
   if (row.paid_left === null && row.resumes_at === null) {
-    const asked = row.seat_pause_asked_for?.getTime() === since.getTime();
-    if (!seated) {
-      const heldAs = asked ? await provider.keepPaused(held) : null;
-      if (heldAs !== "paused")
-        return dropPause(
-          db,
-          provider,
-          row,
-          since,
-          !deleted && (heldAs === "active" || heldAs === "lapsed"),
-        );
-    }
-    if (!asked || (row.cancel_at_period_end && !row.cancel_asked_at))
-      await db
-        .updateTable("subscriptions")
-        .set({
-          seat_pause_asked_for: since,
-          ...(row.cancel_at_period_end && {
-            cancel_asked_at: sql<Date>`coalesce(cancel_asked_at, now())`,
-          }),
-        })
-        .where("id", "=", row.id)
-        .execute();
-    const paused = await provider.pause(held, asked);
+    const step = await db.transaction().execute(async (turn) => {
+      if (!(await takeCancelTurn(turn, row.provider_subscription_id, false)))
+        return { done: new Date(Date.now() + CANCEL_TURN_WAIT_MS) };
+      const current = await proOf(turn, userId, provider.name);
+      if (
+        current?.id !== row.id ||
+        current.paused_for_seat_at?.getTime() !== since.getTime() ||
+        current.paid_left !== null ||
+        current.resumes_at !== null
+      )
+        return { again: true };
+      const held = heldSubscription(current, current.provider_customer_id);
+      const asked = current.seat_pause_asked_for?.getTime() === since.getTime();
+      if (!seated) {
+        const heldAs = asked ? await provider.keepPaused(held) : null;
+        if (heldAs !== "paused")
+          return {
+            done: await dropPause(
+              db,
+              provider,
+              current,
+              since,
+              !deleted && (heldAs === "active" || heldAs === "lapsed"),
+            ),
+          };
+      }
+      if (!asked || (current.cancel_at_period_end && !current.cancel_asked_at))
+        await db
+          .updateTable("subscriptions")
+          .set({
+            seat_pause_asked_for: since,
+            ...(current.cancel_at_period_end && {
+              cancel_asked_at: sql<Date>`coalesce(cancel_asked_at, now())`,
+            }),
+          })
+          .where("id", "=", row.id)
+          .execute();
+      return { current, paused: await provider.pause(held, asked) };
+    });
+    if ("again" in step) return settleSeatPause(db, provider, userId, log);
+    if ("done" in step) return step.done;
+    const { current, paused } = step;
     if ("askAgainAt" in paused) return paused.askAgainAt;
     if ("cancelScheduled" in paused) {
       await db
@@ -402,7 +468,7 @@ export async function settleSeatPause(
       return dropPause(
         db,
         provider,
-        row,
+        current,
         since,
         paused.refused === "not_active",
       );
@@ -418,7 +484,7 @@ export async function settleSeatPause(
             provider_updated_at: sql<Date>`greatest(provider_updated_at, ${paused.pausedAt}::timestamptz)`,
           })
           .where("id", "=", row.id)
-          .where("cancel_at_period_end", "=", row.cancel_at_period_end)
+          .where("cancel_at_period_end", "=", current.cancel_at_period_end)
           .where("paused_for_seat_at", "=", since)
           .where("paid_left", "is", null)
           .where("resumes_at", "is", null)
@@ -446,6 +512,8 @@ export async function settleSeatPause(
           .set({
             paid_left: sql<string>`greatest(resumes_at - now(), interval '0')`,
             resumes_at: null,
+            resume_asked_at: null,
+            resume_asked_for: null,
           })
           .where("id", "=", row.id)
           .where("resumes_at", "is not", null)
@@ -516,7 +584,7 @@ export async function settleSeatPause(
   if (!row.resumes_at)
     await db
       .updateTable("subscriptions")
-      .set({ resume_asked_at: sql<Date>`now()` })
+      .set({ resume_asked_at: sql<Date>`now()`, resume_asked_for: at })
       .where("id", "=", row.id)
       .execute();
   const resumed = await provider.resumeOn(held, at);
@@ -629,7 +697,10 @@ export async function askKeptRefunds(
     .execute();
   let asked = 0;
   for (const invoice of paid) {
-    const amount = keptShare(invoice, row.current_period_end, row.kept_seconds);
+    const span =
+      (row.current_period_end.getTime() - invoice.at.getTime()) / 1000;
+    const share = span > 0 ? Math.min(1, row.kept_seconds / span) : 1;
+    const amount = Math.floor(Number(invoice.amount) * share);
     if (amount <= 0) continue;
     await trx
       .updateTable("invoices")
@@ -642,17 +713,6 @@ export async function askKeptRefunds(
     asked += 1;
   }
   return asked;
-}
-
-/** Of a payment made in a plan's last period, the part that paid for its kept time. */
-export function keptShare(
-  invoice: { amount: string; at: Date },
-  periodEnd: Date,
-  keptSeconds: number,
-) {
-  const span = (periodEnd.getTime() - invoice.at.getTime()) / 1000;
-  const share = span > 0 ? Math.min(1, keptSeconds / span) : 1;
-  return Math.floor(Number(invoice.amount) * share);
 }
 
 /** Tells staff, once a day, of each refund of kept paid time the provider has not answered in days. */

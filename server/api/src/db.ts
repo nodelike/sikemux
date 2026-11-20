@@ -522,6 +522,7 @@ export interface Tables {
     cancel_asked_at: Generated<Date | null>;
     kept_without_refund_at: Generated<Date | null>;
     resume_asked_at: Generated<Date | null>;
+    resume_asked_for: Generated<Date | null>;
     /** An interval, only ever reckoned with in SQL. */
     paid_left: Generated<string | null>;
     resumes_at: Generated<Date | null>;
@@ -530,6 +531,7 @@ export interface Tables {
     provider_refund_id: string;
     invoice_id: string;
     amount: ColumnType<string, number, never>;
+    at: Date;
   };
   invoices: {
     id: Generated<string>;

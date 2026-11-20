@@ -194,8 +194,8 @@ async function keepCancel(
 
 /**
  * Takes, until the transaction ends, the turn to change whether the provider holds a
- * subscription's cancel. A take-back waits for its turn; a re-cancel whose turn is taken tries
- * again later, since the stand-in provider applies its events while a call is under way.
+ * subscription's cancel. A take-back waits for its turn; a re-cancel or a seat pause whose turn is
+ * taken tries again later, since the stand-in provider applies its events while a call is under way.
  */
 export async function takeCancelTurn(
   trx: Kysely<Tables>,

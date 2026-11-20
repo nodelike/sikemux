@@ -834,44 +834,47 @@ export function billingRoutes({
             );
           const subscription = heldSubscription(row, row.provider_customer_id);
           const when = row.status === "paused" ? "now" : "period_end";
-          if (!cancel)
-            await db.transaction().execute(async (trx) => {
-              await takeCancelTurn(trx, row.provider_subscription_id);
+          const recordCancel = () =>
+            db.transaction().execute(async (trx) => {
               await trx
+                .updateTable("subscriptions")
+                .set({
+                  cancel_at_period_end: cancel,
+                  cancel_asked_at: cancel ? sql<Date>`now()` : null,
+                })
+                .where("id", "=", row.id)
+                .where("status", "<>", "ended")
+                .execute();
+              if (!cancel && row.user_id && row.product === "pro")
+                await checkSeatPauses(trx, [row.user_id]);
+            });
+          if (cancel) {
+            await ready.cancel(subscription, when);
+            await recordCancel();
+          } else {
+            await db.transaction().execute(async (turn) => {
+              await takeCancelTurn(turn, row.provider_subscription_id);
+              await db
                 .updateTable("subscriptions")
                 .set({ cancel_asked_at: null })
                 .where("id", "=", row.id)
                 .execute();
+              try {
+                await ready.resume(subscription);
+              } catch (error) {
+                await db
+                  .updateTable("subscriptions")
+                  .set({ cancel_asked_at: row.cancel_asked_at })
+                  .where("id", "=", row.id)
+                  .where("cancel_asked_at", "is", null)
+                  .where("cancel_at_period_end", "=", true)
+                  .execute();
+                throw error;
+              }
+              await recordCancel();
             });
-          try {
-            await (cancel
-              ? ready.cancel(subscription, when)
-              : ready.resume(subscription));
-          } catch (error) {
-            if (!cancel)
-              await db
-                .updateTable("subscriptions")
-                .set({ cancel_asked_at: row.cancel_asked_at })
-                .where("id", "=", row.id)
-                .where("cancel_asked_at", "is", null)
-                .where("cancel_at_period_end", "=", true)
-                .execute();
-            throw error;
+            await makeDueCalls(db, ready, c.get("log"));
           }
-          await db.transaction().execute(async (trx) => {
-            await trx
-              .updateTable("subscriptions")
-              .set({
-                cancel_at_period_end: cancel,
-                cancel_asked_at: cancel ? sql<Date>`now()` : null,
-              })
-              .where("id", "=", row.id)
-              .where("status", "<>", "ended")
-              .execute();
-            if (!cancel && row.user_id && row.product === "pro")
-              await checkSeatPauses(trx, [row.user_id]);
-          });
-          if (!cancel) await makeDueCalls(db, ready, c.get("log"));
           await said(
             cancel
               ? "billing.subscription_canceled"
