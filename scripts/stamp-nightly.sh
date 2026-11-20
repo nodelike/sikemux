@@ -17,16 +17,7 @@ stable="$(git tag -l 'v[0-9]*' --sort=-v:refname | grep -v -- - | head -1)"
 version="$core-nightly.$(git rev-list --count "$(git merge-base HEAD "$stable")..HEAD")"
 last="$(git tag -l 'v*-nightly.*' --merged HEAD --sort=-v:refname | head -1)"
 
-sed -i.bak "s/\"version\": \"$from\"/\"version\": \"$version\"/" package.json
-sed -i.bak "s/^version = \"$from\"$/version = \"$version\"/" Cargo.toml
-# Crates from a registry or Git may share the version too; only the workspace's own have no source.
-awk -v from="version = \"$from\"" -v to="version = \"$version\"" '
-  held != "" { print ($0 ~ /^source = / ? held : to); held = "" }
-  $0 == from { held = $0; next }
-  { print }
-  END { if (held != "") print to }
-' Cargo.lock >Cargo.lock.bak && mv Cargo.lock.bak Cargo.lock
-rm -f package.json.bak Cargo.toml.bak Cargo.lock.bak
+scripts/set-version.sh "$version"
 
 {
   printf '# Sikemux v%s\n\n' "$version"

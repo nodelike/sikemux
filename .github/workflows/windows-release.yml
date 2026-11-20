@@ -75,10 +75,7 @@ jobs:
           if [ -z "$VERSION" ]; then
             VERSION="$(scripts/stamp-nightly.sh)"
           else
-            from="$(node -p 'require("./package.json").version')"
-            for file in Cargo.toml Cargo.lock; do
-              sed -i "s/^version = \"$from\"$/version = \"$VERSION\"/" "$file"
-            done
+            scripts/set-version.sh "$VERSION"
           fi
           echo "version=$VERSION" >>"$GITHUB_OUTPUT"
 
