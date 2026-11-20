@@ -27,6 +27,7 @@ export interface ClerkBackend {
   signIns(userId: string): Promise<SignIns | null>;
   setPrimaryAddress(userId: string, addressId: string): Promise<void>;
   removeAddress(addressId: string): Promise<void>;
+  /** Takes the eac_ id; a 404 counts as done only once the user no longer lists the account. */
   removeExternalAccount(userId: string, accountId: string): Promise<void>;
   removePhone(phoneId: string): Promise<void>;
   removeWallet(userId: string, walletId: string): Promise<void>;
@@ -184,7 +185,13 @@ interface ClerkUser {
   password_last_updated_at?: number | null;
 }
 const TIMEOUT_MS = 10_000;
+/** A timeout or a rate limit: Clerk has not looked at the request yet, so asking again may work. */
+const UNANSWERED = new Set([408, 429]);
 const SESSIONS_PAGE = 500;
+
+function providerOf(account: { provider?: string }) {
+  return account.provider?.replace(/^oauth_/, "") || "connected";
+}
 
 function personOf(user: ClerkUser | undefined): Person {
   const name = [user?.first_name, user?.last_name]
@@ -236,7 +243,9 @@ export function clerkBackend(
       if (refusals.includes(response.status)) return null;
     }
     const said = `Clerk answered ${response.status} to ${method} ${withoutIds(path)}`;
-    throw response.status < 500 ? new ClerkRefusal(said) : new Error(said);
+    throw response.status < 500 && !UNANSWERED.has(response.status)
+      ? new ClerkRefusal(said)
+      : new Error(said);
   };
   const call = async (method: string, path: string, body?: object) => {
     const response = await request(method, path, body);
@@ -420,11 +429,11 @@ export function clerkBackend(
             : [],
         ),
         externalAccounts: (user.external_accounts ?? []).flatMap((account) =>
-          account.external_account_id && account.provider
+          account.external_account_id
             ? [
                 {
                   id: account.external_account_id,
-                  provider: account.provider.replace(/^oauth_/, ""),
+                  provider: providerOf(account),
                   email: account.email_address ?? "",
                   addedAt: new Date(account.created_at ?? 0),
                 },
@@ -455,6 +464,11 @@ export function clerkBackend(
             ? new Date(user.password_last_updated_at)
             : null,
         undated: [
+          ...(user.external_accounts ?? []).flatMap((account) =>
+            account.external_account_id
+              ? []
+              : [`${providerOf(account)} account Clerk gave no id`],
+          ),
           ...(user.passkeys?.length ? ["passkey"] : []),
           ...(user.saml_accounts?.length ? ["SAML account"] : []),
           ...(user.enterprise_accounts?.length ? ["enterprise account"] : []),
@@ -474,11 +488,23 @@ export function clerkBackend(
       }),
     removeAddress: async (addressId) =>
       call("DELETE", `/v1/email_addresses/${checked(addressId, "idn")}`),
-    removeExternalAccount: async (userId, accountId) =>
-      call(
-        "DELETE",
-        `/v1/users/${checked(userId, "user")}/external_accounts/${checked(accountId, "eac")}`,
-      ),
+    removeExternalAccount: async (userId, accountId) => {
+      const path = `/v1/users/${checked(userId, "user")}/external_accounts/${checked(accountId, "eac")}`;
+      const response = await request("DELETE", path);
+      if (response) {
+        await response.body?.cancel();
+        return;
+      }
+      const { user } = await primaryEmail(userId);
+      if (
+        user?.external_accounts?.some(
+          (account) => account.external_account_id === accountId,
+        )
+      )
+        throw new ClerkRefusal(
+          `Clerk answered 404 to DELETE ${withoutIds(path)} but still lists the account`,
+        );
+    },
     removePhone: async (phoneId) =>
       call("DELETE", `/v1/phone_numbers/${checked(phoneId, "idn")}`),
     removeWallet: async (userId, walletId) =>

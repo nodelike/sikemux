@@ -368,10 +368,12 @@ async function endSessionsOfRemoved(
   if (!fresh) return;
   const gone: typeof waiting = [];
   for (const row of waiting) {
-    const address = fresh.addresses.find((a) => a.id === row.address_id);
-    if (!address) gone.push(row);
+    const held = [...fresh.addresses, ...fresh.externalAccounts].find(
+      (way) => way.id === row.address_id,
+    );
+    if (!held) gone.push(row);
     else if (
-      !(await workAddressRefusal(db, proofKey, address.email, address.addedAt))
+      !(await workAddressRefusal(db, proofKey, held.email, held.addedAt))
     ) {
       await db
         .deleteFrom("sign_in_removals")
@@ -624,8 +626,9 @@ function listed(ways: ReturnType<typeof addedIn>) {
 
 /**
  * Takes off the ways to sign in added in the window, of the kinds Clerk dates; a password set in it
- * is replaced, since Clerk can't remove one. When that would leave no older way in, or the password
- * can't be replaced, someone took the account over in the window, so it is frozen instead.
+ * is replaced, since Clerk can't remove one. When that would leave no older way in, or Clerk
+ * refuses to take one off or replace the password, it is frozen instead, so the way can't sign in
+ * while staff take it off by hand.
  */
 async function takeWaysAddedSince(
   db: Kysely<Tables>,
@@ -665,12 +668,18 @@ async function takeWaysAddedSince(
     await freeze(db, log, userId, "nothing older would be left", ways);
     return;
   }
-  if (primary) await clerk.setPrimaryAddress(userId, primary.id);
-  for (const account of accounts)
-    await clerk.removeExternalAccount(userId, account.id);
-  for (const address of addresses) await clerk.removeAddress(address.id);
-  for (const phone of phones) await clerk.removePhone(phone.id);
-  for (const wallet of wallets) await clerk.removeWallet(userId, wallet.id);
+  try {
+    if (primary) await clerk.setPrimaryAddress(userId, primary.id);
+    for (const account of accounts)
+      await clerk.removeExternalAccount(userId, account.id);
+    for (const address of addresses) await clerk.removeAddress(address.id);
+    for (const phone of phones) await clerk.removePhone(phone.id);
+    for (const wallet of wallets) await clerk.removeWallet(userId, wallet.id);
+  } catch (error) {
+    if (!(error instanceof ClerkRefusal)) throw error;
+    await freeze(db, log, userId, "Clerk refused to take off a way", ways);
+    return;
+  }
   if (password && !(await replacedPassword(clerk, userId, signIns))) {
     await freeze(db, log, userId, "the password set then can't be replaced", {
       addresses: [],

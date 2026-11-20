@@ -1,6 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
 
+import { ClerkRefusal } from "../src/account/clerk.ts";
 import { sweepClerk } from "../src/account/clerk-sweeper.ts";
 import { addressHash } from "../src/account/proofs.ts";
 import { stripWorkSignIns } from "../src/account/sign-ins.ts";
@@ -554,6 +555,57 @@ it("freezes the account when the Acme session took away every way in of Maya's o
     .where("key", "=", phone.key)
     .execute();
   expect(devices).toEqual([]);
+});
+
+it("freezes the account when Clerk refuses to take off a way the Acme session added", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  const inWindow = new Date(added.getTime() + 1);
+  clerk.userSessions.set(MAYA, [{ id: "sess_work", createdAt: inWindow }]);
+  clerk.users
+    .get(MAYA)
+    ?.phones.push({ id: "idn_phone", signsIn: true, addedAt: inWindow });
+  clerk.removePhone = () =>
+    Promise.reject(new ClerkRefusal("Clerk answered 400"));
+
+  await stripWorkSignIns(database.db, clerk, null, log, MAYA);
+
+  expect(await frozenAt()).not.toBeNull();
+  expect(alertStaff).toHaveBeenLastCalledWith(
+    MAYA,
+    expect.stringContaining("Froze an account"),
+    expect.objectContaining({
+      why: "Clerk refused to take off a way",
+      added: expect.arrayContaining([{ kind: "phone", id: "idn_phone" }]),
+    }),
+  );
+  expect(clerk.revoked).toEqual(["sess_work"]);
+  const removal = await database.db
+    .selectFrom("sign_in_removals")
+    .select("end_sessions_from")
+    .executeTakeFirstOrThrow();
+  expect(removal.end_sessions_from).toBeNull();
+});
+
+it("keeps waiting on an Acme Google with no address of its own while Clerk still lists it", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  const maya = clerk.users.get(MAYA);
+  if (!maya) throw new Error("no Maya");
+  maya.addresses = maya.addresses.filter((a) => a.id !== "idn_work");
+  clerk.removeExternalAccount = () => Promise.resolve();
+
+  await stripWorkSignIns(database.db, clerk, null, log, MAYA);
+
+  expect(maya.externalAccounts.map((a) => a.id)).toEqual(["eac_work"]);
+  expect(clerk.revoked).toEqual([]);
+  const removal = await database.db
+    .selectFrom("sign_in_removals")
+    .select(["address_id", "end_sessions_from"])
+    .executeTakeFirstOrThrow();
+  expect(removal.address_id).toBe("eac_work");
+  expect(removal.end_sessions_from).not.toBeNull();
 });
 
 it("keeps the ways Maya was admitted with though the Acme address was first seen before them", async () => {

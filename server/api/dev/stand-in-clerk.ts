@@ -403,6 +403,8 @@ createServer(async (request, response) => {
     }
     const account = rest.match(/^\/external_accounts\/(.+)$/);
     if (account && method === "DELETE") {
+      if (!kept.accounts.some((a) => a.external_account_id === account[1]))
+        return send(404, { errors: [{ code: "external_account_not_found" }] });
       kept.accounts = kept.accounts.filter(
         (a) => a.external_account_id !== account[1],
       );
@@ -412,8 +414,16 @@ createServer(async (request, response) => {
   }
   const address = url.pathname.match(/^\/v1\/email_addresses\/(.+)$/);
   if (address && method === "DELETE") {
-    for (const kept of held.values())
+    for (const kept of held.values()) {
+      const linked = kept.addresses
+        .find((a) => a.id === address[1])
+        ?.linked_to.some((link) => kept.accounts.some((a) => a.id === link.id));
+      if (linked)
+        return send(400, {
+          errors: [{ code: "delete_linked_identification_disallowed" }],
+        });
       kept.addresses = kept.addresses.filter((a) => a.id !== address[1]);
+    }
     return send(200, { deleted: true });
   }
 

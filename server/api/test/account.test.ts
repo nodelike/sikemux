@@ -743,6 +743,85 @@ describe("the Clerk Backend API client", () => {
     ).toEqual([]);
   });
 
+  describe("a connected account", () => {
+    const google = {
+      id: "idn_google",
+      external_account_id: "eac_google",
+      provider: "oauth_google",
+      email_address: "maya@acme.example",
+      created_at: 1_700_000_000_000,
+    };
+    function clerkHolding(
+      accounts: object[],
+      { deletes }: { deletes: boolean },
+    ) {
+      const requests: string[] = [];
+      const fetcher = async (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        const method = init?.method ?? "GET";
+        const path = new URL(String(input)).pathname;
+        requests.push(`${method} ${path}`);
+        if (method === "GET" && path === "/v1/users/user_a")
+          return Response.json({ id: "user_a", external_accounts: accounts });
+        const id = path.match(
+          /^\/v1\/users\/user_a\/external_accounts\/(.+)$/,
+        )?.[1];
+        const index = accounts.findIndex(
+          (account) => (account as typeof google).external_account_id === id,
+        );
+        if (method === "DELETE" && deletes && index >= 0) {
+          accounts.splice(index, 1);
+          return Response.json({ deleted: true });
+        }
+        return Response.json(
+          { errors: [{ code: "external_account_not_found" }] },
+          { status: 404 },
+        );
+      };
+      return { requests, client: clerkBackend("sk_test_abc", fetcher) };
+    }
+
+    it("is removed by the eac_ id Clerk's user JSON gives it", async () => {
+      const accounts = [{ ...google }];
+      const { requests, client } = clerkHolding(accounts, { deletes: true });
+      const [account] =
+        (await client.signIns("user_a"))?.externalAccounts ?? [];
+      if (!account) throw new Error("no account read");
+      await client.removeExternalAccount("user_a", account.id);
+      expect(requests).toEqual([
+        "GET /v1/users/user_a",
+        "DELETE /v1/users/user_a/external_accounts/eac_google",
+      ]);
+      expect(accounts).toEqual([]);
+    });
+
+    it("is not counted removed on a 404 while Clerk still lists it", async () => {
+      const { client } = clerkHolding([{ ...google }], { deletes: false });
+      await expect(
+        client.removeExternalAccount("user_a", "eac_google"),
+      ).rejects.toBeInstanceOf(ClerkRefusal);
+    });
+
+    it("is counted removed on a 404 once Clerk no longer lists it", async () => {
+      const { client } = clerkHolding([], { deletes: false });
+      await expect(
+        client.removeExternalAccount("user_a", "eac_google"),
+      ).resolves.toBeUndefined();
+    });
+
+    it("is reported among the ways the strip can't date when Clerk gives it no eac_ id", async () => {
+      const { client } = clerkHolding(
+        [{ ...google, external_account_id: undefined }],
+        { deletes: true },
+      );
+      const signIns = await client.signIns("user_a");
+      expect(signIns?.externalAccounts).toEqual([]);
+      expect(signIns?.undated).toEqual(["google account Clerk gave no id"]);
+    });
+  });
+
   it("never puts an id that is not Clerk's into the URL", async () => {
     const { requests, fetcher } = stub(200);
     const client = clerkBackend("sk_test_abc", fetcher);

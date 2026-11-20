@@ -84,7 +84,8 @@ export class FakeClerk implements ClerkBackend {
 
   async signIns(userId: string) {
     if (this.failing) throw new Error("Clerk answered 500");
-    return this.users.get(userId) ?? null;
+    const user = this.users.get(userId);
+    return user ? structuredClone(user) : null;
   }
 
   async setPrimaryAddress(userId: string, addressId: string) {
