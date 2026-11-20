@@ -162,7 +162,7 @@ interface ClerkUser {
     verification?: { status?: string } | null;
   }[];
   external_accounts?: {
-    id?: string;
+    external_account_id?: string;
     provider?: string;
     email_address?: string;
     created_at?: number;
@@ -420,10 +420,10 @@ export function clerkBackend(
             : [],
         ),
         externalAccounts: (user.external_accounts ?? []).flatMap((account) =>
-          account.id && account.provider
+          account.external_account_id && account.provider
             ? [
                 {
-                  id: account.id,
+                  id: account.external_account_id,
                   provider: account.provider.replace(/^oauth_/, ""),
                   email: account.email_address ?? "",
                   addedAt: new Date(account.created_at ?? 0),
@@ -477,7 +477,7 @@ export function clerkBackend(
     removeExternalAccount: async (userId, accountId) =>
       call(
         "DELETE",
-        `/v1/users/${checked(userId, "user")}/external_accounts/${checked(accountId, "(?:idn|eac)")}`,
+        `/v1/users/${checked(userId, "user")}/external_accounts/${checked(accountId, "eac")}`,
       ),
     removePhone: async (phoneId) =>
       call("DELETE", `/v1/phone_numbers/${checked(phoneId, "idn")}`),

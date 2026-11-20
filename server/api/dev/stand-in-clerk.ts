@@ -136,6 +136,7 @@ type Address = {
 };
 type Account = {
   id: string;
+  external_account_id: string;
   provider: string;
   email_address: string;
   created_at: number;
@@ -402,7 +403,9 @@ createServer(async (request, response) => {
     }
     const account = rest.match(/^\/external_accounts\/(.+)$/);
     if (account && method === "DELETE") {
-      kept.accounts = kept.accounts.filter((a) => a.id !== account[1]);
+      kept.accounts = kept.accounts.filter(
+        (a) => a.external_account_id !== account[1],
+      );
       return send(200, { deleted: true });
     }
     if (rest === "") return send(200, user(byId));
@@ -477,9 +480,10 @@ createServer(async (request, response) => {
     const person = standing().find((p) => p.key === form.as);
     if (!person) return send(404, { error: "no such person" });
     const kept = holding(person);
-    const id = `eac_${person.key}${form.provider}${++made}`;
+    const id = `idn_${person.key}${form.provider}${++made}`;
     kept.accounts.push({
       id,
+      external_account_id: `eac_${person.key}${form.provider}${made}`,
       provider: form.provider,
       email_address: form.email,
       created_at: Date.now(),
