@@ -64,6 +64,14 @@ fn shows_saved(provider: &str) -> bool {
     crate::agent_catalog::agent(provider).is_some_and(|agent| agent.history_before_start)
 }
 
+/// Whether `provider`'s CLI says what it offers without a session, so `read_options` can ask.
+pub fn reads_options(provider: &str) -> bool {
+    matches!(
+        driver(provider),
+        Some(ChatDriver::Claude | ChatDriver::Codex | ChatDriver::Pi | ChatDriver::Opencode)
+    )
+}
+
 /// The models and efforts `launch`'s agent offers, asked of its CLI without a session.
 pub async fn read_options(launch: &ChatLaunch) -> Result<Value, String> {
     let mut command = sikemux_process::command::Command::into_async(

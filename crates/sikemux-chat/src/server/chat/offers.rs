@@ -104,7 +104,7 @@ pub fn read_models(core: &Arc<Core>, agent_id: &str) {
 }
 
 fn ask_offers(core: &Arc<Core>, launcher: String, launch: ChatLaunch) {
-    if !core.workspaces().start_offer_read(&launcher) {
+    if !native::reads_options(&launch.provider) || !core.workspaces().start_offer_read(&launcher) {
         return;
     }
     let core = core.clone();
