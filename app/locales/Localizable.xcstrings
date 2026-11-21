@@ -68381,54 +68381,54 @@
         }
       }
     },
-    "On this host only, out of the vault": {
+    "Kept on this host by choice, so your other hosts don't get it": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sur cet hôte seulement, hors du coffre"
+            "value": "Gardé sur cet hôte par choix, vos autres hôtes ne le reçoivent pas"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Solo en este host, fuera de la bóveda"
+            "value": "Guardado en este host por elección, tus otros hosts no lo reciben"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nur auf diesem Host, außerhalb des Tresors"
+            "value": "Bewusst auf diesem Host behalten, deine anderen Hosts bekommen es nicht"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "仅在此主机上，不在保险库中"
+            "value": "按你的选择仅保留在此主机上，其他主机不会获得"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このホストのみ、保管庫の外"
+            "value": "選択によりこのホストだけに保持され、他のホストには渡りません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 호스트에만, 보관함 밖"
+            "value": "선택에 따라 이 호스트에만 보관되어 다른 호스트에는 가지 않습니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Только на этом хосте, вне хранилища"
+            "value": "Оставлено на этом хосте по вашему выбору, другие хосты его не получают"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Só neste host, fora do cofre"
+            "value": "Mantido neste host por escolha, seus outros hosts não o recebem"
           }
         }
       }

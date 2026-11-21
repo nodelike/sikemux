@@ -430,7 +430,9 @@ pub(super) fn under(
                     .flex_1()
                     .min_w_0()
                     .text_color(t.text_secondary)
-                    .child(t!("On this host only, out of the vault")),
+                    .child(t!(
+                        "Kept on this host by choice, so your other hosts don't get it"
+                    )),
             )
             .child(
                 ui::Button::new(
