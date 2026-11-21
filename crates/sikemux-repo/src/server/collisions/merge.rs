@@ -36,7 +36,7 @@ pub fn merge(base: &str, ours: &str, theirs: &str) -> Merged {
     let mut kept = Vec::new();
     while i < mine.len() || j < other.len() {
         let mine_first =
-            j >= other.len() || (i < mine.len() && mine[i].old.start <= other[j].old.start);
+            j >= other.len() || (i < mine.len() && goes_first(&mine[i].old, &other[j].old));
         let first = if mine_first { &mine[i] } else { &other[j] };
         let mut span = first.old.clone();
         let (from_i, from_j) = (i, j);
@@ -76,6 +76,12 @@ pub fn merge(base: &str, ours: &str, theirs: &str) -> Merged {
         text: out.concat(),
         kept,
     }
+}
+
+/// Whether change `a` is laid down before `b`. An insertion before a line
+/// goes ahead of a change to that line, so the merge never steps back.
+fn goes_first(a: &Range<usize>, b: &Range<usize>) -> bool {
+    a.start < b.start || (a.start == b.start && (a.is_empty() || !b.is_empty()))
 }
 
 /// Whether a change to `other` falls on the same lines as the changes
@@ -125,4 +131,15 @@ fn holds(ours: &[&str], theirs: &[&str], base: &[&str]) -> bool {
                 .iter()
                 .all(|line| !taken_out.contains(line))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge;
+
+    #[test]
+    fn insertion_before_a_line_the_other_side_changed() {
+        let merged = merge("a\nb\nc\n", "a\nX\nc\n", "a\nN\nb\nc\n");
+        assert_eq!(merged.text, "a\nN\nX\nc\n");
+    }
 }
