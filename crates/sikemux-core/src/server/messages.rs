@@ -1196,13 +1196,42 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         return carry(core, &target, letter, answers).await;
     }
     let answer = letter.text.clone();
-    let sent = deliver(core, &target, letter).await?;
+    let mut sent = deliver(core, &target, letter).await?;
     core.seen().called(&target.agent_id);
     core.changed(What::Agents);
-    if let Some(answering) = answers {
-        settle_answer(core, from, target.agent_id.clone(), answering, answer).await;
+    match answers {
+        Some(answering) => {
+            settle_answer(core, from, target.agent_id.clone(), answering, answer).await;
+        }
+        None => {
+            if let (Some(decided), Some(fields)) =
+                (decided_for(core, &target, &from), sent.as_object_mut())
+            {
+                fields.insert("decided".into(), decided.into());
+            }
+        }
     }
     Ok(sent)
+}
+
+/// What `author` decided in the last day by answering `target`'s questions that still stands, and how to
+/// correct it, so a message that changes course does not leave the old answer on record.
+fn decided_for(core: &Core, target: &Listed, author: &str) -> Option<String> {
+    let since = epoch_ms().saturating_sub(24 * 60 * 60_000);
+    let decided: Vec<String> = super::board::goal::standing_since(core, &target.project, since, 20)
+        .into_iter()
+        .filter(|decision| {
+            decision.holder.as_deref() == Some(target.agent_id.as_str())
+                && decision.learned.agent.as_deref() == Some(author)
+        })
+        .map(|decision| format!("#{} \"{}\"", decision.id, decision.text))
+        .collect();
+    (!decided.is_empty()).then(|| {
+        format!(
+            "Your answers to it stand as decisions {}. If this message changes one, correct it with decide, decision: its number.",
+            decided.join("; ")
+        )
+    })
 }
 
 enum Found {
