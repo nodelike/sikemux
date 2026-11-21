@@ -510,7 +510,8 @@ pub async fn checks(
 
 /// How the CI runs on `sha` went, the one way a code host's checks on a commit
 /// are read: only the `workflows` named count when any are, and until each of
-/// those has run, nothing has.
+/// those has run, nothing has. A failed job fails them at once, while other
+/// runs or jobs are still queued or going.
 pub async fn commit_checks(
     repo: &Repo,
     branch: Option<&str>,
@@ -518,32 +519,30 @@ pub async fn commit_checks(
     workflows: &[String],
 ) -> Result<Checks, String> {
     let runs = runs_on(repo, branch, sha, workflows).await?;
-    if let Some(going) = runs
-        .iter()
-        .find(|run| run["status"].as_str() != Some("completed"))
-    {
-        return Ok(Checks::Running {
-            workflow: text(going, "name").unwrap_or_default(),
-            url: text(going, "url"),
-        });
-    }
-    let all_ran = workflows.iter().all(|workflow| {
-        runs.iter()
-            .any(|run| text(run, "name").as_ref() == Some(workflow))
-    });
-    if runs.is_empty() || !all_ran {
-        return Ok(Checks::None);
-    }
     let mut ends = Vec::with_capacity(runs.len());
     for run in &runs {
-        ends.push(match conclusion(run) {
-            Some(Conclusion::Failed) => Some(failed_or_stopped(repo, run).await),
-            other => other,
+        ends.push(if going(run) {
+            failed_so_far(repo, run).await
+        } else {
+            match conclusion(run) {
+                Some(Conclusion::Failed) => Some(failed_or_stopped(repo, run).await),
+                other => other,
+            }
         });
     }
+    Ok(verdict(&runs, &ends, workflows))
+}
+
+fn going(run: &Value) -> bool {
+    run["status"].as_str() != Some("completed")
+}
+
+/// How the runs on a commit stand, given how each ended, or for one still going,
+/// whether a job of it has already failed.
+fn verdict(runs: &[Value], ends: &[Option<Conclusion>], workflows: &[String]) -> Checks {
     let ended = |wanted: Conclusion| -> Vec<String> {
         runs.iter()
-            .zip(&ends)
+            .zip(ends)
             .filter(|(_, end)| **end == Some(wanted))
             .map(|(run, _)| run)
             .map(|run| {
@@ -558,14 +557,29 @@ pub async fn commit_checks(
             })
             .collect()
     };
-    let (failed, stopped) = (ended(Conclusion::Failed), ended(Conclusion::Stopped));
-    Ok(if !failed.is_empty() {
-        Checks::Failed(failed.join("\n"))
-    } else if !stopped.is_empty() {
-        Checks::Stopped(stopped.join("\n"))
-    } else {
+    let failed = ended(Conclusion::Failed);
+    if !failed.is_empty() {
+        return Checks::Failed(failed.join("\n"));
+    }
+    if let Some(going) = runs.iter().find(|run| going(run)) {
+        return Checks::Running {
+            workflow: text(going, "name").unwrap_or_default(),
+            url: text(going, "url"),
+        };
+    }
+    let all_ran = workflows.iter().all(|workflow| {
+        runs.iter()
+            .any(|run| text(run, "name").as_ref() == Some(workflow))
+    });
+    if runs.is_empty() || !all_ran {
+        return Checks::None;
+    }
+    let stopped = ended(Conclusion::Stopped);
+    if stopped.is_empty() {
         Checks::Passed
-    })
+    } else {
+        Checks::Stopped(stopped.join("\n"))
+    }
 }
 
 /// The runs of `workflows` on `sha`, or of every workflow when none is named.
@@ -606,6 +620,16 @@ async fn failed_or_stopped(repo: &Repo, run: &Value) -> Conclusion {
         Ok(detail) => jobs_conclusion(&detail),
         Err(_) => Conclusion::Failed,
     }
+}
+
+/// `Failed` once a job of the running `run` has failed, so its commit's CI
+/// fails without waiting on the rest.
+async fn failed_so_far(repo: &Repo, run: &Value) -> Option<Conclusion> {
+    let detail = self::run(repo, &run["id"]).await.ok()?;
+    let jobs = detail.get("jobs")?.as_array()?;
+    (jobs.iter())
+        .any(|job| conclusion(job) == Some(Conclusion::Failed))
+        .then_some(Conclusion::Failed)
 }
 
 /// How a run that ended as failed went, by its jobs in `detail`.
@@ -938,6 +962,24 @@ mod tests {
             name: name.to_owned(),
         };
         compare_address(host.spec, &repo, branch)
+    }
+
+    #[test]
+    fn a_failed_run_fails_the_commit_while_another_is_pending() {
+        let failed = json!({ "name": "CI", "status": "completed", "conclusion": "failure" });
+        let pending = json!({ "name": "Mobile CI", "status": "pending", "conclusion": null });
+        let checks = verdict(&[failed, pending], &[Some(Conclusion::Failed), None], &[]);
+        assert!(matches!(checks, Checks::Failed(lines) if lines.starts_with("CI: failure")));
+
+        let passed = json!({ "name": "CI", "status": "completed", "conclusion": "success" });
+        let pending = json!({ "name": "Mobile CI", "status": "queued", "conclusion": null });
+        let runs = [passed.clone(), pending];
+        let checks = verdict(&runs, &[Some(Conclusion::Passed), None], &[]);
+        assert!(matches!(checks, Checks::Running { workflow, .. } if workflow == "Mobile CI"));
+
+        let ends = [Some(Conclusion::Passed), Some(Conclusion::Passed)];
+        let checks = verdict(&[passed.clone(), passed], &ends, &[]);
+        assert!(matches!(checks, Checks::Passed));
     }
 
     #[test]

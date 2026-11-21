@@ -263,10 +263,13 @@ pub(super) async fn ended(core: &Arc<Core>, watch: &CiWatch) -> Result<Ci, Strin
 async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Ci, String> {
     let detail = codehost::run(repo, id).await?;
     let run = |key: &str| detail.get("run").and_then(|run| run.get(key)?.as_str());
-    if run("status") != Some("completed") {
+    let conclusion = if run("status") == Some("completed") {
+        run("conclusion").unwrap_or("ended")
+    } else if a_job_failed(&detail) {
+        "failure"
+    } else {
         return Ok(Ci::Going { running: true });
-    }
-    let conclusion = run("conclusion").unwrap_or("ended");
+    };
     let url = run("url").unwrap_or_default();
     let how = match Conclusion::of(conclusion) {
         Conclusion::Passed => CiEnded::Passed,
@@ -300,6 +303,20 @@ async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Ci, String> {
         said.push_str(&format!("\n{BLAME}"));
     }
     Ok(Ci::Ended(said.trim_end().to_owned(), how))
+}
+
+fn a_job_failed(detail: &Value) -> bool {
+    (detail
+        .get("jobs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten())
+    .any(|job| {
+        job.get("conclusion")
+            .and_then(Value::as_str)
+            .map(Conclusion::of)
+            == Some(Conclusion::Failed)
+    })
 }
 
 async fn commit_ended(repo: &codehost::Repo, sha: &str, since: u64) -> Result<Ci, String> {
