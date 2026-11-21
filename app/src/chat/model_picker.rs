@@ -106,8 +106,8 @@ pub struct Picked {
     pub project: String,
     /// The chat has started, so it keeps its agent, account and provider.
     pub locked: bool,
-    /// The chat's session has ended, so the menu stays open to hand it to another agent.
-    pub dropped: bool,
+    /// No agent is running the chat now, so the menu stays open to hand it to another.
+    pub idle: bool,
     /// What the list says while the agent's models have not come yet.
     pub pending: Option<&'static str>,
     /// Why the agent could not say its models, and the account to sign in to when that is why.
