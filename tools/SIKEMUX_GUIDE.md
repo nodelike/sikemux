@@ -305,6 +305,8 @@ paths.
    this way, never in a tab. Edit and preview again until right.
 3. `page_show` opens it in a tab on your desk and puts a card for it in your
    reply. Your following text should add only what the page does not say.
+   In a turn the person did not start, a shut desk stays shut: raise a call
+   with `ask` and the page's id in `page` when they should look.
 
 Never hand the person a page as a path, yours or one a teammate's report
 names: `page_show` it.

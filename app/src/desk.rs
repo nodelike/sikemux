@@ -284,6 +284,7 @@ impl Desks {
                     .unwrap_or_default(),
             ),
             engine: OnceLock::new(),
+            quiet: Mutex::default(),
         });
         let engine = window_pointer(window).map(|view| {
             BrowserManager::new(Arc::new(DeskHost {
@@ -663,9 +664,32 @@ pub(crate) struct PageFiles {
     /// What a tab's page shows until it draws, on Linux.
     ground: Mutex<[u8; 3]>,
     engine: OnceLock<Weak<BrowserManager>>,
+    /// The page each agent showed in a turn the person did not start, whose tab opens without
+    /// bringing out the agent's shut desk.
+    quiet: Mutex<HashMap<String, String>>,
 }
 
 impl PageFiles {
+    /// Opens `url` on `agent`'s desk from now on without bringing a shut desk out, or as any
+    /// other tab when `quiet` is false.
+    pub(crate) fn hush(&self, agent: &str, url: &str, quiet: bool) {
+        let mut hushed = self.quiet.locked();
+        match quiet {
+            true => hushed.insert(agent.to_owned(), url.to_owned()),
+            false => hushed.remove(agent),
+        };
+    }
+
+    /// Whether the tab `agent` opened at `url` keeps a shut desk shut, which it does once.
+    fn hushed(&self, agent: &str, url: &str) -> bool {
+        let mut hushed = self.quiet.locked();
+        let matches = hushed.get(agent).is_some_and(|quiet| quiet == url);
+        if matches {
+            hushed.remove(agent);
+        }
+        matches
+    }
+
     /// An address for `html`, written in `written_in`, in a desk tab, kept as `name` so showing
     /// it again replaces the copy.
     pub(crate) fn url(&self, name: &str, html: &str, written_in: &Path) -> Result<String, String> {
@@ -912,8 +936,12 @@ impl Workbench {
             let before = self.desks.update(cx, |desks, _| {
                 desks.known.insert(agent.clone(), now.clone())
             });
-            let opened =
-                (before.as_ref()).is_some_and(|before| now.iter().any(|tab| !before.contains(tab)));
+            let files = self.desks.read(cx).page_files.clone();
+            let opened = (before.as_ref()).is_some_and(|before| {
+                (strip.tabs.iter())
+                    .filter(|tab| !before.contains(&tab.id))
+                    .any(|tab| !files.hushed(&agent, &tab.url))
+            });
             let emptied = now.is_empty() && before.is_some_and(|before| !before.is_empty());
             if opened && !self.desk_open_anywhere(&agent) {
                 self.reveal_desk(&agent);

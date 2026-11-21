@@ -528,19 +528,22 @@ impl Workbench {
         let page =
             Target::here(&self.asks).request_typed::<call::ReadPage>(PageParams { id: id.clone() });
         let picture = request.params.get("picture") == Some(&Value::Bool(true));
+        let shut = request.params.get("quiet") == Some(&Value::Bool(true))
+            && !self.desk_open_anywhere(&agent);
         let files = self.desks.read(cx).page_files.clone();
         crate::desk::spawn(async move {
             let shown = async {
                 let page = page.await?;
                 let url = files.kept_url(&id, &page)?;
                 let engine = files.engine()?;
+                files.hush(&agent, &url, shut);
                 crate::desk::show_once(&engine, &agent, &url, picture).await?;
                 if !picture {
-                    return Ok(json!({}));
+                    return Ok(json!({ "shut": shut }));
                 }
                 let taken = engine.front_picture(&agent).await.ok();
                 let picture = taken.and_then(|taken| crate::chat::page::thumbnail(&taken));
-                Ok(json!({ "picture": picture }))
+                Ok(json!({ "picture": picture, "shut": shut }))
             };
             answer(shown.await);
         });
