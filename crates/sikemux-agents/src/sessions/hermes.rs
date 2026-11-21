@@ -222,14 +222,13 @@ impl AgentOps for Hermes {
         agent_id: &'a str,
         program: &'a str,
         library: &'a Path,
-    ) -> Option<Pending<'a, Result<(String, String), String>>> {
-        Some(Box::pin(tools.hermes_home(
-            "hermes-chat",
-            agent_id,
-            program,
-            None,
-            Some(library),
-        )))
+    ) -> Option<Pending<'a, Result<Vec<(String, String)>, String>>> {
+        Some(Box::pin(async move {
+            let home = tools
+                .hermes_home("hermes-chat", agent_id, program, None, Some(library))
+                .await?;
+            Ok(vec![home])
+        }))
     }
 
     fn default_model(&self, _config_path: Option<&str>) -> Option<String> {

@@ -134,7 +134,7 @@ impl TerminalSetup<'_> {
                 self.library.as_deref(),
             )
             .await?;
-        self.environment.push(home);
+        self.environment.extend(home);
         Ok(Vec::new())
     }
 
@@ -239,9 +239,7 @@ impl Tools {
             return;
         };
         match home.await {
-            Ok((variable, home)) => {
-                env.insert(variable, home);
-            }
+            Ok(home) => env.extend(home),
             Err(error) => {
                 eprintln!("Sikemux skills are unavailable to this {provider} chat: {error}")
             }
@@ -329,7 +327,8 @@ impl Tools {
     }
 
     /// A private Grok home for `agent_id`, kept under `host`, given the tools
-    /// when `tools` names them and the skills `library`.
+    /// when `tools` names them and the skills `library`, as the variables that
+    /// name it and the sign-in it shares with the person's own home.
     pub(crate) async fn grok_home(
         &self,
         host: &str,
@@ -337,7 +336,7 @@ impl Tools {
         program: &str,
         tools: Option<&McpLaunch>,
         library: Option<&Path>,
-    ) -> Result<(String, String), String> {
+    ) -> Result<Vec<(String, String)>, String> {
         let (variable, home) = self.private_home(AgentKind::Grok, host, agent_id)?;
         if let Some(launch) = tools {
             let mut args = ["mcp", "add", TOOLS_KEY, "--"].map(str::to_owned).to_vec();
@@ -353,7 +352,13 @@ impl Tools {
                 Err(error) => eprintln!("Sikemux skills are unavailable to Grok: {error}"),
             }
         }
-        Ok((variable.to_owned(), home.to_string_lossy().into_owned()))
+        let login = AgentKind::Grok
+            .home_root()
+            .and_then(|own| homes::shared_login(AgentKind::Grok, &own));
+        Ok([(variable.to_owned(), home.to_string_lossy().into_owned())]
+            .into_iter()
+            .chain(login)
+            .collect())
     }
 
     /// A private copy of `kind`'s home for `agent_id`, which Sikemux can add a
