@@ -162,7 +162,8 @@ struct CallBody: View {
 
     private var note: some View {
         HStack(spacing: 10) {
-            IconView(icon: Icons.pencil, size: 13).foregroundStyle(noteFocused || typed ? palette.tertiary : palette.inkFaint)
+            IconView(icon: Icons.pencil, size: 13)
+                .foregroundStyle(noteFocused || typed ? palette.tertiary : palette.inkFaint)
             TextField(CallWords.whyNotDoing, text: $draft.typed)
                 .font(Theme.ui(15))
                 .foregroundStyle(palette.ink)
