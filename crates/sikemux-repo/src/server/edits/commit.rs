@@ -255,7 +255,7 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
             false => None,
         };
         let still_pushing = (push && !land && not_pushed.is_none() && pushed.is_none()).then(|| {
-            "The push is taking a while, so it goes on without you; a message says how it went once it ends".to_owned()
+            "The push is still running, often the repository's pre-push hook, and has no time limit. End your turn or go on with other work: Sikemux wakes you with how it went and the end of the hook's output once it ends.".to_owned()
         });
         Ok(Done {
             committed,
@@ -274,7 +274,7 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
 }
 
 /// Pushes from `from` as `agent`, answering within [`PUSH_ANSWER_WAIT`]: none
-/// when the push is still going, and the agent then hears how it went.
+/// when the push is still going, and the agent is then woken with how it went.
 fn push_or_tell(
     core: &Arc<Core>,
     from: PathBuf,
@@ -303,7 +303,15 @@ fn push_or_tell(
         };
         if let Some(runtime) = runtime {
             runtime.spawn(async move {
-                let _ = (owner.repo_above().messages_from_sikemux)(&owner, agent, text).await;
+                let told = (owner.repo_above().messages_work_from_sikemux)(
+                    &owner,
+                    agent,
+                    text,
+                    "about its push",
+                );
+                if let Err(error) = told.await {
+                    eprintln!("sikemux core: how a push went did not reach its agent: {error}");
+                }
             });
         }
     });

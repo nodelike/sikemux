@@ -308,15 +308,19 @@ fn wake(core: &Core, key: Key) {
             .await
             .unwrap_or(false);
         loop {
-            let _turn = merge_queue::checkout_turn(to_remote).await;
+            let turn = merge_queue::checkout_turn(to_remote).await;
             let Some(batch) = next(&core, &key) else {
                 return;
             };
-            check_and_land(&core, &key, batch).await;
+            let passed = check(&core, &key, batch).await;
+            crate::server::worktree::agent::trim_merge_queue(&key.0).await;
+            drop(turn);
+            if let Some(stacked) = passed {
+                put_on(&core, &key, stacked).await;
+            }
             with_line(&core, &key, |line| {
                 line.waiting.iter_mut().for_each(|w| w.checking = false)
             });
-            crate::server::worktree::agent::trim_merge_queue(&key.0).await;
         }
     });
 }
@@ -669,8 +673,10 @@ async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<S
     .flatten()
 }
 
-/// Stacks the lands in `batch`, checks them together and lands them on a pass.
-async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
+/// Stacks the lands in `batch` and checks them together: the stack to land when it passed.
+/// Landing comes after the queues' checkout is free again, so a push whose pre-push hook
+/// runs for long holds up only the lands onto its own branch.
+async fn check(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) -> Option<Stack> {
     let stacked = {
         let (signing, key, batch) = (Signing::of(core), key.clone(), batch.clone());
         blocking(move || stack(&signing, &key, &batch).map_err(Into::into)).await
@@ -681,7 +687,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
             for waiting in &batch {
                 send_back(core, key, waiting, &format!("stacking it failed: {error}"));
             }
-            return;
+            return None;
         }
     };
     for waiting in &stacked.done {
@@ -697,12 +703,10 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
         send_back(core, key, waiting, why);
     }
     if stacked.laid.is_empty() {
-        return;
+        return None;
     }
     let stacked = tidy(core, key, stacked).await;
-    let Some(first) = stacked.laid.first() else {
-        return;
-    };
+    let first = stacked.laid.first()?;
     let ranges: Vec<(String, String)> = (stacked.laid.iter())
         .scan(stacked.tip.clone(), |from, laid| {
             Some((std::mem::replace(from, laid.tip.clone()), laid.tip.clone()))
@@ -710,7 +714,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
         .collect();
     if let Some((laid, why)) = failing_land_check(core, key, &stacked, &ranges).await {
         send_back(core, key, &laid.waiting, &why);
-        return;
+        return None;
     }
     let to = stacked.top().to_owned();
     let command = match crate::server::worktree::agent::merge_queue(core, &key.0, &to).await {
@@ -732,19 +736,19 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
                 let why = format!("reading which crates it changes failed: {error}");
                 send_back(core, key, &laid.waiting, &why);
             }
-            return;
+            return None;
         }
     };
     let Some((label, command)) = command else {
         mark_checked(key, stacked.top());
-        return put_on(core, key, stacked).await;
+        return Some(stacked);
     };
     let front = first.waiting.agent.clone();
     let ran = checks::run_in_queue(core, &key.0, stacked.top(), &command, &front).await;
     let ran = match ran {
         Ok(ran) if ran.passed => {
             mark_checked(key, stacked.top());
-            return put_on(core, key, stacked).await;
+            return Some(stacked);
         }
         Ok(ran) => ran,
         Err(checks::NotRun::OutOfTime(why))
@@ -756,7 +760,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
             for laid in &stacked.laid {
                 out_of_time(core, key, &laid.waiting, &label, &why);
             }
-            return;
+            return None;
         }
         Err(checks::NotRun::OutOfTime(why) | checks::NotRun::Other(why)) => {
             for laid in &stacked.laid {
@@ -767,7 +771,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
                     &format!("its check did not run: {why}"),
                 );
             }
-            return;
+            return None;
         }
     };
     let lands: Vec<&str> = (stacked.laid.iter())
@@ -783,7 +787,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     );
     let [only] = stacked.laid.as_slice() else {
         with_line(core, key, |line| line.lane.one_at_a_time = true);
-        return;
+        return None;
     };
     let why = format!(
         "{label} failed on top of the latest {}:\n\n{}{}",
@@ -792,6 +796,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
         keep_log(core, &only.waiting.agent, &ran.output)
     );
     send_back(core, key, &only.waiting, &why);
+    None
 }
 
 /// The name a failed check of `branch`'s lands keeps its whole log under.

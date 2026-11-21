@@ -2563,7 +2563,7 @@
           "type": "boolean"
         },
         "push": {
-          "description": "Push your commits, when the person or the project's rules say to; from your own checkout without land, to its own branch",
+          "description": "Push your commits, when the person or the project's rules say to; from your own checkout without land, to its own branch; no time limit, a slow one wakes you when done",
           "type": "boolean"
         }
       },
