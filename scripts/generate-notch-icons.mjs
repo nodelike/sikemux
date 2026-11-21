@@ -59,7 +59,12 @@ const MARK_FUNCTIONS = {
   hermes: "IconHermes",
 };
 
-const MARK_FILES = { codex: "codex.svg", omp: "omp.svg", muse: "muse.svg", antigravity: "antigravity.svg" };
+const MARK_FILES = {
+  codex: "codex.svg",
+  omp: "omp.svg",
+  muse: "muse.svg",
+  antigravity: "antigravity.svg",
+};
 const BRAND_MARK = resolve(root, "brand/mark/mark-white.svg");
 
 /** The colour each mark takes where the app paints it with its brand colour. */
