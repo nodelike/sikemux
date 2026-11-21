@@ -22,8 +22,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_view::shown::{PageShown, Picture, ResultRow, TurnShown, WidthShown};
-use sikemux_view::turn::{TurnPhase, TurnState, WorkAt};
+use sikemux_view::shown::{PageShown, Picture, TurnShown, WidthShown};
 
 use super::changed::What;
 use super::connection::blocking;
@@ -181,14 +180,6 @@ impl Pictures {
     /// The pages each of the agent's latest turns changed, oldest first.
     pub(crate) fn turns_of(&self, agent: &str) -> Vec<TurnShown> {
         self.shown.locked().get(agent).cloned().unwrap_or_default()
-    }
-
-    /// The pages one turn of the agent's changed.
-    fn pages_of(&self, agent: &str, turn: u64) -> Vec<PageShown> {
-        (self.shown.locked().get(agent))
-            .and_then(|turns| turns.iter().find(|shown| shown.turn == turn))
-            .map(|shown| shown.pages.clone())
-            .unwrap_or_default()
     }
 
     /// The file a picture's id names, when it is a plain file name the core keeps.
@@ -562,39 +553,6 @@ pub(crate) fn tidy(core: &Core, closed_agents: bool) {
         .map(|path| path.to_string_lossy().into_owned())
         .collect();
     core.pictures().tidy(&open, &projects);
-}
-
-/// A row for each of a lead's `workers` whose turn finished, oldest first.
-pub(crate) fn results(
-    core: &Core,
-    workers: &[&String],
-    turns: &HashMap<String, TurnState>,
-) -> Vec<ResultRow> {
-    let mut rows: Vec<ResultRow> = (workers.iter())
-        .filter_map(|worker| {
-            let turn = (turns.get(*worker)).filter(|turn| turn.state == TurnPhase::Done)?;
-            let done = turn.done.clone()?;
-            let started = core.inbox().ending(worker).map(|ended| ended.started_at);
-            Some(ResultRow {
-                agent_id: (*worker).clone(),
-                name: core.names().name(worker),
-                title: core.workspaces().title(worker).unwrap_or_default(),
-                at: turn.since,
-                undo: done.changes == WorkAt::Landed
-                    && core
-                        .inbox()
-                        .ending(worker)
-                        .and_then(|ended| ended.work)
-                        .is_some_and(|work| !work.own.is_empty()),
-                pages: started
-                    .map(|turn| core.pictures().pages_of(worker, turn))
-                    .unwrap_or_default(),
-                done,
-            })
-        })
-        .collect();
-    rows.sort_by_key(|row| row.at);
-    rows
 }
 
 const PAGE_FILES: [&str; 12] = [

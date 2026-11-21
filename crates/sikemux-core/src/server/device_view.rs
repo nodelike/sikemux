@@ -289,11 +289,6 @@ impl DeviceViewCore for Core {
         let searched =
             super::chat_search::Searched::of(&inbox, &recent, self.workspaces().holders());
         *self.device_view().searched.locked() = Some(Arc::new(searched));
-        let mut workers: HashMap<&String, Vec<&String>> = HashMap::new();
-        let leads = self.workspaces().agent_leads();
-        for (worker, lead) in &leads {
-            workers.entry(lead).or_default().push(worker);
-        }
         let turns: HashMap<String, TurnState> = (inbox.agents.iter())
             .filter_map(|agent| Some((agent.agent_id.clone(), agent.turn.clone()?)))
             .collect();
@@ -305,12 +300,8 @@ impl DeviceViewCore for Core {
                     .and_then(|project| chiefs.get(project))
                     .filter(|chief| **chief != agent.agent_id);
                 chat.feed.set_chief_hears(hears.cloned());
-                chat.feed.set_shown(
-                    self.pictures().turns_of(&agent.agent_id),
-                    (workers.get(&agent.agent_id))
-                        .map(|workers| super::pictures::results(self, workers, &turns))
-                        .unwrap_or_default(),
-                );
+                chat.feed
+                    .set_shown(self.pictures().turns_of(&agent.agent_id));
             }
         }
         goals::view_moved(self, &inbox);

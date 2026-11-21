@@ -40,7 +40,6 @@ import { Activity } from '@/chat/Activity';
 import { SmartPick } from '@/chat/Notices';
 import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
 import { ActsContext, AgentContext, ChiefContext, liveRunKey, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
-import { placeResults, ResultCard } from '@/chat/ResultCard';
 import { crumbsOf, useCrew } from '@/devices/Crew';
 import { useChat } from '@/chat/useChat';
 import { useHostCall } from '@/core/hostCalls';
@@ -132,10 +131,9 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   if (editing !== undefined && !canEdit) setEditing(undefined);
   const editable = (message: ChatMessage) =>
     canEdit && message.role === 'user' && message.promptId !== undefined && !message.context?.length && !chat.unsent.has(message.id);
-  const results = useMemo(() => placeResults(state.results, rows), [state.results, rows]);
   const marks = useMemo(
-    () => [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing, results],
-    [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing, results],
+    () => [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing],
+    [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing],
   );
   const subagents = useMemo(() => subagentsOf(state.messages, state.subagentRows), [state.messages, state.subagentRows]);
   const { handoff, guests, plan, runningSubagents, tasks, queued } = state;
@@ -344,16 +342,12 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                       onToggle={() => toggleWork(fold.id)}
                                     />
                                   ) : null;
-                                  const finished = results
-                                    .get(index)
-                                    ?.map((result) => <ResultCard key={result.agentId} row={result} connection={connection} />);
                                   if (hidden)
-                                    return note || summary || head || finished ? (
+                                    return note || summary || head ? (
                                       <>
                                         {note}
                                         {head}
                                         {summary}
-                                        {finished}
                                       </>
                                     ) : (
                                       <View />
@@ -377,7 +371,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                         followsOwn={plainlySent(item) && plainlySent(rows[index - 1])}
                                         followedByOwn={plainlySent(item) && plainlySent(rows[index + 1])}
                                       />
-                                      {finished}
                                     </>
                                   );
                                 }}

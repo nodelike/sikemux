@@ -75,7 +75,6 @@ struct TranscriptRow: View {
                 }
             }
             if !look.hidden { TranscriptMessage(message: entry.message, look: look) }
-            ForEach(look.results, id: \.agentId) { ResultCard(row: $0) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

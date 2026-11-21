@@ -44,7 +44,7 @@ use sikemux_view::chat::{
     SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail, ToolStatus, TurnStart,
     Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
 };
-use sikemux_view::shown::{ResultRow, TurnShown};
+use sikemux_view::shown::TurnShown;
 use sikemux_view::turn::TurnState;
 use tools::WithRow;
 
@@ -879,14 +879,10 @@ impl Fold {
         }
     }
 
-    pub fn set_shown(&mut self, shown: Vec<TurnShown>, results: Vec<ResultRow>) {
+    pub fn set_shown(&mut self, shown: Vec<TurnShown>) {
         if self.head.shown != shown {
             self.head.shown = shown;
             self.set_head("shown");
-        }
-        if self.head.results != results {
-            self.head.results = results;
-            self.set_head("results");
         }
     }
 

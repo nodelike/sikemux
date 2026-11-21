@@ -333,9 +333,6 @@ pub struct ChatHead {
     /// The pages its latest turns changed, as the core took them, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shown: Vec<crate::shown::TurnShown>,
-    /// Its workers' finished work, oldest first; empty for a chat that leads nobody.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub results: Vec<crate::shown::ResultRow>,
     /// What the agent predicts the person will send next, from the turn that ended last; none
     /// while a turn runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
