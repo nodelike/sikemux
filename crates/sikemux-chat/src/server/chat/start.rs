@@ -133,7 +133,11 @@ pub fn launch(
         ending.feed.close();
         ending.report_end(&owner, &result);
         let started = ending.is_ready();
-        ending.emit(ChatEventKind::Status, ended_status(&result, started));
+        let needs_sign_in = ending.needs_sign_in.load(Ordering::Acquire);
+        ending.emit(
+            ChatEventKind::Status,
+            ended_status(&result, started, needs_sign_in),
+        );
         if let Err(error) = &result {
             ending.fail_for_good(serde_json::json!({ "message": error }));
         }

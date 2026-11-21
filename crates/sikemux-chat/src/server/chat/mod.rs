@@ -364,6 +364,8 @@ pub struct Chat {
     /// The turn at work is being stopped only to go on under another account, so its lead
     /// is not told it stopped.
     pub moving_on: AtomicBool,
+    /// The agent last would not start until it is signed in.
+    pub needs_sign_in: AtomicBool,
     pub edits: Box<dyn std::any::Any + Send + Sync>,
     /// The version of the agent's CLI, once the agent has said it.
     cli_version: Mutex<Option<String>>,

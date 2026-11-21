@@ -340,6 +340,10 @@ impl SinkPort for ChatSink {
         let _ = self.broken.send(reason);
     }
 
+    fn needs_sign_in(&self) {
+        self.chat.needs_sign_in.store(true, Ordering::Release);
+    }
+
     fn approves(&self) -> bool {
         self.chat.approves()
     }
@@ -507,6 +511,7 @@ pub async fn run<B: Backend>(
             let first = rebind.is_none();
             chat.emit(ChatEventKind::Status, json!({ "state": "starting" }));
             let signed_in_at_start = sign_in::signed_in(&provider, &launch.env);
+            chat.needs_sign_in.store(false, Ordering::Release);
             let Carried {
                 replay,
                 exhausted,

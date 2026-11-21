@@ -457,6 +457,9 @@ pub struct SessionEnded {
     pub reason: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// What the person can do about it, when the core knows, such as signing the agent in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<FailureKind>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
