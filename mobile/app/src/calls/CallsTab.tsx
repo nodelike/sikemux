@@ -8,7 +8,7 @@ import { useT } from '@/i18n';
 import type { PersonCall, ProjectInfo } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
 import { AskerMark } from '@/calls/AskerMark';
-import { focus, openCalls, settledCalls } from '@/calls/hostCalls';
+import { openCalls, settledCalls } from '@/calls/hostCalls';
 import { Icon } from '@/ui/Icon';
 import { Row, Rows, SectionLabel } from '@/ui/list';
 import { useMinute } from '@/ui/motion';
@@ -45,10 +45,7 @@ export function CallsTab({
       end={end}
       onPress={
         call.state === 'open'
-          ? () => {
-              focus(core, call, call.asker.agentId);
-              router.push(`/device/${core}/call/${call.asker.agentId}`);
-            }
+          ? () => router.push(`/device/${core}/calls?call=${call.id}`)
           : chatless(call)
             ? undefined
             : () => router.push(`/device/${core}/chat/${call.asker.agentId}`)

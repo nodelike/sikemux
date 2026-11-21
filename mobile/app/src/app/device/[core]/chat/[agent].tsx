@@ -28,7 +28,7 @@ import { WorktreeNote, worktreeOf } from '@/chat/Worktree';
 import { LiveSheet, LiveStrip } from '@/chat/Live';
 import { CallRows } from '@/calls/CallRows';
 import { TurnLine } from '@/calls/TurnLine';
-import { focus, queueOf } from '@/calls/hostCalls';
+import { queueOf } from '@/calls/hostCalls';
 import { TELL_CHIEF, sendToTold, waitingCalls } from '@shared/calls/words';
 import { useOnScreen } from '@/calls/onScreen';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
@@ -240,10 +240,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
         calls={queue}
         counted={(count) => waitingCalls(count, t)}
         opens
-        onPress={(call) => {
-          focus(core, call, agentId);
-          router.push(`/device/${core}/call/${agentId}`);
-        }}
+        onPress={(call) => router.push(`/device/${core}/calls?call=${call.id}`)}
       />
     </View>
   ) : null;

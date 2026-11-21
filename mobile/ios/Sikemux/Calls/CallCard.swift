@@ -1,17 +1,12 @@
 import SwiftUI
 import UIKit
 
-/// A call's card, on a screen of its own that scrolls: the Mac's call card at the phone's sizes, a little tighter,
-/// with 44-point rows and Go with this across the card. When the agent waits on several calls, the card says which
-/// it is and the others wait folded under it.
+/// A call's card on the Calls screen: the Mac's call card at the phone's sizes, a little tighter, with 44-point rows
+/// and Go with this across the card.
 struct CallCard: View {
     @Environment(\.palette) private var palette
     let core: String
     let call: PersonCall
-    /// The agent whose calls the card answers.
-    let chat: String
-    /// Every call waiting in that chat, oldest first, `call` among them.
-    let queue: [PersonCall]
     @Bindable var draft: CallDraft
     let canAnswer: Bool
     let report: (String) -> Void
@@ -29,9 +24,7 @@ struct CallCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            CallWho(
-                core: core, call: call,
-                place: queue.count > 1 ? queue.firstIndex(of: call).map { ($0 + 1, queue.count) } : nil)
+            CallWho(core: core, call: call)
             let headline = CallWords.headline(call)
             Text(headline)
                 .font(Theme.ui(17, .semibold))
@@ -81,7 +74,6 @@ struct CallCard: View {
                     .top, 10)
             }
             goButton.padding(.top, 12)
-            folded
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(palette.overlay))
@@ -90,15 +82,6 @@ struct CallCard: View {
         )
         .padding(.bottom, 8)
         .task(id: "\(call.id)|\(Hub.shared.live(core).isOpen)") { await calls.see(call) }
-    }
-
-    /// The asker's other calls, a line each; a tap brings one into the card.
-    @ViewBuilder
-    private var folded: some View {
-        let others = queue.filter { $0.id != call.id }
-        if !others.isEmpty {
-            CallRows(calls: others, counted: CallWords.moreCalls) { calls.focus($0, in: chat) }.padding(.top, 8)
-        }
     }
 
     @ViewBuilder
@@ -360,8 +343,6 @@ struct CallWho: View {
     @Environment(\.crew) private var crew
     let core: String
     let call: PersonCall
-    /// Which of its asker's calls it is, and of how many, while there are several.
-    var place: (Int, Int)?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -372,11 +353,6 @@ struct CallWho: View {
                 Text("·").foregroundStyle(palette.inkFaint).accessibilityHidden(true)
                 Text(CallWords.about).foregroundStyle(palette.tertiary)
                 AgentPill(agent: named(about), size: 13).fixedSize()
-            }
-            if let place {
-                Spacer(minLength: 8)
-                Text(CallWords.place(place.0, of: place.1)).font(Theme.ui(13)).monospacedDigit()
-                    .foregroundStyle(palette.tertiary)
             }
         }
         .font(Theme.ui(14))

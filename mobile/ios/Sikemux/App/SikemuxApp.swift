@@ -131,7 +131,7 @@ struct ScreenFor: View {
         case .device(let core, let tab): HostScoped(core: core) { DeviceScreen(core: core, linkedTab: tab) }
         case .chat(let core, let agent):
             HostScoped(core: core) { ChatScreen(core: core, agentId: agent) }
-        case .call(let core, let agent): HostScoped(core: core) { CallScreen(core: core, agent: agent) }
+        case .calls(let core, let call): HostScoped(core: core) { CallsScreen(core: core, shown: call) }
         case .newChat(let core, let project, let launcher):
             HostScoped(core: core) { NewChatScreen(core: core, project: project, launcher: launcher) }
         case .pairing(let core): HostScoped(core: core) { PairingScreen(core: core) }

@@ -1,60 +1,62 @@
-import { type ComponentProps, useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text } from 'react-native';
+import { type ComponentProps, useRef, useState } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 
-import { CALLS } from '@shared/calls/words';
+import { CALLS, NO_CALLS } from '@shared/calls/words';
 import { useExternalValue } from '@shared/lib/externalValue';
 import { CallCard } from '@/calls/CallCard';
-import { draftOf, queueOf, useKept, waitingCall } from '@/calls/hostCalls';
+import { draftOf, openCalls } from '@/calls/hostCalls';
 import { connectionOf, useDevices, useLive } from '@/devices/hub';
 import { useT } from '@/i18n';
-import { goBack } from '@/ui/navigate';
 import { Nav, Screen, useBottomGap } from '@/ui/screen';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 
-/** The calls an agent puts to the person, answered one at a time on a screen of their own. It goes back once none is left open. */
-export default function CallScreen() {
-  const { core, agent } = useLocalSearchParams<{ core: string; agent: string }>();
+/** Every call waiting on the person on one page, as the Mac's Calls view lists them, newest first and each in full, opened at the call tapped. */
+export default function CallsScreen() {
+  const { core, call: shown } = useLocalSearchParams<{ core: string; call?: string }>();
   const styles = useStyles(makeStyles);
   const t = useT();
   const bottom = useBottomGap();
   const live = useLive(core);
   const { devices } = useDevices();
   const watchOnly = devices.find((paired) => paired.core === core)?.access === 'watch';
-  const calls = live.snapshot?.calls;
-  const queue = useMemo(() => queueOf(calls, agent), [calls, agent]);
-  const waiting = waitingCall(queue, useKept(core), agent);
-
-  useEffect(() => {
-    if (live.snapshot && !waiting) goBack();
-  }, [live.snapshot, waiting]);
+  const open = openCalls(live.snapshot);
+  const scroller = useRef<ScrollView>(null);
+  const scrolled = useRef(false);
 
   return (
     <Screen>
       <Nav title={t(CALLS)} />
       <ScrollView
+        ref={scroller}
         contentContainerStyle={[styles.content, { paddingBottom: bottom }]}
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets>
-        {waiting ? (
-          <Answering
-            key={waiting.id}
-            core={core}
-            calls={calls}
-            call={waiting}
-            chat={agent}
-            queue={queue}
-            connection={connectionOf(live)}
-            canAnswer={!watchOnly && live.status === 'open'}
-          />
-        ) : null}
+        {open.length ? null : <Text style={styles.none}>{t(NO_CALLS)}</Text>}
+        {open.map((call) => (
+          <View
+            key={call.id}
+            onLayout={(event) => {
+              if (call.id !== shown || scrolled.current) return;
+              scrolled.current = true;
+              scroller.current?.scrollTo({ y: event.nativeEvent.layout.y, animated: false });
+            }}>
+            <Answering
+              core={core}
+              calls={live.snapshot?.calls}
+              call={call}
+              connection={connectionOf(live)}
+              canAnswer={!watchOnly && live.status === 'open'}
+            />
+          </View>
+        ))}
       </ScrollView>
     </Screen>
   );
 }
 
-/** The call's card, with why an answer did not go under it while no other is on its way. */
+/** A call's card, with why an answer did not go under it while no other is on its way. */
 function Answering(props: Omit<ComponentProps<typeof CallCard>, 'report'>) {
   const styles = useStyles(makeStyles);
   const [refused, setRefused] = useState<string>();
@@ -70,6 +72,7 @@ function Answering(props: Omit<ComponentProps<typeof CallCard>, 'report'>) {
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     content: { paddingHorizontal: 10, paddingTop: 8 },
+    none: { fontFamily: fonts.ui, fontSize: 14, color: colors.tertiary, paddingVertical: 18, paddingHorizontal: 4 },
     refused: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.danger, paddingTop: 6, paddingHorizontal: 4 },
   });
 };

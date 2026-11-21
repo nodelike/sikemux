@@ -367,8 +367,6 @@ export const DONE = "Done";
 export const SEEN = "Seen";
 /** The field under Not doing on a do call. */
 export const WHY_NOT_DOING = "Say why you're not doing it…";
-/** Under a call's card, the rest of its agent's waiting calls folded into one row. */
-export const moreCalls = (count: number, say: Say = english) => say("{count} more calls", { count });
 /** In a chat, the calls its agent waits on folded into one row. */
 export const waitingCalls = (count: number, say: Say = english) => say("{count} calls", { count });
 export const newest = (question: string, say: Say = english) => say("Newest: {question}", { question });
@@ -382,8 +380,6 @@ export function headline(call: PersonCall, say: Say = english): string {
     return call.question;
 }
 
-/** Which of an agent's waiting calls the card shows: `1 of 3`. */
-export const place = (index: number, count: number, say: Say = english) => say("{index} of {count}", { index, count });
 /** On the card when the answer sent from its notification did not go. */
 export const pushFailed = (why: string, say: Say = english) => say("Your answer from the notification didn't go: {why}", { why });
 

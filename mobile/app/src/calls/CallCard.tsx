@@ -16,11 +16,9 @@ import {
   hidden,
   kept,
   LOOK_SEEN,
-  moreCalls,
   OWN_WORDS,
   PICK,
   pictureLabel,
-  place,
   pushFailed,
   SECRET_FIELD,
   SEEN,
@@ -33,9 +31,8 @@ import { useT } from '@/i18n';
 import type { CallAsker, CallLink, CallOption, PersonCall } from '@shared/wire.generated';
 import { PageCard } from '@/chat/Notices';
 import { serviceMark } from '@/chat/Markdown';
-import { CallRows } from '@/calls/CallRows';
 import { SECRET_INPUT } from '@/calls/secretInput';
-import { answer, answerOf, choose, chosenIn, draftOf, edit, focus, see, useKept } from '@/calls/hostCalls';
+import { answer, answerOf, choose, chosenIn, draftOf, edit, see, useKept } from '@/calls/hostCalls';
 import { HostContext, useHostFile } from '@/chat/hostFiles';
 import { AgentPill, namedAgent, type Named, useCrew } from '@/devices/Crew';
 import { haptics } from '@/ui/haptics';
@@ -47,16 +44,13 @@ import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 const ROW = 44;
 
 /**
- * A call's card, on a screen of its own that scrolls: the Mac's call card at the phone's sizes, a little tighter, with
- * 44-point rows and Go with this across the card. When the agent waits on several calls, the card says which it is and
- * the others wait folded under it.
+ * A call's card on the Calls screen: the Mac's call card at the phone's sizes, a little tighter, with 44-point rows and
+ * Go with this across the card.
  */
 export const CallCard = memo(function CallCard({
   core,
   calls,
   call,
-  chat,
-  queue,
   connection,
   canAnswer,
   report,
@@ -65,10 +59,6 @@ export const CallCard = memo(function CallCard({
   /** The host's calls, which the hub keeps as the same array while none changes. */
   calls: readonly PersonCall[] | undefined;
   call: PersonCall;
-  /** The agent whose calls the card answers. */
-  chat: string;
-  /** Every call waiting in that chat, oldest first, `call` among them. */
-  queue: PersonCall[];
   connection: ConnectionLike | undefined;
   canAnswer: boolean;
   report: (text: string) => void;
@@ -87,7 +77,6 @@ export const CallCard = memo(function CallCard({
   const secret = !!call.secret;
   const pictured = !secret && call.options.some((option) => option.picture);
   const runs = call.kind === 'production' ? call.action : undefined;
-  const at = queue.findIndex((each) => each.id === call.id);
   const context = contextOf(call);
   // What a step to production, or anything that can't be undone, rests on is read whole; any other call's opens on a tap.
   const whole = call.kind === 'production' || !!call.brief?.cannotUndo;
@@ -102,7 +91,6 @@ export const CallCard = memo(function CallCard({
   const headline = headlineOf(call, t);
   const chosenLabel = call.options.find((option) => option.id === chosen[0])?.label;
   const goWords = call.kind === 'look' ? t(SEEN) : call.kind === 'do' ? (chosenLabel ?? t(DONE)) : seen ? t(GO_WITH_THIS) : t(CONNECTING);
-  const others = queue.filter((other) => other.id !== call.id);
 
   // Tells the host this phone drew the call, again whenever the connection changes.
   useEffect(() => {
@@ -130,7 +118,6 @@ export const CallCard = memo(function CallCard({
                 <Asker asker={call.about} />
               </>
             ) : null}
-            {queue.length > 1 && at >= 0 ? <Text style={styles.place}>{place(at + 1, queue.length, t)}</Text> : null}
           </View>
         </HostContext>
         <Text style={styles.question} selectable>
@@ -271,11 +258,6 @@ export const CallCard = memo(function CallCard({
           accessibilityState={{ disabled: !ready }}>
           <Text style={styles.goText}>{goWords}</Text>
         </Pressable>
-        {others.length ? (
-          <View style={styles.others}>
-            <CallRows calls={others} counted={(count) => moreCalls(count, t)} onPress={(other) => focus(core, other, chat)} />
-          </View>
-        ) : null}
     </View>
   );
 });
@@ -460,7 +442,6 @@ const makeStyles = (colors: Palette) => {
     who: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     sep: { color: colors.inkFaint },
     age: { fontFamily: fonts.ui, fontSize: 14, color: colors.tertiary },
-    place: { marginLeft: 'auto', fontFamily: fonts.ui, fontSize: 13, color: colors.tertiary, fontVariant: ['tabular-nums'] },
     question: { marginTop: 8, fontFamily: fonts.uiSemibold, fontSize: 17, lineHeight: 22, color: colors.ink },
     prose: { marginTop: 4, fontFamily: fonts.ui, fontSize: 15, lineHeight: 20, color: colors.secondary },
     link: {
@@ -500,7 +481,6 @@ const makeStyles = (colors: Palette) => {
     failed: { marginTop: 10, fontFamily: fonts.ui, fontSize: 13, color: colors.danger },
     go: { marginTop: 12, height: 46, borderRadius: 12, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
     goText: { fontFamily: fonts.uiSemibold, fontSize: 16, color: colors.ground },
-    others: { marginTop: 4 },
     strip: { marginTop: 10, height: 120, flexDirection: 'row', gap: 6 },
     lead: { flex: 2 },
     rest: { width: 104, gap: 6 },

@@ -66,13 +66,10 @@ struct CallsTab: View {
         )
     }
 
-    /// Opens an open call's screen to answer it, and an answered call's chat while this host still lists it.
+    /// Opens the calls waiting at an open call, to answer it, and an answered call's chat while this host still lists it.
     private func press(_ call: PersonCall) -> (() -> Void)? {
         if call.state == .open {
-            return {
-                HostCalls.of(core).focus(call, in: call.asker.agentId)
-                Router.shared.push(.call(core: core, agent: call.asker.agentId))
-            }
+            return { Router.shared.push(.calls(core: core, call: call.id)) }
         }
         guard view.chats.contains(where: { $0.agentId == call.asker.agentId }) else { return nil }
         return { Router.shared.push(.chat(core: core, agent: call.asker.agentId)) }

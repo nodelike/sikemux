@@ -75,11 +75,9 @@ struct Composer: View {
         let calls = HostCalls.of(core)
         let queue = calls.queue(for: session.agentId)
         guard !queue.isEmpty else { return nil }
-        let chat = session.agentId
         return AnyView(
             CallRows(calls: queue, counted: CallWords.waiting, opens: true) { call in
-                calls.focus(call, in: chat)
-                Router.shared.push(.call(core: core, agent: chat))
+                Router.shared.push(.calls(core: core, call: call.id))
             }
             .padding(.horizontal, 12)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(palette.overlay))
