@@ -5,9 +5,11 @@
 use crate::ui::Clicks;
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::TestSupportExt as _;
 use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
-    ParentElement, Radians, SharedString, Styled, Transformation, Window,
+    ParentElement, Radians, SharedString, StatefulInteractiveElement, Styled, Transformation,
+    Window,
 };
 use sikemux_agents::agent_accounts::status::AgentStatus;
 use sikemux_calls::agent_updates::Updating;
@@ -264,6 +266,8 @@ fn row(
     let missing = agent.installed().next().is_none();
     div()
         .id(SharedString::from(format!("agent-row-{kind}")))
+        .aria_label(SharedString::from(agent.label.to_owned()))
+        .test_support()
         .cursor_pointer()
         .hover(|row| row.bg(t.surface_hover))
         .when(missing, |row| row.opacity(0.7))
