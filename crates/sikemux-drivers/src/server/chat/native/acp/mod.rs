@@ -608,6 +608,8 @@ impl Backend for Acp {
         let command =
             crate::agent_catalog::agent(&launch.provider).map_or("", |entry| entry.command);
         let sign_in = crate::acp::sign_in::methods(&initialized, command);
+        let key_sign_in = crate::agent_catalog::AgentKind::from_name(&launch.provider)
+            .and_then(|agent| agent.ops().key_sign_in(&launch.env));
         let signs_in = !sign_in.is_empty();
         let initialized: InitializeResponse =
             serde_json::from_value(initialized).map_err(|error| failed(error.to_string()))?;
@@ -631,7 +633,18 @@ impl Backend for Acp {
             Reopens::No
         };
 
-        let (session_id, setup) = match Self::open(&driver, launch, reopens).await {
+        let opened = match Self::open(&driver, launch, reopens).await {
+            Err(Refused::SignIn(_)) if key_sign_in.is_some() => {
+                let method = json!({ "methodId": key_sign_in });
+                (driver
+                    .call(AGENT_METHOD_NAMES.authenticate, method, None)
+                    .await)
+                    .map_err(failed)?;
+                Self::open(&driver, launch, reopens).await
+            }
+            opened => opened,
+        };
+        let (session_id, setup) = match opened {
             Ok(opened) => opened,
             Err(Refused::SignIn(said)) if signs_in => {
                 driver.sink.needs_sign_in();

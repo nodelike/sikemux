@@ -2169,6 +2169,7 @@ mod tests {
                 "opencode",
                 "omp",
                 "grok",
+                "antigravity",
                 "muse"
             ]
         );

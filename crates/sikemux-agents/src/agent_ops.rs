@@ -72,6 +72,12 @@ pub trait AgentOps: Sync {
         None
     }
 
+    /// The sign-in a chat falls back to when the agent says it is signed out, for a key
+    /// Sikemux put in the environment `env` it starts with.
+    fn key_sign_in(&self, _env: &BTreeMap<String, String>) -> Option<&'static str> {
+        None
+    }
+
     /// Its saved sessions that ran in `cwd`, newest first.
     fn sessions(&self, cwd: &str, config_path: Option<&str>) -> Vec<AgentSession>;
 
@@ -345,6 +351,7 @@ impl AgentKind {
             AgentKind::Pi => &sessions::pi::Pi,
             AgentKind::Opencode => &sessions::opencode::Opencode,
             AgentKind::Omp => &sessions::omp::Omp,
+            AgentKind::Antigravity => &sessions::antigravity::Antigravity,
             AgentKind::Grok => &sessions::grok::Grok,
             AgentKind::Muse => &sessions::muse::Muse,
         }

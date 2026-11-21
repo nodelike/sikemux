@@ -29,7 +29,7 @@ pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] =
     &[crate::settings::index::section(
         crate::settings::index::Page::Agents,
         "Agents",
-        "install reinstall update upgrade version latest missing hosts claude codex opencode hermes pi omp grok cli executable path program profile",
+        "install reinstall update upgrade version latest missing hosts claude codex opencode hermes pi omp grok antigravity agy gemini google cli executable path program profile",
     )];
 
 /// The row that is open, and the program being written for the account it runs on.

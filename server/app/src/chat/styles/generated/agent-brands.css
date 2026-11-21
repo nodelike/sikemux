@@ -7,6 +7,7 @@
   --brand-opencode: #a78bfa;
   --brand-omp: #f97316;
   --brand-grok: #fcfcfc;
+  --brand-antigravity: #4285f4;
   --brand-muse: #0081fb;
 }
 .agent-glyph.claude {
@@ -29,6 +30,9 @@
 }
 .agent-glyph.grok {
   color: var(--brand-grok);
+}
+.agent-glyph.antigravity {
+  color: var(--brand-antigravity);
 }
 .agent-glyph.muse {
   color: var(--brand-muse);

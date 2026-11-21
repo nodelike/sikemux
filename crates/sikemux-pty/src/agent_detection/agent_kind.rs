@@ -8,11 +8,12 @@ pub enum AgentKind {
     Opencode,
     Omp,
     Grok,
+    Antigravity,
     Muse,
 }
 
 impl AgentKind {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Claude,
         Self::Codex,
         Self::Hermes,
@@ -20,6 +21,7 @@ impl AgentKind {
         Self::Opencode,
         Self::Omp,
         Self::Grok,
+        Self::Antigravity,
         Self::Muse,
     ];
 
@@ -32,6 +34,7 @@ impl AgentKind {
             Self::Opencode => "opencode",
             Self::Omp => "omp",
             Self::Grok => "grok",
+            Self::Antigravity => "antigravity",
             Self::Muse => "muse",
         }
     }

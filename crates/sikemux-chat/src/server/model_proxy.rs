@@ -36,10 +36,11 @@ use crate::launch::providers::{
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const ACCEPT_RETRY: Duration = Duration::from_millis(50);
 const X_API_KEY: HeaderName = HeaderName::from_static("x-api-key");
+const X_GOOG_API_KEY: HeaderName = HeaderName::from_static("x-goog-api-key");
 
 /// Headers about one connection, which stop at the proxy, with `host` and what the agent sent
 /// as its key.
-const NOT_FORWARDED: [&str; 10] = [
+const NOT_FORWARDED: [&str; 11] = [
     "connection",
     "keep-alive",
     "proxy-authenticate",
@@ -50,6 +51,7 @@ const NOT_FORWARDED: [&str; 10] = [
     "upgrade",
     "host",
     "x-api-key",
+    "x-goog-api-key",
 ];
 
 /// By a token's digest, what the token may reach.
@@ -137,7 +139,13 @@ impl ModelProxy {
     ) -> Result<Option<(Grant, ChatLaunch)>, String> {
         let reads_any = agent_catalog::agent(&launch.provider)
             .is_some_and(|agent| matches!(agent.providers, Some(ProviderUse::Reads)));
-        let scope = launch.model_provider.clone().filter(|_| !reads_any);
+        let picked = || {
+            let providers = core.workspaces().providers()?;
+            Some(providers.gemini_route(&launch.provider)?.id.clone())
+        };
+        let scope = (launch.model_provider.clone())
+            .or_else(picked)
+            .filter(|_| !reads_any);
         let mut resolved = launch.clone();
         let grant = self.grant(
             core,
@@ -405,7 +413,9 @@ fn presented_token(headers: &HeaderMap) -> Option<&str> {
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
-    bearer.or_else(|| headers.get(X_API_KEY)?.to_str().ok())
+    bearer
+        .or_else(|| headers.get(X_API_KEY)?.to_str().ok())
+        .or_else(|| headers.get(X_GOOG_API_KEY)?.to_str().ok())
 }
 
 fn provider_credential(
@@ -415,6 +425,7 @@ fn provider_credential(
 ) -> Result<(HeaderName, HeaderValue), Refused> {
     let (name, value) = match (api, provider.anthropic.as_ref().map(|api| api.auth)) {
         (Api::Anthropic, Some(AnthropicAuth::XApiKey)) => (X_API_KEY, key.to_owned()),
+        (Api::Gemini, _) => (X_GOOG_API_KEY, key.to_owned()),
         _ => (AUTHORIZATION, format!("Bearer {key}")),
     };
     let mut value = HeaderValue::from_str(&value).map_err(|_| {
@@ -431,6 +442,7 @@ fn provider_credential(
 enum Api {
     OpenAi,
     Anthropic,
+    Gemini,
 }
 
 /// What a request's path names: `/<provider>/<api>/<the rest of the provider's path>`.
@@ -447,6 +459,7 @@ impl<'a> Route<'a> {
         let api = match parts.next()? {
             "openai" => Api::OpenAi,
             "anthropic" => Api::Anthropic,
+            "gemini" => Api::Gemini,
             _ => return None,
         };
         Some(Self {
@@ -462,6 +475,7 @@ impl<'a> Route<'a> {
         let base = match self.api {
             Api::OpenAi => provider.openai.as_str(),
             Api::Anthropic => provider.anthropic.as_ref()?.url.as_str(),
+            Api::Gemini => provider.gemini.as_deref()?,
         };
         let mut text = format!("{}/{}", base.trim_end_matches('/'), self.rest);
         if let Some(query) = query {

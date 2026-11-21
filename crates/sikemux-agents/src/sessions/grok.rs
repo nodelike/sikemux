@@ -57,7 +57,7 @@ fn collect_grok_session_dirs(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-fn percent_decode(input: &str) -> Option<String> {
+pub(super) fn percent_decode(input: &str) -> Option<String> {
     let hex = |byte: u8| match byte {
         b'0'..=b'9' => Some(byte - b'0'),
         b'a'..=b'f' => Some(byte - b'a' + 10),

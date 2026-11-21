@@ -348,6 +348,25 @@ pub(crate) async fn pi_sign_in(program: &Path, config_path: Option<&str>) -> Age
     }
 }
 
+/// `agy models` answers only when agy is signed in with Google; a Gemini key Sikemux
+/// passes in `providers` stands in for it otherwise.
+pub(crate) async fn antigravity_sign_in(
+    program: &Path,
+    providers: BTreeMap<String, String>,
+) -> AgentStatus {
+    let keyed = providers
+        .get("GEMINI_API_KEY")
+        .is_some_and(|key| !key.trim().is_empty());
+    match exit_code_and_output("antigravity", program, None, &["models"]).await {
+        Some((Some(0), _)) => AgentStatus::Ready { account: None },
+        Some(_) if keyed => AgentStatus::Ready {
+            account: Some("apiKey".into()),
+        },
+        Some(_) => AgentStatus::SignedOut,
+        None => AgentStatus::Unknown,
+    }
+}
+
 pub(crate) async fn opencode_sign_in(providers: BTreeMap<String, String>) -> AgentStatus {
     let stored = crate::sessions::opencode::saved_credentials();
     let shell = sikemux_pty::user_shell::login_shell_environment();
