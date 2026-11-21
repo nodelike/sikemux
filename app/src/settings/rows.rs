@@ -2,15 +2,16 @@
 //! with a name, a line about them, and the control that changes them.
 
 use sikemux_view::prefs::PreferenceChange;
-use std::cell::RefCell;
+use std::cell::Cell;
+use std::rc::Rc;
 
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::IndexPath;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, AppContext, Context, Div, Entity, Global, Hsla, IntoElement,
-    ParentElement, Pixels, SharedString, Styled, Subscription, Window,
+    canvas, div, px, AnyElement, App, AppContext, Bounds, Context, Div, Entity, Global, Hsla,
+    IntoElement, ParentElement, Pixels, SharedString, Styled, Subscription, Window,
 };
 
 use crate::theme::{
@@ -26,12 +27,14 @@ pub struct Shown(pub &'static str);
 
 impl Global for Shown {}
 
-/// The sections a page drew this frame, in order, so a search's hit scrolls to the one that
-/// drew rather than counting the page's list, some of whose sections show only at times.
+/// The section a search led to, and where it was last drawn, so settings can scroll it to the top.
 #[derive(Default)]
-pub struct Drawn(pub RefCell<Vec<SharedString>>);
+pub struct Reveal(pub Option<(&'static str, DrawnAt)>);
 
-impl Global for Drawn {}
+/// Where a section was last drawn, once it has been.
+pub type DrawnAt = Rc<Cell<Option<Bounds<Pixels>>>>;
+
+impl Global for Reveal {}
 
 /// The fill under the settings sheet: the theme's ground, held back enough that the
 /// pane's picture still shows through while the words stay readable over it.
@@ -65,9 +68,11 @@ pub fn section_with(
 ) -> AnyElement {
     let t = Tokens::get(cx);
     let title: SharedString = title.into();
-    if let Some(drawn) = cx.try_global::<Drawn>().filter(|_| !title.is_empty()) {
-        drawn.0.borrow_mut().push(title.clone());
-    }
+    let revealed = (cx
+        .try_global::<Reveal>()
+        .and_then(|reveal| reveal.0.clone()))
+    .filter(|(section, _)| !title.is_empty() && *section == title.as_ref())
+    .map(|(_, at)| at);
     let named = !title.is_empty()
         && cx
             .try_global::<Shown>()
@@ -121,6 +126,7 @@ pub fn section_with(
                 .child(sub)
         }));
     div()
+        .relative()
         .mx(-SPACE_4)
         .flex()
         .flex_col()
@@ -129,6 +135,19 @@ pub fn section_with(
         .when(flash, |sheet| sheet.bg(t.surface_chosen))
         .when(headed, |sheet| sheet.child(heading))
         .child(div().mb(px(-1.)).flex().flex_col().child(body))
+        .when_some(revealed, |sheet, at| {
+            sheet.child(
+                canvas(
+                    move |bounds, window, _| {
+                        at.set(Some(bounds));
+                        window.refresh();
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
+        })
         .into_any_element()
 }
 
