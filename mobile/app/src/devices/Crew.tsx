@@ -113,11 +113,7 @@ export function OwnMark({
   size: number;
   still?: boolean;
 }) {
-  return chief ? (
-    <ChiefMark size={size} />
-  ) : (
-    <AgentFace agentId={agentId} provider={provider} turn={turn} size={size} still={still} />
-  );
+  return chief ? <ChiefMark size={size} /> : <AgentFace agentId={agentId} provider={provider} turn={turn} size={size} still={still} />;
 }
 
 export const openChat = (core: string, agent: string) => {

@@ -52,7 +52,10 @@ function inTime(creating: Promise<DeviceLike>): Promise<DeviceLike> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, fail) => {
     timer = setTimeout(() => {
-      creating.then((device) => device.close(), () => {});
+      creating.then(
+        (device) => device.close(),
+        () => {},
+      );
       fail(new Error(translate('This phone could not get online.')));
     }, ONLINE_MS);
   });

@@ -81,7 +81,9 @@ export function Row({
       {mark ? <View style={styles.mark}>{mark}</View> : null}
       <View style={styles.rowBody}>
         <View style={styles.rowLabel}>
-          <Text style={[styles.rowTitle, aside ? styles.rowTitleWhole : null, { color: dim ? colors.tertiary : colors.ink }]} numberOfLines={1}>
+          <Text
+            style={[styles.rowTitle, aside ? styles.rowTitleWhole : null, { color: dim ? colors.tertiary : colors.ink }]}
+            numberOfLines={1}>
             {label}
           </Text>
           {aside ? (
