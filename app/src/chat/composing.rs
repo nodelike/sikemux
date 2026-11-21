@@ -697,13 +697,7 @@ pub(super) fn composer(
             choices: Vec::new(),
         })
     });
-    let dropped = head.is_some_and(|head| {
-        matches!(
-            head.connection,
-            ChatConnection::Error | ChatConnection::Stopped
-        )
-    });
-    if let Some(saved) = saved.filter(|_| fresh || dropped || model.is_some()) {
+    if let Some(saved) = saved {
         let moving: crate::chat::model_picker::Move = {
             let (this, agent) = (this.clone(), agent.id.clone());
             Rc::new(move |to: crate::chat::model_picker::Moving, _, cx| {
@@ -724,7 +718,7 @@ pub(super) fn composer(
             model_provider: saved.model_provider.clone(),
             project: saved.project.clone(),
             locked: !fresh,
-            dropped,
+            idle: idle(head),
             pending: match (started, reads_models) {
                 (true, _) => None,
                 (false, true) => Some(t!("Reading the models…")),
@@ -788,6 +782,17 @@ pub(super) fn composer(
         });
     }
     Some((composer, offering || tray_open))
+}
+
+/// Whether no agent is running the chat: it rests until the person writes, or it ended.
+fn idle(head: Option<&ChatHead>) -> bool {
+    head.is_none_or(|head| {
+        !head.running
+            && matches!(
+                head.connection,
+                ChatConnection::Connecting | ChatConnection::Stopped | ChatConnection::Error
+            )
+    })
 }
 
 /// Whether the chat takes a new account, mode or model now: its agent is up, or has not
@@ -1681,5 +1686,30 @@ impl Workbench {
             agent: agent.to_owned(),
             mode,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_resting_chat_whose_agent_named_no_model_can_be_handed_on() {
+        let resting = ChatHead {
+            connection: ChatConnection::Connecting,
+            model: None,
+            ..ChatHead::default()
+        };
+        assert!(idle(Some(&resting)));
+        let running = ChatHead {
+            running: true,
+            ..resting.clone()
+        };
+        assert!(!idle(Some(&running)));
+        let ready = ChatHead {
+            connection: ChatConnection::Ready,
+            ..resting
+        };
+        assert!(!idle(Some(&ready)));
     }
 }
