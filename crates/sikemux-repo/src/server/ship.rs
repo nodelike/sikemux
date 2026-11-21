@@ -1181,8 +1181,47 @@ pub async fn check_hooked(
     env: BTreeMap<String, String>,
     cwd: &Path,
 ) -> Result<(), String> {
+    if let Some(said) = waits_by_sleeping(command) {
+        return Err(said);
+    }
     let set = move |name: &str| env.get(name).cloned();
     check_command(core, agent_id, command, set, cwd, Looks::PastTheShim).await
+}
+
+/// What the agent is told instead of running `command` when it waits by sleeping: a sleep in a
+/// loop of five seconds or more, or one of a minute or more.
+fn waits_by_sleeping(command: &str) -> Option<String> {
+    let words: Vec<&str> = command
+        .split(|c: char| c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')'))
+        .filter(|word| !word.is_empty())
+        .collect();
+    let seconds = |word: &str| {
+        let (number, unit) = word.split_at(
+            word.find(|c: char| c.is_ascii_alphabetic())
+                .unwrap_or(word.len()),
+        );
+        let number: f64 = number.parse().ok()?;
+        Some(
+            number
+                * match unit {
+                    "" | "s" => 1.0,
+                    "m" => 60.0,
+                    "h" => 3600.0,
+                    _ => return None,
+                },
+        )
+    };
+    let sleeps: Vec<f64> = (words.iter().zip(words.iter().skip(1)))
+        .filter(|(word, _)| **word == "sleep")
+        .filter_map(|(_, after)| seconds(after))
+        .collect();
+    let looped = words
+        .iter()
+        .any(|word| matches!(*word, "while" | "until" | "for"));
+    let waits = sleeps
+        .iter()
+        .any(|seconds| *seconds >= 60.0 || (looped && *seconds >= 5.0));
+    waits.then(|| "Sleeping to wait spends your context and holds the turn. Set trigger_add for what you wait on: process, ci or agent, else every with a check that prints once it is ready; then end your turn.".to_owned())
 }
 
 /// How a deploy the shim followed ended, by the `went` the core gave it.
