@@ -96,7 +96,8 @@ pub struct Sheet {
     kind: String,
     label: String,
     shown: String,
-    /// The POSIX shell command the sheet runs; the sheet ends with its exit code.
+    /// The command the sheet runs, in /bin/sh on macOS and Linux and in the login shell on
+    /// Windows; the sheet ends with its exit code.
     command: String,
     session: Option<SessionId>,
     /// The core has listed its session, so its leaving the list means it ended.
