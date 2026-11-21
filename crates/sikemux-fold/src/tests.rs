@@ -2625,6 +2625,43 @@ mod transcript {
             .collect();
         assert_eq!(running, vec!["s1", "s3"]);
     }
+
+    /// @Pageone's turns on 22 Nov ended this way, and each drew an empty bullet.
+    #[test]
+    fn a_turn_that_ends_on_a_lone_dash_leaves_no_text_for_it() {
+        let texts = |rows: &[ChatMessage]| -> Vec<String> {
+            (rows.iter().flat_map(|row| &row.parts))
+                .filter_map(|part| match part {
+                    ChatPart::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let mut chat = Chat::running();
+        chat.update(chunk("Now comparing against the official file.", "msg-1"))
+            .update(json!({ "sessionUpdate": "tool_call", "toolCallId": "send", "title": "agent_send", "kind": "other", "status": "completed" }))
+            .update(chunk("-", "msg-2"));
+        chat.flush();
+        chat.turn_completed(Some("end_turn"));
+        let changes = chat.flush();
+        assert!(
+            changes.iter().any(
+                |change| matches!(change, ChatChange::Row { row, .. } if row.parts.is_empty())
+            ),
+            "the client is sent the dash's row again without it: {changes:?}"
+        );
+        assert_eq!(
+            texts(&chat.rows()),
+            ["Now comparing against the official file."]
+        );
+
+        let mut listed = Chat::running();
+        listed
+            .update(chunk("-", "msg-1"))
+            .update(chunk(" one thing", "msg-1"));
+        listed.turn_completed(Some("end_turn"));
+        assert_eq!(texts(&listed.rows()), ["- one thing"]);
+    }
 }
 
 mod tool_labels {

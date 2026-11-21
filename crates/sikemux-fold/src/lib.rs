@@ -2966,6 +2966,7 @@ impl Fold {
                 .last_mut()
                 .filter(|row| row.msg.role == ChatRole::Assistant)
             {
+                drop_said_nothing(last);
                 last.msg.ended_at = Some(at);
                 last.set("endedAt");
                 let position = self.main.rows.len() - 1;
@@ -3045,6 +3046,22 @@ fn sent_row(text: &str, paths: &[String]) -> Row {
     });
     read_sent(&mut row, &[]);
     row
+}
+
+/// A turn's last text that says nothing goes, and the row goes out again whole.
+/// An agent whose answer is sent to its lead ends on a lone dash to send nothing,
+/// and markdown would draw that dash as an empty bullet.
+fn drop_said_nothing(row: &mut Row) {
+    let Some(ChatPart::Text { text, .. }) = row.msg.parts.last() else {
+        return;
+    };
+    if !matches!(text.trim(), "" | "-") {
+        return;
+    }
+    row.msg.parts.pop();
+    row.sides.pop();
+    row.parts.clear();
+    row.fresh = true;
 }
 
 fn answer_in(row: &Row) -> Option<&AgentLetter> {
