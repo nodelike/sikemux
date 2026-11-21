@@ -1676,9 +1676,13 @@
       "name": "agent_list",
       "row": {"verb": "list", "kind": "read", "icon": "agents", "target": ["agents"]},
       "method": "agent.list",
-      "description": "List Sikemux agents.",
+      "description": "List Sikemux agents of your project, one line each.",
       "properties": {
         "allProjects": {
+          "type": "boolean"
+        },
+        "full": {
+          "description": "true: every field of each agent, such as model, effort and last active",
           "type": "boolean"
         }
       },
