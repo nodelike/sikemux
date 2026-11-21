@@ -240,7 +240,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
         calls={queue}
         counted={(count) => waitingCalls(count, t)}
         opens
-        onPress={(call) => router.push(`/device/${core}/calls?call=${call.id}`)}
+        onPress={(call) => router.push(`/device/${core}/call/${call.id}`)}
       />
     </View>
   ) : null;

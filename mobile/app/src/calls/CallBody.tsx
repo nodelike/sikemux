@@ -1,56 +1,67 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, type ReactNode, useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { router } from 'expo-router';
 import type { ConnectionLike } from '@sikemux/native';
 
 import { formatAge } from '@shared/lib/format';
 import { useExternalValue } from '@shared/lib/externalValue';
 import {
-  ADD_NOTE,
   AGAINST_IT,
   CONNECTING,
   context as contextOf,
   DO_NOT_DOING,
   DONE,
   GO_WITH_THIS,
+  goWith,
   headline as headlineOf,
-  hidden,
   kept,
   LOOK_SEEN,
-  OWN_WORDS,
+  NEXT_CALL,
+  OPEN_CHAT,
   PICK,
   pictureLabel,
   pushFailed,
-  SECRET_FIELD,
   SEEN,
-  SHOW_ALL,
-  SHOW_LESS,
   WHAT_RUNS,
+  WHY_IT_CAME_UP,
   WHY_NOT_DOING,
 } from '@shared/calls/words';
 import { useT } from '@/i18n';
 import type { CallAsker, CallLink, CallOption, PersonCall } from '@shared/wire.generated';
 import { PageCard } from '@/chat/Notices';
 import { serviceMark } from '@/chat/Markdown';
-import { SECRET_INPUT } from '@/calls/secretInput';
-import { answer, answerOf, choose, chosenIn, draftOf, edit, see, useKept } from '@/calls/hostCalls';
+import { answer, answerOf, choose, chosenIn, draftOf, edit, see, useKept, type Draft } from '@/calls/hostCalls';
 import { HostContext, useHostFile } from '@/chat/hostFiles';
-import { AgentPill, namedAgent, type Named, useCrew } from '@/devices/Crew';
+import { AgentPill, namedAgent, type Named, openChat, useCrew } from '@/devices/Crew';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
+import { SectionLabel } from '@/ui/list';
 import { useMinute } from '@/ui/motion';
 import { openLink } from '@/ui/prompt';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
-const ROW = 44;
+/** Whether a call's answer can go: something chosen or typed, as its kind asks, while nothing is on its way. */
+export function readyOf(call: PersonCall, draft: Draft, canAnswer: boolean, seen: boolean): boolean {
+  const chosen = chosenIn(draft, call);
+  const typed = draft.typed.trim().length > 0;
+  const answered =
+    call.kind === 'look'
+      ? true
+      : call.kind === 'do'
+        ? chosen.length > 0 && (!chosen.includes(DO_NOT_DOING) || typed)
+        : chosen.length > 0 || typed;
+  return answered && !draft.sending && canAnswer && seen;
+}
 
 /**
- * A call's card on the Calls screen: the Mac's call card at the phone's sizes, a little tighter, with 44-point rows and
- * Go with this across the card.
+ * A call drawn as its own page, as the Mac draws a call's tab: who asked, the question, the choices as full-width
+ * tiles, Go, and why it came up. The words that go with the answer are typed in the composer under the page.
  */
-export const CallCard = memo(function CallCard({
+export const CallBody = memo(function CallBody({
   core,
   calls,
   call,
+  next,
   connection,
   canAnswer,
   report,
@@ -59,6 +70,7 @@ export const CallCard = memo(function CallCard({
   /** The host's calls, which the hub keeps as the same array while none changes. */
   calls: readonly PersonCall[] | undefined;
   call: PersonCall;
+  next: PersonCall | undefined;
   connection: ConnectionLike | undefined;
   canAnswer: boolean;
   report: (text: string) => void;
@@ -71,26 +83,27 @@ export const CallCard = memo(function CallCard({
   const store = draftOf(calls, call);
   const draft = useExternalValue(store);
   const chosen = chosenIn(draft, call);
-  const typed = draft.typed.trim().length > 0;
-  const [focused, setFocused] = useState(false);
-  const lit = focused || typed;
   const secret = !!call.secret;
   const pictured = !secret && call.options.some((option) => option.picture);
   const runs = call.kind === 'production' ? call.action : undefined;
-  const context = contextOf(call);
-  // What a step to production, or anything that can't be undone, rests on is read whole; any other call's opens on a tap.
-  const whole = call.kind === 'production' || !!call.brief?.cannotUndo;
-  const [contextOpen, setContextOpen] = useState(false);
   const failed = held.failed[call.id];
   // The core asks only a production call to have been drawn before its answer counts.
   const seen = call.kind !== 'production' || held.seen.has(call.id);
   const notDoing = call.kind === 'do' && chosen.includes(DO_NOT_DOING);
-  const answered =
-    call.kind === 'look' ? true : call.kind === 'do' ? chosen.length > 0 && (!notDoing || typed) : chosen.length > 0 || typed;
-  const ready = answered && !draft.sending && canAnswer && seen;
+  const ready = readyOf(call, draft, canAnswer, seen);
   const headline = headlineOf(call, t);
   const chosenLabel = call.options.find((option) => option.id === chosen[0])?.label;
-  const goWords = call.kind === 'look' ? t(SEEN) : call.kind === 'do' ? (chosenLabel ?? t(DONE)) : seen ? t(GO_WITH_THIS) : t(CONNECTING);
+  const hasGo = call.kind === 'look' || call.kind === 'do' || call.options.length > 0;
+  const goWords =
+    call.kind === 'look'
+      ? t(SEEN)
+      : call.kind === 'do'
+        ? (chosenLabel ?? t(DONE))
+        : !seen
+          ? t(CONNECTING)
+          : chosenLabel
+            ? goWith(chosenLabel, t)
+            : t(GO_WITH_THIS);
 
   // Tells the host this phone drew the call, again whenever the connection changes.
   useEffect(() => {
@@ -105,9 +118,9 @@ export const CallCard = memo(function CallCard({
   };
 
   return (
-    <View style={styles.card}>
-      <HostContext value={core}>
-        <View style={styles.who}>
+    <View>
+      <View style={styles.who}>
+        <HostContext value={core}>
           <Asker asker={call.asker} />
           <Text style={styles.sep}>·</Text>
           <Text style={styles.age}>{formatAge(call.raisedAt, minute * 60_000, t)}</Text>
@@ -118,26 +131,18 @@ export const CallCard = memo(function CallCard({
               <Asker asker={call.about} />
             </>
           ) : null}
-        </View>
-      </HostContext>
+        </HostContext>
+        <View style={{ flex: 1 }} />
+        <Pressable onPress={() => openChat(core, call.asker.agentId)} hitSlop={8} accessibilityRole="button">
+          <Text style={styles.openChat}>{t(OPEN_CHAT)}</Text>
+        </Pressable>
+      </View>
       <Text style={styles.question} selectable>
         {headline}
       </Text>
       {headline !== call.question ? (
         <Text style={styles.prose} selectable>
           {call.question}
-        </Text>
-      ) : null}
-      {context ? (
-        <Text
-          style={styles.context}
-          selectable
-          numberOfLines={whole || contextOpen ? undefined : 2}
-          onPress={whole ? undefined : () => setContextOpen(!contextOpen)}
-          accessibilityRole={whole ? undefined : 'button'}
-          accessibilityState={whole ? undefined : { expanded: contextOpen }}
-          accessibilityHint={whole ? undefined : t(contextOpen ? SHOW_LESS : SHOW_ALL)}>
-          {context}
         </Text>
       ) : null}
       {call.link ? (
@@ -152,70 +157,25 @@ export const CallCard = memo(function CallCard({
         />
       ) : null}
       {call.page ? <PageCard page={call.page} /> : null}
-      {(call.evidence ?? [])
-        .filter((evidence) => !evidence.picture)
-        .map((evidence, index) => (
-          <Text key={index} style={styles.context} selectable>
-            {evidence.what}
-          </Text>
-        ))}
       {pictured ? <Strip call={call} chosen={chosen} onChoose={(option) => choose(store, call, option)} /> : <Evidence call={call} />}
       {call.kind === 'look' ? null : (
-        <View style={[styles.options, { borderColor: lit ? colors.borderSelected : colors.border }]}>
-          {call.options.map((option, index) => (
-            <OptionRow
+        <View style={styles.tiles}>
+          {call.options.map((option) => (
+            <Tile
               key={option.id}
               option={option}
-              first={index === 0}
               on={chosen.includes(option.id)}
               pick={call.pick === option.id}
               disabled={!canAnswer || draft.sending}
               onPress={() => {
                 haptics.select();
                 choose(store, call, option.id);
-              }}
-            />
+              }}>
+              {notDoing && option.id === DO_NOT_DOING ? (
+                <NotDoingNote value={draft.typed} onChange={(text) => edit(store, { typed: text })} onSubmit={go} editable={canAnswer} />
+              ) : null}
+            </Tile>
           ))}
-          {call.kind === 'do' && !notDoing ? null : (
-            <View style={[styles.field, call.options.length > 0 && styles.fieldAfter]}>
-              <Icon name="IconPencil" size={13} color={lit ? colors.tertiary : colors.inkFaint} />
-              {secret ? (
-                <TextInput
-                  value={draft.typed}
-                  onChangeText={(text) => edit(store, { typed: text })}
-                  placeholder={chosen.length ? t(ADD_NOTE) : t(SECRET_FIELD)}
-                  placeholderTextColor={colors.tertiary}
-                  // Its words never show, and the keyboard neither suggests nor remembers them. A hidden secure field
-                  // cannot hold the line breaks of a pasted key, so the text is drawn clear; paste still works.
-                  style={[styles.input, draft.typed ? styles.hiddenText : null]}
-                  multiline
-                  {...SECRET_INPUT}
-                  // Return sends it, as in the card's other field; a pasted key keeps its line breaks.
-                  returnKeyType="send"
-                  submitBehavior="submit"
-                  onSubmitEditing={go}
-                  caretHidden={!!draft.typed}
-                  editable={canAnswer}
-                  onFocus={() => setFocused(true)}
-                  onBlur={() => setFocused(false)}
-                />
-              ) : (
-                <TextInput
-                  value={draft.typed}
-                  onChangeText={(text) => edit(store, { typed: text })}
-                  placeholder={notDoing ? t(WHY_NOT_DOING) : chosen.length ? t(ADD_NOTE) : t(OWN_WORDS)}
-                  placeholderTextColor={colors.tertiary}
-                  style={styles.input}
-                  // Only the button passes a step to production; Enter there is a new line of the note's.
-                  returnKeyType={call.kind === 'production' ? 'default' : 'send'}
-                  onSubmitEditing={call.kind === 'production' ? undefined : go}
-                  editable={canAnswer}
-                  onFocus={() => setFocused(true)}
-                  onBlur={() => setFocused(false)}
-                />
-              )}
-            </View>
-          )}
         </View>
       )}
       {call.against ? (
@@ -243,62 +203,146 @@ export const CallCard = memo(function CallCard({
           {runs}
         </Text>
       ) : null}
-      {secret ? (
-        <>
-          {typed ? <Text style={styles.hiddenSize}>{hidden(draft.typed, t)}</Text> : null}
-          <Text style={styles.kept}>{kept(call.asker.name, t)}</Text>
-        </>
-      ) : null}
+      {secret ? <Text style={styles.kept}>{kept(call.asker.name, t)}</Text> : null}
       {failed ? <Text style={styles.failed}>{pushFailed(failed, t)}</Text> : null}
-      <Pressable
-        onPress={go}
-        disabled={!ready}
-        style={({ pressed }) => [styles.go, !ready && { opacity: 0.5 }, pressed && { opacity: 0.8 }]}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !ready }}>
-        <Text style={styles.goText}>{goWords}</Text>
-      </Pressable>
+      {hasGo || next ? (
+        <View style={styles.goRow}>
+          {next ? (
+            <Pressable
+              onPress={() => {
+                haptics.select();
+                router.replace(`/device/${core}/call/${next.id}`);
+              }}
+              style={({ pressed }) => [styles.next, pressed && { opacity: 0.6 }]}
+              accessibilityRole="button">
+              <Text style={styles.nextText}>{t(NEXT_CALL)}</Text>
+            </Pressable>
+          ) : null}
+          {hasGo ? (
+            <Pressable
+              onPress={go}
+              disabled={!ready}
+              style={({ pressed }) => [styles.go, !ready && { opacity: 0.5 }, pressed && { opacity: 0.8 }]}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !ready }}>
+              <Text style={styles.goText} numberOfLines={1}>
+                {goWords}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+      <Why call={call} />
     </View>
   );
 });
 
-function OptionRow({
+/** What the call rests on, read whole under the answer as on the Mac's page. */
+function Why({ call }: { call: PersonCall }) {
+  const styles = useStyles(makeStyles);
+  const t = useT();
+  const context = contextOf(call);
+  const evidence = (call.evidence ?? []).filter((item) => !item.picture);
+  if (!context && !evidence.length) return null;
+  return (
+    <View style={styles.why}>
+      <SectionLabel>{t(WHY_IT_CAME_UP)}</SectionLabel>
+      {context ? (
+        <Text style={styles.context} selectable>
+          {context}
+        </Text>
+      ) : null}
+      {evidence.map((item, index) => (
+        <Text key={index} style={styles.evidenceText} selectable>
+          {item.what}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+/** One choice, a full-width tile; the chosen one lifts. */
+function Tile({
   option,
-  first,
   on,
   pick,
   disabled,
   onPress,
+  children,
 }: {
   option: CallOption;
-  first: boolean;
   on: boolean;
   pick: boolean;
   disabled: boolean;
   onPress: () => void;
+  children?: ReactNode;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const t = useT();
   return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={[styles.option, !first && styles.optionAfter, on && { backgroundColor: colors.active }]}
-      accessibilityRole="radio"
-      accessibilityState={{ checked: on, disabled }}>
-      <ChoiceMark on={on} />
-      <View style={styles.optionWords}>
-        <Text style={styles.optionLabel}>{option.label}</Text>
-        {option.detail ? <Text style={styles.optionDetail}>{option.detail}</Text> : null}
-      </View>
-      {pick ? (
-        <View style={styles.pick}>
-          <Icon name="Logo" size={13} color={colors.accent} />
-          <Text style={styles.pickText}>{t(PICK)}</Text>
+    <View
+      style={[
+        styles.tile,
+        on
+          ? { backgroundColor: colors.active, borderColor: colors.borderStrong }
+          : { backgroundColor: colors.overlay, borderColor: colors.border },
+      ]}>
+      <Pressable
+        onPress={onPress}
+        disabled={disabled}
+        style={styles.option}
+        accessibilityRole="radio"
+        accessibilityState={{ checked: on, disabled }}>
+        <ChoiceMark on={on} />
+        <View style={styles.optionWords}>
+          <Text style={styles.optionLabel}>{option.label}</Text>
+          {option.detail ? <Text style={styles.optionDetail}>{option.detail}</Text> : null}
         </View>
-      ) : null}
-    </Pressable>
+        {pick ? (
+          <View style={styles.pick}>
+            <Icon name="Logo" size={13} color={colors.accent} />
+            <Text style={styles.pickText}>{t(PICK)}</Text>
+          </View>
+        ) : null}
+      </Pressable>
+      {children}
+    </View>
+  );
+}
+
+/** Why a do call is not being done, typed inside its Not doing tile. */
+function NotDoingNote({
+  value,
+  onChange,
+  onSubmit,
+  editable,
+}: {
+  value: string;
+  onChange: (text: string) => void;
+  onSubmit: () => void;
+  editable: boolean;
+}) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const t = useT();
+  const [focused, setFocused] = useState(false);
+  return (
+    <View style={styles.note}>
+      <Icon name="IconPencil" size={13} color={focused || value.trim() ? colors.tertiary : colors.inkFaint} />
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        placeholder={t(WHY_NOT_DOING)}
+        placeholderTextColor={colors.tertiary}
+        style={styles.input}
+        returnKeyType="send"
+        onSubmitEditing={onSubmit}
+        editable={editable}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+      />
+    </View>
   );
 }
 
@@ -432,24 +476,18 @@ function CallPicture({ path, style, top, whole }: { path?: string; style: object
 
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
-    card: {
-      padding: 12,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: colors.borderStrong,
-      backgroundColor: colors.overlay,
-    },
     who: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     sep: { color: colors.inkFaint },
     age: { fontFamily: fonts.ui, fontSize: 14, color: colors.tertiary },
-    question: { marginTop: 8, fontFamily: fonts.uiSemibold, fontSize: 17, lineHeight: 22, color: colors.ink },
-    prose: { marginTop: 4, fontFamily: fonts.ui, fontSize: 15, lineHeight: 20, color: colors.secondary },
+    openChat: { fontFamily: fonts.ui, fontSize: 14, color: colors.secondary },
+    question: { marginTop: 14, fontFamily: fonts.uiSemibold, fontSize: 21, lineHeight: 27, color: colors.ink },
+    prose: { marginTop: 6, fontFamily: fonts.ui, fontSize: 15, lineHeight: 21, color: colors.secondary },
     link: {
-      marginTop: 10,
+      marginTop: 12,
       flexDirection: 'row',
       alignItems: 'center',
       gap: 10,
-      minHeight: ROW,
+      minHeight: 44,
       paddingHorizontal: 14,
       borderRadius: 10,
       borderWidth: 1,
@@ -458,35 +496,45 @@ const makeStyles = (colors: Palette) => {
     },
     linkLabel: { flexShrink: 0, maxWidth: '70%', fontFamily: fonts.uiMedium, fontSize: 14.5, color: colors.ink },
     linkUrl: { flex: 1, fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
-    context: { marginTop: 2, fontFamily: fonts.ui, fontSize: 14, lineHeight: 19, color: colors.tertiary },
-    options: { marginTop: 12, borderWidth: 1, borderRadius: 10, overflow: 'hidden' },
-    option: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: ROW, paddingHorizontal: 14, paddingVertical: 8 },
-    optionAfter: { borderTopWidth: 1, borderTopColor: colors.border },
-    optionWords: { flex: 1, gap: 1 },
+    tiles: { marginTop: 16, gap: 9 },
+    tile: { borderRadius: 12, borderWidth: 1, overflow: 'hidden' },
+    option: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48, paddingHorizontal: 14, paddingVertical: 11 },
+    optionWords: { flex: 1, gap: 2 },
     optionLabel: { fontFamily: fonts.ui, fontSize: 15.5, color: colors.ink },
-    optionDetail: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
+    optionDetail: { fontFamily: fonts.ui, fontSize: 13, color: colors.tertiary },
     pick: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     pickText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
-    field: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: ROW, paddingHorizontal: 14, backgroundColor: colors.sunken },
-    fieldAfter: { borderTopWidth: 1, borderTopColor: colors.border },
-    input: { flex: 1, fontFamily: fonts.ui, fontSize: 15.5, color: colors.ink, paddingVertical: 10 },
-    hiddenText: { color: 'transparent' },
-    against: { marginTop: 10, fontFamily: fonts.ui, fontSize: 13.5, color: colors.secondary },
+    note: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      minHeight: 44,
+      paddingHorizontal: 14,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    input: { flex: 1, fontFamily: fonts.ui, fontSize: 15, color: colors.ink, paddingVertical: 10 },
+    against: { marginTop: 12, fontFamily: fonts.ui, fontSize: 13.5, color: colors.secondary },
     extras: { marginTop: 6, flexDirection: 'row', alignItems: 'center', minHeight: 32 },
     runs: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32 },
     extraText: { fontFamily: fonts.ui, fontSize: 13, color: colors.tertiary },
     command: { fontFamily: fonts.mono, fontSize: 12.5, color: colors.secondary },
-    hiddenSize: { marginTop: 8, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
-    kept: { marginTop: 4, fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
+    kept: { marginTop: 8, fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
     failed: { marginTop: 10, fontFamily: fonts.ui, fontSize: 13, color: colors.danger },
-    go: { marginTop: 12, height: 46, borderRadius: 12, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-    goText: { fontFamily: fonts.uiSemibold, fontSize: 16, color: colors.ground },
-    strip: { marginTop: 10, height: 120, flexDirection: 'row', gap: 6 },
+    goRow: { marginTop: 14, flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 8 },
+    next: { minHeight: 40, paddingHorizontal: 14, justifyContent: 'center' },
+    nextText: { fontFamily: fonts.uiMedium, fontSize: 14.5, color: colors.secondary },
+    go: { flexShrink: 1, minHeight: 40, paddingHorizontal: 16, borderRadius: 10, backgroundColor: colors.accent, justifyContent: 'center' },
+    goText: { fontFamily: fonts.uiSemibold, fontSize: 15, color: colors.ground },
+    why: { marginTop: 22, gap: 8 },
+    context: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 21, color: colors.secondary },
+    evidenceText: { fontFamily: fonts.ui, fontSize: 14, lineHeight: 19, color: colors.tertiary },
+    strip: { marginTop: 12, height: 160, flexDirection: 'row', gap: 6 },
     lead: { flex: 2 },
     rest: { width: 104, gap: 6 },
     restItem: { flex: 1 },
     fill: { flex: 1 },
-    evidence: { marginTop: 10, height: 128, flexDirection: 'row', gap: 6 },
+    evidence: { marginTop: 12, height: 150, flexDirection: 'row', gap: 6 },
     evidenceItem: { flex: 1 },
     picture: { borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.sunken, overflow: 'hidden' },
     topImage: { position: 'absolute', top: 0, left: 0, width: '100%', aspectRatio: 0.75 },

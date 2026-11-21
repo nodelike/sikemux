@@ -247,9 +247,24 @@ enum CallWords {
     /// The line over a page one of a lead's workers showed.
     static func showedPage(_ name: String) -> String { String(localized: "@\(name) showed a page") }
     static let addNote = String(localized: "Add a note…")
-    static let ownWords = String(localized: "Or answer in your own words…")
     static let secretField = String(localized: "Type or paste it…")
     static let goWithThis = String(localized: "Go with this")
+    static func goWith(_ option: String) -> String { String(localized: "Go with \(option)") }
+    static let openChat = String(localized: "Open chat")
+    static let nextCall = String(localized: "Next call")
+    static let whyItCameUp = String(localized: "Why it came up")
+    /// A call's page goes by its short title, or by who asks it.
+    static func pageTitle(_ call: PersonCall) -> String {
+        let title = call.title?.trimmingCharacters(in: .whitespaces) ?? ""
+        return title.isEmpty ? "@\(call.asker.name)" : title
+    }
+    /// What the empty composer on a call's page says its words will be.
+    static func composerHint(_ call: PersonCall, chosen: Bool) -> String {
+        if call.secret == true { return chosen ? addNote : secretField }
+        if call.options.isEmpty { return String(localized: "Answer in your own words…") }
+        if !chosen { return String(localized: "Pick one above, or answer in your own words…") }
+        return call.kind == .production ? String(localized: "Add a note, then tap Go…") : addNote
+    }
     static let whatRuns = String(localized: "What runs")
     static func kept(_ name: String) -> String {
         String(localized: "Kept private: @\(name) reads it, and it never shows in the chat.")
@@ -324,9 +339,6 @@ enum CallWords {
     // MARK: The chief's chat: an Overrule, the week's count
 
     static let overrule = String(localized: "Overrule")
-    /// What a tap on a call's cut context does, for VoiceOver.
-    static let showAll = String(localized: "Shows all of it")
-    static let showLess = String(localized: "Shows two lines")
     /// Under an Overrule or Undo that has no host to send it to.
     static let notConnected = String(localized: "Not connected to the host.")
     static let undo = String(localized: "Undo")

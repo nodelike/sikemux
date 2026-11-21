@@ -37,7 +37,7 @@ export function CallsTab({ core, snapshot, scope }: { core: string; snapshot: Sn
       end={end}
       onPress={
         call.state === 'open'
-          ? () => router.push(`/device/${core}/calls?call=${call.id}`)
+          ? () => router.push(`/device/${core}/call/${call.id}`)
           : chatless(call)
             ? undefined
             : () => router.push(`/device/${core}/chat/${call.asker.agentId}`)

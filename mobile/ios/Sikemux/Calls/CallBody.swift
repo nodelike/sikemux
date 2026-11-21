@@ -1,20 +1,18 @@
 import SwiftUI
 import UIKit
 
-/// A call's card on the Calls screen: the Mac's call card at the phone's sizes, a little tighter, with 44-point rows
-/// and Go with this across the card.
-struct CallCard: View {
+/// A call as the Mac's call tab draws it, as the page's own content: who asks, the question, the choices as rows with
+/// Go under them, then why it came up. What the person writes goes in the page's composer.
+struct CallBody: View {
     @Environment(\.palette) private var palette
     let core: String
     let call: PersonCall
     @Bindable var draft: CallDraft
     let canAnswer: Bool
+    let next: PersonCall?
     let report: (String) -> Void
-    @FocusState private var fieldFocused: Bool
+    @FocusState private var noteFocused: Bool
     @State private var secretFocused = false
-    @State private var contextOpen = false
-
-    private static let row: CGFloat = 44
 
     private var calls: HostCalls { HostCalls.of(core) }
     private var chosen: [String] { draft.chosen(in: call) }
@@ -24,63 +22,53 @@ struct CallCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            CallWho(core: core, call: call)
+            HStack(spacing: 8) {
+                CallWho(core: core, call: call)
+                Spacer(minLength: 8)
+                Button {
+                    Haptics.tap()
+                    Router.shared.push(.chat(core: core, agent: call.asker.agentId))
+                } label: {
+                    Text(CallWords.openChat).font(Theme.ui(13.5)).foregroundStyle(palette.secondary)
+                        .frame(minHeight: 32).contentShape(Rectangle())
+                }
+                .buttonStyle(PressFade())
+            }
             let headline = CallWords.headline(call)
             Text(headline)
-                .font(Theme.ui(17, .semibold))
-                .tracking(-0.2)
+                .font(Theme.ui(21, .semibold))
+                .tracking(-0.3)
                 .foregroundStyle(palette.ink)
                 .textSelection(.enabled)
-                .padding(.top, 8)
+                .padding(.top, 10)
             if headline != call.question {
                 Text(call.question).font(Theme.ui(15)).foregroundStyle(palette.secondary).textSelection(.enabled)
-                    .padding(.top, 4)
-            }
-            if let context = CallWords.context(call) {
-                // What a step to production, or anything that can't be undone, rests on is read whole; any
-                // other call's opens on a tap.
-                let whole = call.kind == .production || call.brief?.cannotUndo.isEmpty == false
-                Text(context).font(Theme.ui(14)).foregroundStyle(palette.tertiary).textSelection(.enabled)
-                    .lineLimit(whole || contextOpen ? nil : 2)
-                    .padding(.top, 2)
-                    .onTapGesture { if !whole { contextOpen.toggle() } }
-                    .accessibilityAddTraits(whole ? [] : .isButton)
-                    .accessibilityValue(whole ? "" : contextOpen ? "expanded" : "collapsed")
-                    .accessibilityHint(whole ? "" : contextOpen ? CallWords.showLess : CallWords.showAll)
+                    .padding(.top, 8)
             }
             if let link = call.link {
                 CallLinkTile(link: link) { if call.kind == .look, canAnswer, !draft.sending { seenLook() } }
-                    .padding(.top, 10)
+                    .padding(.top, 14)
             }
             if let page = call.page {
-                PageCard(page: PageRef(id: page.id, title: page.title))
-            }
-            ForEach(Array((call.evidence ?? []).filter { $0.picture == nil }.enumerated()), id: \.offset) {
-                Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary).textSelection(.enabled)
-                    .padding(.top, 4)
+                PageCard(page: PageRef(id: page.id, title: page.title)).padding(.top, 6)
             }
             pictures
-            if call.kind != .look { options }
+            if call.kind != .look { tiles }
             if let against = call.against {
-                (Text("\(CallWords.againstIt) ").foregroundStyle(palette.tertiary)
-                    + Text(against).foregroundStyle(palette.secondary))
+                (Text("\(CallWords.againstIt) ").foregroundStyle(palette.secondary)
+                    + Text(against).foregroundStyle(palette.tertiary))
                     .font(Theme.ui(13.5))
                     .textSelection(.enabled)
-                    .padding(.top, 10)
+                    .padding(.top, 12)
             }
             extras
             if let failed = calls.failed[call.id] {
                 Text(CallWords.pushFailed(failed)).font(Theme.ui(13)).foregroundStyle(palette.danger).padding(
                     .top, 10)
             }
-            goButton.padding(.top, 12)
+            goRow.padding(.top, 14)
+            why
         }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(palette.overlay))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.borderStrong, lineWidth: 1)
-        )
-        .padding(.bottom, 8)
         .task(id: "\(call.id)|\(Hub.shared.live(core).isOpen)") { await calls.see(call) }
     }
 
@@ -107,8 +95,8 @@ struct CallCard: View {
                 }
                 .frame(width: 104)
             }
-            .frame(height: 120)
-            .padding(.top, 10)
+            .frame(height: 160)
+            .padding(.top, 14)
         } else if let shown = call.evidence?.filter({ $0.picture != nil }).prefix(2), !shown.isEmpty {
             HStack(spacing: 6) {
                 ForEach(Array(shown.enumerated()), id: \.offset) { _, evidence in
@@ -119,100 +107,73 @@ struct CallCard: View {
                         .accessibilityLabel(evidence.what)
                 }
             }
-            .frame(height: 128)
-            .padding(.top, 10)
+            .frame(height: 150)
+            .padding(.top, 14)
         }
     }
 
-    private var options: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(call.options.enumerated()), id: \.element.id) { index, option in
-                if index > 0 { palette.border.frame(height: 1) }
-                optionRow(option)
-            }
-            if call.kind != .do || notDoing {
-                if !call.options.isEmpty { palette.border.frame(height: 1) }
-                field
-            }
+    private var tiles: some View {
+        VStack(spacing: 9) {
+            ForEach(call.options, id: \.id) { option in tile(option) }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(
-                fieldFocused || secretFocused || typed ? palette.borderSelected : palette.border, lineWidth: 1)
-        )
-        .padding(.top, 12)
+        .padding(.top, 16)
     }
 
-    private func optionRow(_ option: CallOption) -> some View {
+    /// One choice as a full-width row; Not doing on a do call holds the field that says why.
+    private func tile(_ option: CallOption) -> some View {
         let on = chosen.contains(option.id)
-        return Button {
-            Haptics.select()
-            draft.choose(option.id, in: call)
-        } label: {
-            HStack(spacing: 12) {
-                CallChoiceMark(on: on)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(option.label).font(Theme.ui(15.5)).foregroundStyle(palette.ink)
-                    if let detail = option.detail {
-                        Text(detail).font(Theme.ui(12.5)).foregroundStyle(palette.tertiary)
-                    }
-                }
-                Spacer(minLength: 8)
-                if call.pick == option.id {
-                    HStack(spacing: 5) {
-                        IconView(icon: Icons.brand, size: 13).foregroundStyle(palette.accent)
-                        Text(CallWords.pick)
-                    }
-                    .font(Theme.ui(12.5))
-                    .foregroundStyle(palette.tertiary)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .frame(minHeight: Self.row)
-            .background(on ? palette.active : .clear)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!canAnswer || draft.sending)
-        .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
-    }
-
-    /// The options' last row: a note that goes with the option chosen, or with none chosen, the person's own answer;
-    /// on a call that keeps its words private, a hidden field.
-    private var field: some View {
-        HStack(spacing: 12) {
-            IconView(icon: Icons.pencil, size: 13).foregroundStyle(
-                fieldFocused || secretFocused || typed ? palette.tertiary : palette.inkFaint)
-            Group {
-                if call.secret == true {
-                    SecretField(
-                        text: $draft.typed, focused: $secretFocused, accent: UIColor(palette.accent),
-                        dark: !palette.isLight, onSubmit: goWithThis
-                    )
-                    .overlay(alignment: .leading) {
-                        if draft.typed.isEmpty {
-                            Text(chosen.isEmpty ? CallWords.secretField : CallWords.addNote)
-                                .foregroundStyle(palette.tertiary).allowsHitTesting(false)
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                Haptics.select()
+                draft.choose(option.id, in: call)
+            } label: {
+                HStack(spacing: 12) {
+                    CallChoiceMark(on: on)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(option.label).font(Theme.ui(15.5)).foregroundStyle(palette.ink)
+                        if let detail = option.detail {
+                            Text(detail).font(Theme.ui(13)).foregroundStyle(palette.tertiary)
                         }
                     }
-                } else {
-                    TextField(
-                        notDoing ? CallWords.whyNotDoing : chosen.isEmpty ? CallWords.ownWords : CallWords.addNote,
-                        text: $draft.typed)
+                    Spacer(minLength: 8)
+                    if call.pick == option.id {
+                        HStack(spacing: 5) {
+                            IconView(icon: Icons.brand, size: 13).foregroundStyle(palette.accent)
+                            Text(CallWords.pick)
+                        }
+                        .font(Theme.ui(12.5))
+                        .foregroundStyle(palette.tertiary)
+                    }
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .frame(minHeight: 48)
+                .contentShape(Rectangle())
             }
-            .font(Theme.ui(15.5))
-            .foregroundStyle(palette.ink)
-            .focused($fieldFocused)
-            // Only the button passes a step to production; Return there sends nothing.
-            .submitLabel(call.kind == .production ? .done : .send)
-            .onSubmit { if call.kind != .production { goWithThis() } }
-            .disabled(!canAnswer)
+            .buttonStyle(.plain)
+            .disabled(!canAnswer || draft.sending)
+            .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
+            if on && option.id == CallWords.notDoingId && call.kind == .do { note }
+        }
+        .background(shape.fill(on ? palette.active : palette.overlay))
+        .overlay(shape.strokeBorder(on ? palette.borderStrong : palette.border, lineWidth: 1))
+    }
+
+    private var note: some View {
+        HStack(spacing: 10) {
+            IconView(icon: Icons.pencil, size: 13).foregroundStyle(noteFocused || typed ? palette.tertiary : palette.inkFaint)
+            TextField(CallWords.whyNotDoing, text: $draft.typed)
+                .font(Theme.ui(15))
+                .foregroundStyle(palette.ink)
+                .focused($noteFocused)
+                .submitLabel(.send)
+                .onSubmit(goWithThis)
+                .disabled(!canAnswer)
         }
         .padding(.horizontal, 14)
-        .frame(minHeight: Self.row)
-        .background(palette.sunken.opacity(0.6))
+        .frame(minHeight: 44)
+        .overlay(alignment: .top) { palette.border.frame(height: 1).padding(.horizontal, 14) }
     }
 
     @ViewBuilder
@@ -220,71 +181,111 @@ struct CallCard: View {
         let runs = call.kind == .production ? call.action : nil
         if runs != nil || call.secret == true {
             VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    if runs != nil {
-                        Button {
-                            draft.runsOpen.toggle()
-                        } label: {
-                            HStack(spacing: 6) {
-                                IconView(icon: Icons.chevron, size: 11).rotationEffect(
-                                    .degrees(draft.runsOpen ? 90 : 0))
-                                Text(CallWords.whatRuns)
-                            }
-                            .font(Theme.ui(13))
-                            .foregroundStyle(palette.tertiary)
-                            .frame(minHeight: 32)
-                            .contentShape(Rectangle())
+                if runs != nil {
+                    Button {
+                        draft.runsOpen.toggle()
+                    } label: {
+                        HStack(spacing: 6) {
+                            IconView(icon: Icons.chevron, size: 11).rotationEffect(.degrees(draft.runsOpen ? 90 : 0))
+                            Text(CallWords.whatRuns)
                         }
-                        .buttonStyle(.plain)
+                        .font(Theme.ui(13))
+                        .foregroundStyle(palette.tertiary)
+                        .frame(minHeight: 32)
+                        .contentShape(Rectangle())
                     }
-                    Spacer(minLength: 0)
+                    .buttonStyle(.plain)
                 }
                 if let runs, draft.runsOpen {
                     Text(runs).font(Theme.mono(12.5)).foregroundStyle(palette.secondary).textSelection(.enabled)
                 }
                 if call.secret == true {
-                    if typed {
-                        Text(CallWords.hidden(draft.typed)).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim)
-                    }
                     Text(CallWords.kept(call.asker.name)).font(Theme.ui(12.5)).foregroundStyle(palette.tertiary)
                 }
             }
-            .padding(.top, 6)
+            .padding(.top, 8)
+        }
+    }
+
+    @ViewBuilder
+    private var why: some View {
+        let context = CallWords.context(call)
+        let evidence = (call.evidence ?? []).filter { $0.picture == nil }
+        if context != nil || !evidence.isEmpty {
+            SectionLabel(CallWords.whyItCameUp).padding(.horizontal, -8).padding(.top, 10)
+            VStack(alignment: .leading, spacing: 8) {
+                if let context {
+                    Text(context).font(Theme.ui(14.5)).lineSpacing(3).foregroundStyle(palette.secondary)
+                }
+                ForEach(Array(evidence.enumerated()), id: \.offset) {
+                    Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary)
+                }
+            }
+            .textSelection(.enabled)
         }
     }
 
     private var seen: Bool { call.kind != .production || calls.seen.contains(call.id) }
 
-    private var ready: Bool {
+    private var hasGo: Bool { call.kind == .look || call.kind == .do || !call.options.isEmpty }
+
+    var ready: Bool { CallBody.ready(call, draft, canAnswer: canAnswer, seen: seen) }
+
+    static func ready(_ call: PersonCall, _ draft: CallDraft, canAnswer: Bool, seen: Bool) -> Bool {
+        let chosen = draft.chosen(in: call)
+        let typed = !draft.typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let answered: Bool =
             switch call.kind {
             case .look: true
-            case .do: !chosen.isEmpty && (!notDoing || typed)
+            case .do: !chosen.isEmpty && (!chosen.contains(CallWords.notDoingId) || typed)
             default: !chosen.isEmpty || typed
             }
         return answered && !draft.sending && canAnswer && seen
     }
 
     private var goWords: String {
+        let label = chosen.first.flatMap { id in call.options.first { $0.id == id }?.label }
         switch call.kind {
-        case .look: CallWords.seen
-        case .do: chosen.first.flatMap { id in call.options.first { $0.id == id }?.label } ?? CallWords.done
-        default: seen ? CallWords.goWithThis : CallWords.connecting
+        case .look: return CallWords.seen
+        case .do: return label ?? CallWords.done
+        default:
+            guard seen else { return CallWords.connecting }
+            return label.map(CallWords.goWith) ?? CallWords.goWithThis
         }
     }
 
-    private var goButton: some View {
-        Button(action: goWithThis) {
-            Text(goWords)
-                .font(Theme.ui(16, .semibold))
-                .foregroundStyle(palette.ground)
-                .frame(maxWidth: .infinity, minHeight: 46)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(palette.accent))
-                .contentShape(Rectangle())
+    @ViewBuilder
+    private var goRow: some View {
+        if hasGo || next != nil {
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                if let next {
+                    Button {
+                        Haptics.tap()
+                        Router.shared.replace(.call(core: core, call: next.id))
+                    } label: {
+                        Text(CallWords.nextCall).font(Theme.ui(14.5, .medium)).foregroundStyle(palette.secondary)
+                            .padding(.horizontal, 14).frame(minHeight: 40).contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressFade())
+                }
+                if hasGo {
+                    Button(action: goWithThis) {
+                        Text(goWords)
+                            .font(Theme.ui(15, .semibold))
+                            .lineLimit(1)
+                            .foregroundStyle(palette.ground)
+                            .padding(.horizontal, 16)
+                            .frame(minHeight: 40)
+                            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(palette.accent))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressFade())
+                    .disabled(!ready)
+                    .opacity(ready ? 1 : 0.5)
+                }
+            }
         }
-        .buttonStyle(PressFade())
-        .disabled(!ready)
-        .opacity(ready ? 1 : 0.5)
     }
 
     private func goWithThis() {
@@ -292,7 +293,8 @@ struct CallCard: View {
         if call.kind == .look { return seenLook() }
         guard let params = draft.answer(call) else { return }
         Haptics.select()
-        fieldFocused = false
+        noteFocused = false
+        Keyboard.dismiss()
         calls.answer(call, params, report: report)
     }
 

@@ -113,7 +113,7 @@ export function OwnMark({
   );
 }
 
-const openChat = (core: string, agent: string) => {
+export const openChat = (core: string, agent: string) => {
   haptics.select();
   router.push(`/device/${core}/chat/${agent}`);
 };

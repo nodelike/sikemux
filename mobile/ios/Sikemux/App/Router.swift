@@ -11,7 +11,7 @@ enum Route: Hashable {
     case device(core: String, tab: DeviceTab? = nil)
     case chat(core: String, agent: String)
     /// Every call waiting on the person, scrolled to call `call`.
-    case calls(core: String, call: String)
+    case call(core: String, call: String)
     case newChat(core: String, project: String? = nil, launcher: String? = nil)
     case pairing(core: String)
     case hostSignIn

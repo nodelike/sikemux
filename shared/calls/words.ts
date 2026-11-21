@@ -288,9 +288,6 @@ export const sendToTold = (name: string, say: Say = english) => say("Send to @{n
 // The chief's chat: an Overrule, the week's count
 
 export const OVERRULE = "Overrule";
-/** What a tap on a call's cut context does, for a screen reader. */
-export const SHOW_ALL = "Shows all of it";
-export const SHOW_LESS = "Shows two lines";
 /** Under an Overrule or Undo that has no host to send it to. */
 export const NOT_CONNECTED = "Not connected to the host.";
 export const UNDO = "Undo";
@@ -351,9 +348,12 @@ export function weekCount(week: { decided: number; overruled: number; answered: 
 export const PICK = "pick";
 export const AGAINST_IT = "Against it:";
 export const ADD_NOTE = "Add a note…";
-export const OWN_WORDS = "Or answer in your own words…";
 export const SECRET_FIELD = "Type or paste it…";
 export const GO_WITH_THIS = "Go with this";
+export const goWith = (option: string, say: Say = english) => say("Go with {option}", { option });
+export const OPEN_CHAT = "Open chat";
+export const NEXT_CALL = "Next call";
+export const WHY_IT_CAME_UP = "Why it came up";
 export const WHAT_RUNS = "What runs";
 export const kept = (name: string, say: Say = english) => say("Kept private: @{name} reads it, and it never shows in the chat.", { name });
 /** Go with this while the host has not yet taken that this phone drew the call. */
@@ -367,6 +367,19 @@ export const DONE = "Done";
 export const SEEN = "Seen";
 /** The field under Not doing on a do call. */
 export const WHY_NOT_DOING = "Say why you're not doing it…";
+/** A call's page title: its short title, else who asked it. */
+export function pageTitle(call: PersonCall): string {
+    return call.title?.trim() || `@${call.asker.name}`;
+}
+
+/** What the composer under a call's page says while it is empty. */
+export function composerHint(call: PersonCall, chosen: boolean, say: Say = english): string {
+    if (call.secret) return say(chosen ? ADD_NOTE : SECRET_FIELD);
+    if (!call.options.length) return say("Answer in your own words…");
+    if (!chosen) return say("Pick one above, or answer in your own words…");
+    return say(call.kind === "production" ? "Add a note, then tap Go…" : ADD_NOTE);
+}
+
 /** In a chat, the calls its agent waits on folded into one row. */
 export const waitingCalls = (count: number, say: Say = english) => say("{count} calls", { count });
 export const newest = (question: string, say: Say = english) => say("Newest: {question}", { question });
