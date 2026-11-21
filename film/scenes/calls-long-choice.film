@@ -13,8 +13,8 @@ front Wren
 settle 2
 click "What should the product page do until its cache is warm?"
 settle 2
-click "Serve the page straight from the database with a clear banner saying prices may lag, and warm the cache in the background for the next visitor"
+click 900,245
 settle 2
-zoom "Hold the request until the cache is warm" 1.5
+zoom 912,300 1.9
 settle 1
 snap calls-long-choice
