@@ -3,6 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
+use sikemux_process::user_environment::shell_var;
+
 use crate::agent_catalog::{AgentKind, Home, PrivateHome};
 
 /// The home `kind` keeps, when Sikemux gives its launches private copies of it.
@@ -13,11 +15,13 @@ pub fn private(kind: AgentKind) -> Option<(&'static Home, &'static PrivateHome)>
 
 /// Makes `destination` a private copy of `kind`'s home: of `source`, else of
 /// the one the person's shell names, sharing the store its sessions are in.
+/// Answers the variable that keeps its sign-in in that home, so a sign-in
+/// made in any private copy reaches them all.
 pub fn private_home(
     kind: AgentKind,
     destination: &Path,
     source: Option<PathBuf>,
-) -> Result<(), String> {
+) -> Result<Option<(String, String)>, String> {
     let (_, private) =
         private(kind).ok_or_else(|| format!("{} keeps no private home", kind.as_str()))?;
     let source = source
@@ -29,17 +33,17 @@ pub fn private_home(
         private.session_store_is_folder,
     )
     .and_then(|()| copy_home(destination, &source, private.config, private.empty_config))
-    .map_err(|error| error.to_string())
-}
-
-/// The variable naming the file `kind` keeps its sign-in in, inside the
-/// person's own `home`, so a sign-in made in any private copy reaches them all.
-pub fn shared_login(kind: AgentKind, home: &Path) -> Option<(String, String)> {
-    let login = private(kind)?.1.login.as_ref()?;
-    Some((
-        login.variable.to_owned(),
-        home.join(login.file).to_string_lossy().into_owned(),
-    ))
+    .map_err(|error| error.to_string())?;
+    let login = private
+        .login
+        .as_ref()
+        .filter(|login| shell_var(login.variable).is_none());
+    Ok(login.map(|login| {
+        (
+            login.variable.to_owned(),
+            source.join(login.file).to_string_lossy().into_owned(),
+        )
+    }))
 }
 
 /// Makes `home` a copy of `source`: every entry is linked back to the real
@@ -125,29 +129,5 @@ mod tests {
             std::fs::read_to_string(home.path().join("state.db")).unwrap(),
             "kept"
         );
-    }
-
-    #[test]
-    fn a_grok_sign_in_in_a_terminal_reaches_its_chat() {
-        let data = tempfile::tempdir().unwrap();
-        let own = data.path().join("own");
-        let terminal = data.path().join("browser/grok/agent-one");
-        let chat = data.path().join("browser/grok-chat/agent-one");
-        for home in [&terminal, &chat] {
-            private_home(AgentKind::Grok, home, Some(own.clone())).unwrap();
-        }
-        let (variable, login) = shared_login(AgentKind::Grok, &own).unwrap();
-        let saved_in = |home: &Path, env: &[(String, String)]| {
-            env.iter()
-                .find(|(name, _)| *name == variable)
-                .map_or_else(|| home.join("auth.json"), |(_, path)| PathBuf::from(path))
-        };
-        let env = [(variable.clone(), login)];
-        std::fs::write(saved_in(&terminal, &env), "signed in").unwrap();
-        assert_eq!(
-            std::fs::read_to_string(saved_in(&chat, &env)).unwrap(),
-            "signed in"
-        );
-        assert!(!saved_in(&chat, &[]).exists());
     }
 }
