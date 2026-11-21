@@ -252,6 +252,8 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
         },
       };
     case 'trigger_add': {
+      if (args.process !== undefined && !/^exec-eval-\d+$/.test(String(args.process)))
+        return { error: 'process must be an executionId process_start gave in this project' };
       const on = args.process ?? args.agent ?? args.ci;
       const note = on
         ? `Once ${on} ends or gets where until says, it sends this chat its prompt with what happened, so end your turn now rather than waiting or polling.`
@@ -265,6 +267,8 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
       const agent = agents.find((one) => one.name.toLowerCase() === wanted.toLowerCase() || one.agentId === wanted);
       if (agent?.you) return { error: 'That agent is you' };
       if (!agent) return { error: `No open agent is called ${wanted}; agent_list shows the agents you can message` };
+      if (args.answers !== undefined && !(agent.asked ?? []).includes(args.answers))
+        return { error: `${agent.name} has no open question ${args.answers} that it asked you; it was answered already, or leave out answers to send this as a plain message` };
       return { value: { to: agent.name, agentId: agent.agentId, delivery: 'newTurn', note: `${agent.name} was idle and started a turn to read this.` } };
     }
     case 'agent_spawn':
@@ -289,6 +293,11 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
     case 'git_commit':
       return commit(project, args, fixture.yours ?? {});
     case 'ask':
+      if (args.edit !== undefined) {
+        if (!(fixture.calls ?? []).includes(args.edit))
+          return { error: 'no open call of yours has that id: it was answered, withdrawn or asked by another' };
+        return { value: args.withdraw === true ? { withdrawn: args.edit } : { edited: args.edit } };
+      }
       return {
         value: {
           questionId: 'question-eval-1',

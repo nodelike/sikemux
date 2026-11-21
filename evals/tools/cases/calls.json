@@ -1,0 +1,274 @@
+[
+  {
+    "id": "calls-01",
+    "from": [
+      "@Chief 2026-11-21: the person wrote \"signed in the resend\" and the Send as contact@ call stayed open until they complained"
+    ],
+    "category": "rage",
+    "severity": "high",
+    "tools": [
+      "ask",
+      "agent_send"
+    ],
+    "prompt": "Earlier Masaki, an agent you started, needed me signed in to Resend before it could add the sending domain, so you raised the call \"Send as contact@\" to me (questionId question-5d1c8e0b7a3f4c2e9b6a1d4f8c7e2a90), asking me to sign in to Resend in your desk tab. The call has not been answered, and Masaki is idle until it hears from you.\n\nsigned in the resend",
+    "fixture": {
+      "agents": [
+        {
+          "name": "Masaki",
+          "title": "Send mail as contact@",
+          "status": "idle",
+          "teammate": true
+        }
+      ],
+      "calls": [
+        "question-5d1c8e0b7a3f4c2e9b6a1d4f8c7e2a90"
+      ]
+    },
+    "grade": {
+      "expect": [
+        {
+          "tool": "ask",
+          "args": {
+            "edit": "question-5d1c8e0b7a3f4c2e9b6a1d4f8c7e2a90",
+            "withdraw": true
+          }
+        },
+        {
+          "tool": "agent_send",
+          "args": {
+            "to": "/Masaki|agent-eval-1/"
+          }
+        }
+      ],
+      "forbid": [
+        {
+          "tool": "agent_send",
+          "args": {
+            "answers": {
+              "$present": true
+            }
+          },
+          "why": "answered its own call through agent_send, which leaves the call open"
+        },
+        {
+          "tool": "ask",
+          "args": {
+            "edit": {
+              "$present": false
+            }
+          },
+          "why": "raised another call instead of taking back the open one"
+        }
+      ]
+    },
+    "maxTurns": 8
+  },
+  {
+    "id": "calls-02",
+    "from": [
+      "@Chief 2026-11-20: \"GeekNews tick, again\" stayed open 15 hours after @Whis reported the account registered"
+    ],
+    "category": "rage",
+    "severity": "high",
+    "tools": [
+      "ask"
+    ],
+    "prompt": "Earlier you raised the call \"GeekNews tick\" to the person (questionId question-9b2e4f6a8c0d4e1f8a3b5c7d9e1f2a34), a task for them: tick the robot check in Whis's desk tab so Whis, an agent you started, can register the GeekNews account. The call has not been answered. You have just received:\n\n<agent-message from=\"Whis\" agent-id=\"agent-eval-1\" cli=\"claude\" note=\"Whis is an agent you started, and this is how its turn ended, sent by Sikemux. Reply with agent_send to Whis if it needs more; once its work has landed and you need nothing more, close it with agent_close.\">\nGeekNews is registered. The second try went through without the robot check, and the confirmation mail is in. Nothing is left on my side.\n</agent-message>",
+    "fixture": {
+      "agents": [
+        {
+          "name": "Whis",
+          "title": "Register the GeekNews account",
+          "status": "idle",
+          "teammate": true
+        }
+      ],
+      "calls": [
+        "question-9b2e4f6a8c0d4e1f8a3b5c7d9e1f2a34"
+      ]
+    },
+    "grade": {
+      "expect": [
+        {
+          "tool": "ask",
+          "args": {
+            "edit": "question-9b2e4f6a8c0d4e1f8a3b5c7d9e1f2a34",
+            "withdraw": true
+          }
+        }
+      ],
+      "forbid": [
+        {
+          "tool": "ask",
+          "args": {
+            "edit": {
+              "$present": false
+            }
+          },
+          "why": "raised another call instead of taking back the one whose work was done"
+        }
+      ]
+    },
+    "maxTurns": 8
+  },
+  {
+    "id": "calls-03",
+    "from": [
+      "@Rabo 2026-11-18: the person changed the mockups in chat and the call never followed",
+      "@Chief 2026-11-21: ask edit with the call's title instead of its id"
+    ],
+    "category": "malformed_call",
+    "severity": "med",
+    "tools": [
+      "ask"
+    ],
+    "prompt": "Earlier you raised the call \"Billing default\" to me (questionId question-3c5e7a9b1d2f4a6c8e0b2d4f6a8c0e12): \"Which billing period should the pricing page show first?\", with the choices \"Monthly first\" and \"Yearly first\" and your pick \"Yearly first\". It has not been answered.\n\nOn your call \"Billing default\", which stays open: add a third option bruv, remember whichever one the visitor picked last",
+    "fixture": {
+      "calls": [
+        "question-3c5e7a9b1d2f4a6c8e0b2d4f6a8c0e12"
+      ]
+    },
+    "grade": {
+      "expect": [
+        {
+          "tool": "ask",
+          "args": {
+            "edit": "question-3c5e7a9b1d2f4a6c8e0b2d4f6a8c0e12",
+            "withdraw": {
+              "$not": true
+            },
+            "choices": [
+              {
+                "label": "/last|remember/i"
+              }
+            ]
+          }
+        }
+      ],
+      "forbid": [
+        {
+          "tool": "ask",
+          "args": {
+            "edit": {
+              "$present": false
+            }
+          },
+          "why": "raised a second call instead of changing the open one in place"
+        },
+        {
+          "tool": "ask",
+          "args": {
+            "edit": "/^(?!question-|\"\")/"
+          },
+          "why": "passed the call's title as edit, which takes its questionId"
+        }
+      ]
+    },
+    "maxTurns": 6
+  },
+  {
+    "id": "calls-04",
+    "from": [
+      "@Gaimon, @Kagetane, @Ukyo's leads 2026-11-16 to 2026-11-19: agent_send with answers after the person's answer had already reached the worker"
+    ],
+    "category": "malformed_call",
+    "severity": "med",
+    "tools": [
+      "agent_send"
+    ],
+    "prompt": "Earlier Kagetane, an agent you started, asked you which dot size the rail's agent marks should use (its question question-a1b2c3d4e5f60718293a4b5c6d7e8f90). Only the person could say, so you raised the call \"Rail dot size\" about Kagetane's work. You have just received:\n\n<question-answer asker=\"Juniper\" cli=\"claude\" question=\"Which dot size should the rail's agent marks use?\" note=\"The person answered the question you asked; @Kagetane has the answer to its own question too. Go on with it.\">\n6 px, same as the notch\n</question-answer>",
+    "fixture": {
+      "agents": [
+        {
+          "name": "Kagetane",
+          "title": "Rail agent marks",
+          "status": "working",
+          "teammate": true
+        }
+      ]
+    },
+    "grade": {
+      "forbid": [
+        {
+          "tool": "agent_send",
+          "args": {
+            "answers": {
+              "$present": true
+            }
+          },
+          "why": "answered a question the person's answer had already closed"
+        },
+        {
+          "tool": "ask",
+          "why": "asked again after the person answered"
+        }
+      ],
+      "limit": [
+        {
+          "tool": "agent_send",
+          "max": 1
+        }
+      ]
+    },
+    "maxTurns": 6
+  },
+  {
+    "id": "calls-05",
+    "from": [
+      "@Chief 2026-11-18: \"We can drop it bruv.\" on the Zen browser plan; the reply said \"You can ignore its call\" and the call stayed until the person tapped it"
+    ],
+    "category": "rage",
+    "severity": "med",
+    "tools": [
+      "ask",
+      "agent_send",
+      "agent_close"
+    ],
+    "prompt": "Earlier Rabo, an agent you started, drew up a plan to support the Zen browser, and you raised the call \"Zen browser plan\" about its work to me (questionId question-7e9a1c3b5d7f4a2c9e1b3d5f7a9c1e56), with the choices \"Build it\" and \"Park it\". It has not been answered, and Rabo is idle.\n\nWe can drop it bruv.",
+    "fixture": {
+      "agents": [
+        {
+          "name": "Rabo",
+          "title": "Zen browser plan",
+          "status": "idle",
+          "teammate": true
+        }
+      ],
+      "calls": [
+        "question-7e9a1c3b5d7f4a2c9e1b3d5f7a9c1e56"
+      ]
+    },
+    "grade": {
+      "expect": [
+        {
+          "tool": "ask",
+          "args": {
+            "edit": "question-7e9a1c3b5d7f4a2c9e1b3d5f7a9c1e56",
+            "withdraw": true
+          }
+        }
+      ],
+      "forbid": [
+        {
+          "tool": "agent_send",
+          "args": {
+            "answers": {
+              "$present": true
+            }
+          },
+          "why": "answered its own call through agent_send, which leaves the call open"
+        },
+        {
+          "tool": "ask",
+          "args": {
+            "edit": {
+              "$present": false
+            }
+          },
+          "why": "raised another call instead of taking back the open one"
+        }
+      ]
+    },
+    "maxTurns": 8
+  }
+]
