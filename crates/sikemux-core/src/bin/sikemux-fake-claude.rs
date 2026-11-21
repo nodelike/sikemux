@@ -443,6 +443,7 @@ impl Claude {
                     looking,
                 ));
                 self.send(result(Some(&spawner), &read, "export function start() {}"));
+                self.send(json!({ "type": "system", "subtype": "task_progress", "task_id": task, "usage": { "total_tokens": 18_400 } }));
                 let ms: u64 = words.next().and_then(|n| n.parse().ok()).unwrap_or(0);
                 std::thread::sleep(Duration::from_millis(ms));
                 self.send(json!({ "type": "system", "subtype": "task_notification", "task_id": task, "status": "completed", "summary": "Found it" }));

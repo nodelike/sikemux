@@ -593,7 +593,7 @@ fn work_row(
                 .truncate()
                 .text_color(t.text_primary)
                 .map(|name| match detail.is_some() {
-                    true => name.flex_shrink_0().max_w(gpui_kit::relative(0.5)),
+                    true => name.flex_shrink(1.).max_w(gpui_kit::relative(0.5)),
                     false => name.flex_1(),
                 }),
         )
