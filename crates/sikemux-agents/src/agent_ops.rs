@@ -24,6 +24,8 @@ use crate::sessions::tokens::{ModelTally, ReadState};
 use crate::sessions::transcript::Said;
 use crate::sessions::{self, AgentSession, FileStamp};
 
+pub type EnvironmentVariables = Vec<(String, String)>;
+
 pub type Pending<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Asks the agent's CLI at `executable`, on the account `config_path` names, to rename a session.
@@ -178,7 +180,7 @@ pub trait AgentOps: Sync {
         _agent_id: &'a str,
         _program: &'a str,
         _library: &'a Path,
-    ) -> Option<Pending<'a, Result<Vec<(String, String)>, String>>> {
+    ) -> Option<Pending<'a, Result<EnvironmentVariables, String>>> {
         None
     }
 
