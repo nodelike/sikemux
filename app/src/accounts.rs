@@ -223,12 +223,7 @@ impl Accounts {
 
     /// The account `provider` runs on now, else its first.
     pub fn current(&self, provider: &str) -> Option<&Profile> {
-        let chosen = self.book.as_ref()?.selected.get(provider);
-        let accounts = self.of(provider);
-        chosen
-            .and_then(|id| accounts.iter().find(|profile| profile.id == *id))
-            .or(accounts.first())
-            .copied()
+        self.book.as_ref()?.in_use(provider)
     }
 
     /// Drops what the core said each chat may move to and would pick, so the next look asks again.

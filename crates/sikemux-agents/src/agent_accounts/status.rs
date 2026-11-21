@@ -668,6 +668,33 @@ mod tests {
         );
     }
 
+    /// Codex 0.169 refuses `account/read` sent with `"params": null`, so Settings › Models said
+    /// it could not ask who is signed in. A stand-in app server refuses it the same way.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_is_asked_who_is_signed_in_with_params_it_accepts() {
+        let dir = tempfile::tempdir().unwrap();
+        let codex = dir.path().join("codex");
+        write_executable(
+            &codex,
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*) printf '{"id":%s,"result":{}}\n' "$id";;
+    *'"method":"account/read"'*'"params":null'*|*'"params":null'*'"method":"account/read"'*)
+      printf '{"id":%s,"error":{"code":-32600,"message":"missing field params"}}\n' "$id";;
+    *'"method":"account/read"'*)
+      printf '{"id":%s,"result":{"account":{"type":"chatgpt","planType":"free"}}}\n' "$id";;
+  esac
+done
+"#,
+        );
+        let account = codex_account(&codex, None).await.unwrap();
+        assert!(account.signed_in);
+        assert_eq!(account.method.as_deref(), Some("subscription"));
+    }
+
     #[test]
     fn opencode_counts_its_credentials_and_provider_keys() {
         assert_eq!(
