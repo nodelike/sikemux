@@ -302,7 +302,7 @@ impl Tools {
         tools: Option<&McpLaunch>,
         library: Option<&Path>,
     ) -> Result<(String, String), String> {
-        let (variable, home) = self.private_home(AgentKind::Hermes, host, agent_id)?;
+        let (variable, home, _) = self.private_home(AgentKind::Hermes, host, agent_id)?;
         let set = |key: &str, value: &str| {
             let args = ["config", "set", key, value, "--force"].map(str::to_owned);
             run_config_command(program, args.to_vec(), (variable, home.clone()), "Hermes")
@@ -337,7 +337,7 @@ impl Tools {
         tools: Option<&McpLaunch>,
         library: Option<&Path>,
     ) -> Result<Vec<(String, String)>, String> {
-        let (variable, home) = self.private_home(AgentKind::Grok, host, agent_id)?;
+        let (variable, home, login) = self.private_home(AgentKind::Grok, host, agent_id)?;
         if let Some(launch) = tools {
             let mut args = ["mcp", "add", TOOLS_KEY, "--"].map(str::to_owned).to_vec();
             args.push(launch.command.clone());
@@ -352,9 +352,6 @@ impl Tools {
                 Err(error) => eprintln!("Sikemux skills are unavailable to Grok: {error}"),
             }
         }
-        let login = AgentKind::Grok
-            .home_root()
-            .and_then(|own| homes::shared_login(AgentKind::Grok, &own));
         Ok([(variable.to_owned(), home.to_string_lossy().into_owned())]
             .into_iter()
             .chain(login)
@@ -362,18 +359,18 @@ impl Tools {
     }
 
     /// A private copy of `kind`'s home for `agent_id`, which Sikemux can add a
-    /// server to without touching the person's own config, and the variable
-    /// that names it.
+    /// server to without touching the person's own config, the variable that
+    /// names it, and the one that keeps its sign-in in the person's own home.
     fn private_home(
         &self,
         kind: AgentKind,
         host: &str,
         agent_id: &str,
-    ) -> Result<(&'static str, PathBuf), String> {
+    ) -> Result<(&'static str, PathBuf, Option<(String, String)>), String> {
         let (home, _) = homes::private(kind).ok_or("the agent keeps no private home")?;
         let destination = self.state_dir()?.join(host).join(agent_id);
-        homes::private_home(kind, &destination, None)?;
-        Ok((home.variable, destination))
+        let login = homes::private_home(kind, &destination, None)?;
+        Ok((home.variable, destination, login))
     }
 }
 
@@ -737,5 +734,38 @@ mod tests {
             .unwrap();
         assert_eq!(empty["skills"]["paths"][0].as_str(), Some(LIBRARY));
         assert!(grok_config("skills = 3", Path::new(LIBRARY)).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_grok_sign_in_in_a_terminal_reaches_its_chat() {
+        let data = tempfile::tempdir().unwrap();
+        let tools = Tools {
+            executable: "/Apps/Sikemux.app/sikemux-host".into(),
+            endpoint: data.path().join("core.sock"),
+            data_dir: Some(data.path().to_path_buf()),
+        };
+        let terminal = tools
+            .grok_home("grok", "agent-one", "grok", None, None)
+            .await
+            .unwrap();
+        let library = data.path().join("skills");
+        let chat = AgentKind::Grok
+            .ops()
+            .chat_home(&tools, "agent-one", "grok", &library)
+            .unwrap()
+            .await
+            .unwrap();
+        let login = |env: &[(String, String)]| {
+            env.iter()
+                .find(|(name, _)| name == "GROK_AUTH_PATH")
+                .map(|(_, path)| PathBuf::from(path))
+        };
+        if sikemux_process::user_environment::shell_var("GROK_AUTH_PATH").is_some() {
+            assert_eq!(login(&chat), None);
+            return;
+        }
+        let own = AgentKind::Grok.home_root().unwrap().join("auth.json");
+        assert_eq!(login(&terminal), Some(own.clone()));
+        assert_eq!(login(&chat), Some(own));
     }
 }

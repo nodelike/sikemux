@@ -81,6 +81,7 @@ fn window(label: &str, minutes: u64, used: f64, resets_at: Option<&str>) -> Usag
 const GROK_ELSEWHERE: &[&str] = &[
     "XAI_API_KEY",
     "GROK_AUTH",
+    "GROK_AUTH_PATH",
     "GROK_CONFIG",
     "GROK_CONFIG_PATH",
     "GROK_LOCAL_AUTH",

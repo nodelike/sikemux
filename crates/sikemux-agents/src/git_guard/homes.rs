@@ -48,10 +48,6 @@ pub fn environment<'a>(
                     .iter()
                     .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
             );
-            env.extend(
-                kind.home_root()
-                    .and_then(|own| homes::shared_login(kind, &own)),
-            );
             env
         }
         Err(error) => {
