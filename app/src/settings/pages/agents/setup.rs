@@ -130,7 +130,7 @@ pub fn render(
     };
     rows::section_with(
         n!("Agents"),
-        Some(SharedString::from(all.len().to_string())),
+        None,
         update_all,
         None,
         lit("Agents"),
