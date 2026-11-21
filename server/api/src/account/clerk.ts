@@ -165,6 +165,7 @@ interface ClerkUser {
     verification?: { status?: string } | null;
   }[];
   external_accounts?: {
+    id?: string;
     external_account_id?: string;
     provider?: string;
     email_address?: string;
@@ -190,6 +191,17 @@ const TIMEOUT_MS = 10_000;
 /** A timeout or a rate limit: Clerk has not looked at the request yet, so asking again may work. */
 const UNANSWERED = new Set([408, 429]);
 const SESSIONS_PAGE = 500;
+
+/**
+ * The eac_ id a connected account is removed by. Clerk lists some accounts with
+ * it in `external_account_id` and their idn_ id in `id`, and others, such as
+ * Apple's, with it in `id`.
+ */
+function accountIdOf(account: { id?: string; external_account_id?: string }) {
+  return [account.external_account_id, account.id].find((id) =>
+    id?.startsWith("eac_"),
+  );
+}
 
 function providerOf(account: { provider?: string }) {
   return account.provider?.replace(/^oauth_/, "") || "connected";
@@ -430,18 +442,19 @@ export function clerkBackend(
               ]
             : [],
         ),
-        externalAccounts: (user.external_accounts ?? []).flatMap((account) =>
-          account.external_account_id
+        externalAccounts: (user.external_accounts ?? []).flatMap((account) => {
+          const id = accountIdOf(account);
+          return id
             ? [
                 {
-                  id: account.external_account_id,
+                  id,
                   provider: providerOf(account),
                   email: account.email_address ?? "",
                   addedAt: new Date(account.created_at ?? 0),
                 },
               ]
-            : [],
-        ),
+            : [];
+        }),
         phones: (user.phone_numbers ?? []).flatMap((phone) =>
           phone.id
             ? [
@@ -466,7 +479,7 @@ export function clerkBackend(
             ? new Date(user.password_last_updated_at)
             : null,
         accountsWithoutId: (user.external_accounts ?? []).flatMap((account) =>
-          account.external_account_id ? [] : [providerOf(account)],
+          accountIdOf(account) ? [] : [providerOf(account)],
         ),
         undated: [
           ...(user.passkeys?.length ? ["passkey"] : []),
@@ -498,7 +511,7 @@ export function clerkBackend(
       const { user } = await primaryEmail(userId);
       if (
         user?.external_accounts?.some(
-          (account) => account.external_account_id === accountId,
+          (account) => accountIdOf(account) === accountId,
         )
       )
         throw new ClerkRefusal(
