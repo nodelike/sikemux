@@ -372,6 +372,9 @@ pub struct ConfigChoice {
     /// The agent offers a newer release of this model, so a picker folds it away.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub superseded: bool,
+    /// Who made the model, such as "Anthropic", read from its name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maker: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

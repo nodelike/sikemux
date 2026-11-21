@@ -190,6 +190,7 @@ fn catalog_efforts(provider: &str) -> Option<ConfigPicker> {
                 description: None,
                 is_default: false,
                 superseded: false,
+                maker: None,
             })
             .collect(),
     })

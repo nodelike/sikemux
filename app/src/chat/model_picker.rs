@@ -348,6 +348,10 @@ impl Menu {
             (None, Some(maker)) => icons::model_provider(maker),
             (None, None) => icons::agent(own),
         };
+        let mark_of = |choice: &ConfigChoice| match (&paying, &choice.maker) {
+            (None, Some(maker)) => icons::model_provider(maker),
+            _ => own_mark,
+        };
         let paying = paying.map(|route| route.label.clone());
         let maker = maker.unwrap_or_else(|| bench.agent_name(own).to_owned());
         let mut groups = vec![
@@ -371,7 +375,7 @@ impl Menu {
                     .filter(|choice| shows(choice))
                     .map(|choice| Row {
                         group: OWN,
-                        mark: Some(own_mark),
+                        mark: Some(mark_of(choice)),
                         label: choice.label.clone(),
                         meta: choice.is_default.then(|| t!("Default").to_owned()),
                         current: choice.value == current,
@@ -407,7 +411,7 @@ impl Menu {
                 }),
                 false => options.extend(offered.iter().map(|choice| Row {
                     group: OWN,
-                    mark: Some(own_mark),
+                    mark: Some(mark_of(choice)),
                     label: choice.label.clone(),
                     meta: choice.is_default.then(|| t!("Default").to_owned()),
                     current: false,
