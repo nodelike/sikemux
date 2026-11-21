@@ -93,10 +93,12 @@ pub fn avatar(picture: Arc<Image>, size: f32) -> impl IntoElement {
     img(picture).size(px(size)).flex_none()
 }
 
-/// An account's avatar with its agent's mark on its corner, as the limits list draws it.
+/// An account's avatar with its agent's mark on its corner, as the limits list draws it. The mark
+/// sits on a raised disc cut out of the avatar by a ring of the panel, so it reads on any marble.
 pub fn face(picture: Arc<Image>, provider: &str, size: f32, cx: &gpui_kit::App) -> gpui_kit::Div {
     let t = crate::theme::Tokens::get(cx);
-    let badge = (size * 0.7).round();
+    let badge = (size * 0.8).round();
+    let disc = badge - 3.;
     div()
         .relative()
         .flex_none()
@@ -105,15 +107,24 @@ pub fn face(picture: Arc<Image>, provider: &str, size: f32, cx: &gpui_kit::App) 
         .child(
             div()
                 .absolute()
-                .right(px(-size * 0.19))
-                .bottom(px(-size * 0.19))
+                .right(px(-size * 0.22))
+                .bottom(px(-size * 0.22))
                 .size(px(badge))
                 .rounded_full()
                 .bg(t.surface)
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(crate::ui::mark(provider, (badge * 0.72).round())),
+                .child(
+                    div()
+                        .size(px(disc))
+                        .rounded_full()
+                        .bg(t.surface_active)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(crate::ui::mark(provider, (disc * 0.82).round())),
+                ),
         )
 }
 
