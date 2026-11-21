@@ -454,6 +454,13 @@ impl Tool {
         let hints: Vec<String> = unexpected
             .iter()
             .filter_map(|name| {
+                if let Some(field) = object
+                    .get(*name)
+                    .and_then(Value::as_str)
+                    .filter(|value| self.properties.contains_key(*value))
+                {
+                    return Some(format!("'{name}': '{field}' should be '{field}': <value>"));
+                }
                 self.closest(name)
                     .map(|known| format!("'{name}' should be '{known}'"))
             })
@@ -585,6 +592,9 @@ impl Tool {
             ("prompt", &["message", "text", "instructions"]),
             ("paths", &["files", "file", "path"]),
             ("index", &["element", "ref", "number"]),
+            ("trigger", &["id", "triggerid", "trigger_id"]),
+            ("target", &["run", "commit", "test", "path"]),
+            ("process", &["processid", "executionid", "execution_id"]),
         ];
         let lowered = name.to_ascii_lowercase();
         SAME_MEANING
@@ -607,7 +617,7 @@ impl Tool {
                         distance(&lowered, &candidate.to_ascii_lowercase()),
                     )
                 })
-                .filter(|(_, apart)| *apart <= 2)
+                .filter(|(candidate, apart)| *apart <= 2 && *apart < candidate.len())
                 .min_by_key(|(_, apart)| *apart)
                 .map(|(candidate, _)| candidate.as_str())
         })
