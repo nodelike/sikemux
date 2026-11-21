@@ -484,6 +484,16 @@ pub(super) fn board_above() -> BoardAbove {
         messages_from_board: |core, to, text, note| {
             Box::pin(messages::from_board(core, to, text, note))
         },
+        messages_reopening: |core, to, text, note| {
+            Box::pin(async move {
+                let reached = messages::reopened(core, &to).await?;
+                if let Err(error) = messages::from_trigger(core, reached.clone(), text, note).await
+                {
+                    eprintln!("sikemux core: a trigger's note did not reach {reached}: {error}");
+                }
+                Some(reached)
+            })
+        },
         messages_overruled: |core, overruled| {
             Box::pin(async move {
                 let answered = messages::Answered {

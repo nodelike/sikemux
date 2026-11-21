@@ -138,6 +138,10 @@ pub struct Card {
     /// The host whose trigger it is, since each host counts its own triggers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     fired_on: Option<String>,
+    /// What its trigger's firings are about, such as one pull request, which keeps every later
+    /// firing about it on this card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    about: Option<String>,
     /// What CI kept failing on, on the project's branch, that it was filed
     /// for or took since.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -448,7 +452,8 @@ pub struct State {
     dirty: BTreeSet<String>,
     /// The keys of boards that changed since the project's other hosts were last sent them.
     unsent: BTreeSet<String>,
-    /// What is kept about each card while the ticket sync works on it, by project and card.
+    /// What is kept about each card while the ticket sync or an agent's start works on it, by
+    /// project and card.
     work: HashMap<(String, u64), CardWork>,
 }
 
@@ -462,6 +467,8 @@ pub struct CardWork {
     pub ticket_looked: Option<u64>,
     /// The status its ticket last failed to move to, and when.
     pub ticket_failed: Option<(CardStatus, u64)>,
+    /// An agent is being started or reopened on it for its trigger.
+    pub taking_up: bool,
 }
 
 impl State {
@@ -829,6 +836,8 @@ pub struct Adding {
     pub trigger: Option<u64>,
     /// The host whose trigger it is.
     pub fired_on: Option<String>,
+    /// What the trigger's firing is about.
+    pub about: Option<String>,
     /// What CI kept failing on, on the project's branch.
     pub ci: Option<failing::Broke>,
 }
@@ -1468,6 +1477,7 @@ fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card
         ticket: adding.ticket,
         trigger: adding.trigger,
         fired_on: adding.fired_on,
+        about: adding.about,
         ci: adding.ci.map(|broke| broke.failures).unwrap_or_default(),
         arrivals: Vec::new(),
         recordings: Vec::new(),
@@ -1552,40 +1562,142 @@ pub fn add_card(
     Ok((id, view))
 }
 
-/// Adds a card for trigger `trigger` of `host` that came due, as the person's own; to the card it added
-/// before instead, while that is still open. Answers the card and its task while nobody holds
-/// it, for an agent of its own to take up with `hand_off::take_up`.
+/// What a trigger's firing is about, such as one pull request: every firing about it goes to the
+/// card the first one added, and to the agent that holds it.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Subject {
+    pub about: String,
+    /// The commit it brought, which is no news to the card's agent when that agent made it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+}
+
+/// Where a trigger's firing went on the board.
+#[derive(Debug, PartialEq)]
+pub enum TriggerCard {
+    /// To a card that holds it already, whose agent the board tells itself, or needs nobody told.
+    Kept,
+    /// To a card nobody holds, for an agent of its own to take up with `hand_off::carry`.
+    TakeUp { card: u64, task: String },
+    /// To the card of its subject, whose agent has closed or finished: `hand_off::carry` reopens
+    /// that agent and sends it `text`, or starts one on `task` when it cannot.
+    Owner {
+        card: u64,
+        agent: String,
+        text: String,
+        task: String,
+    },
+}
+
+/// Adds a card for trigger `trigger` of `host` that came due, as the person's own; to the card it
+/// added before instead, while that is still open, or, for a firing about a subject, to the card
+/// of that subject however long ago it finished.
 pub fn add_for_trigger(
     core: &Arc<Core>,
     project: &str,
     (trigger, host): (u64, &str),
     title: &str,
     details: &str,
-) -> Result<Option<(u64, String)>, String> {
+    subject: Option<Subject>,
+) -> Result<TriggerCard, String> {
     let write = own_writes::OwnWrite::TriggerCard {
         trigger,
         host: host.to_owned(),
         title: title.to_owned(),
         details: details.to_owned(),
+        subject: subject.clone(),
     };
     if own_writes::sent_home(core, project, write) {
-        return Ok(None);
+        return Ok(TriggerCard::Kept);
     }
     let adding = Adding {
         title: title.to_owned(),
         details: details.to_owned(),
         trigger: Some(trigger),
         fired_on: Some(host.to_owned()),
+        about: subject.as_ref().map(|subject| subject.about.clone()),
         ..Adding::default()
     };
+    if let Some(went) =
+        (subject.as_ref()).and_then(|subject| to_owner(core, project, &adding, subject))
+    {
+        return Ok(went);
+    }
     let (id, _) = add_card(core, project, &By::Auto("Trigger"), adding, None)?;
-    let state = core.boards().state.locked();
+    let mut state = core.boards().state.locked();
     let board = state.of(project).ok_or("The board is gone")?;
     let card = board.card(id)?;
     let free = card.status != CardStatus::Done
         && holder(core, card).is_none()
-        && board.waits_on(card).is_empty();
-    Ok(free.then(|| (id, format!("{}\n\n{}", card.title, card.details))))
+        && board.waits_on(card).is_empty()
+        && !state
+            .work_of(project, id)
+            .is_some_and(|work| work.taking_up);
+    if !free {
+        return Ok(TriggerCard::Kept);
+    }
+    let task = format!("{}\n\n{}", card.title, card.details);
+    state.change_work(project, id, |work| work.taking_up = true);
+    Ok(TriggerCard::TakeUp { card: id, task })
+}
+
+/// Keeps a firing about `subject` on the newest card of it an agent ever held, reopened when it
+/// finished, and answers what that agent should hear. Its own push it is not told of, nor
+/// anything on a card the person dropped.
+fn to_owner(
+    core: &Arc<Core>,
+    project: &str,
+    adding: &Adding,
+    subject: &Subject,
+) -> Option<TriggerCard> {
+    let boards = core.boards();
+    let mut state = boards.state.locked();
+    let board = state.of_mut(project)?;
+    let key = arrival::Key::of(adding)?;
+    let id = board.cards.iter().rev().find(|card| key.held_by(card))?.id;
+    let card = board.card_mut(id).ok()?;
+    arrival::keep(card, adding);
+    let agent = card.owner_id()?.to_owned();
+    let own_push = (subject.head.as_ref())
+        .is_some_and(|head| card.commits.iter().any(|commit| commit.sha == *head));
+    if own_push || card.dropped.is_some() {
+        boards.save(&mut state, project);
+        return Some(TriggerCard::Kept);
+    }
+    let reopened = card.status == CardStatus::Done;
+    card.status = CardStatus::Progress;
+    card.checked = None;
+    let text = format!(
+        "{} came again about {}, which {} holds{}. What came:\n\n{}",
+        adding.title,
+        subject.about,
+        card.label(),
+        if reopened { " and is open again" } else { "" },
+        adding.details
+    );
+    let task = format!("{}\n\n{}", card.title, adding.details);
+    let starting = state
+        .work_of(project, id)
+        .is_some_and(|work| work.taking_up);
+    if !starting && !core.agent_now(&agent).open() {
+        state.change_work(project, id, |work| work.taking_up = true);
+    }
+    boards.save(&mut state, project);
+    Some(match starting {
+        true => TriggerCard::Kept,
+        false => TriggerCard::Owner {
+            card: id,
+            agent,
+            text,
+            task,
+        },
+    })
+}
+
+/// The agent being started or reopened on trigger card `card` has started, or could not.
+pub fn taken_up(core: &Core, project: &str, card: u64) {
+    (core.boards().state.locked()).change_work(project, card, |work| work.taking_up = false);
 }
 
 pub fn triggers_changed(core: &Core, project: &str) {

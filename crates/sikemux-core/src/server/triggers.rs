@@ -30,6 +30,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use super::board::goal::learned;
+use super::board::Subject;
 use super::chat::reset::{calendar, when, WallClock, Zone};
 use super::kept::Kept;
 use super::messages;
@@ -40,6 +41,7 @@ use crate::cli::protocol::HarnessRequest;
 
 mod check;
 mod ci;
+mod github;
 mod on_mod;
 mod park;
 mod rundeck;
@@ -711,25 +713,42 @@ pub(crate) fn settle(core: &Arc<Core>) {
     }
 }
 
+/// Puts a firing of `trigger` on `project`'s board, on the card of its `subject` when it has one,
+/// and takes it on to that card's agent.
+async fn on_board(
+    core: Arc<Core>,
+    trigger: &Trigger,
+    project: &str,
+    request: Option<&FiredRequest>,
+    subject: Option<Subject>,
+) {
+    let details = match request {
+        Some(request) => format!("{}\n\n{}", trigger.prompt, fired::request_text(request)),
+        None => trigger.prompt.clone(),
+    };
+    let here = core.remote().core_id().unwrap_or_default();
+    let fired = (trigger.id, here.as_str());
+    let title = &trigger.title;
+    match super::board::add_for_trigger(&core, project, fired, title, &details, subject) {
+        Ok(went) => super::board::hand_off::carry(core.clone(), project.to_owned(), went).await,
+        Err(error) => eprintln!(
+            "sikemux core: trigger {} added no card to {project}'s board: {error}",
+            trigger.id
+        ),
+    }
+}
+
 async fn fire(core: Arc<Core>, firing: Firing) {
     let trigger = &firing.trigger;
     if let Some(project) = &trigger.board {
-        let details = match &firing.request {
-            Some(request) => format!("{}\n\n{}", trigger.prompt, fired::request_text(request)),
-            None => trigger.prompt.clone(),
-        };
-        let here = core.remote().core_id().unwrap_or_default();
-        let fired = (trigger.id, here.as_str());
-        match super::board::add_for_trigger(&core, project, fired, &trigger.title, &details) {
-            Ok(Some((card, task))) => {
-                super::board::hand_off::take_up(core.clone(), project.clone(), card, task).await
-            }
-            Ok(None) => {}
-            Err(error) => eprintln!(
-                "sikemux core: trigger {} added no card to {project}'s board: {error}",
-                trigger.id
-            ),
-        }
+        on_board(
+            core.clone(),
+            trigger,
+            project,
+            firing.request.as_ref(),
+            None,
+        )
+        .await;
         return;
     }
     let mut prompt = trigger.prompt.clone();
@@ -1788,6 +1807,19 @@ pub(crate) fn delivered(core: &Arc<Core>, delivery: HookDelivery) -> Result<(), 
         return Ok(());
     }
     if trigger.rests() {
+        return Ok(());
+    }
+    if let Some(project) = trigger.board.clone() {
+        let subject = match github::read(&delivery.headers, &delivery.body) {
+            github::Read::Quiet => return Ok(()),
+            github::Read::About(subject) => subject,
+            github::Read::Elsewhere => None,
+        };
+        let request = fired_request(delivery);
+        let core = core.clone();
+        tokio::spawn(
+            async move { on_board(core, &trigger, &project, Some(&request), subject).await },
+        );
         return Ok(());
     }
     let firing = Firing {

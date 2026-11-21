@@ -19,6 +19,8 @@ pub type RecordAct = fn(&Arc<Core>, &str, &str, Value) -> Option<Result<Value, S
 type Doing<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// A note on its way to an agent: what the agent's side answered, or why it could not be given.
 type Told<'a> = Doing<'a, Result<Value, String>>;
+/// The agent a note reached, once reopened, or none when it could not be.
+type Reached<'a> = Doing<'a, Option<String>>;
 /// A decision by its number and its text.
 type Decision<'a> = (u64, &'a str);
 type Undone =
@@ -43,6 +45,9 @@ pub struct BoardAbove {
     pub memory_brief: fn(&Core, &str, Option<&str>) -> Option<String>,
     /// Hands an agent a note from the board about its cards, with a line for the app.
     pub messages_from_board: for<'a> fn(&'a Arc<Core>, String, String, String) -> Told<'a>,
+    /// Hands an agent a trigger's note, reopening it when it has closed and waking it when it
+    /// sleeps, and answers the agent that took it, or none when it could not be reopened.
+    pub messages_reopening: for<'a> fn(&'a Arc<Core>, String, String, String) -> Reached<'a>,
     /// Hands an agent the person's overruling of a decision as an answer.
     pub messages_overruled: for<'a> fn(&'a Arc<Core>, Overruled) -> Told<'a>,
     /// Whether a question the agent asked the person blocks it.
