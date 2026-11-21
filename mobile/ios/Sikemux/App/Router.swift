@@ -10,6 +10,8 @@ enum Route: Hashable {
 
     case device(core: String, tab: DeviceTab? = nil)
     case chat(core: String, agent: String)
+    /// The calls agent `agent` puts to the person.
+    case call(core: String, agent: String)
     case newChat(core: String, project: String? = nil, launcher: String? = nil)
     case pairing(core: String)
     case hostSignIn

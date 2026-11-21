@@ -99,3 +99,47 @@ enum Keyboard {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
+
+extension View {
+    /// A tap anywhere in the scroll view around this content, outside a text field, puts the keyboard away.
+    func tapPutsKeyboardAway() -> some View { background(KeyboardTapCatcher()) }
+}
+
+private struct KeyboardTapCatcher: UIViewRepresentable {
+    func makeUIView(context: Context) -> CatcherView { CatcherView() }
+    func updateUIView(_ view: CatcherView, context: Context) {}
+
+    final class CatcherView: UIView, UIGestureRecognizerDelegate {
+        private weak var scroll: UIScrollView?
+        private lazy var tap: UITapGestureRecognizer = {
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+            tap.cancelsTouchesInView = false
+            tap.delegate = self
+            return tap
+        }()
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            scroll?.removeGestureRecognizer(tap)
+            var view = superview
+            while let current = view, !(current is UIScrollView) { view = current.superview }
+            scroll = view as? UIScrollView
+            scroll?.addGestureRecognizer(tap)
+        }
+
+        @objc private func tapped() { Keyboard.dismiss() }
+
+        func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            var view = touch.view
+            while let current = view {
+                if current is UITextInput { return false }
+                view = current.superview
+            }
+            return true
+        }
+
+        func gestureRecognizer(
+            _ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+        ) -> Bool { true }
+    }
+}

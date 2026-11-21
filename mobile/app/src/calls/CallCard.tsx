@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { ConnectionLike } from '@sikemux/native';
 
 import { formatAge } from '@shared/lib/format';
@@ -17,7 +17,6 @@ import {
   kept,
   LOOK_SEEN,
   moreCalls,
-  newest as newestOf,
   OWN_WORDS,
   PICK,
   pictureLabel,
@@ -34,7 +33,7 @@ import { useT } from '@/i18n';
 import type { CallAsker, CallLink, CallOption, PersonCall } from '@shared/wire.generated';
 import { PageCard } from '@/chat/Notices';
 import { serviceMark } from '@/chat/Markdown';
-import { AskerMark } from '@/calls/AskerMark';
+import { CallRows } from '@/calls/CallRows';
 import { SECRET_INPUT } from '@/calls/secretInput';
 import { answer, answerOf, choose, chosenIn, draftOf, edit, focus, see, useKept } from '@/calls/hostCalls';
 import { HostContext, useHostFile } from '@/chat/hostFiles';
@@ -48,11 +47,11 @@ import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 const ROW = 44;
 
 /**
- * A call docked on its asker's chat, above the composer: the Mac's call card at the phone's sizes, a little tighter,
- * with 44-point rows and Go with this across the card. Typing in the composer answers it too, so it has no Open chat.
- * When the chat waits on several calls, the card says which it is and the others wait folded under it.
+ * A call's card, on a screen of its own that scrolls: the Mac's call card at the phone's sizes, a little tighter, with
+ * 44-point rows and Go with this across the card. When the agent waits on several calls, the card says which it is and
+ * the others wait folded under it.
  */
-export const CallDock = memo(function CallDock({
+export const CallCard = memo(function CallCard({
   core,
   calls,
   call,
@@ -61,21 +60,18 @@ export const CallDock = memo(function CallDock({
   connection,
   canAnswer,
   report,
-  inPlace = false,
 }: {
   core: string;
   /** The host's calls, which the hub keeps as the same array while none changes. */
   calls: readonly PersonCall[] | undefined;
   call: PersonCall;
-  /** The agent whose chat the card docks on. */
+  /** The agent whose calls the card answers. */
   chat: string;
   /** Every call waiting in that chat, oldest first, `call` among them. */
   queue: PersonCall[];
   connection: ConnectionLike | undefined;
   canAnswer: boolean;
   report: (text: string) => void;
-  /** Unfolded under its row in a list that scrolls, so the card takes its full height rather than scrolling itself. */
-  inPlace?: boolean;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -96,7 +92,6 @@ export const CallDock = memo(function CallDock({
   // What a step to production, or anything that can't be undone, rests on is read whole; any other call's opens on a tap.
   const whole = call.kind === 'production' || !!call.brief?.cannotUndo;
   const [contextOpen, setContextOpen] = useState(false);
-  const [othersOpen, setOthersOpen] = useState(false);
   const failed = held.failed[call.id];
   // The core asks only a production call to have been drawn before its answer counts.
   const seen = call.kind !== 'production' || held.seen.has(call.id);
@@ -108,10 +103,6 @@ export const CallDock = memo(function CallDock({
   const chosenLabel = call.options.find((option) => option.id === chosen[0])?.label;
   const goWords = call.kind === 'look' ? t(SEEN) : call.kind === 'do' ? (chosenLabel ?? t(DONE)) : seen ? t(GO_WITH_THIS) : t(CONNECTING);
   const others = queue.filter((other) => other.id !== call.id);
-  const newest = others.reduce<PersonCall | undefined>(
-    (last, other) => (!last || other.raisedAt > last.raisedAt ? other : last),
-    undefined,
-  );
 
   // Tells the host this phone drew the call, again whenever the connection changes.
   useEffect(() => {
@@ -126,8 +117,7 @@ export const CallDock = memo(function CallDock({
   };
 
   return (
-    <View style={[styles.card, inPlace && styles.cardInPlace]}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.inner} scrollEnabled={!inPlace} persistentScrollbar>
+    <View style={styles.card}>
         <HostContext value={core}>
           <View style={styles.who}>
             <Asker asker={call.asker} />
@@ -281,46 +271,11 @@ export const CallDock = memo(function CallDock({
           accessibilityState={{ disabled: !ready }}>
           <Text style={styles.goText}>{goWords}</Text>
         </Pressable>
-        {others.length > 1 && newest ? (
-          <Pressable
-            onPress={() => {
-              haptics.select();
-              setOthersOpen(!othersOpen);
-            }}
-            style={styles.folded}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: othersOpen }}>
-            <AskerMark agentId={newest.asker.agentId} provider={newest.asker.cli} chief={newest.asker.chief} asking size={16} />
-            <Text style={styles.foldedText} numberOfLines={1}>
-              <Text style={{ color: colors.ink }}>{moreCalls(others.length, t)}</Text>
-              <Text style={styles.sep}> · </Text>
-              {newestOf(headlineOf(newest, t), t)}
-            </Text>
-            <Text style={styles.foldedAge}>{formatAge(newest.raisedAt, minute * 60_000, t)}</Text>
-            <View style={{ transform: [{ rotate: othersOpen ? '90deg' : '0deg' }] }}>
-              <Icon name="IconChevron" size={11} color={colors.tertiary} />
-            </View>
-          </Pressable>
+        {others.length ? (
+          <View style={styles.others}>
+            <CallRows calls={others} counted={(count) => moreCalls(count, t)} onPress={(other) => focus(core, other, chat)} />
+          </View>
         ) : null}
-        {others.length === 1 || othersOpen
-          ? others.map((other) => (
-              <Pressable
-                key={other.id}
-                onPress={() => {
-                  haptics.select();
-                  focus(core, other, chat);
-                }}
-                style={styles.folded}
-                accessibilityRole="button">
-                <AskerMark agentId={other.asker.agentId} provider={other.asker.cli} chief={other.asker.chief} asking size={16} />
-                <Text style={styles.foldedText} numberOfLines={1}>
-                  {headlineOf(other, t)}
-                </Text>
-                <Text style={styles.foldedAge}>{formatAge(other.raisedAt, minute * 60_000, t)}</Text>
-              </Pressable>
-            ))
-          : null}
-      </ScrollView>
     </View>
   );
 });
@@ -496,17 +451,12 @@ function CallPicture({ path, style, top, whole }: { path?: string; style: object
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     card: {
-      marginBottom: 8,
+      padding: 12,
       borderRadius: 16,
       borderWidth: 1,
       borderColor: colors.borderStrong,
       backgroundColor: colors.overlay,
-      maxHeight: 520,
-      overflow: 'hidden',
     },
-    cardInPlace: { maxHeight: undefined },
-    scroll: { flexGrow: 0 },
-    inner: { padding: 12 },
     who: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     sep: { color: colors.inkFaint },
     age: { fontFamily: fonts.ui, fontSize: 14, color: colors.tertiary },
@@ -550,9 +500,7 @@ const makeStyles = (colors: Palette) => {
     failed: { marginTop: 10, fontFamily: fonts.ui, fontSize: 13, color: colors.danger },
     go: { marginTop: 12, height: 46, borderRadius: 12, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
     goText: { fontFamily: fonts.uiSemibold, fontSize: 16, color: colors.ground },
-    folded: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: ROW, marginTop: 4 },
-    foldedText: { flex: 1, fontFamily: fonts.ui, fontSize: 14, color: colors.secondary },
-    foldedAge: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.warn },
+    others: { marginTop: 4 },
     strip: { marginTop: 10, height: 120, flexDirection: 'row', gap: 6 },
     lead: { flex: 2 },
     rest: { width: 104, gap: 6 },

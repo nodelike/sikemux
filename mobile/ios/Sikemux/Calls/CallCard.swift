@@ -1,26 +1,23 @@
 import SwiftUI
 import UIKit
 
-/// A call docked on its asker's chat, above the composer: the Mac's call card at the phone's sizes, a little
-/// tighter, with 44-point rows and Go with this across the card. It has no Open chat, since it sits in the chat
-/// already. When the agent waits on several calls, the card says which it is and the others wait folded under it.
-struct CallDock: View {
+/// A call's card, on a screen of its own that scrolls: the Mac's call card at the phone's sizes, a little tighter,
+/// with 44-point rows and Go with this across the card. When the agent waits on several calls, the card says which
+/// it is and the others wait folded under it.
+struct CallCard: View {
     @Environment(\.palette) private var palette
     let core: String
     let call: PersonCall
-    /// The agent whose chat the card docks on.
+    /// The agent whose calls the card answers.
     let chat: String
     /// Every call waiting in that chat, oldest first, `call` among them.
     let queue: [PersonCall]
     @Bindable var draft: CallDraft
     let canAnswer: Bool
     let report: (String) -> Void
-    /// Unfolded under its row in a list that scrolls, so the card takes its full height rather than scrolling itself.
-    var inPlace = false
     @FocusState private var fieldFocused: Bool
     @State private var secretFocused = false
     @State private var contextOpen = false
-    @State private var othersOpen = false
 
     private static let row: CGFloat = 44
 
@@ -31,70 +28,62 @@ struct CallDock: View {
     private var notDoing: Bool { call.kind == .do && chosen.contains(CallWords.notDoingId) }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                CallWho(
-                    core: core, call: call,
-                    place: queue.count > 1 ? queue.firstIndex(of: call).map { ($0 + 1, queue.count) } : nil)
-                let headline = CallWords.headline(call)
-                Text(headline)
-                    .font(Theme.ui(17, .semibold))
-                    .tracking(-0.2)
-                    .foregroundStyle(palette.ink)
-                    .textSelection(.enabled)
-                    .padding(.top, 8)
-                if headline != call.question {
-                    Text(call.question).font(Theme.ui(15)).foregroundStyle(palette.secondary).textSelection(.enabled)
-                        .padding(.top, 4)
-                }
-                if let context = CallWords.context(call) {
-                    // What a step to production, or anything that can't be undone, rests on is read whole; any
-                    // other call's opens on a tap.
-                    let whole = call.kind == .production || call.brief?.cannotUndo.isEmpty == false
-                    Text(context).font(Theme.ui(14)).foregroundStyle(palette.tertiary).textSelection(.enabled)
-                        .lineLimit(whole || contextOpen ? nil : 2)
-                        .padding(.top, 2)
-                        .onTapGesture { if !whole { contextOpen.toggle() } }
-                        .accessibilityAddTraits(whole ? [] : .isButton)
-                        .accessibilityValue(whole ? "" : contextOpen ? "expanded" : "collapsed")
-                        .accessibilityHint(whole ? "" : contextOpen ? CallWords.showLess : CallWords.showAll)
-                }
-                if let link = call.link {
-                    CallLinkTile(link: link) { if call.kind == .look, canAnswer, !draft.sending { seenLook() } }
-                        .padding(.top, 10)
-                }
-                if let page = call.page {
-                    PageCard(page: PageRef(id: page.id, title: page.title))
-                }
-                ForEach(Array((call.evidence ?? []).filter { $0.picture == nil }.enumerated()), id: \.offset) {
-                    Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary).textSelection(.enabled)
-                        .padding(.top, 4)
-                }
-                pictures
-                if call.kind != .look { options }
-                if let against = call.against {
-                    (Text("\(CallWords.againstIt) ").foregroundStyle(palette.tertiary)
-                        + Text(against).foregroundStyle(palette.secondary))
-                        .font(Theme.ui(13.5))
-                        .textSelection(.enabled)
-                        .padding(.top, 10)
-                }
-                extras
-                if let failed = calls.failed[call.id] {
-                    Text(CallWords.pushFailed(failed)).font(Theme.ui(13)).foregroundStyle(palette.danger).padding(
-                        .top, 10)
-                }
-                goButton.padding(.top, 12)
-                folded
+        VStack(alignment: .leading, spacing: 0) {
+            CallWho(
+                core: core, call: call,
+                place: queue.count > 1 ? queue.firstIndex(of: call).map { ($0 + 1, queue.count) } : nil)
+            let headline = CallWords.headline(call)
+            Text(headline)
+                .font(Theme.ui(17, .semibold))
+                .tracking(-0.2)
+                .foregroundStyle(palette.ink)
+                .textSelection(.enabled)
+                .padding(.top, 8)
+            if headline != call.question {
+                Text(call.question).font(Theme.ui(15)).foregroundStyle(palette.secondary).textSelection(.enabled)
+                    .padding(.top, 4)
             }
-            .padding(12)
+            if let context = CallWords.context(call) {
+                // What a step to production, or anything that can't be undone, rests on is read whole; any
+                // other call's opens on a tap.
+                let whole = call.kind == .production || call.brief?.cannotUndo.isEmpty == false
+                Text(context).font(Theme.ui(14)).foregroundStyle(palette.tertiary).textSelection(.enabled)
+                    .lineLimit(whole || contextOpen ? nil : 2)
+                    .padding(.top, 2)
+                    .onTapGesture { if !whole { contextOpen.toggle() } }
+                    .accessibilityAddTraits(whole ? [] : .isButton)
+                    .accessibilityValue(whole ? "" : contextOpen ? "expanded" : "collapsed")
+                    .accessibilityHint(whole ? "" : contextOpen ? CallWords.showLess : CallWords.showAll)
+            }
+            if let link = call.link {
+                CallLinkTile(link: link) { if call.kind == .look, canAnswer, !draft.sending { seenLook() } }
+                    .padding(.top, 10)
+            }
+            if let page = call.page {
+                PageCard(page: PageRef(id: page.id, title: page.title))
+            }
+            ForEach(Array((call.evidence ?? []).filter { $0.picture == nil }.enumerated()), id: \.offset) {
+                Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary).textSelection(.enabled)
+                    .padding(.top, 4)
+            }
+            pictures
+            if call.kind != .look { options }
+            if let against = call.against {
+                (Text("\(CallWords.againstIt) ").foregroundStyle(palette.tertiary)
+                    + Text(against).foregroundStyle(palette.secondary))
+                    .font(Theme.ui(13.5))
+                    .textSelection(.enabled)
+                    .padding(.top, 10)
+            }
+            extras
+            if let failed = calls.failed[call.id] {
+                Text(CallWords.pushFailed(failed)).font(Theme.ui(13)).foregroundStyle(palette.danger).padding(
+                    .top, 10)
+            }
+            goButton.padding(.top, 12)
+            folded
         }
-        .scrollBounceBehavior(.basedOnSize)
-        // The indicator shows the card holds more below, as a production call's button often is.
-        .scrollIndicatorsFlash(onAppear: true)
-        .scrollDisabled(inPlace)
-        .frame(maxHeight: inPlace ? nil : 520)
-        .fixedSize(horizontal: false, vertical: true)
+        .padding(12)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(palette.overlay))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.borderStrong, lineWidth: 1)
@@ -103,67 +92,13 @@ struct CallDock: View {
         .task(id: "\(call.id)|\(Hub.shared.live(core).isOpen)") { await calls.see(call) }
     }
 
-    /// The asker's other calls, a line each; a tap brings one into the card. Two or more fold into one row that
-    /// names the newest, and a tap on it opens their lines.
+    /// The asker's other calls, a line each; a tap brings one into the card.
     @ViewBuilder
     private var folded: some View {
         let others = queue.filter { $0.id != call.id }
         if !others.isEmpty {
-            VStack(spacing: 0) {
-                if others.count > 1, let newest = others.max(by: { $0.raisedAt < $1.raisedAt }) {
-                    Button {
-                        Haptics.select()
-                        othersOpen.toggle()
-                    } label: {
-                        HStack(spacing: 10) {
-                            askerMark(newest)
-                            (Text(CallWords.moreCalls(others.count)).foregroundStyle(palette.ink)
-                                + Text(" · ").foregroundStyle(palette.inkFaint)
-                                + Text(CallWords.newest(CallWords.headline(newest))).foregroundStyle(palette.secondary))
-                                .font(Theme.ui(14)).lineLimit(1)
-                            Spacer(minLength: 8)
-                            age(newest)
-                            IconView(icon: Icons.chevron, size: 11).foregroundStyle(palette.tertiary)
-                                .rotationEffect(.degrees(othersOpen ? 90 : 0))
-                        }
-                        .frame(minHeight: Self.row)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PressFade())
-                    .accessibilityValue(othersOpen ? "expanded" : "collapsed")
-                }
-                if others.count == 1 || othersOpen {
-                    ForEach(others, id: \.id) { other in
-                        Button {
-                            Haptics.select()
-                            calls.focus(other, in: chat)
-                        } label: {
-                            HStack(spacing: 10) {
-                                askerMark(other)
-                                Text(CallWords.headline(other)).font(Theme.ui(14)).foregroundStyle(palette.secondary)
-                                    .lineLimit(1)
-                                Spacer(minLength: 8)
-                                age(other)
-                            }
-                            .frame(minHeight: Self.row)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PressFade())
-                    }
-                }
-            }
-            .padding(.top, 8)
+            CallRows(calls: others, counted: CallWords.moreCalls) { calls.focus($0, in: chat) }.padding(.top, 8)
         }
-    }
-
-    private func askerMark(_ other: PersonCall) -> some View {
-        AskerMark(
-            agentId: other.asker.agentId, provider: other.asker.cli, chief: other.asker.chief == true, asking: true,
-            size: 16)
-    }
-
-    private func age(_ other: PersonCall) -> some View {
-        Text(Format.age(Format.date(millis: other.raisedAt))).font(Theme.ui(12.5)).foregroundStyle(palette.warn)
     }
 
     @ViewBuilder

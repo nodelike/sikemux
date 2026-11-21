@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The bottom of a chat: what waits on the person docked above the composer, the menus over it, and the composer
+/// The bottom of a chat: what waits on the person docked above the composer, its calls folded to a line each, the menus over it, and the composer
 /// with its bar of attach, stash, YOLO, model and effort, context, and send or stop.
 struct Composer: View {
     @Environment(\.palette) private var palette
@@ -73,14 +73,20 @@ struct Composer: View {
                     requests: requests, provider: provider, answering: session.answering, onAnswer: session.answer))
         }
         let calls = HostCalls.of(core)
-        guard let call = calls.waiting(for: session.agentId) else { return nil }
+        let queue = calls.queue(for: session.agentId)
+        guard !queue.isEmpty else { return nil }
+        let chat = session.agentId
         return AnyView(
-            CallDock(
-                core: core, call: call, chat: session.agentId, queue: calls.queue(for: session.agentId),
-                draft: calls.draft(call),
-                canAnswer: !watchOnly && !offline, report: session.report
+            CallRows(calls: queue, counted: CallWords.waiting, opens: true) { call in
+                calls.focus(call, in: chat)
+                Router.shared.push(.call(core: core, agent: chat))
+            }
+            .padding(.horizontal, 12)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(palette.overlay))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.borderStrong, lineWidth: 1)
             )
-            .id(call.id))
+            .padding(.bottom, 8))
     }
 
     @ViewBuilder

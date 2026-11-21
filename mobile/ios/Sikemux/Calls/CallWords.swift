@@ -267,6 +267,7 @@ enum CallWords {
     static let whyNotDoing = String(localized: "Say why you're not doing it…")
     /// Under the docked card, the rest of an agent's waiting calls folded into one row.
     static func moreCalls(_ count: Int) -> String { String(localized: "\(count) more calls") }
+    static func waiting(_ count: Int) -> String { String(localized: "\(count) calls") }
     static func newest(_ question: String) -> String { String(localized: "Newest: \(question)") }
     /// A do or look call goes by its kind and short title, `Do · Test purchase`; any other by its question.
     static func headline(_ call: PersonCall) -> String {
