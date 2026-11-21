@@ -249,17 +249,35 @@ pub fn run_if_git() -> Option<i32> {
     let mut args = std::env::args_os();
     let name = args.next()?;
     let name = Path::new(&name).file_name()?.to_str()?;
-    match name
+    let name = name
         .strip_suffix(std::env::consts::EXE_SUFFIX)
-        .unwrap_or(name)
-    {
-        "git" => Some(run(args.collect())),
-        HOOK => Some(run_hook(args.next().is_some_and(|arg| arg == SHIP_ONLY))),
-        TIMEOUT => Some(crate::timeout::run(args.collect())),
-        footer::LINK => Some(footer::run(args.collect())),
-        identity::HELPER => Some(credential::run(args.collect())),
-        program => (stands_in_for(program) || linked_as(program))
-            .then(|| run_program(program, args.collect())),
+        .unwrap_or(name);
+    let ours = matches!(
+        name,
+        "git" | HOOK | TIMEOUT | footer::LINK | identity::HELPER
+    ) || stands_in_for(name)
+        || linked_as(name);
+    if !ours {
+        return None;
+    }
+    die_on_closed_pipe();
+    Some(match name {
+        "git" => run(args.collect()),
+        HOOK => run_hook(args.next().is_some_and(|arg| arg == SHIP_ONLY)),
+        TIMEOUT => crate::timeout::run(args.collect()),
+        footer::LINK => footer::run(args.collect()),
+        identity::HELPER => credential::run(args.collect()),
+        program => run_program(program, args.collect()),
+    })
+}
+
+/// Rust ignores SIGPIPE, so a message written after the caller closed its end
+/// panicked; the programs the shim stands in for just stop.
+fn die_on_closed_pipe() {
+    #[cfg(unix)]
+    // SAFETY: restoring the default action of a signal has no other effect.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 }
 
