@@ -379,7 +379,7 @@
             "maker": "Google",
             "featured": false,
             "accounts": false,
-            "usage": false,
+            "usage": true,
             "freeModels": false,
             "deletableChats": false,
             "efforts": [],

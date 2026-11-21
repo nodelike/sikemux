@@ -1,8 +1,10 @@
 //! Plan limits of agents whose CLI keeps them to itself: Grok's and OpenCode Go's are
 //! asked of the vendor's own usage endpoint with the sign-in their CLI saved. The token
-//! is read afresh for each lookup and goes nowhere else. A sign-in these endpoints cannot
-//! answer for, such as an API key, has no limits rather than a failure.
+//! is read afresh for each lookup and goes nowhere else. Antigravity's are printed by agy
+//! itself, so its sign-in is never read. A sign-in that has no plan, such as an API key,
+//! has no limits rather than a failure.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -191,4 +193,58 @@ fn opencode_usage(answer: &Value) -> Option<Usage> {
     .flatten()
     .collect();
     (!windows.is_empty()).then(|| usage("opencode", windows))
+}
+
+/// Antigravity's five-hour and weekly limits per model group, as `agy -p /usage` prints them.
+pub async fn antigravity(program: &Path) -> Result<Usage, String> {
+    let command = super::cli("antigravity", program, None, BTreeMap::new());
+    let args = ["-p", "/usage", "--output-format", "json"];
+    let printed = super::usage::ask("Antigravity", "usage lookup", command, &args, "").await?;
+    let answer: Value = serde_json::from_str(printed.trim())
+        .map_err(|_| "Antigravity's usage did not read".to_owned())?;
+    antigravity_usage(&answer).ok_or_else(|| NO_LIMITS.to_owned())
+}
+
+/// The first group is the plan's own, Gemini's; the others are named by the models they hold.
+fn antigravity_usage(answer: &Value) -> Option<Usage> {
+    let groups = answer.pointer("/command/data/groups")?.as_array()?;
+    let mut windows = Vec::new();
+    for (index, group) in groups.iter().enumerate() {
+        let scope = (index > 0)
+            .then(|| group.get("name")?.as_str())
+            .flatten()
+            .map(|name| name.trim_end_matches(" models").trim_end_matches(" Models"));
+        for bucket in group
+            .get("buckets")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let (duration, minutes) = match bucket.get("window").and_then(Value::as_str) {
+                Some("5h") => ("5h", SESSION),
+                Some("weekly") => ("7d", WEEK),
+                _ => continue,
+            };
+            let Some(left) = bucket.get("remaining_fraction").and_then(Value::as_f64) else {
+                continue;
+            };
+            let label = match scope {
+                Some(scope) => format!("{scope} · {duration}"),
+                None => duration.to_owned(),
+            };
+            windows.push(UsageWindow {
+                scope: scope.map(str::to_owned),
+                ..window(
+                    &label,
+                    minutes,
+                    (1.0 - left) * 100.0,
+                    bucket.get("reset_time").and_then(Value::as_str),
+                )
+            });
+        }
+    }
+    (!windows.is_empty()).then(|| Usage {
+        light: false,
+        ..usage("antigravity", windows)
+    })
 }

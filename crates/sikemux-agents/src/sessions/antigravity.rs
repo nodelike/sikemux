@@ -153,6 +153,16 @@ impl AgentOps for Antigravity {
         ))
     }
 
+    fn usage<'a>(
+        &self,
+        program: &'a Path,
+        _config_path: Option<&'a str>,
+    ) -> Option<Pending<'a, Result<crate::agent_accounts::usage::Usage, String>>> {
+        Some(Box::pin(crate::agent_accounts::plan_limits::antigravity(
+            program,
+        )))
+    }
+
     fn key_sign_in(&self, env: &BTreeMap<String, String>) -> Option<&'static str> {
         env.get("GEMINI_API_KEY")
             .is_some_and(|key| !key.trim().is_empty())

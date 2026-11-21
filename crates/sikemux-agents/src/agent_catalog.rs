@@ -662,7 +662,7 @@ pub const AGENTS: &[AgentEntry] = &[
         maker: Some("Google"),
         featured: false,
         accounts: false,
-        usage: false,
+        usage: true,
         free_models: false,
         deletable_chats: false,
         resumes_by_path: false,
