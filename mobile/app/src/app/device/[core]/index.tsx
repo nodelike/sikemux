@@ -457,11 +457,7 @@ export default function Device() {
                       ) : tab === 'terminals' ? (
                         <Terminals snapshot={snapshot} scope={scope} />
                       ) : (
-                        <CallsTab
-                          core={core}
-                          snapshot={snapshot}
-                          scope={scope}
-                        />
+                        <CallsTab core={core} snapshot={snapshot} scope={scope} />
                       )
                     ) : null}
                   </View>

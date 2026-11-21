@@ -106,158 +106,158 @@ export const CallCard = memo(function CallCard({
 
   return (
     <View style={styles.card}>
-        <HostContext value={core}>
-          <View style={styles.who}>
-            <Asker asker={call.asker} />
-            <Text style={styles.sep}>·</Text>
-            <Text style={styles.age}>{formatAge(call.raisedAt, minute * 60_000, t)}</Text>
-            {call.about ? (
-              <>
-                <Text style={styles.sep}>·</Text>
-                <Text style={styles.age}>{t('about')}</Text>
-                <Asker asker={call.about} />
-              </>
-            ) : null}
-          </View>
-        </HostContext>
-        <Text style={styles.question} selectable>
-          {headline}
+      <HostContext value={core}>
+        <View style={styles.who}>
+          <Asker asker={call.asker} />
+          <Text style={styles.sep}>·</Text>
+          <Text style={styles.age}>{formatAge(call.raisedAt, minute * 60_000, t)}</Text>
+          {call.about ? (
+            <>
+              <Text style={styles.sep}>·</Text>
+              <Text style={styles.age}>{t('about')}</Text>
+              <Asker asker={call.about} />
+            </>
+          ) : null}
+        </View>
+      </HostContext>
+      <Text style={styles.question} selectable>
+        {headline}
+      </Text>
+      {headline !== call.question ? (
+        <Text style={styles.prose} selectable>
+          {call.question}
         </Text>
-        {headline !== call.question ? (
-          <Text style={styles.prose} selectable>
-            {call.question}
+      ) : null}
+      {context ? (
+        <Text
+          style={styles.context}
+          selectable
+          numberOfLines={whole || contextOpen ? undefined : 2}
+          onPress={whole ? undefined : () => setContextOpen(!contextOpen)}
+          accessibilityRole={whole ? undefined : 'button'}
+          accessibilityState={whole ? undefined : { expanded: contextOpen }}
+          accessibilityHint={whole ? undefined : t(contextOpen ? SHOW_LESS : SHOW_ALL)}>
+          {context}
+        </Text>
+      ) : null}
+      {call.link ? (
+        <LinkTile
+          link={call.link}
+          onOpen={() => {
+            if (call.kind === 'look' && canAnswer && !draft.sending) {
+              haptics.select();
+              void answer(core, connection, call, store, { id: call.id, option: LOOK_SEEN }, report);
+            }
+          }}
+        />
+      ) : null}
+      {call.page ? <PageCard page={call.page} /> : null}
+      {(call.evidence ?? [])
+        .filter((evidence) => !evidence.picture)
+        .map((evidence, index) => (
+          <Text key={index} style={styles.context} selectable>
+            {evidence.what}
           </Text>
-        ) : null}
-        {context ? (
-          <Text
-            style={styles.context}
-            selectable
-            numberOfLines={whole || contextOpen ? undefined : 2}
-            onPress={whole ? undefined : () => setContextOpen(!contextOpen)}
-            accessibilityRole={whole ? undefined : 'button'}
-            accessibilityState={whole ? undefined : { expanded: contextOpen }}
-            accessibilityHint={whole ? undefined : t(contextOpen ? SHOW_LESS : SHOW_ALL)}>
-            {context}
-          </Text>
-        ) : null}
-        {call.link ? (
-          <LinkTile
-            link={call.link}
-            onOpen={() => {
-              if (call.kind === 'look' && canAnswer && !draft.sending) {
+        ))}
+      {pictured ? <Strip call={call} chosen={chosen} onChoose={(option) => choose(store, call, option)} /> : <Evidence call={call} />}
+      {call.kind === 'look' ? null : (
+        <View style={[styles.options, { borderColor: lit ? colors.borderSelected : colors.border }]}>
+          {call.options.map((option, index) => (
+            <OptionRow
+              key={option.id}
+              option={option}
+              first={index === 0}
+              on={chosen.includes(option.id)}
+              pick={call.pick === option.id}
+              disabled={!canAnswer || draft.sending}
+              onPress={() => {
                 haptics.select();
-                void answer(core, connection, call, store, { id: call.id, option: LOOK_SEEN }, report);
-              }
-            }}
-          />
-        ) : null}
-        {call.page ? <PageCard page={call.page} /> : null}
-        {(call.evidence ?? [])
-          .filter((evidence) => !evidence.picture)
-          .map((evidence, index) => (
-            <Text key={index} style={styles.context} selectable>
-              {evidence.what}
-            </Text>
+                choose(store, call, option.id);
+              }}
+            />
           ))}
-        {pictured ? <Strip call={call} chosen={chosen} onChoose={(option) => choose(store, call, option)} /> : <Evidence call={call} />}
-        {call.kind === 'look' ? null : (
-          <View style={[styles.options, { borderColor: lit ? colors.borderSelected : colors.border }]}>
-            {call.options.map((option, index) => (
-              <OptionRow
-                key={option.id}
-                option={option}
-                first={index === 0}
-                on={chosen.includes(option.id)}
-                pick={call.pick === option.id}
-                disabled={!canAnswer || draft.sending}
-                onPress={() => {
-                  haptics.select();
-                  choose(store, call, option.id);
-                }}
-              />
-            ))}
-            {call.kind === 'do' && !notDoing ? null : (
-              <View style={[styles.field, call.options.length > 0 && styles.fieldAfter]}>
-                <Icon name="IconPencil" size={13} color={lit ? colors.tertiary : colors.inkFaint} />
-                {secret ? (
-                  <TextInput
-                    value={draft.typed}
-                    onChangeText={(text) => edit(store, { typed: text })}
-                    placeholder={chosen.length ? t(ADD_NOTE) : t(SECRET_FIELD)}
-                    placeholderTextColor={colors.tertiary}
-                    // Its words never show, and the keyboard neither suggests nor remembers them. A hidden secure field
-                    // cannot hold the line breaks of a pasted key, so the text is drawn clear; paste still works.
-                    style={[styles.input, draft.typed ? styles.hiddenText : null]}
-                    multiline
-                    {...SECRET_INPUT}
-                    // Return sends it, as in the card's other field; a pasted key keeps its line breaks.
-                    returnKeyType="send"
-                    submitBehavior="submit"
-                    onSubmitEditing={go}
-                    caretHidden={!!draft.typed}
-                    editable={canAnswer}
-                    onFocus={() => setFocused(true)}
-                    onBlur={() => setFocused(false)}
-                  />
-                ) : (
-                  <TextInput
-                    value={draft.typed}
-                    onChangeText={(text) => edit(store, { typed: text })}
-                    placeholder={notDoing ? t(WHY_NOT_DOING) : chosen.length ? t(ADD_NOTE) : t(OWN_WORDS)}
-                    placeholderTextColor={colors.tertiary}
-                    style={styles.input}
-                    // Only the button passes a step to production; Enter there is a new line of the note's.
-                    returnKeyType={call.kind === 'production' ? 'default' : 'send'}
-                    onSubmitEditing={call.kind === 'production' ? undefined : go}
-                    editable={canAnswer}
-                    onFocus={() => setFocused(true)}
-                    onBlur={() => setFocused(false)}
-                  />
-                )}
-              </View>
-            )}
-          </View>
-        )}
-        {call.against ? (
-          <Text style={styles.against} selectable>
-            <Text style={{ color: colors.tertiary }}>{t(AGAINST_IT)} </Text>
-            {call.against}
-          </Text>
-        ) : null}
-        {runs ? (
-          <View style={styles.extras}>
-            <Pressable
-              onPress={() => edit(store, { runsOpen: !draft.runsOpen })}
-              style={styles.runs}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: draft.runsOpen }}>
-              <View style={{ transform: [{ rotate: draft.runsOpen ? '90deg' : '0deg' }] }}>
-                <Icon name="IconChevron" size={11} color={colors.tertiary} />
-              </View>
-              <Text style={styles.extraText}>{t(WHAT_RUNS)}</Text>
-            </Pressable>
-          </View>
-        ) : null}
-        {runs && draft.runsOpen ? (
-          <Text style={styles.command} selectable>
-            {runs}
-          </Text>
-        ) : null}
-        {secret ? (
-          <>
-            {typed ? <Text style={styles.hiddenSize}>{hidden(draft.typed, t)}</Text> : null}
-            <Text style={styles.kept}>{kept(call.asker.name, t)}</Text>
-          </>
-        ) : null}
-        {failed ? <Text style={styles.failed}>{pushFailed(failed, t)}</Text> : null}
-        <Pressable
-          onPress={go}
-          disabled={!ready}
-          style={({ pressed }) => [styles.go, !ready && { opacity: 0.5 }, pressed && { opacity: 0.8 }]}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !ready }}>
-          <Text style={styles.goText}>{goWords}</Text>
-        </Pressable>
+          {call.kind === 'do' && !notDoing ? null : (
+            <View style={[styles.field, call.options.length > 0 && styles.fieldAfter]}>
+              <Icon name="IconPencil" size={13} color={lit ? colors.tertiary : colors.inkFaint} />
+              {secret ? (
+                <TextInput
+                  value={draft.typed}
+                  onChangeText={(text) => edit(store, { typed: text })}
+                  placeholder={chosen.length ? t(ADD_NOTE) : t(SECRET_FIELD)}
+                  placeholderTextColor={colors.tertiary}
+                  // Its words never show, and the keyboard neither suggests nor remembers them. A hidden secure field
+                  // cannot hold the line breaks of a pasted key, so the text is drawn clear; paste still works.
+                  style={[styles.input, draft.typed ? styles.hiddenText : null]}
+                  multiline
+                  {...SECRET_INPUT}
+                  // Return sends it, as in the card's other field; a pasted key keeps its line breaks.
+                  returnKeyType="send"
+                  submitBehavior="submit"
+                  onSubmitEditing={go}
+                  caretHidden={!!draft.typed}
+                  editable={canAnswer}
+                  onFocus={() => setFocused(true)}
+                  onBlur={() => setFocused(false)}
+                />
+              ) : (
+                <TextInput
+                  value={draft.typed}
+                  onChangeText={(text) => edit(store, { typed: text })}
+                  placeholder={notDoing ? t(WHY_NOT_DOING) : chosen.length ? t(ADD_NOTE) : t(OWN_WORDS)}
+                  placeholderTextColor={colors.tertiary}
+                  style={styles.input}
+                  // Only the button passes a step to production; Enter there is a new line of the note's.
+                  returnKeyType={call.kind === 'production' ? 'default' : 'send'}
+                  onSubmitEditing={call.kind === 'production' ? undefined : go}
+                  editable={canAnswer}
+                  onFocus={() => setFocused(true)}
+                  onBlur={() => setFocused(false)}
+                />
+              )}
+            </View>
+          )}
+        </View>
+      )}
+      {call.against ? (
+        <Text style={styles.against} selectable>
+          <Text style={{ color: colors.tertiary }}>{t(AGAINST_IT)} </Text>
+          {call.against}
+        </Text>
+      ) : null}
+      {runs ? (
+        <View style={styles.extras}>
+          <Pressable
+            onPress={() => edit(store, { runsOpen: !draft.runsOpen })}
+            style={styles.runs}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: draft.runsOpen }}>
+            <View style={{ transform: [{ rotate: draft.runsOpen ? '90deg' : '0deg' }] }}>
+              <Icon name="IconChevron" size={11} color={colors.tertiary} />
+            </View>
+            <Text style={styles.extraText}>{t(WHAT_RUNS)}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {runs && draft.runsOpen ? (
+        <Text style={styles.command} selectable>
+          {runs}
+        </Text>
+      ) : null}
+      {secret ? (
+        <>
+          {typed ? <Text style={styles.hiddenSize}>{hidden(draft.typed, t)}</Text> : null}
+          <Text style={styles.kept}>{kept(call.asker.name, t)}</Text>
+        </>
+      ) : null}
+      {failed ? <Text style={styles.failed}>{pushFailed(failed, t)}</Text> : null}
+      <Pressable
+        onPress={go}
+        disabled={!ready}
+        style={({ pressed }) => [styles.go, !ready && { opacity: 0.5 }, pressed && { opacity: 0.8 }]}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !ready }}>
+        <Text style={styles.goText}>{goWords}</Text>
+      </Pressable>
     </View>
   );
 });

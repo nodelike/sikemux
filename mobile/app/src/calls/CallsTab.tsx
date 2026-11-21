@@ -19,15 +19,7 @@ import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
  * the project and how long it has waited, then those answered lately, with what came of each. An open call's row opens
  * it to be answered, and an answered one's its asker's chat.
  */
-export function CallsTab({
-  core,
-  snapshot,
-  scope,
-}: {
-  core: string;
-  snapshot: Snapshot;
-  scope?: ProjectInfo;
-}) {
+export function CallsTab({ core, snapshot, scope }: { core: string; snapshot: Snapshot; scope?: ProjectInfo }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const minute = useMinute();
