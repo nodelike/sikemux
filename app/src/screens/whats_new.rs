@@ -14,9 +14,9 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, img, px, relative, AnyElement, App, Context, Entity, FocusHandle, FontWeight, Hsla, Image,
-    ImageFormat, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window,
+    div, img, px, relative, AnyElement, App, AsyncApp, Context, Entity, FocusHandle, FontWeight,
+    Hsla, Image, ImageFormat, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use gpui_transcript::{Markdown, Pen, Style};
 use serde::Deserialize;
@@ -115,32 +115,41 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         let Some(partial) = bundled else {
             return;
         };
-        let notes = here
-            .request_typed::<call::ReleaseNotes>(NotesParams {
-                version: shown.clone(),
-                since,
-            })
-            .await;
+        let params = |fetch| NotesParams {
+            version: shown.clone(),
+            since: since.clone(),
+            fetch,
+        };
+        let held = match here
+            .request_typed::<call::ReleaseNotes>(params(false))
+            .await
+        {
+            Ok(held) => Some((held, HashMap::new())),
+            Err(_) => partial.map(|bundled| (bundled.notes, bundled.avatars)),
+        };
+        if let Some((notes, avatars)) = &held {
+            answer(&bench, cx, &shown, Ok(notes.clone()), avatars.clone());
+        }
+        let notes = match held {
+            Some((held, _)) if held.complete => held,
+            held => match here.request_typed::<call::ReleaseNotes>(params(true)).await {
+                Ok(fetched) => {
+                    answer(&bench, cx, &shown, Ok(fetched.clone()), HashMap::new());
+                    fetched
+                }
+                Err(error) => {
+                    if held.is_none() {
+                        answer(&bench, cx, &shown, Err(error), HashMap::new());
+                    }
+                    return;
+                }
+            },
+        };
         let urls: Vec<String> = notes
-            .as_ref()
-            .map(|notes| {
-                notes
-                    .contributors
-                    .iter()
-                    .map(|person| person.avatar.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let _ = bench.update(cx, |bench, cx| {
-            if !showing(bench, &shown) {
-                return;
-            }
-            match (notes, partial) {
-                (Err(_), Some(bundled)) => show_notes(bench, Ok(bundled.notes), bundled.avatars),
-                (notes, _) => show_notes(bench, notes, HashMap::new()),
-            }
-            bench.parts.redraw(&bench.parts.over, cx);
-        });
+            .contributors
+            .iter()
+            .map(|person| person.avatar.clone())
+            .collect();
         if urls.is_empty() {
             return;
         }
@@ -153,15 +162,31 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
                 return;
             }
             if let Some(news) = news_of(bench) {
-                news.avatars = faces
-                    .into_iter()
-                    .filter_map(|(url, data)| Some((url, data_image(&data)?)))
-                    .collect();
+                news.avatars.extend(
+                    faces
+                        .into_iter()
+                        .filter_map(|(url, data)| Some((url, data_image(&data)?))),
+                );
             }
             bench.parts.redraw(&bench.parts.over, cx);
         });
     })
     .detach();
+}
+
+fn answer(
+    bench: &WeakEntity<Workbench>,
+    cx: &mut AsyncApp,
+    version: &str,
+    notes: Result<Notes, String>,
+    avatars: HashMap<String, Arc<Image>>,
+) {
+    let _ = bench.update(cx, |bench, cx| {
+        if showing(bench, version) {
+            show_notes(bench, notes, avatars);
+            bench.parts.redraw(&bench.parts.over, cx);
+        }
+    });
 }
 
 /// Whether the screen is still up on `version`, so an answer for a release it moved past is dropped.
@@ -240,6 +265,7 @@ impl Bundled {
                 commits,
                 compare,
                 contributors,
+                complete: false,
             },
             avatars,
             complete,

@@ -652,7 +652,7 @@ calls! { core, client, method, params;
     "agentModels": NoDevice => answer(super::chat::models_of(&core, &parse::<super::chat::AgentModelsParams>(params)?.agent)),
     "plugin" = Plugin: Owner, counted_by("plugin") => plugins::window_call(&core, params).await,
     "pluginManifests": Owner => answer(plugins::manifests(&core)),
-    "releaseNotes" = ReleaseNotes: Watch => super::about::release_notes(params).await?,
+    "releaseNotes" = ReleaseNotes: Watch => super::about::release_notes(&core, params).await?,
     "releaseAvatars" = ReleaseAvatars: Watch => super::about::release_avatars(params).await,
     "hostTools" = HostTools: Watch => super::about::tools().await?,
     "whatsNew" = WhatsNew: Watch => super::about::whats_new(&core),

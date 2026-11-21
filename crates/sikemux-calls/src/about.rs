@@ -6,6 +6,9 @@ pub struct NotesParams {
     /// The build whose notes the person last read: the notes then list every change since it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,
+    /// Asks GitHub for what this host does not hold yet, rather than answering at once.
+    #[serde(default)]
+    pub fetch: bool,
 }
 
 #[derive(Serialize, Deserialize)]

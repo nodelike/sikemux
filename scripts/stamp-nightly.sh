@@ -33,4 +33,21 @@ scripts/set-version.sh "$version"
   fi
 } >RELEASE_NOTES.md
 
+# Every change since the last stable release, grouped by the nightly that first shipped it,
+# so the build can show the notes since any of them without asking GitHub.
+base="$(git merge-base HEAD "$stable")"
+{
+  printf '# Changes since %s\n' "$stable"
+  from="$base"
+  for tag in $(git tag -l 'v*-nightly.*' --merged HEAD --no-merged "$base" --sort=v:refname) HEAD; do
+    name="$tag"
+    [[ "$tag" == HEAD ]] && name="v$version"
+    printf '\n## %s · %s commits\n\n' "$name" "$(git rev-list --count "$from..$tag")"
+    git log --reverse --no-merges --format=%s "$from..$tag" |
+      grep -E '^(feat|fix|perf)(\([^)]*\))?!?: ' |
+      sed -E 's/^[a-z]+(\(([^)]*)\))?!?: (.*)$/- \3/; s/^(- [^.]*\.)( .*)?$/\1/' || true
+    from="$tag"
+  done
+} >RELEASE_CHANGES.md
+
 echo "$version"
