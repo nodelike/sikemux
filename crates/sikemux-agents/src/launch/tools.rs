@@ -20,6 +20,8 @@ use crate::agent_catalog::AgentKind;
 use crate::cli::protocol::is_tool_agent_id;
 use crate::launch::{homes, skills};
 
+type EnvironmentVariable = (String, String);
+
 const CONFIG_TIMEOUT: Duration = Duration::from_secs(5);
 const TOOLS_MCP_FLAG: &str = "--tools-mcp";
 /// The tools' server name, and the one for agents whose config keys take no hyphen.
@@ -366,7 +368,7 @@ impl Tools {
         kind: AgentKind,
         host: &str,
         agent_id: &str,
-    ) -> Result<(&'static str, PathBuf, Option<(String, String)>), String> {
+    ) -> Result<(&'static str, PathBuf, Option<EnvironmentVariable>), String> {
         let (home, _) = homes::private(kind).ok_or("the agent keeps no private home")?;
         let destination = self.state_dir()?.join(host).join(agent_id);
         let login = homes::private_home(kind, &destination, None)?;
