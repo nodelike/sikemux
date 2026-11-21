@@ -453,7 +453,10 @@ fn side(
                 .left_0()
                 .right_0()
                 .h(px(240.))
-                .child(crate::ui::grain::sky(0.15, 1., cx).size_full())
+                .child(
+                    crate::ui::grain::sky(theme::radius_4() - crate::theme::border(), 1., cx)
+                        .size_full(),
+                )
                 .children(ui::spot(|| "whats-new-sky".into())),
         )
         .child(

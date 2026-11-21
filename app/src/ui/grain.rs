@@ -14,7 +14,8 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     canvas, div, point, px, relative, size, AnyElement, App, AppContext, Bounds, Context, Global,
-    Hsla, IntoElement, ParentElement, RawShaderProgram, RenderImage, Rgba, Styled, Task, Window,
+    Hsla, IntoElement, ParentElement, Pixels, RawShaderProgram, RenderImage, Rgba, Styled, Task,
+    Window,
 };
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::backdrop::{BackdropKind, GridShape, WornBackdrop};
@@ -1062,8 +1063,8 @@ fn picture_canvas(
 }
 
 /// The release sky, in the accent running through the syntax pink to the syntax green,
-/// fading out from `fade_from` of the way down to nothing at the bottom.
-pub fn sky(fade_from: f32, opacity: f32, cx: &App) -> impl IntoElement + Styled {
+/// fading out down it, with its top-left corner rounded to `corner`.
+pub fn sky(corner: Pixels, opacity: f32, cx: &App) -> impl IntoElement + Styled {
     let t = Tokens::get(cx);
     let hues = [
         t.accent,
@@ -1076,7 +1077,7 @@ pub fn sky(fade_from: f32, opacity: f32, cx: &App) -> impl IntoElement + Styled 
         |_, _, _| {},
         move |bounds, (), window, _| {
             let mut params = [0.; gpui::RAW_SHADER_PARAMS];
-            params[..4].copy_from_slice(&[start, speed, window.scale_factor(), fade_from]);
+            params[..4].copy_from_slice(&[start, speed, window.scale_factor(), f32::from(corner)]);
             for (slot, hue) in params[4..].as_chunks_mut::<4>().0.iter_mut().zip(hues) {
                 slot.copy_from_slice(&[hue.r, hue.g, hue.b, hue.a * opacity]);
             }
