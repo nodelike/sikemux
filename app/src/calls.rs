@@ -935,7 +935,7 @@ fn pick_mark(t: &Tokens) -> gpui_kit::Div {
         .gap(px(5.))
         .text_size(theme::ui_text(11.))
         .text_color(t.text_tertiary)
-        .child(ui::mark_box(12., ui::mark("sikemux", 17.)))
+        .child(ui::chief_mark(12.))
         .child(t!("pick"))
 }
 

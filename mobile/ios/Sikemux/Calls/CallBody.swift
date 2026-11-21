@@ -139,7 +139,7 @@ struct CallBody: View {
                     Spacer(minLength: 8)
                     if call.pick == option.id {
                         HStack(spacing: 5) {
-                            IconView(icon: Icons.brand, size: 13).foregroundStyle(palette.accent)
+                            ChiefMark(size: 13, color: palette.accent)
                             Text(CallWords.pick)
                         }
                         .font(Theme.ui(12.5))

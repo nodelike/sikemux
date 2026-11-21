@@ -79,6 +79,16 @@ extension EnvironmentValues {
     @Entry var crew: Crew?
 }
 
+/// Sikemux's S, as big as an agent's face of `size`.
+struct ChiefMark: View {
+    let size: CGFloat
+    let color: Color
+
+    var body: some View {
+        IconView(icon: Icons.brand, size: size * 0.9).foregroundStyle(color).frame(width: size, height: size)
+    }
+}
+
 /// An agent's own mark: Sikemux's S on a project's chief, else the face the host gave it, else its CLI's logo.
 struct OwnMark: View {
     @Environment(\.palette) private var palette
@@ -90,8 +100,7 @@ struct OwnMark: View {
 
     var body: some View {
         if chief {
-            IconView(icon: Icons.logo, size: size * 0.78).foregroundStyle(palette.accent).frame(
-                width: size, height: size)
+            ChiefMark(size: size, color: palette.accent)
         } else {
             AgentFaceView(agentId: agentId, provider: provider, turn: turn, size: size)
         }
@@ -106,7 +115,7 @@ struct NamedMark: View {
 
     var body: some View {
         if agent.chief {
-            IconView(icon: Icons.logo, size: size * 0.78).foregroundStyle(accent).frame(width: size, height: size)
+            ChiefMark(size: size, color: accent)
         } else if let face = agent.face, let art = BuddyArt.shared.art(face, state: .idle) {
             BuddyFigure(art: art, state: .idle, moves: false, size: size)
         } else {

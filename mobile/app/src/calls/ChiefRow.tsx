@@ -8,6 +8,7 @@ import type { AgentShown, ProjectInfo } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
 import { TurnMark, Working } from '@/devices/AgentMarks';
+import { ChiefMark } from '@/devices/Crew';
 import { connectionOf, liveOf, useDevices } from '@/devices/hub';
 import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
@@ -95,7 +96,7 @@ export function ChiefRow({
 
   return (
     <Row
-      mark={<Icon name="Logo" size={15} color={colors.accent} />}
+      mark={<ChiefMark size={20} />}
       title={CHIEF}
       host={homeTag}
       aside={t(CHIEF_ROLE)}

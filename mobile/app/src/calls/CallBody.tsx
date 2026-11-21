@@ -32,7 +32,7 @@ import { PageCard } from '@/chat/Notices';
 import { serviceMark } from '@/chat/Markdown';
 import { answer, answerOf, choose, chosenIn, draftOf, edit, see, useKept, type Draft } from '@/calls/hostCalls';
 import { HostContext, useHostFile } from '@/chat/hostFiles';
-import { AgentPill, namedAgent, type Named, openChat, useCrew } from '@/devices/Crew';
+import { AgentPill, ChiefMark, namedAgent, type Named, openChat, useCrew } from '@/devices/Crew';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { SectionLabel } from '@/ui/list';
@@ -301,7 +301,7 @@ function Tile({
         </View>
         {pick ? (
           <View style={styles.pick}>
-            <Icon name="Logo" size={13} color={colors.accent} />
+            <ChiefMark size={13} />
             <Text style={styles.pickText}>{t(PICK)}</Text>
           </View>
         ) : null}
