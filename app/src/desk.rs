@@ -851,6 +851,7 @@ impl Workbench {
             .filter(|row| matches!(row.status, AgentStatus::Working | AgentStatus::Blocked))
             .map(|row| row.agent_id.clone())
             .collect();
+        let place = self.place();
         let (departed, ended) = self.desks.update(cx, |desks, cx| {
             let departed: Vec<String> = desks.present.difference(&present).cloned().collect();
             let ended: Vec<String> = (desks.working.difference(&working))
@@ -859,7 +860,10 @@ impl Workbench {
                 .collect();
             for agent in &ended {
                 if let Some(engine) = &desks.engine {
-                    engine.end_turn(agent);
+                    let called: Vec<String> = (self.open_calls(&place, agent).into_iter())
+                        .filter_map(|call| call.link.as_ref().map(|link| link.url.clone()))
+                        .collect();
+                    engine.end_turn(agent, &called);
                 }
                 desks.clear_finished_runs(agent, cx);
             }

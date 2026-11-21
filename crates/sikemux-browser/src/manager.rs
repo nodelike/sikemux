@@ -820,9 +820,10 @@ impl BrowserManager {
     }
 
     /// Tidies up after the agent's turn: its tabs other than the one in front close, except
-    /// those showing a file from this machine, such as a page it made for the person. The one
-    /// in front stays the agent's, so a later turn that moves on from it closes it too.
-    pub fn end_turn(&self, agent_id: &str) {
+    /// those showing a file from this machine, such as a page it made for the person, or an
+    /// address in `called`, which the agent's open calls send the person to. The one in front
+    /// stays the agent's, so a later turn that moves on from it closes it too.
+    pub fn end_turn(&self, agent_id: &str, called: &[String]) {
         let spare: Vec<String> = {
             let agents = self.agents.locked();
             let Some(agent) = agents.get(agent_id) else {
@@ -832,8 +833,11 @@ impl BrowserManager {
                 (agent.strip.pages.get(tab_id))
                     .is_some_and(|page| self.local_files.path_of(&page.url).is_some())
             };
+            let called = |tab_id: &String| {
+                (agent.strip.pages.get(tab_id)).is_some_and(|page| called.contains(&page.url))
+            };
             (agent.strip.agents_spare())
-                .filter(|tab_id| !shows_a_file(tab_id))
+                .filter(|tab_id| !shows_a_file(tab_id) && !called(tab_id))
                 .cloned()
                 .collect()
         };
