@@ -1,5 +1,5 @@
-//! The agents Sikemux runs: which are installed, the accounts and profiles they
-//! start on, the models they may use, their skills, and how sessions behave.
+//! The agents Sikemux runs: which are installed and where, the accounts they start on, the
+//! models they may use, their skills, and how sessions behave.
 
 use gpui_kit::{AnyElement, App, Context, Entity, Window};
 
@@ -9,7 +9,6 @@ use crate::workbench::Workbench;
 
 pub(in crate::settings) mod accounts;
 pub(in crate::settings) mod device;
-mod profiles;
 pub(in crate::settings) mod providers;
 pub(in crate::settings) mod sessions;
 pub(in crate::settings) mod setup;
@@ -19,7 +18,7 @@ pub(in crate::settings) mod skills;
 pub struct Fields {
     sessions: sessions::Fields,
     device: device::Fields,
-    profiles: profiles::Fields,
+    setup: setup::Fields,
     providers: providers::Fields,
     skills: skills::Fields,
 }
@@ -29,7 +28,7 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
     let fields = Fields {
         sessions: sessions::Fields::new(bench, window, cx),
         device: device::Fields::new(bench, window, cx),
-        profiles: profiles::Fields::new(bench, window, cx),
+        setup: setup::Fields::new(window, cx),
         providers: providers::Fields::new(bench, window, cx),
         skills: skills::Fields::new(bench, window, cx),
     };
@@ -77,22 +76,14 @@ pub fn render(
     match page {
         Page::General => vec![sessions::notifications(bench, lit, this, cx)],
         Page::Agents => vec![
-            setup::render(bench, &bench.agent_setup, lit, this, cx),
+            setup::render(bench, &fields.setup, lit, this, cx),
+            accounts::smart(bench, lit, this, cx),
             sessions::boundary(bench, lit, this, cx),
             sessions::render(&fields.sessions, lit, this, cx),
             providers::helpers_section(bench, &fields.providers, lit, cx),
         ],
         Page::Skills => vec![skills::render(&fields.skills, lit, this, cx)],
-        Page::Models => {
-            let mut sections = vec![accounts::smart(bench, lit, this, cx)];
-            sections.extend(
-                (signs_in(bench).into_iter())
-                    .map(|provider| accounts::render(bench, &provider, lit, this, cx)),
-            );
-            sections.push(profiles::render(bench, &fields.profiles, lit, this, cx));
-            sections.extend(providers::render(bench, &fields.providers, lit, this, cx));
-            sections
-        }
+        Page::Models => providers::render(bench, &fields.providers, lit, this, cx),
         Page::ThisMac => device::render(bench, &fields.device, lit, this, cx),
         _ => Vec::new(),
     }
@@ -104,17 +95,6 @@ pub(super) fn stale(fields: &Fields, page: Page) -> bool {
 }
 
 pub(super) use providers::rebuild_choices;
-
-/// The agents the catalog says keep each sign-in apart, so the person can hold several accounts.
-fn signs_in(bench: &Workbench) -> Vec<String> {
-    bench
-        .reads
-        .catalog
-        .agents()
-        .filter(|kind| kind.accounts)
-        .map(|kind| kind.kind.clone())
-        .collect()
-}
 
 /// The add-account dialog and the install or sign-in sheet, over whichever page is open.
 pub fn dialogs(

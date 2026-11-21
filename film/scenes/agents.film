@@ -1,0 +1,11 @@
+# Settings ▸ Agents: one row per agent, and Claude Code's row opened to its hosts, accounts and program.
+stage 1440 900
+window 1440 900
+project storefront shop
+settle 5
+settings Agents
+settle 3
+snap agents
+click "Claude Code"
+settle 2
+snap agents-open

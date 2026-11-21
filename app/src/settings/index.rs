@@ -69,7 +69,7 @@ impl Page {
             ),
             Agents => (
                 n!("Agents"),
-                n!("The agents on this host, what they may do, and how their chats run"),
+                n!("Every agent you can run, where it's installed, who it's signed in as, and how its chats run"),
                 Icon::Agent,
             ),
             Skills => (
@@ -79,7 +79,7 @@ impl Page {
             ),
             Models => (
                 n!("Models"),
-                n!("The accounts, plans, providers and local models agents run on"),
+                n!("The plans, providers and local models agents run on"),
                 Icon::Cube,
             ),
             Connectors => (

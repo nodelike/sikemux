@@ -1,20 +1,24 @@
-//! Every agent Sikemux can run, with what it needs next: nothing, an install, a sign-in,
-//! which runs in the sheet `agent_setup` draws, or an update to its newest release, on this
-//! host or any account host reached.
+//! Every agent Sikemux can run, one row each: the release it runs, whether a newer one is out,
+//! which hosts have it, who it is signed in as, and the one thing it needs next. A row opens
+//! to its hosts, its accounts and the program it runs.
 
+use crate::ui::Clicks;
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled,
+    div, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
+    ParentElement, Radians, SharedString, Styled, Transformation, Window,
 };
 use sikemux_agents::agent_accounts::status::AgentStatus;
 use sikemux_calls::agent_updates::Updating;
+use std::f32::consts::FRAC_PI_2;
 
-use crate::agents::setup::{
-    installing, run, signing_in, status_label, update, update_everywhere, Found, Setup, Sheet,
-};
-use crate::hosts::Place;
+use crate::agents::setup::{installing, run, signing_in, update_everywhere, Found, Sheet};
+use crate::icons::Icon;
 use crate::settings::rows;
-use crate::theme::{SPACE_1H, SPACE_2, TEXT_2XS};
+use crate::theme::{
+    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS, TEXT_2XS_H, TEXT_XS,
+};
 use crate::ui;
 use crate::workbench::Workbench;
 
@@ -22,260 +26,523 @@ use crate::workbench::Workbench;
 pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] =
     &[crate::settings::index::section(
         crate::settings::index::Page::Agents,
-        "Agents on this host",
-        "install reinstall update upgrade version latest missing claude codex opencode hermes pi omp grok cli",
+        "Agents",
+        "install reinstall update upgrade version latest missing hosts claude codex opencode hermes pi omp grok cli executable path program profile",
     )];
+
+/// The row that is open, and the program being written for the account it runs on.
+pub struct Fields {
+    open: Option<String>,
+    editing: Option<String>,
+    program: Entity<InputState>,
+}
+
+impl Fields {
+    pub fn new(window: &mut Window, cx: &mut Context<Workbench>) -> Self {
+        let program =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("Leave empty to use PATH")));
+        Self {
+            open: None,
+            editing: None,
+            program,
+        }
+    }
+}
+
+/// One agent, as each host that has it found it.
+struct Agent<'a> {
+    kind: &'a str,
+    label: &'a str,
+    here: Option<&'a Found>,
+    hosts: Vec<(String, &'a Found)>,
+}
+
+impl Agent<'_> {
+    /// Every host where it is installed, this one first, with what each found.
+    fn installed(&self) -> impl Iterator<Item = &Found> {
+        (self.here.into_iter())
+            .chain(self.hosts.iter().map(|(_, found)| *found))
+            .filter(|found| !matches!(found.status, AgentStatus::Missing))
+    }
+}
+
+fn agents(bench: &Workbench) -> Vec<Agent<'_>> {
+    let setup = &bench.agent_setup;
+    let mut agents: Vec<Agent> = (setup.found.iter().flatten())
+        .map(|found| Agent {
+            kind: &found.kind,
+            label: &found.label,
+            here: Some(found),
+            hosts: Vec::new(),
+        })
+        .collect();
+    for host in &setup.elsewhere {
+        for found in &host.found {
+            let name = bench.host_name(&host.host).to_string();
+            match agents.iter_mut().find(|agent| agent.kind == found.kind) {
+                Some(agent) => agent.hosts.push((name, found)),
+                None => agents.push(Agent {
+                    kind: &found.kind,
+                    label: &found.label,
+                    here: None,
+                    hosts: vec![(name, found)],
+                }),
+            }
+        }
+    }
+    agents
+}
 
 pub fn render(
     bench: &Workbench,
-    setup: &Setup,
+    fields: &Fields,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
-    let body: AnyElement = match &setup.found {
-        None => rows::note(t!("Looking for agents…"), cx),
-        Some(found) => list(bench, found, &Place::This, this, cx),
-    };
-    let ready = setup.found.as_ref().map(|found| {
-        let ready = found
-            .iter()
-            .filter(|agent| matches!(agent.status, AgentStatus::Ready { .. }))
-            .count();
-        SharedString::from(t!("{count} ready", count = ready))
-    });
-    let behind = |found: &[Found]| found.iter().any(|agent| agent.update_to().is_some());
-    let here_behind = setup.found.as_deref().is_some_and(behind);
-    let elsewhere_behind = setup.elsewhere.iter().any(|host| behind(&host.found));
-    let update_all = (here_behind || elsewhere_behind).then(|| {
+    let all = agents(bench);
+    let behind = all
+        .iter()
+        .filter(|agent| agent.installed().any(|found| found.update_to().is_some()))
+        .count();
+    let update_all = (behind > 0).then(|| {
         let this = this.clone();
-        let label = if elsewhere_behind {
-            t!("Update every host")
-        } else {
-            t!("Update all")
-        };
-        ui::Button::new("agent-update-all", label, ui::Variant::Outline)
-            .on_click(move |_, _, cx| this.update(cx, update_everywhere))
-            .into_any_element()
+        ui::Button::new(
+            "agent-update-all",
+            t!("Update {count}", count = behind),
+            ui::Variant::Outline,
+        )
+        .on_click(move |_, _, cx| this.update(cx, update_everywhere))
+        .into_any_element()
     });
-    let here = rows::section_with(
-        n!("Agents on this host"),
-        ready,
+    let body: AnyElement = match bench.agent_setup.found {
+        None => rows::note(t!("Looking for agents…"), cx),
+        Some(_) => div()
+            .children(all.iter().map(|agent| {
+                let open = fields.open.as_deref() == Some(agent.kind);
+                div()
+                    .child(row(bench, agent, open, this, cx))
+                    .when(open, |shown| {
+                        shown.child(detail(bench, agent, fields, this, cx))
+                    })
+            }))
+            .into_any_element(),
+    };
+    rows::section_with(
+        n!("Agents"),
+        Some(SharedString::from(all.len().to_string())),
         update_all,
-        Some(t!("Install an agent here and it lands where its own updater expects, so it works in your terminal too.").into()),
-        lit("Agents on this host"),
+        None,
+        lit("Agents"),
         body,
         cx,
-    );
-    div()
-        .flex()
-        .flex_col()
-        .gap(crate::theme::SPACE_4)
-        .child(here)
-        .children(
-            setup
-                .elsewhere
-                .iter()
-                .filter(|host| !host.found.is_empty())
-                .map(|host| {
-                    let place = Place::Account(host.host.clone());
-                    let body = list(bench, &host.found, &place, this, cx);
-                    let update_host = behind(&host.found).then(|| {
-                        let (this, place) = (this.clone(), place.clone());
-                        ui::Button::new(
-                            SharedString::from(format!("agent-update-all-{}", host.host)),
-                            t!("Update all"),
-                            ui::Variant::Outline,
-                        )
-                        .on_click(move |_, _, cx| {
-                            let place = place.clone();
-                            this.update(cx, |bench, cx| update(bench, place, Vec::new(), cx))
-                        })
-                        .into_any_element()
-                    });
-                    rows::section_with(
-                        t!("Agents on {host}", host = bench.host_name(&host.host)),
-                        None,
-                        update_host,
-                        None,
-                        false,
-                        body,
-                        cx,
-                    )
-                }),
+    )
+}
+
+/// The line under an agent's name, when there is more to say than its release.
+fn trouble(agent: &Agent) -> Option<(SharedString, bool)> {
+    for found in agent
+        .here
+        .into_iter()
+        .chain(agent.hosts.iter().map(|(_, found)| *found))
+    {
+        match &found.updating {
+            Some(Updating::Queued) => {
+                return Some((t!("Waiting for another update").into(), false))
+            }
+            Some(Updating::Running { .. }) => return Some((t!("Updating…").into(), false)),
+            Some(Updating::Failed { .. }) => return Some((t!("Its update failed").into(), true)),
+            None => {}
+        }
+    }
+    (agent
+        .installed()
+        .any(|found| matches!(found.status, AgentStatus::Broken { .. })))
+    .then(|| {
+        (
+            t!("It doesn't start. Open it for what it said.").into(),
+            true,
         )
-        .into_any_element()
+    })
 }
 
-/// The release line under an agent's name: what it runs, what is out, and how an update goes.
-fn releases(agent: &Found) -> Option<SharedString> {
-    match &agent.updating {
-        Some(Updating::Queued) => return Some(t!("Waiting for another update to finish").into()),
-        Some(Updating::Running { said }) => {
-            return Some(
-                said.clone()
-                    .unwrap_or_else(|| t!("Updating…").into())
-                    .into(),
-            )
-        }
-        Some(Updating::Failed { reason }) => {
-            return Some(t!("Update failed: {reason}", reason = reason).into())
-        }
-        None => {}
-    }
-    let version = agent.version.as_deref()?;
-    let mut parts = vec![version.to_owned()];
-    if let Some(latest) = agent.update_to() {
-        parts.push(match agent.unlocks.is_empty() {
-            true => t!("{version} out", version = latest),
-            false => t!(
-                "{version} out, brings {features}",
-                version = latest,
-                features = agent.unlocks.join(", ")
-            ),
-        });
-    } else if agent.latest.is_some() {
-        parts.push(t!("newest").to_owned());
-    }
-    let older: Vec<&str> = (agent.running.iter())
-        .filter(|running| running.as_str() != version)
-        .map(String::as_str)
-        .collect();
-    if !older.is_empty() {
-        parts.push(t!(
-            "open chats run {versions} until restarted",
-            versions = older.join(", ")
-        ));
-    }
-    Some(parts.join(" · ").into())
-}
-
-fn list(
+fn row(
     bench: &Workbench,
-    found: &[Found],
-    place: &Place,
+    agent: &Agent,
+    open: bool,
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
-    let t = crate::theme::Tokens::get(cx).clone();
-    let here = *place == Place::This;
-    div()
-        .children(found.iter().map(|agent| {
-            let detail: Option<SharedString> = match &agent.status {
-                AgentStatus::Broken { reason } => Some(reason.clone().into()),
-                AgentStatus::Missing => Some(agent.about.clone().into()),
-                _ => releases(agent),
-            };
-            let tone = match agent.status {
-                AgentStatus::Ready { .. } | AgentStatus::Unknown => ui::Tone::Ok,
-                AgentStatus::SignedOut => ui::Tone::Pending,
-                AgentStatus::Missing => ui::Tone::Idle,
-                AgentStatus::Broken { .. } => ui::Tone::Failed,
-            };
-            let status = div()
-                .min_w_0()
-                .overflow_hidden()
-                .flex()
-                .items_center()
-                .gap(SPACE_1H)
-                .px(SPACE_2)
-                .h(px(22.))
+    let t = Tokens::get(cx).clone();
+    let shown = agent
+        .here
+        .filter(|found| found.version.is_some())
+        .or_else(|| agent.installed().find(|found| found.version.is_some()));
+    let newest = agent.installed().find_map(Found::update_to);
+    let places: Vec<SharedString> = (agent.here.iter())
+        .filter(|found| !matches!(found.status, AgentStatus::Missing))
+        .map(|_| SharedString::from(t!("This host")))
+        .chain(
+            (agent.hosts.iter())
+                .filter(|(_, found)| !matches!(found.status, AgentStatus::Missing))
+                .map(|(host, _)| SharedString::from(host.clone())),
+        )
+        .collect();
+    let where_: Option<SharedString> = match places.len() {
+        0 => None,
+        1 => places.into_iter().next(),
+        count => Some(t!("{count} hosts", count = count).into()),
+    };
+    let signed_in: Vec<_> = (bench.accounts.of(agent.kind).into_iter())
+        .filter(|profile| {
+            crate::accounts::status(bench, profile)
+                .and_then(|status| status.as_ref().ok())
+                .is_some_and(|status| status.signed_in)
+        })
+        .take(3)
+        .collect();
+    let faces = div()
+        .flex()
+        .children(signed_in.iter().enumerate().map(|(at, profile)| {
+            div()
+                .when(at > 0, |face| face.ml(px(-5.)))
                 .rounded_full()
-                .border(crate::theme::border())
-                .border_color(t.border)
-                .child(ui::dot(tone, cx))
-                .child(
+                .border_1()
+                .border_color(t.surface)
+                .child(crate::accounts::avatar(bench.accounts.avatar(profile), 16.))
+        }));
+    let label = div()
+        .flex()
+        .items_baseline()
+        .gap(SPACE_2)
+        .child(agent.label.to_owned())
+        .children(
+            shown
+                .and_then(|found| found.version.clone())
+                .map(|version| {
                     div()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(crate::theme::ui_text(TEXT_2XS))
-                        .text_color(t.text_secondary)
-                        .child(status_label(&agent.status)),
-                );
-            let folder = bench
-                .accounts
-                .current(&agent.kind)
-                .and_then(|profile| profile.config_path.clone());
-            let sign_in = (here && matches!(agent.status, AgentStatus::SignedOut))
-                .then(|| signing_in(agent, folder.as_deref()))
-                .flatten();
-            let broken = matches!(agent.status, AgentStatus::Broken { .. });
-            let missing = matches!(agent.status, AgentStatus::Missing);
-            let install = (here && (missing || broken))
-                .then(|| installing(agent))
-                .flatten();
-            let sheet_button = |id: String, label: &'static str, sheet: Sheet| {
-                let this = this.clone();
-                ui::Button::new(SharedString::from(id), label, ui::Variant::Outline).on_click(
-                    move |_, _, cx| {
-                        let sheet = sheet.clone();
-                        this.update(cx, |bench, cx| run(bench, sheet, cx))
-                    },
-                )
-            };
-            let failed = matches!(agent.updating, Some(Updating::Failed { .. }));
-            let update_button = (!agent.updating_now() && (failed || agent.update_to().is_some()))
-                .then(|| {
-                    let (this, place, kind) = (this.clone(), place.clone(), agent.kind.clone());
-                    let id = match place {
-                        Place::This => format!("agent-update-{kind}"),
-                        Place::Account(ref host) => format!("agent-update-{host}-{kind}"),
-                    };
-                    ui::Button::new(
-                        SharedString::from(id),
-                        if failed { t!("Retry") } else { t!("Update") },
-                        ui::Variant::Outline,
-                    )
-                    .on_click(move |_, _, cx| {
-                        let (place, kind) = (place.clone(), kind.clone());
-                        this.update(cx, |bench, cx| update(bench, place, vec![kind], cx))
-                    })
-                });
-            let running = matches!(agent.updating, Some(Updating::Running { .. }));
-            let actions = div()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .gap(SPACE_2)
-                .when(running, |actions| {
-                    actions.child(ui::sign_in::spinner("agent-update", cx))
-                })
-                .child(status)
-                .children(update_button)
-                .children(sign_in.map(|sheet| {
-                    sheet_button(
-                        format!("agent-sign-in-{}", agent.kind),
-                        t!("Sign in"),
-                        sheet,
-                    )
-                }))
-                .children(install.map(|sheet| {
-                    sheet_button(
-                        format!("agent-install-{}", agent.kind),
-                        if broken {
-                            t!("Reinstall")
-                        } else {
-                            t!("Install")
-                        },
-                        sheet,
-                    )
-                }));
-            rows::row_with(
-                Some(
-                    ui::mark_box(32., ui::mark(&agent.kind, 18.))
-                        .rounded(crate::theme::radius_2())
-                        .bg(t.surface_raised)
-                        .border(crate::theme::border())
-                        .border_color(t.border)
-                        .into_any_element(),
-                ),
-                agent.label.clone(),
-                detail,
-                actions,
-                cx,
-            )
-            .when(missing, |row| row.opacity(0.75))
-            .into_any_element()
+                        .text_size(theme::ui_text(TEXT_2XS_H))
+                        .text_color(t.text_tertiary)
+                        .child(version)
+                }),
+        )
+        .children(newest.map(|newest| {
+            div()
+                .text_size(theme::ui_text(TEXT_2XS_H))
+                .text_color(t.accent)
+                .child(format!("↑ {newest}"))
+        }));
+    let about = trouble(agent)
+        .map(|(line, bad)| rows::about_line(line, if bad { t.danger } else { t.text_tertiary }));
+    let control = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_3)
+        .children(where_.map(|where_| {
+            div()
+                .text_size(theme::ui_text(TEXT_2XS_H))
+                .text_color(t.text_tertiary)
+                .child(where_)
         }))
+        .child(faces)
+        .child(
+            div()
+                .min_w(px(78.))
+                .flex()
+                .justify_end()
+                .child(state(bench, agent, this, cx)),
+        )
+        .child(
+            ui::icon(Icon::Chevron, 10.)
+                .text_color(t.text_tertiary)
+                .when(open, |chevron| {
+                    chevron.with_transformation(Transformation::rotate(Radians(FRAC_PI_2)))
+                }),
+        );
+    let kind = agent.kind.to_owned();
+    let toggle = this.clone();
+    let missing = agent.installed().next().is_none();
+    div()
+        .id(SharedString::from(format!("agent-row-{kind}")))
+        .cursor_pointer()
+        .hover(|row| row.bg(t.surface_hover))
+        .when(missing, |row| row.opacity(0.7))
+        .child(rows::row_parts(
+            Some(ui::mark(agent.kind, 16.)),
+            label,
+            about,
+            control,
+            cx,
+        ))
+        .clicks(move |_, _, cx| {
+            let kind = kind.clone();
+            toggle.update(cx, |bench, cx| {
+                super::change_fields(bench, cx, |fields, _| {
+                    let fields = &mut fields.setup;
+                    fields.editing = None;
+                    fields.open = (fields.open.as_deref() != Some(kind.as_str())).then_some(kind);
+                });
+            })
+        })
+        .into_any_element()
+}
+
+/// The one word or button that says what the agent needs: nothing, a sign-in, an install, or a
+/// reinstall because it doesn't start.
+fn state(bench: &Workbench, agent: &Agent, this: &Entity<Workbench>, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let sheet_button = |id: String, label: &'static str, sheet: Sheet| {
+        let this = this.clone();
+        ui::Button::new(SharedString::from(id), label, ui::Variant::Outline)
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                let sheet = sheet.clone();
+                this.update(cx, |bench, cx| run(bench, sheet, cx))
+            })
+            .into_any_element()
+    };
+    let worded = |tone: ui::Tone, word: &'static str| {
+        div()
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .text_size(theme::ui_text(TEXT_XS))
+            .text_color(t.text_secondary)
+            .child(ui::dot(tone, cx))
+            .child(word)
+            .into_any_element()
+    };
+    if agent.installed().any(|found| found.updating_now()) {
+        return ui::sign_in::spinner("agent-updating", cx);
+    }
+    match agent.here.map(|found| (found, &found.status)) {
+        Some((found, AgentStatus::Broken { .. })) => match installing(found) {
+            Some(sheet) => sheet_button(
+                format!("agent-install-{}", agent.kind),
+                t!("Reinstall"),
+                sheet,
+            ),
+            None => worded(ui::Tone::Failed, t!("Not working")),
+        },
+        Some((found, AgentStatus::SignedOut)) => {
+            let folder = (bench.accounts.current(agent.kind))
+                .and_then(|profile| profile.config_path.clone());
+            match signing_in(found, folder.as_deref()) {
+                Some(sheet) => sheet_button(
+                    format!("agent-sign-in-{}", agent.kind),
+                    t!("Sign in"),
+                    sheet,
+                ),
+                None => worded(ui::Tone::Pending, t!("Signed out")),
+            }
+        }
+        Some((found, AgentStatus::Missing)) if agent.installed().next().is_none() => {
+            match installing(found) {
+                Some(sheet) => sheet_button(
+                    format!("agent-install-{}", agent.kind),
+                    t!("Install"),
+                    sheet,
+                ),
+                None => worded(ui::Tone::Idle, t!("Not installed")),
+            }
+        }
+        _ if agent
+            .installed()
+            .any(|found| matches!(found.status, AgentStatus::Broken { .. })) =>
+        {
+            worded(ui::Tone::Failed, t!("Not working"))
+        }
+        _ => worded(ui::Tone::Ok, t!("Ready")),
+    }
+}
+
+/// An opened row: each host with its release, the agent's accounts, and the program it runs.
+fn detail(
+    bench: &Workbench,
+    agent: &Agent,
+    fields: &Fields,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let part = |name: &'static str, body: AnyElement| {
+        div()
+            .flex()
+            .items_start()
+            .gap(SPACE_3)
+            .py(SPACE_2)
+            .child(
+                div()
+                    .w(px(72.))
+                    .flex_none()
+                    .pt(px(2.))
+                    .text_size(theme::ui_text(TEXT_XS))
+                    .text_color(t.text_tertiary)
+                    .child(name),
+            )
+            .child(div().flex_1().min_w_0().child(body))
+    };
+    let meta = |text: SharedString| {
+        div()
+            .text_size(theme::ui_text(TEXT_2XS_H))
+            .text_color(t.text_tertiary)
+            .child(text)
+    };
+    let place = |name: SharedString, found: &Found| {
+        let tone = match found.status {
+            AgentStatus::Ready { .. } | AgentStatus::Unknown => None,
+            AgentStatus::SignedOut => Some((ui::Tone::Pending, t!("signed out"))),
+            AgentStatus::Missing => Some((ui::Tone::Idle, t!("not installed"))),
+            AgentStatus::Broken { .. } => Some((ui::Tone::Failed, t!("doesn't start"))),
+        };
+        div()
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .text_size(theme::ui_text(TEXT_XS))
+            .text_color(t.text_primary)
+            .children(tone.map(|(tone, _)| ui::dot(tone, cx)))
+            .child(name)
+            .children(found.version.clone().map(|version| meta(version.into())))
+            .children(tone.map(|(_, word)| meta(word.into())))
+    };
+    let places = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap_x(SPACE_4)
+        .gap_y(SPACE_1)
+        .children(agent.here.map(|found| place(t!("This host").into(), found)))
+        .children((agent.hosts.iter()).map(|(host, found)| place(host.clone().into(), found)));
+    let reasons: Vec<String> = (agent.installed())
+        .filter_map(|found| match (&found.status, &found.updating) {
+            (AgentStatus::Broken { reason }, _) => Some(reason.clone()),
+            (_, Some(Updating::Failed { reason })) => Some(reason.clone()),
+            _ => None,
+        })
+        .collect();
+    let hosts = div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_1H)
+        .child(places)
+        .children(reasons.into_iter().map(|reason| {
+            div()
+                .font_family(theme::mono_font())
+                .text_size(theme::ui_text(TEXT_2XS))
+                .text_color(t.text_tertiary)
+                .child(reason)
+        }));
+    let signs_in =
+        (bench.reads.catalog.agents()).any(|kind| kind.kind == agent.kind && kind.accounts);
+    let accounts = signs_in.then(|| super::accounts::list(bench, agent.kind, this, cx));
+    div()
+        .pl(px(48.))
+        .pr(SPACE_4)
+        .pb(SPACE_2)
+        .border_b(theme::border())
+        .border_color(t.line_soft)
+        .child(part(t!("Hosts"), hosts.into_any_element()))
+        .children(accounts.map(|accounts| part(t!("Accounts"), accounts)))
+        .child(part(t!("Runs"), runs(bench, agent, fields, this, cx)))
+        .into_any_element()
+}
+
+/// The program the agent's account in use starts, with the way to point it at another.
+fn runs(
+    bench: &Workbench,
+    agent: &Agent,
+    fields: &Fields,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let Some(profile) = bench.accounts.current(agent.kind).cloned() else {
+        return div()
+            .text_size(theme::ui_text(TEXT_XS))
+            .text_color(t.text_secondary)
+            .child(t!("{program} from PATH", program = agent.kind))
+            .into_any_element();
+    };
+    if fields.editing.as_deref() == Some(profile.id.as_str()) {
+        let (save, cancel) = (this.clone(), this.clone());
+        let input = fields.program.clone();
+        return div()
+            .flex()
+            .items_center()
+            .gap(SPACE_2)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(ui::Field::new(&fields.program)),
+            )
+            .child(
+                ui::Button::new("agent-program-save", t!("Save"), ui::Variant::Primary).on_click(
+                    move |_, _, cx| {
+                        let path = input.read(cx).value().trim().to_owned();
+                        let mut profile = profile.clone();
+                        profile.executable_path = (!path.is_empty()).then_some(path);
+                        save.update(cx, |bench, cx| {
+                            crate::accounts::save(bench, &profile, cx);
+                            super::change_fields(bench, cx, |fields, _| {
+                                fields.setup.editing = None
+                            });
+                        })
+                    },
+                ),
+            )
+            .child(
+                ui::Button::new("agent-program-cancel", t!("Cancel"), ui::Variant::Ghost).on_click(
+                    move |_, _, cx| {
+                        cancel.update(cx, |bench, cx| {
+                            super::change_fields(bench, cx, |fields, _| {
+                                fields.setup.editing = None
+                            });
+                        })
+                    },
+                ),
+            )
+            .into_any_element();
+    }
+    let shown: SharedString = match &profile.executable_path {
+        Some(path) => path.clone().into(),
+        None => t!("{program} from PATH", program = agent.kind).into(),
+    };
+    let change = {
+        let this = this.clone();
+        ui::Button::new(
+            SharedString::from(format!("agent-program-{}", agent.kind)),
+            t!("Change"),
+            ui::Variant::Ghost,
+        )
+        .on_click(move |_, window, cx| {
+            let profile = profile.clone();
+            this.update(cx, |bench, cx| {
+                super::change_fields(bench, cx, |fields, cx| {
+                    let value = profile.executable_path.clone().unwrap_or_default();
+                    fields
+                        .setup
+                        .program
+                        .update(cx, |input, cx| input.set_value(value, window, cx));
+                    fields.setup.editing = Some(profile.id.clone());
+                });
+            })
+        })
+    };
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(theme::ui_text(TEXT_XS))
+                .text_color(t.text_secondary)
+                .child(shown),
+        )
+        .child(change)
         .into_any_element()
 }

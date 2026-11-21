@@ -11,7 +11,7 @@ use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::{
-    div, img, px, AppContext, Context, Entity, Hsla, Image, InteractiveElement, IntoElement,
+    div, img, px, AppContext, Context, Entity, Image, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 use sikemux_agents::agent_accounts::status::AccountStatus;
@@ -87,16 +87,6 @@ pub struct Accounts {
 type TakersKey = (String, String, Option<String>);
 
 const CHECK_ON_RETURN_AT_MOST_EVERY: Duration = Duration::from_secs(30);
-
-/// An account's colour, which the person may have set as `#rrggbb`.
-pub fn accent(profile: &Profile) -> Hsla {
-    profile
-        .accent
-        .strip_prefix('#')
-        .and_then(|hex| u32::from_str_radix(hex, 16).ok())
-        .map(|value| gpui_kit::rgb(value).into())
-        .unwrap_or_else(|| theme::brand(&profile.provider))
-}
 
 /// An account's avatar picture at `size`, as every list of accounts draws it.
 pub fn avatar(picture: Arc<Image>, size: f32) -> impl IntoElement {
