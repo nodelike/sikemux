@@ -709,6 +709,13 @@ pub(super) fn composer(
             })
         };
         let started = head.is_some_and(|head| head.connection == ChatConnection::Ready);
+        let reading = reads_models
+            || head.is_some_and(|head| {
+                matches!(
+                    head.connection,
+                    ChatConnection::Starting | ChatConnection::Initializing
+                )
+            });
         let picked = crate::chat::model_picker::Picked {
             provider: agent.provider.clone(),
             profile: saved.profile_id.clone(),
@@ -719,7 +726,7 @@ pub(super) fn composer(
             project: saved.project.clone(),
             locked: !fresh,
             idle: idle(head),
-            pending: match (started, reads_models) {
+            pending: match (started, reading) {
                 (true, _) => None,
                 (false, true) => Some(t!("Reading the models…")),
                 (false, false) => Some(t!("Models show once the agent starts")),
