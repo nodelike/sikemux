@@ -65,8 +65,6 @@ const SETTLE_MS: u64 = 1500;
 /// How long an agent rests after a turn before messages nobody waits on, such as a trigger's or a
 /// teammate's report, start another, so those that come close together are read in one turn.
 const AUTO_SETTLE_MS: u64 = 30_000;
-/// How long a calm report waits for its lead's next turn before it starts one.
-const CALM_WAIT_MS: u64 = 5 * 60_000;
 /// How long Sikemux remembers that an agent reported, so the chief's digest does not repeat it.
 const REPORTED_MS: u64 = 24 * 60 * 60_000;
 /// Turns in a row an agent may start on messages nobody waits on before the rest wait for the
@@ -2022,7 +2020,7 @@ async fn report_noted(
             let note = note(&called(&name, &worker));
             let mut letter = letter_from(&agents, MessageKind::Report, worker, text, Some(note));
             letter.from_name = name;
-            letter.calm = calm.then(|| calm_due(&agents, &letter.from_id, &target.agent_id, letter.at));
+            letter.calm = calm.then(|| calm_due(&core, &agents, &letter.from_id, &target.agent_id, letter.at));
             Ok(Some((target, letter)))
         })
         .await
@@ -2035,14 +2033,22 @@ async fn report_noted(
     }
 }
 
-/// A calm report is due at once when its lead has no other worker open to join it, and
-/// [`CALM_WAIT_MS`] after `at` otherwise.
-fn calm_due(agents: &[Listed], worker: &str, lead: &str, at: u64) -> u64 {
-    let others = agents
-        .iter()
-        .any(|agent| agent.agent_id != worker && agent.parent.as_deref() == Some(lead));
-    match others {
-        true => at + CALM_WAIT_MS,
+/// A calm report is due at once when no other worker of its lead is still at work, and
+/// otherwise waits for the lead's next turn, which that worker's own report starts.
+fn calm_due(core: &Core, agents: &[Listed], worker: &str, lead: &str, at: u64) -> u64 {
+    let turns = super::turn_state::all(core);
+    let at_work = agents.iter().any(|agent| {
+        agent.agent_id != worker
+            && agent.parent.as_deref() == Some(lead)
+            && (turns.get(&agent.agent_id)).is_some_and(|turn| {
+                matches!(
+                    turn.state,
+                    sikemux_view::turn::TurnPhase::Working | sikemux_view::turn::TurnPhase::Waiting
+                )
+            })
+    });
+    match at_work {
+        true => u64::MAX,
         false => at,
     }
 }
@@ -2617,7 +2623,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
             .calm_until(&agent_id)
             .filter(|until| *until > epoch_ms())
         {
-            next = sooner(next, Some(until));
+            next = sooner(next, Some(until).filter(|until| *until != u64::MAX));
             continue;
         }
         let rest = mailbox.rest_for(&agent_id);
