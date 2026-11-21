@@ -1021,7 +1021,9 @@ pub fn sheet(
 mod tests {
     use super::sheet_startup;
 
-    /// Reproduces a fish user's install failing with "$? is not the exit status".
+    /// Reproduces a fish user's install failing with "$? is not the exit status". The shell
+    /// gets the whole script the core's `configure_startup` gives it, as fish parses all of it
+    /// before running any.
     #[test]
     fn the_sheet_runs_its_command_in_every_login_shell() {
         let (startup, env) = sheet_startup("printf 'it ran'; exit 3");
@@ -1034,11 +1036,14 @@ mod tests {
                     .find(|program| program.is_file())
             })
             .collect();
+        let script = format!("{startup}\nexec \"$SIKEMUX_SHELL\"");
         for shell in found {
             #[allow(clippy::disallowed_methods)]
             let output = std::process::Command::new(&shell)
-                .args(["-c", &startup])
+                .args(["-c", &script])
                 .envs(&env)
+                .env("SIKEMUX_SHELL", &shell)
+                .stdin(std::process::Stdio::null())
                 .output()
                 .expect("run the shell");
             assert_eq!(
