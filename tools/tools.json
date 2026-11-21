@@ -1341,13 +1341,17 @@
           "minLength": 1,
           "maxLength": 4096
         },
+        "wake": {
+          "description": "Prompt this chat once it exits; then end your turn",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
         "needs": {
           "type": "array"
         }
       },
-      "required": [
-        "idempotencyKey"
-      ]
+      "required": []
     },
     {
       "name": "process_restart",
@@ -2067,7 +2071,7 @@
         "about": {"description": "Agent whose work it is, when not yours", "type": "string", "minLength": 1, "maxLength": 200},
         "page": {"description": "Id of a page you showed that pictures it", "type": "string", "minLength": 32, "maxLength": 32},
         "pages": {"description": "Several such page ids, in order; on edit, the new list", "type": "array", "maxItems": 6, "items": {"type": "string", "minLength": 32, "maxLength": 32}},
-        "edit": {"description": "questionId of your open call: change it in place with the fields given", "type": "string", "minLength": 1, "maxLength": 64},
+        "edit": {"description": "questionId, or title, of your open call: change it in place with the fields given", "type": "string", "minLength": 1, "maxLength": 64},
         "withdraw": {"description": "With edit: take the call back, once the person answered in chat or it no longer stands", "type": "boolean"}
       },
       "required": []

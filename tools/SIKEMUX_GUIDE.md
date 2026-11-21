@@ -15,8 +15,9 @@ can see. Desk tabs run WebKit, as Safari does. `sim tap` here means `sim` with
 
 - `workspace_inspect` comes first: the project's processes, your runs, the
   ports in use and an event cursor. Take process ids from it.
-- `process_start` takes an `idempotencyKey` you choose; reusing it returns the
-  same run, so reuse it when unsure a call landed.
+- `process_start` takes an optional `idempotencyKey`; reusing it returns the
+  same run, so give one when you may need to retry. `wake` prompts you once
+  the run exits, so a build or test needs no second call to wait on.
 - `process_read` cursors are byte offsets into output; `events_wait` cursors
   are a different kind. Never mix them. A wait that times out is normal.
 - Browser element numbers last only while their element is on the page; read
@@ -115,7 +116,8 @@ yourself: it runs on the Java the build asks for. A `command` result's
 `processId` (like `sh:pnpm-dev-3fa2c1`) works with the other process tools.
 
 Reusing an `idempotencyKey` returns the original run, even after it finished.
-Use one key per attempt and reuse it when unsure a call landed. Starting a
+Use one key per attempt and reuse it when unsure a call landed. To wait for a
+run to exit, pass `wake` with what to tell you then, and end your turn. Starting a
 process that already runs, by anyone, returns that run; reusing a `label`
 replaces the earlier run, even with a changed command.
 
@@ -1085,7 +1087,7 @@ instead of sleeping or looping. `trigger_add` takes exactly one of `in`, `at`,
 - `process`: an `executionId`; with `until`, text it prints. Park on a dev
   server with `until: "ready"`. The id comes in `process_start`'s result, never
   from your `idempotencyKey` or `label`, so set the trigger in the step after
-  the start, not beside it.
+  the start, or pass `wake` to `process_start` to wait for its exit.
 - `agent`: an agent's name; `until` is `done` (default), `needs_you`, `idle`
   or `any`.
 
