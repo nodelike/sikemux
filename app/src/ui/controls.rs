@@ -274,6 +274,7 @@ pub struct Button {
     wide: bool,
     mouse_only: bool,
     icon_only: bool,
+    shrinks: bool,
 }
 
 /// A button can open a popover; it looks the same open or closed.
@@ -306,12 +307,19 @@ impl Button {
             wide: false,
             mouse_only: false,
             icon_only: false,
+            shrinks: false,
         }
     }
 
     /// Drawn as its icon alone, its label kept for VoiceOver and shown over it.
     pub fn icon_only(mut self, icon_only: bool) -> Self {
         self.icon_only = icon_only;
+        self
+    }
+
+    /// Narrows to the room its row has, its label cut short with an ellipsis.
+    pub fn shrinks(mut self) -> Self {
+        self.shrinks = true;
         self
     }
 
@@ -516,7 +524,18 @@ impl RenderOnce for Button {
         .children(self.icon.map(|icon_name| {
             icon(icon_name, glyph).text_color(fade("glyph", if lit { hover } else { rest }))
         }))
-        .when(!self.icon_only, |button| button.child(self.label))
+        .when(self.shrinks, |button| button.min_w_0())
+        .when(!self.icon_only, |button| {
+            button.child(if self.shrinks {
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .child(self.label)
+                    .into_any_element()
+            } else {
+                self.label.into_any_element()
+            })
+        })
         .children(self.trail)
         .children(self.keys.map(|keys| {
             kbd(keys, cx)
