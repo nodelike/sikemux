@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Checks citadel every minute and posts to Discord's #alerts when a check starts failing, every six
-# hours while it keeps failing, and once when it recovers. Run by sikemux-watch.timer.
+# Checks citadel every minute and posts to Discord's #alerts when a check fails two runs in a row,
+# every six hours while it keeps failing, and once when it recovers. Run by sikemux-watch.timer.
+# One failed run alone stays quiet: a deploy's restart keeps the API away for up to 25 seconds.
 set -euo pipefail
 
 STATE="${STATE_DIRECTORY:-/var/lib/sikemux-watch}"
@@ -90,11 +91,17 @@ post() {
     curl -fsS --max-time 10 -H 'content-type: application/json' -d @- "$WEBHOOK_URL" >/dev/null
 }
 
-mkdir -p "$STATE/failing"
+mkdir -p "$STATE/failing" "$STATE/once"
 for key in "${!failing[@]}"; do
   since_file="$STATE/failing/$key"
+  once_file="$STATE/once/$key"
   if [ ! -f "$since_file" ]; then
-    post "**citadel:** ${failing[$key]}" && echo "$now $now" >"$since_file"
+    if [ -f "$once_file" ]; then
+      read -r first <"$once_file"
+      post "**citadel:** ${failing[$key]}" && echo "$first $now" >"$since_file" && rm -f "$once_file"
+    else
+      echo "$now" >"$once_file"
+    fi
   else
     read -r first last <"$since_file"
     if [ $((now - last)) -ge "$REPEAT_SECONDS" ]; then
@@ -102,6 +109,10 @@ for key in "${!failing[@]}"; do
         echo "$first $now" >"$since_file"
     fi
   fi
+done
+for once_file in "$STATE"/once/*; do
+  [ -e "$once_file" ] || continue
+  [ -n "${failing[$(basename "$once_file")]+set}" ] || rm -f "$once_file"
 done
 for since_file in "$STATE"/failing/*; do
   [ -e "$since_file" ] || continue
