@@ -600,17 +600,53 @@ pub(super) fn trouble(
         ChatConnection::Error | ChatConnection::Stopped
     );
     if dropped && !chat.is_new(cx) {
-        let why = (head.ended.as_ref()).and_then(|ended| ended.message.clone());
+        let ended = head.ended.as_ref();
+        let signed_out = ended.is_some_and(|ended| ended.failure == Some(FailureKind::SignIn));
+        let reconnect = act(t!("Reconnect"), "chat-reconnect", |bench, agent| {
+            bench.reconnect(agent)
+        });
+        let start_over = act(t!("Start new chat"), "chat-start-over", |bench, agent| {
+            bench.start_over(agent)
+        });
+        if signed_out {
+            let name = bench.agent_name(&agent.provider);
+            let (said, sign_in) = match &agent.place {
+                crate::hosts::Place::This => {
+                    let (this, provider) = (this.clone(), agent.provider.clone());
+                    let sign_in = Button::new(
+                        "chat-sign-in-agent",
+                        t!("Sign in to {name}", name = name),
+                        Variant::Outline,
+                    )
+                    .on_click(move |_, window, cx| {
+                        this.update(cx, |bench, cx| bench.sign_in_agent(&provider, window, cx))
+                            .ok();
+                    });
+                    (
+                        t!("{agent} isn't signed in", agent = name),
+                        Some(sign_in.into_any_element()),
+                    )
+                }
+                crate::hosts::Place::Account(key) => (
+                    t!(
+                        "{agent} isn't signed in on {host}",
+                        agent = name,
+                        host = bench.host_name(key)
+                    ),
+                    None,
+                ),
+            };
+            let parts = vec![
+                said,
+                t!("sign in, or pick another agent from the model menu").to_owned(),
+            ];
+            let buttons = sign_in.into_iter().chain([reconnect, start_over]).collect();
+            return Some(centred(failed(parts, buttons, cx), cx).into_any_element());
+        }
+        let why = ended.and_then(|ended| ended.message.clone());
         let mut parts = vec![t!("the session dropped").to_owned()];
         parts.extend(why);
-        let buttons = vec![
-            act(t!("Reconnect"), "chat-reconnect", |bench, agent| {
-                bench.reconnect(agent)
-            }),
-            act(t!("Start new chat"), "chat-start-over", |bench, agent| {
-                bench.start_over(agent)
-            }),
-        ];
+        let buttons = vec![reconnect, start_over];
         return Some(centred(failed(parts, buttons, cx), cx).into_any_element());
     }
     let error = head.error.clone()?;

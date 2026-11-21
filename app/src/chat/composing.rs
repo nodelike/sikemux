@@ -697,7 +697,13 @@ pub(super) fn composer(
             choices: Vec::new(),
         })
     });
-    if let Some(saved) = saved.filter(|_| fresh || model.is_some()) {
+    let dropped = head.is_some_and(|head| {
+        matches!(
+            head.connection,
+            ChatConnection::Error | ChatConnection::Stopped
+        )
+    });
+    if let Some(saved) = saved.filter(|_| fresh || dropped || model.is_some()) {
         let moving: crate::chat::model_picker::Move = {
             let (this, agent) = (this.clone(), agent.id.clone());
             Rc::new(move |to: crate::chat::model_picker::Moving, _, cx| {
@@ -718,6 +724,7 @@ pub(super) fn composer(
             model_provider: saved.model_provider.clone(),
             project: saved.project.clone(),
             locked: !fresh,
+            dropped,
             pending: match (started, reads_models) {
                 (true, _) => None,
                 (false, true) => Some(t!("Reading the models…")),

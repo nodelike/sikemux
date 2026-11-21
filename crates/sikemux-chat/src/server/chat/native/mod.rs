@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::agent_catalog::ChatDriver;
+use sikemux_view::chat::FailureKind;
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::rebind::Outcome;
@@ -37,13 +38,19 @@ pub enum SessionEnd {
     Failed,
 }
 
-pub fn ended_status(result: &Result<SessionEnd, String>, started: bool) -> Value {
+/// `needs_sign_in` when the agent would not start until it is signed in.
+pub fn ended_status(
+    result: &Result<SessionEnd, String>,
+    started: bool,
+    needs_sign_in: bool,
+) -> Value {
     match result {
         Ok(end) => json!({ "state": "stopped", "reason": end }),
         Err(message) => json!({
             "state": "error",
             "reason": if started { SessionEnd::Exited } else { SessionEnd::Failed },
             "message": message,
+            "failure": needs_sign_in.then_some(FailureKind::SignIn),
         }),
     }
 }

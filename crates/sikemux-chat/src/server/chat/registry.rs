@@ -562,6 +562,7 @@ impl Chats {
             retry_waits: AtomicBool::new(false),
             reloadable: AtomicBool::new(true),
             moving_on: AtomicBool::new(false),
+            needs_sign_in: AtomicBool::new(false),
             edits: (core.chat_above().new_edits)(),
             cli_version: Mutex::new(None),
             keeper,

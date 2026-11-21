@@ -520,16 +520,20 @@ fn retry_of(update: &Value) -> Option<Retrying> {
     })
 }
 
+fn failure_kind(kind: &str) -> Option<FailureKind> {
+    match kind {
+        "signIn" => Some(FailureKind::SignIn),
+        "limit" => Some(FailureKind::Limit),
+        "payment" => Some(FailureKind::Payment),
+        "network" => Some(FailureKind::Network),
+        "other" => Some(FailureKind::Other),
+        _ => None,
+    }
+}
+
 fn failure_of(payload: &Value) -> Option<ChatFailure> {
     let failure = payload.get("failure")?;
-    let kind = match text_of(failure.get("kind"))? {
-        "signIn" => FailureKind::SignIn,
-        "limit" => FailureKind::Limit,
-        "payment" => FailureKind::Payment,
-        "network" => FailureKind::Network,
-        "other" => FailureKind::Other,
-        _ => return None,
-    };
+    let kind = failure_kind(text_of(failure.get("kind"))?)?;
     Some(ChatFailure {
         kind,
         details: text_of(failure.get("details"))
@@ -1178,6 +1182,7 @@ impl Fold {
                 .unwrap_or("requested")
                 .to_owned(),
             message: text_of(payload.get("message")).map(str::to_owned),
+            failure: text_of(payload.get("failure")).and_then(failure_kind),
         });
         self.set_head("ended");
         self.head.connection = state;
