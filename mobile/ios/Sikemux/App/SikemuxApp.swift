@@ -60,7 +60,7 @@ struct RootView: View {
             if phase == .active { session.foreground() } else if phase == .background { session.background() }
         }
         .onChange(of: network.updateRequired) { _, required in
-            if required != nil { Task { await Identity.shared.goOffline() } }
+            if required != nil { Identity.shared.goOffline() }
         }
         .task {
             Task { _ = await Network.shared.relays() }

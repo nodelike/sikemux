@@ -279,6 +279,47 @@ describe('the hub', () => {
     expect(connects()).toBe(2);
   });
 
+  it('comes back from a long suspension online afresh, redialling every host at once, even one stuck connecting', async () => {
+    const connection = await opened('awake');
+    hub.watch('stuck');
+    await vi.waitFor(() => expect(connects('stuck')).toBe(1));
+    AppState.emit('background');
+    // A suspended app runs no timers, so only the clock moves.
+    vi.setSystemTime(Date.now() + 5 * 60_000);
+    AppState.emit('active');
+    expect(identity.goOffline).toHaveBeenCalled();
+    expect(connection.closed).toBe(true);
+    await vi.waitFor(() => expect(connects('awake')).toBe(2));
+    await vi.waitFor(() => expect(connects('stuck')).toBe(2));
+  });
+
+  it('replaces a connection that cannot answer when the app comes back from a glance', async () => {
+    const connection = await opened();
+    connection.host.mockImplementationOnce(() => new Promise(() => {}));
+    AppState.emit('background');
+    await vi.advanceTimersByTimeAsync(2_000);
+    AppState.emit('active');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(connection.closed).toBe(true);
+    expect(connects()).toBe(2);
+  });
+
+  it('gives up a try that never ends, and Try again starts a fresh one at once', async () => {
+    hub.watch('host');
+    await vi.waitFor(() => expect(connects()).toBe(1));
+    hub.retry('host');
+    await vi.waitFor(() => expect(connects()).toBe(2));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(hub.liveOf('host')).toMatchObject({ status: 'closed', problem: 'The host did not answer in time.' });
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(connects()).toBe(3);
+    const abandoned = new FakeConnection();
+    fake.calls[0].settle(abandoned);
+    fake.calls[2].settle(new FakeConnection());
+    await vi.waitFor(() => expect(hub.liveOf('host').status).toBe('open'));
+    expect(abandoned.closed).toBe(true);
+  });
+
   it('keeps a connection that answers after the phone moves to another network', async () => {
     NetInfo.emit('wifi', '10.0.0.2');
     const connection = await opened();

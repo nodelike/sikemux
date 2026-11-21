@@ -7,6 +7,8 @@ final class Identity {
     static let shared = Identity()
 
     private static let keyItem = "sikemux.device-key"
+    /// Coming online takes a second; one that has not by now never will, and the next call starts again.
+    private static let onlineWait: Duration = .seconds(15)
 
     private var identity: DeviceIdentity?
     private var online: Task<Device, Error>?
@@ -29,13 +31,21 @@ final class Identity {
     func device() async throws -> Device {
         if let online { return try await online.value }
         let me = try deviceIdentity()
+        let ended = Ending()
         let coming = Task { () throws -> Device in
+            defer { ended.set = true }
             if Network.shared.updateRequired != nil {
                 throw MobileError.Outdated(macIsOlder: false)
             }
             return try await Device.create(identity: me, relays: await Network.shared.relaySettings())
         }
         online = coming
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.onlineWait)
+            guard let self, online == coming, !ended.set else { return }
+            online = nil
+            Task { await (try? coming.value)?.close() }
+        }
         do {
             return try await coming.value
         } catch {
@@ -52,10 +62,11 @@ final class Identity {
     }
 
     /// Takes the phone off the network while the app is away; the next call to `device` brings it back.
-    func goOffline() async {
-        guard let going = online, joining == 0 else { return }
+    @discardableResult
+    func goOffline() -> Task<Void, Never>? {
+        guard let going = online, joining == 0 else { return nil }
         online = nil
-        await (try? going.value)?.close()
+        return Task { await (try? going.value)?.close() }
     }
 
     /// Makes this phone a new device: the account may still hold the old key, and anything it signed for that
@@ -63,7 +74,7 @@ final class Identity {
     func rotateKey() async {
         Keychain.app.delete(Self.keyItem)
         identity = nil
-        await goOffline()
+        await goOffline()?.value
     }
 
     private func key() throws -> Data {
@@ -77,6 +88,11 @@ final class Identity {
         try Keychain.app.write(Self.keyItem, key.hex)
         return key
     }
+}
+
+@MainActor
+private final class Ending {
+    var set = false
 }
 
 enum IdentityError: LocalizedError {

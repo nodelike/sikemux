@@ -45,12 +45,26 @@ export async function deviceIdentity(): Promise<DeviceIdentity> {
   return identity;
 }
 
+/** Coming online takes a second; one that has not by now never will, and the next call starts again. */
+const ONLINE_MS = 15_000;
+
+function inTime(creating: Promise<DeviceLike>): Promise<DeviceLike> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, fail) => {
+    timer = setTimeout(() => {
+      creating.then((device) => device.close(), () => {});
+      fail(new Error(translate('This phone could not get online.')));
+    }, ONLINE_MS);
+  });
+  return Promise.race([creating, late]).finally(() => clearTimeout(timer));
+}
+
 /** This phone on the network, unless the app is too old to use it. A failure is not kept, so the next call tries again. */
 export function thisDevice(): Promise<DeviceLike> {
   if (!online) {
     const coming = Promise.all([deviceIdentity(), currentRelays()]).then(([me, relays]) => {
       if (updateRequired()) throw new Error(translate('Update Sikemux to reach your hosts.'));
-      return Device.create(me, relaySettings(relays));
+      return inTime(Device.create(me, relaySettings(relays)));
     });
     online = coming;
     coming.catch(() => {
