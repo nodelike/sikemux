@@ -307,6 +307,10 @@ pub fn subagent_usage(session: &str, tokens: u64) -> Value {
     json!({ "sessionUpdate": UpdateKind::SubagentUsage, "subagentSessionId": session, "tokens": tokens })
 }
 
+pub fn subagent_model(session: &str, model: &str) -> Value {
+    json!({ "sessionUpdate": UpdateKind::SubagentUsage, "subagentSessionId": session, "model": model })
+}
+
 pub fn content(block: Value) -> Value {
     json!({ "type": "content", "content": block })
 }

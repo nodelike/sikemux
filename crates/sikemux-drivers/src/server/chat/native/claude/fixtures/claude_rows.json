@@ -5047,6 +5047,7 @@
                   "task": "Look around",
                   "state": "completed",
                   "calls": 1,
+                  "model": "claude-haiku-4-5",
                   "lastTool": {
                     "toolCallId": "toolu_sbash",
                     "title": "ls",
@@ -5075,7 +5076,8 @@
                   "name": "Agent u_orphan",
                   "task": "Delegated task",
                   "state": "disconnected",
-                  "calls": 0
+                  "calls": 0,
+                  "model": "claude-haiku-4-5"
                 }
               }
             ],
@@ -5087,13 +5089,13 @@
             "fromEvent": 2
           },
           {
-            "id": "m19",
+            "id": "m22",
             "role": "user",
             "promptId": "u7",
             "parts": [
               {
                 "kind": "text",
-                "id": "m19.0",
+                "id": "m22.0",
                 "text": "/review PR 12",
                 "md": {
                   "blocks": [
@@ -5116,16 +5118,16 @@
               }
             ],
             "sentAt": 1000,
-            "fromEvent": 19
+            "fromEvent": 22
           },
           {
-            "id": "m21",
+            "id": "m24",
             "role": "user",
             "promptId": "u10",
             "parts": [
               {
                 "kind": "text",
-                "id": "m21.0",
+                "id": "m24.0",
                 "text": "Look at this",
                 "md": {
                   "blocks": [
@@ -5141,7 +5143,7 @@
               },
               {
                 "kind": "content",
-                "id": "m21.1",
+                "id": "m24.1",
                 "content": {
                   "type": "image",
                   "mimeType": "image/png",
@@ -5150,15 +5152,15 @@
               }
             ],
             "sentAt": 1000,
-            "fromEvent": 21
+            "fromEvent": 24
           },
           {
-            "id": "m23",
+            "id": "m26",
             "role": "assistant",
             "parts": [
               {
                 "kind": "tool",
-                "id": "m23.0",
+                "id": "m26.0",
                 "tool": {
                   "toolCallId": "toolu_edit",
                   "title": "Edit src/a.rs",
@@ -5188,7 +5190,7 @@
               },
               {
                 "kind": "tool",
-                "id": "m23.1",
+                "id": "m26.1",
                 "tool": {
                   "toolCallId": "toolu_mcp",
                   "title": "mcp__sikemux-tools__browser_screenshot",
@@ -5217,7 +5219,7 @@
               },
               {
                 "kind": "tool",
-                "id": "m23.2",
+                "id": "m26.2",
                 "tool": {
                   "toolCallId": "toolu_read",
                   "title": "Read README.md (3 - 4)",
@@ -5243,7 +5245,7 @@
               },
               {
                 "kind": "tool",
-                "id": "m23.3",
+                "id": "m26.3",
                 "tool": {
                   "toolCallId": "toolu_plan",
                   "title": "Approve Plan",
@@ -5263,15 +5265,15 @@
                 "endedAt": 1000
               }
             ],
-            "fromEvent": 23
+            "fromEvent": 26
           },
           {
-            "id": "m32",
+            "id": "m35",
             "role": "assistant",
             "parts": [
               {
                 "kind": "text",
-                "id": "m32.0",
+                "id": "m35.0",
                 "text": "plain string reply",
                 "md": {
                   "blocks": [
@@ -5287,18 +5289,18 @@
               }
             ],
             "sentAt": 1000,
-            "fromEvent": 32
+            "fromEvent": 35
           }
         ],
         "subagents": {
           "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent1": [
             {
-              "id": "m6",
+              "id": "m7",
               "role": "assistant",
               "parts": [
                 {
                   "kind": "text",
-                  "id": "m6.0",
+                  "id": "m7.0",
                   "text": "Scouting now",
                   "md": {
                     "blocks": [
@@ -5314,7 +5316,7 @@
                 },
                 {
                   "kind": "tool",
-                  "id": "m6.1",
+                  "id": "m7.1",
                   "tool": {
                     "toolCallId": "toolu_sbash",
                     "title": "ls",
@@ -5343,28 +5345,29 @@
                 },
                 {
                   "kind": "subagent",
-                  "id": "m6.2",
+                  "id": "m7.2",
                   "subagent": {
                     "sessionId": "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent3",
                     "name": "Deep",
                     "task": "Delegated task",
                     "state": "cancelled",
-                    "calls": 0
+                    "calls": 0,
+                    "model": "claude-haiku-4-5"
                   }
                 }
               ],
               "sentAt": 1000,
-              "fromEvent": 6
+              "fromEvent": 7
             }
           ],
           "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_agent3": [
             {
-              "id": "m10",
+              "id": "m12",
               "role": "assistant",
               "parts": [
                 {
                   "kind": "text",
-                  "id": "m10.0",
+                  "id": "m12.0",
                   "text": "nested",
                   "md": {
                     "blocks": [
@@ -5380,17 +5383,17 @@
                 }
               ],
               "sentAt": 1000,
-              "fromEvent": 10
+              "fromEvent": 12
             }
           ],
           "11111111-2222-3333-4444-555555555555:replay-subagent:toolu_orphan": [
             {
-              "id": "m14",
+              "id": "m17",
               "role": "assistant",
               "parts": [
                 {
                   "kind": "text",
-                  "id": "m14.0",
+                  "id": "m17.0",
                   "text": "orphan",
                   "md": {
                     "blocks": [
@@ -5406,7 +5409,7 @@
                 }
               ],
               "sentAt": 1000,
-              "fromEvent": 14
+              "fromEvent": 17
             }
           ]
         }
@@ -5484,7 +5487,8 @@
                   "name": "Self",
                   "task": "Self",
                   "state": "disconnected",
-                  "calls": 0
+                  "calls": 0,
+                  "model": "m"
                 }
               }
             ],
@@ -5494,12 +5498,12 @@
         "subagents": {
           "99999999-8888-7777-6666-555555555555:replay-subagent:toolu_loop": [
             {
-              "id": "m3",
+              "id": "m4",
               "role": "assistant",
               "parts": [
                 {
                   "kind": "text",
-                  "id": "m3.0",
+                  "id": "m4.0",
                   "text": "looping",
                   "md": {
                     "blocks": [
@@ -5515,7 +5519,7 @@
                 }
               ],
               "sentAt": 1000,
-              "fromEvent": 3
+              "fromEvent": 4
             }
           ]
         }

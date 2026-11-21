@@ -48,7 +48,6 @@ use crate::icons::Icon;
 use crate::picture::Picture;
 use crate::tabs::shows;
 use crate::theme::Tokens;
-use crate::ui::shimmer::shimmer;
 use crate::ui::{Button, IconButton, Variant};
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
 use crate::workbench::Workbench;

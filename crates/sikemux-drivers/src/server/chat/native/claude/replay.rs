@@ -1004,6 +1004,13 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
             Some(parent) => replay.announce(parent, &mut Vec::new()),
             None => replay.root.clone(),
         };
+        if let (true, Some(parent), Some(model)) = (
+            is_assistant,
+            parent,
+            str_field(message, "model").filter(|model| *model != failure::SYNTHETIC_MODEL),
+        ) {
+            replay.child_model(parent, model);
+        }
         let role = str_field(message, "role").unwrap_or_default();
         let mut for_agent = Vec::new();
         if role == "user" {
@@ -1119,6 +1126,7 @@ struct Child {
     announced: bool,
     ended: bool,
     terminal_state: Option<Subagent>,
+    model: Option<String>,
 }
 
 fn collect_children(records: &[Value], session_id: &str) -> Vec<Child> {
@@ -1193,6 +1201,7 @@ fn collect_children(records: &[Value], session_id: &str) -> Vec<Child> {
                     .iter()
                     .find(|(known, _)| known == id)
                     .map(|(_, state)| *state),
+                model: None,
             };
             match children.iter_mut().find(|known| known.tool_use_id == id) {
                 Some(existing) => *existing = child,
@@ -1347,6 +1356,7 @@ impl Replay<'_> {
                     announced: false,
                     ended: false,
                     terminal_state: None,
+                    model: None,
                 });
                 self.children.len() - 1
             }
@@ -1371,6 +1381,21 @@ impl Replay<'_> {
             self.children[index].announced = true;
         }
         self.children[index].session_id.clone()
+    }
+
+    fn child_model(&mut self, tool_use_id: &str, model: &str) {
+        let Some(child) = (self.children.iter_mut()).find(|child| child.tool_use_id == tool_use_id)
+        else {
+            return;
+        };
+        if child.model.as_deref() == Some(model) {
+            return;
+        }
+        child.model = Some(model.to_owned());
+        let update = sikemux_fold::update::subagent_model(&child.session_id, model);
+        let parent = child.parent_tool_use_id.clone();
+        let parent_session = self.session_of(parent.as_deref());
+        self.updates.push((parent_session, update));
     }
 
     /// Says how a subagent ended where it ended, so its card is settled

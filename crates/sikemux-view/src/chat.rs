@@ -1706,6 +1706,9 @@ pub struct SubagentCard {
     pub tokens: Option<u64>,
     /// How many tools it called.
     pub calls: u64,
+    /// The model it runs on, as its agent names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// The last tool it called, which says what it is up to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_tool: Option<ToolCall>,

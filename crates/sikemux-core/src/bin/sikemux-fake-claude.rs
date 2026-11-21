@@ -421,8 +421,9 @@ impl Claude {
                     format!("toolu-read-{uuid}"),
                 );
                 let assistant = |id: String, parent: Option<&str>, content: Value| {
+                    let model = parent.map_or_else(model, |_| "claude-haiku-4-5".to_owned());
                     json!({ "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": parent,
-                        "message": { "id": id, "model": model(), "role": "assistant", "content": content } })
+                        "message": { "id": id, "model": model, "role": "assistant", "content": content } })
                 };
                 let result = |parent: Option<&str>, tool: &str, said: &str| {
                     json!({ "type": "user", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": parent,

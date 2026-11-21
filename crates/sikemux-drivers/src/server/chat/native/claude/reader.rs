@@ -106,6 +106,7 @@ struct Child {
     parent: String,
     ended: bool,
     background: bool,
+    model: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -940,6 +941,11 @@ impl Reader {
                     self.tell_usage();
                 }
             }
+        } else if let (Some(spawner), Some(model)) = (
+            parent.as_deref(),
+            text(inner, "model").filter(|model| *model != failure::SYNTHETIC_MODEL),
+        ) {
+            self.child_model(spawner, model);
         }
         for meta in message
             .get("tool_use_meta")
@@ -1788,6 +1794,7 @@ impl Reader {
                 parent: parent_session,
                 ended: false,
                 background,
+                model: None,
             },
         );
         for update in self.data.held.remove(spawner).unwrap_or_default() {
@@ -1816,6 +1823,21 @@ impl Reader {
         for update in self.data.held.remove(spawner).unwrap_or_default() {
             self.sink.update(session_id, update);
         }
+    }
+
+    fn child_model(&mut self, spawner: &str, model: &str) {
+        let Some(session) = self.data.children.get(spawner) else {
+            return;
+        };
+        let Some(child) = self.data.subagents.get_mut(session) else {
+            return;
+        };
+        if child.ended || child.model.as_deref() == Some(model) {
+            return;
+        }
+        child.model = Some(model.to_owned());
+        let update = sikemux_fold::update::subagent_model(session, model);
+        self.sink.update(&child.parent, update);
     }
 
     fn task_progress(&mut self, message: &Value) {

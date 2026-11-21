@@ -1321,11 +1321,14 @@ impl Fold {
         match kind {
             UpdateKind::SubagentStateUpdate => return self.set_subagent_state(update, at),
             UpdateKind::SubagentUsage => {
-                if let (Some(id), Some(tokens)) = (
-                    text_of(update.get("subagentSessionId")),
-                    update.get("tokens").and_then(Value::as_u64),
-                ) {
+                let Some(id) = text_of(update.get("subagentSessionId")) else {
+                    return;
+                };
+                if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
                     self.patch_card(id, |card| card.tokens = Some(tokens));
+                }
+                if let Some(model) = text_of(update.get("model")) {
+                    self.patch_card(id, |card| card.model = Some(model.to_owned()));
                 }
                 return;
             }
@@ -2391,6 +2394,7 @@ impl Fold {
             state: SubagentState::Running,
             tokens: None,
             calls: 0,
+            model: text_of(update.get("model")).map(str::to_owned),
             last_tool: None,
             can_stop: update.get("canStop").and_then(Value::as_bool) == Some(true),
         };
