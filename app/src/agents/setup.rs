@@ -1016,3 +1016,38 @@ pub fn sheet(
         .into_any_element(),
     )
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::sheet_startup;
+
+    /// Reproduces a fish user's install failing with "$? is not the exit status".
+    #[test]
+    fn the_sheet_runs_its_command_in_every_login_shell() {
+        let (startup, env) = sheet_startup("printf 'it ran'; exit 3");
+        let found: Vec<_> = ["fish", "nu", "bash", "zsh"]
+            .into_iter()
+            .filter_map(|name| {
+                let path = std::env::var_os("PATH")?;
+                std::env::split_paths(&path)
+                    .map(|folder| folder.join(name))
+                    .find(|program| program.is_file())
+            })
+            .collect();
+        for shell in found {
+            #[allow(clippy::disallowed_methods)]
+            let output = std::process::Command::new(&shell)
+                .args(["-c", &startup])
+                .envs(&env)
+                .output()
+                .expect("run the shell");
+            assert_eq!(
+                (output.status.code(), output.stdout.as_slice()),
+                (Some(3), b"it ran".as_slice()),
+                "{}: {}",
+                shell.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+}
