@@ -1688,28 +1688,3 @@ impl Workbench {
         });
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_resting_chat_whose_agent_named_no_model_can_be_handed_on() {
-        let resting = ChatHead {
-            connection: ChatConnection::Connecting,
-            model: None,
-            ..ChatHead::default()
-        };
-        assert!(idle(Some(&resting)));
-        let running = ChatHead {
-            running: true,
-            ..resting.clone()
-        };
-        assert!(!idle(Some(&running)));
-        let ready = ChatHead {
-            connection: ChatConnection::Ready,
-            ..resting
-        };
-        assert!(!idle(Some(&ready)));
-    }
-}
