@@ -382,6 +382,8 @@ pub struct Chat {
     /// A new chat starts its agent only once the person writes in it or something is sent to it.
     unstarted: AtomicBool,
     wanted: tokio::sync::Notify,
+    /// A message was sent before the agent was ready, and the agent has not taken it yet.
+    message_waiting: AtomicBool,
     /// The person sent a message or Stop, which a handoff note being written gives way to.
     pub person_came: tokio::sync::Notify,
     /// The person's ask the latest message answers, by number, when the person sent it.
@@ -1088,6 +1090,7 @@ impl Chat {
 
     /// A prompt this side sent is being answered from now. Answers whether one already was.
     pub fn start_prompted(&self) -> bool {
+        self.message_waiting.store(false, Ordering::Release);
         let mut state = self.turn.locked();
         let was = state.turn == Turn::Prompted;
         state.turn = Turn::Prompted;
@@ -1209,6 +1212,7 @@ impl Chat {
     }
 
     fn end(&self, error: Option<String>) {
+        self.message_waiting.store(false, Ordering::Release);
         self.readiness.send_if_modified(|readiness| {
             if matches!(readiness, Readiness::Ended(_)) {
                 return false;
@@ -1421,8 +1425,25 @@ impl Chat {
     /// Starts the agent of a chat that waited for the person, once; later calls do nothing.
     pub fn start_agent(&self) {
         if self.unstarted.swap(false, Ordering::AcqRel) {
+            self.emit(ChatEventKind::Status, json!({ "state": "starting" }));
             self.wanted.notify_one();
         }
+    }
+
+    /// Notes a message sent before the agent is ready, which a handoff would lose.
+    pub fn note_message_waiting(&self) {
+        if !self.is_ready() {
+            self.message_waiting.store(true, Ordering::Release);
+        }
+    }
+
+    pub fn message_waiting(&self) -> bool {
+        self.message_waiting.load(Ordering::Acquire)
+    }
+
+    /// The person's Stop: a message still waiting for the agent no longer holds the chat.
+    pub fn let_waiting_message_go(&self) {
+        self.message_waiting.store(false, Ordering::Release);
     }
 
     pub fn unstarted(&self) -> bool {
