@@ -42,6 +42,8 @@ pub fn service_mark(href: &str) -> Option<Icon> {
         Icon::Aws
     } else if on("grok.com") {
         Icon::Grok
+    } else if on("antigravity.google") {
+        Icon::Antigravity
     } else if on("apple.com") {
         Icon::Apple
     } else if on("play.google.com") {

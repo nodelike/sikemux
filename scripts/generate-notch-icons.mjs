@@ -59,7 +59,7 @@ const MARK_FUNCTIONS = {
   hermes: "IconHermes",
 };
 
-const MARK_FILES = { codex: "codex.svg", omp: "omp.svg", muse: "muse.svg" };
+const MARK_FILES = { codex: "codex.svg", omp: "omp.svg", muse: "muse.svg", antigravity: "antigravity.svg" };
 const BRAND_MARK = resolve(root, "brand/mark/mark-white.svg");
 
 /** The colour each mark takes where the app paints it with its brand colour. */
@@ -308,7 +308,11 @@ for (const [key, file] of Object.entries(MARK_FILES)) {
   const svg = await readFile(resolve(logosDir, file), "utf8");
   const box = svg.match(/viewBox="([^"]+)"/)?.[1];
   const svgGradients = gradients(svg);
-  const body = shapes(svg.replace(/<defs>[\s\S]*?<\/defs>/, "")).map(
+  const unmasked = svg
+    .replace(/<defs>[\s\S]*?<\/defs>/, "")
+    .replace(/<mask\b[\s\S]*?<\/mask>/g, "")
+    .replace(/<g mask=[\s\S]*<\/g>/, "");
+  const body = shapes(unmasked).map(
     (shape) => `        ${shapeLiteral(shape, "fill", null, svgGradients)},`,
   );
   marks.push(
@@ -463,6 +467,7 @@ const MARK_NAMES = {
   IconCodex: "codex",
   IconOmp: "omp",
   IconMuse: "muse",
+  IconAntigravity: "antigravity",
 };
 
 const SHAPE_PROPS = new Set([

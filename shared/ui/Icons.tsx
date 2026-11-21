@@ -4,6 +4,7 @@ import type { AgentType } from "../agents/catalog";
 const codexLogo = new URL("../assets/agent-logos/codex.svg", import.meta.url).href;
 const ompLogo = new URL("../assets/agent-logos/omp.svg", import.meta.url).href;
 const museLogo = new URL("../assets/agent-logos/muse.svg", import.meta.url).href;
+const antigravityLogo = new URL("../assets/agent-logos/antigravity.svg", import.meta.url).href;
 
 interface IconProps {
     size?: number;
@@ -757,6 +758,10 @@ export function IconMuse({ size, className }: IconProps) {
     return <img src={museLogo} width={size ?? 16} height={size ?? 16} className={className} alt="" aria-hidden="true" />;
 }
 
+export function IconAntigravity({ size, className }: IconProps) {
+    return <img src={antigravityLogo} width={size ?? 16} height={size ?? 16} className={className} alt="" aria-hidden="true" />;
+}
+
 export function IconHermes({ size, className }: IconProps) {
     return (
         <Svg size={size} className={className} viewBox="-4 -4 32 32" fill="currentColor">
@@ -781,6 +786,7 @@ const AGENT_ICONS: Partial<Record<AgentType, (props: IconProps) => ReactNode>> =
     omp: IconOmp,
     grok: IconGrok,
     muse: IconMuse,
+    antigravity: IconAntigravity,
 };
 
 export function AgentIcon({ type, size, className }: { type: AgentType; size?: number; className?: string }) {
