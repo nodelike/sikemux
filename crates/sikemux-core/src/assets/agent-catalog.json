@@ -342,7 +342,11 @@
                     "config": "config.toml",
                     "emptyConfig": "",
                     "sessionStore": "sessions",
-                    "sessionStoreIsFolder": true
+                    "sessionStoreIsFolder": true,
+                    "login": {
+                        "variable": "GROK_AUTH_PATH",
+                        "file": "auth.json"
+                    }
                 }
             },
             "terminal": {
