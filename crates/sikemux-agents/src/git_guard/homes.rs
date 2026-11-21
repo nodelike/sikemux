@@ -38,7 +38,7 @@ pub fn environment<'a>(
     };
     let given = given(home.variable).map(PathBuf::from);
     match guarded_home(kind, data_dir, &command, hook.config, agent_id, given) {
-        Ok(path) => {
+        Ok((path, login)) => {
             let mut env = vec![(
                 home.variable.to_owned(),
                 path.to_string_lossy().into_owned(),
@@ -48,6 +48,7 @@ pub fn environment<'a>(
                     .iter()
                     .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
             );
+            env.extend(login);
             env
         }
         Err(error) => {
@@ -64,9 +65,9 @@ fn guarded_home(
     with_hook: fn(&str, &str) -> Result<String, String>,
     agent_id: &str,
     given: Option<PathBuf>,
-) -> Result<PathBuf, String> {
-    let path = match given {
-        Some(given) if given.starts_with(data_dir) => given,
+) -> Result<(PathBuf, Option<(String, String)>), String> {
+    let (path, login) = match given {
+        Some(given) if given.starts_with(data_dir) => (given, None),
         given => {
             if agent_id.is_empty() || agent_id.contains('/') || agent_id.starts_with('.') {
                 return Err(format!("{agent_id:?} cannot name a folder"));
@@ -75,8 +76,8 @@ fn guarded_home(
                 .join("agent-home")
                 .join(kind.as_str())
                 .join(agent_id);
-            homes::private_home(kind, &private, given)?;
-            private
+            let login = homes::private_home(kind, &private, given)?;
+            (private, login)
         }
     };
     let config_path = path.join(homes::private(kind).ok_or("no private home")?.1.config);
@@ -86,7 +87,7 @@ fn guarded_home(
         sikemux_process::files::write_atomic(&config_path, hooked.as_bytes(), true)
             .map_err(|error| error.to_string())?;
     }
-    Ok(path)
+    Ok((path, login))
 }
 
 /// `config_yaml` with the hook added to the person's own `pre_tool_call`

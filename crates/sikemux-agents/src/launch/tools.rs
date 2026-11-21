@@ -739,33 +739,30 @@ mod tests {
     #[tokio::test]
     async fn a_grok_sign_in_in_a_terminal_reaches_its_chat() {
         let data = tempfile::tempdir().unwrap();
+        let own = data.path().join("own-grok");
+        std::env::set_var("GROK_HOME", &own);
+        std::env::remove_var("GROK_AUTH_PATH");
         let tools = Tools {
             executable: "/Apps/Sikemux.app/sikemux-host".into(),
             endpoint: data.path().join("core.sock"),
             data_dir: Some(data.path().to_path_buf()),
         };
-        let terminal = tools
-            .grok_home("grok", "agent-one", "grok", None, None)
-            .await
-            .unwrap();
         let library = data.path().join("skills");
-        let chat = AgentKind::Grok
-            .ops()
-            .chat_home(&tools, "agent-one", "grok", &library)
-            .unwrap()
-            .await
-            .unwrap();
-        let login = |env: &[(String, String)]| {
-            env.iter()
+        let chat = AgentKind::Grok.ops();
+        let login = |env: Vec<(String, String)>| {
+            env.into_iter()
                 .find(|(name, _)| name == "GROK_AUTH_PATH")
                 .map(|(_, path)| PathBuf::from(path))
         };
-        if sikemux_process::user_environment::shell_var("GROK_AUTH_PATH").is_some() {
-            assert_eq!(login(&chat), None);
-            return;
-        }
-        let own = AgentKind::Grok.home_root().unwrap().join("auth.json");
-        assert_eq!(login(&terminal), Some(own.clone()));
-        assert_eq!(login(&chat), Some(own));
+        let shared = Some(own.join("auth.json"));
+        let terminal = tools.grok_home("grok", "agent-one", "grok", None, None);
+        assert_eq!(login(terminal.await.unwrap()), shared);
+        let first = chat.chat_home(&tools, "agent-one", "grok", &library);
+        assert_eq!(login(first.unwrap().await.unwrap()), shared);
+
+        let elsewhere = data.path().join("secrets").join("grok.json");
+        std::env::set_var("GROK_AUTH_PATH", &elsewhere);
+        let again = chat.chat_home(&tools, "agent-one", "grok", &library);
+        assert_eq!(login(again.unwrap().await.unwrap()), Some(elsewhere));
     }
 }

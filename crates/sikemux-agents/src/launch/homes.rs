@@ -15,8 +15,8 @@ pub fn private(kind: AgentKind) -> Option<(&'static Home, &'static PrivateHome)>
 
 /// Makes `destination` a private copy of `kind`'s home: of `source`, else of
 /// the one the person's shell names, sharing the store its sessions are in.
-/// Answers the variable that keeps its sign-in in that home, so a sign-in
-/// made in any private copy reaches them all.
+/// Answers the variable that keeps its sign-in where the person's shell says,
+/// else in the home it copies, so a sign-in made in any copy reaches them all.
 pub fn private_home(
     kind: AgentKind,
     destination: &Path,
@@ -34,15 +34,10 @@ pub fn private_home(
     )
     .and_then(|()| copy_home(destination, &source, private.config, private.empty_config))
     .map_err(|error| error.to_string())?;
-    let login = private
-        .login
-        .as_ref()
-        .filter(|login| shell_var(login.variable).is_none());
-    Ok(login.map(|login| {
-        (
-            login.variable.to_owned(),
-            source.join(login.file).to_string_lossy().into_owned(),
-        )
+    Ok(private.login.as_ref().map(|login| {
+        let path = shell_var(login.variable)
+            .unwrap_or_else(|| source.join(login.file).to_string_lossy().into_owned());
+        (login.variable.to_owned(), path)
     }))
 }
 
