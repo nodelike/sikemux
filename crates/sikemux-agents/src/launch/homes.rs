@@ -32,6 +32,16 @@ pub fn private_home(
     .map_err(|error| error.to_string())
 }
 
+/// The variable naming the file `kind` keeps its sign-in in, inside the
+/// person's own `home`, so a sign-in made in any private copy reaches them all.
+pub fn shared_login(kind: AgentKind, home: &Path) -> Option<(String, String)> {
+    let login = private(kind)?.1.login.as_ref()?;
+    Some((
+        login.variable.to_owned(),
+        home.join(login.file).to_string_lossy().into_owned(),
+    ))
+}
+
 /// Makes `home` a copy of `source`: every entry is linked back to the real
 /// one, except the config file, which is copied afresh so the person's latest
 /// settings come along.
@@ -115,5 +125,29 @@ mod tests {
             std::fs::read_to_string(home.path().join("state.db")).unwrap(),
             "kept"
         );
+    }
+
+    #[test]
+    fn a_grok_sign_in_in_a_terminal_reaches_its_chat() {
+        let data = tempfile::tempdir().unwrap();
+        let own = data.path().join("own");
+        let terminal = data.path().join("browser/grok/agent-one");
+        let chat = data.path().join("browser/grok-chat/agent-one");
+        for home in [&terminal, &chat] {
+            private_home(AgentKind::Grok, home, Some(own.clone())).unwrap();
+        }
+        let (variable, login) = shared_login(AgentKind::Grok, &own).unwrap();
+        let saved_in = |home: &Path, env: &[(String, String)]| {
+            env.iter()
+                .find(|(name, _)| *name == variable)
+                .map_or_else(|| home.join("auth.json"), |(_, path)| PathBuf::from(path))
+        };
+        let env = [(variable.clone(), login)];
+        std::fs::write(saved_in(&terminal, &env), "signed in").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(saved_in(&chat, &env)).unwrap(),
+            "signed in"
+        );
+        assert!(!saved_in(&chat, &[]).exists());
     }
 }

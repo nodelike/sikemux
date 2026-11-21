@@ -170,15 +170,15 @@ pub trait AgentOps: Sync {
         setup: &'a mut TerminalSetup<'_>,
     ) -> Pending<'a, Result<Vec<String>, String>>;
 
-    /// A private home holding the skills `library` for a chat, as the variable that
-    /// names it and the folder, for agents that read skills only from their home.
+    /// A private home holding the skills `library` for a chat, as the variables that
+    /// start the agent in it, for agents that read skills only from their home.
     fn chat_home<'a>(
         &self,
         _tools: &'a Tools,
         _agent_id: &'a str,
         _program: &'a str,
         _library: &'a Path,
-    ) -> Option<Pending<'a, Result<(String, String), String>>> {
+    ) -> Option<Pending<'a, Result<Vec<(String, String)>, String>>> {
         None
     }
 

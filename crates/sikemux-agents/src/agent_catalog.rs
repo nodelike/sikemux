@@ -95,6 +95,15 @@ pub struct PrivateHome {
     /// The agent's saved sessions, shared with the person's own home.
     pub session_store: &'static str,
     pub session_store_is_folder: bool,
+    /// The file its sign-in is saved in, kept in the person's own home so a
+    /// sign-in made in one private copy reaches every other.
+    pub login: Option<Login>,
+}
+
+/// A file an agent keeps its sign-in in, and the variable that moves it out of its home.
+pub struct Login {
+    pub variable: &'static str,
+    pub file: &'static str,
 }
 
 /// The API an agent speaks to a provider Sikemux points it at.
@@ -418,6 +427,7 @@ pub const AGENTS: &[AgentEntry] = &[
                 empty_config: "{}\n",
                 session_store: "state.db",
                 session_store_is_folder: false,
+                login: None,
             }),
         }),
         terminal: Terminal {
@@ -618,6 +628,10 @@ pub const AGENTS: &[AgentEntry] = &[
                 empty_config: "",
                 session_store: "sessions",
                 session_store_is_folder: true,
+                login: Some(Login {
+                    variable: "GROK_AUTH_PATH",
+                    file: "auth.json",
+                }),
             }),
         }),
         terminal: Terminal {

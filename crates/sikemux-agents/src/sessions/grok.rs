@@ -439,7 +439,7 @@ impl AgentOps for Grok {
         agent_id: &'a str,
         program: &'a str,
         library: &'a Path,
-    ) -> Option<Pending<'a, Result<(String, String), String>>> {
+    ) -> Option<Pending<'a, Result<Vec<(String, String)>, String>>> {
         Some(Box::pin(tools.grok_home(
             "grok-chat",
             agent_id,
