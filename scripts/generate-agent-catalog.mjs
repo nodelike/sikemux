@@ -46,7 +46,7 @@ const FLAGS = [
 const CORE_FLAGS = ["historyBeforeStart"];
 const DRIVERS = ["claude", "codex", "muse", "pi", "opencode", "acp"];
 const PROVIDERS = ["routed", "reads"];
-const ROUTED_APIS = ["anthropic", "responses", "chat"];
+const ROUTED_APIS = ["anthropic", "responses", "chat", "gemini"];
 
 /** Everything the share page paints in an agent's colour, as a selector with `%` for the agent and the property it sets. */
 const BRANDED = [[".agent-glyph.%", "color"]];
@@ -476,13 +476,13 @@ ${agents.map((agent) => `            Self::${pascal(agent.type)} => ${JSON.strin
 
 await emit(
   bundledPath,
-  `// ${banner}
+  rustfmt(`// ${banner}
 use super::AgentKind;
 
 pub(super) const BUNDLED_MANIFESTS: &[(AgentKind, &str)] = &[
 ${agents.map((agent) => `    (AgentKind::${pascal(agent.type)}, include_str!("manifests/${agent.type}.json")),`).join("\n")}
 ];
-`,
+`),
 );
 
 await emit(
@@ -598,6 +598,8 @@ pub enum RoutedApi {
     /// OpenAI's chat completions, which every provider serves. The agent knows the
     /// provider by an id of Sikemux's and its models as \`<id>/<model>\`.
     Chat,
+    /// Google's Gemini API, which takes the key in \`x-goog-api-key\`.
+    Gemini,
 }
 
 /// How Sikemux points the agent at a provider in place of its maker's account.

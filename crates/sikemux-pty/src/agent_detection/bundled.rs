@@ -9,5 +9,9 @@ pub(super) const BUNDLED_MANIFESTS: &[(AgentKind, &str)] = &[
     (AgentKind::Opencode, include_str!("manifests/opencode.json")),
     (AgentKind::Omp, include_str!("manifests/omp.json")),
     (AgentKind::Grok, include_str!("manifests/grok.json")),
+    (
+        AgentKind::Antigravity,
+        include_str!("manifests/antigravity.json"),
+    ),
     (AgentKind::Muse, include_str!("manifests/muse.json")),
 ];

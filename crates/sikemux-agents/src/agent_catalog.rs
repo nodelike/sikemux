@@ -11,6 +11,7 @@ pub enum AgentKind {
     Opencode,
     Omp,
     Grok,
+    Antigravity,
     Muse,
 }
 
@@ -116,6 +117,8 @@ pub enum RoutedApi {
     /// OpenAI's chat completions, which every provider serves. The agent knows the
     /// provider by an id of Sikemux's and its models as `<id>/<model>`.
     Chat,
+    /// Google's Gemini API, which takes the key in `x-goog-api-key`.
+    Gemini,
 }
 
 /// How Sikemux points the agent at a provider in place of its maker's account.
@@ -651,6 +654,54 @@ pub const AGENTS: &[AgentEntry] = &[
         routed: None,
     },
     AgentEntry {
+        kind: "antigravity",
+        label: "Antigravity",
+        about: "Google's coding agent",
+        command: "agy",
+        brand: "#4285f4",
+        maker: Some("Google"),
+        featured: false,
+        accounts: false,
+        usage: false,
+        free_models: false,
+        deletable_chats: false,
+        resumes_by_path: false,
+        relocatable_sessions: false,
+        history_before_start: false,
+        bypass: true,
+        auto: false,
+        commit_models: &[],
+        careful_model: None,
+        efforts: &[],
+        install: Some("curl -fsSL https://antigravity.google/cli/install.sh | bash"),
+        login: Some(&["acp", "--login"]),
+        update: Some(&["update"]),
+        models_since: &[],
+        latest: None,
+        probe: &["--version"],
+        install_paths: &["~/.local/bin/agy"],
+        git_shim_args: &[],
+        home: None,
+        terminal: Terminal {
+            normal: &["--mode", "accept-edits"],
+            bypass: Some(&["--dangerously-skip-permissions"]),
+            auto: None,
+            effort: None,
+            resume: Resume::Flag("--conversation"),
+            with_choices: &[],
+        },
+        chat: Some(ChatDriver::Acp {
+            args: &["acp"],
+            modes: None,
+            compact: "compact",
+        }),
+        providers: Some(ProviderUse::Routed),
+        routed: Some(Routed {
+            api: RoutedApi::Gemini,
+            rank: 5,
+        }),
+    },
+    AgentEntry {
         kind: "muse",
         label: "Muse",
         about: "Meta's coding agent",
@@ -701,7 +752,7 @@ pub const AGENTS: &[AgentEntry] = &[
 ];
 
 impl AgentKind {
-    pub const ALL: [AgentKind; 8] = [
+    pub const ALL: [AgentKind; 9] = [
         AgentKind::Claude,
         AgentKind::Codex,
         AgentKind::Hermes,
@@ -709,6 +760,7 @@ impl AgentKind {
         AgentKind::Opencode,
         AgentKind::Omp,
         AgentKind::Grok,
+        AgentKind::Antigravity,
         AgentKind::Muse,
     ];
 
