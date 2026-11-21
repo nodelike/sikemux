@@ -983,7 +983,7 @@ fn why_not_yet(state: &State, first: &Run, room: &Room) -> Option<String> {
     let in_line = busy.iter().filter(|run| run.in_line).count();
     if room.chosen > 0 && in_line >= room.chosen {
         return Some(format!(
-            "{} run at once, as Settings → Chats → Heavy commands at once has it",
+            "{} run at once, as Settings → Agents → Heavy commands at once has it",
             room.chosen
         ));
     }

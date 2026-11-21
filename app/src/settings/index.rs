@@ -12,29 +12,13 @@ pub enum Page {
     Account,
     #[default]
     General,
+    Appearance,
     Keyboard,
-    Notifications,
-    Theme,
-    Interface,
-    Buddies,
-    Installed,
-    Permissions,
-    Chats,
-    Settled,
+    Agents,
     Skills,
-    Helpers,
-    Accounts,
-    Plans,
-    Providers,
-    LocalModels,
-    Notch,
-    Voice,
-    Simulator,
+    Models,
     Connectors,
-    Mods,
-    Actions,
-    Cli,
-    OtherApps,
+    ThisMac,
     Usage,
     About,
 }
@@ -43,16 +27,10 @@ use Page::*;
 
 /// The pages in the list on the left, under their groups. Account, Usage and About
 /// close it, outside any group.
-pub const GROUPS: [(&str, &[Page]); 6] = [
-    (n!("General"), &[General, Keyboard, Notifications]),
-    (n!("Appearance"), &[Theme, Interface, Buddies]),
-    (
-        n!("Agents"),
-        &[Installed, Permissions, Chats, Settled, Skills, Helpers],
-    ),
-    (n!("Models"), &[Accounts, Plans, Providers, LocalModels]),
-    (n!("This Mac"), MAC_ONLY),
-    (n!("Connect"), &[Connectors, Mods, Actions, Cli, OtherApps]),
+pub const GROUPS: [(&str, &[Page]); 3] = [
+    (n!("App"), &[General, Appearance, Keyboard]),
+    (n!("Agents"), &[Agents, Skills, Models]),
+    (n!("Reach"), &[Connectors, ThisMac]),
 ];
 
 /// The pages below the groups, at the foot of the list.
@@ -60,10 +38,10 @@ pub const FOOT: [Page; 2] = [Usage, About];
 
 /// Pages only the Mac has: the notch, dictation and the iOS Simulator. Other systems
 /// neither show them nor find them.
-const MAC_ONLY: &[Page] = &[Notch, Voice, Simulator];
+const MAC_ONLY: &[Page] = &[ThisMac];
 
 /// Sections only the Mac has, on pages every system has: its window effects.
-const MAC_ONLY_SECTIONS: &[(Page, &str)] = &[(Interface, "Window")];
+const MAC_ONLY_SECTIONS: &[(Page, &str)] = &[(Appearance, "Window")];
 
 impl Page {
     /// What the list calls it, one line under its name on what it holds, and its icon.
@@ -76,123 +54,43 @@ impl Page {
             ),
             General => (
                 n!("General"),
-                n!("Where projects come from and how a session starts"),
+                n!("Projects, startup, notifications and your other hosts"),
                 Icon::Settings,
+            ),
+            Appearance => (
+                n!("Appearance"),
+                n!("Theme, text, and what shows behind each pane"),
+                Icon::Contrast,
             ),
             Keyboard => (
                 n!("Keyboard"),
-                n!("Every shortcut, and the keys you gave it"),
+                n!("Every shortcut, and your own commands"),
                 Icon::Keyboard,
             ),
-            Notifications => (
-                n!("Notifications"),
-                n!("How Sikemux tells you an agent needs you or a goal moved"),
-                Icon::Inbox,
-            ),
-            Theme => (
-                n!("Theme"),
-                n!("One palette for the chrome, the editor and the terminal"),
-                Icon::Contrast,
-            ),
-            Interface => (
-                n!("Interface"),
-                n!("Text size, what shows behind each pane, and the window"),
-                Icon::Text,
-            ),
-            Buddies => (
-                n!("Buddies"),
-                n!("Characters that stand in for agents' logos"),
-                Icon::Heart,
-            ),
-            Installed => (
-                n!("Installed"),
-                n!("The agent CLIs on this host"),
+            Agents => (
+                n!("Agents"),
+                n!("The agents on this host, what they may do, and how their chats run"),
                 Icon::Agent,
-            ),
-            Permissions => (
-                n!("Permissions"),
-                n!("What agents may do before they ask"),
-                Icon::Shield,
-            ),
-            Chats => (
-                n!("Chats"),
-                n!("How chats behave while agents work"),
-                Icon::Message,
-            ),
-            Settled => (
-                n!("Settled chats"),
-                n!("Chats out of the rail, to find and bring back"),
-                Icon::Check,
             ),
             Skills => (
                 n!("Skills"),
                 n!("What every agent Sikemux starts can use"),
                 Icon::Book,
             ),
-            Helpers => (
-                n!("Helpers"),
-                n!("The model agents start their helpers on"),
-                Icon::Agents,
-            ),
-            Accounts => (
-                n!("Accounts"),
-                n!("Subscriptions agents sign in with"),
-                Icon::User,
-            ),
-            Plans => (
-                n!("Coding plans"),
-                n!("Monthly plans made for coding agents"),
-                Icon::Gauge,
-            ),
-            Providers => (
-                n!("API providers"),
-                n!("Hosted models paid by the token"),
-                Icon::Network,
-            ),
-            LocalModels => (
-                n!("Local models"),
-                n!("Models served on this host"),
+            Models => (
+                n!("Models"),
+                n!("The accounts, plans, providers and local models agents run on"),
                 Icon::Cube,
-            ),
-            Notch => (
-                n!("Notch"),
-                n!("The island over the MacBook notch"),
-                Icon::Laptop,
-            ),
-            Voice => (
-                n!("Voice"),
-                n!("Dictation into agents and terminals"),
-                Icon::Mic,
-            ),
-            Simulator => (
-                n!("Simulators"),
-                n!("Letting agents drive iOS simulators and Android devices"),
-                Icon::Tap,
             ),
             Connectors => (
                 n!("Connectors"),
-                n!("The services your agents reach for you"),
+                n!("The services, apps and panels your agents reach"),
                 Icon::Plug,
             ),
-            Mods => (
-                n!("Mods"),
-                n!("Panels you and your agents made"),
-                Icon::Dashboard,
-            ),
-            Actions => (
-                n!("Actions"),
-                n!("Your own commands, one keystroke away"),
-                Icon::Run,
-            ),
-            Cli => (
-                n!("Command line"),
-                n!("The sikemux command in your shell"),
-                Icon::Terminal,
-            ),
-            OtherApps => (
-                n!("Other apps"),
-                n!("Claude Code, Codex and other MCP apps using your chats"),
-                Icon::Plug,
+            ThisMac => (
+                n!("This Mac"),
+                n!("The notch, dictation and simulators"),
+                Icon::Laptop,
             ),
             Usage => (
                 n!("Usage"),

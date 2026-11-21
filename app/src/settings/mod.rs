@@ -20,8 +20,8 @@ use gpui_kit::{
 
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_2XS_H,
-    TEXT_3XS, TEXT_XL, TEXT_XS_H,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_6, TEXT_2XS_H, TEXT_3XS,
+    TEXT_XL, TEXT_XS_H,
 };
 use crate::ui;
 use crate::workbench::{Strip, Workbench};
@@ -581,11 +581,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         true => vec![div()
             .flex()
             .flex_col()
-            .p(SPACE_1)
-            .bg(rows::card_fill(cx))
-            .border(crate::theme::border())
-            .border_color(t.border)
-            .rounded(theme::radius_3())
+            .mx(-SPACE_3)
             .children(found.iter().enumerate().map(|(at, entry)| {
                 let (entry, this) = (*entry, this.clone());
                 let chosen = at == settings.chosen;
@@ -626,8 +622,9 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             let mut sections = pages::render(bench, settings, flash, &this, window, cx);
             if let Some(wanted) = settings.reveal_section.take() {
                 let drawn = cx.global::<rows::Drawn>().0.borrow();
-                if let Some(at) = drawn.iter().position(|title| title.as_ref() == wanted) {
-                    settings.scroll.scroll_to_item(at + 1);
+                match drawn.iter().position(|title| title.as_ref() == wanted) {
+                    Some(at) => settings.scroll.scroll_to_item(at + 1),
+                    None => settings.reveal_section.set(Some(wanted)),
                 }
             }
             sections.extend(dialogs);
@@ -671,6 +668,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                         .flex_1()
                         .min_w_0()
                         .h_full()
+                        .bg(rows::card_fill(cx))
                         .child(
                             div()
                                 .id("settings-scroll")
@@ -684,7 +682,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                                 .pb(px(40.))
                                 .flex()
                                 .flex_col()
-                                .gap(SPACE_4)
+                                .gap(px(28.))
                                 .child(div().w_full().max_w(px(760.)).mx_auto().child(header))
                                 .children(body.into_iter().map(|part| {
                                     div().w_full().max_w(px(760.)).mx_auto().child(part)

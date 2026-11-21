@@ -417,7 +417,7 @@ fn in_line(ahead: usize, running: usize, why: &str) -> String {
         running => format!("{running} heavy commands are"),
     };
     format!(
-        "in line{behind}: {running} running on this host, and {why}. It starts by itself when its turn comes; Settings → Chats → Heavy commands at once sets how many run together."
+        "in line{behind}: {running} running on this host, and {why}. It starts by itself when its turn comes; Settings → Agents → Heavy commands at once sets how many run together."
     )
 }
 

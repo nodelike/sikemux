@@ -9,7 +9,7 @@ use sikemux_calls::params::NoParams;
 
 use crate::core::Target;
 use crate::icons::Icon;
-use crate::settings::index::Page::Cli;
+use crate::settings::index::Page::Connectors;
 use crate::settings::index::{section, Entry};
 use crate::settings::rows;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_XS};
@@ -18,8 +18,16 @@ use crate::workbench::Workbench;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[Entry] = &[
-    section(Cli, "Shell integration", "install terminal path"),
-    section(Cli, "Usage", "editor git commit open"),
+    section(
+        Connectors,
+        "Command line",
+        "install terminal path shell integration",
+    ),
+    section(
+        Connectors,
+        "Opening from the shell",
+        "editor git commit open usage",
+    ),
 ];
 
 /// Asks the core how the command is installed.
@@ -206,12 +214,12 @@ pub fn render(
         .child("sikemux src/App.tsx:42:5")
         .child("sikemux open --wait README.md");
     vec![
-        rows::section(n!("Shell integration"), Some(label), Some(message), lit("Shell integration"), integration, cx),
+        rows::section(n!("Command line"), Some(label), Some(message), lit("Command line"), integration, cx),
         rows::section(
-            n!("Usage"),
+            n!("Opening from the shell"),
             None,
             Some(t!("Existing files open in an editor tab. Directories focus or create their workspace.").into()),
-            lit("Usage"),
+            lit("Opening from the shell"),
             usage,
             cx,
         ),

@@ -1,4 +1,4 @@
-# The backdrop behind a pane: the default grain, then each kind picked in Settings ▸ Interface,
+# The backdrop behind a pane: the default grain, then each kind picked in Settings ▸ Appearance,
 # and the Backdrop row that picks them.
 stage 1440 900
 window 1440 900
@@ -22,6 +22,6 @@ prefer paneBackdrop grid
 settle 2
 snap grid
 prefer paneBackdrop theme
-settings Interface
+settings Appearance Panes
 settle 2
 snap settings

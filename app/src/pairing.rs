@@ -620,7 +620,7 @@ pub fn overlay(
                     .text_size(crate::theme::ui_text(TEXT_2XS_H))
                     .text_color(t.text_tertiary)
                     .child(match asker {
-                        Some(Asker::App) => t!("Only allow a sign-in you just started. Remove an app any time in Settings → Other apps."),
+                        Some(Asker::App) => t!("Only allow a sign-in you just started. Remove an app any time in Settings → Connectors."),
                         _ => t!("Only allow phones you own. Remove one any time on the Devices page."),
                     }),
             )

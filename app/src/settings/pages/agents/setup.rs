@@ -21,7 +21,7 @@ use crate::workbench::Workbench;
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] =
     &[crate::settings::index::section(
-        crate::settings::index::Page::Installed,
+        crate::settings::index::Page::Agents,
         "Agents on this host",
         "install reinstall update upgrade version latest missing claude codex opencode hermes pi omp grok cli",
     )];

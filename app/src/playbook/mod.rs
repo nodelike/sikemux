@@ -635,12 +635,13 @@ pub fn pane(
                 .flex_1()
                 .min_w_0()
                 .overflow_y_scroll()
+                .bg(rows::card_fill(cx))
                 .child(
                     div()
                         .max_w(px(720.))
                         .flex()
                         .flex_col()
-                        .gap(px(22.))
+                        .gap(px(28.))
                         .px(px(28.))
                         .py(SPACE_6)
                         .children(body),

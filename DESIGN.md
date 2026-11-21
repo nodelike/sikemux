@@ -15,6 +15,8 @@ made for other apps.
 - The project tree stays a tree: spine, tick, bare icons, and the current page
   in the accent, not filled pills.
 - Picker rows stay one line.
+- Settings pages are one sheet, not stacked cards: each section is a spaced-capital
+  label over a hairline, then hairline rows.
 - Chat transcript text is reading text at full ink; don't mute it.
 - Sizes under 11px in the rails and lists are deliberate; don't round them up.
 - Colours come from the tokens, so every theme looks right.

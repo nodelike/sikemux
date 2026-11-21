@@ -585,7 +585,7 @@ pub fn show_install(
     };
     let sheet = bench.agent_setup.behind.remove(at);
     bench.agent_setup.sheet = Some(sheet);
-    bench.open_settings(crate::settings::Page::Installed, window, cx);
+    bench.open_settings(crate::settings::Page::Agents, window, cx);
     redraw(bench, cx);
 }
 

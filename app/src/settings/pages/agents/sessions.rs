@@ -24,24 +24,24 @@ use sikemux_calls::workspace::DefaultsParams;
 /// What a search finds on this page.
 pub(in crate::settings) const NOTIFICATIONS: &[crate::settings::index::Entry] = &[
     crate::settings::index::section(
-        crate::settings::index::Page::Notifications,
+        crate::settings::index::Page::General,
         "Notifications",
         "notification alert badge dock permission finished",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Notifications,
+        crate::settings::index::Page::General,
         "Notifications",
         "Notify when an agent needs you",
         "notification alert badge dock permission finished",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Notifications,
+        crate::settings::index::Page::General,
         "Notifications",
         "Notify when a goal moves",
         "notification goal slice landed finished eta slipped progress",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Notifications,
+        crate::settings::index::Page::General,
         "Notifications",
         "Test notification",
         "notification sound permission send try",
@@ -51,43 +51,43 @@ pub(in crate::settings) const NOTIFICATIONS: &[crate::settings::index::Entry] = 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
     crate::settings::index::section(
-        crate::settings::index::Page::Permissions,
+        crate::settings::index::Page::Agents,
         "Launch boundary",
         "permissions yolo auto sandbox safety bypass approval",
     ),
-    crate::settings::index::section(crate::settings::index::Page::Chats, "Chats", "sessions"),
+    crate::settings::index::section(crate::settings::index::Page::Agents, "Chats", "sessions"),
     crate::settings::index::row(
-        crate::settings::index::Page::Chats,
+        crate::settings::index::Page::Agents,
         "Chats",
         "Sending while an agent works",
         "steer queue interrupt enter",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Chats,
+        crate::settings::index::Page::Agents,
         "Chats",
         "Rail density",
         "compact comfortable sidebar",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Chats,
+        crate::settings::index::Page::Agents,
         "Chats",
         "Screen reader",
         "voiceover accessibility announce read aloud blind a11y",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Chats,
+        crate::settings::index::Page::Agents,
         "Chats",
         "Agent names",
         "name theme anime nature naruto one piece characters words",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Chats,
+        crate::settings::index::Page::Agents,
         "Chats",
         "Idle chats",
         "sleep memory process agents",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Chats,
+        crate::settings::index::Page::Agents,
         "Chats",
         "Heavy commands at once",
         "cargo build compile test queue line memory jobs parallel limit",

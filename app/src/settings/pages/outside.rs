@@ -11,7 +11,7 @@ use sikemux_calls::outside::Via;
 use sikemux_wire::protocol::DeviceAccess;
 
 use crate::icons::Icon;
-use crate::settings::index::Page::OtherApps;
+use crate::settings::index::Page::Connectors;
 use crate::settings::index::{section, Entry};
 use crate::settings::rows;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_XS};
@@ -21,17 +21,17 @@ use crate::workbench::Workbench;
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[Entry] = &[
     section(
-        OtherApps,
+        Connectors,
         "MCP server",
         "mcp server url address claude code codex chatgpt outside apps agents oauth",
     ),
     section(
-        OtherApps,
+        Connectors,
         "Add to an app",
         "claude mcp add codex mcp add login connect",
     ),
     section(
-        OtherApps,
+        Connectors,
         "Allowed apps",
         "apps signed in revoke remove access full watch read only",
     ),

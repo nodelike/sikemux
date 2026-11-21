@@ -25,7 +25,7 @@ use sikemux_view::theme::{ThemeSource, ThemeSummary};
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::reads::Read;
-use crate::settings::index::Page::{Buddies, Interface, Theme};
+use crate::settings::index::Page::Appearance;
 use crate::settings::index::{row, section, Entry};
 use crate::settings::rows;
 use crate::settings::rows::Choice;
@@ -41,12 +41,12 @@ use crate::workbench::Workbench;
 /// What a search finds on this page.
 pub(in crate::settings) const THEME: &[Entry] = &[
     section(
-        Theme,
+        Appearance,
         "Wearing",
         "colours colors palette dark light custom fork editor wallpaper customize",
     ),
     section(
-        Theme,
+        Appearance,
         "Themes",
         "colours colors palette dark light custom ghostty search",
     ),
@@ -54,106 +54,106 @@ pub(in crate::settings) const THEME: &[Entry] = &[
 
 /// What a search finds on this page.
 pub(in crate::settings) const INTERFACE: &[Entry] = &[
-    section(Interface, "Text", ""),
+    section(Appearance, "Text", ""),
     row(
-        Interface,
+        Appearance,
         "Text",
         "Language",
         "language locale translation español deutsch français 中文 日本語 한국어 русский português",
     ),
     row(
-        Interface,
+        Appearance,
         "Text",
         "Text size",
         "font zoom scale larger smaller accessibility",
     ),
     row(
-        Interface,
+        Appearance,
         "Text",
         "Chat width",
         "column wide full screen messages reading measure line length",
     ),
     row(
-        Interface,
+        Appearance,
         "Text",
         "Contrast",
         "increase contrast greys borders readable accessibility",
     ),
     row(
-        Interface,
+        Appearance,
         "Text",
         "Motion",
         "reduce motion animation still accessibility",
     ),
-    section(Interface, "Panes", ""),
+    section(Appearance, "Panes", ""),
     row(
-        Interface,
+        Appearance,
         "Panes",
         "Backdrop",
         "dither dithering shader grain noise background effect texture gradient stars grid picture none",
     ),
     row(
-        Interface,
+        Appearance,
         "Panes",
         "Pane image",
         "picture photo wallpaper background dither dithered custom omarchy follow",
     ),
     row(
-        Interface,
+        Appearance,
         "Panes",
         "Pane strength",
         "dither grain picture opacity intensity texture image",
     ),
     row(
-        Interface,
+        Appearance,
         "Panes",
         "Colours",
         "pane picture dither inks palette theme accent custom gradient map",
     ),
     row(
-        Interface,
+        Appearance,
         "Panes",
         "Inks",
         "pane picture dither colours palette custom gradient map",
     ),
     row(
-        Interface,
+        Appearance,
         "Panes",
         "Pattern",
         "pane picture dither bayer ordered noise grid matrix",
     ),
     row(
-        Interface,
+        Appearance,
         "Panes",
         "Dot size",
         "pane picture dither pixel scale cell",
     ),
     row(
-        Interface,
+        Appearance,
         "Panes",
         "Contrast",
         "pane picture dither tone levels",
     ),
     row(
-        Interface,
+        Appearance,
         "Panes",
         "Brightness",
         "pane picture dither tone exposure midtones",
     ),
     row(
-        Interface,
+        Appearance,
         "Panes",
         "Glow",
         "pane picture dither bloom halation light",
     ),
     row(
-        Interface,
+        Appearance,
         "Panes",
         "Glow size",
         "pane picture dither bloom radius spread",
     ),
     row(
-        Interface,
+        Appearance,
         "Panes",
         "Covers",
         "pane picture dither band top whole full coverage",
@@ -163,30 +163,30 @@ pub(in crate::settings) const INTERFACE: &[Entry] = &[
 /// What a search finds on this page.
 pub(in crate::settings) const BUDDIES: &[Entry] = &[
     section(
-        Buddies,
+        Appearance,
         "Buddies",
         "agent icon character avatar mascot face",
     ),
     row(
-        Buddies,
+        Appearance,
         "Buddies",
         "Show buddies",
         "agent icon character avatar mascot harness logo",
     ),
     row(
-        Buddies,
+        Appearance,
         "Buddies",
         "Pack",
         "agent icon character avatar mascot style",
     ),
     row(
-        Buddies,
+        Appearance,
         "Buddies",
         "Shape",
         "agent icon character avatar mixed",
     ),
     row(
-        Buddies,
+        Appearance,
         "Buddies",
         "Animate faces",
         "motion blink animation",
@@ -195,15 +195,15 @@ pub(in crate::settings) const BUDDIES: &[Entry] = &[
 
 /// What a search finds on this page.
 pub(in crate::settings) const WINDOW: &[Entry] = &[
-    section(Interface, "Window", ""),
+    section(Appearance, "Window", ""),
     row(
-        Interface,
+        Appearance,
         "Window",
         "Opacity",
         "transparency translucent see-through",
     ),
     row(
-        Interface,
+        Appearance,
         "Window",
         "Background blur",
         "vibrancy frosted glass",
@@ -871,7 +871,6 @@ fn preview(summary: &ThemeSummary, height: f32, rail: bool) -> gpui_kit::Div {
 pub fn render(
     bench: &Workbench,
     pages: &super::State,
-    page: Page,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
     window: &Window,
@@ -1708,52 +1707,50 @@ pub fn render(
             cx,
         ));
 
-    match page {
-        Page::Theme => {
-            let mut sections = Vec::new();
-            sections.extend(current.map(|current| rows::card(lit("Wearing"), current, cx)));
-            sections.extend(editing);
-            sections.push(rows::section(
-                n!("Themes"),
-                Some(
-                    t!(
-                        "{built_in} built-in · {custom} yours",
-                        built_in = themes.len() - custom,
-                        custom = custom
-                    )
-                    .into(),
-                ),
-                None,
-                lit("Themes"),
-                library,
-                cx,
-            ));
-            sections
-        }
-        Page::Interface => {
-            let mut sections = vec![
-                rows::section(n!("Text"), None, None, lit("Text"), text, cx),
-                rows::section(n!("Panes"), None, None, lit("Panes"), interface, cx),
-            ];
-            if crate::settings::index::here(Page::Interface, "Window") {
-                sections.push(rows::section(
-                    n!("Window"),
-                    None,
-                    None,
-                    lit("Window"),
-                    window_section,
-                    cx,
-                ));
-            }
-            sections
-        }
-        _ => vec![rows::section(
-            n!("Buddies"),
+    let mut sections = Vec::new();
+    sections.extend(current.map(|current| rows::card(lit("Wearing"), current, cx)));
+    sections.extend(editing);
+    sections.push(rows::section(
+        n!("Themes"),
+        Some(
+            t!(
+                "{built_in} built-in · {custom} yours",
+                built_in = themes.len() - custom,
+                custom = custom
+            )
+            .into(),
+        ),
+        None,
+        lit("Themes"),
+        library,
+        cx,
+    ));
+    sections.push(rows::section(n!("Text"), None, None, lit("Text"), text, cx));
+    sections.push(rows::section(
+        n!("Panes"),
+        None,
+        None,
+        lit("Panes"),
+        interface,
+        cx,
+    ));
+    if crate::settings::index::here(Page::Appearance, "Window") {
+        sections.push(rows::section(
+            n!("Window"),
             None,
             None,
-            lit("Buddies"),
-            buddies,
+            lit("Window"),
+            window_section,
             cx,
-        )],
+        ));
     }
+    sections.push(rows::section(
+        n!("Buddies"),
+        None,
+        None,
+        lit("Buddies"),
+        buddies,
+        cx,
+    ));
+    sections
 }

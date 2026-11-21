@@ -75,36 +75,32 @@ pub fn render(
         return Vec::new();
     };
     match page {
-        Page::Notifications => vec![sessions::notifications(bench, lit, this, cx)],
-        Page::Installed => vec![setup::render(bench, &bench.agent_setup, lit, this, cx)],
-        Page::Permissions => vec![sessions::boundary(bench, lit, this, cx)],
-        Page::Chats => vec![sessions::render(&fields.sessions, lit, this, cx)],
+        Page::General => vec![sessions::notifications(bench, lit, this, cx)],
+        Page::Agents => vec![
+            setup::render(bench, &bench.agent_setup, lit, this, cx),
+            sessions::boundary(bench, lit, this, cx),
+            sessions::render(&fields.sessions, lit, this, cx),
+            providers::helpers_section(bench, &fields.providers, lit, cx),
+        ],
         Page::Skills => vec![skills::render(&fields.skills, lit, this, cx)],
-        Page::Accounts => {
+        Page::Models => {
             let mut sections = vec![accounts::smart(bench, lit, this, cx)];
             sections.extend(
                 (signs_in(bench).into_iter())
                     .map(|provider| accounts::render(bench, &provider, lit, this, cx)),
             );
             sections.push(profiles::render(bench, &fields.profiles, lit, this, cx));
+            sections.extend(providers::render(bench, &fields.providers, lit, this, cx));
             sections
         }
-        Page::Plans | Page::Providers | Page::LocalModels | Page::Helpers => {
-            providers::render(bench, &fields.providers, page, lit, this, cx)
-        }
-        Page::Notch | Page::Voice | Page::Simulator => {
-            device::render(bench, &fields.device, page, lit, this, cx)
-        }
+        Page::ThisMac => device::render(bench, &fields.device, lit, this, cx),
         _ => Vec::new(),
     }
 }
 
 /// Whether the helper's dropdowns on `page` were made for another helper than the one chosen.
 pub(super) fn stale(fields: &Fields, page: Page) -> bool {
-    matches!(
-        page,
-        Page::Plans | Page::Providers | Page::LocalModels | Page::Helpers
-    ) && providers::stale(&fields.providers)
+    matches!(page, Page::Agents | Page::Models) && providers::stale(&fields.providers)
 }
 
 pub(super) use providers::rebuild_choices;

@@ -26,7 +26,7 @@ use sikemux_agents::agent_accounts::BUILT_IN;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
-    crate::settings::index::section(crate::settings::index::Page::Accounts, "Accounts", "profiles executable path sign in login logout email subscription max pro plus chatgpt switch rotate limit add second work personal claude codex"),
+    crate::settings::index::section(crate::settings::index::Page::Models, "Accounts", "profiles executable path sign in login logout email subscription max pro plus chatgpt switch rotate limit add second work personal claude codex"),
 ];
 
 fn plan(plan: &str) -> String {

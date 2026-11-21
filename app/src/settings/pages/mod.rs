@@ -85,50 +85,49 @@ fn state<'a>(bench: &Workbench, cx: &'a App) -> Option<&'a State> {
 
 /// Makes what the page shown keeps between frames, when it is about to be drawn without it.
 pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<Workbench>) {
+    type Make = fn(&mut Workbench, &mut Window, &mut Context<Workbench>);
     let Some(pages) = state(bench, cx) else {
         return;
     };
-    match page {
-        Page::General if pages.general.is_none() => cx.defer_in(window, general::make),
-        Page::Keyboard if pages.keybindings.is_none() => cx.defer_in(window, keybindings::make),
-        Page::Settled if pages.settled.is_none() => cx.defer_in(window, settled::make),
-        Page::Theme | Page::Interface | Page::Buddies => match &pages.appearance {
-            None => cx.defer_in(window, appearance::make),
-            Some(fields) if appearance::strays(fields, bench, cx) => {
-                cx.defer_in(window, appearance::follow)
-            }
-            Some(_) => {}
-        },
-        Page::Connectors => match &pages.connectors {
-            None => cx.defer_in(window, connectors::make),
-            Some(fields) if fields.stale => cx.defer_in(window, connectors::read),
-            Some(_) => {}
-        },
-        Page::Actions if pages.actions.is_none() => cx.defer_in(window, actions::make),
-        Page::Cli if pages.cli.is_none() => {
-            cx.defer_in(window, |bench, _, cx| cli::read(bench, cx))
-        }
-        Page::Usage if pages.activity.is_none() => cx.defer_in(window, activity::make),
-        Page::Notifications
-        | Page::Installed
-        | Page::Permissions
-        | Page::Chats
-        | Page::Skills
-        | Page::Helpers
-        | Page::Accounts
-        | Page::Plans
-        | Page::Providers
-        | Page::LocalModels
-        | Page::Notch
-        | Page::Voice
-        | Page::Simulator => match &pages.agents {
-            None => cx.defer_in(window, agents::make),
-            Some(fields) if agents::stale(fields, page) => {
-                cx.defer_in(window, agents::rebuild_choices)
-            }
-            Some(_) => {}
-        },
-        _ => {}
+    let agents: Option<Make> = match &pages.agents {
+        None => Some(agents::make),
+        Some(fields) if agents::stale(fields, page) => Some(agents::rebuild_choices),
+        Some(_) => None,
+    };
+    let appearance: Option<Make> = match &pages.appearance {
+        None => Some(appearance::make),
+        Some(fields) if appearance::strays(fields, bench, cx) => Some(appearance::follow),
+        Some(_) => None,
+    };
+    let connectors: Option<Make> = match &pages.connectors {
+        None => Some(connectors::make),
+        Some(fields) if fields.stale => Some(connectors::read),
+        Some(_) => None,
+    };
+    let missing = |made: bool, make: Make| (!made).then_some(make);
+    let wanted: Vec<Make> = match page {
+        Page::General => [missing(pages.general.is_some(), general::make), agents].into(),
+        Page::Keyboard => [
+            missing(pages.keybindings.is_some(), keybindings::make),
+            missing(pages.actions.is_some(), actions::make),
+        ]
+        .into(),
+        Page::Appearance => [appearance].into(),
+        Page::Agents => [missing(pages.settled.is_some(), settled::make), agents].into(),
+        Page::Connectors => [
+            connectors,
+            missing(pages.cli.is_some(), |bench, _, cx| cli::read(bench, cx)),
+        ]
+        .into(),
+        Page::Usage => [missing(pages.activity.is_some(), activity::make)].into(),
+        Page::Skills | Page::Models | Page::ThisMac => [agents].into(),
+        Page::Account | Page::About => Vec::new(),
+    }
+    .into_iter()
+    .flatten()
+    .collect();
+    for make in wanted {
+        cx.defer_in(window, make);
     }
 }
 
@@ -146,30 +145,32 @@ pub fn render(
     let page = settings.page;
     match page {
         Page::Account => account::render(bench, &lit, this, cx),
-        Page::General => general::render(bench, pages, &lit, this, cx),
-        Page::Keyboard => keybindings::render(bench, pages, &lit, this, cx),
-        Page::Theme | Page::Interface | Page::Buddies => {
-            appearance::render(bench, pages, page, &lit, this, window, cx)
+        Page::General => {
+            let mut sections = general::render(bench, pages, &lit, this, cx);
+            sections.extend(agents::render(bench, pages, page, &lit, this, cx));
+            sections
         }
-        Page::Notifications
-        | Page::Installed
-        | Page::Permissions
-        | Page::Chats
-        | Page::Skills
-        | Page::Helpers
-        | Page::Accounts
-        | Page::Plans
-        | Page::Providers
-        | Page::LocalModels
-        | Page::Notch
-        | Page::Voice
-        | Page::Simulator => agents::render(bench, pages, page, &lit, this, cx),
-        Page::Connectors => connectors::render(bench, pages, &lit, this, cx),
-        Page::Mods => mods::render(bench, &lit, this, cx),
-        Page::Settled => settled::render(bench, pages, &lit, this, cx),
-        Page::Actions => actions::render(bench, pages, &lit, this, cx),
-        Page::Cli => cli::render(bench, pages, &lit, this, cx),
-        Page::OtherApps => outside::render(bench, &lit, this, cx),
+        Page::Keyboard => {
+            let mut sections = keybindings::render(bench, pages, &lit, this, cx);
+            sections.extend(actions::render(bench, pages, &lit, this, cx));
+            sections
+        }
+        Page::Appearance => appearance::render(bench, pages, &lit, this, window, cx),
+        Page::Agents => {
+            let mut sections = agents::render(bench, pages, page, &lit, this, cx);
+            sections.extend(settled::render(bench, pages, &lit, this, cx));
+            sections
+        }
+        Page::Skills | Page::Models | Page::ThisMac => {
+            agents::render(bench, pages, page, &lit, this, cx)
+        }
+        Page::Connectors => {
+            let mut sections = connectors::render(bench, pages, &lit, this, cx);
+            sections.extend(outside::render(bench, &lit, this, cx));
+            sections.extend(cli::render(bench, pages, &lit, this, cx));
+            sections.extend(mods::render(bench, &lit, this, cx));
+            sections
+        }
         Page::Usage => activity::render(bench, pages, &lit, this, cx),
         Page::About => about::render(bench, &lit, this, cx),
     }

@@ -29,7 +29,6 @@ use sikemux_calls::Call;
 use crate::core;
 use crate::core::Target;
 use crate::settings::rows::{self, Choice};
-use crate::settings::Page;
 use crate::settings::Settings;
 use crate::theme::{
     Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM,
@@ -41,12 +40,12 @@ use crate::workbench::Workbench;
 /// What a search finds on this page.
 pub(in crate::settings) const HELPERS: &[crate::settings::index::Entry] = &[
     crate::settings::index::section(
-        crate::settings::index::Page::Helpers,
+        crate::settings::index::Page::Agents,
         "Helpers",
         "cheap model workers scouts reviewers subagents spawn paid by provider",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Helpers,
+        crate::settings::index::Page::Agents,
         "Helpers",
         "Agent",
         "helper worker scout reviewer subagent cheap model provider",
@@ -55,9 +54,9 @@ pub(in crate::settings) const HELPERS: &[crate::settings::index::Entry] = &[
 
 /// What a search finds on this page.
 pub(in crate::settings) const MODELS: &[crate::settings::index::Entry] = &[
-    crate::settings::index::section(crate::settings::index::Page::Plans, "Coding plans", "zai glm zhipu minimax kimi code alibaba qwen volcengine ark xiaomi mimo stepfun tencent china opencode go synthetic ollama subscription plan key claude codex"),
-    crate::settings::index::section(crate::settings::index::Page::Providers, "API providers", "openrouter baseten together fireworks groq cerebras deepseek moonshot kimi alibaba qwen dashscope volcengine ark doubao xiaomi mimo stepfun tencent hunyuan china mistral vercel api key hosted open models opencode pi omp claude codex"),
-    crate::settings::index::section(crate::settings::index::Page::LocalModels, "Local models", "ollama lm studio lmstudio local offline runner claude codex"),
+    crate::settings::index::section(crate::settings::index::Page::Models, "Coding plans", "zai glm zhipu minimax kimi code alibaba qwen volcengine ark xiaomi mimo stepfun tencent china opencode go synthetic ollama subscription plan key claude codex"),
+    crate::settings::index::section(crate::settings::index::Page::Models, "API providers", "openrouter baseten together fireworks groq cerebras deepseek moonshot kimi alibaba qwen dashscope volcengine ark doubao xiaomi mimo stepfun tencent hunyuan china mistral vercel api key hosted open models opencode pi omp claude codex"),
+    crate::settings::index::section(crate::settings::index::Page::Models, "Local models", "ollama lm studio lmstudio local offline runner claude codex"),
 ];
 
 pub struct Fields {
@@ -1107,7 +1106,6 @@ fn helpers(bench: &Workbench, fields: &Fields, cx: &App) -> AnyElement {
 pub fn render(
     bench: &Workbench,
     fields: &Fields,
-    page: Page,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
     cx: &App,
@@ -1170,39 +1168,44 @@ pub fn render(
                 .collect(),
         }
     };
-    let section = match page {
-        Page::Plans => return with_orgs(Kind::Plan, keyed(
-            Kind::Plan,
+    let local = of_kind(Kind::Local);
+    let running = connected(&local);
+    let mut sections = with_orgs(Kind::Plan, keyed(
+        Kind::Plan,
         n!("Coding plans"),
         t!("Monthly subscriptions made for coding agents. Once its key is saved here, a plan's models show in every chat's model picker, run by an agent that can use them. Keys stay in your Keychain."),
         cx,
-    )),
-        Page::Providers => return with_orgs(Kind::Api, keyed(
-            Kind::Api,
+    ));
+    sections.extend(with_orgs(Kind::Api, keyed(
+        Kind::Api,
         n!("API providers"),
         t!("Hosted models you pay the provider for by the token. Once its key is saved here, a provider's models show in every chat's model picker, run by an agent that can use them. Keys stay in your Keychain."),
         cx,
-    )),
-        Page::LocalModels => {
-    let local = of_kind(Kind::Local);
-    let running = connected(&local);
-    rows::section(
+    )));
+    sections.push(rows::section(
         n!("Local models"),
         (running > 0).then(|| t!("{count} running", count = running).into()),
         Some(t!("Models served on this host by Ollama or LM Studio. They need no key, and nothing leaves this host.").into()),
         lit("Local models"),
         div().children(local.iter().map(|provider| local_row(bench, fields, provider, this, cx))),
         cx,
-    )
-        }
-        _ => rows::section(
+    ));
+    sections
+}
+
+/// The model agents start their helpers on.
+pub fn helpers_section(
+    bench: &Workbench,
+    fields: &Fields,
+    lit: &dyn Fn(&str) -> bool,
+    cx: &App,
+) -> AnyElement {
+    rows::section(
         n!("Helpers"),
         None,
         Some(t!("Agents that other agents start without naming a model run as set here, and Claude Code's own subagents take this model when their chat runs where helpers do. The agent you build with keeps the model you pick.").into()),
         lit("Helpers"),
         helpers(bench, fields, cx),
         cx,
-    ),
-    };
-    vec![section]
+    )
 }
