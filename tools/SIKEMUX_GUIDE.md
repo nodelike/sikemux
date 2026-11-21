@@ -900,11 +900,28 @@ only in `ask`; do not write it out in your reply too.
   guessing, and the answer comes to you as a message. With `blocked: false`
   carry on, and the answer comes when it is given.
 - `secret: true` when the answer is a secret, such as a password or a token:
-  the question goes straight to the person, never to a lead, and the answer
+  the question goes straight to the person, never to a lead, it always waits
+  as a blocked one whatever `blocked` says, and the answer
   comes to you as the path of a file only the person's account can read. Use
   it from there, such as `"$(cat 'path')"` in a command, and never print it,
   echo it or write it anywhere. Codex's request_user_input questions marked
   secret go the same way.
+
+A call stays open, in the rail, the notch and on the person's phone, until it
+is answered on the call itself. That answer reaches you as `<question-answer>`
+and closes it: withdraw nothing then. Nothing else closes it for you, so keep
+yours true:
+
+- The person answers it in your chat instead, the work it asked for is done,
+  or it no longer stands: take it back with `ask`, `edit` set to the
+  `questionId` it returned and `withdraw: true`, then carry on.
+- Its wording, choices, `pick` or pages changed: `ask` with `edit` and the new
+  fields changes it in place. Never raise a second call for the same thing.
+- A message starting `On your call "…", which stays open:` is the person
+  writing about the call without answering it. Reply in chat, then edit or
+  withdraw the call when what they wrote settles it.
+
+`edit` takes the id, never the title, so keep each `questionId`.
 
 An agent another agent started asks its lead, which decides, as Who decides
 says; an agent with no lead asks the person, in its chat, the rail,
@@ -928,6 +945,11 @@ waits for you, and its note names the question's id. You decide it: answer with
 `agent_send` to that agent, setting `answers` to that id and `why`; a message
 without `answers` leaves the question open. If only the person can answer it,
 ask them yourself with `ask` and pass their answer on.
+
+`answers` takes only the id of a question that agent asked you and that is
+still open. It is never the id of a call you raised: a call of yours ends by
+the person's answer or your `withdraw`. When a note says the agent has its
+answer already, send anything more without `answers`.
 
 ### Messages you get
 
@@ -1061,7 +1083,9 @@ instead of sleeping or looping. `trigger_add` takes exactly one of `in`, `at`,
   a branch or run of any of them.
 - `rundeck`: a Rundeck run's execution id or address.
 - `process`: an `executionId`; with `until`, text it prints. Park on a dev
-  server with `until: "ready"`.
+  server with `until: "ready"`. The id comes in `process_start`'s result, never
+  from your `idempotencyKey` or `label`, so set the trigger in the step after
+  the start, not beside it.
 - `agent`: an agent's name; `until` is `done` (default), `needs_you`, `idle`
   or `any`.
 

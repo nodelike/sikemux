@@ -1707,7 +1707,7 @@
           "maxLength": 65536
         },
         "answers": {
-          "description": "Id of the question this answers",
+          "description": "Id of an open question that agent asked you, never of a call of yours",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
@@ -2068,7 +2068,7 @@
         "page": {"description": "Id of a page you showed that pictures it", "type": "string", "minLength": 32, "maxLength": 32},
         "pages": {"description": "Several such page ids, in order; on edit, the new list", "type": "array", "maxItems": 6, "items": {"type": "string", "minLength": 32, "maxLength": 32}},
         "edit": {"description": "questionId of your open call: change it in place with the fields given", "type": "string", "minLength": 1, "maxLength": 64},
-        "withdraw": {"description": "With edit: take the call back", "type": "boolean"}
+        "withdraw": {"description": "With edit: take the call back, once the person answered in chat or it no longer stands", "type": "boolean"}
       },
       "required": []
     },
@@ -2461,7 +2461,7 @@
           "type": "string"
         },
         "process": {
-          "description": "Fire once this executionId ends",
+          "description": "Fire once this executionId ends; it comes in process_start's result, so start first",
           "type": "string"
         },
         "agent": {

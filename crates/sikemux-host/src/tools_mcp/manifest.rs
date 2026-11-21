@@ -232,7 +232,7 @@ impl Manifest {
              - When a request fits more than one place in the code, ask which before changing any.\n\
              - who_wrote, before git log, gh or a CI's API: who broke or wrote something.\n\
              - A tool refuses: do what its error says, such as messaging an agent, or tell the person; never get around it another way, such as raw git or a cd in a command.\n\
-             - ask: a question to your lead, or the person if you have none.\n\
+             - ask: a question to your lead, or the person if you have none. An answer on the call closes it. When the person answers in chat instead, its work is done or it no longer stands, your call is still open: take it back with ask edit and withdraw: true.\n\
              - Commit only with git_commit, never git commit or hand staging."
         );
         if self.offers_simulator() {
