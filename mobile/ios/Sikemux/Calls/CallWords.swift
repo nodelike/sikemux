@@ -318,8 +318,9 @@ enum CallWords {
 
     // MARK: The chief
 
-    /// The chief's row: what follows it is its chat's own title, and where projects share the list, the project.
+    /// The chief's row: @Chief, its role, and where projects share the list, the project.
     static let chief = "@Chief"
+    static let chiefRole = String(localized: "Chief of staff")
     /// The composer's words in the chief's own chat.
     static let tellChief = String(localized: "Tell @Chief what you want")
     /// Under the chief's row when a tap cannot reach the host to open its chat.

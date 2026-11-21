@@ -22,7 +22,7 @@ struct ChiefRow: View {
     var body: some View {
         let away = project.chiefHome?.awaySince
         Row(
-            title: CallWords.chief, host: homeTag, aside: shown?.titled == true ? shown?.title : nil,
+            title: CallWords.chief, host: homeTag, aside: CallWords.chiefRole,
             detail: refused ?? away.map { CallWords.outOfReach(ChatWords.clock($0, now: now)) },
             onPress: open,
             mark: { AskerMark(agentId: shown?.agentId ?? "", provider: shown?.cli ?? "", chief: true) },

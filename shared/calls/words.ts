@@ -271,8 +271,9 @@ export function rowLabel(turn: TurnState, now = Date.now(), say: Say = english):
 
 // The chief
 
-/** The chief's row: what follows it is its chat's own title, and where projects share the list, the project. */
+/** The chief's row: @Chief, its role, and where projects share the list, the project. */
 export const CHIEF = "@Chief";
+export const CHIEF_ROLE = "Chief of staff";
 /** The composer's words in the chief's own chat. */
 export const TELL_CHIEF = "Tell @Chief what you want";
 /** Under the chief's row when a tap cannot reach the host to open its chat. */

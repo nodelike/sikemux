@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { clockLabel } from '@shared/chat/messageMeta';
-import { CHIEF, CHIEF_OFFLINE, TAKE_OVER, chiefAway } from '@shared/calls/words';
+import { CHIEF, CHIEF_OFFLINE, CHIEF_ROLE, TAKE_OVER, chiefAway } from '@shared/calls/words';
 import type { AgentShown, ProjectInfo } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
@@ -98,7 +98,7 @@ export function ChiefRow({
       mark={<Icon name="Logo" size={15} color={colors.accent} />}
       title={CHIEF}
       host={homeTag}
-      aside={shown?.titled ? shown.title : undefined}
+      aside={t(CHIEF_ROLE)}
       detail={refused ?? (away != null ? chiefAway(away, now, t) : undefined)}
       end={
         <View style={styles.end}>
