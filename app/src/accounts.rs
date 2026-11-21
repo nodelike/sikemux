@@ -98,7 +98,7 @@ pub fn avatar(picture: Arc<Image>, size: f32) -> impl IntoElement {
 pub fn face(picture: Arc<Image>, provider: &str, size: f32, cx: &gpui_kit::App) -> gpui_kit::Div {
     let t = crate::theme::Tokens::get(cx);
     let badge = (size * 0.8).round();
-    let disc = badge - 3.;
+    let disc = badge - 2.;
     div()
         .relative()
         .flex_none()
@@ -123,7 +123,7 @@ pub fn face(picture: Arc<Image>, provider: &str, size: f32, cx: &gpui_kit::App) 
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(crate::ui::mark(provider, (disc * 0.82).round())),
+                        .child(crate::ui::mark(provider, disc - 1.)),
                 ),
         )
 }
