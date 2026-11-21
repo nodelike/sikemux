@@ -60,6 +60,8 @@ pub struct ChatAbove {
         fn(&Arc<Core>, &str, Option<&str>, Option<crate::acp::failure::FailureKind>),
     /// What the agent is told with the person's next message, once.
     pub board_take_note: fn(&Core, &str) -> Option<ChatContext>,
+    /// The agent's calls still open to the person, told with each message of theirs.
+    pub questions_open_calls: fn(&Core, &str) -> Option<ChatContext>,
     /// What an agent hears with its next turn of the rules kept from its chat that the person
     /// removed, which are then done with.
     pub memory_take_removed: fn(&Core, &str) -> Option<ChatContext>,

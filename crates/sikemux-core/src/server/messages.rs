@@ -1126,7 +1126,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                                 .is_some_and(|name| name.eq_ignore_ascii_case(wanted))
                                 && super::roster::reaches(&core, agent, &project, &from)
                     };
-                    if answers.is_some() || agents.iter().any(named) {
+                    if agents.iter().any(named) {
                         return Err(why.into());
                     }
                     if let Some((_, ran)) = core.names().closed_worker(&from, wanted) {
@@ -1158,13 +1158,19 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                 return Err(why.into());
             }
             let mut letter = letter_from(&agents, MessageKind::Message, from, text, None);
-            if let Some(Answering { id, .. }) = answers.as_ref().filter(|_| target.reach != Reach::Remote) {
+            if let Some(Answering { id, .. }) =
+                answers.as_ref().filter(|_| target.reach != Reach::Remote)
+            {
                 let name = target.name.as_deref().unwrap_or(&target.agent_id);
                 let asked = core
                     .harness()
                     .questions
                     .asked_of(&letter.from_id, &target.agent_id, id)
-                    .ok_or_else(|| format!("{name} has no open question {id} that it asked you; it was answered already, or leave out answers to send this as a plain message"))?;
+                    .ok_or_else(|| {
+                        core.harness()
+                            .questions
+                            .not_asked(&letter.from_id, name, id)
+                    })?;
                 letter.kind = MessageKind::Answer;
                 letter.note = Some(lead_answer_note(&letter.from_name, &asked));
             }
@@ -1447,7 +1453,11 @@ pub(crate) async fn from_host(
             .harness()
             .questions
             .asked_of(&letter.from_id, &target.agent_id, id)
-            .ok_or_else(|| format!("{name} has no open question {id} that it asked you; it was answered already, or leave out answers to send this as a plain message"))?;
+            .ok_or_else(|| {
+                core.harness()
+                    .questions
+                    .not_asked(&letter.from_id, &name, id)
+            })?;
         letter.kind = MessageKind::Answer;
         letter.note = Some(lead_answer_note(&letter.from_name, &asked));
     }
@@ -2056,8 +2066,12 @@ async fn deliver_as(
     if target.reach == Reach::Remote {
         return carry(core, target, letter, None).await;
     }
+    let calls = (core.harness().questions).calls_about_note(&target.agent_id, &letter.from_id);
     let queued = Queued {
-        text,
+        text: match calls {
+            Some(calls) => format!("{text}\n{calls}"),
+            None => text,
+        },
         origin: Some(Origin {
             from: letter.from_id.clone(),
             kind: letter.kind,
@@ -2398,6 +2412,10 @@ pub(crate) fn from_person(core: &Arc<Core>, agent_id: &str, text: String) -> Cor
     worked(core, agent_id);
     person_wrote(core, agent_id);
     super::now::asks::asked(core, agent_id, &text, &[], None);
+    let text = match core.harness().questions.open_calls_note(agent_id) {
+        Some(note) => format!("{text}\n\n{note}"),
+        None => text,
+    };
     let mailbox = &core.harness().mailbox;
     mailbox.wait(
         agent_id,

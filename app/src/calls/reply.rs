@@ -140,7 +140,10 @@ impl Workbench {
             paths,
             ..PromptChatParams::new(
                 asker.agent_id,
-                format!("On your call \"{about}\", which stays open: {words}"),
+                format!(
+                    "On your call {} \"{about}\", which stays open: {words}",
+                    call.id
+                ),
             )
         };
         let sent =

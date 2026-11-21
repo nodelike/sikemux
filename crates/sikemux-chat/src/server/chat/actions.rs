@@ -266,6 +266,9 @@ pub fn prompt(
     }
     let chat = core.chats().running(agent_id)?;
     context.extend((core.chat_above().board_take_note)(core, agent_id));
+    if whose.person {
+        context.extend((core.chat_above().questions_open_calls)(core, agent_id));
+    }
     context.extend((core.chat_above().memory_take_removed)(core, agent_id));
     context.extend(
         (core.chat_above().turn_state_now)(core, agent_id)

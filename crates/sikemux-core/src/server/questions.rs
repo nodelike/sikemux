@@ -725,6 +725,62 @@ impl Questions {
             .map(|question| question.asked.clone())
     }
 
+    /// Why `lead` can't answer `id` for the agent `name`: the call is the lead's own, or no
+    /// such question is open.
+    pub(crate) fn not_asked(&self, lead: &str, name: &str, id: &str) -> String {
+        let state = self.state.locked();
+        let own =
+            (state.open.iter()).find(|question| question.id == id && question.agent_id == lead);
+        match own {
+            Some(call) => format!(
+                "{id} is your own open call \"{}\", not a question {name} asked you. If it is settled, withdraw it with ask, edit: \"{id}\" and withdraw: true; then send this without answers",
+                call.header.as_deref().unwrap_or(&call.text)
+            ),
+            None => format!("{name} has no open question {id} that it asked you; it was answered already, or leave out answers to send this as a plain message"),
+        }
+    }
+
+    /// `agent`'s open calls that `keep` lets through, as `id "title"` items.
+    fn calls_of(&self, agent: &str, keep: impl Fn(&Question) -> bool) -> Vec<String> {
+        let state = self.state.locked();
+        (state.open.iter())
+            .filter(|question| question.agent_id == agent && keep(question))
+            .map(|call| {
+                format!(
+                    "{} \"{}\"",
+                    call.id,
+                    call.header.as_deref().unwrap_or(&call.text)
+                )
+            })
+            .collect()
+    }
+
+    /// What `agent` is told with the person's message while calls of its own wait on them.
+    pub(crate) fn open_calls_note(&self, agent: &str) -> Option<String> {
+        let calls = self.calls_of(agent, |call| matches!(call.stage, Stage::Person { .. }));
+        (!calls.is_empty()).then(|| {
+            format!(
+                "Your calls still open to the person: {}. If this message settles one, withdraw it with ask, edit: its id and withdraw: true.",
+                calls.join("; ")
+            )
+        })
+    }
+
+    /// What `lead` is told with a report from `worker` while calls of the lead's about it are open.
+    pub(crate) fn calls_about_note(&self, lead: &str, worker: &str) -> Option<String> {
+        let calls = self.calls_of(lead, |call| {
+            call.about
+                .as_ref()
+                .is_some_and(|about| about.agent_id == worker)
+        });
+        (!calls.is_empty()).then(|| {
+            format!(
+                "Your open calls about this agent: {}. If this report settles one, withdraw it with ask, edit: its id and withdraw: true.",
+                calls.join("; ")
+            )
+        })
+    }
+
     /// Closes the question `id` its agent asked `lead`, which answered it, while it is open.
     fn take_answered(&self, lead: &str, agent_id: &str, id: &str) -> Option<Question> {
         let mut state = self.state.locked();
@@ -1293,11 +1349,7 @@ async fn edit(
     let question = {
         let questions = &core.harness().questions;
         let mut state = questions.state.locked();
-        let at = (state.open.iter())
-            .position(|open| open.id == id && open.agent_id == agent_id)
-            .ok_or(
-                "no open call of yours has that id: it was answered, withdrawn or asked by another",
-            )?;
+        let at = own_call(&state.open, agent_id, id)?;
         if withdraw {
             let question = state.open.remove(at);
             questions.changed(&mut state);
@@ -1305,7 +1357,7 @@ async fn edit(
             if let Some(lead) = question.lead_id() {
                 messages::withdraw(core, lead, &question.id);
             }
-            return Ok(json!({ "withdrawn": id }));
+            return Ok(json!({ "withdrawn": question.id }));
         }
         let question = state.open.get_mut(at).ok_or("that call just closed")?;
         if question.kind.and_then(form_choices).is_some() && (choices.is_some() || pick.is_some()) {
@@ -1339,7 +1391,43 @@ async fn edit(
         question
     };
     link_pages(core, &question).await;
-    Ok(json!({ "edited": id }))
+    Ok(json!({ "edited": question.id }))
+}
+
+/// Where in `open` the call of `agent_id` that `wanted` names is: by its id, or by its title
+/// when exactly one of its open calls has that title.
+fn own_call(open: &[Question], agent_id: &str, wanted: &str) -> Result<usize, String> {
+    let mine = |open: &&Question| open.agent_id == agent_id;
+    if let Some(at) = open
+        .iter()
+        .position(|call| mine(&call) && call.id == wanted)
+    {
+        return Ok(at);
+    }
+    let wanted = wanted.trim().trim_matches('"');
+    let titled: Vec<usize> = (open.iter().enumerate())
+        .filter(|(_, call)| mine(call))
+        .filter(|(_, call)| {
+            (call.header.as_deref()).is_some_and(|title| title.trim().eq_ignore_ascii_case(wanted))
+        })
+        .map(|(at, _)| at)
+        .collect();
+    match titled[..] {
+        [at] => Ok(at),
+        [] => {
+            let yours: Vec<String> = (open.iter().filter(mine))
+                .map(|call| format!("{} \"{}\"", call.id, call.header.as_deref().unwrap_or("")))
+                .collect();
+            Err(match yours.is_empty() {
+                true => "you have no open call: it was answered or withdrawn".to_owned(),
+                false => format!(
+                    "no open call of yours has that id or title; yours: {}",
+                    yours.join(", ")
+                ),
+            })
+        }
+        _ => Err("several open calls of yours have that title: edit one by its id".into()),
+    }
 }
 
 /// Refuses a do or look call that lacks what it is drawn with, and a look from an agent that leads
@@ -2550,6 +2638,16 @@ fn tell_window(core: &Arc<Core>) {
             core.window().forget(id);
         }
     });
+}
+
+/// The note on `agent`'s open calls that goes with the person's message to its chat.
+pub(crate) fn open_calls(core: &Core, agent: &str) -> Option<sikemux_wire::protocol::ChatContext> {
+    let text = core.harness().questions.open_calls_note(agent)?;
+    Some(sikemux_wire::protocol::ChatContext {
+        uri: format!("{}open-calls", sikemux_wire::protocol::FOR_AGENT_URI),
+        title: "Your open calls".into(),
+        text,
+    })
 }
 
 #[cfg(test)]

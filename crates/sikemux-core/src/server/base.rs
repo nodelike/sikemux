@@ -305,6 +305,7 @@ pub(super) fn chat_above() -> ChatAbove {
         turn_state_now: turn_state::now,
         agent_accounts_turn_ended: agent_accounts::turn_ended,
         board_take_note: board::chat_goal::take_note,
+        questions_open_calls: questions::open_calls,
         memory_take_removed: memory::take_removed_note,
         memory_chat_ready: memory::chat_ready,
         chief_brief: chief::brief,
