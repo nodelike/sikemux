@@ -1,0 +1,24 @@
+diff --git a/src/components/KeyboardChatScrollView/useChatKeyboard/index.ts b/src/components/KeyboardChatScrollView/useChatKeyboard/index.ts
+index 48178d9246ab94d701983ac20473983eb746d1a6..d88927a584263f36a3425959c4fab8e0a64594d1 100644
+--- a/src/components/KeyboardChatScrollView/useChatKeyboard/index.ts
++++ b/src/components/KeyboardChatScrollView/useChatKeyboard/index.ts
+@@ -45,7 +45,8 @@ function useChatKeyboard(
+ 
+   const padding = useSharedValue(0);
+   const currentHeight = useSharedValue(0);
+-  const offsetBeforeScroll = useSharedValue(0);
++  // -1 while no keyboard is open: on Android a Modal opening sends keyboard moves with no start
++  const offsetBeforeScroll = useSharedValue(-1);
+   const targetKeyboardHeight = useSharedValue(0);
+   const closing = useSharedValue(false);
+   const minimumPaddingFractionOnOpen = useSharedValue(0);
+@@ -355,6 +356,9 @@ function useChatKeyboard(
+         // Record actual scroll displacement so close can be symmetric
+         if (effective > 0 && offsetBeforeScroll.value !== -1) {
+           actualOpenShift.value = scroll.value - offsetBeforeScroll.value;
++        } else if (effective === 0) {
++          offsetBeforeScroll.value = -1;
++          actualOpenShift.value = 0;
+         }
+       },
+     },

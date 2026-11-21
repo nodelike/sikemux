@@ -8,3 +8,4 @@ catalog:
 patchedDependencies:
   'expo-router@57.0.24': patches/expo-router@57.0.24.patch
   '@shopify/flash-list@2.3.3': patches/@shopify__flash-list@2.3.3.patch
+  react-native-keyboard-controller@1.21.9: patches/react-native-keyboard-controller@1.21.9.patch
