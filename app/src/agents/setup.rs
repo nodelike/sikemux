@@ -2,6 +2,8 @@
 //! sign-ins run with the agent's own command where the person can watch it: in a
 //! sheet over Settings, or under the list of agents in the first-run setup.
 
+use std::collections::HashMap;
+
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     anchored, deferred, div, point, px, AnchoredPositionMode, AnyElement, Context, Div, Entity,
@@ -94,7 +96,8 @@ pub struct Sheet {
     kind: String,
     label: String,
     shown: String,
-    /// What the shell runs; it exits with the command's code.
+    /// The command the sheet runs, in /bin/sh on macOS and Linux and in the login shell on
+    /// Windows; the sheet ends with its exit code.
     command: String,
     session: Option<SessionId>,
     /// The core has listed its session, so its leaving the list means it ended.
@@ -505,7 +508,7 @@ pub fn installer(kind: &str, label: &str, command: String) -> Sheet {
         kind: kind.to_owned(),
         label: label.to_owned(),
         shown: command.clone(),
-        command: format!("{command}\nexit $?"),
+        command,
         session: None,
         seen: false,
         phase: Phase::Running,
@@ -534,7 +537,7 @@ pub fn signing_in(agent: &Found, folder: Option<&str>) -> Option<Sheet> {
         }
         _ => String::new(),
     };
-    let command = format!("{account}{}\nexit $?", words.join(" "));
+    let command = format!("{account}{}", words.join(" "));
     Some(Sheet {
         install: false,
         kind: agent.kind.clone(),
@@ -594,12 +597,34 @@ fn catalog_installer(bench: &Workbench, kind: &str) -> Option<Sheet> {
     Some(installer(kind, &entry.label, entry.install.clone()?))
 }
 
+/// Carries the sheet's command past the person's own shell, which may be fish or nu.
+#[cfg(unix)]
+const SHEET_COMMAND: &str = "SIKEMUX_SHEET_COMMAND";
+
+/// What the person's shell starts with to run `command` in `/bin/sh` and end with its exit
+/// code, and the environment that carries it.
+#[cfg(unix)]
+fn sheet_startup(command: &str) -> (String, HashMap<String, String>) {
+    let startup = format!("exec /bin/sh -c 'eval \"${SHEET_COMMAND}\"'");
+    (
+        startup,
+        HashMap::from([(SHEET_COMMAND.to_owned(), command.to_owned())]),
+    )
+}
+
+#[cfg(windows)]
+fn sheet_startup(command: &str) -> (String, HashMap<String, String>) {
+    (format!("{command}\nexit $?"), HashMap::new())
+}
+
 fn start(bench: &mut Workbench, sheet: Sheet, cx: &mut Context<Workbench>) {
+    let (startup, env) = sheet_startup(&sheet.command);
     let spawn = TerminalSpawn {
         cols: 100,
         rows: 26,
         cwd: sikemux_process::paths::home().map(|home| home.to_string_lossy().into_owned()),
-        startup: Some(sheet.command.clone()),
+        startup: Some(startup),
+        env,
         ..TerminalSpawn::default()
     };
     let (started, session) = oneshot::channel();
