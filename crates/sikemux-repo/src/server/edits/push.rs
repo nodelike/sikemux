@@ -317,13 +317,21 @@ fn push_once(
     let moved = base != fork;
     let unpushed = unpushed(top, fork.as_deref(), base.as_deref(), &head, whose, judge)?;
     if !unpushed.iter().any(|commit| commit.mine) {
-        return Err(Attempt::Failed(match unpushed.is_empty() {
-            true => "Nothing to push: every commit here is on the remote".to_owned(),
-            false => format!(
-                "Nothing of yours waits to be pushed here. The rest go out with their makers' pushes, or with git_commit push from the project's own checkout, which pushes all it holds: {}",
-                kept(&unpushed).join("; ")
-            ),
-        }));
+        return Ok(Pushed {
+            remote: remote.to_owned(),
+            branch: branch.to_owned(),
+            pushed: Vec::new(),
+            kept: kept(&unpushed),
+            waiting: Vec::new(),
+            note: Some(match unpushed.is_empty() {
+                true => "Every commit here is on the remote already.".to_owned(),
+                false => "Nothing of yours waits to be pushed here. The rest go out with their makers' pushes, or with git_commit push from the project's own checkout, which pushes all it holds.".to_owned(),
+            }),
+            held: Vec::new(),
+            sent_back: Vec::new(),
+            blocked: Vec::new(),
+            tip: None,
+        });
     }
     let shown = |commits: &[&Unpushed]| -> Vec<String> {
         (commits.iter())

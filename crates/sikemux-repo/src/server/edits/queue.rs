@@ -159,7 +159,7 @@ fn put_in_line(
         since,
     } = sent;
     let tip = line(git(&repo, &["rev-parse", &format!("refs/heads/{base}")])?);
-    let laid = land::lay(
+    let Some(laid) = land::lay(
         &Signing::of(core),
         &repo,
         &head,
@@ -167,7 +167,14 @@ fn put_in_line(
         &tip,
         &base,
     )?
-    .ok_or_else(|| format!("Nothing to land: {base} has every commit of yours"))?;
+    else {
+        return Ok(Queued {
+            note: format!("{base} has every commit of yours already, so nothing waits to land"),
+            branch: base,
+            commits: Vec::new(),
+            ahead: 0,
+        });
+    };
     let key = (repo, base.clone());
     let waiting = Waiting {
         agent: agent_id.to_owned(),
