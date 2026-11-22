@@ -271,7 +271,6 @@ private struct ChatPane: View {
         return Transcript(
             rows: rows, drawn: session.drawn, touched: { session.takeTouched() }, context: context, scroll: scroll,
             hasEarlier: session.hasEarlier, earlier: session.earlier, loadEarlier: { session.loadEarlier() },
-            worktree: live.view?.workspace.agents?.first { $0.id == agentId }?.worktree,
             look: { [open, editing] message, look in
                 look.unsent = unsent[message.id]
                 if message.id == open { look.strip = Strip.of(messages, message.id) }

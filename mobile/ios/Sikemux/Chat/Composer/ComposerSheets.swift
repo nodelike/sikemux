@@ -251,7 +251,7 @@ struct ConfigSheet: View {
             onPick(model, choice.value)
         } label: {
             HStack(spacing: 11) {
-                AgentMark(provider: provider, size: 17)
+                MakerMark(maker: choice.maker, provider: provider, size: 17)
                 Text(choice.label)
                     .font(Theme.ui(15))
                     .foregroundStyle(on ? palette.ink : palette.secondary)

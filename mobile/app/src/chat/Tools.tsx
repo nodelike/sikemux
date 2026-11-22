@@ -4,7 +4,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { durationLabel } from '@shared/chat/durationLabel';
 import { useToolDetail } from '@shared/chat/useToolDetail';
 import { toolKind, toolRunning, toolUrl } from '@shared/chat/toolLabels';
-import { attachmentName } from '@shared/chat/transcript';
+import { attachmentName, modelName } from '@shared/chat/transcript';
 import { callCount, callsLabel, secondsSince, toolElapsed, toolGroupSummary, toolIconName, type ToolIconName } from '@shared/chat/toolView';
 import type { ChatPart, ToolCall, ToolDetail as Detail, ToolOutput } from '@shared/wire.generated';
 import { problem as problemOf } from '@/core/problem';
@@ -304,37 +304,6 @@ function Target({ tool, target }: { tool: ToolCall; target: string }) {
       {link.after}
     </>
   );
-}
-
-/** `claude-opus-5-5` reads as Opus 5.5 and `gpt-5.6-sol` as GPT-5.6 Sol, as the Mac names them; anything else keeps its id. */
-function modelName(model: string): string {
-  const bare = (model.split('/').at(-1) ?? model).split('[')[0];
-  const capital = (word: string) => word.charAt(0).toUpperCase() + word.slice(1);
-  const digits = (part: string) => /^\d+$/.test(part);
-  if (bare.startsWith('claude-')) {
-    const parts = bare.slice('claude-'.length).split('-');
-    if (/^\d{8}$/.test(parts.at(-1) ?? '')) parts.pop();
-    const [family, major, minor] = parts;
-    if (/^[a-z]+$/.test(family ?? '') && digits(major ?? '')) {
-      if (parts.length === 2) return `${capital(family)} ${major}`;
-      if (parts.length === 3 && digits(minor) && minor.length <= 2) return `${capital(family)} ${major}.${minor}`;
-    }
-  }
-  if (bare.startsWith('gpt-')) {
-    const rest = bare.slice('gpt-'.length);
-    const cut = rest.indexOf('-');
-    const version = cut < 0 ? rest : rest.slice(0, cut);
-    const variant =
-      cut < 0
-        ? []
-        : rest
-            .slice(cut + 1)
-            .split('-')
-            .filter(Boolean)
-            .map(capital);
-    if (/^[\d.]+$/.test(version)) return variant.length ? `GPT-${version} ${variant.join(' ')}` : `GPT-${version}`;
-  }
-  return bare;
 }
 
 /** The agents a call reached, each as its pill, then what it said of them: for an agent it started, the task in full ink and its model. */

@@ -2,7 +2,7 @@ import { parse, SvgAst, type JsxAST } from 'react-native-svg';
 
 import { DRAWN_ICONS } from '@shared/ui/drawnIcons';
 import { ICONS, type IconName } from './icons.generated';
-import { useAgentBrand } from '@shared/agents/catalog';
+import { useAgentBrand, useMakerBrand } from '@shared/agents/catalog';
 
 import { type Provider, useColors } from './theme';
 
@@ -42,6 +42,7 @@ const PROVIDER_ICONS: Record<Provider, IconName> = {
   omp: 'IconOmp',
   grok: 'IconGrok',
   muse: 'IconMuse',
+  antigravity: 'IconAntigravity',
 };
 
 function isProvider(name: string): name is Provider {
@@ -54,4 +55,21 @@ export function AgentIcon({ provider, size = 20 }: { provider: string; size?: nu
   const brand = useAgentBrand(provider);
   if (!isProvider(provider)) return <Icon name="IconAgent" size={size} color={colors.secondary} />;
   return <Icon name={PROVIDER_ICONS[provider]} size={size} color={brand ?? colors.secondary} />;
+}
+
+const MAKER_ICONS: Record<string, IconName> = {
+  anthropic: 'IconAnthropic',
+  google: 'IconGemini',
+  openai: 'IconOpenai',
+  xai: 'IconXai',
+};
+
+/** The mark of the company that made a model, in its agent's colour, else the mark of the agent it runs on. */
+export function MakerIcon({ maker, provider, size = 20 }: { maker?: string | null; provider: string; size?: number }) {
+  const colors = useColors();
+  const brand = useMakerBrand(maker);
+  const agentBrand = useAgentBrand(provider);
+  const icon = maker ? MAKER_ICONS[maker.toLowerCase()] : undefined;
+  if (!icon) return <AgentIcon provider={provider} size={size} />;
+  return <Icon name={icon} size={size} color={brand ?? agentBrand ?? colors.secondary} />;
 }

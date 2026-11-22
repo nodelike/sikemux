@@ -70,7 +70,8 @@ export function Trouble({
   ).data;
   const resumes = useAhead(failure?.kind === 'limit' ? failure.resumesAt : undefined);
   const dropped = state.connection === 'error' || state.connection === 'stopped';
-  if (dropped && state.messages.length) {
+  const signedOut = state.ended?.failure === 'signIn';
+  if (dropped && (state.messages.length || signedOut)) {
     const why = state.ended?.message;
     return (
       <View style={styles.trouble} accessibilityLiveRegion="polite">
@@ -80,6 +81,14 @@ export function Trouble({
           </View>
           <Text style={styles.text}>{why ? t('This session dropped: {why}', { why }) : t('This session dropped.')}</Text>
         </View>
+        {signedOut ? (
+          <Text style={styles.host}>
+            {t("{agent} isn't signed in on {host}. Sign in there, or pick another agent from the model menu.", {
+              agent: agentLabel(provider),
+              host: hostName,
+            })}
+          </Text>
+        ) : null}
         {canAct ? (
           <View style={styles.actions}>
             <Action title={t('Reconnect')} onPress={session.retry} />

@@ -49,6 +49,18 @@ export function agentReadsUsage(type: string): boolean {
 /** The agent's colour, drawing again once a core has said it. */
 export const useAgentBrand = (type: string): string | undefined => useExternalValue(catalogs, (byCore) => anyEntry(byCore, type)?.brand);
 
+/** The colour of the agent `maker` makes, such as Claude's for Anthropic, drawing again once a core has said it. */
+export const useMakerBrand = (maker: string | null | undefined): string | undefined =>
+    useExternalValue(catalogs, (byCore) => {
+        if (!maker) return undefined;
+        for (const byType of byCore.values()) {
+            for (const agent of byType.values()) {
+                if (agent.maker?.toLowerCase() === maker.toLowerCase()) return agent.brand;
+            }
+        }
+        return undefined;
+    });
+
 /* The core switches a running chat between safe and YOLO for every agent whose
    CLI on it can start without asking: in the CLI's own modes where it has them,
    or else by answering the agent's permission requests itself. */

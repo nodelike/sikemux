@@ -341,7 +341,7 @@ private struct AgentTargets: View {
 
 /// `claude-opus-5-5` reads as Opus 5.5 and `gpt-5.6-sol` as GPT-5.6 Sol, as the Mac names them; anything else keeps its
 /// id.
-private func modelName(_ model: String) -> String {
+func modelName(_ model: String) -> String {
     let bare = String((model.split(separator: "/").last.map { String($0) } ?? model).split(separator: "[").first ?? "")
     let capital = { (word: Substring) -> String in word.prefix(1).uppercased() + word.dropFirst() }
     let digits = { (part: Substring) -> Bool in

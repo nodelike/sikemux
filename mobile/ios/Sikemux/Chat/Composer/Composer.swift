@@ -209,15 +209,13 @@ struct Composer: View {
                 core: core, mode: session.permissionMode, provider: provider,
                 locked: modeLocked, onToggle: session.setPermissionMode, work: rows.sessionMode,
                 onWork: { picker, value in session.setConfig(picker.id, value) })
-            if model != nil || effort != nil {
-                Capped(width: 240) {
-                    ModelChip(provider: provider, model: model, effort: effort) {
-                        configuring = true
-                        session.readModels()
-                    }
+            Capped(width: 240) {
+                ModelChip(provider: provider, model: model, effort: effort) {
+                    configuring = true
+                    session.readModels()
                 }
-                .layoutPriority(1)
             }
+            .layoutPriority(1)
             if let usage = rows.usage {
                 ContextRing(
                     usage: usage, provider: provider,

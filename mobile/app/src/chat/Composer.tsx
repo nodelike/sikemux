@@ -320,7 +320,7 @@ export const Composer = memo(function Composer({
             work={sessionMode}
             onWork={(picker, value) => session.setConfig(picker.id, value)}
           />
-          {modelLabel || effortLabel ? <ModelChip provider={provider} model={modelLabel} effort={effortLabel} onPress={openSheet} /> : null}
+          <ModelChip provider={provider} model={modelLabel} effort={effortLabel} onPress={openSheet} />
           {usage ? (
             <ContextRing
               usage={usage}

@@ -116,8 +116,40 @@ export function workflowAgentCount(agents: WorkflowAgent[], say: Say = english):
     return agents.length === 1 ? say("{finished}/1 agent", { finished }) : say("{finished}/{count} agents", { finished, count: agents.length });
 }
 
+/** `claude-opus-5-5` reads as Opus 5.5 and `gpt-5.6-sol` as GPT-5.6 Sol, as the Mac names them; anything else keeps its id. */
+export function modelName(model: string): string {
+    const bare = (model.split("/").at(-1) ?? model).split("[")[0];
+    const capital = (word: string) => word.charAt(0).toUpperCase() + word.slice(1);
+    const digits = (part: string) => /^\d+$/.test(part);
+    if (bare.startsWith("claude-")) {
+        const parts = bare.slice("claude-".length).split("-");
+        if (/^\d{8}$/.test(parts.at(-1) ?? "")) parts.pop();
+        const [family, major, minor] = parts;
+        if (/^[a-z]+$/.test(family ?? "") && digits(major ?? "")) {
+            if (parts.length === 2) return `${capital(family)} ${major}`;
+            if (parts.length === 3 && digits(minor) && minor.length <= 2) return `${capital(family)} ${major}.${minor}`;
+        }
+    }
+    if (bare.startsWith("gpt-")) {
+        const rest = bare.slice("gpt-".length);
+        const cut = rest.indexOf("-");
+        const version = cut < 0 ? rest : rest.slice(0, cut);
+        const variant =
+            cut < 0
+                ? []
+                : rest
+                      .slice(cut + 1)
+                      .split("-")
+                      .filter(Boolean)
+                      .map(capital);
+        if (/^[\d.]+$/.test(version)) return variant.length ? `GPT-${version} ${variant.join(" ")}` : `GPT-${version}`;
+    }
+    return bare;
+}
+
 export function subagentCost(subagent: SubagentCard, say: Say = english): string | undefined {
     const cost = [
+        subagent.model && modelName(subagent.model),
         subagent.tokens && say("{count} tokens", { count: tokenCount(subagent.tokens) }),
         subagent.calls > 0 && callCount(subagent.calls, say),
     ];

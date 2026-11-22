@@ -18,13 +18,20 @@ struct Trouble: View {
         let head = session.rows.head
         let failure = head.failure
         let dropped = head.connection == .error || head.connection == .stopped
+        let signedOut = head.ended?.failure == .signIn
         Group {
-            if dropped && !session.rows.messages.isEmpty {
+            if dropped && (!session.rows.messages.isEmpty || signedOut) {
                 VStack(alignment: .leading, spacing: 8) {
                     said(
                         Icons.plug,
                         head.ended?.message.map { String(localized: "This session dropped: \($0)") }
                             ?? String(localized: "This session dropped."))
+                    if signedOut {
+                        Text(
+                            "\(label) isn't signed in on \(hostName). Sign in there, or pick another agent from the model menu."
+                        )
+                        .font(Theme.ui(13)).lineSpacing(3).foregroundStyle(palette.tertiary).padding(.leading, 22)
+                    }
                     if canAct {
                         actions {
                             action("Reconnect") { session.retry() }

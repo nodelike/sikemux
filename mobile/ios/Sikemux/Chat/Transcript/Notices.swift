@@ -168,6 +168,43 @@ struct AccountLine: View {
     }
 }
 
+/// Where the chat went on with another model or agent, handed what it said: one quiet line between rules.
+struct ContextHandoffLine: View {
+    @Environment(\.palette) private var palette
+    let handoff: ContextHandoff
+
+    var body: some View {
+        let rule = Rectangle().fill(palette.border).frame(minWidth: 12, maxWidth: .infinity).frame(height: 1)
+        HStack(spacing: 6) {
+            rule
+            IconView(icon: Icons.swap, size: 12)
+            Text("Context handoff").fixedSize()
+            end(handoff.from)
+            Text("→").fixedSize()
+            end(handoff.to)
+            rule
+        }
+        .font(Theme.ui(12))
+        .foregroundStyle(palette.inkFaint)
+        .frame(minHeight: 18)
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(String(localized: "Context handoff: \(name(handoff.from)) → \(name(handoff.to))"))
+    }
+
+    private func name(_ side: HandoffSide) -> String {
+        side.model ?? Catalog.label(side.agent)
+    }
+
+    private func end(_ side: HandoffSide) -> some View {
+        HStack(spacing: 4) {
+            MakerMark(maker: side.maker, provider: side.agent, size: 12)
+            Text(name(side)).lineLimit(1)
+                .foregroundStyle(side.maker.flatMap(Catalog.makerBrand) ?? Catalog.brand(side.agent) ?? palette.inkDim)
+        }
+    }
+}
+
 /// The account smart accounts picked for a chat about to start, and why, in one quiet centred line.
 struct SmartPick: View {
     @Environment(\.palette) private var palette
@@ -407,7 +444,7 @@ struct SubagentRow: View {
     }
 
     static func cost(_ subagent: SubagentCard) -> String? {
-        var pieces: [String] = []
+        var pieces: [String] = subagent.model.map { [modelName($0)] } ?? []
         if let tokens = subagent.tokens, tokens > 0 {
             pieces.append(String(localized: "\(Format.tokens(tokens)) tokens"))
         }
@@ -459,33 +496,6 @@ private struct SubagentEnd: View {
             IconView(icon: icon, size: 12).foregroundStyle(tint)
             Text(subagentWords[state] ?? "").font(Theme.ui(12.5)).foregroundStyle(loud ? tint : palette.inkDim)
         }
-    }
-}
-
-/// Where a chat with a worktree of its own runs, above its first message: its branch, then its folder more quietly.
-struct WorktreeLine: View {
-    @Environment(\.palette) private var palette
-    let worktree: AgentWorktree
-
-    var body: some View {
-        HStack(spacing: 10) {
-            IconView(icon: Icons.git, size: 14)
-                .foregroundStyle(palette.accent)
-                .frame(width: 30, height: 30)
-                .background(RoundedRectangle(cornerRadius: 7).fill(palette.accent.opacity(0.16)))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(
-                    "Working in a worktree on \(Text(worktree.branch).font(Theme.mono(12)).foregroundStyle(palette.ink))"
-                )
-                .font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
-                Text(worktree.path).font(Theme.mono(11.5)).foregroundStyle(palette.inkFaint).lineLimit(1)
-                    .truncationMode(.head)
-            }
-        }
-        .padding(.top, 12)
-        .padding(.bottom, 4)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Working in a worktree on \(worktree.branch), at \(worktree.path)")
     }
 }
 

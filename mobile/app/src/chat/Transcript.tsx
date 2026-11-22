@@ -41,7 +41,7 @@ import { AnsweredQuestions } from './Question';
 import { Bubble, From, makeBubbleStyles } from './Bubble';
 import { AgentContext, ChiefContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { OwnMark } from '@/devices/Crew';
-import { AccountLine, AgentNoticeLine, PageCard, TaskNotice } from '@/chat/Notices';
+import { AccountLine, AgentNoticeLine, ContextHandoffLine, PageCard, TaskNotice } from '@/chat/Notices';
 import { EndedTasksLine } from '@/chat/EndedTasks';
 import { ContextChips } from '@/chat/ContextChips';
 import { Editing, MessageEditor } from '@/chat/MessageEditor';
@@ -177,6 +177,8 @@ function Parts({ id, parts, live, restored = null }: { id: string; parts: ChatPa
             return <AgentNoticeLine key={run.id} notice={run.notice} />;
           case 'account':
             return <AccountLine key={run.id} move={run.move} />;
+          case 'context_handoff':
+            return <ContextHandoffLine key={run.id} handoff={run.handoff} />;
           case 'tool':
             return run.page ? <PageCard key={run.id} page={run.page} /> : null;
           default:

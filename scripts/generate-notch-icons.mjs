@@ -442,6 +442,7 @@ const PHONE_ICONS = [
   "IconStatus",
   "IconSteps",
   "IconStop",
+  "IconSwap",
   "IconSwipe",
   "IconTabs",
   "IconTap",
@@ -715,7 +716,7 @@ for (const [name, markup] of Object.entries(DRAWN_ICONS)) {
   named.push(`        case ${swiftString(name)}: return ${name}`);
 }
 
-/** The marks the Mac puts before a link to these services, from its own icons. */
+/** The marks the Mac puts before a link to these services or on a model by its maker, from its own icons. */
 const SERVICE_FILES = {
   IconGithub: "github.svg",
   IconBitbucket: "bitbucket.svg",
@@ -728,6 +729,10 @@ const SERVICE_FILES = {
   IconSlack: "slack.svg",
   IconApple: "apple.svg",
   IconGoogleplay: "googleplay.svg",
+  IconAnthropic: "anthropic.svg",
+  IconGemini: "gemini.svg",
+  IconOpenai: "openai.svg",
+  IconXai: "xai.svg",
 };
 const serviceDir = resolve(root, "app/assets/icons");
 

@@ -6,7 +6,7 @@ import type { ChatRows } from '@shared/chat/rows';
 import { formatAgo } from '@shared/lib/format';
 import type { ChatFailure, ExpiredCache, ModelRoute, RecentModel } from '@shared/wire.generated';
 import { agentLabel, agentMaker, useAgentBrand } from '@shared/agents/catalog';
-import { AgentIcon, Icon } from '@/ui/Icon';
+import { AgentIcon, Icon, MakerIcon } from '@/ui/Icon';
 import { Field, Track } from '@/ui/controls';
 import { SectionLabel } from '@/ui/list';
 import { currentLabel } from '@/chat/sessionConfig';
@@ -151,7 +151,7 @@ export function ConfigSheet({
         style={[styles.option, on && { backgroundColor: colors.active }]}
         accessibilityRole="button"
         accessibilityState={{ selected: on }}>
-        <AgentIcon provider={provider} size={17} />
+        <MakerIcon maker={option.maker} provider={provider} size={17} />
         <Text style={[styles.optionText, on && { color: colors.ink }]} numberOfLines={1}>
           {option.label}
         </Text>

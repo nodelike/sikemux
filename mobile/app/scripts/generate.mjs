@@ -17,8 +17,8 @@ const iconsOut = resolve(app, 'src/ui/icons.generated.ts');
 const iconsStamp = resolve(cache, 'sikemux-icons.json');
 
 const mtime = (path) => (existsSync(path) ? statSync(path).mtimeMs : null);
-const LOGO_FILES = { IconCodex: 'codex.svg', IconOmp: 'omp.svg', IconMuse: 'muse.svg' };
-/** The marks the Mac puts on a link to these services, from its own icons. */
+const LOGO_FILES = { IconCodex: 'codex.svg', IconOmp: 'omp.svg', IconMuse: 'muse.svg', IconAntigravity: 'antigravity.svg' };
+/** The marks the Mac puts on a link to these services or on a model by its maker, from its own icons. */
 const SERVICE_FILES = {
   IconGithub: 'github.svg',
   IconBitbucket: 'bitbucket.svg',
@@ -31,6 +31,10 @@ const SERVICE_FILES = {
   IconSlack: 'slack.svg',
   IconApple: 'apple.svg',
   IconGoogleplay: 'googleplay.svg',
+  IconAnthropic: 'anthropic.svg',
+  IconGemini: 'gemini.svg',
+  IconOpenai: 'openai.svg',
+  IconXai: 'xai.svg',
 };
 
 function iconsUpToDate() {

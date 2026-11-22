@@ -18,8 +18,6 @@ struct RowLook: Equatable {
     var teamId: String?
     var teamOpen = false
     var teamAll = false
-    /// The worktree the chat runs in, said above its first row.
-    var worktree: AgentWorktree?
     var strip: Strip?
     var editable = false
     var editing = false

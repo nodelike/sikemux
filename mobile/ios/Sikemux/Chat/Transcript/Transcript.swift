@@ -14,8 +14,6 @@ struct Transcript<Footer: View>: View {
     var hasEarlier = false
     var earlier = Feed.Earlier.idle
     var loadEarlier: () -> Void = {}
-    /// The worktree the chat runs in, said above its first row.
-    var worktree: AgentWorktree?
     /// What the screen adds to each row's look: what it sent, the strip it opened, what can be edited.
     var look: (ChatMessage, inout RowLook) -> Void = { _, _ in }
     @ViewBuilder var footer: () -> Footer
@@ -78,7 +76,6 @@ struct Transcript<Footer: View>: View {
                 look.teamOpen = folds.isOpen(Folds.team(run.id), false)
                 look.teamAll = folds.isOpen(Folds.teamAll(run.id), false)
             }
-            if index == 0, !hasEarlier { look.worktree = worktree }
             if message.plainlySent {
                 look.followsOwn = index > 0 && messages[index - 1].plainlySent
                 look.followedByOwn = index + 1 < messages.count && messages[index + 1].plainlySent

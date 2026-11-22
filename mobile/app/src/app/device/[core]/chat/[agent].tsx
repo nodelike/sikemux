@@ -24,7 +24,7 @@ import { RecentSheet } from '@/chat/RecentSheet';
 import { FoldsContext, rowFold, runsOf, shownRows } from '@/chat/folds';
 import { useTranscriptScroll } from '@/chat/transcriptScroll';
 import { HostContext } from '@/chat/hostFiles';
-import { WorktreeNote, worktreeOf } from '@/chat/Worktree';
+import { worktreeOf } from '@/chat/Worktree';
 import { LiveSheet, LiveStrip } from '@/chat/Live';
 import { CallRows } from '@/calls/CallRows';
 import { TurnLine } from '@/calls/TurnLine';
@@ -329,10 +329,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                       onAll={() => showRunEarlier(run.id)}
                                     />
                                   ) : null;
-                                  const note =
-                                    index === 0 && worktree && !chat.hasEarlier ? (
-                                      <WorktreeNote branch={worktree.branch} path={worktree.path} />
-                                    ) : null;
                                   const summary = fold ? (
                                     <WorkSummary
                                       took={fold.took}
@@ -343,9 +339,8 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                     />
                                   ) : null;
                                   if (hidden)
-                                    return note || summary || head ? (
+                                    return summary || head ? (
                                       <>
-                                        {note}
                                         {head}
                                         {summary}
                                       </>
@@ -354,7 +349,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                     );
                                   return (
                                     <>
-                                      {note}
                                       {head}
                                       {summary}
                                       <Message

@@ -37,6 +37,15 @@ enum Catalog {
         entry(type, core: core).map { Color(hex: $0.brand) }
     }
 
+    /// The colour of the agent `maker` makes, such as Claude's for Anthropic.
+    static func makerBrand(_ maker: String) -> Color? {
+        let hub = Hub.shared
+        let catalogs = hub.devices.map { hub.live($0.core).catalog } + Array(others.values)
+        let made = catalogs.lazy.compactMap { $0.first { $0.maker?.caseInsensitiveCompare(maker) == .orderedSame } }
+            .first
+        return made.map { Color(hex: $0.brand) }
+    }
+
     /// Whether how much of the agent's plan is used can be read, which earns its context ring the agent's own colour.
     static func readsUsage(_ type: String) -> Bool {
         entry(type)?.usage == true
@@ -46,5 +55,27 @@ enum Catalog {
     /// asking.
     static func canSwitchMode(_ type: String, core: String) -> Bool {
         Hub.shared.live(core).agent(type)?.bypass == true
+    }
+}
+
+/// The mark of the company that made a model, in the colour of the agent it makes, else the mark of the agent it
+/// runs on.
+struct MakerMark: View {
+    @Environment(\.palette) private var palette
+    let maker: String?
+    let provider: String
+    var size: CGFloat = 16
+
+    private static let marks: [String: IconDef] = [
+        "anthropic": Icons.anthropic, "google": Icons.gemini, "openai": Icons.openai, "xai": Icons.xai,
+    ]
+
+    var body: some View {
+        if let maker, let mark = Self.marks[maker.lowercased()] {
+            IconView(icon: mark, size: size)
+                .foregroundStyle(Catalog.makerBrand(maker) ?? Catalog.brand(provider) ?? palette.secondary)
+        } else {
+            AgentMark(provider: provider, size: size)
+        }
     }
 }

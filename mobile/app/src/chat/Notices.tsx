@@ -1,8 +1,17 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { AccountMove, AgentNotice, ChatPart, TaskNotice as Notice, WorkerPage } from '@shared/wire.generated';
+import type {
+  AccountMove,
+  AgentNotice,
+  ChatPart,
+  ContextHandoff,
+  HandoffSide,
+  TaskNotice as Notice,
+  WorkerPage,
+} from '@shared/wire.generated';
 import { useT, type Translate } from '@/i18n';
-import { AgentIcon, Icon } from '@/ui/Icon';
+import { agentLabel, useAgentBrand, useMakerBrand } from '@shared/agents/catalog';
+import { AgentIcon, Icon, MakerIcon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useFold } from './folds';
 import { GoalLine } from './GoalLine';
@@ -124,6 +133,42 @@ export function AccountLine({ move }: { move: AccountMove }) {
   );
 }
 
+/** Where the chat went on with another model or agent, handed what it said: one quiet line between rules. */
+export function ContextHandoffLine({ handoff }: { handoff: ContextHandoff }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const t = useT();
+  const said = t('Context handoff');
+  const name = (side: HandoffSide) => side.model ?? agentLabel(side.agent);
+  return (
+    <View style={styles.handoff} accessible accessibilityLabel={`${said}: ${name(handoff.from)} → ${name(handoff.to)}`}>
+      <View style={styles.rule} />
+      <Icon name="IconSwap" size={12} color={colors.inkFaint} />
+      <Text style={styles.handoffWords}>{said}</Text>
+      <HandoffEnd side={handoff.from} name={name(handoff.from)} />
+      <Text style={styles.handoffWords}>→</Text>
+      <HandoffEnd side={handoff.to} name={name(handoff.to)} />
+      <View style={styles.rule} />
+    </View>
+  );
+}
+
+function HandoffEnd({ side, name }: { side: HandoffSide; name: string }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const makerBrand = useMakerBrand(side.maker);
+  const agentBrand = useAgentBrand(side.agent);
+  const tint = makerBrand ?? agentBrand ?? colors.inkDim;
+  return (
+    <View style={styles.handoffEnd}>
+      <MakerIcon maker={side.maker} provider={side.agent} size={12} />
+      <Text style={[styles.handoffWords, { flexShrink: 1, color: tint }]} numberOfLines={1}>
+        {name}
+      </Text>
+    </View>
+  );
+}
+
 /** The account smart accounts picked for a chat about to start, and why, in one quiet centred line. */
 export function SmartPick({ move, provider }: { move: AccountMove; provider: string }) {
   const styles = useStyles(makeStyles);
@@ -187,6 +232,10 @@ const makeStyles = (colors: Palette) => {
     pageTitle: { fontFamily: fonts.uiMedium, fontSize: 13, color: colors.ink },
     pageWhere: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
     notice: { gap: 2, marginVertical: 2, paddingVertical: 4, paddingLeft: 12 },
+    handoff: { flexDirection: 'row', alignItems: 'center', gap: 6, marginVertical: 6, minHeight: 18 },
+    handoffEnd: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, minWidth: 0 },
+    handoffWords: { flexShrink: 0, fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
+    rule: { flex: 1, minWidth: 12, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
     noticeHead: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 18 },
     pick: { alignItems: 'center', gap: 4, paddingTop: 40, paddingHorizontal: 16 },
     pickHead: { flexDirection: 'row', alignItems: 'center', gap: 7 },
