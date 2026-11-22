@@ -2557,7 +2557,7 @@ export const schema = {
         entries: { type: "array", items: { $ref: "#/$defs/OrgVaultEntry" } },
         ended: {
           description:
-            "Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it.",
+            "Entries removed from the vault, each one revision above its last. A new entry under one of these ids is added at that revision; a write at the old one is refused.",
           type: "array",
           items: { $ref: "#/$defs/OrgVaultEnded" },
         },
@@ -2611,7 +2611,7 @@ export const schema = {
     },
     OrgVaultEnded: {
       description:
-        "An entry removed from an org's vault, at the last revision it had.",
+        "An entry removed from an org's vault, one revision above the last it had.",
       type: "object",
       properties: {
         id: { $ref: "#/$defs/VaultEntryId" },
