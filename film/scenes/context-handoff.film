@@ -1,0 +1,12 @@
+# A Claude chat handed to OpenCode mid-way: the "Context handoff" line where the new session took over.
+stage 1440 900
+window 1440 900
+project storefront shop
+chat Ada claude:builtin-claude
+say "Sketch the orders table"
+settle 10
+core handOff {"agentId":"$chat","provider":"opencode","model":"opencode/big-pickle"}
+settle 4
+say "Carry on from there"
+settle 16
+snap context-handoff
