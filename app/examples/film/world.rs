@@ -49,19 +49,14 @@ impl World {
         }
         let bin = work.join("bin");
         std::fs::create_dir_all(&bin)?;
-        let stand_in = |name: &str, script: String| -> anyhow::Result<()> {
-            let path = bin.join(name);
-            std::fs::write(&path, script)?;
-            #[cfg(unix)]
-            std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
-            Ok(())
-        };
+        let stand_in = |name: &str, script: String| stand_in(&bin, name, &script);
         // ssh reads the config of the account's own home, not HOME, so the world's hosts are
         // reached by a stand-in that says it connected and then waits: nothing leaves the Mac.
         stand_in(
             "ssh",
             "#!/bin/sh\nfor host; do :; done\nprintf '\\033]6973;ssh;connected\\007'\nprintf 'Last login: Mon Nov  2 09:12:44 2026\\r\\n%s ~ $ ' \"$host\"\nexec /bin/sleep 86400\n".into(),
         )?;
+        stand_in("open", OPEN.into())?;
         // Antigravity and Codex chats run on the stand-in agents built beside the stand-in Claude.
         let fake = |name: &str| args.claude.with_file_name(name).display().to_string();
         let gemini = [
@@ -134,15 +129,7 @@ impl World {
             .then(|| Teammates::seat(work, &home, &args.claude))
             .transpose()?;
         let log = std::fs::File::create(work.join("core.log"))?;
-        let mut command = sikemux_process::user_environment::command(&args.core);
-        let path = command
-            .get_envs()
-            .find(|(name, _)| *name == "PATH")
-            .and_then(|(_, value)| value)
-            .map(|value| value.to_string_lossy().into_owned())
-            .or_else(|| std::env::var("PATH").ok())
-            .unwrap_or_default();
-        command.env("PATH", format!("{}:{path}", bin.display()));
+        let mut command = core_command(&args.core, &bin);
         command
             .arg("core")
             .arg("--socket")
@@ -954,4 +941,55 @@ fn setting(key: &str, value: &Value) -> Vec<(&'static str, Value)> {
 /// The `.claude.json` a Claude login leaves, which the core reads to know an account is signed in.
 fn signed_in(account: &str) -> String {
     json!({ "oauthAccount": { "accountUuid": account } }).to_string()
+}
+
+/// A signed-out agent CLI, such as agy, opens its sign-in page with `open`, which would land
+/// in the person's own browser: the world's `open` goes nowhere.
+const OPEN: &str = "#!/bin/sh\nexit 0\n";
+
+fn stand_in(bin: &Path, name: &str, script: &str) -> anyhow::Result<()> {
+    let path = bin.join(name);
+    std::fs::write(&path, script)?;
+    #[cfg(unix)]
+    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+    Ok(())
+}
+
+/// The command that starts one of the world's cores, which finds the stand-ins in `bin` first.
+pub(super) fn core_command(program: &Path, bin: &Path) -> sikemux_process::command::Command {
+    let mut command = sikemux_process::user_environment::command(program);
+    let path = command
+        .get_envs()
+        .find(|(name, _)| *name == "PATH")
+        .and_then(|(_, value)| value)
+        .map(|value| value.to_string_lossy().into_owned())
+        .or_else(|| std::env::var("PATH").ok())
+        .unwrap_or_default();
+    command.env("PATH", format!("{}:{path}", bin.display()));
+    command
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// On 22 Nov a shots run's core started the person's signed-in agy under its throwaway
+    /// home, and agy's `open` put Google's sign-in page in the person's browser.
+    #[test]
+    fn a_world_core_opens_nothing_in_the_persons_browser() {
+        let bin = std::env::temp_dir().join(format!("film-open-{}", std::process::id()));
+        std::fs::create_dir_all(&bin).expect("bin");
+        stand_in(&bin, "open", OPEN).expect("stand-in");
+
+        let found = core_command(Path::new("/bin/sh"), &bin)
+            .args(["-c", "command -v open"])
+            .output()
+            .expect("sh");
+
+        std::fs::remove_dir_all(&bin).ok();
+        assert_eq!(
+            String::from_utf8_lossy(&found.stdout).trim(),
+            bin.join("open").display().to_string()
+        );
+    }
 }

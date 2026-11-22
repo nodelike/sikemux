@@ -216,7 +216,7 @@ impl World {
         let api = account.api.clone();
         let socket = work.join("core.sock");
         let log = std::fs::File::create(work.join("core.log"))?;
-        let mut command = sikemux_process::user_environment::command(&self.core_program);
+        let mut command = super::world::core_command(&self.core_program, &self.work.join("bin"));
         command
             .arg("core")
             .arg("--socket")

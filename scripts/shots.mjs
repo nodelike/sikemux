@@ -180,6 +180,12 @@ function shootMac(side) {
   const bin = join(checkout, "target/debug");
   for (const scene of scenes) {
     const work = mkdtempSync(join(tmpdir(), "sxshot"));
+    // The film puts run/bin first on its cores' PATH. Builds older than its own stand-in `open`
+    // would let a signed-out agent CLI open its sign-in page in the person's browser.
+    mkdirSync(join(work, "run/bin"), { recursive: true });
+    writeFileSync(join(work, "run/bin/open"), "#!/bin/sh\nexit 0\n", {
+      mode: 0o755,
+    });
     try {
       run(
         join(bin, "examples/film"),
