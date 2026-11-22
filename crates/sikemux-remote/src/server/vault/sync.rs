@@ -177,7 +177,11 @@ async fn open(
         }
     };
     check_recovery_key(core, account, &vault.recovery_key).await?;
-    let floor = check_floor(core, account, &vault).await?;
+    let (mut floor, pinned) = check_floor(core, account, &vault).await?;
+    if !pinned || floor.generation < vault.generation {
+        floor.generation = vault.generation;
+        save_floor(core, account, &vault.recovery_key, floor.clone()).await?;
+    }
     let listed: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
     let key =
         (vault.key.as_deref()).and_then(|wrapped| open_wrap(wrapped, secret, account, &vault, me));
@@ -260,13 +264,17 @@ async fn check_recovery_key(core: &Core, account: &str, recovery_key: &str) -> C
 }
 
 /// Refuses a vault whose key is an earlier generation than this host last read, and hands
-/// back the floor it holds the vault's entries to.
-async fn check_floor(core: &Core, account: &str, vault: &Remote) -> CoreResult<Floor> {
+/// back the floor it holds the vault's entries to, and whether it has kept one for this vault.
+async fn check_floor(core: &Core, account: &str, vault: &Remote) -> CoreResult<(Floor, bool)> {
     let data_dir = core.data_dir().clone();
     let (account, recovery_key) = (account.to_owned(), vault.recovery_key.clone());
-    let floor = blocking(move || Ok(local::load(data_dir.as_deref(), &account, &recovery_key)))
-        .await?
-        .floor;
+    let kept = blocking(move || {
+        let read = local::read(data_dir.as_deref());
+        Ok(read.filter(|local| local.account == account && local.vault == recovery_key))
+    })
+    .await?;
+    let pinned = kept.is_some();
+    let floor = kept.map(|local| local.floor).unwrap_or_default();
     if !floor.takes_generation(vault.generation) {
         return Err(format!(
             "the accounts server handed back generation {} of the vault's key, older than the {} this host read",
@@ -274,7 +282,7 @@ async fn check_floor(core: &Core, account: &str, vault: &Remote) -> CoreResult<F
         )
         .into());
     }
-    Ok(floor)
+    Ok((floor, pinned))
 }
 
 /// Opens the key wrapped for this host. A wrap that names who sealed it is taken only from this
@@ -707,7 +715,6 @@ fn same_contents(one: &Body, other: &Body) -> bool {
     *one == other
 }
 
-/// Takes in each entry that changed elsewhere, and lets go of each the vault no longer holds.
 /// Takes in each entry of `entries`, and lets go of a sign-in only once `gone` says its entry
 /// left this host at or after the revision it took in.
 fn apply(

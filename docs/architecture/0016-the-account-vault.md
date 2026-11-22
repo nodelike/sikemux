@@ -94,8 +94,9 @@ when its home goes away.
   of a left-out entry removes it once the vault lists it again. Only an entry that opens
   at the vault's generation moves its mark, a mark never goes down, and a host does not replace
   the key while the vault hands back an entry older than its copy: it skips the replacement that
-  round and syncs the rest. A server can still show a host that was away an older vault and ask
-  it to replace the key; each replacement reseals that host's older copies one revision up, until
+  round and syncs the rest. A host still waiting for the key keeps only the generation from what it
+  reads. A server can still show an older vault to a host that was away, or that has no mark for
+  an entry yet, such as one just let in, and ask it to replace the key; each replacement reseals that host's older copies one revision up, until
   they pass the other hosts' marks and those hosts take an older copy in. Removed entries stay
   removed. This is still open. The server records each removal,
   whichever host made it, lists them with the vault, and refuses any write to a removed entry, so an
