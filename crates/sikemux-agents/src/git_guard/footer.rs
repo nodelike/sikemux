@@ -271,12 +271,16 @@ fn sign(hook: &OsString, file: &OsString, note_file: Option<&Path>) {
     };
     if !footer.is_empty() {
         if let Some(signed) = trailers::into_message_file(&text, &footer) {
-            let _ = std::fs::write(file, signed);
+            if let Err(error) = std::fs::write(file, signed) {
+                eprintln!("sikemux: this commit goes out unsigned: {error}");
+            }
         }
     }
     if let (Some(note_file), Some(note)) = (note_file, note) {
         if let Ok(note) = serde_json::to_vec(&note) {
-            let _ = std::fs::write(note_file, note);
+            if let Err(error) = std::fs::write(note_file, note) {
+                eprintln!("sikemux: this commit goes out without its note: {error}");
+            }
         }
     }
 }
