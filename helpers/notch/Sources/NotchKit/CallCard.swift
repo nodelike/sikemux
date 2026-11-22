@@ -458,8 +458,17 @@ struct CallsInList: View {
     static let footer = "open-call-footer"
 
     var body: some View {
+        if let newest = store.calls.first {
+            CallsLine(store: store, newest: newest, count: store.calls.count, open: island.callsOpen) {
+                withAnimation(Motion.content) { island.callsOpen.toggle() }
+            }
+            if island.callsOpen { calls }
+        }
+    }
+
+    private var calls: some View {
         let open = island.listCall ?? store.calls.first?.id
-        ForEach(store.calls, id: \.id) { call in
+        return ForEach(store.calls, id: \.id) { call in
             VStack(alignment: .leading, spacing: 0) {
                 CallRow(store: store, call: call, open: call.id == open) { island.listCall = call.id }
                 if call.id == open, let draft = store.drafts[call.id] {
@@ -474,6 +483,44 @@ struct CallsInList: View {
             .background(RoundedRectangle(cornerRadius: 14).fill(call.id == open ? Theme.raised : .clear))
             .padding(.bottom, 2)
         }
+    }
+}
+
+/// The waiting calls folded to one line at the top of the agent list: how many, the newest question, who asks
+/// and how long it has waited. A click unfolds them, and again folds them.
+private struct CallsLine: View {
+    let store: NotchStore
+    let newest: PersonCall
+    let count: Int
+    let open: Bool
+    let toggle: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 10) {
+                Circle().fill(Theme.warn).frame(width: 7, height: 7).frame(width: 20, height: 20)
+                Text(count == 1 ? "1 call" : "\(count) calls")
+                    .font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink).fixedSize()
+                Text(open ? "" : newest.question)
+                    .font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !open {
+                    Text("@\(newest.asker.name)").font(Theme.ui(11)).foregroundStyle(Theme.inkFaint).fixedSize()
+                    Text(CallCard.age(newest.raisedAt)).font(Theme.ui(11.5)).monospacedDigit().foregroundStyle(Theme.warn).fixedSize()
+                }
+                IconView(icon: Icons.chevron, size: 10)
+                    .foregroundStyle(Theme.inkDim)
+                    .rotationEffect(.degrees(open ? 90 : 0))
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            .background(RoundedRectangle(cornerRadius: 12).fill(hovering ? Theme.hover : Theme.raised))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .padding(.bottom, 4)
     }
 }
 

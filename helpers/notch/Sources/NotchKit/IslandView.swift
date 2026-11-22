@@ -96,7 +96,12 @@ struct IslandView: View {
         .shadow(color: lifted ? .black.opacity(0.7) : .clear, radius: 6)
         .onHover { island.pointer(entered: $0, opensOnHover: store.settings.openWith == .hover) }
         .onTapGesture {
-            if !island.isAgentList, !island.asksToConnect { island.set(.open) }
+            guard !island.isAgentList, !island.asksToConnect else { return }
+            if case .call(let id) = island.mode {
+                island.listCall = id
+                island.callsOpen = true
+            }
+            island.set(.open)
         }
         .onExitCommand { island.set(.closed) }
         .offset(x: shift)
@@ -432,7 +437,7 @@ struct AnswerButtons: View {
 
     private func answer(_ ask: Ask, _ option: String) {
         store.answer(ask, agentId: entry.agentId, optionId: option)
-        if case .peekAsk = island.mode { island.set(island.hovering ? island.opening : .closed) }
+        if case .peekAsk = island.mode { island.set(island.hovering ? .open : .closed) }
     }
 
 }

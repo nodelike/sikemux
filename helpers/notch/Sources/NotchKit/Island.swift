@@ -41,7 +41,7 @@ final class IslandModel {
         case connect(String)
         case open
         case drop
-        /// A call's card, alone: opened on the newest while calls wait, or peeking as one arrives.
+        /// A call's card, alone, peeking as the call arrives.
         case call(String)
     }
 
@@ -71,8 +71,8 @@ final class IslandModel {
     var pull: CGFloat = 0
     /// Whether the agent list is taller than the island shows, so it scrolls instead of closing.
     var listScrolls = false
-    /// The newest call waiting on the person, which opening the island shows in place of the list.
-    var topCall: String?
+    /// The waiting calls are unfolded at the top of the agent list; they open folded to one line.
+    var callsOpen = false
     /// Something is typed on the card on show, which keeps the island open when the pointer leaves.
     var callHeld = false
     /// The call whose card is open in the agent list, else the newest.
@@ -107,15 +107,12 @@ final class IslandModel {
         return false
     }
 
-    /// What resting the pointer opens on: the newest call while any waits, else the agents. A click
-    /// or a swipe opens the agents, where waiting calls lead the list.
-    var opening: Mode { topCall.map(Mode.call) ?? .open }
-
     func set(_ mode: Mode, animation: Animation? = nil) {
         Debug.log("set \(mode)")
         withAnimation(animation ?? (mode == .closed ? Motion.close : Motion.open)) {
             self.mode = mode
             if mode != .open { menu = nil }
+            if mode == .closed { callsOpen = false }
         }
         if mode == .open || showsCall { keyboard?(.give) } else if mode == .closed { keyboard?(.off) }
     }
@@ -192,7 +189,7 @@ final class IslandModel {
         if let next = devices.first {
             set(.connect(next.id))
         } else {
-            set(hovering ? opening : .closed)
+            set(hovering ? .open : .closed)
         }
     }
 
@@ -204,7 +201,7 @@ final class IslandModel {
             withAnimation(Motion.hover) { hovering = true }
             // A permission peek keeps its size under the pointer, so its buttons stay where they are.
             guard opensOnHover, mode == .closed || isPeekDone else { return }
-            schedule(after: 0.3) { $0.set($0.opening) }
+            schedule(after: 0.3) { $0.set(.open) }
         } else {
             schedule(after: 0.1) { island in
                 // Reordering the panel to hand back the keyboard reports a leave the pointer never made.
@@ -238,7 +235,7 @@ final class IslandModel {
     func entriesChanged(_ entries: [Entry]) {
         switch mode {
         case .peekAsk(let id) where !entries.contains { $0.id == id }:
-            set(hovering ? opening : .closed)
+            set(hovering ? .open : .closed)
         case .peekDone(let id) where !entries.contains { $0.id == id }:
             set(.closed)
         default:
@@ -249,11 +246,10 @@ final class IslandModel {
     /// The calls waiting changed: the card on show moves to the next once its call is answered,
     /// here or anywhere else.
     func callsChanged(_ ids: [String]) {
-        topCall = ids.first
         if let open = listCall, !ids.contains(open) { listCall = nil }
         guard case .call(let id) = mode, !ids.contains(id) else { return }
         callHeld = false
-        set(hovering ? opening : .closed)
+        set(hovering ? .open : .closed)
     }
 
     private var isPeekDone: Bool {

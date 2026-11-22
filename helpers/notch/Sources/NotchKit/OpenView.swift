@@ -99,10 +99,10 @@ struct AgentList: View {
     /// The open island's width inside its inset, as IslandView lays it out.
     private var listWidth: CGFloat { (island.geometry.hasNotch ? 680 : 560) - 2 * (Radii.open.top + 12) }
 
-    /// How tall the list grows: a few rows, or with a call's card open in it, the screen below the island's own
+    /// How tall the list grows: a few rows, or with the calls unfolded in it, the screen below the island's own
     /// header, so the card and its Go with this fit whole.
     private var room: CGFloat {
-        guard !store.calls.isEmpty else { return Self.rows }
+        guard island.callsOpen, !store.calls.isEmpty else { return Self.rows }
         return max(Self.rows, island.canvas.height - island.geometry.height - Self.chrome)
     }
 
@@ -111,7 +111,7 @@ struct AgentList: View {
     private static let chrome: CGFloat = 110
 
     var body: some View {
-        if store.entries.isEmpty && store.view.hostAlerts.isEmpty && store.view.busy == nil {
+        if store.entries.isEmpty && store.calls.isEmpty && store.view.hostAlerts.isEmpty && store.view.busy == nil {
             VStack(spacing: 14) {
                 Text("No agents open").font(Theme.ui(13)).foregroundStyle(Theme.inkDim)
                 Button {
@@ -158,8 +158,9 @@ struct AgentList: View {
             }
             .frame(maxHeight: room)
             .fixedSize(horizontal: false, vertical: true)
-            .onAppear { scroller.scrollTo(CallsInList.footer, anchor: .bottom) }
+            .onAppear { if island.callsOpen { scroller.scrollTo(CallsInList.footer, anchor: .bottom) } }
             .onChange(of: island.listCall) { _, _ in scroller.scrollTo(CallsInList.footer, anchor: .bottom) }
+            .onChange(of: island.callsOpen) { _, open in if open { scroller.scrollTo(CallsInList.footer, anchor: .bottom) } }
             }
         }
     }
