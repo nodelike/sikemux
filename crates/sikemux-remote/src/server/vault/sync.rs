@@ -293,7 +293,18 @@ async fn save_floor(core: &Core, account: &str, vault: &str, floor: Floor) -> Co
     .await
 }
 
+/// Makes the account's vault, unless this host already read one for it, since a server that
+/// answers it has none would otherwise have the kept recovery key written over.
 async fn create(core: &Arc<Core>, account: &str, me: &str, secret: &Key) -> CoreResult<()> {
+    let data_dir = core.data_dir().clone();
+    let pinned = blocking(move || Ok(local::read(data_dir.as_deref())))
+        .await?
+        .is_some_and(|local| local.account == account && !local.vault.is_empty());
+    if pinned {
+        return Err(CoreError::from(
+            "the accounts server says the account has no vault, but this host read one, so it does not make another",
+        ));
+    }
     let no_random = || CoreError::from("no randomness for the vault's keys");
     let key = seal::random_key().ok_or_else(no_random)?;
     let recovery = seal::random_key().ok_or_else(no_random)?;
