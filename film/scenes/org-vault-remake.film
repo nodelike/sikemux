@@ -1,0 +1,23 @@
+stage 1440 900
+window 1440 900
+project storefront shop
+host mac-mini
+orgrole admin "Fjord Labs"
+orgkey mac-mini "Fjord Labs" openrouter
+asleep mac-mini
+signed-in
+settle 5
+settings Models "API providers"
+settle 2
+cursor 900,600
+scroll -6000 1
+settle 1
+snap org-vault-remake-rows
+click "Make it again…"
+settle 1
+snap org-vault-remake-sheet
+click "Make it again"
+settle 4
+scroll -6000 1
+settle 1
+snap org-vault-remake-after
