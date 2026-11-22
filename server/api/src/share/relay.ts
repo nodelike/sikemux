@@ -16,7 +16,7 @@ export interface HostLink {
 
 export interface ViewerLink {
   readonly id: string;
-  /** The viewer's own account. */
+  /** The viewer's own account, or empty for one watching a share open to anyone without signing in. */
   readonly userId: string;
   /** The host a Mac watches with, or empty for a viewer signed in with a token. */
   readonly key: string;

@@ -31,6 +31,8 @@ export interface ShareSnapshot {
     readonly status: ShareStatus;
     readonly endedBecause: "stopped" | "expired" | null;
     readonly hostOnline: boolean;
+    /** False while watching a share open to anyone without signing in, which cannot write in it. */
+    readonly signedIn: boolean;
     /** Milliseconds since the Unix epoch. */
     readonly expiresAt: number | null;
     readonly chat: SharedChat | null;
@@ -76,6 +78,7 @@ export class ShareSession {
     private status: ShareStatus = "connecting";
     private endedBecause: ShareSnapshot["endedBecause"] = null;
     private hostOnline = false;
+    private signedIn = true;
     private expiresAt: number | null = null;
     private chat: SharedChat | null = null;
     private agent: ChatRows = emptyChat;
@@ -189,6 +192,7 @@ export class ShareSession {
             status: this.status,
             endedBecause: this.endedBecause,
             hostOnline: this.hostOnline,
+            signedIn: this.signedIn,
             expiresAt: this.expiresAt,
             chat: this.chat,
             agent: this.agent,
@@ -234,6 +238,7 @@ export class ShareSession {
         if (this.stopped) return;
         if (code === ShareCloseCode.notFound) return this.finished("notFound");
         if (code === ShareCloseCode.ended) return this.finished("ended");
+        if (code === ShareCloseCode.unauthenticated && !this.signedIn) return this.finished("signedOut");
         this.hostOnline = false;
         this.emit();
         this.failures += 1;
@@ -250,11 +255,11 @@ export class ShareSession {
             case "challenge": {
                 const [token, proof] = await Promise.all([this.options.token(false), this.options.cipher.viewerProof()]);
                 if (this.socket !== socket) return;
-                if (!token) return this.finished("signedOut");
+                this.signedIn = token !== null;
                 this.send(socket, {
                     type: "hello",
                     role: "viewer",
-                    token,
+                    ...(token ? { token } : {}),
                     share: this.options.link.id,
                     proof,
                     ...(this.seq === undefined ? {} : { since: this.seq }),

@@ -38,6 +38,9 @@ pub struct ShareAsked {
     pub share: ShareId,
     pub viewer: ShareViewerId,
     pub sealed: Sealed,
+    /// False for a viewer watching a share open to anyone without signing in, which may read the chat but not write in it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_in: Option<bool>,
 }
 
 /// Viewer only: a fresh Clerk token for the same user, sent before ready.authExpiresAt.
@@ -202,7 +205,7 @@ pub struct ShareFrames {
     pub frames: Vec<ShareFrame>,
 }
 
-/// The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends the share it wants, the proof its link holds and the last frame it holds, if any, and signs in with a Clerk token from the web app or the phone, or, on a Mac, with the host's key and its Ed25519 signature over `sikemux-share-viewer|<nonce>|<key>`.
+/// The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends the share it wants, the proof its link holds and the last frame it holds, if any, and signs in with a Clerk token from the web app or the phone, or, on a Mac, with the host's key and its Ed25519 signature over `sikemux-share-viewer|<nonce>|<key>`. A share open to anyone may be watched with neither; one that is not closes such a viewer with ShareCloseCode unauthenticated.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareHello {
@@ -239,6 +242,9 @@ pub struct ShareOpen {
     pub expires_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub viewers: Option<ShareViewerCheck>,
+    /// Whoever holds the link may watch without signing in. Sent again on an open share to change who may watch it; viewers not signed in are closed when it turns off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anyone: Option<bool>,
 }
 
 /// To the host: the share is open and viewers may join.

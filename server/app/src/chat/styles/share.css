@@ -139,3 +139,119 @@
   background: var(--line);
   color: var(--ink-faint);
 }
+
+/* Read without signing in: the transcript under a plain bar, and no pane round it. */
+.shared-reader {
+  border-color: transparent;
+  background: none;
+}
+
+.shared-reader-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 44px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--ui);
+}
+
+.shared-reader-top img {
+  display: block;
+  height: 18px;
+}
+
+.shared-reader-get,
+.shared-reader-callout a {
+  margin-left: auto;
+  color: var(--ink-dim);
+  font-size: var(--text-xs);
+  text-decoration: none;
+}
+
+.shared-reader-get:hover {
+  color: var(--ink);
+}
+
+.shared-reader-head {
+  width: min(100%, 820px);
+  margin: var(--space-6) auto var(--space-4);
+}
+
+.shared-reader-head h1 {
+  margin: 0 0 var(--space-2);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.shared-reader-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1h);
+  color: var(--ink-faint);
+  font-family: var(--ui);
+  font-size: var(--text-xs);
+}
+
+.shared-reader-callout {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: min(100%, 820px);
+  margin: 0 auto;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-4);
+  background: var(--chat-composer-fill);
+  color: var(--ink-dim);
+  font-family: var(--ui);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.shared-reader-callout img {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.shared-reader-callout-title {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.shared-reader-callout a {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--acc);
+  color: var(--void);
+  font-weight: 500;
+}
+
+.shared-reader-callout button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  color: var(--ink-faint);
+}
+
+.shared-reader-callout button:hover {
+  color: var(--ink);
+}
+
+@media (max-width: 520px) {
+  .shared-reader-callout > div {
+    display: none;
+  }
+}

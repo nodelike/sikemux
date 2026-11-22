@@ -3224,6 +3224,11 @@ export const schema = {
         share: { $ref: "#/$defs/ShareId" },
         viewer: { $ref: "#/$defs/ShareViewerId" },
         sealed: { $ref: "#/$defs/Sealed" },
+        signedIn: {
+          description:
+            "False for a viewer watching a share open to anyone without signing in, which may read the chat but not write in it.",
+          type: "boolean",
+        },
       },
       required: ["type", "share", "viewer", "sealed"],
       additionalProperties: false,
@@ -3411,7 +3416,7 @@ export const schema = {
     },
     ShareHello: {
       description:
-        "The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends the share it wants, the proof its link holds and the last frame it holds, if any, and signs in with a Clerk token from the web app or the phone, or, on a Mac, with the host's key and its Ed25519 signature over `sikemux-share-viewer|<nonce>|<key>`.",
+        "The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends the share it wants, the proof its link holds and the last frame it holds, if any, and signs in with a Clerk token from the web app or the phone, or, on a Mac, with the host's key and its Ed25519 signature over `sikemux-share-viewer|<nonce>|<key>`. A share open to anyone may be watched with neither; one that is not closes such a viewer with ShareCloseCode unauthenticated.",
       type: "object",
       properties: {
         type: { const: "hello" },
@@ -3477,6 +3482,11 @@ export const schema = {
         share: { $ref: "#/$defs/ShareId" },
         expiresAt: { type: "string", format: "date-time" },
         viewers: { $ref: "#/$defs/ShareViewerCheck" },
+        anyone: {
+          description:
+            "Whoever holds the link may watch without signing in. Sent again on an open share to change who may watch it; viewers not signed in are closed when it turns off.",
+          type: "boolean",
+        },
       },
       required: ["type", "share", "expiresAt"],
       additionalProperties: false,

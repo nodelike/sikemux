@@ -301,6 +301,9 @@ pub struct StoredShare {
     pub expires_at: u64,
     /// What the app calls the chat, which its viewers see too.
     pub title: Option<String>,
+    /// Whoever holds the link may read it without signing in.
+    #[serde(default)]
+    pub anyone: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -272,6 +272,7 @@ export interface Tables {
       ShareEndReason | null
     >;
     viewer_check: string | null;
+    anyone: ColumnType<boolean, boolean | undefined, boolean>;
   };
   stash_items: {
     id: string;

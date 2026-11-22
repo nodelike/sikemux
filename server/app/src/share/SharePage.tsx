@@ -1,6 +1,12 @@
 import { useAuth } from "@clerk/react";
 import { shareUrl } from "@shared/account/live";
-import { lazy, Suspense, useEffect, useMemo } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
 import { webCipher } from "@shared/share/cipher";
 import { parseShareLink, type ShareLink } from "@shared/share/link";
 import { ShareSession } from "@shared/share/session";
@@ -13,11 +19,12 @@ import { config } from "../config.ts";
 const ShareSignIn = lazy(() => import("./ShareSignIn.tsx"));
 
 /**
- * A chat someone shared, at `/s/<id>#<key>`: the app's chat view, read-only, for anyone
- * signed in. The key after `#` never leaves the browser.
+ * A chat someone shared, at `/s/<id>#<key>`: the app's chat view, read-only. A share open to
+ * anyone is read without signing in; any other asks for a sign-in first. The key after `#` never
+ * leaves the browser.
  */
 export default function SharePage() {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded } = useAuth();
   const link = useMemo(() => parseShareLink(location.href), []);
 
   useEffect(() => {
@@ -37,12 +44,6 @@ export default function SharePage() {
       </div>
     );
   if (!isLoaded) return <div className="shell share-page" />;
-  if (!isSignedIn)
-    return (
-      <Suspense fallback={null}>
-        <ShareSignIn />
-      </Suspense>
-    );
   return <Watching link={link} />;
 }
 
@@ -62,7 +63,14 @@ function Watching({ link }: { link: ShareLink }) {
     session.start();
     return () => session.stop();
   }, [session]);
+  const { status } = useSyncExternalStore(session.subscribe, session.snapshot);
 
+  if (status === "signedOut")
+    return (
+      <Suspense fallback={null}>
+        <ShareSignIn />
+      </Suspense>
+    );
   return (
     <div className="shell share-page">
       <SharedChat session={session} link={link} />

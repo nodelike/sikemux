@@ -178,6 +178,7 @@ Table shares {
   ended_at timestamptz
   ended_reason text [note: 'ended_reason = ANY (ARRAY[\'stopped\', \'expired\'])']
   viewer_check text [note: 'viewer_check ~ \'^[0-9a-f]{64}$\'']
+  anyone boolean [not null, default: `false`]
 
   indexes {
     host_key [name: 'shares_by_host', note: 'where (ended_at IS NULL)']

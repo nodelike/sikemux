@@ -5,7 +5,8 @@
 //! they may ask, sealed, for an older page of the chat, what one of its tool
 //! calls changed and printed, or a picture pasted into it, and the core decides
 //! what to answer. They may also write a message, which waits in the chat until
-//! the person sends or dismisses it.
+//! the person sends or dismisses it. A share may be open to anyone with its
+//! link, who read it without signing in and may not write in it.
 
 mod link;
 mod seal;
@@ -135,6 +136,7 @@ fn view_of(running: &Running) -> ShareView {
         url: url_of(&running.stored),
         expires_at: running.stored.expires_at,
         viewers: running.viewers,
+        anyone: running.stored.anyone,
         state: running.state,
         problem: running.problem.clone(),
     }
@@ -234,12 +236,14 @@ fn begin(core: &Arc<Core>, inner: &mut Inner, stored: StoredShare) -> CoreResult
 }
 
 /// Shares the chat of `agent_id` for `lifetime_ms`, or answers with the share
-/// it already has. A share whose chat the app renamed tells its viewers.
+/// it already has. A share whose chat the app renamed tells its viewers; one
+/// whose `anyone` changed tells the server who may read it now.
 pub fn share_chat(
     core: &Arc<Core>,
     agent_id: &str,
     lifetime_ms: u64,
     title: Option<String>,
+    anyone: bool,
 ) -> CoreResult<ShareView> {
     let title = title.as_deref().and_then(chat::feed::title);
     if core.remote().signed_in_api().is_none() {
@@ -254,6 +258,13 @@ pub fn share_chat(
         .values_mut()
         .find(|running| running.stored.agent_id == agent_id && running.state != ShareState::Refused)
     {
+        if running.stored.anyone != anyone {
+            running.stored.anyone = anyone;
+            let (id, view) = (running.stored.id.clone(), view_of(running));
+            tell(core, &mut inner, ToLink::Open(id));
+            save(core, &inner);
+            return Ok(view);
+        }
         let view = view_of(running);
         if title.is_none() || running.stored.title == title {
             return Ok(view);
@@ -272,6 +283,7 @@ pub fn share_chat(
         agent_id: agent_id.to_owned(),
         expires_at: epoch_ms() + lifetime_ms.clamp(MIN_LIFETIME_MS, MAX_LIFETIME_MS),
         title,
+        anyone,
     };
     let id = stored.id.clone();
     inner
@@ -502,7 +514,13 @@ fn take_snapshot(core: &Arc<Core>, id: &str) {
 
 /// A viewer's sealed question and the core's sealed answer, or nothing for a
 /// question it cannot read.
-async fn answer(core: Arc<Core>, id: String, viewer: String, sealed: String) -> Option<ToLink> {
+async fn answer(
+    core: Arc<Core>,
+    id: String,
+    viewer: String,
+    sealed: String,
+    signed_in: bool,
+) -> Option<ToLink> {
     let (seal, agent_id) = {
         let inner = core.shares().inner.locked();
         let running = inner.running.get(&id)?;
@@ -539,6 +557,9 @@ async fn answer(core: Arc<Core>, id: String, viewer: String, sealed: String) -> 
             }
             Err(error) => Some(error.to_string()),
         },
+        ShareAsk::Message { .. } if !signed_in => {
+            Some("Sign in to Sikemux to write in this chat.".to_owned())
+        }
         ShareAsk::Message { text, name, .. } => guest_wrote(&core, &agent_id, name, text).err(),
     };
     reply.error = failed;
@@ -662,7 +683,13 @@ async fn pasted_picture(core: &Core, path: PathBuf) -> CoreResult<String> {
 }
 
 pub fn share_chat_for(core: &Arc<Core>, params: ShareChatParams) -> CoreResult<ShareView> {
-    share_chat(core, &params.agent_id, params.lifetime_ms, params.title)
+    share_chat(
+        core,
+        &params.agent_id,
+        params.lifetime_ms,
+        params.title,
+        params.anyone,
+    )
 }
 
 #[cfg(test)]
