@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::protocol::OrgRole;
 use super::vault::*;
 use sikemux_wire::accounts::protocol::*;
 
