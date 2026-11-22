@@ -226,10 +226,10 @@ fn make_account(provider: &str, name: &str, home: &Path) -> Result<String, Strin
 }
 
 pub(crate) fn seed_claude_account(home: &Path, directory: &Path) -> Result<(), String> {
-    let default = std::fs::read(home.join(".claude.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .unwrap_or(Value::Null);
+    let default = sikemux_process::files::read_parsed(&home.join(".claude.json"), |bytes| {
+        serde_json::from_slice::<Value>(bytes)
+    })?
+    .unwrap_or(Value::Null);
     let seed = serde_json::to_vec_pretty(&claude_seed(&default)).map_err(|e| e.to_string())?;
     write_private(&directory.join(".claude.json"), &seed)
 }
