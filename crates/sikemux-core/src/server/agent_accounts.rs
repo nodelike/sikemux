@@ -489,6 +489,35 @@ fn follow_late_answers(core: &Arc<Core>) {
     });
 }
 
+pub(super) async fn check_launchers(core: &Arc<Core>) {
+    let checks = core
+        .workspaces()
+        .chat_launchers()
+        .into_iter()
+        .filter_map(|launcher| {
+            let program = launcher.program?;
+            if status::cached(
+                &launcher.agent.provider,
+                launcher.agent.config_path.as_deref(),
+            )
+            .is_some()
+            {
+                return None;
+            }
+            let core = core.clone();
+            Some(async move {
+                recheck(
+                    core,
+                    launcher.agent.provider,
+                    launcher.agent.config_path,
+                    program,
+                )
+                .await;
+            })
+        });
+    futures_util::future::join_all(checks).await;
+}
+
 pub(super) async fn availability(core: &Arc<Core>, account: Account) -> CoreResult<Availability> {
     follow_late_answers(core);
     let (provider, config_path) = (&account.provider, account.config_path.as_deref());
@@ -845,7 +874,8 @@ fn note_sign_in(
     config_path: Option<&str>,
     lookup: &Result<usage::Usage, String>,
 ) {
-    let was_out = status::cached(provider, config_path) == Some(status::AgentStatus::SignedOut);
+    let cached = status::cached(provider, config_path);
+    let was_out = cached == Some(status::AgentStatus::SignedOut);
     match lookup {
         Err(error) if error == usage::SIGNED_OUT && !was_out => {
             signed_out(core, provider, config_path)
@@ -853,6 +883,14 @@ fn note_sign_in(
         Ok(_) if was_out => {
             status::forget(Some(provider), config_path);
             tokio::spawn(refresh_launchers(core.clone()));
+        }
+        Ok(_) if matches!(cached, None | Some(status::AgentStatus::Unknown)) => {
+            let ready = status::AgentStatus::Ready {
+                account: Some("subscription".into()),
+            };
+            core.workspaces().note_status(provider, config_path, &ready);
+            status::remember(provider, config_path, ready);
+            core.changed(What::View);
         }
         _ => {}
     }

@@ -1677,7 +1677,7 @@
     },
     {
       "name": "agent_list",
-      "row": {"verb": "list", "kind": "read", "icon": "agents", "target": ["agents"]},
+      "row": {"verb": "list", "kind": "read", "icon": "agents", "target": ["{models} models", "agents"]},
       "method": "agent.list",
       "description": "List Sikemux agents.",
       "properties": {
@@ -1687,6 +1687,12 @@
         "full": {
           "description": "true: every field, such as model",
           "type": "boolean"
+        },
+        "models": {
+          "description": "\"all\", or one cli such as codex: signed-in agents, plan room and every model id agent_spawn takes",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
         }
       },
       "required": []
@@ -1751,7 +1757,7 @@
           "type": "boolean"
         },
         "cli": {
-          "description": "e.g. claude, codex; omit for a helper",
+          "description": "e.g. claude, codex, antigravity; omit for a helper",
           "type": "string",
           "minLength": 1,
           "maxLength": 64
@@ -1768,6 +1774,7 @@
           "maxLength": 65536
         },
         "model": {
+          "description": "Exact model id from agent_list models, not its display label",
           "type": "string",
           "minLength": 1,
           "maxLength": 200

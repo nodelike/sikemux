@@ -232,6 +232,16 @@ pub(crate) fn status_word(status: AgentStatus) -> &'static str {
 }
 
 pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
+    if let Some(models) = super::caller::text_param(&request.params, "models", 64)? {
+        let (core, request, models) = (core.clone(), request.clone(), models.to_owned());
+        return blocking(move || {
+            let project = super::caller::project_of(&core, &request);
+            super::can_start::for_tool(&core, std::path::Path::new(&project), &models)
+                .map_err(Into::into)
+        })
+        .await
+        .map_err(|error| error.to_string());
+    }
     let all = match request.params.get("allProjects") {
         None | Some(Value::Null) => false,
         Some(Value::Bool(all)) => *all,

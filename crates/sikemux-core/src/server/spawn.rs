@@ -144,9 +144,29 @@ fn known_model(core: &Core, provider: &str, model: &str) -> Result<(), String> {
         .find(|choice| choice.label.eq_ignore_ascii_case(model))
         .map(|choice| format!("; for {}, pass {}", choice.label, choice.value))
         .unwrap_or_default();
+    let mut shown: Vec<&str> = picker
+        .choices
+        .iter()
+        .filter(|choice| {
+            !choice.superseded && !crate::launch::providers::routed_model(&choice.value)
+        })
+        .map(|choice| choice.value.as_str())
+        .collect();
+    if shown.is_empty() {
+        shown = ids;
+    }
+    let listed = if shown.len() > 20 {
+        let head: Vec<&str> = shown.iter().copied().take(12).collect();
+        format!(
+            "{} (+{} more; call agent_list with models: \"{provider}\" for the full list)",
+            head.join(", "),
+            shown.len() - head.len()
+        )
+    } else {
+        shown.join(", ")
+    };
     Err(format!(
-        "{provider} has no model {model}{meant}. Pass one of its ids: {}",
-        ids.join(", ")
+        "{provider} has no model {model}{meant}. Pass one of its ids: {listed}"
     ))
 }
 

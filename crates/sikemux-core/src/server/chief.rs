@@ -17,9 +17,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use crate::agent_accounts::status::AgentStatus;
-use crate::launch::providers::Kind as ProviderKind;
-use crate::server::activity_log::Prices;
 use crate::sessions::asked::may_hold_secret;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -646,96 +643,13 @@ fn can_start_untold(core: &Core, chief: &str) -> Option<Vec<ChatContext>> {
     (told != Some(true)).then_some(contexts)
 }
 
-/// What the chief can start workers on here: the model providers connected, each with the
-/// agents that run on it and its models, then the agents signed in and the models each last
-/// offered, with what each model costs where that is known. Read from memory, with no model or
-/// provider asked. Accounts, keys and limits stay out: the core picks the account, moves chats
-/// off a full one and resumes them by itself.
 pub(crate) fn can_start(core: &Core, project: &Path) -> Vec<ChatContext> {
-    let mut kinds: Vec<String> = Vec::new();
-    for launcher in core.workspaces().chat_launchers() {
-        if matches!(launcher.status, Some(AgentStatus::Ready { .. }))
-            && !kinds.contains(&launcher.agent.provider)
-        {
-            kinds.push(launcher.agent.provider.clone());
-        }
-    }
-    if kinds.is_empty() {
-        return Vec::new();
-    }
-    let prices = core.activity_log().prices();
-    let priced = |model: &str| match prices.per_million(model) {
-        Some((input, output)) => format!("{model} ${}/${}", dollars(input), dollars(output)),
-        None => model.to_owned(),
-    };
-    let on_hand = super::model_providers::on_hand(core, project);
-    let connected: Vec<(String, Vec<String>)> = (on_hand.into_iter())
-        .filter(|provider| provider.agents.iter().any(|agent| kinds.contains(agent)))
-        .map(|provider| {
-            let models = (provider.models.iter())
-                .map(|model| match provider.kind {
-                    ProviderKind::Api => priced(model),
-                    ProviderKind::Plan | ProviderKind::Local => model.clone(),
-                })
-                .collect();
-            let agents: Vec<&str> = (provider.agents.iter())
-                .filter(|agent| kinds.contains(agent))
-                .map(String::as_str)
-                .collect();
-            let paid = match provider.kind {
-                ProviderKind::Api => "",
-                ProviderKind::Plan => ", a plan with nothing more per token",
-                ProviderKind::Local => ", on this computer for free",
-            };
-            (
-                format!("{} (for {}{paid})", provider.id, agents.join(", ")),
-                models,
-            )
-        })
-        .collect();
-    let agents: Vec<(String, Vec<String>)> = (kinds.into_iter())
-        .map(|kind| {
-            let on_plan = crate::agent_catalog::agent(&kind).is_some_and(|agent| agent.accounts);
-            let models = offered_models(core, &kind, on_plan, &prices);
-            match on_plan {
-                true => (
-                    format!("{kind} (on a plan, nothing more per token)"),
-                    models,
-                ),
-                false => (kind, models),
-            }
-        })
-        .collect();
-    let providers = fitted(
-        "Model providers connected here, ahead of the agents' own catalogs; start a worker on one \
-         with agent_spawn's cli, provider and model. Prices are USD per million tokens in/out: ",
-        &connected,
-        "models",
-    )
-    .map(|text| {
-        crate::sessions::for_agent::sikemux_context(
-            "model-providers",
-            "Model providers you can pay workers with",
-            &text,
-        )
-    });
-    let agents = fitted("Agents you can start workers on here: ", &agents, "agents").map(|text| {
-        crate::sessions::for_agent::sikemux_context(
-            "can-start",
-            "What you can start workers on",
-            &text,
-        )
-    });
-    providers.into_iter().chain(agents).collect()
-}
-
-fn dollars(per_million: f64) -> String {
-    let cents = (per_million * 100.0).round() / 100.0;
-    format!("{cents}")
+    super::can_start::contexts(core, project)
 }
 
 /// The agents of the chief's project hired for a standing role, each with what it covers.
 fn standing_roles(core: &Core, chief: &str) -> Option<ChatContext> {
+    const STANDING_ROLES_CHARS: usize = 600;
     let project = core.names().get(chief)?.project;
     let open = core.open_agents();
     let roles: Vec<String> = (core.names().roles_in(&project).into_iter())
@@ -748,94 +662,8 @@ fn standing_roles(core: &Core, chief: &str) -> Option<ChatContext> {
     Some(crate::sessions::for_agent::sikemux_context(
         "standing-roles",
         "Standing roles",
-        &crate::text::clipped(&roles.join("; "), CAN_START_CHARS),
+        &crate::text::clipped(&roles.join("; "), STANDING_ROLES_CHARS),
     ))
-}
-
-const CAN_START_CHARS: usize = 600;
-const CAN_START_SHOWN: usize = 3;
-
-/// The models `kind` offers. An agent on its own plan keeps its picker's order; one paid per
-/// token puts its default first, then the cheapest, each with its price.
-fn offered_models(core: &Core, kind: &str, on_plan: bool, prices: &Prices) -> Vec<String> {
-    let mut choices: Vec<_> = (super::chat::models_of(core, kind).into_iter())
-        .flat_map(|picker| picker.choices)
-        .filter(|choice| {
-            !choice.superseded && !crate::launch::providers::routed_model(&choice.value)
-        })
-        .map(|choice| {
-            let price = (!on_plan)
-                .then(|| prices.per_million(&choice.value))
-                .flatten();
-            (choice, price)
-        })
-        .collect();
-    if !on_plan {
-        let recent = core.workspaces().recent_models(kind);
-        let recency = |value: &str| {
-            (recent.iter().position(|used| used.model == value)).unwrap_or(recent.len())
-        };
-        choices.sort_by(|(a, a_price), (b, b_price)| {
-            let cost = |price: &Option<(f64, f64)>| price.map(|(input, output)| input + output);
-            (recency(&a.value).cmp(&recency(&b.value)))
-                .then_with(|| b.is_default.cmp(&a.is_default))
-                .then_with(|| match (cost(a_price), cost(b_price)) {
-                    (Some(a), Some(b)) => a.total_cmp(&b),
-                    (a, b) => b.is_some().cmp(&a.is_some()),
-                })
-        });
-    }
-    (choices.into_iter())
-        .map(|(choice, price)| {
-            let priced = match price {
-                Some((input, output)) => {
-                    format!("{} ${}/${}", choice.value, dollars(input), dollars(output))
-                }
-                None => choice.value.clone(),
-            };
-            match choice.label == choice.value {
-                true => priced,
-                false => format!("{priced} ({})", choice.label),
-            }
-        })
-        .collect()
-}
-
-/// `intro` then each of `entries` with its models, within [`CAN_START_CHARS`]: models past the
-/// first few go first, then the last entries, counted as `more`.
-fn fitted(intro: &str, entries: &[(String, Vec<String>)], more: &str) -> Option<String> {
-    if entries.is_empty() {
-        return None;
-    }
-    let line = |models: usize, kept: usize| {
-        let mut parts: Vec<String> = (entries.iter().take(kept))
-            .map(|(name, offered)| {
-                if offered.is_empty() {
-                    return name.clone();
-                }
-                let mut named: Vec<String> = offered.iter().take(models).cloned().collect();
-                if offered.len() > models {
-                    named.push(format!("+{} more", offered.len() - models));
-                }
-                format!("{name}; models {}", named.join(", "))
-            })
-            .collect();
-        if entries.len() > kept {
-            parts.push(format!("+{} more {more}", entries.len() - kept));
-        }
-        format!("{intro}{}", parts.join(" · "))
-    };
-    let fits = |text: &String| text.chars().count() <= CAN_START_CHARS;
-    let mut text = line(usize::MAX, entries.len());
-    if !fits(&text) {
-        text = line(CAN_START_SHOWN, entries.len());
-    }
-    let mut kept = entries.len();
-    while !fits(&text) && kept > 1 {
-        kept -= 1;
-        text = line(CAN_START_SHOWN, kept);
-    }
-    Some(text.chars().take(CAN_START_CHARS).collect())
 }
 
 fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {

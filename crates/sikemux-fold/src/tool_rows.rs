@@ -619,7 +619,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
             verb: "list",
             kind: "read",
             icon: "agents",
-            target: &["agents"],
+            target: &["{models} models", "agents"],
             detail: &[],
             plugin: None,
         },

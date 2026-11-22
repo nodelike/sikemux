@@ -358,7 +358,9 @@ pub(crate) async fn antigravity_sign_in(
         .get("GEMINI_API_KEY")
         .is_some_and(|key| !key.trim().is_empty());
     match exit_code_and_output("antigravity", program, None, &["models"]).await {
-        Some((Some(0), _)) => AgentStatus::Ready { account: None },
+        Some((Some(0), _)) => AgentStatus::Ready {
+            account: Some("subscription".into()),
+        },
         Some(_) if keyed => AgentStatus::Ready {
             account: Some("apiKey".into()),
         },
