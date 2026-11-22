@@ -327,6 +327,13 @@ pub fn pays(core: &Core, chat: &Chat, reason: RotationReason, brief: &RotationBr
     history >= (HISTORY_PER_BRIEF * briefed).max(LEAST_HISTORY)
 }
 
+/// The model the chat's session ran on when it last answered.
+pub fn left_model(chat: &Chat) -> Option<String> {
+    (chat.rotation.inner.locked().footing.as_ref())?
+        .model
+        .clone()
+}
+
 /// The chat goes on in its session on the account it moved to.
 pub fn stays(chat: &Chat, now: Footing) {
     chat.rotation.inner.locked().footing = Some(now);

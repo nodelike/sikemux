@@ -1488,6 +1488,20 @@ impl Fold {
                     false,
                 );
             }
+            UpdateKind::ContextHandedOff => {
+                let Some(handoff) = update
+                    .get("handoff")
+                    .and_then(|handoff| serde_json::from_value(handoff.clone()).ok())
+                else {
+                    return;
+                };
+                self.append_part(
+                    index,
+                    &None,
+                    |id| ChatPart::ContextHandoff { id, handoff },
+                    false,
+                );
+            }
             UpdateKind::SessionInfoUpdate => {
                 if let Some(title) = text_of(update.get("title")) {
                     self.head.title = Some(title.to_owned());

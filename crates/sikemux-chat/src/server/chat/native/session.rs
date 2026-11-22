@@ -26,7 +26,9 @@ use crate::server::chat::Fault;
 use super::SessionEnd;
 use sikemux_fold::update::turn_answer;
 use sikemux_fold::{ChatEventKind, UpdateKind};
-use sikemux_view::chat::{SessionRotation, SignInMethod, StopReason};
+use sikemux_view::chat::{
+    ContextHandoff, HandoffSide, RotationReason, SessionRotation, SignInMethod, StopReason,
+};
 use sikemux_view::questions::QuestionChoice;
 use sikemux_wire::protocol::{AgentState, ChatAccount, ChatContext, ChatLaunch, ChatStart};
 
@@ -38,7 +40,7 @@ use super::super::rebind::{
 };
 #[cfg(unix)]
 use super::super::Asked;
-use super::super::{cap, rotation};
+use super::super::{cap, handoff, rotation};
 use super::super::{reset, stall_later, Chat, ChatCommand, Delivery, Respond, Whose};
 use super::process::Released;
 #[cfg(unix)]
@@ -763,6 +765,15 @@ impl<B: Backend> Running<'_, B> {
         let Some(reason) = rotation::due(&core, &self.chat, &self.footing()) else {
             return;
         };
+        let moved = (reason == RotationReason::Model).then(|| {
+            let side = |model: Option<String>| {
+                handoff::side(Some(&self.chat.feed), self.provider, model.as_deref())
+            };
+            (
+                side(rotation::left_model(&self.chat)),
+                side(self.footing().model),
+            )
+        });
         let brief = rotation::brief(&core, &self.chat);
         if !rotation::pays(&core, &self.chat, reason, &brief.whole) {
             rotation::stays(&self.chat, self.footing());
@@ -806,6 +817,9 @@ impl<B: Backend> Running<'_, B> {
         rotation::rotated(&self.chat, from.clone(), self.footing());
         let at = sikemux_process::clock::epoch_ms();
         rotation::keep(&core, self.chat.agent_id(), at, &brief.whole);
+        if let Some((from, to)) = moved {
+            self.handed_off(from, to);
+        }
         let rotation = SessionRotation {
             at,
             reason,
@@ -880,6 +894,12 @@ impl<B: Backend> Running<'_, B> {
                 if handoff.is_some() {
                     self.chat.feed.set_handoff(None);
                 }
+                let (handoff, from) = handoff.unzip();
+                if let Some(from) = from.flatten() {
+                    let model = (self.chat.relaunch(self.launch)).and_then(|launch| launch.model);
+                    let to = handoff::side(Some(&self.chat.feed), self.provider, model.as_deref());
+                    self.handed_off(from, to);
+                }
                 // A message sent again keeps the brief it carries only on its way back to the
                 // fresh session that brief was built for.
                 let session = &self.state.session_id;
@@ -914,6 +934,18 @@ impl<B: Backend> Running<'_, B> {
             announce: false,
             ..replay
         });
+    }
+
+    /// Draws the line that says the chat went on with another model or agent.
+    fn handed_off(&self, from: HandoffSide, to: HandoffSide) {
+        if from.agent == to.agent && from.model == to.model {
+            return;
+        }
+        let handoff = ContextHandoff { from, to };
+        self.sink.update(
+            &self.state.session_id,
+            json!({ "sessionUpdate": UpdateKind::ContextHandedOff, "handoff": handoff }),
+        );
     }
 
     async fn stopped(&self, broke: bool, reason: String) -> Outcome {

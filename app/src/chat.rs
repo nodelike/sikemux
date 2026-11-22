@@ -68,6 +68,7 @@ mod ended;
 mod files;
 mod find;
 mod gestures;
+mod handoff;
 mod installing;
 pub(crate) mod link;
 mod listening;

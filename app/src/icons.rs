@@ -173,6 +173,7 @@ icons!(
     Sparkle => "sparkle",
     SquareKanban => "square-kanban",
     SquarePlus => "square-plus",
+    Swap => "swap",
     Stack => "stack",
     Star => "star",
     Stash => "stash",

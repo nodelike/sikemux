@@ -1787,5 +1787,6 @@ pub(super) fn part(
         }
         ChatPart::Content { content, .. } => content::content(id, content, looks, cx),
         ChatPart::Rotation { rotation, .. } => super::rotation::line(rotation, looks, cx),
+        ChatPart::ContextHandoff { handoff, .. } => super::handoff::line(handoff, looks, cx),
     }
 }
