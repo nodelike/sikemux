@@ -173,6 +173,10 @@ jobs:
           grep -x 'org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g' gradle.properties
           # The generated wrapper gives up on downloading Gradle after 10 seconds, too short from a runner.
           sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          # Maven Central and the plugin portal now and then answer "not found" for files they hold, and
+          # no Gradle download is cached between runs, so the build's plugins are fetched first, with retries.
+          ./gradlew help --no-daemon || ./gradlew help --no-daemon --refresh-dependencies ||
+            ./gradlew help --no-daemon --refresh-dependencies
           # The Rust client is built for arm64-v8a and x86_64 only. The APK people sideload is for
           # phones, so arm64 alone; Play hands each device its own part of the bundle.
           ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon

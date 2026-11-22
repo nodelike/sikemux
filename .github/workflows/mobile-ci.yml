@@ -120,6 +120,10 @@ jobs:
         run: |
           # The generated wrapper gives up on downloading Gradle after 10 seconds, too short from a runner.
           sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          # Maven Central and the plugin portal now and then answer "not found" for files they hold, and
+          # no Gradle download is cached between runs, so the build's plugins are fetched first, with retries.
+          ./gradlew help --no-daemon || ./gradlew help --no-daemon --refresh-dependencies ||
+            ./gradlew help --no-daemon --refresh-dependencies
           ./gradlew :notify:testDebugUnitTest :widgets:compileDebugKotlin --no-daemon
 
   ios:
