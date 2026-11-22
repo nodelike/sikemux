@@ -27,8 +27,12 @@
       "description": "The org's key, sealed for one member's host.",
       "type": "object",
       "properties": {
-        "hostKey": { "$ref": "devices.json#/$defs/DeviceKey" },
-        "wrapped": { "$ref": "#/$defs/OrgVaultWrapped" }
+        "hostKey": {
+          "$ref": "devices.json#/$defs/DeviceKey"
+        },
+        "wrapped": {
+          "$ref": "#/$defs/OrgVaultWrapped"
+        }
       },
       "required": ["hostKey", "wrapped"],
       "additionalProperties": false
@@ -37,13 +41,28 @@
       "description": "One entry in an org's vault, sealed under the org's key of its generation.",
       "type": "object",
       "properties": {
-        "id": { "$ref": "vault.json#/$defs/VaultEntryId" },
-        "kind": { "$ref": "#/$defs/OrgVaultEntryKind" },
-        "generation": { "$ref": "vault.json#/$defs/VaultGeneration" },
-        "sealed": { "$ref": "vault.json#/$defs/VaultSealed" },
-        "revision": { "$ref": "vault.json#/$defs/VaultRevision" },
-        "updatedBy": { "$ref": "devices.json#/$defs/DeviceKey" },
-        "updatedAt": { "type": "string", "format": "date-time" }
+        "id": {
+          "$ref": "vault.json#/$defs/VaultEntryId"
+        },
+        "kind": {
+          "$ref": "#/$defs/OrgVaultEntryKind"
+        },
+        "generation": {
+          "$ref": "vault.json#/$defs/VaultGeneration"
+        },
+        "sealed": {
+          "$ref": "vault.json#/$defs/VaultSealed"
+        },
+        "revision": {
+          "$ref": "vault.json#/$defs/VaultRevision"
+        },
+        "updatedBy": {
+          "$ref": "devices.json#/$defs/DeviceKey"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
       "required": [
         "id",
@@ -57,46 +76,123 @@
       "additionalProperties": false
     },
     "OrgVaultEnded": {
-      "description": "An entry removed from an org's vault, at the last revision it had.",
+      "description": "An entry removed from an org's vault, one revision above the last it had.",
       "type": "object",
       "properties": {
-        "id": { "$ref": "vault.json#/$defs/VaultEntryId" },
-        "revision": { "$ref": "vault.json#/$defs/VaultRevision" }
+        "id": {
+          "$ref": "vault.json#/$defs/VaultEntryId"
+        },
+        "revision": {
+          "$ref": "vault.json#/$defs/VaultRevision"
+        }
       },
       "required": ["id", "revision"],
+      "additionalProperties": false
+    },
+    "OrgVaultHolder": {
+      "description": "A member's computer that holds the org's key and would seal it for the asking host.",
+      "type": "object",
+      "properties": {
+        "hostKey": {
+          "$ref": "devices.json#/$defs/DeviceKey"
+        },
+        "computer": {
+          "description": "The computer's name, as its account named it.",
+          "type": "string"
+        },
+        "member": {
+          "description": "The name of the member it is on, as their sign-in names them. Null when the name cannot be told. Never an email address.",
+          "type": ["string", "null"]
+        },
+        "role": {
+          "description": "The role in the org of the account it is on.",
+          "$ref": "orgs.json#/$defs/OrgRole"
+        },
+        "yours": {
+          "description": "It is on the asking host's own account.",
+          "type": "boolean"
+        },
+        "online": {
+          "description": "It is connected to the accounts server now.",
+          "type": "boolean"
+        },
+        "lastSeenAt": {
+          "description": "When it last connected to the accounts server or left it, or null if it never has.",
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "hostKey",
+        "computer",
+        "member",
+        "role",
+        "yours",
+        "online",
+        "lastSeenAt"
+      ],
       "additionalProperties": false
     },
     "OrgVault": {
       "description": "An org's vault, as one of its members' hosts sees it.",
       "type": "object",
       "properties": {
-        "generation": { "$ref": "vault.json#/$defs/VaultGeneration" },
+        "generation": {
+          "$ref": "vault.json#/$defs/VaultGeneration"
+        },
         "key": {
           "description": "The org's key sealed for the asking host at the current generation, or null when it has none yet.",
-          "anyOf": [{ "$ref": "#/$defs/OrgVaultWrapped" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrgVaultWrapped"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "holders": {
           "description": "The members' hosts holding the key at the current generation.",
           "type": "array",
-          "items": { "$ref": "devices.json#/$defs/DeviceKey" }
+          "items": {
+            "$ref": "devices.json#/$defs/DeviceKey"
+          }
         },
         "waiting": {
           "description": "The members' hosts without the key at the current generation, for a holder to wrap it for.",
           "type": "array",
-          "items": { "$ref": "devices.json#/$defs/DeviceKey" }
+          "items": {
+            "$ref": "devices.json#/$defs/DeviceKey"
+          }
         },
         "rotate": {
           "description": "A host that held the key is no longer a member's host, so an owner's or admin's host should replace it.",
           "type": "boolean"
         },
+        "holding": {
+          "description": "For an owner's or admin's host that cannot open the key, each other computer that holds it at the current generation and would seal it for that host (its own account's, and owners' and admins'), and when each was last online, so they can tell one that is asleep from one that is gone before making the vault again. Absent when the host has the key sealed by itself or by a current holder, and for any other member's host.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrgVaultHolder"
+          }
+        },
+        "remadeAt": {
+          "description": "When an owner's or admin's host last made the vault again, or null if none has.",
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
         "entries": {
           "type": "array",
-          "items": { "$ref": "#/$defs/OrgVaultEntry" }
+          "items": {
+            "$ref": "#/$defs/OrgVaultEntry"
+          }
         },
         "ended": {
-          "description": "Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it.",
+          "description": "Entries removed from the vault, each one revision above its last. A new entry under one of these ids is added at that revision; a write at the old one is refused.",
           "type": "array",
-          "items": { "$ref": "#/$defs/OrgVaultEnded" }
+          "items": {
+            "$ref": "#/$defs/OrgVaultEnded"
+          }
         },
         "changes": {
           "description": "How many changes the vault's entries have had. A host passes it back as after to read only the entries changed or removed since.",
@@ -104,7 +200,14 @@
         },
         "since": {
           "description": "The after this answer starts from: entries and ended hold only what changed since then. Null when they hold everything.",
-          "anyOf": [{ "$ref": "#/$defs/OrgVaultChanges" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrgVaultChanges"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -113,6 +216,7 @@
         "holders",
         "waiting",
         "rotate",
+        "remadeAt",
         "entries",
         "ended",
         "changes",
@@ -125,7 +229,14 @@
       "properties": {
         "vault": {
           "description": "Null until an owner's or admin's host makes the vault.",
-          "anyOf": [{ "$ref": "#/$defs/OrgVault" }, { "type": "null" }]
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrgVault"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": ["vault"],
@@ -154,28 +265,52 @@
         "keys": {
           "description": "The new key sealed for each member's host that keeps it, the asking host among them. Every other wrap is dropped.",
           "type": "array",
-          "items": { "$ref": "#/$defs/OrgWrappedKey" },
+          "items": {
+            "$ref": "#/$defs/OrgWrappedKey"
+          },
           "minItems": 1,
           "maxItems": 500
         },
         "entries": {
           "description": "Every entry in the vault, each once.",
           "type": "array",
-          "items": { "$ref": "vault.json#/$defs/VaultEntryReseal" },
+          "items": {
+            "$ref": "vault.json#/$defs/VaultEntryReseal"
+          },
           "maxItems": 500
         }
       },
       "required": ["from", "keys", "entries"],
       "additionalProperties": false
     },
+    "OrgVaultRemake": {
+      "description": "An owner's or admin's host whose computer cannot open the org's vault makes it again: every entry and every wrap is dropped, and the generation goes up with a new key held by the asking host alone.",
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "The current generation.",
+          "$ref": "vault.json#/$defs/VaultGeneration"
+        },
+        "key": {
+          "description": "The new key sealed for the asking host at the next generation.",
+          "$ref": "#/$defs/OrgVaultWrapped"
+        }
+      },
+      "required": ["from", "key"],
+      "additionalProperties": false
+    },
     "OrgVaultKeysAdd": {
       "description": "A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one.",
       "type": "object",
       "properties": {
-        "generation": { "$ref": "vault.json#/$defs/VaultGeneration" },
+        "generation": {
+          "$ref": "vault.json#/$defs/VaultGeneration"
+        },
         "keys": {
           "type": "array",
-          "items": { "$ref": "#/$defs/OrgWrappedKey" },
+          "items": {
+            "$ref": "#/$defs/OrgWrappedKey"
+          },
           "minItems": 1,
           "maxItems": 500
         }
@@ -187,7 +322,9 @@
       "description": "An entry at the revision a writer read it.",
       "type": "object",
       "properties": {
-        "id": { "$ref": "vault.json#/$defs/VaultEntryId" },
+        "id": {
+          "$ref": "vault.json#/$defs/VaultEntryId"
+        },
         "revision": {
           "type": "integer",
           "minimum": 0,
@@ -201,12 +338,16 @@
       "description": "An owner's or admin's host adds or replaces an entry. Any member's host may put a shared project's waiting list, and its store while the org lets every member add rules.",
       "type": "object",
       "properties": {
-        "kind": { "$ref": "#/$defs/OrgVaultEntryKind" },
+        "kind": {
+          "$ref": "#/$defs/OrgVaultEntryKind"
+        },
         "generation": {
           "description": "The generation of the key it is sealed under, which must be current.",
           "$ref": "vault.json#/$defs/VaultGeneration"
         },
-        "sealed": { "$ref": "vault.json#/$defs/VaultSealed" },
+        "sealed": {
+          "$ref": "vault.json#/$defs/VaultSealed"
+        },
         "revision": {
           "description": "The entry's revision as the writer last saw it, or 0 to add it.",
           "type": "integer",
@@ -216,7 +357,9 @@
         "checked": {
           "description": "Other entries the writer read this one against, each at the revision it read: the write is refused as a conflict once any of them has moved.",
           "type": "array",
-          "items": { "$ref": "#/$defs/OrgVaultEntryRead" },
+          "items": {
+            "$ref": "#/$defs/OrgVaultEntryRead"
+          },
           "maxItems": 500
         }
       },

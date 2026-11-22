@@ -114,6 +114,14 @@ pub fn failure(error: &Value) -> Failure {
     if kind == FailureKind::Network {
         return Failure::lost_connection(title);
     }
+    if title.contains("adapter_eof") {
+        return Failure {
+            kind,
+            title: "Codex's model proxy ended the reply without saying why. Its own log has the reason; most often the signed-in ChatGPT account cannot use this model, so try another.".to_owned(),
+            details: Some(title.to_owned()),
+            resets_at: None,
+        };
+    }
     Failure {
         kind,
         title: title.to_owned(),

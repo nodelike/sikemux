@@ -85,17 +85,15 @@ impl Priors {
     /// What was kept in `folder` of the checkout at `top`, less the files that
     /// have gone since.
     pub fn load(folder: Option<PathBuf>, top: &Path) -> Self {
-        let read = |name: &str| {
-            folder
-                .as_ref()
-                .and_then(|folder| std::fs::read(folder.join(name)).ok())
-        };
-        let kept: HashMap<String, Kept> = read(INDEX)
-            .and_then(|index| serde_json::from_slice(&index).ok())
-            .unwrap_or_default();
-        let mut unknown: Unknown = read(UNKNOWN)
-            .and_then(|unknown| serde_json::from_slice(&unknown).ok())
-            .unwrap_or_default();
+        fn read<T: serde::de::DeserializeOwned>(folder: Option<&PathBuf>, name: &str) -> Option<T> {
+            folder.and_then(|folder| {
+                sikemux_process::files::read_or_set_aside(&folder.join(name), |bytes| {
+                    serde_json::from_slice(bytes)
+                })
+            })
+        }
+        let kept: HashMap<String, Kept> = read(folder.as_ref(), INDEX).unwrap_or_default();
+        let mut unknown: Unknown = read(folder.as_ref(), UNKNOWN).unwrap_or_default();
         unknown
             .paths
             .retain(|path| Path::new(path).starts_with(top));

@@ -646,6 +646,8 @@ struct ShareAsked: Codable, Hashable, Sendable {
     var share: ShareId
     var viewer: ShareViewerId
     var sealed: Sealed
+    /// False for a viewer watching a share open to anyone without signing in, which may read the chat but not write in it.
+    var signedIn: Bool?
 }
 
 /// Viewer only: a fresh Clerk token for the same user, sent before ready.authExpiresAt.
@@ -775,7 +777,7 @@ struct ShareFrames: Codable, Hashable, Sendable {
     var frames: [WireShareFrame]
 }
 
-/// The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends the share it wants, the proof its link holds and the last frame it holds, if any, and signs in with a Clerk token from the web app or the phone, or, on a Mac, with the host's key and its Ed25519 signature over `sikemux-share-viewer|<nonce>|<key>`.
+/// The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends the share it wants, the proof its link holds and the last frame it holds, if any, and signs in with a Clerk token from the web app or the phone, or, on a Mac, with the host's key and its Ed25519 signature over `sikemux-share-viewer|<nonce>|<key>`. A share open to anyone may be watched with neither; one that is not closes such a viewer with ShareCloseCode unauthenticated.
 struct ShareHello: Codable, Hashable, Sendable {
     var type = "hello"
     var role: ShareRole
@@ -802,6 +804,8 @@ struct ShareOpen: Codable, Hashable, Sendable {
     var share: ShareId
     var expiresAt: String
     var viewers: ShareViewerCheck?
+    /// Whoever holds the link may watch without signing in. Sent again on an open share to change who may watch it; viewers not signed in are closed when it turns off.
+    var anyone: Bool?
 }
 
 /// To the host: the share is open and viewers may join.

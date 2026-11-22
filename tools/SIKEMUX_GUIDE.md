@@ -770,7 +770,9 @@ a reply arrives as its own message.
 
 `agent_spawn` hands a new agent `prompt`, its task. `cli` and `model` pick the
 agent; leave both out for a helper, such as a scout or reviewer, which runs on
-the person's helper setting. `effort` sets its reasoning effort, and
+the person's helper setting. Call `agent_list` with `models: "all"` (or one
+`cli`) to see every signed-in agent, each plan's remaining room, and every exact
+model id `agent_spawn` takes. `effort` sets its reasoning effort, and
 `provider` pays for it from a connected model provider. It opens in its own
 tab without taking the person there, runs in your permission mode, and you are
 its lead. Write the prompt as a full brief: it knows nothing of your
@@ -875,6 +877,12 @@ or `agent_spawn` with `resume` reopens one.
 `agent_account` moves agents' chats to another account of their agent, named
 by its name or id, and each chat carries on there. It moves every one it may
 and lists the rest under `refused` with why.
+
+`agent_send` with `runOn` switches one open agent before the message goes:
+a model, by its id or the name its picker shows, such as `gpt-5.5`; another
+agent, such as `codex`; or both, as `codex/gpt-5.5`. Another agent starts a
+fresh session handed the chat so far, keeping the name, tab and lead, and is
+refused mid-turn. The answer's `runsOn` says where it went.
 
 ### Standing roles
 

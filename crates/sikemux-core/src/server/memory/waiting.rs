@@ -17,7 +17,9 @@ use super::{holding, moving, tell_clients, Held, State, MAX_ENTRIES};
 use crate::server::board::goal::learned;
 use crate::server::parts::Parts;
 use crate::server::person_calls::{self, Raise, ORG_WAITING};
-use crate::server::vault::org::{self as vault, Put, PROJECT_MEMORY_DROPS, PROJECT_MEMORY_WAITING};
+use crate::server::vault::org::{
+    self as vault, At, Put, PROJECT_MEMORY_DROPS, PROJECT_MEMORY_WAITING,
+};
 use crate::server::Core;
 use crate::sessions::asked::may_hold_secret;
 
@@ -170,22 +172,27 @@ fn parse(key: &str) -> Option<(&str, &str, &str, &str)> {
     Some((store, member, item, words))
 }
 
-/// An entry of the org's vault, with its revision, or an empty one when there is none; None
+/// An entry of the org's vault, with where it was read, or an empty one when there is none; None
 /// while this host cannot read the vault or the entry makes no sense.
 fn read<T: serde::de::DeserializeOwned + Default>(
     core: &Core,
     shared: &Shared,
     id: &str,
-) -> Option<(i64, T)> {
-    match vault::read(core, &shared.org, id)? {
+) -> Option<(At, T)> {
+    let reading = vault::read(core, &shared.org, id)?;
+    let at = |revision| At {
+        revision,
+        made: reading.made.clone(),
+    };
+    match reading.entry {
         Some(read) => match serde_json::from_value(read.body) {
-            Ok(body) => Some((read.revision, body)),
+            Ok(body) => Some((at(read.revision), body)),
             Err(error) => {
                 eprintln!("sikemux core: an org's waiting rules could not be read: {error}");
                 None
             }
         },
-        None => Some((0, T::default())),
+        None => Some((at(0), T::default())),
     }
 }
 
@@ -198,19 +205,19 @@ enum Wrote {
     Refused(String),
 }
 
-/// Writes `body` over the vault's entry `id` at `revision`.
+/// Writes `body` over the vault's entry `id` as it was read `at`.
 async fn write<T: Serialize>(
     core: &Core,
     shared: &Shared,
     kind: &str,
     id: &str,
-    revision: i64,
+    at: &At,
     body: &T,
 ) -> Wrote {
     let Ok(value) = serde_json::to_value(body) else {
         return Wrote::Done;
     };
-    match vault::put_project(core, &shared.org, kind, id, revision, &value, &[]).await {
+    match vault::put_project(core, &shared.org, kind, id, at, &value, &[]).await {
         Ok(Put::Written(_)) => Wrote::Done,
         Ok(Put::Stale) => Wrote::Stale,
         Ok(Put::Refused(why)) => {
@@ -431,18 +438,18 @@ fn take_up(core: &Core, local: &str) {
 async fn settle_mine(core: &Core, local: &str, shared: &Shared) {
     let id = shared.waiting_id(&shared.member);
     for _ in 0..TRIES {
-        let Some((revision, list)) = read::<Mine>(core, shared, &id) else {
+        let Some((at, list)) = read::<Mine>(core, shared, &id) else {
             return;
         };
         let drops = read::<Drops>(core, shared, &shared.drops_id())
-            .unwrap_or_default()
-            .1;
+            .map(|(_, drops)| drops)
+            .unwrap_or_default();
         let mut now = list.clone();
         settle(core, local, shared, &drops, &mut now);
         if now == list {
             return;
         }
-        match write(core, shared, PROJECT_MEMORY_WAITING, &id, revision, &now).await {
+        match write(core, shared, PROJECT_MEMORY_WAITING, &id, &at, &now).await {
             Wrote::Done => return,
             Wrote::Stale => {}
             Wrote::Refused(why) => return not_listed(core, local, &list, &why),
@@ -565,7 +572,7 @@ fn lists(core: &Core, shared: &Shared) -> BTreeMap<String, Mine> {
 async fn judge(core: &Arc<Core>, local: &str, shared: &Shared) {
     let id = shared.drops_id();
     for _ in 0..TRIES {
-        let Some((revision, drops)) = read::<Drops>(core, shared, &id) else {
+        let Some((at, drops)) = read::<Drops>(core, shared, &id) else {
             return;
         };
         let lists = lists(core, shared);
@@ -576,7 +583,7 @@ async fn judge(core: &Arc<Core>, local: &str, shared: &Shared) {
             return;
         }
         if !matches!(
-            write(core, shared, PROJECT_MEMORY_DROPS, &id, revision, &now).await,
+            write(core, shared, PROJECT_MEMORY_DROPS, &id, &at, &now).await,
             Wrote::Stale
         ) {
             return;
@@ -793,10 +800,10 @@ pub(super) fn check_keeps(
     let (mut void, mut withdrawn, mut read_at) = (Vec::new(), Vec::new(), Vec::new());
     for keep in &held.keeps {
         let id = shared.waiting_id(&keep.member);
-        let (revision, list) = read::<Mine>(core, shared, &id)?;
+        let (at, list) = read::<Mine>(core, shared, &id)?;
         match list.items.get(&keep.item).map(|entry| words(entry.text())) {
             Some(still) if still == keep.words => {
-                read_at.push((id, revision));
+                read_at.push((id, at.revision));
                 continue;
             }
             Some(_) => {}

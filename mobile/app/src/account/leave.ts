@@ -10,6 +10,8 @@ import { forgetCursor, stopLive } from './live';
 
 let leaving: Promise<void> | undefined;
 
+const warn = (what: string) => (error: unknown) => console.warn(`sikemux: could not ${what}`, error);
+
 type Leaving = {
   farewell?: Farewell | null;
   /** The server took this phone off the account. Without that, the phone comes back as a new device. */
@@ -24,15 +26,14 @@ export function signOutHere(signOut: () => Promise<unknown>, { farewell = null, 
   if (farewell) sayFarewell(farewell);
   leaving ??= (async () => {
     stopLive();
-    await forgetPush().catch(() => {});
-    await choose(undefined).catch(() => {});
-    await turnLockOff().catch(() => {});
+    await forgetPush().catch(warn('stop notifications'));
+    await choose(undefined).catch(warn('clear the notification setting'));
+    await turnLockOff().catch(warn('turn the lock off'));
     const devices = await pairedDevices().catch(() => []);
     await Promise.allSettled(devices.map((device) => forget(device.core)));
-    await forgetCursor().catch(() => {});
-    if (!confirmed)
-      await rotateDeviceKey().catch((error: unknown) => console.warn('sikemux: could not make this phone a new device', error));
-    await signOut().catch((error: unknown) => console.warn('sikemux: Clerk could not sign out', error));
+    await forgetCursor().catch(warn('forget the live cursor'));
+    if (!confirmed) await rotateDeviceKey().catch(warn('make this phone a new device'));
+    await signOut().catch(warn('sign out of Clerk'));
     goHome();
   })().finally(() => {
     leaving = undefined;

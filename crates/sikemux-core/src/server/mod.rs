@@ -20,6 +20,7 @@ pub(crate) use sikemux_board::server::board_above;
 pub(crate) use sikemux_board::server::board_state;
 pub(crate) use sikemux_workspace::server::caller;
 pub mod calls;
+pub(crate) mod can_start;
 mod chat_search;
 pub use sikemux_chat::server::chat;
 pub(crate) use sikemux_chat::server::chat_above;
@@ -896,7 +897,11 @@ pub(crate) async fn run_core(
     goal_summary::name_unnamed(&core);
     if let Some(data_dir) = config.data_dir.as_deref() {
         crate::agent_accounts::usage::keep_readings_in(data_dir.join("plan-limits.json"));
-        tokio::spawn(workspace::refresh_launchers(core.clone()));
+        let startup = core.clone();
+        tokio::spawn(async move {
+            workspace::refresh_launchers(startup.clone()).await;
+            agent_accounts::check_launchers(&startup).await;
+        });
         if let Err(error) = crate::skills::place_built_in(data_dir) {
             eprintln!(
                 "sikemux core: the skills Sikemux ships were not put in the library: {error}"

@@ -29,6 +29,8 @@ pub enum UpdateKind {
     AccountSwitched,
     /// The core started a fresh session under the chat.
     SessionRotated,
+    /// The chat went on with another model or agent, handed what it said.
+    ContextHandedOff,
     /// Something the agent wants the person to know, outside its answer.
     Notice,
     TaskNotice,
@@ -62,6 +64,7 @@ impl UpdateKind {
             Self::SessionInfoUpdate => "session_info_update",
             Self::AccountSwitched => "account_switched",
             Self::SessionRotated => "session_rotated",
+            Self::ContextHandedOff => "context_handed_off",
             Self::Notice => "notice",
             Self::TaskNotice => "task_notice",
             Self::SubagentSpawned => "subagent_spawned",
@@ -92,6 +95,7 @@ impl UpdateKind {
             "session_info_update" => Self::SessionInfoUpdate,
             "account_switched" => Self::AccountSwitched,
             "session_rotated" => Self::SessionRotated,
+            "context_handed_off" => Self::ContextHandedOff,
             "notice" => Self::Notice,
             "task_notice" => Self::TaskNotice,
             "subagent_spawned" => Self::SubagentSpawned,

@@ -2136,6 +2136,32 @@
       }
     },
     {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/vault/remake",
+      "operationId": "remakeOrgVault",
+      "summary": "Make the org's vault again, empty, with a new key held only by the asking owner's or admin's host, dropping every entry and every wrap. Its core asks only when no computer can open the vault.",
+      "auth": "host",
+      "request": "OrgVaultRemake",
+      "responses": {
+        "200": {
+          "description": "The vault at the next generation, empty, with the asking host its only holder. Every member's host hears orgs.changed.",
+          "body": "OrgVaultState"
+        },
+        "403": {
+          "description": "The account is not the org's owner or admin, or its Team plan has lapsed.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Your account is in no org with that id, plans are not open to it yet, or the org has no vault.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The generation is not the current one.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
       "method": "put",
       "path": "/v1/orgs/{orgId}/vault/entries/{id}",
       "operationId": "putOrgVaultEntry",

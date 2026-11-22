@@ -1,0 +1,24 @@
+# Gemini 4 Neon on Antigravity at work in front, with a Claude and a Codex chat working beside it
+# in the rail.
+stage 1440 900
+window 1440 900
+replies antigravity.json
+project storefront line-shop
+core setFaceStyle {"on":false,"pack":"glow","shape":"mixed","motion":false}
+settle 6
+# The app opens an empty chat of its own at start: close it.
+key cmd-w
+wait 1
+chat Flint claude:builtin-claude claude-opus-5-5
+title "Fix the rounding in cart totals"
+say "Some cart totals come out a cent off. Find out why and fix it."
+chat Otter codex gpt-6-luna
+title "Bundle the storefront for production"
+say "hold 600000"
+chat Vega antigravity gemini-4-neon-high
+title "Move checkout onto payment intents"
+say "Move checkout and refunds onto the new payment intents API. Old receipts must still print."
+settle 12
+front Vega
+settle 2
+snap antigravity

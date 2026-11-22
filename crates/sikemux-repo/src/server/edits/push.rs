@@ -412,6 +412,13 @@ fn push_once(
             )));
         }
     }
+    let range = fork
+        .as_deref()
+        .map_or_else(|| head.clone(), |fork| format!("{fork}..{head}"));
+    let merges = git(top, &["rev-list", "--merges", "--count", &range])?.trim() != "0";
+    if merges && protected(top, remote, branch) {
+        return Err(Attempt::Failed(MERGES_STAY_OFF.into()));
+    }
     let unpushed = unpushed(top, fork.as_deref(), base.as_deref(), &head, whose, judge)?;
     if !unpushed.iter().any(|commit| commit.mine) {
         let rebased = at == head || rebase_branch(signing, top, branch, &at, &head, true, LANDED)?;
@@ -445,7 +452,11 @@ fn push_once(
     let waits = |waiting: &[&Unpushed]| (!waiting.is_empty()).then(|| WAITS_FOR_PERSON.to_owned());
     let (ours, theirs): (Vec<&Unpushed>, Vec<&Unpushed>) =
         unpushed.iter().partition(|commit| commit.mine);
-    if held_ids.is_empty() && theirs.is_empty() && !moved {
+    let as_is = held_ids.is_empty() && theirs.is_empty() && !moved;
+    if merges && !as_is {
+        return Err(Attempt::Failed(MERGES_STAY_OFF.into()));
+    }
+    if as_is {
         land::steps(top, branch, &at, &head)?;
         let output = send(top, remote, &format!("{head}:refs/heads/{branch}"), &[])?;
         let rebased = at == head || rebase_branch(signing, top, branch, &at, &head, true, LANDED)?;
@@ -826,11 +837,7 @@ fn unpushed(
     judge: impl Fn(&str) -> bool,
 ) -> Result<Vec<Unpushed>, String> {
     let range = fork.map_or_else(|| head.to_owned(), |fork| format!("{fork}..{head}"));
-    let merges = git(top, &["rev-list", "--merges", "--count", &range])?;
-    if merges.trim() != "0" {
-        return Err("The unpushed commits include a merge, which git_commit doesn't push; rebase them onto the remote's branch in this checkout so they form one line, then push again".into());
-    }
-    let mut args = vec!["log", "--reverse", "--format=%H%x00%s"];
+    let mut args = vec!["log", "--reverse", "--first-parent", "--format=%H%x00%s"];
     let beside = tip.map(|tip| format!("{tip}...{head}"));
     match (&beside, tip != fork) {
         (Some(beside), true) => args.extend(["--cherry-pick", "--right-only", beside.as_str()]),
@@ -1066,6 +1073,8 @@ fn release_line(dir: &Path) -> Option<String> {
         .flatten()
         .find(|branch| branch.starts_with(RELEASE_LINE))
 }
+
+const MERGES_STAY_OFF: &str = "The unpushed commits include a merge, which git_commit pushes only as it is onto a feature branch nobody else moved; rebase them onto the remote's branch in this checkout so they form one line, then push again";
 
 /// Whether `branch` is never to be force-pushed: `remote`'s default branch, `main` or
 /// `master`, or a release line.

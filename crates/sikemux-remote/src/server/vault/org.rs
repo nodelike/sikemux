@@ -17,7 +17,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_agents::launch::providers::{catalogue, OrgKey, ProviderOrg};
 use sikemux_calls::vault::{
-    OrgEntryParams, OrgModelKeyAdd, OrgVaultStatus, ShownOrgModelKey, ShownOrgVault,
+    OrgEntryParams, OrgModelKeyAdd, OrgParams, OrgVaultStatus, ShownOrgModelKey, ShownOrgOpener,
+    ShownOrgVault,
 };
 use sikemux_process::sync::Locked;
 use sikemux_view::device::{AccountOrg, OrgRole};
@@ -25,15 +26,19 @@ use tokio::sync::Notify;
 
 use crate::accounts::orgvault::{
     OrgVault as Remote, OrgVaultCreate, OrgVaultEntry, OrgVaultEntryPut, OrgVaultEntryRead,
-    OrgVaultKeysAdd, OrgVaultRotate, OrgVaultState, OrgWrappedKey,
+    OrgVaultHolder, OrgVaultKeysAdd, OrgVaultRemake, OrgVaultRotate, OrgVaultState, OrgWrappedKey,
 };
 use crate::accounts::vault::VaultEntryReseal;
 
 use super::super::account::api::{host_request, host_send_any};
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
+use super::floor;
 use super::seal::{self, Key};
 
 const TICK: Duration = Duration::from_secs(60);
+/// How often a vault this host waits on is read while computers that could let it in are listed,
+/// so the person sees soon when the last of them goes offline. Nothing else tells this host.
+const WAITING_TICK: Duration = Duration::from_secs(20);
 const SETTLE: Duration = Duration::from_secs(2);
 const MODEL_KEY: &str = "model-key";
 /// The most hosts one request may seal the key for.
@@ -77,18 +82,48 @@ struct Held {
     entries: BTreeMap<String, Opened>,
     /// The last revision of each entry the vault removed, which a new entry under its id passes.
     ended: BTreeMap<String, i64>,
+    /// When the vault these entries came from was last made again, as the accounts server said.
+    /// An entry read before a different one began anew, under the same id.
+    made: Option<String>,
 }
 
 impl Held {
     fn takes_generation(&self, generation: i64) -> bool {
-        self.key.is_none() || generation >= self.generation
+        floor::takes_generation(self.generation, generation)
     }
 
-    fn takes_entry(&self, id: &str, revision: i64) -> bool {
-        self.entries
-            .get(id)
-            .is_none_or(|held| revision >= held.revision)
-            && self.ended.get(id).is_none_or(|&ended| revision > ended)
+    /// What this host holds once it cannot open the vault at `generation`: no key and no
+    /// entries, only the generation, below which the server is refused anything it hands back.
+    fn let_go(self, generation: i64) -> Held {
+        Held {
+            generation: generation.max(self.generation),
+            key: None,
+            entries: BTreeMap::new(),
+            ended: BTreeMap::new(),
+            made: self.made,
+        }
+    }
+
+    /// The marks of entries this host saw go once it reads `vault`: those the server lists, and
+    /// in a full read those it leaves out, each at least one above the copy this host held.
+    fn ended_after(&self, vault: &Remote, partial: bool) -> BTreeMap<String, i64> {
+        let above_held = |id: &str| self.entries.get(id).map_or(0, |entry| entry.revision + 1);
+        let listed =
+            (vault.ended.iter()).map(|gone| (&gone.id, gone.revision.max(above_held(&gone.id))));
+        let left_out = (self.entries.keys())
+            .filter(|id| !partial && !vault.entries.iter().any(|entry| &entry.id == *id))
+            .map(|id| (id, above_held(id)));
+        let mut ended = self.ended.clone();
+        floor::end(&mut ended, listed.chain(left_out));
+        ended
+    }
+
+    fn takes_entry(&self, ended: &BTreeMap<String, i64>, id: &str, revision: i64) -> bool {
+        floor::takes_entry(
+            self.entries.get(id).map(|held| held.revision),
+            ended.get(id).copied(),
+            revision,
+        )
     }
 }
 
@@ -107,10 +142,14 @@ struct Keys {
     orgs: BTreeMap<String, KeptKey>,
 }
 
+/// An org's key at its generation. Once this host can no longer open the vault, only the
+/// generation, as the entries file is sealed under the key let go.
 #[derive(Serialize, Deserialize)]
 struct KeptKey {
     generation: i64,
-    key: Key,
+    key: Option<Key>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    made: Option<String>,
 }
 
 impl Copy {
@@ -118,10 +157,13 @@ impl Copy {
         Keys {
             account: self.account.clone(),
             orgs: (self.orgs.iter())
-                .filter_map(|(id, held)| {
-                    let key = held.key?;
-                    let generation = held.generation;
-                    Some((id.clone(), KeptKey { generation, key }))
+                .map(|(id, held)| {
+                    let kept = KeptKey {
+                        generation: held.generation,
+                        key: held.key,
+                        made: held.made.clone(),
+                    };
+                    (id.clone(), kept)
                 })
                 .collect(),
         }
@@ -138,25 +180,35 @@ fn entries_context(account: &str, org: &str, generation: i64) -> String {
     format!("sikemux org vault entries\n{account}\n{org}\n{generation}")
 }
 
-fn read_entries(data_dir: Option<&Path>, account: &str, org: &str, key: &KeptKey) -> Held {
+fn read_entries(data_dir: Option<&Path>, account: &str, org: &str, kept: &KeptKey) -> Held {
+    let Some(key) = kept.key else {
+        return Held {
+            generation: kept.generation,
+            key: None,
+            entries: BTreeMap::new(),
+            ended: BTreeMap::new(),
+            made: kept.made.clone(),
+        };
+    };
     let (entries, ended) = data_dir
         .and_then(|dir| std::fs::read(entries_file(dir, org)).ok())
         .and_then(|sealed| {
-            let context = entries_context(account, org, key.generation);
-            seal::open_bytes(&key.key, &context, &sealed)
+            let context = entries_context(account, org, kept.generation);
+            seal::open_bytes(&key, &context, &sealed)
         })
         .and_then(|plain| serde_json::from_slice(&plain).ok())
         .unwrap_or_default();
     Held {
-        generation: key.generation,
-        key: Some(key.key),
+        generation: kept.generation,
+        key: Some(key),
         entries,
         ended,
+        made: kept.made.clone(),
     }
 }
 
 /// Writes the entries of each org in `now` that differ from `was`, and deletes the files of
-/// orgs no longer held.
+/// orgs whose key is no longer held.
 fn write_entries(data_dir: &Path, was: Option<&Copy>, now: Option<&Copy>) -> CoreResult<()> {
     let folder = data_dir.join(ENTRIES_FOLDER);
     let held = |copy: Option<&Copy>, org: &str| copy.and_then(|copy| copy.orgs.get(org)).cloned();
@@ -187,7 +239,7 @@ fn write_entries(data_dir: &Path, was: Option<&Copy>, now: Option<&Copy>) -> Cor
         let org = (file.file_name().to_str())
             .and_then(|name| URL_SAFE_NO_PAD.decode(name).ok())
             .and_then(|name| String::from_utf8(name).ok());
-        if org.is_none_or(|org| held(now, &org).is_none()) {
+        if org.is_none_or(|org| held(now, &org).is_none_or(|held| held.key.is_none())) {
             std::fs::remove_file(file.path())?;
         }
     }
@@ -203,6 +255,10 @@ struct Org {
     /// The vault's count of changes when this host last took in its entries, so the next read
     /// asks only for what changed after it.
     changes: Option<i64>,
+    /// The computers that hold the key and would let this host in, as the server tells an owner's
+    /// or admin's host.
+    openers: Option<Vec<OrgVaultHolder>>,
+    remade_at: Option<String>,
 }
 
 #[derive(Default)]
@@ -229,6 +285,16 @@ pub struct OrgVaults {
 impl OrgVaults {
     pub fn wake(&self) {
         self.wake.notify_one();
+    }
+
+    fn waits_on_openers(&self) -> bool {
+        (self.state.locked().orgs.values()).any(|org| {
+            org.status == OrgVaultStatus::Waiting
+                && org
+                    .openers
+                    .as_ref()
+                    .is_some_and(|openers| !openers.is_empty())
+        })
     }
 }
 
@@ -259,12 +325,17 @@ async fn run(core: Weak<Core>) {
         return;
     };
     let mut first = true;
+    let mut tick = TICK;
     loop {
-        if !first && tokio::time::timeout(TICK, wake.notified()).await.is_ok() {
+        if !first && tokio::time::timeout(tick, wake.notified()).await.is_ok() {
             tokio::time::sleep(SETTLE).await;
         }
         first = false;
         let Some(core) = core.upgrade() else { return };
+        tick = match core.vault().orgs().waits_on_openers() {
+            true => WAITING_TICK,
+            false => TICK,
+        };
         let _busy = core.vault().orgs().busy.lock().await;
         if let Err(error) = round(&core).await {
             eprintln!("sikemux core: the org vaults did not sync: {error}");
@@ -359,10 +430,10 @@ async fn load(core: &Core, account: &str) -> CoreResult<()> {
                 .orgs
                 .iter()
                 .map(|(id, held)| {
-                    let status = if held.key.is_some() {
-                        OrgVaultStatus::Open
-                    } else {
-                        OrgVaultStatus::Unmade
+                    let status = match (held.key, held.generation) {
+                        (Some(_), _) => OrgVaultStatus::Open,
+                        (None, 0) => OrgVaultStatus::Unmade,
+                        (None, _) => OrgVaultStatus::Waiting,
                     };
                     let org = Org {
                         held: held.clone(),
@@ -388,7 +459,7 @@ async fn keep(core: &Core, account: Option<&str>) -> CoreResult<()> {
             orgs: state
                 .orgs
                 .iter()
-                .filter(|(_, org)| org.held.key.is_some())
+                .filter(|(_, org)| org.held.key.is_some() || org.held.generation > 0)
                 .map(|(id, org)| (id.clone(), org.held.clone()))
                 .collect(),
         })
@@ -520,9 +591,9 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
     };
     let held = held(core, &org.id);
     let Some(vault) = read.vault else {
-        if held.key.is_some() {
+        if held.generation > 0 {
             return Err(
-                "the accounts server says the org has no vault, yet this host holds its key".into(),
+                "the accounts server says the org has no vault, yet this host has read it".into(),
             );
         }
         set(core, &org.id, Org::default());
@@ -549,31 +620,48 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
         },
         (_, None) => (None, None),
     };
+    let openers = (vault.holding.clone()).map(|openers| {
+        openers
+            .into_iter()
+            .filter(|opener| opener.host_key != me)
+            .collect()
+    });
+    let remade_at = vault.remade_at.clone();
     let Some(key) = key else {
         set(
             core,
             &org.id,
             Org {
-                held,
+                held: held.let_go(vault.generation),
                 status: OrgVaultStatus::Waiting,
                 holders: vault.holders.len(),
                 failed,
                 changes: None,
+                openers,
+                remade_at,
             },
         );
         return Ok(());
     };
+    // A rotation reseals every entry, so an answer at a new generation lists them all.
+    let partial = vault.since.is_some() && held.generation == vault.generation;
+    let mut ended = held.ended_after(&vault, partial);
     if vault.rotate && manages(org) {
-        let next = rotate(core, &org.id, me, secret, &vault, &key).await?;
+        let next = rotate(core, &org.id, me, secret, &vault, &key, ended).await?;
         set(
             core,
             &org.id,
             Org {
-                held: next,
+                held: Held {
+                    made: remade_at.clone(),
+                    ..next
+                },
                 status: OrgVaultStatus::Open,
                 holders: vault.holders.len(),
                 failed: None,
                 changes: None,
+                openers,
+                remade_at,
             },
         );
         core.vault().orgs().wake();
@@ -582,8 +670,6 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
     if !vault.waiting.is_empty() {
         add_keys(core, org, secret, &vault, &key).await?;
     }
-    // A rotation reseals every entry, so an answer at a new generation lists them all.
-    let partial = vault.since.is_some() && held.generation == vault.generation;
     let mut entries = match partial {
         true => held.entries.clone(),
         false => BTreeMap::new(),
@@ -593,7 +679,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
     }
     for entry in &vault.entries {
         let opened = (entry.generation == vault.generation
-            && held.takes_entry(&entry.id, entry.revision))
+            && held.takes_entry(&ended, &entry.id, entry.revision))
         .then(|| open_entry(&key, &org.id, entry))
         .flatten();
         match opened {
@@ -612,20 +698,15 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                     "sikemux core: entry {} of an org's vault is older than this host's copy or does not open, so the copy stays",
                     entry.id
                 );
-                if let Some(kept) = held.entries.get(&entry.id) {
-                    entries.insert(entry.id.clone(), kept.clone());
+                let kept = (held.entries.get(&entry.id))
+                    .filter(|kept| (ended.get(&entry.id)).is_none_or(|mark| kept.revision > *mark));
+                if let Some(kept) = kept {
+                    entries
+                        .entry(entry.id.clone())
+                        .or_insert_with(|| kept.clone());
                 }
             }
         }
-    }
-    let mut ended = held.ended;
-    let unlisted = (held.entries.iter())
-        .filter(|(id, _)| !partial && !entries.contains_key(*id))
-        .map(|(id, entry)| (id, entry.revision));
-    let listed = (vault.ended.iter()).map(|gone| (&gone.id, gone.revision));
-    for (id, revision) in unlisted.chain(listed) {
-        let floor = ended.entry(id.clone()).or_default();
-        *floor = revision.max(*floor);
     }
     ended.retain(|id, _| !entries.contains_key(id));
     set(
@@ -637,11 +718,14 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 key: Some(key),
                 entries,
                 ended,
+                made: remade_at.clone(),
             },
             status: OrgVaultStatus::Open,
             holders: vault.holders.len(),
             failed: None,
             changes: Some(vault.changes),
+            openers,
+            remade_at,
         },
     );
     Ok(())
@@ -662,21 +746,21 @@ fn held(core: &Core, org: &str) -> Held {
 /// holding it, so the server cannot hand over a key of its own making.
 fn open_wrap(wrapped: &str, secret: &Key, org: &str, vault: &Remote, me: &str) -> Option<Key> {
     let context = wrap_context(org, vault.generation, me);
-    let (key, sender) = seal::unwrap_from(wrapped, secret, &context)?;
-    std::iter::once(me)
-        .chain(vault.holders.iter().map(String::as_str))
-        .filter_map(seal::host_public)
-        .any(|holder| holder == sender)
-        .then_some(key)
+    let holders = std::iter::once(me).chain(vault.holders.iter().map(String::as_str));
+    seal::unwrap_from_holder(wrapped, secret, &context, holders)
 }
 
 fn set(core: &Core, org: &str, value: Org) {
     let orgs = core.vault().orgs();
     let seen = |org: &Org| (org.held.key.is_some(), org.held.entries.clone());
-    let now = seen(&value);
+    let shown = |org: &Org| (org.status, org.openers.clone(), org.remade_at.clone());
+    let (now, now_shown) = (seen(&value), shown(&value));
     let before = orgs.state.locked().orgs.insert(org.to_owned(), value);
     if before.as_ref().map(seen) != Some(now) {
         orgs.changed.notify_one();
+    }
+    if before.as_ref().map(shown) != Some(now_shown) {
+        super::announce(core);
     }
 }
 
@@ -762,10 +846,11 @@ async fn rotate(
     secret: &Key,
     vault: &Remote,
     key: &Key,
+    mut ended: BTreeMap<String, i64>,
 ) -> CoreResult<Held> {
     let held = held(core, org);
     if let Some(stale) = vault.entries.iter().find(|entry| {
-        entry.generation != vault.generation || !held.takes_entry(&entry.id, entry.revision)
+        entry.generation != vault.generation || !held.takes_entry(&ended, &entry.id, entry.revision)
     }) {
         return Err(format!(
             "entry {} of the org's vault is older than this host's copy, so its key is not replaced",
@@ -827,17 +912,19 @@ async fn rotate(
     };
     let path = format!("{}/rotate", vault_path(org));
     host_request(core, Method::POST, &path, Some(json!(rotate))).await?;
+    ended.retain(|id, _| !opened.contains_key(id));
     Ok(Held {
         generation,
         key: Some(next),
         entries: opened,
-        ended: held.ended,
+        ended,
+        made: held.made,
     })
 }
 
-/// The org's vault open on this host, made first when it has none, for an owner or admin to
-/// write to.
-async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
+/// The org, when this host's account is an owner or admin there and its plan is paid, with this
+/// host's key and secret.
+fn managed(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, String, Key)> {
     let org = account_orgs(core)
         .unwrap_or_default()
         .into_iter()
@@ -857,8 +944,13 @@ async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
         .remote()
         .host_key()
         .ok_or_else(|| CoreError::from("this host is not signed in"))?;
-    let me = host.public().to_string();
-    let secret = seal::host_secret(&host);
+    Ok((org, host.public().to_string(), seal::host_secret(&host)))
+}
+
+/// The org's vault open on this host, made first when it has none, for an owner or admin to
+/// write to.
+async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
+    let (org, me, secret) = managed(core, org_id)?;
     sync_org(core, &org, &me, &secret).await?;
     let status = org_status(core, org_id);
     if status == OrgVaultStatus::Unmade {
@@ -882,11 +974,11 @@ async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
                     key: Some(key),
                     entries: BTreeMap::new(),
                     ended: BTreeMap::new(),
+                    made: None,
                 },
                 status: OrgVaultStatus::Open,
                 holders: 1,
-                failed: None,
-                changes: None,
+                ..Org::default()
             },
         );
     }
@@ -999,6 +1091,80 @@ pub async fn remove_entry(core: &Arc<Core>, params: OrgEntryParams) -> CoreResul
     settle(core).await
 }
 
+/// Makes the org's vault again, empty, under a new key only this host holds, when no computer
+/// can open it: none holds the key, or none that would let this one in is online.
+pub async fn remake(core: &Arc<Core>, params: OrgParams) -> CoreResult<()> {
+    let _busy = core.vault().orgs().busy.lock().await;
+    let (org, me, secret) = managed(core, &params.org)?;
+    sync_org(core, &org, &me, &secret).await?;
+    let held = core
+        .vault()
+        .orgs()
+        .state
+        .locked()
+        .orgs
+        .get(&org.id)
+        .cloned()
+        .unwrap_or_default();
+    if held.status != OrgVaultStatus::Waiting {
+        return Err(format!(
+            "This computer can open {}'s vault, so there is nothing to make again",
+            org.name
+        )
+        .into());
+    }
+    let Some(openers) = &held.openers else {
+        return Err(format!(
+            "The accounts server does not say yet which computers hold {}'s key, so it cannot make the vault again",
+            org.name
+        )
+        .into());
+    };
+    if let Some(opener) = openers.iter().find(|opener| opener.online) {
+        return Err(format!(
+            "{} holds {}'s key and is online now. It lets this computer in by itself; make the vault again only once no computer that holds it is left",
+            opener.computer, org.name
+        )
+        .into());
+    }
+    let key = seal::random_key().ok_or_else(|| CoreError::from("no randomness for the key"))?;
+    let generation = held.held.generation + 1;
+    let remake = OrgVaultRemake {
+        from: held.held.generation,
+        key: seal::wrap_from(
+            &key,
+            &secret,
+            &seal::public_of(&secret),
+            &wrap_context(&org.id, generation, &me),
+        )
+        .ok_or_else(|| CoreError::from("the org's key could not be wrapped"))?,
+    };
+    let path = format!("{}/remake", vault_path(&org.id));
+    let answer = host_request(core, Method::POST, &path, Some(json!(remake))).await?;
+    let made = (answer.json::<OrgVaultState>().await.ok())
+        .and_then(|state| state.vault)
+        .and_then(|vault| vault.remade_at);
+    if made.is_some() {
+        set(
+            core,
+            &org.id,
+            Org {
+                held: Held {
+                    generation,
+                    key: Some(key),
+                    entries: BTreeMap::new(),
+                    ended: BTreeMap::new(),
+                    made,
+                },
+                status: OrgVaultStatus::Open,
+                holders: 1,
+                ..Org::default()
+            },
+        );
+    }
+    settle(core).await
+}
+
 pub fn shown(core: &Core) -> Vec<ShownOrgVault> {
     let orgs = account_orgs(core).unwrap_or_default();
     let state = core.vault().orgs().state.locked();
@@ -1028,15 +1194,35 @@ pub fn shown(core: &Core) -> Vec<ShownOrgVault> {
                     }
                 })
                 .collect();
+            let writes = manages(org) && org.active;
+            let openers: Vec<ShownOrgOpener> = (held.openers.iter().flatten())
+                .filter(|_| held.status == OrgVaultStatus::Waiting)
+                .map(|opener| ShownOrgOpener {
+                    host: opener.computer.clone(),
+                    whose: opener.member.clone().filter(|_| !opener.yours),
+                    yours: opener.yours,
+                    owner: opener.role == crate::accounts::protocol::OrgRole::Owner,
+                    online: opener.online,
+                    last_online: (opener.last_seen_at.as_deref())
+                        .and_then(crate::accounts::live::parse_rfc3339),
+                })
+                .collect();
             ShownOrgVault {
                 org: org.id.clone(),
                 name: org.name.clone(),
                 status: held.status,
                 holders: held.holders,
                 active: org.active,
-                writes: manages(org) && org.active,
+                writes,
                 model_keys,
                 failed: held.failed,
+                remakes: writes
+                    && held.status == OrgVaultStatus::Waiting
+                    && held.openers.is_some()
+                    && !openers.iter().any(|opener| opener.online),
+                openers,
+                remade_at: (held.remade_at.as_deref())
+                    .and_then(crate::accounts::live::parse_rfc3339),
             }
         })
         .collect()
@@ -1075,15 +1261,26 @@ pub struct Read {
     pub body: Value,
 }
 
-/// Entry `id` of `org`'s vault: None while this host holds no key to it, Some(None) when the
-/// vault has no such entry.
-pub fn read(core: &Core, org: &str, id: &str) -> Option<Option<Read>> {
+/// What this host holds of one id in an org's vault.
+pub struct Reading {
+    /// When the vault was last made again, as the accounts server said; an entry read under
+    /// another of these came from a vault that is gone.
+    pub made: Option<String>,
+    /// None when the vault has no such entry.
+    pub entry: Option<Read>,
+}
+
+/// Entry `id` of `org`'s vault: None while this host holds no key to it.
+pub fn read(core: &Core, org: &str, id: &str) -> Option<Reading> {
     let state = core.vault().orgs().state.locked();
     let org = state.orgs.get(org).filter(|org| org.held.key.is_some())?;
-    Some(org.held.entries.get(id).map(|entry| Read {
-        revision: entry.revision,
-        body: entry.body.clone(),
-    }))
+    Some(Reading {
+        made: org.held.made.clone(),
+        entry: org.held.entries.get(id).map(|entry| Read {
+            revision: entry.revision,
+            body: entry.body.clone(),
+        }),
+    })
 }
 
 /// Whether this host holds the key to `org`'s vault, so the org's entries can be read and
@@ -1123,15 +1320,23 @@ pub enum Put {
     Refused(String),
 }
 
-/// Writes a project's entry of `kind` over the one at `revision` (0 for none), and reads the
-/// vault again. The server takes it as stale once any entry in `checked` has moved on from the
+/// Where an entry was read: its revision (0 for none), and when the vault it came from was last
+/// made again.
+#[derive(Clone, Debug, PartialEq)]
+pub struct At {
+    pub revision: i64,
+    pub made: Option<String>,
+}
+
+/// Writes a project's entry of `kind` over the one read `at`, and reads the vault again. Stale
+/// once the vault was made again since, or once any entry in `checked` has moved on from the
 /// revision given beside it.
 pub async fn put_project(
     core: &Core,
     org: &str,
     kind: &str,
     id: &str,
-    revision: i64,
+    at: &At,
     body: &Value,
     checked: &[(String, i64)],
 ) -> CoreResult<Put> {
@@ -1146,14 +1351,17 @@ pub async fn put_project(
             .get(org)
             .map(|org| org.held.clone())
             .unwrap_or_default();
-        let added_after = (revision == 0 && !held.entries.contains_key(id))
+        if held.made != at.made {
+            return Ok(Put::Stale);
+        }
+        let added_after = (at.revision == 0 && !held.entries.contains_key(id))
             .then(|| held.ended.get(id).copied())
             .flatten();
         (
             held.generation,
             held.key
                 .ok_or_else(|| CoreError::from("this host holds no key to the org's vault"))?,
-            added_after.unwrap_or(revision),
+            added_after.unwrap_or(at.revision),
         )
     };
     let put = OrgVaultEntryPut {

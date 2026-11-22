@@ -135,9 +135,7 @@ fn save(bench: &Workbench, cx: &App) -> std::io::Result<()> {
 }
 
 fn read_pages(path: &Path) -> Vec<SavedStrip> {
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+    sikemux_process::files::read_or_set_aside(path, |bytes| serde_json::from_slice(bytes))
         .unwrap_or_default()
 }
 

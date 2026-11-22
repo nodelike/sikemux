@@ -4,13 +4,13 @@
 
 **一整支 AI 编程团队，尽在一个窗口。**
 
-[English](README.md) · 简体中文
+[English](README.md) · 简体中文 · [日本語](README.ja.md)
 
 别的工具给你一个 AI 助手，Sikemux 给你一支团队：Claude Code、Codex 等编程智能体并排跑在同一个原生应用里。谁在干活、谁卡住了、谁在等你，一眼就能看到。
 
 Claude 额度用完了？这段对话可以接着在 Codex 里继续。
 
-原生应用，不是 Electron，安装包约 30 MB。Claude Code、Codex 等智能体用的是你已经在付费的订阅，作为一个团队协作。免费、MIT 开源，支持 Apple Silicon Mac 和 Linux。
+原生应用，不是 Electron，安装包约 30 MB。Claude Code、Codex 等智能体用的是你已经在付费的订阅，作为一个团队协作。免费、MIT 开源，支持 Apple Silicon Mac、Windows 和 Linux。
 
 ![Sikemux：一个 Claude Code 智能体和它的浏览器标签页](docs/screenshots/sikemux-hero.png)
 
@@ -34,21 +34,28 @@ Mac 上也可以用 Homebrew：
 brew install --cask nodelike/tap/sikemux
 ```
 
+Windows 上可以用 [Scoop](https://scoop.sh)：
+
+```powershell
+scoop bucket add sikemux https://github.com/nodelike/scoop-bucket
+scoop install sikemux/sikemux
+```
+
 在没有图形界面的服务器上，只装核心服务：
 
 ```bash
 curl -fsSL https://sikemux.com/install | sh -s -- --host
 ```
 
-支持 macOS 11 及以上（Apple Silicon），以及 x86_64 和 arm64 的 Linux。`.dmg`、`.deb`、Arch 包和 AppImage 也可以在 [Releases](https://github.com/nodelike/sikemux/releases/latest) 页面下载。
+支持 macOS 11 及以上（Apple Silicon）、x64 和 arm64 的 Windows 10 22H2 及以上，以及 x86_64 和 arm64 的 Linux。`.dmg`、Windows 的 `.exe` 安装包、`.deb` 和 AppImage 也可以在 [Releases](https://github.com/nodelike/sikemux/releases/latest) 页面下载。
 
 ## 切换成中文界面
 
-从 0.6.2 版本起，Sikemux 的界面有简体中文：打开 Settings（设置）→ Appearance（外观）→ Language（语言），选择「简体中文」。智能体写的内容保持原样，不会被翻译。
+Sikemux 的界面有简体中文：打开 Settings（设置）→ General（通用）→ Language（语言），选择「简体中文」。智能体写的内容保持原样，不会被翻译。
 
 ## 国内编程套餐
 
-在设置的「编程套餐」页填入密钥，智能体就能用上国内的编程套餐：智谱 GLM Coding Plan、Kimi Code、MiniMax M Plan、阿里云百炼 Coding Plan、火山方舟 Coding Plan、小米 MiMo Token Plan、阶跃星辰 Step Plan、腾讯云 Coding Plan。按量计费的 DeepSeek、Moonshot 等 API 也可以接入。
+在设置的「编程套餐」页填入密钥，智能体就能用上国内的编程套餐：智谱 GLM Coding Plan、Kimi Code、MiniMax M Plan、阿里云百炼 Coding Plan、火山方舟 Coding Plan、小米 MiMo Token Plan、阶跃星辰 Step Plan、腾讯云 Coding Plan。按量计费的 DeepSeek、Moonshot 等 API 也可以接入。每家怎么配置、走不走代理，见文档 [在 Sikemux 里用国内编程套餐](https://docs.sikemux.com/zh/model-plans)。
 
 ## 为什么选 Sikemux
 

@@ -1076,7 +1076,8 @@ export type OrgAuditAction =
   | "vault_host_added"
   | "vault_rotated"
   | "vault_entry_written"
-  | "vault_entry_removed";
+  | "vault_entry_removed"
+  | "vault_remade";
 export const orgAuditActionValues: readonly OrgAuditAction[] = [
   "created",
   "joined",
@@ -1105,6 +1106,7 @@ export const orgAuditActionValues: readonly OrgAuditAction[] = [
   "vault_rotated",
   "vault_entry_written",
   "vault_entry_removed",
+  "vault_remade",
 ];
 
 /** Where the next page of the audit log starts. Opaque to apps. */
@@ -1142,6 +1144,10 @@ export interface OrgAuditEntry {
   entryKind?: string;
   /** What its member calls the computer given the vault's key, at the time. */
   computer?: string;
+  /** How many entries a vault made again dropped. */
+  droppedEntries?: number;
+  /** How many computers' copies of the old key a vault made again dropped. */
+  droppedComputers?: number;
   /** The seat count a change set. */
   seats?: number;
   /** True when a seat change waits for the plan's renewal. */
@@ -1416,8 +1422,12 @@ export interface OrgVault {
   waiting: DeviceKey[];
   /** A host that held the key is no longer a member's host, so an owner's or admin's host should replace it. */
   rotate: boolean;
+  /** For an owner's or admin's host that cannot open the key, each other computer that holds it at the current generation and would seal it for that host (its own account's, and owners' and admins'), and when each was last online, so they can tell one that is asleep from one that is gone before making the vault again. Absent when the host has the key sealed by itself or by a current holder, and for any other member's host. */
+  holding?: OrgVaultHolder[];
+  /** When an owner's or admin's host last made the vault again, or null if none has. */
+  remadeAt: string | null;
   entries: OrgVaultEntry[];
-  /** Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it. */
+  /** Entries removed from the vault, each one revision above its last. A new entry under one of these ids is added at that revision; a write at the old one is refused. */
   ended: OrgVaultEnded[];
   /** How many changes the vault's entries have had. A host passes it back as after to read only the entries changed or removed since. */
   changes: OrgVaultChanges;
@@ -1437,7 +1447,7 @@ export interface OrgVaultCreate {
   key: OrgVaultWrapped;
 }
 
-/** An entry removed from an org's vault, at the last revision it had. */
+/** An entry removed from an org's vault, one revision above the last it had. */
 export interface OrgVaultEnded {
   id: VaultEntryId;
   revision: VaultRevision;
@@ -1475,10 +1485,35 @@ export interface OrgVaultEntryRead {
   revision: number;
 }
 
+/** A member's computer that holds the org's key and would seal it for the asking host. */
+export interface OrgVaultHolder {
+  hostKey: DeviceKey;
+  /** The computer's name, as its account named it. */
+  computer: string;
+  /** The name of the member it is on, as their sign-in names them. Null when the name cannot be told. Never an email address. */
+  member: string | null;
+  /** The role in the org of the account it is on. */
+  role: OrgRole;
+  /** It is on the asking host's own account. */
+  yours: boolean;
+  /** It is connected to the accounts server now. */
+  online: boolean;
+  /** When it last connected to the accounts server or left it, or null if it never has. */
+  lastSeenAt: string | null;
+}
+
 /** A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one. */
 export interface OrgVaultKeysAdd {
   generation: VaultGeneration;
   keys: OrgWrappedKey[];
+}
+
+/** An owner's or admin's host whose computer cannot open the org's vault makes it again: every entry and every wrap is dropped, and the generation goes up with a new key held by the asking host alone. */
+export interface OrgVaultRemake {
+  /** The current generation. */
+  from: VaultGeneration;
+  /** The new key sealed for the asking host at the next generation. */
+  key: OrgVaultWrapped;
 }
 
 /** An owner's or admin's host replaces the org's key: every wrap and every entry moves to the next generation at once. */
@@ -1757,6 +1792,8 @@ export interface ShareAsked {
   share: ShareId;
   viewer: ShareViewerId;
   sealed: Sealed;
+  /** False for a viewer watching a share open to anyone without signing in, which may read the chat but not write in it. */
+  signedIn?: boolean;
 }
 
 /** Viewer only: a fresh Clerk token for the same user, sent before ready.authExpiresAt. */
@@ -1856,7 +1893,7 @@ export interface ShareFrames {
   frames: ShareFrame[];
 }
 
-/** The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends the share it wants, the proof its link holds and the last frame it holds, if any, and signs in with a Clerk token from the web app or the phone, or, on a Mac, with the host's key and its Ed25519 signature over `sikemux-share-viewer|<nonce>|<key>`. */
+/** The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends the share it wants, the proof its link holds and the last frame it holds, if any, and signs in with a Clerk token from the web app or the phone, or, on a Mac, with the host's key and its Ed25519 signature over `sikemux-share-viewer|<nonce>|<key>`. A share open to anyone may be watched with neither; one that is not closes such a viewer with ShareCloseCode unauthenticated. */
 export interface ShareHello {
   type: "hello";
   role: ShareRole;
@@ -1899,6 +1936,8 @@ export interface ShareOpen {
   share: ShareId;
   expiresAt: string;
   viewers?: ShareViewerCheck;
+  /** Whoever holds the link may watch without signing in. Sent again on an open share to change who may watch it; viewers not signed in are closed when it turns off. */
+  anyone?: boolean;
 }
 
 /** To the host: the share is open and viewers may join. */
@@ -2234,6 +2273,8 @@ export interface Vault {
   /** A host left the account, so a holder should replace the vault key. */
   rotate: boolean;
   entries: VaultEntry[];
+  /** Entries removed from the vault, each at its last revision. A removed entry's id never comes back: the server refuses a write to it and a host takes no entry under it. Absent means none. */
+  ended?: VaultEnded[];
 }
 
 /** A host makes the account's vault, holding its key at generation 1. */
@@ -2242,6 +2283,12 @@ export interface VaultCreate {
   recoveryWrap: VaultSealed;
   /** The vault key sealed for the asking host. */
   key: VaultSealed;
+}
+
+/** An entry removed from the account's vault, at the last revision it had. */
+export interface VaultEnded {
+  id: VaultEntryId;
+  revision: VaultRevision;
 }
 
 /** One sign-in in the vault, sealed under the vault key of its generation. */
@@ -2580,7 +2627,9 @@ export interface Definitions {
   OrgVaultEntryKind: OrgVaultEntryKind;
   OrgVaultEntryPut: OrgVaultEntryPut;
   OrgVaultEntryRead: OrgVaultEntryRead;
+  OrgVaultHolder: OrgVaultHolder;
   OrgVaultKeysAdd: OrgVaultKeysAdd;
+  OrgVaultRemake: OrgVaultRemake;
   OrgVaultRotate: OrgVaultRotate;
   OrgVaultState: OrgVaultState;
   OrgVaultWrapped: OrgVaultWrapped;
@@ -2681,6 +2730,7 @@ export interface Definitions {
   SubscriptionStatus: SubscriptionStatus;
   Vault: Vault;
   VaultCreate: VaultCreate;
+  VaultEnded: VaultEnded;
   VaultEntry: VaultEntry;
   VaultEntryId: VaultEntryId;
   VaultEntryPut: VaultEntryPut;

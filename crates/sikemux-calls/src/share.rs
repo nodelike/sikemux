@@ -21,6 +21,9 @@ pub struct ShareView {
     /// Milliseconds since the Unix epoch.
     pub expires_at: u64,
     pub viewers: u32,
+    /// Whoever holds the link may read it without signing in to Sikemux.
+    #[serde(default)]
+    pub anyone: bool,
     pub state: ShareState,
     /// Why the server would not open it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -43,4 +46,8 @@ pub struct ShareChatParams {
     pub agent_id: String,
     pub lifetime_ms: u64,
     pub title: Option<String>,
+    /// Whoever holds the link may read it without signing in. Changes who may read a chat
+    /// already shared.
+    #[serde(default)]
+    pub anyone: bool,
 }

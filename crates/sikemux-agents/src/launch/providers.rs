@@ -910,26 +910,26 @@ impl Providers {
         let mut state = self.state.locked();
         let custom_stamp = modified(&self.custom_path);
         if custom_stamp != state.custom_stamp {
-            state.custom = std::fs::read(&self.custom_path)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<Vec<Custom>>(&bytes).ok())
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|custom| catalogued(&custom.id).is_none())
-                .map(|custom| Arc::new(custom.provider()))
-                .collect();
+            state.custom = sikemux_process::files::read_or_set_aside(&self.custom_path, |bytes| {
+                serde_json::from_slice::<Vec<Custom>>(bytes)
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|custom| catalogued(&custom.id).is_none())
+            .map(|custom| Arc::new(custom.provider()))
+            .collect();
             state.keys.clear();
             state.custom_stamp = custom_stamp;
         }
         let stamp = modified(&self.path);
         if stamp != state.stamp {
-            state.connected = std::fs::read(&self.path)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<BTreeSet<String>>(&bytes).ok())
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|id| is_keyed(id))
-                .collect();
+            state.connected = sikemux_process::files::read_or_set_aside(&self.path, |bytes| {
+                serde_json::from_slice::<BTreeSet<String>>(bytes)
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|id| is_keyed(id))
+            .collect();
             state.keys.clear();
             state.stamp = stamp;
         }

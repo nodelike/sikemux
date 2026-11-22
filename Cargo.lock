@@ -1981,7 +1981,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
 dependencies = [
  "quote",
- "syn 3.0.6",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -2867,9 +2867,9 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -9757,7 +9757,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-app"
-version = "0.6.3"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -9883,7 +9883,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-buildinfo"
-version = "0.6.3"
+version = "0.6.2"
 dependencies = [
  "hex",
  "sha2 0.11.0",
@@ -9925,9 +9925,7 @@ dependencies = [
  "sikemux-corekit",
  "sikemux-drivers",
  "sikemux-fold",
- "sikemux-kernel",
  "sikemux-process",
- "sikemux-pty",
  "sikemux-serve",
  "sikemux-view",
  "sikemux-wire",
@@ -9963,17 +9961,9 @@ dependencies = [
 name = "sikemux-core"
 version = "0.1.0"
 dependencies = [
- "agent-client-protocol",
  "base64 0.22.1",
- "block2 0.6.2",
- "core-foundation 0.10.1",
- "curve25519-dalek",
  "futures-util",
- "git2",
  "globset",
- "grep-matcher",
- "grep-regex",
- "grep-searcher",
  "hex",
  "hyper",
  "hyper-util",
@@ -9984,13 +9974,10 @@ dependencies = [
  "objc2 0.6.4",
  "objc2-foundation 0.3.2",
  "portable-pty",
- "rayon",
- "regex",
  "reqwest",
  "ring",
  "rusqlite",
  "rustix",
- "security-framework",
  "semver",
  "sentry-core",
  "serde",
@@ -10003,13 +9990,11 @@ dependencies = [
  "sikemux-chat",
  "sikemux-client",
  "sikemux-corekit",
- "sikemux-drivers",
  "sikemux-fold",
  "sikemux-git",
  "sikemux-grid",
  "sikemux-kernel",
  "sikemux-keychain",
- "sikemux-loopback",
  "sikemux-markdown",
  "sikemux-plugin-api",
  "sikemux-process",
@@ -10031,7 +10016,6 @@ dependencies = [
  "trash",
  "url",
  "uuid",
- "webpki-roots",
  "workspace-hack",
 ]
 
@@ -10142,7 +10126,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-gpui"
-version = "0.6.3"
+version = "0.6.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -10225,20 +10209,15 @@ dependencies = [
 
 [[package]]
 name = "sikemux-host"
-version = "0.6.3"
+version = "0.6.2"
 dependencies = [
- "backtrace",
  "base64 0.22.1",
  "image",
  "libc",
  "log",
- "reqwest",
- "rustls",
  "semver",
- "sentry",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "sikemux-agents",
  "sikemux-buildinfo",
  "sikemux-client",
@@ -10274,7 +10253,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-hostkit"
-version = "0.6.3"
+version = "0.6.2"
 dependencies = [
  "backtrace",
  "libc",
@@ -10471,7 +10450,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-plugin-api",
- "sikemux-process",
  "tokio",
  "workspace-hack",
 ]
@@ -10655,7 +10633,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-remote"
-version = "0.6.3"
+version = "0.6.2"
 dependencies = [
  "base64 0.22.1",
  "block2 0.6.2",
@@ -10676,17 +10654,13 @@ dependencies = [
  "sikemux-client",
  "sikemux-corekit",
  "sikemux-fold",
- "sikemux-kernel",
  "sikemux-keychain",
  "sikemux-loopback",
  "sikemux-plugin-api",
  "sikemux-process",
- "sikemux-pty",
- "sikemux-serve",
  "sikemux-trust",
  "sikemux-view",
  "sikemux-wire",
- "sikemux-workspace",
  "tempfile",
  "time",
  "tokio",
@@ -10699,43 +10673,28 @@ dependencies = [
 name = "sikemux-repo"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
- "futures-util",
  "git2",
- "globset",
  "hex",
  "ignore",
  "iroh",
  "libc",
  "notify",
- "rayon",
- "regex",
- "reqwest",
- "semver",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "sikemux-agents",
  "sikemux-base",
  "sikemux-calls",
- "sikemux-chat",
- "sikemux-client",
  "sikemux-corekit",
  "sikemux-fold",
  "sikemux-git",
- "sikemux-kernel",
- "sikemux-keychain",
- "sikemux-markdown",
  "sikemux-plugin-api",
  "sikemux-process",
  "sikemux-pty",
  "sikemux-remote",
- "sikemux-serve",
  "sikemux-view",
  "sikemux-wire",
- "sikemux-workspace",
  "tempfile",
- "thiserror 1.0.69",
  "time",
  "tokio",
  "toml 1.1.6+spec-1.1.0",
@@ -10775,7 +10734,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-simulator"
-version = "0.6.3"
+version = "0.6.2"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -10798,7 +10757,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-trust"
-version = "0.6.3"
+version = "0.6.2"
 dependencies = [
  "base64 0.22.1",
  "minisign-verify",
@@ -10821,7 +10780,7 @@ dependencies = [
 
 [[package]]
 name = "sikemux-voice"
-version = "0.6.3"
+version = "0.6.2"
 dependencies = [
  "hex",
  "objc2-foundation 0.3.2",
@@ -10879,10 +10838,8 @@ dependencies = [
  "sikemux-calls",
  "sikemux-corekit",
  "sikemux-fold",
- "sikemux-kernel",
  "sikemux-keychain",
  "sikemux-process",
- "sikemux-pty",
  "sikemux-serve",
  "sikemux-view",
  "sikemux-wire",
@@ -12411,9 +12368,9 @@ dependencies = [
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",

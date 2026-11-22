@@ -80,6 +80,7 @@ import type {
   OrgVaultEntry,
   OrgVaultEntryPut,
   OrgVaultKeysAdd,
+  OrgVaultRemake,
   OrgVaultRotate,
   OrgVaultState,
   PaddleCheckout,
@@ -536,6 +537,13 @@ export function apiClient(send: Send) {
       send<OrgVaultState>(
         "POST",
         `/v1/orgs/${encodeURIComponent(orgId)}/vault/rotate`,
+        body,
+      ),
+    /** Make the org's vault again, empty, with a new key held only by the asking owner's or admin's host, dropping every entry and every wrap. Its core asks only when no computer can open the vault.. */
+    remakeOrgVault: (orgId: string, body: OrgVaultRemake) =>
+      send<OrgVaultState>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault/remake`,
         body,
       ),
     /** Add an entry to the org's vault, or replace one, as an owner's or admin's host. */

@@ -307,6 +307,15 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .call-row .sp { flex: 1; }
 .call-row .proj, .call-row .agent-name { flex: none; }
 .call-row .age { flex: none; font-size: 11.5px; color: var(--warn); font-variant-numeric: tabular-nums; }
+.calls-line { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; margin-bottom: 4px; border-radius: 12px; background: var(--raised); cursor: pointer; font-size: 13px; }
+.calls-line:hover { background: var(--hover); }
+.calls-line .dot { width: 20px; display: flex; justify-content: center; }
+.calls-line .dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+.calls-line .n { font-weight: 600; flex: none; }
+.calls-line .q { flex: 1; font-size: 11.5px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.calls-line .agent-name { flex: none; }
+.calls-line .age { flex: none; font-size: 11.5px; color: var(--warn); font-variant-numeric: tabular-nums; }
+.calls-line.open svg { transform: rotate(90deg); }
 
 .sub svg { flex: 0 0 auto; margin-right: 4px; color: var(--ink-faint); }
 .sub { display: flex; align-items: center; }
@@ -913,6 +922,7 @@ class Island {
         this.peekAgent = opts.peekAgent || null;
         this.callId = opts.callId || null;
         this.listCall = opts.listCall || null;
+        this.callsOpen = !!opts.callsOpen;
         this.cards = opts.cards || {};
         this.device = opts.device || null;
         this.hover = !!opts.hover;
@@ -983,14 +993,6 @@ class Island {
 
     /** What the person did on call `id`'s card: the rows chosen, the note or own words, whether what runs shows. */
     card(id) { return (this.cards[id] ||= {}); }
-
-    /** What opening shows: the newest call while any waits, else the agents. */
-    opening() {
-        const top = callsOf(this.agents)[0];
-        if (!top) return "open";
-        this.callId = top.id;
-        return "call";
-    }
 
     /** Each wing as wide as what it holds, so a quiet right wing stays small. */
     wings() {
@@ -1134,7 +1136,11 @@ class Island {
                 const items = listed(this.agents);
                 const waiting = callsOf(this.agents);
                 const open = waiting.find((c) => c.id === this.listCall) || waiting[0];
-                body = waiting.map((c) => `
+                const newest = waiting[0];
+                const fold = newest ? `
+                    <div class="calls-line${this.callsOpen ? " open" : ""}" data-calls-fold><span class="dot"></span><span class="n">${waiting.length === 1 ? "1 call" : `${waiting.length} calls`}</span>
+                        <span class="q">${this.callsOpen ? "" : newest.question}</span>${this.callsOpen ? "" : `<span class="agent-name">@${newest.agent.name}</span><span class="age">${newest.age}</span>`}${GLYPH.chevron}</div>` : "";
+                body = fold + (this.callsOpen ? waiting : []).map((c) => `
                     <div class="call-box${c === open ? " open" : ""}">
                         <div class="call-row" data-call-row="${c.id}"><span class="mark">${face(c.agent, "blocked")}</span><span class="q">${c === open ? c.agent.title : c.question}</span><span class="sp"></span>
                             ${c === open ? `<span class="proj">${GLYPH.folderSmall}${c.agent.project}</span>` : ""}<span class="agent-name">@${c.agent.name}</span><span class="age">${c.age}</span></div>
@@ -1286,7 +1292,7 @@ class Island {
             this.hover = true;
             if (this.mode === "closed" || this.mode === "peek-done") {
                 this.render();
-                openTimer = setTimeout(() => { this.mode = this.opening(); this.render(); }, 300);
+                openTimer = setTimeout(() => { this.mode = "open"; this.render(); }, 300);
             }
         });
         this.el.addEventListener("mouseleave", () => {
@@ -1294,7 +1300,7 @@ class Island {
             closeTimer = setTimeout(() => {
                 if (this.el.contains(document.activeElement) && document.activeElement.tagName === "TEXTAREA") return;
                 this.hover = false;
-                if (this.mode === "open" || this.mode === "call") this.mode = "closed";
+                if (this.mode === "open" || this.mode === "call") { this.mode = "closed"; this.callsOpen = false; }
                 this.render();
             }, 100);
         });
@@ -1324,6 +1330,7 @@ class Island {
                 this.answerDevice();
                 return;
             }
+            if (e.target.closest("[data-calls-fold]")) { this.callsOpen = !this.callsOpen; this.render(); return; }
             const row = e.target.closest("[data-call-row]");
             if (row) { this.listCall = row.dataset.callRow; this.render(); return; }
             const callEl = e.target.closest("[data-call]");
@@ -1341,7 +1348,7 @@ class Island {
             if (e.target.closest("[data-go]") && call) {
                 call.agent.calls = call.agent.calls.filter((c) => c.id !== call.id);
                 if (!call.agent.calls.length && call.agent.tier === "needs") Object.assign(call.agent, { tier: "progress", state: "working" });
-                if (this.mode === "call") this.mode = this.hover ? this.opening() : "closed";
+                if (this.mode === "call") this.mode = this.hover ? "open" : "closed";
                 this.render();
                 return;
             }
@@ -1356,7 +1363,7 @@ class Island {
                 const a = this.agents.find((x) => x.id === answer.dataset.id);
                 Object.assign(a, { tier: "progress", state: "working" });
                 delete a.ask;
-                if (this.mode === "peek-ask") this.mode = this.hover ? this.opening() : "closed";
+                if (this.mode === "peek-ask") this.mode = this.hover ? "open" : "closed";
                 this.render();
                 return;
             }
@@ -1377,7 +1384,7 @@ class Island {
     /** Answered, or no longer waiting: the next device asks, or the island folds back. */
     answerDevice() {
         this.device = this.queue?.shift() || null;
-        if (!this.device) this.mode = this.hover ? this.opening() : "closed";
+        if (!this.device) this.mode = this.hover ? "open" : "closed";
         this.render();
     }
 
@@ -1486,18 +1493,18 @@ const SECTIONS = [
         id: "open", letter: "O", title: "Open",
         lede: "Opened by resting the pointer for 0.3 s. The header sits in the menu-bar band, split around the camera: tabs on the left, Sikemux on the right.",
         states: [
-            { id: "O1", name: "Agents", when: "Opened on the Agents tab: by a click or a swipe, or by resting the pointer while no call waits.",
-              shows: "First, each call waiting on the person as a row, as the Mac's popover folds them: the asker's face, the question, who asks and how long it has waited. The newest is open, its row the asker's (what it works on, the project, who and how long), with its card under it, at the list's width, in a raised box; clicking another row opens that one instead. Then every open agent once, in the order the app's rail lists them, the order they started, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission can be answered in place. Clicking a row opens that agent in Sikemux.",
+            { id: "O1", name: "Agents", when: "Opened on the Agents tab: by resting the pointer, a click or a swipe.",
+              shows: "First, while calls wait on the person, one line counting them, with the newest question, who asks and how long it has waited, as wide as the rows under it. A click unfolds it into each call as a row, as the Mac's popover folds them: the asker's face, the question, who asks and how long it has waited. The newest is open, its row the asker's (what it works on, the project, who and how long), with its card under it, at the list's width, in a raised box; clicking another row opens that one instead. Then every open agent once, in the order the app's rail lists them, the order they started, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission can be answered in place. Clicking a row opens that agent in Sikemux.",
               leaves: "The pointer leaves, and 0.1 s later it closes.", opts: { agents: () => freshAgents(), mode: "open" } },
-            { id: "O1b", name: "A tall call in the list", when: "Opened on the agents while a call with pictures is the one open.",
+            { id: "O1b", name: "A tall call in the list", when: "Opened on the agents with the calls unfolded and a call with pictures the one open.",
               shows: "The list grows to hold the open card whole, its pictures, its options and its footer, up to the screen's height. A card taller than that scrolls the list so its footer, with Go with this, stays in view.",
-              leaves: "As O1.", opts: { agents: () => only(["a1", "a2", "a9", "a12"]), mode: "open", listCall: "t1" } },
+              leaves: "As O1.", opts: { agents: () => only(["a1", "a2", "a9", "a12"]), mode: "open", listCall: "t1", callsOpen: true } },
             { id: "O1c", name: "A weighty call in the list", when: "Opened on the agents with a step to production open and its What runs unfolded.",
               shows: "The same: the brief, the evidence's page, the options, the point against, the command, and the footer, all within reach.",
-              leaves: "As O1.", opts: { agents: () => only(["a1", "a2", "a13"]), mode: "open", listCall: "w1", cards: { w1: { runs: true } } } },
-            { id: "O8", name: "Calls waiting", when: "The pointer rests on the island while calls wait on the person.",
-              shows: "The newest call alone, as its card (P4), rather than the agents. Answering it moves on to the next call, and the last one answered opens the agents (O1). A click on the island, away from the card's controls, opens the agents with the calls at the top.",
-              leaves: "The pointer leaves, and 0.1 s later it closes, unless something is typed in the card's field.", opts: { agents: () => freshAgents(), mode: "call", callId: "q1" } },
+              leaves: "As O1.", opts: { agents: () => only(["a1", "a2", "a13"]), mode: "open", listCall: "w1", callsOpen: true, cards: { w1: { runs: true } } } },
+            { id: "O8", name: "Calls waiting", when: "Opened while calls wait on the person.",
+              shows: "The agents, as O1, led by the calls folded to one line. Clicking it unfolds the calls with the newest open as its card (O1b); clicking it again folds them. A click on a call's peek (P4) opens the list unfolded on that call.",
+              leaves: "As O1; the calls fold again the next time the island opens.", opts: { agents: () => freshAgents(), mode: "open" } },
             { id: "O2", name: "New agent", when: "Opened, on the New agent tab.",
               shows: "Sikemux's own composer: add files, the yolo toggle, the model picker (agent mark + model, in accent), effort, project and send.",
               leaves: "Send (⏎) starts the agent and goes to O1 with it on top. Stays open on leave while a draft is typed; clicking elsewhere closes it and keeps the draft.",

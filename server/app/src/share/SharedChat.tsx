@@ -27,6 +27,7 @@ import {
   AgentIcon,
   IconArrowDown,
   IconArrowUp,
+  IconClose,
   IconEye,
   IconPlug,
 } from "@shared/ui/Icons";
@@ -36,6 +37,9 @@ import {
   type ShareSnapshot,
 } from "@shared/share/session";
 import { appShareLink, type ShareLink } from "@shared/share/link";
+import { agentLabel } from "@shared/agents/catalog";
+import sikemuxLockup from "../../../../brand/wordmark/lockup-white.svg";
+import sikemuxMark from "../../../../brand/mark/mark-purple.svg";
 import "../chat/styles/chat.css";
 import "../chat/styles/share.css";
 import { formatTimeLeft } from "@shared/lib/format";
@@ -49,6 +53,9 @@ const PROBLEMS: Partial<Record<ShareSnapshot["status"], string>> = {
     "This link does not open the chat it points at. Check that the whole link was copied.",
 };
 
+const GET_SIKEMUX =
+  "https://sikemux.com/?utm_source=share&utm_medium=share&utm_campaign=public-link";
+
 function endedText(snapshot: ShareSnapshot): string {
   return snapshot.endedBecause === "expired"
     ? "This share has expired."
@@ -58,6 +65,8 @@ function endedText(snapshot: ShareSnapshot): string {
 /**
  * Someone's chat, shared: the same header and transcript as the agent's own pane, a composer
  * whose messages wait for the sharer to send or dismiss, and a line saying how long it stays open.
+ * Someone reading without signing in gets the transcript under a plain bar instead, and a word on
+ * where to get Sikemux where the composer would be.
  */
 export function SharedChat({
   session,
@@ -112,9 +121,23 @@ export function SharedChat({
       : PROBLEMS[snapshot.status];
   const title = sharedChatTitle(snapshot);
   const guests = state.guests ?? [];
+  const reader = !snapshot.signedIn;
 
   const before = (
     <>
+      {reader && (
+        <div className="shared-reader-head">
+          <h1>{title}</h1>
+          <div className="shared-reader-meta">
+            <span className={`agent-glyph ${type}`} aria-hidden="true">
+              <AgentIcon type={type} size={13} />
+            </span>
+            <span>
+              {[agentLabel(type), chat?.model].filter(Boolean).join(" · ")}
+            </span>
+          </div>
+        </div>
+      )}
       {snapshot.hasEarlier && (
         <EarlierTurns
           state={snapshot.earlier}
@@ -148,34 +171,40 @@ export function SharedChat({
         <ChatAgentContext.Provider value={type}>
           <ChatSubagentsContext.Provider value={subagents}>
             <ToolDetailContext.Provider value={toolDetail}>
-              <section className="agent-surface shared-chat">
-                <header className="agent-surface-header">
-                  <div className="agent-surface-name">
-                    <span
-                      className={`agent-surface-mark agent-glyph ${type}`}
-                      aria-hidden="true"
-                    >
-                      <AgentIcon type={type} size={16} />
-                    </span>
-                    <span className="agent-surface-title" title={title}>
-                      {title}
-                    </span>
-                  </div>
-                  <div className="agent-surface-controls">
-                    <span className="shared-chat-badge">
-                      <IconEye size={13} />
-                      <span>Guest</span>
-                    </span>
-                    <div className="agent-view-switch">
-                      <button
-                        type="button"
-                        onClick={() => location.assign(appShareLink(link))}
+              <section
+                className={`agent-surface shared-chat${reader ? " shared-reader" : ""}`}
+              >
+                {reader ? (
+                  <ReaderBar />
+                ) : (
+                  <header className="agent-surface-header">
+                    <div className="agent-surface-name">
+                      <span
+                        className={`agent-surface-mark agent-glyph ${type}`}
+                        aria-hidden="true"
                       >
-                        Open in Sikemux
-                      </button>
+                        <AgentIcon type={type} size={16} />
+                      </span>
+                      <span className="agent-surface-title" title={title}>
+                        {title}
+                      </span>
                     </div>
-                  </div>
-                </header>
+                    <div className="agent-surface-controls">
+                      <span className="shared-chat-badge">
+                        <IconEye size={13} />
+                        <span>Guest</span>
+                      </span>
+                      <div className="agent-view-switch">
+                        <button
+                          type="button"
+                          onClick={() => location.assign(appShareLink(link))}
+                        >
+                          Open in Sikemux
+                        </button>
+                      </div>
+                    </div>
+                  </header>
+                )}
                 <div className="agent-surface-body">
                   <div className="agent-gui-layer">
                     <div className="agent-chat-pane">
@@ -210,11 +239,15 @@ export function SharedChat({
                             folds={liveFolds}
                           />
                         )}
-                        {snapshot.status === "live" && (
-                          <GuestComposer
-                            session={session}
-                            hostOnline={snapshot.hostOnline}
-                          />
+                        {reader ? (
+                          <GetSikemux />
+                        ) : (
+                          snapshot.status === "live" && (
+                            <GuestComposer
+                              session={session}
+                              hostOnline={snapshot.hostOnline}
+                            />
+                          )
                         )}
                         <SharedChatFoot snapshot={snapshot} />
                       </div>
@@ -228,6 +261,48 @@ export function SharedChat({
         </ChatAgentContext.Provider>
       </PathRootsProvider>
     </RemoteOriginContext>
+  );
+}
+
+/** The bar over a chat read without signing in: whose app it is, that it is read-only, and where to get it. */
+function ReaderBar() {
+  return (
+    <header className="shared-reader-top">
+      <a href={GET_SIKEMUX} aria-label="Sikemux">
+        <img src={sikemuxLockup} alt="Sikemux" />
+      </a>
+      <span className="shared-chat-badge">
+        <IconEye size={13} />
+        <span>Read-only</span>
+      </span>
+      <a className="shared-reader-get" href={GET_SIKEMUX}>
+        Get Sikemux
+      </a>
+    </header>
+  );
+}
+
+/** Where a signed-in viewer's composer would be: what Sikemux is, until the reader closes it. */
+function GetSikemux() {
+  const [closed, setClosed] = useState(false);
+  if (closed) return null;
+  return (
+    <aside className="shared-reader-callout">
+      <img src={sikemuxMark} alt="" />
+      <div>
+        <div className="shared-reader-callout-title">
+          Watching a chat from Sikemux
+        </div>
+        <div>
+          A whole team of AI coders, in one window. Free for Mac, Windows and
+          Linux.
+        </div>
+      </div>
+      <a href={GET_SIKEMUX}>Get Sikemux</a>
+      <button type="button" aria-label="Close" onClick={() => setClosed(true)}>
+        <IconClose size={12} />
+      </button>
+    </aside>
   );
 }
 

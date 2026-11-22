@@ -9,10 +9,8 @@ sikemux-agents = { path = "../sikemux-agents" }
 sikemux-base = { path = "../sikemux-base" }
 sikemux-calls = { path = "../sikemux-calls" }
 sikemux-corekit = { path = "../sikemux-corekit" }
-sikemux-kernel = { path = "../sikemux-kernel" }
 sikemux-keychain = { path = "../sikemux-keychain" }
 sikemux-process = { path = "../sikemux-process" }
-sikemux-pty = { path = "../sikemux-pty" }
 sikemux-serve = { path = "../sikemux-serve" }
 sikemux-view = { path = "../sikemux-view" }
 sikemux-wire = { path = "../sikemux-wire" }

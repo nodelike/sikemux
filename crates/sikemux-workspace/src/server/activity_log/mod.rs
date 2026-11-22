@@ -324,8 +324,11 @@ impl ActivityLog {
     fn price_overrides(&self) -> HashMap<String, PriceOverride> {
         self.prices_path
             .as_ref()
-            .and_then(|path| fs::read(path).ok())
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .and_then(|path| {
+                sikemux_process::files::read_or_set_aside(path, |bytes| {
+                    serde_json::from_slice(bytes)
+                })
+            })
             .unwrap_or_default()
     }
 
@@ -352,7 +355,12 @@ impl ActivityLog {
     }
 
     /// `offset_ms` places each event on the person's own calendar day.
-    pub fn summary(&self, offset_ms: i64, project: Option<&str>) -> ActivitySummary {
+    pub fn summary(
+        &self,
+        offset_ms: i64,
+        project: Option<&str>,
+        since_ms: Option<i64>,
+    ) -> ActivitySummary {
         let overrides = self.price_overrides();
         let feed = self.feed.as_ref().map(Feed::current).unwrap_or_default();
         let prices = Prices::new(&feed, &overrides);
@@ -363,6 +371,7 @@ impl ActivityLog {
                     offset_ms.clamp(-DAY_MS, DAY_MS),
                     epoch_ms() as i64,
                     project,
+                    since_ms,
                     &prices,
                 )
             })
@@ -661,12 +670,14 @@ fn summarize(
     offset_ms: i64,
     now_ms: i64,
     project: Option<&str>,
+    since_ms: Option<i64>,
     prices: &Prices,
 ) -> rusqlite::Result<ActivitySummary> {
+    let since = since_ms.unwrap_or(i64::MIN);
     let mut totals = db.query_row(
         "SELECT COUNT(*), COALESCE(SUM(resumed), 0), MIN(at_ms) FROM launches
-         WHERE ?1 IS NULL OR project = ?1",
-        [project],
+         WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
+        params![project, since],
         |row| {
             Ok(ActivityTotals {
                 sessions: row.get(0)?,
@@ -678,13 +689,13 @@ fn summarize(
     )?;
     (totals.turns, totals.agent_ms) = db.query_row(
         "SELECT COUNT(*), COALESCE(SUM(ended_ms - started_ms), 0) FROM turns
-         WHERE ?1 IS NULL OR project = ?1",
-        [project],
+         WHERE (?1 IS NULL OR project = ?1) AND started_ms >= ?2",
+        params![project, since],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     (totals.commits, totals.agent_commits) = db.query_row(
-        "SELECT COUNT(*), COUNT(agent) FROM commits WHERE ?1 IS NULL OR project = ?1",
-        [project],
+        "SELECT COUNT(*), COUNT(agent) FROM commits WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
+        params![project, since],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     (
@@ -695,8 +706,8 @@ fn summarize(
     ) = db.query_row(
         "SELECT COALESCE(SUM(input), 0), COALESCE(SUM(output), 0),
                 COALESCE(SUM(cache_read), 0), COALESCE(SUM(cache_write), 0) FROM tokens
-         WHERE ?1 IS NULL OR project = ?1",
-        [project],
+         WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
+        params![project, since],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
 
@@ -706,31 +717,31 @@ fn summarize(
     let mut projects: HashMap<String, ActivityShare> = HashMap::new();
     let queries: [Tally; 4] = [
         (
-            "SELECT at_ms, agent, project, 1 FROM launches WHERE ?1 IS NULL OR project = ?1",
+            "SELECT at_ms, agent, project, 1 FROM launches WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
             |day, n| day.sessions += n,
             |share, n| share.sessions += n,
         ),
         (
             "SELECT started_ms, agent, project, ended_ms - started_ms FROM turns
-             WHERE ?1 IS NULL OR project = ?1",
+             WHERE (?1 IS NULL OR project = ?1) AND started_ms >= ?2",
             |day, n| day.agent_ms += n,
             |share, n| share.agent_ms += n,
         ),
         (
-            "SELECT at_ms, agent, project, 1 FROM commits WHERE ?1 IS NULL OR project = ?1",
+            "SELECT at_ms, agent, project, 1 FROM commits WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
             |day, n| day.commits += n,
             |share, n| share.commits += n,
         ),
         (
             "SELECT at_ms, agent, project, input + output + cache_write FROM tokens
-             WHERE ?1 IS NULL OR project = ?1",
+             WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
             |day, n| day.tokens += n,
             |share, n| share.tokens += n,
         ),
     ];
     for (sql, add_day, add_share) in queries {
         let mut statement = db.prepare(sql)?;
-        let mut rows = statement.query([project])?;
+        let mut rows = statement.query(params![project, since])?;
         while let Some(row) = rows.next()? {
             let at_ms: i64 = row.get(0)?;
             let agent: Option<String> = row.get(1)?;
@@ -771,9 +782,9 @@ fn summarize(
     let mut models: HashMap<String, ActivityModel> = HashMap::new();
     let mut statement = db.prepare(
         "SELECT at_ms, agent, project, model, speed, input, output, cache_read, cache_write FROM tokens
-         WHERE ?1 IS NULL OR project = ?1",
+         WHERE (?1 IS NULL OR project = ?1) AND at_ms >= ?2",
     )?;
-    let mut rows = statement.query([project])?;
+    let mut rows = statement.query(params![project, since])?;
     while let Some(row) = rows.next()? {
         let at_ms: i64 = row.get(0)?;
         let agent: String = row.get(1)?;
@@ -962,6 +973,7 @@ pub async fn summary_for(
         Ok(core.activity_log().summary(
             params.utc_offset_minutes * 60_000,
             params.project.as_deref(),
+            params.since_ms,
         ))
     })
     .await
@@ -1036,7 +1048,7 @@ mod tests {
         ))
         .unwrap();
         let prices = Prices::new(&Default::default(), &HashMap::new());
-        let summary = summarize(&db, -60_000, day + DAY_MS, None, &prices).unwrap();
+        let summary = summarize(&db, -60_000, day + DAY_MS, None, None, &prices).unwrap();
         assert_eq!(summary.totals.sessions, 2);
         assert_eq!(summary.totals.resumed, 1);
         assert_eq!(summary.totals.agent_ms, 60_000);
@@ -1049,7 +1061,7 @@ mod tests {
         assert_eq!(summary.projects[0].name, "/p/b");
         assert_eq!(summary.projects[0].commits, 2);
 
-        let only_a = summarize(&db, -60_000, day + DAY_MS, Some("/p/a"), &prices).unwrap();
+        let only_a = summarize(&db, -60_000, day + DAY_MS, Some("/p/a"), None, &prices).unwrap();
         assert_eq!(only_a.totals.sessions, 1);
         assert_eq!(only_a.totals.commits, 0);
         assert_eq!(only_a.days[0].tokens, 6);

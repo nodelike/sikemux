@@ -149,8 +149,6 @@ pub fn provide_to_core(data_dir: &Path) -> Option<Provided> {
         Ok(host) => {
             let _ = SHELL_VARIABLES.set(host.shell_variables());
             let plugins: Box<dyn Plugins> = Box::new(host);
-            #[cfg(feature = "fake-plugins")]
-            let plugins: Box<dyn Plugins> = Box::new(super::fake::Fake(plugins));
             Some(Provided(Box::leak(plugins)))
         }
         Err(error) => {

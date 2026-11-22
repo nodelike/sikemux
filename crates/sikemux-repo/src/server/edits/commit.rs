@@ -155,7 +155,7 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
     }
     let message = match request.params.get("message") {
         Some(Value::String(message)) => Some(message.clone()),
-        None | Some(Value::Null) if sync || land || push => None,
+        None | Some(Value::Null) => None,
         _ => return Err("message must be the commit message".into()),
     };
     let named: Vec<String> = match request.params.get("paths") {
@@ -168,6 +168,10 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
     let core = core.clone();
     blocking(move || {
         let (dir, named) = checkout_for(&core, &agent_id, &project, &named)?;
+        let message = message.or_else(|| Underway::of(&dir).ok()?.message);
+        if message.is_none() && !(sync || land || push) {
+            return Err("message must be the commit message".to_owned().into());
+        }
         let own =
             super::land::own_checkout(&core, &agent_id).filter(|tree| dir.starts_with(&tree.path));
         if land && own.as_ref().is_some_and(|tree| super::push::on_release_line(&tree.path)) {
@@ -278,12 +282,17 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
 
 /// Pushes from `from` as `agent`, answering within [`PUSH_ANSWER_WAIT`]: none
 /// when the push is still going, and the agent is then woken with how it went.
+/// A push asked for while one from the same checkout runs joins it rather than
+/// running the repository's pre-push hook a second time beside it.
 fn push_or_tell(
     core: &Arc<Core>,
     from: PathBuf,
     agent: &str,
     force: bool,
 ) -> Result<Option<super::push::Pushed>, String> {
+    let Some(running) = Running::start(&from, agent) else {
+        return Ok(None);
+    };
     let (answer, answered) = std::sync::mpsc::channel();
     let runtime = tokio::runtime::Handle::try_current().ok();
     let (owner, agent) = (core.clone(), agent.to_owned());
@@ -297,20 +306,27 @@ fn push_or_tell(
                     false => super::push::push(&owner, &from, agents, "origin"),
                 },
             );
-        let Err(std::sync::mpsc::SendError(pushed)) = answer.send(pushed) else {
-            return;
-        };
-        if let (Ok(pushed), Some(runtime)) = (&pushed, &runtime) {
-            super::push::tell_sent_back(&owner, runtime, pushed);
-        }
-        let text = match pushed {
+        let mut waiting = running.finish();
+        let text = match &pushed {
             Ok(pushed) => format!(
                 "Your push ended: {}",
-                serde_json::to_string(&pushed).unwrap_or_default()
+                serde_json::to_string(pushed).unwrap_or_default()
             ),
             Err(why) => format!("Your push failed: {why}"),
         };
-        if let Some(runtime) = runtime {
+        match answer.send(pushed) {
+            Ok(()) => waiting.retain(|other| *other != agent),
+            Err(std::sync::mpsc::SendError(pushed)) => {
+                if let (Ok(pushed), Some(runtime)) = (&pushed, &runtime) {
+                    super::push::tell_sent_back(&owner, runtime, pushed);
+                }
+            }
+        }
+        let Some(runtime) = runtime else {
+            return;
+        };
+        for agent in waiting {
+            let (owner, text) = (owner.clone(), text.clone());
             runtime.spawn(async move {
                 let told = (owner.repo_above().messages_work_from_sikemux)(
                     &owner,
@@ -327,6 +343,46 @@ fn push_or_tell(
     match answered.recv_timeout(PUSH_ANSWER_WAIT) {
         Ok(pushed) => pushed.map(Some),
         Err(_) => Ok(None),
+    }
+}
+
+/// Pushes running from a checkout, with the agents to tell how each went.
+static RUNNING: std::sync::Mutex<BTreeMap<PathBuf, Vec<String>>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+/// A push running from one checkout, ended when dropped.
+struct Running(PathBuf);
+
+impl Running {
+    /// None when a push from `from` is already running; `agent` then hears how that one went.
+    fn start(from: &Path, agent: &str) -> Option<Self> {
+        let mut running = RUNNING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(waiting) = running.get_mut(from) {
+            if !waiting.iter().any(|other| other == agent) {
+                waiting.push(agent.to_owned());
+            }
+            return None;
+        }
+        running.insert(from.to_owned(), vec![agent.to_owned()]);
+        Some(Self(from.to_owned()))
+    }
+
+    fn finish(self) -> Vec<String> {
+        let mut running = RUNNING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        running.remove(&self.0).unwrap_or_default()
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let mut running = RUNNING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        running.remove(&self.0);
     }
 }
 
@@ -569,12 +625,14 @@ pub fn commit(
             .iter()
             .map(|path| in_checkout(&diff.top, dir, path))
             .collect::<Result<Vec<_>, _>>()?;
+        let underway = Underway::of(&diff.top)?;
+        let merging = underway.paths(&diff)?;
         let mine = super::owners::standing_for(&owners, core, agent_id);
         let Plan {
             mut changes,
             left,
             unchanged,
-        } = plan(&owners, &diff, mine, &named)?;
+        } = plan(&owners, &diff, mine, &named, &merging)?;
         if changes.is_empty() && !unchanged.is_empty() {
             return Err(Refusal::NothingYours(format!(
                 "Nothing was committed: {} {} nothing uncommitted in {}. A file changed in another checkout goes by its absolute path.",
@@ -614,7 +672,7 @@ pub fn commit(
             );
             crate::trailers::append(message, &footer)
         };
-        let (commit, message, blobs) = build(&diff, &changes, signed)?;
+        let (commit, message, blobs) = build(&diff, &underway.merged, &changes, signed)?;
         let old = diff
             .base
             .clone()
@@ -633,7 +691,9 @@ pub fn commit(
                     committer::record(core, &diff.top, &commit, signer);
                 }
                 tidy(&diff.top, &changes, &unformatted);
-                let note = share(&diff.top, &changes, &blobs).err();
+                underway.finish();
+                let resolved = !underway.merged.is_empty();
+                let note = share(&diff.top, &changes, &blobs, resolved).err();
                 let paths: Vec<String> = changes.iter().map(|change| change.path.clone()).collect();
                 commit_made(
                     core,
@@ -832,7 +892,9 @@ fn plan(
     diff: &Diff,
     mine: HashSet<usize>,
     named: &[String],
+    merging: &[String],
 ) -> Result<Plan, String> {
+    let whole: Vec<String> = named.iter().chain(merging).cloned().collect();
     let mut paths: BTreeSet<&str> = diff
         .changed
         .keys()
@@ -851,7 +913,7 @@ fn plan(
     };
     paths.extend(deleted.split('\0').filter(|path| !path.is_empty()));
     if !named.is_empty() {
-        paths.retain(|path| names(named, path) || is_lockfile(path));
+        paths.retain(|path| names(&whole, path) || is_lockfile(path));
     }
     let unchanged: Vec<String> = named
         .iter()
@@ -877,15 +939,20 @@ fn plan(
     let mut changes = Vec::new();
     let mut left = Vec::new();
     for path in rest {
-        planner.take(path, names(named, path), &mut changes, &mut left)?;
+        planner.take(path, names(&whole, path), &mut changes, &mut left)?;
     }
     for lock in locks {
         let follows = changes.iter().any(|change| locks_for(lock, &change.path));
-        if named.is_empty() || follows || names(named, lock) {
-            planner.take(lock, follows || names(named, lock), &mut changes, &mut left)?;
+        if named.is_empty() || follows || names(&whole, lock) {
+            planner.take(
+                lock,
+                follows || names(&whole, lock),
+                &mut changes,
+                &mut left,
+            )?;
         }
     }
-    let untaken: Vec<&Left> = named
+    let untaken: Vec<&Left> = whole
         .iter()
         .filter(|path| paths.contains(path.as_str()))
         .filter(|path| !changes.iter().any(|change| change.path == **path))
@@ -1222,6 +1289,7 @@ fn tree_entries<'a>(
 /// each change wrote.
 fn build(
     diff: &Diff,
+    merged: &[String],
     changes: &[Change],
     signed: impl FnOnce(&Commit) -> String,
 ) -> Result<(String, String, Vec<Option<String>>), String> {
@@ -1254,7 +1322,7 @@ fn build(
         Some(&info),
     )?;
     let tree = git_in(&diff.top, &["write-tree"], index)?;
-    let parents = Vec::from_iter(diff.base.clone());
+    let parents: Vec<String> = diff.base.iter().chain(merged).cloned().collect();
     let message = signed(&Commit {
         tree: &tree,
         parents: &parents,
@@ -1301,6 +1369,77 @@ fn entries<'a>(set: impl Iterator<Item = (&'a Change, &'a Option<String>)>) -> V
     info.into_bytes()
 }
 
+/// A merge, cherry-pick or revert git stopped partway through in a checkout, which the next
+/// commit finishes as `git commit` would.
+struct Underway {
+    git_dir: PathBuf,
+    /// The commits a merge brings in, which become parents beside HEAD.
+    merged: Vec<String>,
+    /// MERGE_MSG without its comment lines.
+    message: Option<String>,
+}
+
+impl Underway {
+    fn of(dir: &Path) -> Result<Self, String> {
+        let git_dir = PathBuf::from(git(dir, &["rev-parse", "--absolute-git-dir"])?.trim());
+        let merged = std::fs::read_to_string(git_dir.join("MERGE_HEAD"))
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect();
+        let message = std::fs::read_to_string(git_dir.join("MERGE_MSG"))
+            .ok()
+            .map(|text| {
+                let kept: Vec<&str> = text.lines().filter(|line| !line.starts_with('#')).collect();
+                kept.join("\n").trim().to_owned()
+            })
+            .filter(|message| !message.is_empty());
+        Ok(Self {
+            git_dir,
+            merged,
+            message,
+        })
+    }
+
+    /// The paths a merge changed, staged or still in conflict, which its commit takes whole.
+    fn paths(&self, diff: &Diff) -> Result<Vec<String>, String> {
+        let Some(base) = diff.base.as_deref().filter(|_| !self.merged.is_empty()) else {
+            return Ok(Vec::new());
+        };
+        let listed = git(
+            &diff.top,
+            &[
+                "diff-index",
+                "--cached",
+                "-z",
+                "--name-only",
+                "--no-renames",
+                base,
+            ],
+        )?;
+        Ok(listed
+            .split('\0')
+            .filter(|path| !path.is_empty())
+            .map(str::to_owned)
+            .collect())
+    }
+
+    /// Forgets the merge, cherry-pick or revert, leaving the steps of a longer sequence for
+    /// `git cherry-pick --continue`.
+    fn finish(&self) {
+        for file in [
+            "MERGE_HEAD",
+            "MERGE_MSG",
+            "MERGE_MODE",
+            "AUTO_MERGE",
+            "CHERRY_PICK_HEAD",
+            "REVERT_HEAD",
+        ] {
+            let _ = std::fs::remove_file(self.git_dir.join(file));
+        }
+    }
+}
+
 /// A private index file, gone once the commit is built.
 struct Scratch(PathBuf);
 
@@ -1311,8 +1450,14 @@ impl Drop for Scratch {
 }
 
 /// Brings the committed changes into the shared index, so what others had
-/// staged stays staged and nothing shows as undoing the commit.
-fn share(top: &Path, changes: &[Change], blobs: &[Option<String>]) -> Result<(), String> {
+/// staged stays staged and nothing shows as undoing the commit. A merge's
+/// commit settles the paths still in conflict there.
+fn share(
+    top: &Path,
+    changes: &[Change],
+    blobs: &[Option<String>],
+    resolved: bool,
+) -> Result<(), String> {
     let specs: Vec<String> = changes.iter().map(|change| literal(&change.path)).collect();
     let mut args = vec!["ls-files", "-s", "-z", "--"];
     args.extend(specs.iter().map(String::as_str));
@@ -1334,6 +1479,7 @@ fn share(top: &Path, changes: &[Change], blobs: &[Option<String>]) -> Result<(),
         let before = change.before.as_deref();
         let merged = match (shared, before, blob.as_deref()) {
             (Some(Some(shared)), _, Some(blob)) if shared == blob => continue,
+            (Some(None), _, blob) if resolved => Some(blob.map(str::to_owned)),
             (None, None, Some(blob)) => Some(Some(blob.to_owned())),
             (Some(Some(shared)), Some(before), _) if shared == before => Some(blob.clone()),
             (Some(Some(shared)), before, Some(blob)) => merge(top, shared, before, blob).map(Some),
@@ -1474,7 +1620,7 @@ mod tests {
         };
         let diff = super::super::owners::read_diff(&top, false, false, None, false).unwrap();
         let mine = HashSet::from([0]);
-        let changes = plan(&owners, &diff, mine, &["Cargo.toml".to_owned()])
+        let changes = plan(&owners, &diff, mine, &["Cargo.toml".to_owned()], &[])
             .unwrap()
             .changes;
         let taken: Vec<&str> = changes.iter().map(|change| change.path.as_str()).collect();
@@ -1511,7 +1657,7 @@ mod tests {
         let diff = super::super::owners::read_diff(&top, false, false, None, false).unwrap();
         let taken = |named: &[&str]| {
             let named: Vec<String> = named.iter().map(|path| (*path).to_owned()).collect();
-            let changes = plan(&owners, &diff, HashSet::from([0, 1]), &named)
+            let changes = plan(&owners, &diff, HashSet::from([0, 1]), &named, &[])
                 .unwrap()
                 .changes;
             changes
@@ -1521,5 +1667,65 @@ mod tests {
         };
         assert_eq!(taken(&[]), ["seen.rs"]);
         assert_eq!(taken(&["protocol.rs"]), ["protocol.rs"]);
+    }
+
+    /// @Xiaolan merged origin/main into her branch, settled the clash and committed with
+    /// git_commit, which gave the commit HEAD alone as parent: the PR listed 119 of main's files.
+    #[test]
+    fn committing_a_merge_keeps_what_it_merged_as_a_parent() {
+        use super::super::tests_git::git_in;
+        let top = tempfile::tempdir().unwrap();
+        let top = sikemux_process::files::real_path(top.path()).unwrap();
+        git_in(&top, &["init", "-q", "-b", "main"]);
+        git_in(&top, &["config", "user.name", "t"]);
+        git_in(&top, &["config", "user.email", "t@t"]);
+        std::fs::write(top.join("a.txt"), "one\n").unwrap();
+        git_in(&top, &["add", "."]);
+        git_in(&top, &["commit", "-qm", "base"]);
+        git_in(&top, &["checkout", "-qb", "feature"]);
+        std::fs::write(top.join("a.txt"), "one, the feature's\n").unwrap();
+        git_in(&top, &["commit", "-qam", "feature"]);
+        git_in(&top, &["checkout", "-q", "main"]);
+        std::fs::write(top.join("a.txt"), "one, main's\n").unwrap();
+        std::fs::write(top.join("b.txt"), "only on main\n").unwrap();
+        git_in(&top, &["add", "."]);
+        git_in(&top, &["commit", "-qm", "main"]);
+        let main = git_in(&top, &["rev-parse", "main"]);
+        git_in(&top, &["checkout", "-q", "feature"]);
+        assert!(run(&top, &["merge", "main"], None, None).is_err());
+        std::fs::write(top.join("a.txt"), "one, both\n").unwrap();
+
+        let diff = super::super::owners::read_diff(&top, false, false, None, false).unwrap();
+        let underway = Underway::of(&top).unwrap();
+        assert_eq!(
+            underway.message.as_deref(),
+            Some("Merge branch 'main' into feature")
+        );
+        let merging = underway.paths(&diff).unwrap();
+        assert_eq!(merging, ["a.txt", "b.txt"]);
+        let nobody = Owners {
+            authors: Vec::new(),
+            files: Vec::new(),
+        };
+        let changes = plan(&nobody, &diff, HashSet::new(), &[], &merging)
+            .unwrap()
+            .changes;
+        let message = underway.message.clone().unwrap();
+        let (commit, _, blobs) = build(&diff, &underway.merged, &changes, |_| message).unwrap();
+        let head = diff.base.clone().unwrap();
+        git_in(&top, &["update-ref", "refs/heads/feature", &commit, &head]);
+        underway.finish();
+        share(&top, &changes, &blobs, true).unwrap();
+
+        assert_eq!(
+            git_in(&top, &["rev-list", "--parents", "-1", "HEAD"]),
+            format!("{commit} {head} {main}")
+        );
+        assert_eq!(git_in(&top, &["status", "--porcelain"]), "");
+        assert!(!top.join(".git/MERGE_HEAD").exists());
+        assert_eq!(
+            git_in(&top, &["diff", "--name-only", "main", "HEAD"]),
+            "a.txt"
+        );
     }
 }

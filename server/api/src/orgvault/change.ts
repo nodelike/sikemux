@@ -5,6 +5,7 @@ import type {
   OrgVaultEntryPut,
   OrgVaultEntryRead,
   OrgVaultKeysAdd,
+  OrgVaultRemake,
   OrgVaultRotate,
   OrgWrappedKey,
 } from "@sikemux/protocol";
@@ -13,10 +14,12 @@ import { sql, type Transaction } from "kysely";
 import { audit, type AuditAction } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
+import type { Presence } from "../live/hub.ts";
 import { ApiFailure, badRequest, forbidden, notFound } from "../http.ts";
 import {
   ENTRY_COLUMNS,
   memberHosts,
+  opensOwnWrap,
   PROJECT_KINDS,
   PROJECT_MEMORY,
   PROJECT_MEMORY_DROPS,
@@ -138,7 +141,10 @@ export async function vaultChanged(trx: Transaction<Tables>, orgId: string) {
   );
 }
 
-/** Keeps the last revision of each removed entry, for the next entry under its id to start above. */
+/**
+ * Marks each removed entry one revision above its last, so a write from a host that read it
+ * before it went is refused and only a host that saw it go can add an entry under its id.
+ */
 export async function keepEnded(
   trx: Transaction<Tables>,
   orgId: string,
@@ -148,7 +154,11 @@ export async function keepEnded(
   await trx
     .insertInto("org_vault_ended")
     .values(
-      removed.map(({ id, revision }) => ({ org_id: orgId, id, revision })),
+      removed.map(({ id, revision }) => ({
+        org_id: orgId,
+        id,
+        revision: revision + 1,
+      })),
     )
     .onConflict((oc) =>
       oc.columns(["org_id", "id"]).doUpdateSet({
@@ -308,6 +318,76 @@ export async function rotateOrgVault(
     generation: next,
     hosts: keys.length,
     entries: entries.length,
+  });
+}
+
+/**
+ * For when no computer can open the vault any more: everything sealed under the old key is
+ * dropped, and the asking host's key at the next generation is the only one. Refused when the
+ * vault opens on the asking host, or while a computer that would seal the key for it may be online.
+ */
+export async function remakeOrgVault(
+  trx: Transaction<Tables>,
+  asker: Asker,
+  { from, key }: OrgVaultRemake,
+  presence: Presence,
+): Promise<void> {
+  const { orgId, userId, hostKey } = asker;
+  atCurrent((await lockedVault(trx, orgId)).generation, from);
+  const holders = await memberHosts(trx, orgId)
+    .innerJoin("org_vault_keys", (join) =>
+      join
+        .onRef("org_vault_keys.host_key", "=", "devices.key")
+        .on("org_vault_keys.org_id", "=", orgId)
+        .on("org_vault_keys.generation", "=", from),
+    )
+    .select(["org_vault_keys.host_key", "org_vault_keys.wrapped_by"])
+    .orderBy("devices.created_at")
+    .execute();
+  if (opensOwnWrap(hostKey, holders))
+    throw conflict(
+      "The vault already opens on this host, so there is nothing to make again.",
+    );
+  const awake = holders.find(
+    (host) =>
+      host.key !== hostKey &&
+      (host.user_id === userId || host.role !== "user") &&
+      presence.mayBeOnline(host.key, host.last_seen_at),
+  );
+  if (awake)
+    throw conflict(
+      `${awake.name} may be online, so the vault opens here shortly with nothing lost. Keep ${awake.name} awake and wait a moment.`,
+    );
+  const dropped = await trx
+    .deleteFrom("org_vault_entries")
+    .where("org_id", "=", orgId)
+    .returning(["id", "revision"])
+    .execute();
+  await keepEnded(trx, orgId, dropped);
+  const wraps = await trx
+    .deleteFrom("org_vault_keys")
+    .where("org_id", "=", orgId)
+    .returning("host_key")
+    .execute();
+  const next = from + 1;
+  await trx
+    .updateTable("org_vaults")
+    .set({
+      generation: next,
+      rotated_at: sql<Date>`now()`,
+      remade_at: sql<Date>`now()`,
+    })
+    .where("org_id", "=", orgId)
+    .execute();
+  await trx
+    .insertInto("org_vault_keys")
+    .values(wrapRows(asker, next, [{ hostKey, wrapped: key }]))
+    .execute();
+  await vaultChanged(trx, orgId);
+  await auditOrg(trx, asker, "org_vault.remade", {
+    generation: next,
+    entries: dropped.length,
+    wraps: wraps.length,
   });
 }
 

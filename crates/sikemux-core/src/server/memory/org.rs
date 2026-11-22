@@ -165,6 +165,9 @@ fn with_local_checks(knowledge: Vec<Knowledge>, had: &[Knowledge]) -> Vec<Knowle
 pub(super) struct Base {
     revision: i64,
     body: Body,
+    /// When the vault it was read from was last made again; another means that vault is gone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    made: Option<String>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -452,31 +455,37 @@ fn end(core: &Core, state: &mut State, now: &HashMap<String, Shared>, unheard: &
         .collect();
     let told = !ended.is_empty();
     for (key, kept_for) in ended {
-        let Some(org) = state.held.remove(&key) else {
-            continue;
-        };
-        if let Some(KeptFor { local, member }) = kept_for {
-            let theirs = |id: u64| org.writers.get(&id) == Some(&member);
-            let own = holding_or_personal(state, &local, Store::Project);
-            let to = own.key.clone();
-            own.next = own.next.max(org.next);
-            for rule in org.rules.into_iter().filter(|rule| theirs(rule.id)) {
-                if !(own.rules.iter()).any(|kept| kept.text.eq_ignore_ascii_case(&rule.text)) {
-                    own.rules.push(rule);
-                }
-            }
-            for known in org.knowledge.into_iter().filter(|known| theirs(known.id)) {
-                if !(own.knowledge.iter()).any(|kept| kept.text.eq_ignore_ascii_case(&known.text)) {
-                    own.knowledge.push(known);
-                }
-            }
-            core.memory().save(state, &to);
-        }
-        core.memory().forget(state, &key);
+        forget_org(core, state, &key, kept_for);
     }
     if told || state.shared != *now {
         tell_clients(core, false);
     }
+}
+
+/// Forgets the org's store kept here under `key`, first moving what this account's person put
+/// there back to the project's own store.
+fn forget_org(core: &Core, state: &mut State, key: &str, kept_for: Option<KeptFor>) {
+    let Some(org) = state.held.remove(key) else {
+        return;
+    };
+    if let Some(KeptFor { local, member }) = kept_for {
+        let theirs = |id: u64| org.writers.get(&id) == Some(&member);
+        let own = holding_or_personal(state, &local, Store::Project);
+        let to = own.key.clone();
+        own.next = own.next.max(org.next);
+        for rule in org.rules.into_iter().filter(|rule| theirs(rule.id)) {
+            if !(own.rules.iter()).any(|kept| kept.text.eq_ignore_ascii_case(&rule.text)) {
+                own.rules.push(rule);
+            }
+        }
+        for known in org.knowledge.into_iter().filter(|known| theirs(known.id)) {
+            if !(own.knowledge.iter()).any(|kept| kept.text.eq_ignore_ascii_case(&known.text)) {
+                own.knowledge.push(known);
+            }
+        }
+        core.memory().save(state, &to);
+    }
+    core.memory().forget(state, key);
 }
 
 /// Brings the vault's entry into the project's org store here, keeping the changes made here
@@ -485,18 +494,22 @@ fn mirror(core: &Core, shared: &Shared) {
     let Some(read) = vault::read(core, &shared.org, &shared.entry_id()) else {
         return;
     };
-    let remote = match read {
-        Some(read) => match serde_json::from_value::<Body>(read.body) {
+    let remote = match read.entry {
+        Some(entry) => match serde_json::from_value::<Body>(entry.body) {
             Ok(body) => Base {
-                revision: read.revision,
+                revision: entry.revision,
                 body: body.shared_part(),
+                made: read.made,
             },
             Err(error) => {
                 eprintln!("sikemux core: an org's store of rules could not be read: {error}");
                 return;
             }
         },
-        None => Base::default(),
+        None => Base {
+            made: read.made,
+            ..Base::default()
+        },
     };
     let memory = core.memory();
     let mut state = memory.state.locked();
@@ -505,9 +518,25 @@ fn mirror(core: &Core, shared: &Shared) {
         local,
         member: shared.member.clone(),
     });
+    // The vault was made again without this store, so what was read of it before is not
+    // rebased into the new one: the person's own entries go back to the project's store. What
+    // an owner or admin here dropped from a member's list stays dropped once it is listed again.
+    let gone = (state.held.get(&key))
+        .filter(|held| {
+            (held.base.as_ref()).is_some_and(|base| {
+                base.made != remote.made || (base.revision > 0 && remote.revision == 0)
+            })
+        })
+        .map(|held| held.drops.clone());
+    if gone.is_some() {
+        forget_org(core, &mut state, &key, kept_for.clone());
+    }
     let Ok(held) = holding(&mut state, &key, Store::Org) else {
         return;
     };
+    if let Some(drops) = gone {
+        held.drops = drops;
+    }
     let refollowed = kept_for.is_some() && held.kept_for != kept_for;
     if refollowed {
         held.kept_for = kept_for;
@@ -755,7 +784,8 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
 async fn push(core: &Arc<Core>, shared: &Shared) {
     let key = shared.key();
     for _ in 0..TRIES {
-        let (revision, body, checked, read) = {
+        let made = vault::read(core, &shared.org, &shared.entry_id()).map(|read| read.made);
+        let (revision, body, checked, read, made) = {
             let memory = core.memory();
             let mut state = memory.state.locked();
             let Some(held) = state.held.get_mut(&key) else {
@@ -764,6 +794,11 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
             let Some(base) = held.base.clone() else {
                 return;
             };
+            // Changes made against a vault that was made again since wait for `mirror` to hand
+            // them back, so none enter the new one untapped.
+            if made.as_ref() != Some(&base.made) {
+                return;
+            }
             let written = |id: u64| {
                 (base.body.rules.iter().any(|rule| rule.id == id))
                     || (base.body.knowledge.iter().any(|known| known.id == id))
@@ -782,17 +817,21 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
             if body.same_entries(&base.body) {
                 return;
             }
-            (base.revision, body, checked, voided.read)
+            (base.revision, body, checked, voided.read, base.made)
         };
         let Ok(value) = serde_json::to_value(&body) else {
             return;
+        };
+        let at = vault::At {
+            revision,
+            made: made.clone(),
         };
         match vault::put_project(
             core,
             &shared.org,
             PROJECT_MEMORY,
             &shared.entry_id(),
-            revision,
+            &at,
             &value,
             &read,
         )
@@ -802,7 +841,11 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
                 let memory = core.memory();
                 let mut state = memory.state.locked();
                 if let Some(held) = state.held.get_mut(&key) {
-                    held.base = Some(Base { revision, body });
+                    held.base = Some(Base {
+                        revision,
+                        body,
+                        made,
+                    });
                     held.refused.clear();
                     held.keeps.retain(|keep| !checked.contains(keep));
                 }

@@ -172,6 +172,7 @@ extension ChatPart {
         case .agentNotice(let part): part.id
         case .account(let part): part.id
         case .rotation(let part): part.id
+        case .contextHandoff(let part): part.id
         case .unknown(let kind): kind
         }
     }

@@ -12,10 +12,10 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
-use sikemux_view::chat::Handoff;
+use sikemux_view::chat::{Handoff, HandoffSide};
 use sikemux_wire::protocol::ChatContext;
 
-use super::feed::HandedOver;
+use super::feed::{Feed, HandedOver};
 use crate::agent_catalog::AgentKind;
 use crate::server::workspace::{AgentPatch, ChatChoice, UpdateAgentParams};
 use crate::server::{Core, CoreError, CoreResult};
@@ -41,6 +41,9 @@ pub struct Pending {
     shown: Option<Handoff>,
     /// The fresh session a brief was built for, the only one that takes it.
     session: Option<String>,
+    /// The model and agent the chat is handed over from.
+    #[serde(default)]
+    from: Option<HandoffSide>,
 }
 
 /// The handoffs waiting, by the agent whose next message carries each, each also on disk so a
@@ -93,18 +96,23 @@ impl Handoffs {
             context,
             shown: None,
             session: Some(session.to_owned()),
+            from: None,
         };
         self.set(agent_id, pending);
     }
 
-    /// What goes with `agent_id`'s next message, in `session`, once. A brief built for another
-    /// session is let go.
-    pub fn take(&self, agent_id: &str, session: &str) -> Option<ChatContext> {
+    /// What goes with `agent_id`'s next message, in `session`, once, and the model and agent
+    /// it was handed over from. A brief built for another session is let go.
+    pub fn take(
+        &self,
+        agent_id: &str,
+        session: &str,
+    ) -> Option<(ChatContext, Option<HandoffSide>)> {
         let pending = self.pending.locked().remove(agent_id)?;
         self.unkeep(agent_id);
         (pending.session.as_deref())
             .is_none_or(|built_for| built_for == session)
-            .then_some(pending.context)
+            .then_some((pending.context, pending.from))
     }
 
     pub fn shown(&self, agent_id: &str) -> Option<Handoff> {
@@ -283,7 +291,28 @@ fn build(said: HandedOver, from: &str, source: &str, forked: bool) -> Option<Pen
         context,
         shown: Some(shown),
         session: None,
+        from: None,
     })
+}
+
+/// `provider`'s `model`, or the model its chat runs on now, named as the chat's model picker
+/// names it.
+pub fn side(feed: Option<&Feed>, provider: &str, model: Option<&str>) -> HandoffSide {
+    let picker = (feed.and_then(Feed::config_options))
+        .and_then(|options| sikemux_fold::pickers::pickers(&options).0);
+    let value = (model.map(str::to_owned)).or_else(|| picker.as_ref().map(|p| p.current.clone()));
+    let choice = (picker.as_ref().zip(value.as_deref()))
+        .and_then(|(picker, value)| picker.choices.iter().find(|choice| choice.value == value));
+    let maker = (choice.and_then(|choice| choice.maker.clone())).or_else(|| {
+        crate::agent_catalog::agent(provider)
+            .and_then(|agent| agent.maker)
+            .map(str::to_owned)
+    });
+    HandoffSide {
+        agent: provider.to_owned(),
+        model: choice.map(|choice| choice.label.clone()).or(value),
+        maker,
+    }
 }
 
 /// Tells the chat's apps what its next message hands over, or that nothing waits to be.
@@ -330,6 +359,11 @@ pub async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<Cha
         });
     }
     let agent_id = params.agent_id;
+    let from = side(
+        core.chats().readable(&agent_id).ok().as_deref(),
+        &source.provider,
+        source.model.as_deref(),
+    );
     core.chats().resets.cancel(&agent_id);
     if let Some(chat) = core.chats().get(&agent_id) {
         core.workspaces()
@@ -353,7 +387,10 @@ pub async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<Cha
         },
     )?;
     if let Some(pending) = pending {
-        core.chats().handoffs.set(&agent_id, pending);
+        let from = Some(from);
+        core.chats()
+            .handoffs
+            .set(&agent_id, Pending { from, ..pending });
     }
     (core.chat_above().start_saved)(core, &agent_id, true).await?;
     tell(core, &agent_id);

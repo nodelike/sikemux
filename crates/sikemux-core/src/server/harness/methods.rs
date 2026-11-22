@@ -13,8 +13,6 @@ pub(super) struct Method {
     /// Acts as the agent calling it, or with a sign-in or a view the caller does not hold
     /// itself, so a call from outside every agent's processes is refused, not answered for no one.
     pub(super) as_agent: bool,
-    /// Could show a reviewer Auto started blind the builder's side.
-    pub(super) blind_refused: bool,
     /// The window answers it from the desk of the agent calling.
     pub(super) pinned: bool,
     /// How often it was called and worked is kept. Not for plumbing agents never ask for.
@@ -26,7 +24,6 @@ pub(super) struct Method {
 const OTHER: Method = Method {
     name: "",
     as_agent: false,
-    blind_refused: false,
     pinned: false,
     counted: true,
     purpose: "use this tool",
@@ -37,13 +34,6 @@ const fn acting(name: &'static str) -> Method {
         name,
         as_agent: true,
         ..OTHER
-    }
-}
-
-const fn acting_unseen_by_blind(name: &'static str) -> Method {
-    Method {
-        blind_refused: true,
-        ..acting(name)
     }
 }
 
@@ -69,12 +59,8 @@ const fn plumbing_for_anyone(name: &'static str) -> Method {
 const SIMULATOR: &str = "drive the iOS Simulator";
 
 const METHODS: &[Method] = &[
-    acting_unseen_by_blind("agent.spawn"),
-    acting_unseen_by_blind("agent.sessions"),
-    acting_unseen_by_blind("agent.wrote"),
-    acting_unseen_by_blind("agent.why"),
     acting("agent."),
-    acting_unseen_by_blind("board."),
+    acting("board."),
     acting("memory."),
     acting("mod."),
     plumbing(acting(COMMIT_FOOTER_METHOD)),

@@ -8,6 +8,7 @@ use std::time::Duration;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use sikemux_process::files;
 use sikemux_process::sync::Locked;
 
 /// How long [`Kept::save_soon`] waits for more changes before writing.
@@ -50,39 +51,16 @@ impl Kept {
     /// that cannot be read is moved aside first, so the next save does not
     /// overwrite what it held.
     pub fn load<T: DeserializeOwned + Default>(&self) -> T {
-        let Some(path) = &self.path else {
-            return T::default();
-        };
-        let read = match std::fs::read(path) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return T::default(),
-            read => read.map_err(|error| error.to_string()),
-        };
-        read.and_then(|bytes| serde_json::from_slice(&bytes).map_err(|error| error.to_string()))
-            .unwrap_or_else(|error| {
-                self.set_aside(&error);
-                T::default()
-            })
+        (self.path.as_deref())
+            .and_then(|path| files::read_or_set_aside(path, |bytes| serde_json::from_slice(bytes)))
+            .unwrap_or_default()
     }
 
     /// Moves a file that cannot be used to `<file>.unreadable-<when>`.
     pub fn set_aside(&self, why: &str) {
-        let Some(path) = &self.path else {
-            return;
-        };
-        let mut aside = path.clone().into_os_string();
-        aside.push(format!(
-            ".unreadable-{}",
-            sikemux_process::clock::epoch_ms()
-        ));
-        let moved = std::fs::rename(path, &aside);
-        eprintln!(
-            "sikemux core: {} could not be read ({why}); {}",
-            path.display(),
-            match moved {
-                Ok(()) => format!("it was kept as {}", Path::new(&aside).display()),
-                Err(error) => format!("it could not be moved aside either: {error}"),
-            }
-        );
+        if let Some(path) = &self.path {
+            files::set_aside(path, &format!("{} cannot be read: {why}", path.display()));
+        }
     }
 
     /// Copies the file as it is to `<file>.<suffix>`, unless that copy is already there.

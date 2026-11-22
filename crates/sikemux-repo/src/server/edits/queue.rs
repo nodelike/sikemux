@@ -380,7 +380,10 @@ fn save(core: &Core, lines: &HashMap<Key, Line>) {
         .collect();
     let written = serde_json::to_vec(&saved)
         .map_err(|error| error.to_string())
-        .and_then(|bytes| std::fs::write(&path, bytes).map_err(|error| error.to_string()));
+        .and_then(|bytes| {
+            sikemux_process::files::write_atomic(&path, &bytes, false)
+                .map_err(|error| error.to_string())
+        });
     if let Err(error) = written {
         eprintln!("sikemux core: the land queue was not saved: {error}");
     }
@@ -391,10 +394,11 @@ pub fn resume(core: &Arc<Core>) {
     let Some(path) = core.data_dir().as_ref().map(|dir| dir.join(SAVED)) else {
         return;
     };
-    let Ok(bytes) = std::fs::read(&path) else {
+    let Some(saved) = sikemux_process::files::read_or_set_aside(&path, |bytes| {
+        serde_json::from_slice::<Vec<Saved>>(bytes)
+    }) else {
         return;
     };
-    let saved: Vec<Saved> = serde_json::from_slice(&bytes).unwrap_or_default();
     let mut keys = BTreeSet::new();
     {
         let mut lines = core.land_queue().0.locked();

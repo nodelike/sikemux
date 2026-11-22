@@ -27,17 +27,17 @@ type Built = "" | "partly" | "not built" | "later";
 /** How far each feature is built. These marks are for us, and change as the work lands. */
 const BUILT: Record<PlanFeature, Built> = {
   sync: "partly",
-  move_work: "partly",
-  history_search: "not built",
-  own_triggers: "partly",
-  org_hosts: "partly",
+  move_work: "",
+  history_search: "",
+  own_triggers: "",
+  org_hosts: "not built",
   org_shared_setup: "partly",
-  org_model_keys: "partly",
+  org_model_keys: "",
   org_github: "not built",
-  org_bot_triggers: "partly",
+  org_bot_triggers: "not built",
   chat_handover: "partly",
-  org_roles: "not built",
-  org_policy: "partly",
+  org_roles: "",
+  org_policy: "",
 };
 
 /** Free's features are everyone's, so the catalog does not list them. */

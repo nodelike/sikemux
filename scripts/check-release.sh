@@ -143,9 +143,9 @@ for (const profile of ["sikemux-developer-id", "sikemux-core-developer-id"]) {
 }
 if (!coreBuild.includes("smokeCore")) fail("the core build does not run its smoke test");
 for (const [name, text] of [["scripts/build-mac.sh", macBuild], ["scripts/build-core.mjs", coreBuild], [".github/workflows/release.yml", releaseWorkflow]]) {
-    if (/--all-features|--features[ =][^\n]*\b(drive|fake-plugins)\b/.test(text)) fail(`${name} turns on a test kit's feature`);
+    if (/--all-features|--features[ =][^\n]*\bdrive\b/.test(text)) fail(`${name} turns on a test kit's feature`);
 }
-if (!macBuild.includes("this test kit has no answer for that") || !macBuild.includes("window driver could not listen")) {
+if (!macBuild.includes("window driver could not listen")) {
     fail("macOS build no longer refuses a binary built with a test kit's feature");
 }
 const updates = fs.readFileSync("crates/sikemux-corekit/src/release_feed.rs", "utf8");

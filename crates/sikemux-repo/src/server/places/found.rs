@@ -87,6 +87,24 @@ fn vercel(root: &Path, found: &mut Vec<Place>) {
     ));
 }
 
+/// Whether a push to the branch of the project at `root` deploys it to production on Vercel:
+/// the project is a Vercel one and its config doesn't turn off deploys from Git.
+pub fn vercel_deploys_pushes(root: &Path) -> bool {
+    let config = read(root, "vercel.json");
+    if config.is_none() && read(root, ".vercel/project.json").is_none() {
+        return false;
+    }
+    let config = config
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .unwrap_or_default();
+    let turned_off = match config.pointer("/git/deploymentEnabled") {
+        Some(serde_json::Value::Bool(enabled)) => !enabled,
+        Some(serde_json::Value::Object(branches)) => branches.values().all(|on| on == false),
+        _ => false,
+    };
+    !turned_off && config.pointer("/github/enabled") != Some(&serde_json::Value::Bool(false))
+}
+
 /// Each deployment environment a workflow names that reads as production, and the stable
 /// releases where a workflow tells its tags apart, which any other release a workflow
 /// publishes lands with.

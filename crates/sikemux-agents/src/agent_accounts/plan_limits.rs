@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use super::status::AgentStatus;
 use super::usage::{Usage, UsageResetAt, UsageWindow};
 use crate::agent_catalog::AgentKind;
 use sikemux_process::user_environment::shell_var;
@@ -196,7 +197,13 @@ fn opencode_usage(answer: &Value) -> Option<Usage> {
 }
 
 /// Antigravity's five-hour and weekly limits per model group, as `agy -p /usage` prints them.
+/// Signed out, agy's print mode opens Google's sign-in in the person's browser, so it runs
+/// only once `agy models`, which never does, says agy is signed in.
 pub async fn antigravity(program: &Path) -> Result<Usage, String> {
+    let signed_in = super::status::antigravity_sign_in(program, BTreeMap::new()).await;
+    if !matches!(signed_in, AgentStatus::Ready { .. }) {
+        return Err(super::usage::SIGNED_OUT.to_owned());
+    }
     let command = super::cli("antigravity", program, None, BTreeMap::new());
     let args = ["-p", "/usage", "--output-format", "json"];
     let printed = super::usage::ask("Antigravity", "usage lookup", command, &args, "").await?;
@@ -247,4 +254,30 @@ fn antigravity_usage(answer: &Value) -> Option<Usage> {
         light: false,
         ..usage("antigravity", windows)
     })
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
+    use super::*;
+
+    /// A signed-out agy whose print mode leaves a mark where the real one opens a browser.
+    #[tokio::test]
+    async fn a_signed_out_antigravity_is_never_asked_in_print_mode() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let opened = dir.path().join("opened");
+        let agy = dir.path().join("agy");
+        let script = format!(
+            "#!/bin/sh\n[ \"$1\" = models ] && exit 1\ntouch '{}'\nexit 1\n",
+            opened.display()
+        );
+        std::fs::write(&agy, script).expect("fake agy");
+        std::fs::set_permissions(&agy, std::fs::Permissions::from_mode(0o755)).expect("mode");
+
+        let read = antigravity(&agy).await;
+
+        assert_eq!(read.err().as_deref(), Some(super::super::usage::SIGNED_OUT));
+        assert!(!opened.exists(), "agy's print mode ran while signed out");
+    }
 }

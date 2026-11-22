@@ -178,6 +178,7 @@ Table shares {
   ended_at timestamptz
   ended_reason text [note: 'ended_reason = ANY (ARRAY[\'stopped\', \'expired\'])']
   viewer_check text [note: 'viewer_check ~ \'^[0-9a-f]{64}$\'']
+  anyone boolean [not null, default: `false`]
 
   indexes {
     host_key [name: 'shares_by_host', note: 'where (ended_at IS NULL)']
@@ -657,6 +658,7 @@ Table org_vaults {
   created_at timestamptz [not null, default: `now()`]
   rotated_at timestamptz
   changes bigint [not null, default: 0]
+  remade_at timestamptz
 }
 
 Table org_vault_keys {
@@ -815,6 +817,16 @@ Table invoice_refunds {
   }
 }
 
+Table vault_ended {
+  user_id text [not null]
+  id text [not null, note: 'id ~ \'^[0-9a-f]{32}$\'']
+  revision integer [not null, note: 'revision >= 1']
+
+  indexes {
+    (user_id, id) [pk]
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -869,3 +881,4 @@ Ref: work_address_sittings.user_id > users.id [delete: cascade]
 Ref: addresses_seen.user_id > users.id [delete: cascade]
 Ref: ended_sessions.user_id > users.id [delete: cascade]
 Ref: invoice_refunds.invoice_id > invoices.id [delete: cascade]
+Ref: vault_ended.user_id > vaults.user_id [delete: cascade]

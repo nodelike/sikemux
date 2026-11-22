@@ -24,6 +24,7 @@ import { openDatabase } from "./db.ts";
 import { RateLimiter } from "./limits.ts";
 import { HookHosts } from "./hooks/hosts.ts";
 import { attachHooks } from "./hooks/server.ts";
+import { Presence } from "./live/hub.ts";
 import { attachLive } from "./live/server.ts";
 import { NO_PLACES, openPlaces } from "./places.ts";
 import type { Logger } from "./log.ts";
@@ -142,6 +143,9 @@ export async function startServer(config: Config, log: Logger) {
     );
   const relayAccess = new RelayAccess(database.db);
   const hookHosts = new HookHosts();
+  const presence = config.presenceLiveOnly
+    ? new Presence({ reconnectMs: 0, seenMs: 0 })
+    : new Presence();
   const billing = config.billing;
   const provider =
     billing.provider === "stand-in"
@@ -185,6 +189,7 @@ export async function startServer(config: Config, log: Logger) {
     relayAccessToken: config.relayAccessToken,
     stash: config.stash ? new StashFiles(config.stash) : null,
     hookHosts,
+    presence,
     txtRecords: async (name) =>
       (await resolveTxt(name)).map((chunks) => chunks.join("")),
     billing: { provider, live: config.billing.live },
@@ -218,6 +223,7 @@ export async function startServer(config: Config, log: Logger) {
     log,
     appOrigin: config.appOrigin,
     pusher,
+    presence,
     watchers: [shares, relayAccess, hooks],
   });
   let sweeping = false;

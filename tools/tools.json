@@ -1677,7 +1677,7 @@
     },
     {
       "name": "agent_list",
-      "row": {"verb": "list", "kind": "read", "icon": "agents", "target": ["agents"]},
+      "row": {"verb": "list", "kind": "read", "icon": "agents", "target": ["{models} models", "agents"]},
       "method": "agent.list",
       "description": "List Sikemux agents.",
       "properties": {
@@ -1685,8 +1685,12 @@
           "type": "boolean"
         },
         "full": {
-          "description": "true: every field, such as model",
+          "description": "true: every field, e.g. model",
           "type": "boolean"
+        },
+        "models": {
+          "description": "\"all\" or a cli: models and plan room",
+          "type": "string"
         }
       },
       "required": []
@@ -1698,12 +1702,12 @@
       "description": "Message a Sikemux agent.",
       "properties": {
         "task": {
-          "description": "Number of what the person asked for that this hands on",
+          "description": "Task number this hands on",
           "type": "integer",
           "minimum": 1
         },
         "work": {
-          "description": "true: hands on work the person asked for this turn, making it a task; never for a question or remark",
+          "description": "true: starts work the person asked for this turn; never for a question or remark",
           "type": "boolean"
         },
         "to": {
@@ -1718,7 +1722,7 @@
           "maxLength": 65536
         },
         "answers": {
-          "description": "Id of an open question that agent asked you, never of a call of yours",
+          "description": "Id of a question that agent asked you, never of your own call",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
@@ -1728,6 +1732,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 8192
+        },
+        "runOn": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
         }
       },
       "required": [
@@ -1742,12 +1751,12 @@
       "description": "Start a Sikemux agent.",
       "properties": {
         "task": {
-          "description": "Number of what the person asked for that this hands on",
+          "description": "Task number this hands on",
           "type": "integer",
           "minimum": 1
         },
         "work": {
-          "description": "true: hands on work the person asked for this turn, making it a task; never for a question or remark",
+          "description": "true: starts work the person asked for this turn; never for a question or remark",
           "type": "boolean"
         },
         "cli": {
@@ -1757,7 +1766,7 @@
           "maxLength": 64
         },
         "title": {
-          "description": "The task in a few words, e.g. Fix the cart total",
+          "description": "Task in a few words, e.g. Fix cart total",
           "type": "string",
           "minLength": 1,
           "maxLength": 80
@@ -1910,7 +1919,7 @@
       "description": "Read what an agent said.",
       "properties": {
         "agent": {
-          "description": "Or a teammate's task from task_list, with a question to ask about it",
+          "description": "Or a teammate's task from task_list, with a question about it",
           "type": "string",
           "minLength": 1,
           "maxLength": 200

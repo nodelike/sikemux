@@ -76,7 +76,7 @@ pub struct Accounts {
     /// What the core says each chat may move to, by the chat, the account it is on and its model.
     takers: HashMap<TakersKey, ChatAccounts>,
     asking_takers: HashSet<TakersKey>,
-    /// What the Limits panel and popover are holding open.
+    /// What the Limits panel is holding open.
     pub limits: crate::agents::limits::Reveal,
     /// When coming back to the app last had the core check every agent's sign-in.
     checked_on_return: Option<Instant>,

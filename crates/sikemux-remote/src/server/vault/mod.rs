@@ -18,6 +18,7 @@ use tokio::sync::Notify;
 use super::changed::{Topic, What};
 use super::Core;
 
+mod floor;
 mod local;
 pub mod org;
 mod seal;
@@ -111,6 +112,10 @@ pub struct State {
     marks: local::Marks,
     /// The sign-ins this host's plugins held when it last compared them with the vault.
     here: Vec<local::Mark>,
+    /// Entries the vault lists that this host leaves out, so each is logged once.
+    left_out: BTreeSet<String>,
+    /// The key is due to be replaced but this host holds off, as it last read the vault.
+    rotation_held: bool,
 }
 
 impl State {

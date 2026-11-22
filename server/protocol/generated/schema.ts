@@ -1953,6 +1953,7 @@ export const schema = {
         "vault_rotated",
         "vault_entry_written",
         "vault_entry_removed",
+        "vault_remade",
       ],
     },
     OrgAuditCursor: {
@@ -2027,6 +2028,17 @@ export const schema = {
             "What its member calls the computer given the vault's key, at the time.",
           type: "string",
           maxLength: 64,
+        },
+        droppedEntries: {
+          description: "How many entries a vault made again dropped.",
+          type: "integer",
+          minimum: 0,
+        },
+        droppedComputers: {
+          description:
+            "How many computers' copies of the old key a vault made again dropped.",
+          type: "integer",
+          minimum: 0,
         },
         seats: {
           description: "The seat count a change set.",
@@ -2530,10 +2542,22 @@ export const schema = {
             "A host that held the key is no longer a member's host, so an owner's or admin's host should replace it.",
           type: "boolean",
         },
+        holding: {
+          description:
+            "For an owner's or admin's host that cannot open the key, each other computer that holds it at the current generation and would seal it for that host (its own account's, and owners' and admins'), and when each was last online, so they can tell one that is asleep from one that is gone before making the vault again. Absent when the host has the key sealed by itself or by a current holder, and for any other member's host.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgVaultHolder" },
+        },
+        remadeAt: {
+          description:
+            "When an owner's or admin's host last made the vault again, or null if none has.",
+          type: ["string", "null"],
+          format: "date-time",
+        },
         entries: { type: "array", items: { $ref: "#/$defs/OrgVaultEntry" } },
         ended: {
           description:
-            "Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it.",
+            "Entries removed from the vault, each one revision above its last. A new entry under one of these ids is added at that revision; a write at the old one is refused.",
           type: "array",
           items: { $ref: "#/$defs/OrgVaultEnded" },
         },
@@ -2554,6 +2578,7 @@ export const schema = {
         "holders",
         "waiting",
         "rotate",
+        "remadeAt",
         "entries",
         "ended",
         "changes",
@@ -2586,7 +2611,7 @@ export const schema = {
     },
     OrgVaultEnded: {
       description:
-        "An entry removed from an org's vault, at the last revision it had.",
+        "An entry removed from an org's vault, one revision above the last it had.",
       type: "object",
       properties: {
         id: { $ref: "#/$defs/VaultEntryId" },
@@ -2665,6 +2690,51 @@ export const schema = {
       required: ["id", "revision"],
       additionalProperties: false,
     },
+    OrgVaultHolder: {
+      description:
+        "A member's computer that holds the org's key and would seal it for the asking host.",
+      type: "object",
+      properties: {
+        hostKey: { $ref: "#/$defs/DeviceKey" },
+        computer: {
+          description: "The computer's name, as its account named it.",
+          type: "string",
+        },
+        member: {
+          description:
+            "The name of the member it is on, as their sign-in names them. Null when the name cannot be told. Never an email address.",
+          type: ["string", "null"],
+        },
+        role: {
+          description: "The role in the org of the account it is on.",
+          $ref: "#/$defs/OrgRole",
+        },
+        yours: {
+          description: "It is on the asking host's own account.",
+          type: "boolean",
+        },
+        online: {
+          description: "It is connected to the accounts server now.",
+          type: "boolean",
+        },
+        lastSeenAt: {
+          description:
+            "When it last connected to the accounts server or left it, or null if it never has.",
+          type: ["string", "null"],
+          format: "date-time",
+        },
+      },
+      required: [
+        "hostKey",
+        "computer",
+        "member",
+        "role",
+        "yours",
+        "online",
+        "lastSeenAt",
+      ],
+      additionalProperties: false,
+    },
     OrgVaultKeysAdd: {
       description:
         "A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one.",
@@ -2679,6 +2749,24 @@ export const schema = {
         },
       },
       required: ["generation", "keys"],
+      additionalProperties: false,
+    },
+    OrgVaultRemake: {
+      description:
+        "An owner's or admin's host whose computer cannot open the org's vault makes it again: every entry and every wrap is dropped, and the generation goes up with a new key held by the asking host alone.",
+      type: "object",
+      properties: {
+        from: {
+          description: "The current generation.",
+          $ref: "#/$defs/VaultGeneration",
+        },
+        key: {
+          description:
+            "The new key sealed for the asking host at the next generation.",
+          $ref: "#/$defs/OrgVaultWrapped",
+        },
+      },
+      required: ["from", "key"],
       additionalProperties: false,
     },
     OrgVaultRotate: {
@@ -3136,6 +3224,11 @@ export const schema = {
         share: { $ref: "#/$defs/ShareId" },
         viewer: { $ref: "#/$defs/ShareViewerId" },
         sealed: { $ref: "#/$defs/Sealed" },
+        signedIn: {
+          description:
+            "False for a viewer watching a share open to anyone without signing in, which may read the chat but not write in it.",
+          type: "boolean",
+        },
       },
       required: ["type", "share", "viewer", "sealed"],
       additionalProperties: false,
@@ -3323,7 +3416,7 @@ export const schema = {
     },
     ShareHello: {
       description:
-        "The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends the share it wants, the proof its link holds and the last frame it holds, if any, and signs in with a Clerk token from the web app or the phone, or, on a Mac, with the host's key and its Ed25519 signature over `sikemux-share-viewer|<nonce>|<key>`.",
+        "The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends the share it wants, the proof its link holds and the last frame it holds, if any, and signs in with a Clerk token from the web app or the phone, or, on a Mac, with the host's key and its Ed25519 signature over `sikemux-share-viewer|<nonce>|<key>`. A share open to anyone may be watched with neither; one that is not closes such a viewer with ShareCloseCode unauthenticated.",
       type: "object",
       properties: {
         type: { const: "hello" },
@@ -3389,6 +3482,11 @@ export const schema = {
         share: { $ref: "#/$defs/ShareId" },
         expiresAt: { type: "string", format: "date-time" },
         viewers: { $ref: "#/$defs/ShareViewerCheck" },
+        anyone: {
+          description:
+            "Whoever holds the link may watch without signing in. Sent again on an open share to change who may watch it; viewers not signed in are closed when it turns off.",
+          type: "boolean",
+        },
       },
       required: ["type", "share", "expiresAt"],
       additionalProperties: false,
@@ -4001,6 +4099,12 @@ export const schema = {
           type: "boolean",
         },
         entries: { type: "array", items: { $ref: "#/$defs/VaultEntry" } },
+        ended: {
+          description:
+            "Entries removed from the vault, each at its last revision. A removed entry's id never comes back: the server refuses a write to it and a host takes no entry under it. Absent means none.",
+          type: "array",
+          items: { $ref: "#/$defs/VaultEnded" },
+        },
       },
       required: [
         "generation",
@@ -4027,6 +4131,17 @@ export const schema = {
         },
       },
       required: ["recoveryKey", "recoveryWrap", "key"],
+      additionalProperties: false,
+    },
+    VaultEnded: {
+      description:
+        "An entry removed from the account's vault, at the last revision it had.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/VaultEntryId" },
+        revision: { $ref: "#/$defs/VaultRevision" },
+      },
+      required: ["id", "revision"],
       additionalProperties: false,
     },
     VaultEntry: {

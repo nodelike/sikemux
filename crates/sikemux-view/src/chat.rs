@@ -1380,6 +1380,11 @@ pub enum ChatPart {
         id: String,
         rotation: SessionRotation,
     },
+    /// The chat went on with another model or agent, which was handed what it said.
+    ContextHandoff {
+        id: String,
+        handoff: ContextHandoff,
+    },
 }
 
 impl ChatPart {
@@ -1394,7 +1399,8 @@ impl ChatPart {
             | Self::Tasks { id, .. }
             | Self::AgentNotice { id, .. }
             | Self::Account { id, .. }
-            | Self::Rotation { id, .. } => id,
+            | Self::Rotation { id, .. }
+            | Self::ContextHandoff { id, .. } => id,
         }
     }
 }
@@ -2105,6 +2111,27 @@ pub struct Handoff {
     pub left_out: u32,
     /// Commands it reports the outcome of.
     pub commands: u32,
+}
+
+/// The model or agent a chat left, and the one it went on with.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextHandoff {
+    pub from: HandoffSide,
+    pub to: HandoffSide,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoffSide {
+    /// The agent, such as `claude`.
+    pub agent: String,
+    /// The model's name as its picker shows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Who made the model, such as "Anthropic".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maker: Option<String>,
 }
 
 /// The chat moved to another of the person's accounts.

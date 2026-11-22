@@ -216,6 +216,8 @@ crate::calls! {
     "turnModOff" TurnModOff (crate::mods::OffParams) -> ();
     "removeMod" RemoveMod (crate::mods::ModParams) -> ();
     "addExampleMod" AddExampleMod (crate::mods::ModParams) -> ();
+    "previewRepoMod" PreviewRepoMod (crate::mods::RepoParams) -> crate::mods::RepoMod;
+    "installRepoMod" InstallRepoMod (crate::mods::InstallRepoParams) -> String;
     "stashPrompt" StashPrompt (crate::stash::StashPromptParams) -> crate::stash::StashedPrompt;
     "seeStash" SeeStash (crate::stash::SeeParams) -> sikemux_corekit::accounts::protocol::StashSeen;
     "stashFile" StashFile (crate::stash::StashItemParams) -> crate::stash::StashKept;
@@ -226,6 +228,7 @@ crate::calls! {
     "orgVaults" OrgVaults (crate::params::NoParams) -> Vec<crate::vault::ShownOrgVault>;
     "orgModelKeyAdd" OrgModelKeyAdd (crate::vault::OrgModelKeyAdd) -> ();
     "orgModelKeyRemove" OrgModelKeyRemove (crate::vault::OrgEntryParams) -> ();
+    "orgVaultRemake" OrgVaultRemake (crate::vault::OrgParams) -> ();
     "vaultRecoverySaved" VaultRecoverySaved (crate::params::NoParams) -> ();
     "vaultShowRecovery" VaultShowRecovery (crate::params::NoParams) -> ();
     "setPreference" SetPreference (sikemux_view::prefs::PreferenceChange) -> sikemux_view::prefs::Preferences;

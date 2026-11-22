@@ -15,13 +15,9 @@ sikemux-calls = { path = "../sikemux-calls" }
 sikemux-chat = { path = "../sikemux-chat" }
 sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-fold = { path = "../sikemux-fold" }
-sikemux-kernel = { path = "../sikemux-kernel" }
 sikemux-keychain = { path = "../sikemux-keychain" }
 sikemux-plugin-api = { path = "../sikemux-plugin-api" }
 sikemux-process = { path = "../sikemux-process" }
-sikemux-pty = { path = "../sikemux-pty" }
-sikemux-serve = { path = "../sikemux-serve" }
-sikemux-workspace = { path = "../sikemux-workspace" }
 sikemux-view = { path = "../sikemux-view" }
 sikemux-wire = { path = "../sikemux-wire" }
 serde = { version = "1", features = ["derive", "rc"] }

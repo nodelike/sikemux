@@ -432,12 +432,20 @@ pub async fn granted(core: &Arc<Core>, name: &str, remote: &str) -> Option<Crede
     Some(credential)
 }
 
-/// The host and path a remote names, however it is spelled: `git@github.com:o/r.git` and
-/// `https://github.com/o/r` are both `github.com/o/r`.
+/// The host and path a remote names, however it is spelled: `git@github.com:o/r.git`,
+/// `https://github.com/o/r` and `ssh://git@github.com:22/o/r` are all `github.com/o/r`.
 fn repository(remote: &str) -> String {
-    let rest = remote.split_once("://").map_or(remote, |(_, rest)| rest);
+    let (rest, is_url) = remote
+        .split_once("://")
+        .map_or((remote, false), |(_, rest)| (rest, true));
     let rest = rest.split_once('@').map_or(rest, |(_, rest)| rest);
-    let rest = rest.replacen(':', "/", 1);
+    let rest = match rest.split_once(if is_url { '/' } else { ':' }) {
+        Some((host, path)) => {
+            let host = host.split_once(':').map_or(host, |(host, _)| host);
+            format!("{host}/{path}")
+        }
+        None => rest.to_owned(),
+    };
     let rest = rest.trim_end_matches('/');
     rest.strip_suffix(".git").unwrap_or(rest).to_lowercase()
 }

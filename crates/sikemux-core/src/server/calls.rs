@@ -454,6 +454,8 @@ calls! { core, client, method, params;
     "turnModOff" = TurnModOff: Owner => super::mods::turn_off(&core, params)?,
     "removeMod" = RemoveMod: Owner => super::mods::remove(&core, params).await?,
     "addExampleMod" = AddExampleMod: Owner => super::mods::add_example(&core, params).await?,
+    "previewRepoMod" = PreviewRepoMod: Owner => super::mods::github::preview(&core, params).await?,
+    "installRepoMod" = InstallRepoMod: Owner, counted => super::mods::github::install(&core, params).await?,
     "stash" = Stash: Owner => super::stash::list(&core, params.unwrap_or_default()).await?,
     "stashPrompt" = StashPrompt: Owner, counted => {
         super::stash::stash_prompt(&core, params).await?
@@ -469,6 +471,7 @@ calls! { core, client, method, params;
     "orgVaults" = OrgVaults: Owner => super::vault::org::shown(&core),
     "orgModelKeyAdd" = OrgModelKeyAdd: Owner, counted => super::vault::org::add_model_key(&core, params).await?,
     "orgModelKeyRemove" = OrgModelKeyRemove: Owner => super::vault::org::remove_entry(&core, params).await?,
+    "orgVaultRemake" = OrgVaultRemake: Owner, counted => super::vault::org::remake(&core, params).await?,
     "vaultRecoverySaved" = VaultRecoverySaved: Owner => super::vault::shown::recovery_saved(&core).await?,
     "vaultShowRecovery" = VaultShowRecovery: Owner => super::vault::shown::show_recovery(&core).await?,
     "vaultRecover" = VaultRecover: Owner => super::vault::shown::recover(&core, params).await?,

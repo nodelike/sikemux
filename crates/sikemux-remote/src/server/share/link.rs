@@ -88,11 +88,12 @@ pub async fn run(core: Weak<Core>, base: String, mut queue: mpsc::UnboundedRecei
     }
 }
 
-fn open_message(id: &str, expires_at: u64, viewers: &str) -> ShareClientMessage {
+fn open_message(running: &Running) -> ShareClientMessage {
     ShareClientMessage::Open(ShareOpen {
-        share: id.to_owned(),
-        expires_at: rfc3339(expires_at),
-        viewers: Some(viewers.to_owned()),
+        share: running.stored.id.clone(),
+        expires_at: rfc3339(running.stored.expires_at),
+        viewers: Some(running.seal.viewer_check().to_owned()),
+        anyone: Some(running.stored.anyone),
     })
 }
 
@@ -244,9 +245,7 @@ async fn session(
                         .inner.locked()
                         .running
                         .get(&id)
-                        .map(|running| {
-                            open_message(&id, running.stored.expires_at, running.seal.viewer_check())
-                        }),
+                        .map(open_message),
                     ToLink::Close(id) => Some(close_message(&id)),
                     ToLink::Heard(id, frame, took) => {
                         taken = Some(took);
@@ -289,13 +288,7 @@ async fn session(
                             .running
                             .values()
                             .filter(|running| running.state != ShareState::Refused)
-                            .map(|running| {
-                                open_message(
-                                    &running.stored.id,
-                                    running.stored.expires_at,
-                                    running.seal.viewer_check(),
-                                )
-                            })
+                            .map(open_message)
                             .collect(),
                         inner
                             .closing
@@ -343,8 +336,14 @@ async fn session(
             ShareServerMessage::Ask(asked) => {
                 let core = core.clone();
                 tokio::spawn(async move {
-                    if let Some(reply) =
-                        answer(core.clone(), asked.share, asked.viewer, asked.sealed).await
+                    if let Some(reply) = answer(
+                        core.clone(),
+                        asked.share,
+                        asked.viewer,
+                        asked.sealed,
+                        asked.signed_in != Some(false),
+                    )
+                    .await
                     {
                         let mut inner = core.shares().inner.locked();
                         super::tell(&core, &mut inner, reply);

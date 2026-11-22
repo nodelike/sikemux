@@ -586,6 +586,8 @@ pub fn adopt(
     subscribers: &[Arc<ClientConn>],
 ) -> Result<(), String> {
     validate(&live.current).map_err(|error| error.to_string())?;
+    // Known before the tool endpoint is taken up, so the agent's next call is not refused.
+    sikemux_agents::callers::started(live.agent.pid, &live.launch.agent_id);
     let feed = Feed::restored(live.launch.agent_id.clone(), live.feed);
     let (chat, queue) = core
         .chats()

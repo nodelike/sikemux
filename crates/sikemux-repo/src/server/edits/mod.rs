@@ -408,19 +408,21 @@ impl Store {
     /// A project's log, read from its file the first time it is asked for.
     fn log<'a>(&self, logs: &'a mut HashMap<String, Log>, project: &str) -> &'a mut Log {
         logs.entry(project.to_owned()).or_insert_with(|| {
-            let Some(text) = self
-                .file(project)
-                .and_then(|file| std::fs::read_to_string(file).ok())
-            else {
-                return Log::default();
-            };
-            let mut log = Log::default();
-            for line in text.lines() {
-                log.lines_on_disk += 1;
-                if let Ok(edit) = serde_json::from_str(line) {
-                    log.edits.push_back(edit);
-                }
-            }
+            let read = self.file(project).and_then(|file| {
+                sikemux_process::files::read_or_set_aside(&file, |bytes| {
+                    std::str::from_utf8(bytes).map(|text| {
+                        let mut log = Log::default();
+                        for line in text.lines() {
+                            log.lines_on_disk += 1;
+                            if let Ok(edit) = serde_json::from_str(line) {
+                                log.edits.push_back(edit);
+                            }
+                        }
+                        log
+                    })
+                })
+            });
+            let mut log = read.unwrap_or_default();
             log.trim();
             log
         })

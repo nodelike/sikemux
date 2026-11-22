@@ -88,6 +88,28 @@ pub struct ShownOrgVault {
     pub model_keys: Vec<ShownOrgModelKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed: Option<String>,
+    /// While it waits, to an owner or admin: the computers that hold the key and would let this
+    /// one in, its own account's and the org's owners' and admins'.
+    pub openers: Vec<ShownOrgOpener>,
+    /// This host may make the vault again now: it waits, may write, and no opener is online.
+    pub remakes: bool,
+    /// When an owner's or admin's computer last made the vault again, in ms since the epoch.
+    pub remade_at: Option<u64>,
+}
+
+/// A computer that holds an org's key and would let this host in.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShownOrgOpener {
+    pub host: String,
+    /// The member it is on, by name; None when it is this account's or the name is not known.
+    pub whose: Option<String>,
+    pub yours: bool,
+    /// It is on the org's owner's account, else an admin's or this account's.
+    pub owner: bool,
+    pub online: bool,
+    /// When it was last online, in ms since the epoch; None when it never was.
+    pub last_online: Option<u64>,
 }
 
 /// A model provider's key the org's admins added for every member. Never the key.
@@ -107,6 +129,11 @@ pub struct OrgModelKeyAdd {
     pub org: String,
     pub provider: String,
     pub key: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct OrgParams {
+    pub org: String,
 }
 
 #[derive(Serialize, Deserialize)]

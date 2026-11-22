@@ -15,9 +15,7 @@ sikemux-calls = { path = "../sikemux-calls" }
 sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-drivers = { path = "../sikemux-drivers" }
 sikemux-fold = { path = "../sikemux-fold" }
-sikemux-kernel = { path = "../sikemux-kernel" }
 sikemux-process = { path = "../sikemux-process" }
-sikemux-pty = { path = "../sikemux-pty" }
 sikemux-serve = { path = "../sikemux-serve" }
 sikemux-workspace = { path = "../sikemux-workspace" }
 sikemux-view = { path = "../sikemux-view" }

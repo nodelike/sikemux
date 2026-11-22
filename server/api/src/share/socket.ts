@@ -239,9 +239,11 @@ export class ShareSocket
             share: this.room.id,
             viewer: this.id,
             sealed: message.sealed,
+            signedIn: this.userId !== "",
           });
           return;
         case "auth":
+          if (!this.userId) break;
           this.reauthenticate(message.token, this.userId, () => !this.key);
           return;
       }
@@ -325,7 +327,10 @@ export class ShareSocket
     return { role: "host" };
   }
 
-  /** Who a viewer is: a phone or the web app by its token, or a Mac by its host's key. */
+  /**
+   * Who a viewer is: a phone or the web app by its token, a Mac by its host's key, or nobody
+   * signed in, with an empty account, when it sends neither.
+   */
   private async viewer(
     hello: ShareHello,
   ): Promise<{ userId: string; key: string; identity: Identity | null }> {
@@ -335,6 +340,8 @@ export class ShareSocket
       await checkStanding(db, identity);
       return { userId: identity.userId, key: "", identity };
     }
+    if (!hello.key && !hello.signature)
+      return { userId: "", key: "", identity: null };
     if (!hello.key || !hello.signature)
       throw new HelloRefused("a viewer sends its token or its host's key");
     const account = await this.provenHost(
@@ -359,12 +366,17 @@ export class ShareSocket
         "ended_at",
         "ended_reason",
         "viewer_check",
+        "anyone",
       ])
       .where("id", "=", hello.share)
       .executeTakeFirst();
     if (this.phase === "closing") return undefined;
     if (!row || !provesLink(hello.proof, row.viewer_check)) {
       this.close(ShareCloseCode.notFound, "no such share");
+      return undefined;
+    }
+    if (!viewer.userId && (!row.anyone || !row.viewer_check)) {
+      this.close(ShareCloseCode.unauthenticated, "sign in to watch this share");
       return undefined;
     }
     this.key = viewer.key;
@@ -409,9 +421,17 @@ export class ShareSocket
     }
     const existing = await db
       .selectFrom("shares")
-      .select(["id", "host_key", "expires_at", "ended_at", "viewer_check"])
+      .select([
+        "id",
+        "host_key",
+        "expires_at",
+        "ended_at",
+        "viewer_check",
+        "anyone",
+      ])
       .where("id", "=", message.share)
       .executeTakeFirst();
+    const anyone = message.anyone ?? false;
     if (existing) {
       if (
         existing.host_key !== this.key ||
@@ -420,6 +440,17 @@ export class ShareSocket
       ) {
         this.send({ type: "refused", share: message.share, reason: "exists" });
         return;
+      }
+      if (existing.anyone !== anyone) {
+        await db
+          .updateTable("shares")
+          .set({ anyone })
+          .where("id", "=", message.share)
+          .execute();
+        const viewers = relay.rooms.get(message.share)?.viewers.values();
+        if (!anyone)
+          for (const viewer of viewers ?? [])
+            if (!viewer.userId) viewer.removed();
       }
     } else {
       const open = await db
@@ -441,6 +472,7 @@ export class ShareSocket
           host_key: this.key,
           expires_at: expiresAt,
           viewer_check: message.viewers ?? null,
+          anyone,
         })
         .onConflict((conflict) => conflict.column("id").doNothing())
         .returning("id")

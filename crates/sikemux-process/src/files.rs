@@ -52,6 +52,45 @@ fn write_whole(path: &Path, bytes: &[u8], private: bool, synced: bool) -> io::Re
     result
 }
 
+/// What `path` holds, by `parse`: `Ok(None)` when there is no file, and an error when there
+/// is one that cannot be read or parsed, so the caller never writes over it as if empty.
+pub fn read_parsed<T, E: std::fmt::Display>(
+    path: &Path,
+    parse: impl FnOnce(&[u8]) -> Result<T, E>,
+) -> Result<Option<T>, String> {
+    let unreadable =
+        |error: &dyn std::fmt::Display| format!("{} cannot be read: {error}", path.display());
+    match fs::read(path) {
+        Ok(bytes) => parse(&bytes).map(Some).map_err(|error| unreadable(&error)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(unreadable(&error)),
+    }
+}
+
+/// What a file only Sikemux writes holds, by `parse`, or `None` when there is none yet. One
+/// that cannot be read is first moved aside to `<file>.unreadable-<when>`, so the next write
+/// does not destroy what it held.
+pub fn read_or_set_aside<T, E: std::fmt::Display>(
+    path: &Path,
+    parse: impl FnOnce(&[u8]) -> Result<T, E>,
+) -> Option<T> {
+    read_parsed(path, parse).unwrap_or_else(|why| {
+        set_aside(path, &why);
+        None
+    })
+}
+
+/// Moves a file that cannot be used to `<file>.unreadable-<when>`, and says so.
+pub fn set_aside(path: &Path, why: &str) {
+    let mut aside = path.as_os_str().to_owned();
+    aside.push(format!(".unreadable-{}", crate::clock::epoch_ms()));
+    let aside = PathBuf::from(aside);
+    match fs::rename(path, &aside) {
+        Ok(()) => eprintln!("sikemux: {why}; it was kept as {}", aside.display()),
+        Err(error) => eprintln!("sikemux: {why}; it could not be moved aside either: {error}"),
+    }
+}
+
 /// The top of the git checkout `dir` is in: the nearest folder at or above it that holds
 /// a `.git`, whether that is a folder or a linked worktree's file.
 pub fn repo_root(dir: &Path) -> Option<&Path> {

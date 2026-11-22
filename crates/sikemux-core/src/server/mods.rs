@@ -5,6 +5,7 @@
 mod bridge;
 mod data;
 mod folder;
+pub(super) mod github;
 mod schema;
 mod sync;
 pub use bridge::{BridgeParams, BridgeWrite};
@@ -105,6 +106,9 @@ struct Settled {
     /// The last list of writes by an agent the person dismissed in each mod's pane, by id.
     #[serde(default)]
     dismissed: BTreeMap<String, i64>,
+    /// The GitHub repository each mod installed from one was installed from, as `owner/name`.
+    #[serde(default)]
+    sources: BTreeMap<String, String>,
 }
 
 /// The account each mod's folder follows, by id, kept for the host since the mods folder is one
@@ -216,7 +220,11 @@ fn read_manifest(folder: &Path) -> Result<Manifest, String> {
     }
     let text = std::fs::read_to_string(&path)
         .map_err(|error| format!("its {MANIFEST} could not be read: {error}"))?;
-    let mut manifest: Manifest = serde_json::from_str(&text)
+    parse_manifest(&text)
+}
+
+fn parse_manifest(text: &str) -> Result<Manifest, String> {
+    let mut manifest: Manifest = serde_json::from_str(text)
         .map_err(|error| format!("its {MANIFEST} does not read: {error}"))?;
     manifest.name = manifest.name.trim().chars().take(MAX_NAME_CHARS).collect();
     if manifest.name.is_empty() {
@@ -645,6 +653,7 @@ pub(super) async fn remove(core: &Arc<Core>, params: ModParams) -> CoreResult<()
         settled.pinned.remove(&params.id);
         settled.off.remove(&params.id);
         settled.dismissed.remove(&params.id);
+        settled.sources.remove(&params.id);
     });
     core.mods().set_owner(&params.id, None);
     super::triggers::mod_removed(core, &params.id);

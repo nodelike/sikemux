@@ -264,6 +264,7 @@ impl Workbench {
             crate::settings::front_moved(self, cx);
         }
         self.note_visit();
+        self.note_front_copy();
         self.watch_hosts_page();
         self.publish_on_screen();
         cx.notify();
@@ -416,6 +417,7 @@ impl Workbench {
             ActivitySummaryParams {
                 utc_offset_minutes: i64::from(utc_offset_minutes()),
                 project: path.clone(),
+                since_ms: None,
             },
         );
         target.watch_plain(Read::Mods);

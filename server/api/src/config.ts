@@ -70,6 +70,8 @@ export interface Config extends MigrationConfig {
   /** The Google client a work address is proven with; null hides verifying. */
   workGoogle: WorkGoogleSettings | null;
   billing: BillingSettings;
+  /** Counts a host online only while it is connected, for a film that puts one to sleep. */
+  presenceLiveOnly: boolean;
 }
 
 /** Which payment provider billing goes through, and whether plans are on sale to everyone. */
@@ -274,6 +276,10 @@ export function loadConfig(
       ? { provider, live, paddleKey: paddleKey ?? "" }
       : { provider: provider === "none" ? null : provider, live };
 
+  const presenceLiveOnly = flag("PRESENCE_LIVE_ONLY", false);
+  if (presenceLiveOnly && release)
+    problems.push("PRESENCE_LIVE_ONLY is for development only");
+
   return finish({
     host,
     port,
@@ -298,6 +304,7 @@ export function loadConfig(
     reviewAccountUserId,
     workGoogle,
     billing,
+    presenceLiveOnly,
     logLevel,
   });
 }

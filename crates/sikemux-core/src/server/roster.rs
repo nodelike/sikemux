@@ -232,6 +232,16 @@ pub(crate) fn status_word(status: AgentStatus) -> &'static str {
 }
 
 pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
+    if let Some(models) = super::caller::text_param(&request.params, "models", 64)? {
+        let (core, request, models) = (core.clone(), request.clone(), models.to_owned());
+        return blocking(move || {
+            let project = super::caller::project_of(&core, &request);
+            super::can_start::for_tool(&core, std::path::Path::new(&project), &models)
+                .map_err(Into::into)
+        })
+        .await
+        .map_err(|error| error.to_string());
+    }
     let all = match request.params.get("allProjects") {
         None | Some(Value::Null) => false,
         Some(Value::Bool(all)) => *all,
@@ -330,16 +340,14 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
                     super::turn_state::listed_line(turn, answer.as_deref(), agent.parent.is_some())
                 }),
                 "lastActive": since(agent.active_at, now),
-                "canMessage": agent.reach != Reach::Stopped
-                    && agent.agent_id != caller
-                    && super::messages::blind_between(core, caller, &agent.agent_id, "").is_ok(),
+                "canMessage": agent.reach != Reach::Stopped && agent.agent_id != caller,
             });
             if let Some(fields) = row.as_object_mut() {
                 if let Some(parent) = &agent.parent {
                     fields.insert(
                         "startedBy".into(),
                         (names.get(parent).cloned())
-                            .or_else(|| core.names().get(parent).map(|named| named.name))
+                            .or_else(|| core.names().name(parent))
                             .unwrap_or_else(|| parent.clone())
                             .into(),
                     );

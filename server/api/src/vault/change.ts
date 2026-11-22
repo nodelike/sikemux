@@ -249,6 +249,15 @@ export async function putEntry(
       .executeTakeFirst();
     if (existing && existing.user_id !== userId)
       throw conflict("That entry id is taken.");
+    const ended =
+      !existing &&
+      (await trx
+        .selectFrom("vault_ended")
+        .select("id")
+        .where("user_id", "=", userId)
+        .where("id", "=", id)
+        .executeTakeFirst());
+    if (ended) throw conflict("That entry was removed.");
     if ((existing?.revision ?? 0) !== revision)
       throw conflict(
         existing
@@ -331,6 +340,10 @@ export async function removeEntry(
         `The entry is at revision ${existing.revision}, not ${revision}.`,
       );
     }
+    await trx
+      .insertInto("vault_ended")
+      .values({ user_id: userId, id, revision })
+      .execute();
     await appendEvent(trx, { userId, type: "vault.changed" });
     await audit(trx, {
       userId,

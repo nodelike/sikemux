@@ -2,7 +2,7 @@
 // Opens N Claude Code sessions in one desktop app, each answered once by a fake Messages API
 // on localhost, leaves the app idle, then measures it with measure.mjs and quits it.
 //
-//   node scripts/bench/run.mjs <sikemux|t3code|orca|conductor|all> [--sessions 20] [--idle 600] [--out dir]
+//   node scripts/bench/run.mjs <sikemux|t3code|orca|conductor|all> [options]; --help lists them
 //
 // The app must not be running beforehand: each run starts it fresh and quits it after.
 // Sessions reach the fake API through the bench repository's .claude/settings.json, so
@@ -13,13 +13,17 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const [appName, ...rest] = process.argv.slice(2);
+const switches = new Set(["keep", "help"]);
 const options = { sessions: 20, idle: 600, interval: 30, out: join(here, "results") };
-for (let i = 0; i < rest.length; i += 2) options[rest[i].replace(/^--/, "")] = rest[i + 1];
+for (let i = 0; i < rest.length; i++) {
+  const key = rest[i] === "-h" ? "help" : rest[i].replace(/^--/, "");
+  options[key] = switches.has(key) ? true : rest[++i];
+}
 const count = Number(options.sessions);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -42,8 +46,17 @@ const cleanEnvironment = Object.fromEntries(
     ),
 );
 const prompt = (i) => `bench session ${i}: reply with one word.`;
-const claudePath = run("/bin/zsh", ["-lc", "command -v claude"], { env: cleanEnvironment });
 const benchUser = userInfo().username === "bench";
+const uid = String(process.getuid());
+
+function findClaude() {
+  try {
+    return run("/bin/zsh", ["-lc", "command -v claude"], { env: cleanEnvironment });
+  } catch {
+    console.error("no `claude` on the login shell's PATH (zsh -lc 'command -v claude'); install Claude Code or add its folder to PATH in ~/.zprofile");
+    process.exit(1);
+  }
+}
 
 async function until(what, check, seconds) {
   const deadline = Date.now() + seconds * 1000;
@@ -55,14 +68,8 @@ async function until(what, check, seconds) {
   throw new Error(`timed out waiting for ${what}`);
 }
 
-const running = (pattern) => {
-  try {
-    return run("pgrep", ["-f", pattern]).length > 0;
-  } catch {
-    return false;
-  }
-};
-
+const literally = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const running = (pattern) => spawnSync("pgrep", ["-u", uid, "-f", pattern]).status === 0;
 
 function claudeEnvironment(api) {
   return {
@@ -109,22 +116,25 @@ async function sessionsAnswered(api) {
 }
 
 const drivers = {
+  // Sikemux keeps its workspaces in this account's Application Support folder, which no
+  // setting moves, so the run's project and chats stay in the account's Sikemux afterwards.
   sikemux: {
-    bundle: "/Applications/Sikemux.app",
+    bundles: ["/Applications/Sikemux.app"],
     async start() {
-      const cli = `${this.bundle}/Contents/Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host`;
-      run("open", ["-g", "-a", this.bundle]);
+      const cli = (...args) => run(`${bundle}/Contents/Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host`, args, { env: cleanEnvironment });
+      if (!benchUser) say("the run's project and chats stay in this account's Sikemux; run as the macOS user `bench` to keep yours clean");
+      run("open", ["-a", bundle]);
       await until("the Sikemux core", () => {
         try {
-          return run(cli, ["status", "--json"]).length > 0;
+          return cli("status", "--json").length > 0;
         } catch {
           return false;
         }
       }, 120);
-      run(cli, ["open", repo]);
+      cli("open", repo);
       await sleep(3000);
-      say("the first `sikemux chat` outside an agent's terminal waits for Allow in the app");
-      for (let i = 1; i <= count; i++) run(cli, ["chat", "start", repo, prompt(i), "--agent", "claude"]);
+      say("the first `sikemux chat` from outside an agent's terminal waits for Allow in the Sikemux window");
+      for (let i = 1; i <= count; i++) cli("chat", "start", repo, prompt(i), "--agent", "claude");
     },
     quit() {
       run("osascript", ["-e", 'tell application id "com.nodelike.sikemux" to quit']);
@@ -132,13 +142,13 @@ const drivers = {
   },
 
   t3code: {
-    bundle: "/Applications/T3 Code (Nightly).app",
+    bundles: ["/Applications/T3 Code (Nightly).app", "/Applications/T3 Code.app"],
     env() {
       return { ...cleanEnvironment, T3CODE_HOME: join(work, "t3"), CLAUDE_CONFIG_DIR: claudeHome };
     },
     t3(args) {
-      const contents = `${this.bundle}/Contents`;
-      return run(`${contents}/MacOS/T3 Code (Nightly)`, [`${contents}/Resources/app.asar/apps/server/dist/bin.mjs`, ...args], {
+      const contents = `${bundle}/Contents`;
+      return run(`${contents}/MacOS/${basename(bundle, ".app")}`, [`${contents}/Resources/app.asar/apps/server/dist/bin.mjs`, ...args], {
         env: { ...this.env(), ELECTRON_RUN_AS_NODE: "1" },
       });
     },
@@ -148,19 +158,19 @@ const drivers = {
       for (const [key, value] of Object.entries({ T3CODE_HOME: env.T3CODE_HOME, CLAUDE_CONFIG_DIR: claudeHome, ...claudeEnvironment(api) })) {
         launch.push("--env", `${key}=${value}`);
       }
-      run("open", [...launch, this.bundle]);
+      run("open", [...launch, bundle]);
       await until("T3 Code's server", () => existsSync(join(env.T3CODE_HOME, "userdata/server-runtime.json")), 120);
       await sleep(3000);
       this.t3(["project", "add", repo]);
       for (let i = 1; i <= count; i++) this.t3(["thread", "start", repo, prompt(i), "--provider", "claudeAgent", "--model", "claude-opus-5-5"]);
     },
     quit() {
-      run("osascript", ["-e", 'tell application "T3 Code (Nightly)" to quit']);
+      run("osascript", ["-e", `tell application "${basename(bundle, ".app")}" to quit`]);
     },
   },
 
   orca: {
-    bundle: "/Applications/Orca.app",
+    bundles: ["/Applications/Orca.app"],
     benchUserOnly: true,
     env(api) {
       return {
@@ -168,75 +178,118 @@ const drivers = {
         ...claudeEnvironment(api),
         CLAUDE_CONFIG_DIR: claudeHome,
         ORCA_USER_DATA_PATH: join(work, "orca"),
-        ORCA_APP_EXECUTABLE: `${this.bundle}/Contents/MacOS/Orca`,
+        ORCA_APP_EXECUTABLE: `${bundle}/Contents/MacOS/Orca`,
       };
     },
+    // Each worktree is trusted before its `claude` starts, so no session opens on the trust question.
     async start(api) {
-      const orca = (...args) => run(`${this.bundle}/Contents/Resources/bin/orca`, [...args, "--json"], { env: this.env(api) });
+      const orca = (...args) => run(`${bundle}/Contents/Resources/bin/orca`, [...args, "--json"], { env: this.env(api) });
       orca("open");
       await sleep(5000);
       orca("repo", "add", "--path", repo);
       for (let i = 1; i <= count; i++) {
-        const made = JSON.parse(orca("worktree", "create", "--repo", `path:${repo}`, "--name", `bench-${i}`, "--agent", "claude", "--prompt", prompt(i), "--surface", "terminal", "--setup", "skip"));
-        this.trust(made);
+        const made = orca("worktree", "create", "--repo", `path:${repo}`, "--name", `bench-${i}`, "--setup", "skip");
+        const path = made.match(/"(?:path|worktreePath)":\s*"([^"]+)"/)?.[1];
+        if (!path) throw new Error(`no worktree path in Orca's reply: ${made}`);
+        this.trust(path);
+        orca("agent", "launch", "--worktree", `path:${path}`, "--agent", "claude", "--prompt", prompt(i), "--surface", "terminal");
       }
     },
-    trust(made) {
+    trust(path) {
       const file = join(claudeHome, ".claude.json");
       const config = JSON.parse(readFileSync(file, "utf8"));
-      const path = JSON.stringify(made).match(/"(?:path|worktreePath)":"([^"]+)"/)?.[1];
-      if (path) config.projects[path] = { hasTrustDialogAccepted: true };
+      config.projects[path] = { hasTrustDialogAccepted: true };
       writeFileSync(file, JSON.stringify(config));
     },
     quit() {
       run("osascript", ["-e", 'tell application "Orca" to quit']);
-      spawnSync("pkill", ["-f", `${this.bundle}/Contents/Resources/app.asar.unpacked/.*daemon-entry`]);
+      spawnSync("pkill", ["-u", uid, "-f", `${literally(bundle)}/Contents/Resources/app.asar.unpacked/.*daemon-entry`]);
     },
   },
 
   // Conductor has no way to start a session from outside, so the person starts the first one;
   // the fake API then has it open the rest through Conductor's own CreateWorkspace tool.
   conductor: {
-    bundle: "/Applications/Conductor.app",
+    bundles: ["/Applications/Conductor.app"],
     benchUserOnly: true,
     opensItsOwnSessions: true,
+    settings: join(homedir(), ".conductor/settings.managed.toml"),
     async start(api) {
-      const settings = join(homedir(), ".conductor/settings.managed.toml");
-      mkdirSync(dirname(settings), { recursive: true });
+      mkdirSync(dirname(this.settings), { recursive: true });
+      this.before = existsSync(this.settings) ? readFileSync(this.settings) : null;
       const env = Object.entries(claudeEnvironment(api)).map(([key, value]) => `${key} = ${JSON.stringify(value)}`);
-      writeFileSync(settings, [`claude_executable_path = ${JSON.stringify(claudePath)}`, "", "[environment_variables.local]", ...env, ""].join("\n"));
-      run("open", ["-a", this.bundle]);
-      say(`in Conductor, add the repository ${repo} and start a workspace whose first message is:`);
+      writeFileSync(this.settings, [`claude_executable_path = ${JSON.stringify(claudePath)}`, "", "[environment_variables.local]", ...env, ""].join("\n"));
+      run("open", ["-a", bundle]);
+      say(`in Conductor, add the repository ${repo} (⌘⇧G in the Open dialog takes a typed path) and start a workspace whose first message is:`);
       say(`  ${prompt(1)}`);
       await until("the first Conductor session", async () => (await sessionsAnswered(api)) >= 1, 1800);
     },
     quit() {
-      run("osascript", ["-e", 'tell application id "com.conductor.app" to quit']);
+      try {
+        run("osascript", ["-e", 'tell application id "com.conductor.app" to quit']);
+      } finally {
+        if (this.before) writeFileSync(this.settings, this.before);
+        else if (this.before === null) rmSync(this.settings, { force: true });
+      }
     },
   },
 };
 
+const usage = `usage: run.mjs <${Object.keys(drivers).join("|")}|all> [options]
+
+  --sessions N    Claude Code sessions to open (default 20)
+  --idle S        seconds to measure once every session has answered (default 600)
+  --interval S    seconds between samples while idle (default 30)
+  --out DIR       folder for <app>.json (default scripts/bench/results)
+  --bundle PATH   the app to run, when one app is installed somewhere else
+  --keep          keep the run's temporary folder
+  -h, --help      show this`;
+
+const helpAsked = options.help || appName === "--help" || appName === "-h";
+if (helpAsked || !(appName in drivers || appName === "all")) {
+  console.error(usage);
+  process.exit(helpAsked ? 0 : 2);
+}
+
+const installed = (name) => drivers[name].bundles.find((path) => existsSync(path));
+
 if (appName === "all") {
+  if (options.bundle) {
+    console.error("--bundle names one app's bundle; pass it with that app's name instead of all");
+    process.exit(2);
+  }
+  const failures = [];
   for (const name of Object.keys(drivers)) {
-    if (drivers[name].benchUserOnly && !benchUser) continue;
-    execFileSync(process.execPath, [fileURLToPath(import.meta.url), name, ...rest], { stdio: "inherit" });
+    if (drivers[name].benchUserOnly && !benchUser) {
+      say(`skipping ${name}: it runs only as the macOS user \`bench\``);
+    } else if (!installed(name)) {
+      say(`skipping ${name}: not installed at ${drivers[name].bundles.join(" or ")}`);
+    } else if (spawnSync(process.execPath, [fileURLToPath(import.meta.url), name, ...rest], { stdio: "inherit" }).status !== 0) {
+      failures.push(name);
+    }
+  }
+  if (failures.length) {
+    console.error(`failed: ${failures.join(", ")}`);
+    process.exit(1);
   }
   process.exit(0);
 }
 
 const driver = drivers[appName];
-if (!driver) {
-  console.error(`usage: run.mjs <${Object.keys(drivers).join("|")}> [--sessions 20] [--idle 600] [--out dir]`);
-  process.exit(2);
+const bundle = options.bundle?.replace(/\/$/, "") ?? installed(appName);
+if (!bundle || !existsSync(bundle)) {
+  console.error(`${appName} is not installed at ${options.bundle ?? driver.bundles.join(" or ")}; pass --bundle /path/to/App.app`);
+  process.exit(1);
 }
 if (driver.benchUserOnly && !benchUser) {
   console.error(`${appName} writes into this account's agent configs; run it as the macOS user \`bench\``);
   process.exit(1);
 }
-if (running(`${driver.bundle}/Contents/MacOS/`)) {
-  console.error(`${driver.bundle} is already running; quit it first, since a run starts it fresh and quits it after`);
+if (running(`${literally(bundle)}/Contents/`)) {
+  console.error(`${bundle} is already running; quit it first, since a run starts it fresh and quits it after`);
   process.exit(1);
 }
+const claudePath = findClaude();
 
 const work = mkdtempSync(join(tmpdir(), `bench-${appName}-`));
 const repo = join(work, "repo");
@@ -257,7 +310,7 @@ try {
   say(`all ${count} sessions answered; measuring ${options.idle} s of idle`);
   mkdirSync(options.out, { recursive: true });
   const out = join(options.out, `${appName}.json`);
-  execFileSync(process.execPath, [join(here, "measure.mjs"), "--app", driver.bundle, "--idle", String(options.idle), "--interval", String(options.interval), "--out", out], {
+  execFileSync(process.execPath, [join(here, "measure.mjs"), "--app", bundle, "--idle", String(options.idle), "--interval", String(options.interval), "--out", out], {
     stdio: ["ignore", "inherit", "inherit"],
   });
   const result = JSON.parse(readFileSync(out, "utf8"));
@@ -275,7 +328,8 @@ try {
   }
   await sleep(5000);
   fake.kill();
-  if (!options.keep) rmSync(work, { recursive: true, force: true });
+  if (options.keep) say(`kept ${work}`);
+  else rmSync(work, { recursive: true, force: true });
 }
 if (failed) {
   console.error(failed.message);

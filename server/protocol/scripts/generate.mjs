@@ -116,7 +116,7 @@ const CORE_ONLY = new Map([
     "orgvault.json",
     {
       module: "orgvault.rs",
-      imports: `\nuse super::vault::*;${FROM_THE_WIRE}`,
+      imports: `\nuse super::protocol::OrgRole;\nuse super::vault::*;${FROM_THE_WIRE}`,
     },
   ],
 ]);

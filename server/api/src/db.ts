@@ -272,6 +272,7 @@ export interface Tables {
       ShareEndReason | null
     >;
     viewer_check: string | null;
+    anyone: ColumnType<boolean, boolean | undefined, boolean>;
   };
   stash_items: {
     id: string;
@@ -347,12 +348,18 @@ export interface Tables {
     updated_at: ColumnType<Date, never, Date>;
     created_at: CreatedAt;
   };
+  vault_ended: {
+    user_id: string;
+    id: string;
+    revision: number;
+  };
   org_vaults: {
     org_id: string;
     generation: ColumnType<number, never, number>;
     created_by: string;
     created_at: CreatedAt;
     rotated_at: ColumnType<Date | null, never, Date>;
+    remade_at: ColumnType<Date | null, never, Date>;
     changes: ColumnType<string, never, never>;
   };
   org_vault_keys: {

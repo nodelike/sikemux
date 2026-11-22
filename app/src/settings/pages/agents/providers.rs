@@ -22,7 +22,8 @@ use sikemux_calls::model_providers::ModelProvider;
 use sikemux_calls::model_providers::ProviderParams;
 use sikemux_calls::params::NoParams;
 use sikemux_calls::vault::{
-    OrgEntryParams, OrgModelKeyAdd, OrgVaultStatus, ShownOrgModelKey, ShownOrgVault,
+    OrgEntryParams, OrgModelKeyAdd, OrgParams, OrgVaultStatus, ShownOrgModelKey, ShownOrgOpener,
+    ShownOrgVault,
 };
 use sikemux_calls::Call;
 
@@ -35,6 +36,7 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::ui::numbers::compact;
+use crate::ui::time::{ago, now_ms};
 use crate::workbench::Workbench;
 
 /// What a search finds on this page.
@@ -518,6 +520,17 @@ fn row(
     controls: impl IntoElement,
     t: &Tokens,
 ) -> AnyElement {
+    marked_row(None, label, about, controls, t)
+}
+
+/// A [`row`] with `mark` before its name.
+fn marked_row(
+    mark: Option<AnyElement>,
+    label: String,
+    about: Option<AnyElement>,
+    controls: impl IntoElement,
+    t: &Tokens,
+) -> AnyElement {
     div()
         .flex()
         .items_center()
@@ -526,6 +539,7 @@ fn row(
         .py(SPACE_2H)
         .border_b(crate::theme::border())
         .border_color(t.line_soft)
+        .children(mark)
         .child(
             div()
                 .flex_1()
@@ -885,7 +899,8 @@ fn grouped(
         .into_any_element()
 }
 
-/// An org's keys of `kind`, while there are any to show or its admin may add one.
+/// An org's keys of `kind`, while there are any to show or its admin may add one. Its API
+/// group also says when the vault is shut here or was just made again, and who could open it.
 fn org_group(
     bench: &Workbench,
     fields: &Fields,
@@ -897,8 +912,11 @@ fn org_group(
     let keys: Vec<&ShownOrgModelKey> = (vault.model_keys.iter())
         .filter(|key| kind_of(fields, &key.provider) == Some(kind))
         .collect();
-    let waiting = vault.status == OrgVaultStatus::Waiting;
-    let adds = vault.writes && !waiting;
+    let states = kind == Kind::Api;
+    let waiting = states && vault.status == OrgVaultStatus::Waiting;
+    let adds = vault.writes && vault.status != OrgVaultStatus::Waiting;
+    let remade =
+        (vault.remade_at).filter(|at| states && !waiting && now_ms().saturating_sub(*at) < WEEK_MS);
     if keys.is_empty() && !waiting && !adds {
         return None;
     }
@@ -922,19 +940,44 @@ fn org_group(
             .py(SPACE_2H)
             .child(lines(words, failed, cx))
     };
+    let shut = match vault.writes && !vault.openers.is_empty() {
+        true => t!("Not open on this host yet. It opens with every key kept once one of these hosts is online.").to_owned(),
+        false if vault.writes => t!(
+            "Not open on this host yet. It opens once one of your hosts that has it, or a host of one of {org}'s owners or admins, is online.",
+            org = vault.name
+        ),
+        false => t!(
+            "Not open on this host yet. It opens by itself once a host of one of {org}'s owners or admins is online. There's nothing to do here. If it stays shut, an owner or admin can make it again.",
+            org = vault.name
+        ),
+    };
+    let after = remade.map(|at| match vault.writes {
+        true => t!(
+            "Made again {when}. Add the org's keys again. Shared projects' rules come back as members share theirs again.",
+            when = when(at)
+        ),
+        false => t!(
+            "An admin made {org}'s vault again {when}. Its keys come back as admins add them. Rules you wrote for shared projects are kept as Only you; share them again with a tap.",
+            org = vault.name,
+            when = when(at)
+        ),
+    });
+    let remaking = waiting && vault.writes;
     let body = div()
-        .when(waiting, |body| {
-            body.child(note(
-                vec![t!(
-                    "Not open on this host yet. It opens once one of your hosts that has it, or a host of one of {org}'s owners or admins, is online.",
-                    org = vault.name
-                )],
-                false,
-            ))
-        })
+        .when(waiting, |body| body.child(note(vec![shut], false)))
+        .children(after.map(|after| note(vec![after], false)))
         .children(vault.failed.clone().map(|failed| note(vec![failed], true)))
-        .children(keys.iter().map(|key| org_key_row(bench, fields, vault, key, this, cx)))
-        .when(adds, |body| body.child(org_add_row(fields, vault, kind, this, cx)));
+        .when(remaking, |body| {
+            body.children(vault.openers.iter().map(|opener| opener_row(opener, cx)))
+                .child(remake_row(fields, vault, this, cx))
+        })
+        .children(
+            keys.iter()
+                .map(|key| org_key_row(bench, fields, vault, key, this, cx)),
+        )
+        .when(adds, |body| {
+            body.child(org_add_row(fields, vault, kind, this, cx))
+        });
     let card = rows::section("", None, Some(sub.into()), false, body, cx);
     let mark = ui::org_mark(&vault.name, &vault.org, 14.).into_any_element();
     let lapsed = (!vault.active).then(|| {
@@ -949,6 +992,160 @@ fn org_group(
             .into_any_element()
     });
     Some(grouped(Some(mark), &vault.name, lapsed, card, cx))
+}
+
+/// How long the notes about a vault made again stay up.
+const WEEK_MS: u64 = 7 * 86_400_000;
+
+/// When something happened, to end a sentence: `just now` or `3d ago`.
+fn when(at: u64) -> String {
+    match now_ms().saturating_sub(at) < 60_000 {
+        true => t!("just now").into(),
+        false => ago(at),
+    }
+}
+
+/// A host that could open the org's vault for this one: whose it is and when it was last online.
+fn opener_row(opener: &ShownOrgOpener, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let whose = match (opener.yours, &opener.whose, opener.owner) {
+        (true, _, _) => Some(t!("Yours").to_owned()),
+        (false, Some(name), true) => Some(t!("{name}'s, the owner", name = name)),
+        (false, Some(name), false) => Some(t!("{name}'s, an admin", name = name)),
+        (false, None, _) => None,
+    };
+    let seen = match (opener.online, opener.last_online, whose.is_some()) {
+        (true, _, true) => t!("online now, the vault opens here shortly").to_owned(),
+        (true, _, false) => t!("Online now, the vault opens here shortly").to_owned(),
+        (false, Some(at), true) => t!("last online {ago}", ago = when(at)),
+        (false, Some(at), false) => t!("Last online {ago}", ago = when(at)),
+        (false, None, true) => t!("not online since it was linked").to_owned(),
+        (false, None, false) => t!("Not online since it was linked").to_owned(),
+    };
+    let about = match whose {
+        Some(whose) => format!("{whose} · {seen}"),
+        None => seen,
+    };
+    let mark = ui::icon(crate::icons::Icon::Laptop, crate::theme::ROW_GLYPH)
+        .text_color(if opener.online {
+            t.host
+        } else {
+            t.text_tertiary
+        })
+        .into_any_element();
+    marked_row(
+        Some(mark),
+        opener.host.clone(),
+        Some(lines(vec![about], false, cx)),
+        div(),
+        &t,
+    )
+}
+
+/// Makes the org's vault again, off while a host that could open it is online.
+fn remake_row(
+    fields: &Fields,
+    vault: &ShownOrgVault,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let id = format!("org-remake-{}", vault.org);
+    let busy = fields.busy.as_deref() == Some(id.as_str());
+    let online = vault.openers.iter().find(|opener| opener.online);
+    let about = vec![match (online, vault.openers.is_empty()) {
+        (Some(opener), _) => t!(
+            "{host} is online, so the vault opens here shortly with nothing lost.",
+            host = opener.host
+        ),
+        (None, false) => t!("Only if none of these hosts is coming back.").to_owned(),
+        (None, true) => t!("Only if no host that has it is coming back.").to_owned(),
+    }];
+    let failed = (fields.failure.as_ref())
+        .filter(|(at, _)| *at == id)
+        .map(|(_, message)| lines(vec![message.clone()], true, cx));
+    let (org, name) = (vault.org.clone(), vault.name.clone());
+    let wake = (vault.openers.iter())
+        .max_by_key(|opener| opener.last_online)
+        .map(|opener| (opener.host.clone(), opener.last_online));
+    let lost: Vec<String> = vault
+        .openers
+        .iter()
+        .map(|opener| opener.host.clone())
+        .collect();
+    let controls = button(
+        id.clone(),
+        t!("Make it again…"),
+        ui::Variant::Outline,
+        busy || !vault.remakes,
+        this,
+        move |bench, _, cx| {
+            let (org, id) = (org.clone(), id.clone());
+            bench.confirm(
+                t!("Make {org}'s vault again?", org = name),
+                remake_said(wake.as_ref(), &lost),
+                t!("Make it again"),
+                true,
+                move |bench, yes, _, cx| {
+                    if yes {
+                        change::<call::OrgVaultRemake>(
+                            bench,
+                            id.clone(),
+                            OrgParams { org: org.clone() },
+                            cx,
+                        );
+                    }
+                },
+                cx,
+            );
+        },
+    );
+    let about = div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_0)
+        .child(lines(about, false, cx))
+        .children(failed)
+        .into_any_element();
+    row(
+        t!("Make the vault again").to_owned(),
+        Some(about),
+        controls,
+        &t,
+    )
+}
+
+/// What making the vault again costs, naming the host whose waking would spare it.
+fn remake_said(wake: Option<&(String, Option<u64>)>, hosts: &[String]) -> String {
+    let wake = wake.map(|(host, seen)| match seen {
+        Some(at) => t!(
+            "Do this only if no host that has it is coming back. Waking {host}, last online {ago}, opens the vault here with nothing lost.",
+            host = host,
+            ago = when(*at)
+        ),
+        None => t!(
+            "Do this only if no host that has it is coming back. Waking {host} opens the vault here with nothing lost.",
+            host = host
+        ),
+    });
+    let gone = match hosts {
+        [] => t!("Every host loses its copy if one comes back.").to_owned(),
+        [host] => t!(
+            "Every host loses its copy, {host} too if it comes back.",
+            host = host
+        ),
+        _ => t!(
+            "Every host loses its copy, {hosts} too if they come back.",
+            hosts = hosts.join(", ")
+        ),
+    };
+    [
+        wake.unwrap_or_else(|| t!("Do this only if no host that has it is coming back.").to_owned()),
+        t!("The org's model keys are gone; an admin adds them again.").to_owned(),
+        t!("Shared projects lose their rules. Each member keeps the rules they wrote, as Only you on a host that still has them, and can share them again with a tap. What members already sent stays waiting.").to_owned(),
+        gone,
+    ]
+    .join("\n")
 }
 
 fn save_helper(bench: &mut Workbench, helper: Option<Helper>, cx: &mut Context<Workbench>) {

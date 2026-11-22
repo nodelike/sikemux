@@ -10,7 +10,8 @@
   step to allow a host or narrow an entry to projects; a host an older entry's list left out
   does not take it in, and the first host on the list to reach it writes it again without the list;
   2026-11-17, by [ADR 0026](./0026-an-org-has-a-vault-of-its-own.md): an org's secrets go in a vault
-  of the org's own, never in a member's account vault
+  of the org's own, never in a member's account vault; 2026-11-22, to say hosts refuse a vault
+  older than they last read, and read a key wrapped in a form that names its sealer
 
 ## Context
 
@@ -84,11 +85,40 @@ when its home goes away.
 - **What holds against a server that turns hostile.** Someone who reads the server's data, or
   takes a copy of it, gets nothing of the vault: it keeps only sealed entries and wrapped keys.
   Each host keeps the recovery key it first saw the vault with and refuses a vault that names
-  another, so the server cannot swap in a recovery key of its own. A server that lies in what it
-  answers can still list a host key of its own among the hosts waiting to join: the hosts wrap the
-  vault key for every host the account lists, since nothing yet lets them tell a real one apart,
-  so such a server could read the vault from then on. Wrapping the key only for hosts whose join
-  another host saw would close that.
+  another, so the server cannot swap in a recovery key of its own. Each host also keeps the
+  newest generation of the key it has read, every entry's revision and the last revision of each
+  entry the vault lists as removed. A key older than that fails the round. An entry older than the
+  host's copy, one the vault removed, or one the host holds that the vault leaves out without
+  listing it as removed is left out for that round, its sign-in, marks and refresher kept, and the
+  rest of the vault syncs, as an org's vault does; so a server glitch clears by itself. A sign-out
+  of a left-out entry removes it once the vault lists it again. Only an entry that opens
+  at the vault's generation moves its mark, a mark never goes down, and a host does not replace
+  the key while the vault hands back an entry older than its copy: it skips the replacement that
+  round and syncs the rest. A host still waiting for the key keeps only the generation from what it
+  reads. A server can still show an older vault to a host that was away, or that has no mark for
+  an entry yet, such as one just let in, and ask it to replace the key; each replacement reseals that host's older copies one revision up, until
+  they pass the other hosts' marks and those hosts take an older copy in. Removed entries stay
+  removed. This is still open. The server records each removal,
+  whichever host made it, lists them with the vault, and refuses any write to a removed entry, so an
+  entry's id never comes back. A host lets go of a sign-in only when the vault lists its entry as
+  removed, or as no longer meant for this host; a lying server can still list an entry as removed,
+  so the hosts let go of that sign-in, though it reads nothing. A host takes the first vault it
+  reads after it starts keeping these marks as it stands. A host's copy of the key can carry the
+  public key of the host that wrapped it, as an org's does, and a host takes a copy in that form
+  only from itself or a host the vault lists as holding the key. Hosts read that form now but
+  still wrap the key in the old one, which names no sealer, and take an old-form copy from anyone,
+  so a stable host that reads only the old form keeps its vault. Once a stable release reads the
+  new form, hosts will wrap in it, replace an old-form key and then take no other. The recovery
+  wrap names no sealer and opens with the recovery key alone, so a server could seal a key of its
+  own for it and a host recovering would take that key. This is accepted: a check against holders
+  the server lists would stop none of that, and would fail when the host that sealed the wrap is
+  gone, the case the recovery key is for. Even with the new form, the server can still hand over
+  a key of its own: it can list a host key of its own among the hosts waiting to join, and the
+  hosts wrap the vault key for every host the account lists, since nothing yet lets them tell a
+  real one apart, so such a server could read the vault from then on. Once that key is listed as
+  holding, it can name it among the holders, raise the generation and wrap a new key from it, and
+  a host takes that key in place of its own. Wrapping the key only for hosts whose join another
+  host saw would close both.
 - **Mods' data is kept the same way.** Each host keeps every mod's documents in its own store and
   writes there first. The account holds the latest copy of each document, sealed under the vault
   key with its collection and id inside. Its id on the server is an HMAC of the mod, collection and

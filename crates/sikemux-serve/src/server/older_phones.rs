@@ -1,6 +1,6 @@
 //! What a phone build still in the stores reads differently from this core's JSON, put right on its
 //! connection alone.
-//! phone-compat: 0.2.0 dotSize paneDotSize customThemes paneShader cloudBrowser cloudBrowserShortcut running next assertions blockers
+//! phone-compat: 0.2.0 dotSize paneDotSize customThemes paneShader cloudBrowser cloudBrowserShortcut windowView running next assertions blockers
 
 use std::borrow::Cow;
 
@@ -49,6 +49,9 @@ fn put_right(value: &mut Value) {
                     .entry("customThemes")
                     .or_insert(Value::Array(Vec::new()));
                 object.entry("paneShader").or_insert(Value::Bool(false));
+                object
+                    .entry("windowView")
+                    .or_insert(Value::from("workbench"));
                 for key in ["cloudBrowser", "cloudBrowserShortcut"] {
                     object.entry(key).or_insert(Value::from(""));
                 }

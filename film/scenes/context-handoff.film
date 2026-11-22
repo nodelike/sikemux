@@ -1,0 +1,12 @@
+# A chat handed to a fresh session on another model mid-way: the "Context handoff" line where it took over.
+stage 1440 900
+window 1440 900
+project storefront shop
+chat Ada claude:builtin-claude
+say "Sketch the orders table"
+settle 10
+core handOff {"agentId":"$chat","provider":"claude","model":"claude-opus-5-5"}
+settle 4
+say "Carry on from there"
+settle 12
+snap context-handoff

@@ -177,8 +177,6 @@ pub struct Preferences {
     pub folded_rail_groups: Vec<String>,
     /// The order the side rail lists projects in.
     pub project_sort: ProjectSort,
-    /// What the window shows: the workbench, or the goals.
-    pub window_view: WindowView,
     /// The commands the person ran from the command deck, the last first.
     pub recent_command_keys: Vec<String>,
     /// The host whose copy of each project is in front (ADR 0023), by the
@@ -314,24 +312,12 @@ preference_changes! {
     TabRailAllAgents tab_rail_all_agents: bool => Host,
     FoldedRailGroups folded_rail_groups: Vec<String> => Host,
     ProjectSort project_sort: ProjectSort => Host,
-    WindowView window_view: WindowView => Host,
     RecentCommandKeys recent_command_keys: Vec<String> => Host,
     FrontCopies front_copies: BTreeMap<String, String> => Host,
     ElsewhereSpaces elsewhere_spaces: BTreeMap<String, String> => Host,
     ProjectOrder project_order: Vec<String> => Host,
     BuildRuns build_runs: u32 => Host,
     SyncAcrossHosts sync_across_hosts: bool => Host,
-}
-
-/// What the window shows in place of the other.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WindowView {
-    /// Projects, their tabs and the rails beside them.
-    #[default]
-    Workbench,
-    /// What needs the person and the goals of every project, on a rail of their own.
-    Goals,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -548,7 +534,6 @@ impl Default for Preferences {
             tab_rail_all_agents: false,
             folded_rail_groups: vec!["settled".to_owned()],
             project_sort: ProjectSort::default(),
-            window_view: WindowView::default(),
             recent_command_keys: Vec::new(),
             front_copies: BTreeMap::new(),
             elsewhere_spaces: BTreeMap::new(),

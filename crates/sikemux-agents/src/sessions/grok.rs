@@ -268,10 +268,10 @@ pub(super) fn rename_grok_session(
         .open(session_dir.join("summary.json.lock"))
         .map_err(|error| error.to_string())?;
     lock_exclusive(&lock)?;
-    let mut summary = fs::read_to_string(&summary_path)
-        .ok()
-        .and_then(|text| serde_json::from_str::<serde_json::Map<String, Value>>(&text).ok())
-        .ok_or("session not found")?;
+    let mut summary = sikemux_process::files::read_parsed(&summary_path, |bytes| {
+        serde_json::from_slice::<serde_json::Map<String, Value>>(bytes)
+    })?
+    .ok_or("session not found")?;
     summary.insert("generated_title".to_owned(), Value::from(name));
     summary.insert("title_is_manual".to_owned(), Value::Bool(true));
     summary.insert("updated_at".to_owned(), Value::from(now_iso8601()));

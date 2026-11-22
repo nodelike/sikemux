@@ -588,12 +588,6 @@ async fn dispatch(
             .into_owned();
     if let Some(agent_id) = &request.agent_id {
         messages::used_tool(core, agent_id, &tool_word(&request.method));
-        if core.names().is_blind(agent_id) && methods::of(&request.method).blind_refused {
-            return Err(format!(
-                "You review a card blind for Auto, so {} is not yours to use; judge the change from the card, the diff and your folder",
-                tool_word(&request.method)
-            ));
-        }
     }
     if let Some(answered) = super::hosts::record::tool_write(core, &request).await {
         return answered;

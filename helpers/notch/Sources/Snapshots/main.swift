@@ -484,18 +484,22 @@ render("O1-inbox", height: 720) { $0.mode = .open }
 render("O1b-list-call", agents: ["a1", "a2", "a9", "a12"], height: 900) {
     $0.mode = .open
     $0.listCall = "t1"
+    $0.callsOpen = true
 }
 render("O1e-list-chief-call", agents: ["c1", "a1", "a2", "a9"], height: 900) {
     $0.mode = .open
     $0.listCall = "t1"
+    $0.callsOpen = true
 }
 render("O1c-list-weighty-call", agents: ["a1", "a2", "a13"], height: 900, card: { $0.drafts["w1"]?.actionOpen = true }) {
     $0.mode = .open
     $0.listCall = "w1"
+    $0.callsOpen = true
 }
 render("O1d-list-call-short-screen", agents: ["a1", "a2", "a13"], height: 620, card: { $0.drafts["w1"]?.actionOpen = true }) {
     $0.mode = .open
     $0.listCall = "w1"
+    $0.callsOpen = true
 }
 render("O2-new-agent", height: 300) {
     $0.mode = .open

@@ -86,16 +86,21 @@ keeps only sealed entries and wrapped keys. Against a server that lies in what i
   member's account before the next new key keeps the wrap its old account's member sealed.
 - **Nothing older than a host holds now is taken in.** A host refuses a generation of the key
   older than the one it holds, an entry sealed under another generation than the vault's, and a
-  revision older than the copy of that entry it holds, and keeps what it held; it does not
-  replace the key while the server lists such an entry. It keeps no record of entries it no
-  longer holds, so the server can hold an entry back, which hosts take for its removal, and
-  later list it again, at that revision or an older one, which they take back. A host replacing
-  the key seals again what the server lists, so an entry taken back this way crosses into the new
+  revision older than the copy of that entry it holds, and keeps what it held. For each entry it
+  saw go, whether the server listed it as removed or a full read left it out, it keeps a mark at
+  least one revision above the last it held, or the server's own if higher, and refuses the entry
+  at or below it, dropping a held copy that is not above the mark. It does not replace the key
+  while the server lists an entry it refuses. The server can still keep a removal from a host, or
+  understate its revision to a host that missed writes before it, and then hand it a write the
+  removal made it refuse, as a later revision of the entry. A host that neither held an entry nor
+  was told it went has no mark for it, so the server can list it again. A host replacing the key
+  seals again what the server lists, so an entry taken back this way crosses into the new
   generation as a valid entry of it.
-- **A failed answer does not erase a host's copy.** A missing or untrusted wrap, or the server
-  saying the vault does not exist while the host holds its key, leaves the copy as it is and
-  shows the failure. Only the server saying the account is not in the org, which is how a removed member
-  is told, makes a host let go.
+- **A failed answer at the generation a host holds does not erase its copy.** A missing or
+  untrusted wrap at that generation, or the server saying the vault does not exist while the host
+  holds its key, leaves the copy as it is and shows the failure. A host lets go only when the
+  server names a higher generation it cannot open, as below, or says the account is not in the
+  org, which is how a removed member is told.
 
 What still rests on the server:
 
@@ -109,9 +114,11 @@ What still rests on the server:
   generation, keeps any entry the server forged at a high revision and hands it to agents, and
   an admin's host writes under a key no other host has. Only signing out clears it. This is the
   gap ADR 0016 records for the account vault, and the same step would close it.
-- **A host that holds nothing takes what the server gives.** A host that is waiting has nothing
-  to compare against, and a 404 or a sign-out empties a host's copy, so the server can roll a
-  host back in two answers: one that empties it, then an old copy.
+- **A host that holds nothing takes what the server gives.** A host that is waiting has only its
+  generation to compare against. One answer with a higher generation and no wrap for the host
+  empties the copy it keeps, and pins that generation until it signs out; a 404 or a sign-out
+  empties it too. So the server can roll a host back in two answers: one that empties it, then
+  an old copy.
 - **Restoring the server from an older backup** strands the hosts that held newer. Each keeps
   the key generation and the entry copies it held and refuses the backup's older ones, and the
   server refuses admins' writes to those entries, since they name revisions it no longer has.
@@ -119,8 +126,25 @@ What still rests on the server:
   moves them on, and so does signing a host out and in, which takes the backup's state.
 - **A wrap waits on its sealer.** A wrap whose sealer has left the org lists no holder that hosts
   trust, so its host cannot open it until the rotation that leaving asks for. If no host holds
-  the key any more, the vault is lost: there is no recovery key, and making an org's vault
-  again is not built, since the server refuses a second vault and nothing deletes one.
+  the key any more, what it held is lost: there is no recovery key. An owner's or admin's host
+  can then make the vault again. In one step the server drops every entry and wrap, raises the
+  generation and keeps only the asker's wrap of the new key, writing how many it dropped to the
+  org's log. The server refuses a host the vault already opens on, and both the core and the
+  server refuse while another computer that would seal the key
+  for it, its own account's or an owner's or admin's, may be online, and name that computer. The
+  server counts one as online while it is connected, was seen in the last two minutes, or the
+  server started too recently to know, since a restart forgets who was connected. Only an owner's
+  or admin's host whose own wrap does not open is told which computers hold the key and when each
+  was last online. The server alone gains nothing from a remake it could not already do by
+  emptying the vault: hosts still take a key only from a listed holder.
+- **A remake is told from a rotation only by the server's `remadeAt`.** A host let in at the new
+  generation within one read has no evidence of its own to tell the two apart, so it takes the
+  server's word. #915 is for evidence the host holds itself.
+- **A host that cannot open the current generation holds nothing.** It lets go of the key and
+  every entry, mid-rotation too, until a holder seals the new key for it, keeping only the
+  generation, below which it refuses anything. It never writes back what it held: of a
+  shared project's rules and knowledge, its own person's go back to the project's store here,
+  the rest is forgotten, and none of it enters the new vault without that person's tap.
 
 ## Consequences
 

@@ -261,7 +261,7 @@ impl Placed<'_> {
         row.next = match need {
             Some((item, need)) => Some(GoalNext::Need {
                 need,
-                what: asks_on(item, &row.title),
+                what: asks(item),
             }),
             None if row.state == SliceState::Done => Some(GoalNext::Done),
             None => goal
@@ -353,17 +353,6 @@ fn asks(item: &InboxItem) -> String {
     match (item.kind, &item.detail) {
         (InboxKind::Question, Some(asked)) => asked.clone(),
         _ => item.what.clone(),
-    }
-}
-
-/// What an item says on the row of the goal `title`, which needn't name that goal again.
-fn asks_on(item: &InboxItem, title: &str) -> String {
-    let what = asks(item);
-    match &item.name {
-        Some(name) if item.stalled.is_some() && what.contains(title) => {
-            format!("@{name} stalled")
-        }
-        _ => what,
     }
 }
 

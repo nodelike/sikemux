@@ -79,6 +79,7 @@ overlays! {
     adding_provider: crate::add_provider::AddProvider => AddingProvider, Dialog, true, crate::add_provider::view;
     buddy_picker: crate::buddy_picker::BuddyPicker => BuddyPicker, Dialog, true, crate::buddy_picker::view;
     sharing: crate::share::Sharing => Sharing, Dialog, true, crate::share::view;
+    installing_mod: crate::mod_install::Installing => InstallingMod, Dialog, true, crate::mod_install::view;
     /// A task its checks held back, waiting on the person. Its card hangs under the top bar and
     /// asks nothing of the keys.
     run_check: crate::tasks::run_check::RunCheck => RunCheck, InPlace, false;

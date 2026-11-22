@@ -59,6 +59,8 @@ pub enum Read {
     Themes,
     /// Activity across every project, for Settings.
     ActivityEverywhere,
+    /// The last seven days across every project, for the card Settings shares.
+    ActivityWeek,
     /// What the project in front holds.
     Activity,
     Mods,
@@ -146,7 +148,7 @@ impl Read {
             Read::WhatsNew => (call::WhatsNew::METHOD, &[Topic::Preferences]),
             Read::Picture => (call::AccountPicture::METHOD, &[]),
             Read::Themes => (call::Themes::METHOD, &[Topic::Preferences]),
-            Read::Activity | Read::ActivityEverywhere => {
+            Read::Activity | Read::ActivityEverywhere | Read::ActivityWeek => {
                 (call::ActivitySummary::METHOD, &[Topic::Activity])
             }
             Read::Mods => (call::Mods::METHOD, &[Topic::Mods]),
@@ -321,6 +323,7 @@ impl Workbench {
                 return;
             }
             Read::Plugins => {
+                crate::settings::providers_changed(self, cx);
                 if !keep_decoded(&mut self.reads.plugins.0, value, "plugins") {
                     return;
                 }
@@ -604,6 +607,11 @@ impl Workbench {
                     return;
                 }
             }
+            Read::ActivityWeek => {
+                let summary = decoded(value, "the week's activity");
+                crate::settings::week_read(self, summary, cx);
+                return;
+            }
             Read::Ports => {
                 if !keep_decoded(&mut self.feeds.at_mut(&place).ports, value, "ports") {
                     return;
@@ -690,6 +698,7 @@ impl Workbench {
                 self.reads.activity_everywhere = Some(None);
                 self.parts.redraw_stage(cx);
             }
+            Read::ActivityWeek => crate::settings::week_read(self, None, cx),
             _ => {}
         }
     }

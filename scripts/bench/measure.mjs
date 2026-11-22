@@ -4,9 +4,9 @@
 //
 //   node scripts/bench/measure.mjs --app "/Applications/Orca.app" [--idle 300] [--out run.json]
 //
-// The app's processes are every process whose program lives inside the bundle, and every
-// process those started. Agent CLIs are the `claude` processes among them and what they
-// started, unless that program is itself inside the bundle.
+// The app's processes are this user's processes whose program lives inside the bundle, and
+// every process those started. Agent CLIs are the `claude` processes among them and what they
+// started, even when the bundle's own binary runs them, as Electron apps run Claude Code's cli.js.
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
@@ -22,6 +22,7 @@ const bundle = options.app.replace(/\/$/, "");
 const idle = Number(options.idle);
 const interval = Number(options.interval);
 
+const uid = String(process.getuid());
 const run = (command, args) => execFileSync(command, args, { encoding: "utf8", maxBuffer: 64 << 20 });
 
 function plist(key) {
@@ -36,7 +37,7 @@ const seconds = (time) => time.split(":").reduce((total, part) => total * 60 + N
 
 function processes() {
   const table = new Map();
-  for (const line of run("ps", ["-axww", "-o", "pid=,ppid=,time=,rss=,comm="]).split("\n")) {
+  for (const line of run("ps", ["-xww", "-u", uid, "-o", "pid=,ppid=,time=,rss=,comm="]).split("\n")) {
     const match = line.match(/^\s*(\d+)\s+(\d+)\s+(\S+)\s+(\d+)\s+(.*)$/);
     if (match) {
       table.set(Number(match[1]), {
@@ -48,7 +49,7 @@ function processes() {
       });
     }
   }
-  for (const line of run("ps", ["-axww", "-o", "pid=,args="]).split("\n")) {
+  for (const line of run("ps", ["-xww", "-u", uid, "-o", "pid=,args="]).split("\n")) {
     const match = line.match(/^\s*(\d+)\s+(.*)$/);
     if (match && table.has(Number(match[1]))) table.get(Number(match[1])).args = match[2];
   }
@@ -72,23 +73,34 @@ function classify(table) {
   const others = new Map();
   const walk = (entry, underAgent) => {
     if (own.has(entry.pid) || agents.has(entry.pid) || others.has(entry.pid)) return;
-    const agent = !insideBundle(entry) && (underAgent || isAgentCli(entry));
-    const into = insideBundle(entry) ? own : agent ? agents : others;
+    const agent = underAgent || isAgentCli(entry);
+    const into = agent ? agents : insideBundle(entry) ? own : others;
     into.set(entry.pid, entry);
     for (const child of children.get(entry.pid) ?? []) walk(child, agent);
   };
-  for (const entry of table.values()) if (insideBundle(entry)) walk(entry, false);
+  const startedInsideBundle = (entry) => {
+    for (let up = table.get(entry.ppid); up; up = table.get(up.ppid)) if (insideBundle(up)) return true;
+    return false;
+  };
+  for (const entry of table.values()) if (insideBundle(entry) && !startedInsideBundle(entry)) walk(entry, false);
   return { own: [...own.values()], agents: [...agents.values()], others: [...others.values()] };
 }
 
 const scratch = mkdtempSync(join(tmpdir(), "bench-footprint-"));
+process.on("exit", () => rmSync(scratch, { recursive: true, force: true }));
+let reports = 0;
+const nothing = { total: 0, perProcess: new Map() };
 function footprint(entries) {
-  if (entries.length === 0) return { total: 0, perProcess: new Map() };
-  const file = join(scratch, "footprint.json");
+  if (entries.length === 0) return nothing;
+  const file = join(scratch, `footprint-${++reports}.json`);
   const args = ["--noCategories", "-f", "bytes", "-j", file];
   for (const entry of entries) args.push("-p", String(entry.pid));
-  spawnSync("footprint", args, { stdio: "ignore" });
+  const done = spawnSync("footprint", args, { encoding: "utf8", stdio: ["ignore", "ignore", "pipe"] });
+  if (/Unable to find any processes/.test(done.stderr)) return nothing;
+  if (done.status !== 0) throw new Error(`footprint exited with ${done.status ?? done.signal}: ${done.stderr.trim()}`);
   const report = JSON.parse(readFileSync(file, "utf8"));
+  rmSync(file);
+  if (report.errors?.length) throw new Error(`footprint reported errors: ${JSON.stringify(report.errors)}`);
   return {
     total: report["total footprint"],
     perProcess: new Map(report.processes.map((p) => [p.pid, p.footprint])),
@@ -154,7 +166,7 @@ const describe = (entries, prints) =>
       program: entry.program.replace(`${bundle}/`, ""),
       footprint: prints.perProcess.get(entry.pid) ?? null,
       rss: entry.rss,
-        cpuSeconds: Number((entry.cpu - (before.get(entry.pid)?.cpu ?? 0)).toFixed(2)),
+      cpuSeconds: Number((entry.cpu - (before.get(entry.pid)?.cpu ?? 0)).toFixed(2)),
     }))
     .sort((a, b) => (b.footprint ?? 0) - (a.footprint ?? 0));
 
@@ -195,7 +207,6 @@ const result = {
   samples,
   processes: { own: describe(last.ownEntries, last.own), others: describe(last.otherEntries, last.others), agents: describe(last.agentEntries, last.agents) },
 };
-rmSync(scratch, { recursive: true, force: true });
 const text = JSON.stringify(result, null, 2);
 if (options.out) writeFileSync(options.out, `${text}\n`);
 else console.log(text);

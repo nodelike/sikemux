@@ -23,6 +23,16 @@
 //! A message wrapped as one from another agent is read from its first line
 //! inside the wrapping.
 //!
+//! `FAKE_ACP_SCRIPT` names a JSON file of replies for recorded demos, in the
+//! shape of `sikemux-fake-claude`'s `FAKE_CLAUDE_SCRIPT`: the first reply whose
+//! `when` words the prompt holds plays its `think`, `say`, `say_file` and `tool`
+//! steps, a tool step's `kind` being its ACP kind (`other`) and its `content`,
+//! when given, standing in for its `result`, and a `plan` step setting out its
+//! ACP plan entries.
+//!
+//! `FAKE_ACP_MODELS`, a JSON list of `{ "value", "name" }`, are the models it
+//! offers in place of `fast` and `slow`.
+//!
 //! The account is `FAKE_ACP_ACCOUNT`. An account named in `FAKE_ACP_LIMITED`
 //! has run out of usage, and every turn on it fails the way Claude's adapter
 //! reports that, until the Unix time in milliseconds `FAKE_ACP_RESETS_AT`
@@ -110,12 +120,118 @@ impl Agent {
             "category": "model",
             "type": "select",
             "currentValue": current,
-            "options": [
-                { "value": "fast", "name": "Fast" },
-                { "value": "slow", "name": "Slow" },
-            ],
+            "options": models(),
         }])
     }
+}
+
+fn models() -> Value {
+    std::env::var("FAKE_ACP_MODELS")
+        .ok()
+        .and_then(|models| serde_json::from_str(&models).ok())
+        .unwrap_or_else(|| {
+            json!([
+                { "value": "fast", "name": "Fast" },
+                { "value": "slow", "name": "Slow" },
+            ])
+        })
+}
+
+/// The steps of the first reply in `FAKE_ACP_SCRIPT` whose words `prompt` holds.
+fn scripted_reply(prompt: &str) -> Option<Vec<Value>> {
+    let script: Value =
+        serde_json::from_slice(&std::fs::read(std::env::var_os("FAKE_ACP_SCRIPT")?).ok()?).ok()?;
+    let prompt = prompt.to_lowercase();
+    script.as_array()?.iter().find_map(|reply| {
+        let when = reply["when"].as_str()?.to_lowercase();
+        prompt
+            .contains(&when)
+            .then(|| reply["steps"].as_array().cloned())
+            .flatten()
+    })
+}
+
+/// Waits `ms`, or less when the turn is cancelled, and says whether it was.
+fn wait_unless_cancelled(agent: &Agent, ms: u64) -> bool {
+    let deadline = Instant::now() + Duration::from_millis(ms);
+    while Instant::now() < deadline {
+        if agent.cancelled.swap(false, Ordering::AcqRel) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
+fn play(agent: &Agent, session_id: &str, text: &str, steps: &[Value]) -> &'static str {
+    let mut said = String::new();
+    let mut reason = "end_turn";
+    for (at, step) in steps.iter().enumerate() {
+        if let Some(title) = step["tool"].as_str() {
+            let id = format!("{session_id}-{at}");
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "tool_call", "toolCallId": id, "title": title,
+                    "kind": step["kind"].as_str().unwrap_or("other"), "status": "in_progress",
+                    "rawInput": step["input"] }),
+            );
+            if wait_unless_cancelled(agent, step["ms"].as_u64().unwrap_or(600)) {
+                reason = "cancelled";
+                break;
+            }
+            let status = if step["error"].as_bool() == Some(true) {
+                "failed"
+            } else {
+                "completed"
+            };
+            let result = step["result"].as_str().unwrap_or_default();
+            let content = step.get("content").cloned().unwrap_or_else(
+                || json!([{ "type": "content", "content": { "type": "text", "text": result } }]),
+            );
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "tool_call_update", "toolCallId": id, "status": status,
+                    "content": content }),
+            );
+            continue;
+        }
+        if let Some(entries) = step.get("plan") {
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "plan", "entries": entries }),
+            );
+            continue;
+        }
+        let (kind, words) = match (step["think"].as_str(), step["say"].as_str()) {
+            (Some(thought), _) => ("agent_thought_chunk", thought.to_owned()),
+            (_, Some(words)) => ("agent_message_chunk", words.to_owned()),
+            _ => (
+                "agent_message_chunk",
+                script_file(step["say_file"].as_str().unwrap_or_default()),
+            ),
+        };
+        let per_second = step["perSecond"].as_f64().unwrap_or(30.).max(1.);
+        for piece in words.split_inclusive(char::is_whitespace) {
+            agent.say(session_id, kind, piece);
+            if kind == "agent_message_chunk" {
+                said.push_str(piece);
+            }
+            if !piece.trim().is_empty() {
+                std::thread::sleep(Duration::from_secs_f64(1. / per_second));
+            }
+        }
+    }
+    record(session_id, "user", text);
+    record(session_id, "agent", &said);
+    reason
+}
+
+/// A file named beside `FAKE_ACP_SCRIPT`.
+fn script_file(name: &str) -> String {
+    std::env::var_os("FAKE_ACP_SCRIPT")
+        .map(PathBuf::from)
+        .and_then(|script| std::fs::read_to_string(script.with_file_name(name)).ok())
+        .unwrap_or_default()
 }
 
 fn history_file(session_id: &str) -> Option<PathBuf> {
@@ -626,11 +742,12 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
                     .to_owned();
                 agent.cancelled.store(false, Ordering::Release);
                 let text = prompt_text(&params);
-                let stop_reason = match text.trim() {
-                    "context" => {
+                let stop_reason = match (text.trim(), scripted_reply(&text)) {
+                    ("context", _) => {
                         agent.say(&session_id, "agent_message_chunk", &prompt_all(&params));
                         "end_turn"
                     }
+                    (_, Some(steps)) => play(&agent, &session_id, &text, &steps),
                     _ => run_turn(&agent, &session_id, &text),
                 };
                 agent.reply(&id, json!({ "stopReason": stop_reason }));

@@ -17,7 +17,7 @@ use super::changed::Topic;
 use super::Core;
 
 fn config_path() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".ssh/config"))
+    sikemux_process::paths::home().map(|home| home.join(".ssh").join("config"))
 }
 
 /// How deep `Include`s may nest, as ssh allows.
@@ -120,7 +120,7 @@ fn read_config(
 /// The files an `Include` names: from ~/.ssh when relative, with `~` for the home folder
 /// and wildcards in the file's name.
 fn included_files(pattern: &str) -> Vec<PathBuf> {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+    let Some(home) = sikemux_process::paths::home() else {
         return Vec::new();
     };
     let path = match pattern.strip_prefix("~/") {
@@ -182,7 +182,7 @@ fn watch(core: &Core) {
 /// there is none. An existing config is never changed. Runs on a blocking
 /// thread.
 pub(crate) fn config_file() -> Result<String, String> {
-    let path = config_path().ok_or("HOME is not set")?;
+    let path = config_path().ok_or("the home folder is not set")?;
     let folder = path.parent().ok_or("the SSH config has no folder")?;
     if !folder.exists() {
         fs::create_dir_all(folder).map_err(|error| error.to_string())?;

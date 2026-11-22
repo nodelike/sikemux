@@ -74,6 +74,16 @@
       ],
       "additionalProperties": false
     },
+    "VaultEnded": {
+      "description": "An entry removed from the account's vault, at the last revision it had.",
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/VaultEntryId" },
+        "revision": { "$ref": "#/$defs/VaultRevision" }
+      },
+      "required": ["id", "revision"],
+      "additionalProperties": false
+    },
     "Vault": {
       "description": "The account's vault, as the host that asked sees it.",
       "type": "object",
@@ -105,6 +115,11 @@
         "entries": {
           "type": "array",
           "items": { "$ref": "#/$defs/VaultEntry" }
+        },
+        "ended": {
+          "description": "Entries removed from the vault, each at its last revision. A removed entry's id never comes back: the server refuses a write to it and a host takes no entry under it. Absent means none.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/VaultEnded" }
         }
       },
       "required": [

@@ -97,6 +97,8 @@ export async function stopPush(token: TokenSource): Promise<void> {
  */
 export async function forgetPush(): Promise<void> {
   notifier?.removeAll();
-  await SecureStore.deleteItemAsync(ITEM);
-  if (notifier) await Notifications.unregisterForNotificationsAsync();
+  const steps = [SecureStore.deleteItemAsync(ITEM)];
+  if (notifier) steps.push(Notifications.unregisterForNotificationsAsync());
+  const failed = (await Promise.allSettled(steps)).find((step) => step.status === 'rejected');
+  if (failed) throw failed.reason;
 }

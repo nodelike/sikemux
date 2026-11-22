@@ -463,9 +463,7 @@ fn now() -> u64 {
 }
 
 fn load(path: &Path) -> Store {
-    std::fs::read(path)
-        .ok()
-        .and_then(|data| serde_json::from_slice(&data).ok())
+    sikemux_process::files::read_or_set_aside(path, |bytes| serde_json::from_slice(bytes))
         .unwrap_or_default()
 }
 

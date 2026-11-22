@@ -806,26 +806,57 @@ fn wrapped(letter: &Letter) -> String {
             attribute(&answered.asker_id),
             attribute(&answered.cli),
             attribute(&answered.question),
-            attribute(letter.note.as_deref().unwrap_or_default()),
+            attribute(&note(letter)),
             if answered.secret { " secret=\"true\"" } else { "" },
             letter
                 .text
                 .replace("</question-answer", "&lt;/question-answer"),
         );
     }
-    let name = &letter.from_name;
-    let note = letter.note.clone().unwrap_or_else(|| {
-        let sender = called(name, &letter.from_id);
-        format!("Sent by {sender}, another agent in Sikemux, not by the person. Reply with agent_send only with an answer, a decision or a blocker, never just to acknowledge.")
-    });
     format!(
         "<agent-message from=\"{}\" agent-id=\"{}\" cli=\"{}\" note=\"{}\">\n{}\n</agent-message>",
-        attribute(name),
+        attribute(&letter.from_name),
         attribute(&letter.from_id),
         attribute(&letter.cli),
-        attribute(&note),
+        attribute(&note(letter)),
         letter.text.replace("</agent-message", "&lt;/agent-message"),
     )
+}
+
+fn note(letter: &Letter) -> String {
+    letter.note.clone().unwrap_or_else(|| match letter.answers {
+        Some(_) => String::new(),
+        None => {
+            let sender = called(&letter.from_name, &letter.from_id);
+            format!("Sent by {sender}, another agent in Sikemux, not by the person. Reply with agent_send only with an answer, a decision or a blocker, never just to acknowledge.")
+        }
+    })
+}
+
+/// Tells `lead` which of its calls about the sender are open, inside the letter's note:
+/// text after the letter would stop the chat from showing it as a letter.
+fn note_open_calls(core: &Core, lead: &str, letter: &mut Letter) {
+    let questions = &core.harness().questions;
+    if let Some(calls) = questions.calls_about_note(lead, &letter.from_id) {
+        letter.note = Some(format!("{} {calls}", note(letter)).trim_start().to_owned());
+    }
+}
+
+/// `letter` as `reader` reads it: one line of a calm report, or the whole letter.
+fn read_as(core: &Core, reader: &str, letter: &mut Letter) -> String {
+    match letter.calm {
+        Some(_) => {
+            let line = format!("- @{}: {}", letter.from_name, letter.text);
+            match (core.harness().questions).calls_about_note(reader, &letter.from_id) {
+                Some(calls) => format!("{line}\n{calls}"),
+                None => line,
+            }
+        }
+        None => {
+            note_open_calls(core, reader, letter);
+            wrapped(letter)
+        }
+    }
 }
 
 /// The task a lead gives an agent it started, as that agent reads it.
@@ -1011,6 +1042,7 @@ pub(super) fn on_host(wanted: &str) -> (&str, Option<&str>) {
 /// What `agent_send` takes as `to` for every other agent of the caller's team.
 const TEAM: &str = "team";
 const MAX_TO_BYTES: usize = 2000;
+const MAX_SWITCH_BYTES: usize = 200;
 
 /// Sends one message to every other agent of `from`'s team: the agent that
 /// leads it and every agent it started, each delivered as a message of its own.
@@ -1080,6 +1112,11 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         }),
         Some(_) => return Err("answers must be the id of the question this answers".into()),
     };
+    let run_on = super::caller::text_param(&request.params, "runOn", MAX_SWITCH_BYTES)?;
+    let switching = run_on.is_some();
+    if switching && (to.contains(',') || to.trim().eq_ignore_ascii_case(TEAM)) {
+        return Err("runOn switches one agent at a time".into());
+    }
     if to.trim().eq_ignore_ascii_case(TEAM) {
         if answers.is_some() {
             return Err("answers goes to one agent, not the team".into());
@@ -1139,23 +1176,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             if target.agent_id == from {
                 return Err("That agent is you".into());
             }
-            let name = target.name.as_deref().unwrap_or(&target.agent_id);
-            if let Err(why) = blind_between(&core, &from, &target.agent_id, name) {
-                let refused = Queued {
-                    text: String::new(),
-                    origin: Some(Origin {
-                        from: from.clone(),
-                        kind: MessageKind::Message,
-                        awaited: false,
-                        calm: None,
-                    }),
-                    mark: None,
-                    paths: Vec::new(),
-                };
-                log(&core, &target.agent_id, [&refused], MessageOutcome::Refused);
-                return Err(why.into());
-            }
-            let mut letter = letter_from(&agents, MessageKind::Message, from, text, None);
+            let mut letter = letter_from(&core, &agents, MessageKind::Message, from, text, None);
             if let Some(Answering { id, .. }) =
                 answers.as_ref().filter(|_| target.reach != Reach::Remote)
             {
@@ -1179,6 +1200,11 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     };
     let (target, letter) = match found {
         Found::Open(target, letter) => (target, *letter),
+        Found::Closed(name, _) | Found::ClosedElsewhere(name) if switching => {
+            return Err(format!(
+                "{name} had closed; agent_spawn it again with the cli and model it should run on"
+            ));
+        }
         Found::Closed(name, ran) if calls_off(&message_text(core, &request.params)?) => {
             return Ok(called_off(
                 &name,
@@ -1192,11 +1218,25 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         Found::ClosedElsewhere(name) => return reopen_elsewhere(core, request, &name).await,
     };
     let from = letter.from_id.clone();
+    if target.reach == Reach::Remote && switching {
+        return Err("it runs on another host, so runOn cannot switch it from here".into());
+    }
     if target.reach == Reach::Remote {
         return carry(core, &target, letter, answers).await;
     }
+    let switched = match run_on {
+        Some(run_on) => {
+            let name = target.name.as_deref().unwrap_or(&target.agent_id);
+            let switched = super::chat::switch::switch(core, &target.agent_id, run_on).await;
+            Some(switched.map_err(|why| format!("{name} was not switched or sent this: {why}"))?)
+        }
+        None => None,
+    };
     let answer = letter.text.clone();
     let mut sent = deliver(core, &target, letter).await?;
+    if let (Some(switched), Some(fields)) = (switched, sent.as_object_mut()) {
+        fields.insert("runsOn".into(), switched.into());
+    }
     core.seen().called(&target.agent_id);
     core.changed(What::Agents);
     match answers {
@@ -1451,7 +1491,6 @@ pub(crate) async fn from_host(
         .name
         .clone()
         .unwrap_or_else(|| target.agent_id.clone());
-    blind_between(core, &carried.from_id, &target.agent_id, &name)?;
     let mut letter = Letter {
         kind: carried.kind,
         from_id: carried.from_id.clone(),
@@ -1526,25 +1565,6 @@ pub(crate) async fn from_hosts(
     deliver(core, &target, letter).await
 }
 
-/// Refuses any contact between a reviewer Auto started blind and another
-/// agent, either way.
-pub(crate) fn blind_between(
-    core: &Core,
-    from: &str,
-    to: &str,
-    to_name: &str,
-) -> Result<(), String> {
-    if core.names().is_blind(from) {
-        return Err("You review a card blind for Auto, so you may not reach other agents; ask the person with ask if you must".into());
-    }
-    if core.names().is_blind(to) {
-        return Err(format!(
-            "{to_name} reviews a card blind for Auto, so no agent may reach it"
-        ));
-    }
-    Ok(())
-}
-
 /// Puts the question `id`, worded `text`, from one agent to its lead, with `note` in
 /// place of the usual one. Fails when the lead has stopped or is gone.
 pub(crate) async fn question(
@@ -1564,7 +1584,14 @@ pub(crate) async fn question(
                 .find(|agent| agent.agent_id == to && agent.reach != Reach::Stopped)
                 .cloned()
                 .ok_or("that agent is not running")?;
-            let mut letter = letter_from(&agents, MessageKind::Question, from, text, Some(note));
+            let mut letter = letter_from(
+                &core,
+                &agents,
+                MessageKind::Question,
+                from,
+                text,
+                Some(note),
+            );
             letter.puts = Some(id);
             Ok((target, letter))
         })
@@ -1626,6 +1653,7 @@ pub(crate) async fn answer(
         }
         return Ok(delivered);
     }
+    note_open_calls(core, &target.agent_id, &mut letter);
     let text = std::iter::once(&letter)
         .chain(&rest)
         .map(wrapped)
@@ -1866,6 +1894,7 @@ pub(crate) fn is_waiting(core: &Core, agent_id: &str, mark: &str) -> bool {
 }
 
 fn letter_from(
+    core: &Core,
     agents: &[Listed],
     kind: MessageKind,
     from: String,
@@ -1877,7 +1906,7 @@ fn letter_from(
         kind,
         from_name: sender
             .and_then(|agent| agent.name.clone())
-            .unwrap_or_else(|| from.clone()),
+            .unwrap_or_else(|| core.names().name_or_id(&from)),
         cli: sender.map_or_else(|| "agent".to_owned(), |agent| agent.cli.clone()),
         from_id: from,
         text,
@@ -2047,7 +2076,7 @@ async fn report_noted(
             };
             let name = name.unwrap_or_else(|| worker.clone());
             let note = note(&called(&name, &worker));
-            let mut letter = letter_from(&agents, MessageKind::Report, worker, text, Some(note));
+            let mut letter = letter_from(&core, &agents, MessageKind::Report, worker, text, Some(note));
             letter.from_name = name;
             letter.calm = calm.then(|| calm_due(&core, &agents, &letter.from_id, &target.agent_id, letter.at));
             Ok(Some((target, letter)))
@@ -2082,11 +2111,8 @@ fn calm_due(core: &Core, agents: &[Listed], worker: &str, lead: &str, at: u64) -
     }
 }
 
-async fn deliver(core: &Arc<Core>, target: &Listed, letter: Letter) -> Result<Value, String> {
-    let text = match letter.calm {
-        Some(_) => format!("- @{}: {}", letter.from_name, letter.text),
-        None => wrapped(&letter),
-    };
+async fn deliver(core: &Arc<Core>, target: &Listed, mut letter: Letter) -> Result<Value, String> {
+    let text = read_as(core, &target.agent_id, &mut letter);
     Box::pin(deliver_as(core, target, letter, text)).await
 }
 
@@ -2101,12 +2127,8 @@ async fn deliver_as(
     if target.reach == Reach::Remote {
         return carry(core, target, letter, None).await;
     }
-    let calls = (core.harness().questions).calls_about_note(&target.agent_id, &letter.from_id);
     let queued = Queued {
-        text: match calls {
-            Some(calls) => format!("{text}\n{calls}"),
-            None => text,
-        },
+        text,
         origin: Some(Origin {
             from: letter.from_id.clone(),
             kind: letter.kind,
@@ -2791,4 +2813,123 @@ pub(crate) async fn agent_message_rows(
         AgentMessageRows { project, rows }
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use sikemux_fold::{ChatEventKind, Fold};
+    use sikemux_view::chat::LetterKind;
+    use sikemux_wire::protocol::PermissionMode;
+
+    use super::*;
+    use crate::server::ServerCore;
+
+    /// A lead's chat drew a worker's report as the person's own message, raw tags and all,
+    /// while the lead had a call about that worker open.
+    #[tokio::test]
+    async fn a_report_from_a_worker_a_call_is_open_about_still_reads_as_its_letter() {
+        let core = Core::new(Default::default(), None).unwrap();
+        core.harness().questions.hold(json!({
+            "id": "question-1",
+            "agentId": "lead",
+            "name": "Chief",
+            "cli": "claude",
+            "project": "widget",
+            "asked": "Plain failure messages",
+            "text": "Plain failure messages",
+            "choices": [],
+            "blocked": false,
+            "assumption": null,
+            "secret": false,
+            "at": 7,
+            "about": { "agentId": "worker", "name": "Masayuki", "cli": "claude" },
+            "stage": { "stage": "lead", "leadId": "lead", "leadName": "Chief", "endedAt": null },
+        }));
+        let mut letter = Letter {
+            kind: MessageKind::Message,
+            from_id: "worker".to_owned(),
+            from_name: "Masayuki".to_owned(),
+            cli: "claude".to_owned(),
+            text: "PR 3 is up.".to_owned(),
+            at: 7,
+            note: None,
+            answers: None,
+            puts: None,
+            paths: Vec::new(),
+            waits: false,
+            awaited: false,
+            calm: None,
+        };
+
+        let text = read_as(&core, "lead", &mut letter);
+        assert!(
+            text.contains("question-1"),
+            "the lead is told of its open call"
+        );
+
+        let mut fold = Fold::new(PermissionMode::WorkspaceWrite);
+        fold.apply(0, ChatEventKind::Prompt, &json!({ "text": text }), 1_000);
+        fold.flush();
+        let rows = fold.view(false).rows;
+        let letters = &rows.first().expect("the message").letters;
+        assert_eq!(letters.len(), 1);
+        assert_eq!(letters[0].kind, LetterKind::Message);
+        assert_eq!(letters[0].name, "Masayuki");
+        assert_eq!(letters[0].text, "PR 3 is up.");
+    }
+
+    /// CI failed after a closed worker's push, and the note Sikemux sent its lead in the
+    /// worker's place showed as "@agent-8f42…" instead of the worker's name.
+    #[test]
+    fn a_letter_sent_for_a_closed_agent_carries_its_name() {
+        use crate::server::names::{Starting, Worker};
+
+        let core = Core::new(Default::default(), None).unwrap();
+        let open = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect();
+        let lead = Starting {
+            agent_id: "agent-lead",
+            project: "/p".into(),
+            provider: Some("claude"),
+            resume_id: None,
+        };
+        core.names().give(lead, open(&["agent-lead"]));
+        let worker = Worker {
+            agent_id: "agent-8f42",
+            lead: "agent-lead",
+            project: None,
+            provider: "claude",
+            session: Some("ses-1"),
+            reports: true,
+            task: None,
+        };
+        let name = core
+            .names()
+            .hire(worker, open(&["agent-lead"]))
+            .unwrap()
+            .name;
+        core.names().settle(open(&["agent-lead", "agent-8f42"]));
+        core.names().settle(open(&["agent-lead"]));
+
+        let letter = letter_from(
+            &core,
+            &[],
+            MessageKind::Report,
+            "agent-8f42".to_owned(),
+            "CI on 7b4da8e54 failed:".to_owned(),
+            None,
+        );
+        let mut fold = Fold::new(PermissionMode::WorkspaceWrite);
+        fold.apply(
+            0,
+            ChatEventKind::Prompt,
+            &json!({ "text": wrapped(&letter) }),
+            1_000,
+        );
+        fold.flush();
+        let rows = fold.view(false).rows;
+        let letters = &rows.first().expect("the message").letters;
+        assert_eq!(letters[0].name, name);
+        assert_ne!(letters[0].name, "agent-8f42");
+    }
 }

@@ -231,9 +231,7 @@ pub fn asker(peer: SocketAddr, port: u16) -> Option<Asker> {
         if let Some((root_started, agent_id)) = roots.get(&pid) {
             return (*root_started == started).then(|| Asker::Agent(agent_id.clone()));
         }
-        if pid != holder
-            && procs::name(pid).is_some_and(|name| SIKEMUX_PROCESSES.contains(&name.as_str()))
-        {
+        if pid != holder && is_sikemux(pid) {
             return None;
         }
         pid = parent;
@@ -269,9 +267,7 @@ fn agent_above(mut pid: u32, roots: &HashMap<u32, (u64, String)>) -> Option<Stri
         if let Some((root_started, agent_id)) = roots.get(&pid) {
             return (*root_started == started).then(|| agent_id.clone());
         }
-        if pid != caller
-            && procs::name(pid).is_some_and(|name| SIKEMUX_PROCESSES.contains(&name.as_str()))
-        {
+        if pid != caller && is_sikemux(pid) {
             return None;
         }
         if parent <= 1 {
@@ -280,6 +276,26 @@ fn agent_above(mut pid: u32, roots: &HashMap<u32, (u64, String)>) -> Option<Stri
         pid = parent;
     }
     None
+}
+
+/// Whether `pid` runs a Sikemux app or core. The stand-ins Sikemux puts on an agent's `PATH`,
+/// such as its `git` and `timeout`, run the core's program under their own name, and are not one.
+fn is_sikemux(pid: u32) -> bool {
+    let named = |name: &str| {
+        let name = name
+            .strip_suffix(std::env::consts::EXE_SUFFIX)
+            .unwrap_or(name);
+        SIKEMUX_PROCESSES.contains(&name)
+    };
+    procs::name(pid).is_some_and(|name| named(&name))
+        && procs::command_line(pid)
+            .and_then(|line| line.into_iter().next())
+            .is_none_or(|program| {
+                std::path::Path::new(&program)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(named)
+            })
 }
 
 /// Every process at or below each of `roots`, given with its start time,

@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::protocol::OrgRole;
 use super::vault::*;
 use sikemux_wire::accounts::protocol::*;
 
@@ -19,8 +20,13 @@ pub struct OrgVault {
     pub waiting: Vec<DeviceKey>,
     /// A host that held the key is no longer a member's host, so an owner's or admin's host should replace it.
     pub rotate: bool,
+    /// For an owner's or admin's host that cannot open the key, each other computer that holds it at the current generation and would seal it for that host (its own account's, and owners' and admins'), and when each was last online, so they can tell one that is asleep from one that is gone before making the vault again. Absent when the host has the key sealed by itself or by a current holder, and for any other member's host.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub holding: Option<Vec<OrgVaultHolder>>,
+    /// When an owner's or admin's host last made the vault again, or null if none has.
+    pub remade_at: Option<String>,
     pub entries: Vec<OrgVaultEntry>,
-    /// Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it.
+    /// Entries removed from the vault, each one revision above its last. A new entry under one of these ids is added at that revision; a write at the old one is refused.
     pub ended: Vec<OrgVaultEnded>,
     /// How many changes the vault's entries have had. A host passes it back as after to read only the entries changed or removed since.
     pub changes: OrgVaultChanges,
@@ -42,7 +48,7 @@ pub struct OrgVaultCreate {
     pub key: OrgVaultWrapped,
 }
 
-/// An entry removed from an org's vault, at the last revision it had.
+/// An entry removed from an org's vault, one revision above the last it had.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgVaultEnded {
@@ -89,12 +95,41 @@ pub struct OrgVaultEntryRead {
     pub revision: i64,
 }
 
+/// A member's computer that holds the org's key and would seal it for the asking host.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgVaultHolder {
+    pub host_key: DeviceKey,
+    /// The computer's name, as its account named it.
+    pub computer: String,
+    /// The name of the member it is on, as their sign-in names them. Null when the name cannot be told. Never an email address.
+    pub member: Option<String>,
+    /// The role in the org of the account it is on.
+    pub role: OrgRole,
+    /// It is on the asking host's own account.
+    pub yours: bool,
+    /// It is connected to the accounts server now.
+    pub online: bool,
+    /// When it last connected to the accounts server or left it, or null if it never has.
+    pub last_seen_at: Option<String>,
+}
+
 /// A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgVaultKeysAdd {
     pub generation: VaultGeneration,
     pub keys: Vec<OrgWrappedKey>,
+}
+
+/// An owner's or admin's host whose computer cannot open the org's vault makes it again: every entry and every wrap is dropped, and the generation goes up with a new key held by the asking host alone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgVaultRemake {
+    /// The current generation.
+    pub from: VaultGeneration,
+    /// The new key sealed for the asking host at the next generation.
+    pub key: OrgVaultWrapped,
 }
 
 /// An owner's or admin's host replaces the org's key: every wrap and every entry moves to the next generation at once.
@@ -141,7 +176,9 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgVaultEntryKind" => through::<OrgVaultEntryKind>(json),
         "OrgVaultEntryPut" => through::<OrgVaultEntryPut>(json),
         "OrgVaultEntryRead" => through::<OrgVaultEntryRead>(json),
+        "OrgVaultHolder" => through::<OrgVaultHolder>(json),
         "OrgVaultKeysAdd" => through::<OrgVaultKeysAdd>(json),
+        "OrgVaultRemake" => through::<OrgVaultRemake>(json),
         "OrgVaultRotate" => through::<OrgVaultRotate>(json),
         "OrgVaultState" => through::<OrgVaultState>(json),
         "OrgVaultWrapped" => through::<OrgVaultWrapped>(json),

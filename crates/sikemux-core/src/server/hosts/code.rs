@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::files;
 
 use super::super::connection::blocking;
 use super::super::edits::land::own_checkout;
@@ -467,8 +468,8 @@ fn claims_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn read_claims(core: &Core) -> Vec<Claim> {
-    (claims_file(core).and_then(|file| std::fs::read(file).ok()))
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+    (claims_file(core))
+        .and_then(|file| files::read_or_set_aside(&file, |bytes| serde_json::from_slice(bytes)))
         .unwrap_or_default()
 }
 

@@ -5,6 +5,7 @@
 //! holds, opens that slice in the project whose code host repository it names.
 //! `sikemux://hosts/<host>` opens the Hosts page on that host, as the notch's alerts do.
 //! `sikemux://ask/<number>` opens one of the person's asks, as its card on the board does.
+//! `sikemux://install-mod?repo=<owner>/<name>` asks the person to install a mod from GitHub.
 
 use std::path::PathBuf;
 
@@ -114,6 +115,9 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
     }
     if let Some(host) = hosts_link(link) {
         return bench.open_hosts(Some(host).filter(|host| !host.is_empty()));
+    }
+    if let Some(repo) = crate::mod_install::link(link) {
+        return bench.offer_repo_mod(repo, cx);
     }
     let resume = parse(link).filter(|resume| {
         bench

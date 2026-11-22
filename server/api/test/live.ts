@@ -7,6 +7,7 @@ import WebSocket from "ws";
 import type { Database } from "../src/db.ts";
 import { RateLimiter } from "../src/limits.ts";
 import type { LiveOptions } from "../src/live/options.ts";
+import { Presence } from "../src/live/hub.ts";
 import { attachLive, type Live } from "../src/live/server.ts";
 import { Pusher, type PusherOptions } from "../src/push/send.ts";
 import { signLive, type TestDevice } from "./accounts.ts";
@@ -28,7 +29,8 @@ export async function runApi(
   push: Partial<Pick<PusherOptions, "providers" | "limits" | "sleep">> = {},
 ): Promise<Running> {
   const limiter = new RateLimiter();
-  const app = testApp(database, limiter);
+  const presence = new Presence();
+  const app = testApp(database, limiter, { presence });
   const server = await new Promise<Server>((resolve) => {
     const started = serve(
       { fetch: app.fetch, hostname: "127.0.0.1", port: 0 },
@@ -49,6 +51,7 @@ export async function runApi(
       providers: {},
       ...push,
     }),
+    presence,
     options: { coalesceMs: 10, ...options },
   });
   const { port } = server.address() as AddressInfo;

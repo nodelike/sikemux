@@ -165,11 +165,11 @@ NOTCH_ARCHS="$(/usr/bin/lipo -archs "$NOTCH_EXECUTABLE")"
 check_libraries "$EXECUTABLE" "bundle executable"
 check_libraries "$CLI_EXECUTABLE" "the core"
 
-# Test kits build the app with `drive` and the core with `fake-plugins`, which answer to
-# a socket or to files instead of the person; each leaves this text in what it builds.
+# Test kits build the app with `drive`, which answers to a socket instead of the person and
+# leaves this text in what it builds.
 for code in "$EXECUTABLE" "$CLI_EXECUTABLE"; do
-  if /usr/bin/grep -aqF -e "window driver could not listen" -e "this test kit has no answer for that" "$code"; then
-    fail "$code was built with a test kit's feature (drive or fake-plugins)"
+  if /usr/bin/grep -aqF -e "window driver could not listen" "$code"; then
+    fail "$code was built with a test kit's feature (drive)"
   fi
 done
 

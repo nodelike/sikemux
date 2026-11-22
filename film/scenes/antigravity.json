@@ -1,0 +1,31 @@
+[
+  {
+    "when": "payment intents",
+    "steps": [
+      { "think": "Checkout still charges through the old charges endpoint. I'll find every caller, move checkout and refunds onto payment intents, and keep a reader for receipts saved in the old shape.", "perSecond": 80 },
+      { "plan": [
+        { "content": "Find every call to the old charges API", "priority": "high", "status": "completed" },
+        { "content": "Move checkout and refunds onto payment intents", "priority": "high", "status": "in_progress" },
+        { "content": "Keep old receipts printing", "priority": "medium", "status": "pending" },
+        { "content": "Run the checkout, refund and receipt tests", "priority": "medium", "status": "pending" }
+      ] },
+      { "tool": "Search \"charges.create\"", "kind": "search", "result": "src/checkout.ts:42\nsrc/refunds.ts:57\nsrc/receipts.ts:18", "ms": 450 },
+      { "tool": "Read src/checkout.ts", "kind": "read", "result": "", "ms": 350 },
+      { "tool": "Read src/receipts.ts", "kind": "read", "result": "", "ms": 350 },
+      { "say": "Three places still use the old charges API. Checkout and refunds move to payment intents; receipts get a reader for the old charge shape, so past orders still print the same.", "perSecond": 45 },
+      { "tool": "Edit src/checkout.ts", "kind": "edit", "ms": 400, "content": [{ "type": "diff", "path": "src/checkout.ts", "oldText": "  const charge = await stripe.charges.create({\n    amount: cart.totalCents,\n    currency: cart.currency,\n    source: token,\n  });\n  return charge.id;\n", "newText": "  const intent = await stripe.paymentIntents.create({\n    amount: cart.totalCents,\n    currency: cart.currency,\n    payment_method: method,\n    confirm: true,\n  });\n  return intent.id;\n" }] },
+      { "tool": "Edit src/refunds.ts", "kind": "edit", "ms": 400, "content": [{ "type": "diff", "path": "src/refunds.ts", "oldText": "  await stripe.refunds.create({ charge: order.chargeId });\n", "newText": "  await stripe.refunds.create({ payment_intent: order.paymentId });\n" }] },
+      { "tool": "pnpm test checkout refunds receipts", "kind": "execute", "result": "", "ms": 600000 }
+    ]
+  },
+  {
+    "when": "a cent off",
+    "steps": [
+      { "think": "A cent off smells like rounding each line before summing. The totals code should show it.", "perSecond": 80 },
+      { "tool": "Grep", "input": { "pattern": "Math.round", "path": "src" }, "result": "src/cart.ts:31:    total += Math.round(line.price * line.qty * 100) / 100;", "ms": 400 },
+      { "tool": "Read", "input": { "file_path": "src/cart.ts" }, "result": "", "ms": 400 },
+      { "say": "Each line is rounded before it is added, so three lines can drift a cent. I'll sum in cents and round once.", "perSecond": 45 },
+      { "tool": "Bash", "input": { "command": "pnpm test cart", "description": "Run the cart tests" }, "result": "", "ms": 600000 }
+    ]
+  }
+]

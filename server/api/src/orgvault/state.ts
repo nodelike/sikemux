@@ -9,6 +9,12 @@ import { sql, type Kysely } from "kysely";
 import { isStaff } from "../account/staff.ts";
 import type { Tables } from "../db.ts";
 import { notFound } from "../http.ts";
+import type { Presence } from "../live/hub.ts";
+
+/** Names members by their user ids, leaving out whoever cannot be named. */
+export type Namer = (
+  userIds: string[],
+) => Promise<Map<string, { name: string | null }>>;
 
 /** A shared project's store of rules and knowledge, which agents read. */
 export const PROJECT_MEMORY = "project-memory";
@@ -99,24 +105,51 @@ export function memberHosts(db: Kysely<Tables>, orgId: string) {
   return db
     .selectFrom("devices")
     .innerJoin("org_users", "org_users.user_id", "devices.user_id")
-    .select("devices.key")
+    .select([
+      "devices.key",
+      "devices.name",
+      "devices.user_id",
+      "devices.last_seen_at",
+      "org_users.role",
+    ])
     .where("org_users.org_id", "=", orgId)
     .where("devices.role", "=", "host");
 }
 
+/** Whether `hostKey`'s wrap among `wraps` opens: sealed by itself, or by another holder. */
+export function opensOwnWrap(
+  hostKey: string,
+  wraps: { host_key: string; wrapped_by: string }[],
+): boolean {
+  const own = wraps.find((wrap) => wrap.host_key === hostKey);
+  return (
+    own !== undefined &&
+    (own.wrapped_by === hostKey ||
+      wraps.some((wrap) => wrap.host_key === own.wrapped_by))
+  );
+}
+
+export interface Viewer {
+  hostKey: string;
+  userId: string;
+  role: OrgRole;
+}
+
 /**
- * The org's vault as `hostKey` sees it: the key sealed for it, and which members' hosts hold it or
- * wait. With `after`, only the entries changed or removed since that many changes.
+ * The org's vault as the viewer's host sees it: the key sealed for it, and which members' hosts
+ * hold it or wait. With `after`, only the entries changed or removed since that many changes.
  */
 export async function orgVaultState(
   db: Kysely<Tables>,
   orgId: string,
-  hostKey: string,
+  { hostKey, userId, role }: Viewer,
+  presence: Presence,
+  people: Namer,
   after?: number,
 ): Promise<OrgVaultState> {
   const vault = await db
     .selectFrom("org_vaults")
-    .select(["generation", "changes"])
+    .select(["generation", "changes", "remade_at"])
     .where("org_id", "=", orgId)
     .executeTakeFirst();
   if (!vault) return { vault: null };
@@ -125,7 +158,7 @@ export async function orgVaultState(
   const [keys, hosts, entries, ended] = await Promise.all([
     db
       .selectFrom("org_vault_keys")
-      .select(["host_key", "generation", "wrapped"])
+      .select(["host_key", "generation", "wrapped", "wrapped_by"])
       .where("org_id", "=", orgId)
       .orderBy("created_at")
       .orderBy("host_key")
@@ -155,12 +188,39 @@ export async function orgVaultState(
     (key) => key.generation === vault.generation && members.has(key.host_key),
   );
   const holders = new Set(current.map((key) => key.host_key));
+  const own = current.find((key) => key.host_key === hostKey);
+  const key = own?.wrapped ?? null;
+  const holding =
+    role === "user" || opensOwnWrap(hostKey, current)
+      ? null
+      : hosts.filter(
+          (host) =>
+            host.key !== hostKey &&
+            holders.has(host.key) &&
+            (host.user_id === userId || host.role !== "user"),
+        );
+  const named =
+    holding && holding.length > 0
+      ? await people([...new Set(holding.map((host) => host.user_id))])
+      : new Map<string, { name: string | null }>();
   const state: OrgVault = {
     generation: vault.generation,
-    key: current.find((key) => key.host_key === hostKey)?.wrapped ?? null,
+    key,
     holders: [...holders],
     waiting: [...members].filter((key) => !holders.has(key)),
     rotate: keys.some((key) => !members.has(key.host_key)),
+    ...(holding && {
+      holding: holding.map((host) => ({
+        hostKey: host.key,
+        computer: host.name,
+        member: named.get(host.user_id)?.name ?? null,
+        role: host.role,
+        yours: host.user_id === userId,
+        online: presence.online(host.key),
+        lastSeenAt: host.last_seen_at?.toISOString() ?? null,
+      })),
+    }),
+    remadeAt: vault.remade_at?.toISOString() ?? null,
     entries: entries.map(toEntry),
     ended,
     changes,

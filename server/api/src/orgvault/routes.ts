@@ -12,10 +12,12 @@ import {
   readBody,
 } from "../http.ts";
 import { perUser } from "../limits.ts";
+import { peopleNamer } from "../orgs/shared.ts";
 import {
   addOrgKeys,
   createOrgVault,
   putOrgEntry,
+  remakeOrgVault,
   removeOrgEntry,
   rotateOrgVault,
   type Asker,
@@ -61,9 +63,15 @@ export function orgVaultRoutes({
   database: { db },
   verifier,
   limiter,
+  presence,
+  clerk,
   billing: { live },
-}: Pick<Services, "database" | "verifier" | "limiter" | "billing">) {
+}: Pick<
+  Services,
+  "database" | "verifier" | "limiter" | "presence" | "clerk" | "billing"
+>) {
   const asHost = requireIdentity(verifier, db, { accept: ["host"] });
+  const people = peopleNamer(clerk);
 
   const asker = (c: Context<AuthEnv>): Asker => {
     const orgId = c.req.param("orgId") ?? "";
@@ -91,24 +99,44 @@ export function orgVaultRoutes({
     });
   };
 
-  const state = (c: Context<AuthEnv>) => {
-    const { orgId, hostKey } = asker(c);
-    return orgVaultState(db, orgId, hostKey);
+  /** Runs `change` as `changing` does, then answers the vault as the caller's host now sees it. */
+  const changed = async (
+    c: Context<AuthEnv>,
+    need: Need,
+    change: (
+      trx: Transaction<Tables>,
+      asker: Asker,
+      member: Member,
+    ) => Promise<void>,
+  ) => {
+    const member = await changing(c, need, async (trx, who, member) => {
+      await change(trx, who, member);
+      return member;
+    });
+    const { orgId, userId, hostKey } = asker(c);
+    return orgVaultState(
+      db,
+      orgId,
+      { hostKey, userId, role: member.role },
+      presence,
+      (ids) => people(c, ids),
+    );
   };
 
   return new Hono<AuthEnv>()
     .get("/", asHost, perUser(limiter, "org-vault-get", 240), async (c) => {
-      const { orgId, userId } = asker(c);
-      await memberOf(db, live, orgId, userId);
+      const { orgId, userId, hostKey } = asker(c);
+      const { role } = await memberOf(db, live, orgId, userId);
       const after = c.req.query("after");
       if (after !== undefined && !CHANGES.test(after))
         throw badRequest("after is a count of the vault's changes.");
-      const { hostKey } = asker(c);
       return c.json(
         await orgVaultState(
           db,
           orgId,
-          hostKey,
+          { hostKey, userId, role },
+          presence,
+          (ids) => people(c, ids),
           after === undefined ? undefined : Number(after),
         ),
       );
@@ -120,10 +148,12 @@ export function orgVaultRoutes({
       perUser(limiter, "org-vault-create", 10),
       async (c) => {
         const body = await readBody(c, "OrgVaultCreate");
-        await changing(c, "paid manager", (trx, who) =>
-          createOrgVault(trx, who, body),
+        return c.json(
+          await changed(c, "paid manager", (trx, who) =>
+            createOrgVault(trx, who, body),
+          ),
+          201,
         );
-        return c.json(await state(c), 201);
       },
     )
     .put(
@@ -133,10 +163,11 @@ export function orgVaultRoutes({
       perUser(limiter, "org-vault-keys", 60),
       async (c) => {
         const body = await readBody(c, "OrgVaultKeysAdd");
-        await changing(c, "member", (trx, who, member) =>
-          addOrgKeys(trx, who, member.role, body),
+        return c.json(
+          await changed(c, "member", (trx, who, member) =>
+            addOrgKeys(trx, who, member.role, body),
+          ),
         );
-        return c.json(await state(c));
       },
     )
     .post(
@@ -146,10 +177,25 @@ export function orgVaultRoutes({
       perUser(limiter, "org-vault-rotate", 10),
       async (c) => {
         const body = await readBody(c, "OrgVaultRotate");
-        await changing(c, "manager", (trx, who) =>
-          rotateOrgVault(trx, who, body),
+        return c.json(
+          await changed(c, "manager", (trx, who) =>
+            rotateOrgVault(trx, who, body),
+          ),
         );
-        return c.json(await state(c));
+      },
+    )
+    .post(
+      "/remake",
+      limitBody<AuthEnv>(4 * WRAP_BYTES),
+      asHost,
+      perUser(limiter, "org-vault-remake", 10),
+      async (c) => {
+        const body = await readBody(c, "OrgVaultRemake");
+        return c.json(
+          await changed(c, "paid manager", (trx, who) =>
+            remakeOrgVault(trx, who, body, presence),
+          ),
+        );
       },
     )
     .put(
