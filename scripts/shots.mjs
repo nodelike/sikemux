@@ -29,6 +29,8 @@ import { homedir, tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
+import { guardCheckout, SAFE_SHOOTER } from "./lib/shots-checkout.mjs";
+
 const { values: options, positionals } = parseArgs({
   allowPositionals: true,
   options: { out: { type: "string" }, compare: { type: "boolean" } },
@@ -109,7 +111,13 @@ function moveTo(rev) {
       home,
     );
   }
-  run("git", ["checkout", "--quiet", "--force", "--detach", rev], checkout);
+  guardCheckout(checkout);
+  run(
+    "git",
+    ["checkout", "--quiet", "--force", "--detach", rev],
+    checkout,
+    SAFE_SHOOTER,
+  );
   if (git(checkout, "status", "--porcelain", "--untracked-files=all"))
     run("git", ["clean", "-fdq"], checkout);
   if (
