@@ -193,7 +193,7 @@ export function orgVaultRoutes({
         const body = await readBody(c, "OrgVaultRemake");
         return c.json(
           await changed(c, "paid manager", (trx, who) =>
-            remakeOrgVault(trx, who, body),
+            remakeOrgVault(trx, who, body, presence),
           ),
         );
       },

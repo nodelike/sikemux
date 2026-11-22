@@ -2544,7 +2544,7 @@ export const schema = {
         },
         holding: {
           description:
-            "For an owner's or admin's host, each computer that holds the key at the current generation and would seal it for that host (its own account's, and owners' and admins'), and when each was last online, so they can tell one that is asleep from one that is gone before making the vault again. Absent for any other member's host.",
+            "For an owner's or admin's host that cannot open the key, each other computer that holds it at the current generation and would seal it for that host (its own account's, and owners' and admins'), and when each was last online, so they can tell one that is asleep from one that is gone before making the vault again. Absent when the host has the key sealed by itself or by a current holder, and for any other member's host.",
           type: "array",
           items: { $ref: "#/$defs/OrgVaultHolder" },
         },
@@ -2702,7 +2702,7 @@ export const schema = {
         },
         member: {
           description:
-            "The name of the member it is on, as their sign-in names them. Null when the asking host has the key sealed for it already, or the name cannot be told. Never an email address.",
+            "The name of the member it is on, as their sign-in names them. Null when the name cannot be told. Never an email address.",
           type: ["string", "null"],
         },
         role: {

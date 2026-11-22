@@ -14,6 +14,7 @@ import { sql, type Transaction } from "kysely";
 import { audit, type AuditAction } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
+import type { Presence } from "../live/hub.ts";
 import { ApiFailure, badRequest, forbidden, notFound } from "../http.ts";
 import {
   ENTRY_COLUMNS,
@@ -314,15 +315,40 @@ export async function rotateOrgVault(
 
 /**
  * For when no computer can open the vault any more: everything sealed under the old key is
- * dropped, and the asking host's key at the next generation is the only one.
+ * dropped, and the asking host's key at the next generation is the only one. Refused while a
+ * computer that would seal the key for the asking host may be online, as it can do that instead.
  */
 export async function remakeOrgVault(
   trx: Transaction<Tables>,
   asker: Asker,
   { from, key }: OrgVaultRemake,
+  presence: Presence,
 ): Promise<void> {
-  const { orgId, hostKey } = asker;
+  const { orgId, userId, hostKey } = asker;
   atCurrent((await lockedVault(trx, orgId)).generation, from);
+  const holders = await memberHosts(trx, orgId)
+    .innerJoin("org_vault_keys", (join) =>
+      join
+        .onRef("org_vault_keys.host_key", "=", "devices.key")
+        .on("org_vault_keys.org_id", "=", orgId)
+        .on("org_vault_keys.generation", "=", from),
+    )
+    .where("devices.key", "!=", hostKey)
+    .where((eb) =>
+      eb.or([
+        eb("devices.user_id", "=", userId),
+        eb("org_users.role", "!=", "user"),
+      ]),
+    )
+    .orderBy("devices.created_at")
+    .execute();
+  const awake = holders.find((host) =>
+    presence.mayBeOnline(host.key, host.last_seen_at),
+  );
+  if (awake)
+    throw conflict(
+      `${awake.name} can still open the org's vault and may be online. Let it seal the key for this computer instead.`,
+    );
   const dropped = await trx
     .deleteFrom("org_vault_entries")
     .where("org_id", "=", orgId)

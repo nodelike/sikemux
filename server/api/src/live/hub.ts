@@ -123,11 +123,48 @@ export class Hub {
   }
 }
 
+/** How long a host may be online without being connected, so a refusal waits for it. */
+export interface PresenceWindows {
+  /** After the API starts: a core comes back within five minutes of losing its connection. */
+  reconnectMs: number;
+  /** After a host was last seen, between a crash and its next connection. */
+  seenMs: number;
+}
+
+const WINDOWS: PresenceWindows = {
+  reconnectMs: 7 * 60_000,
+  seenMs: 2 * 60_000,
+};
+
 /** Which devices are connected now, as the live server's hub knows once it is attached. */
 export class Presence {
-  hub: Hub | undefined;
+  private hub: Pick<Hub, "online"> | undefined;
+  private attachedAt = 0;
+  private readonly windows: PresenceWindows;
+
+  constructor(windows = WINDOWS) {
+    this.windows = windows;
+  }
+
+  attach(hub: Pick<Hub, "online">, at = Date.now()) {
+    this.hub = hub;
+    this.attachedAt = at;
+  }
 
   online(deviceKey: string): boolean {
     return this.hub?.online(deviceKey) ?? false;
+  }
+
+  /**
+   * Whether the host may be connected: connected now, seen moments ago, or the API started too
+   * recently to tell, since a host connected before a restart has yet to come back.
+   */
+  mayBeOnline(deviceKey: string, lastSeenAt: Date | null, now = Date.now()) {
+    if (!this.hub || now - this.attachedAt < this.windows.reconnectMs)
+      return true;
+    if (this.hub.online(deviceKey)) return true;
+    return (
+      lastSeenAt !== null && now - lastSeenAt.getTime() < this.windows.seenMs
+    );
   }
 }

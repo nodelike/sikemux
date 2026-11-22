@@ -145,7 +145,7 @@ export async function orgVaultState(
   const [keys, hosts, entries, ended] = await Promise.all([
     db
       .selectFrom("org_vault_keys")
-      .select(["host_key", "generation", "wrapped"])
+      .select(["host_key", "generation", "wrapped", "wrapped_by"])
       .where("org_id", "=", orgId)
       .orderBy("created_at")
       .orderBy("host_key")
@@ -175,17 +175,22 @@ export async function orgVaultState(
     (key) => key.generation === vault.generation && members.has(key.host_key),
   );
   const holders = new Set(current.map((key) => key.host_key));
-  const key = current.find((key) => key.host_key === hostKey)?.wrapped ?? null;
+  const own = current.find((key) => key.host_key === hostKey);
+  const key = own?.wrapped ?? null;
+  const opens =
+    own !== undefined &&
+    (own.wrapped_by === hostKey || holders.has(own.wrapped_by));
   const holding =
-    role === "user"
-      ? []
+    role === "user" || opens
+      ? null
       : hosts.filter(
           (host) =>
+            host.key !== hostKey &&
             holders.has(host.key) &&
             (host.user_id === userId || host.role !== "user"),
         );
   const named =
-    key === null && holding.length > 0
+    holding && holding.length > 0
       ? await people([...new Set(holding.map((host) => host.user_id))])
       : new Map<string, { name: string | null }>();
   const state: OrgVault = {
@@ -194,7 +199,7 @@ export async function orgVaultState(
     holders: [...holders],
     waiting: [...members].filter((key) => !holders.has(key)),
     rotate: keys.some((key) => !members.has(key.host_key)),
-    ...(role !== "user" && {
+    ...(holding && {
       holding: holding.map((host) => ({
         hostKey: host.key,
         computer: host.name,

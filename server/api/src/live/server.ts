@@ -43,7 +43,7 @@ export function attachLive(server: Server, services: LiveServices): Live {
   const options = { ...LIVE_OPTIONS, ...services.options };
   const { database, limiter, log, appOrigin } = services;
   const hub = new Hub(options);
-  services.presence.hub = hub;
+  services.presence.attach(hub);
   const context = {
     db: database.db,
     verifier: services.verifier,

@@ -143,7 +143,9 @@ export async function startServer(config: Config, log: Logger) {
     );
   const relayAccess = new RelayAccess(database.db);
   const hookHosts = new HookHosts();
-  const presence = new Presence();
+  const presence = config.presenceLiveOnly
+    ? new Presence({ reconnectMs: 0, seenMs: 0 })
+    : new Presence();
   const billing = config.billing;
   const provider =
     billing.provider === "stand-in"
