@@ -1685,14 +1685,12 @@
           "type": "boolean"
         },
         "full": {
-          "description": "true: every field, such as model",
+          "description": "true: every field, e.g. model",
           "type": "boolean"
         },
         "models": {
-          "description": "\"all\", or one cli such as codex: signed-in agents, plan room and every model id agent_spawn takes",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64
+          "description": "\"all\" or a cli: models and plan room",
+          "type": "string"
         }
       },
       "required": []
@@ -1704,12 +1702,12 @@
       "description": "Message a Sikemux agent.",
       "properties": {
         "task": {
-          "description": "Number of what the person asked for that this hands on",
+          "description": "Task number this hands on",
           "type": "integer",
           "minimum": 1
         },
         "work": {
-          "description": "true: hands on work the person asked for this turn, making it a task; never for a question or remark",
+          "description": "true: starts work the person asked for this turn; never for a question or remark",
           "type": "boolean"
         },
         "to": {
@@ -1753,22 +1751,22 @@
       "description": "Start a Sikemux agent.",
       "properties": {
         "task": {
-          "description": "Number of what the person asked for that this hands on",
+          "description": "Task number this hands on",
           "type": "integer",
           "minimum": 1
         },
         "work": {
-          "description": "true: hands on work the person asked for this turn, making it a task; never for a question or remark",
+          "description": "true: starts work the person asked for this turn; never for a question or remark",
           "type": "boolean"
         },
         "cli": {
-          "description": "e.g. claude, codex, antigravity; omit for a helper",
+          "description": "e.g. claude, codex; omit for a helper",
           "type": "string",
           "minLength": 1,
           "maxLength": 64
         },
         "title": {
-          "description": "The task in a few words, e.g. Fix the cart total",
+          "description": "Task in a few words, e.g. Fix cart total",
           "type": "string",
           "minLength": 1,
           "maxLength": 80
@@ -1779,7 +1777,6 @@
           "maxLength": 65536
         },
         "model": {
-          "description": "Exact model id from agent_list models, not its display label",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
