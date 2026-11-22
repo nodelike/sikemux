@@ -345,21 +345,6 @@ impl Choice {
         }
     }
 
-    /// Whether the one showing is other than the one at `chosen`.
-    pub fn strays_from(&self, chosen: usize, cx: &App) -> bool {
-        self.state.read(cx).selected_index(cx).map(|at| at.row) != Some(chosen)
-    }
-
-    /// Shows the one at `chosen` once run, as when it was picked somewhere else.
-    pub fn show(&self, chosen: usize) -> impl FnOnce(&mut Window, &mut App) {
-        let state = self.state.clone();
-        move |window, cx| {
-            state.update(cx, |state, cx| {
-                state.set_selected_index(Some(IndexPath::new(chosen)), window, cx)
-            })
-        }
-    }
-
     pub fn view(&self) -> Select<Vec<SharedString>> {
         Select::new(&self.state).w(px(220.))
     }

@@ -58,7 +58,6 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("down", ResultDown, search),
         KeyBinding::new("enter", OpenResult, search),
     ]);
-    pages::install(cx);
 }
 
 /// Settings, which stand in the stage's place while they are open.
@@ -291,6 +290,7 @@ fn go_to(
             settings.pages.keybindings = None;
         }
         settings.flash = Some((entry.section, Instant::now()));
+        settings.pages.advanced |= pages::folded(entry.section);
         settings
             .search
             .update(cx, |search, cx| search.set_value("", window, cx));

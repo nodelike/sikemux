@@ -40,8 +40,11 @@ pub const FOOT: [Page; 2] = [Usage, About];
 /// neither show them nor find them.
 const MAC_ONLY: &[Page] = &[ThisMac];
 
-/// Sections only the Mac has, on pages every system has: its window effects.
-const MAC_ONLY_SECTIONS: &[(Page, &str)] = &[(Appearance, "Window")];
+/// Rows only the Mac has, on pages every system has: its window effects.
+const MAC_ONLY_ROWS: &[(Page, &str)] = &[
+    (Appearance, "Window see-through"),
+    (Appearance, "Blur behind"),
+];
 
 impl Page {
     /// What the list calls it, one line under its name on what it holds, and its icon.
@@ -193,10 +196,7 @@ fn entries() -> impl Iterator<Item = &'static Entry> {
         pages::general::ENTRIES,
         pages::keybindings::ENTRIES,
         pages::agents::sessions::NOTIFICATIONS,
-        pages::appearance::THEME,
-        pages::appearance::INTERFACE,
-        pages::appearance::BUDDIES,
-        pages::appearance::WINDOW,
+        pages::appearance::ENTRIES,
         pages::agents::setup::ENTRIES,
         pages::agents::sessions::ENTRIES,
         pages::settled::ENTRIES,
@@ -217,9 +217,10 @@ fn entries() -> impl Iterator<Item = &'static Entry> {
     .flatten()
 }
 
-/// Whether `section` of `page` is on this system.
-pub fn here(page: Page, section: &str) -> bool {
-    page.here() && (cfg!(target_os = "macos") || !MAC_ONLY_SECTIONS.contains(&(page, section)))
+/// Whether `entry` is on this system.
+fn here(entry: &Entry) -> bool {
+    entry.page.here()
+        && (cfg!(target_os = "macos") || !MAC_ONLY_ROWS.contains(&(entry.page, entry.label)))
 }
 
 /// The places whose words hold every word of `query`, those whose label
@@ -243,7 +244,7 @@ pub fn search(query: &str, cx: &App) -> Vec<Entry> {
         (entry, format!("shortcut {keys}"))
     });
     let mut found: Vec<(usize, usize, Entry)> = entries()
-        .filter(|entry| here(entry.page, entry.section))
+        .filter(|entry| here(entry))
         .map(|entry| (*entry, String::new()))
         .chain(shortcuts)
         .enumerate()

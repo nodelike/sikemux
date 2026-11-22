@@ -3,7 +3,7 @@
 use gpui_kit::component::input::InputEvent;
 use gpui_kit::{AnyElement, App, Context, Entity, EventEmitter, Subscription, Window};
 
-pub use appearance::install;
+pub use appearance::folded;
 
 use super::{Open, Page, Settings};
 use crate::workbench::Workbench;
@@ -33,6 +33,8 @@ pub struct State {
     pub actions: Option<actions::Fields>,
     pub activity: Option<activity::Fields>,
     pub appearance: Option<appearance::Fields>,
+    /// Whether Appearance shows its Advanced controls.
+    pub advanced: bool,
     pub connectors: Option<connectors::Fields>,
     pub general: Option<general::Fields>,
     pub keybindings: Option<keybindings::Fields>,
@@ -94,11 +96,6 @@ pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<
         Some(fields) if agents::stale(fields, page) => Some(agents::rebuild_choices),
         Some(_) => None,
     };
-    let appearance: Option<Make> = match &pages.appearance {
-        None => Some(appearance::make),
-        Some(fields) if appearance::strays(fields, bench, cx) => Some(appearance::follow),
-        Some(_) => None,
-    };
     let connectors: Option<Make> = match &pages.connectors {
         None => Some(connectors::make),
         Some(fields) if fields.stale => Some(connectors::read),
@@ -112,7 +109,7 @@ pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<
             missing(pages.actions.is_some(), actions::make),
         ]
         .into(),
-        Page::Appearance => [appearance].into(),
+        Page::Appearance => [missing(pages.appearance.is_some(), appearance::make)].into(),
         Page::Agents => [missing(pages.settled.is_some(), settled::make), agents].into(),
         Page::Connectors => [
             connectors,
