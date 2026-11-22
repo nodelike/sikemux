@@ -25,6 +25,7 @@ use crate::accounts::vault::{
 
 use super::super::account::api::{as_host, host_request};
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
+use super::floor::Floor;
 use super::local::{self, Applied, Local, Mark, Marks};
 use super::seal::{self, Key};
 use super::{announce, Body, Entry, State, Status, Tally};
@@ -176,7 +177,7 @@ async fn open(
         }
     };
     check_recovery_key(core, account, &vault.recovery_key).await?;
-    check_floor(core, account, &vault).await?;
+    let floor = check_floor(core, account, &vault).await?;
     let listed: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
     let context = seal::wrap_context(account, vault.generation, me);
     let key = vault
@@ -218,7 +219,7 @@ async fn open(
     }
     let Some(key) = key else { return Ok(None) };
     if vault.rotate {
-        rotate(core, account, me, &vault, &key).await?;
+        rotate(core, account, me, &vault, &key, floor).await?;
         core.vault().wake();
         return Ok(None);
     }
@@ -262,9 +263,9 @@ async fn check_recovery_key(core: &Core, account: &str, recovery_key: &str) -> C
     Ok(())
 }
 
-/// Refuses a vault older than this host last read it: an earlier generation of its key, or an
-/// entry at an earlier revision or that it saw removed, so nothing it holds is taken back.
-async fn check_floor(core: &Core, account: &str, vault: &Remote) -> CoreResult<()> {
+/// Refuses a vault whose key is an earlier generation than this host last read, and hands
+/// back the floor it holds the vault's entries to.
+async fn check_floor(core: &Core, account: &str, vault: &Remote) -> CoreResult<Floor> {
     let data_dir = core.data_dir().clone();
     let (account, recovery_key) = (account.to_owned(), vault.recovery_key.clone());
     let floor = blocking(move || Ok(local::load(data_dir.as_deref(), &account, &recovery_key)))
@@ -277,38 +278,19 @@ async fn check_floor(core: &Core, account: &str, vault: &Remote) -> CoreResult<(
         )
         .into());
     }
-    let stale = (vault.entries.iter())
-        .filter(|entry| entry.generation == vault.generation)
-        .find(|entry| !floor.takes_entry(&entry.id, entry.revision));
-    if let Some(stale) = stale {
-        return Err(format!(
-            "the accounts server handed back vault entry {} at revision {}, older than this host's copy",
-            stale.id, stale.revision
-        )
-        .into());
-    }
-    if let Some(missing) = floor.missing(&listed(vault), &ended(vault)) {
-        return Err(format!(
-            "the accounts server left vault entry {missing} out without saying it was removed"
-        )
-        .into());
-    }
-    Ok(())
+    Ok(floor)
 }
 
-fn listed(vault: &Remote) -> BTreeMap<&str, i64> {
-    let mut listed = BTreeMap::new();
-    for entry in &vault.entries {
-        let revision = listed.entry(entry.id.as_str()).or_default();
-        *revision = entry.revision.max(*revision);
-    }
-    listed
-}
-
-fn ended(vault: &Remote) -> BTreeMap<&str, i64> {
-    (vault.ended.iter().flatten())
-        .map(|gone| (gone.id.as_str(), gone.revision))
-        .collect()
+/// Saves `floor` at once, for when it moves in a round that may not reach its end.
+async fn save_floor(core: &Core, account: &str, vault: &str, floor: Floor) -> CoreResult<()> {
+    let data_dir = core.data_dir().clone();
+    let (account, vault) = (account.to_owned(), vault.to_owned());
+    blocking(move || {
+        let mut local = local::load(data_dir.as_deref(), &account, &vault);
+        local.floor = floor;
+        local::save(data_dir.as_deref(), &local).map_err(CoreError::from)
+    })
+    .await
 }
 
 async fn create(core: &Arc<Core>, account: &str, me: &str, secret: &Key) -> CoreResult<()> {
@@ -376,7 +358,17 @@ async fn rotate(
     me: &str,
     vault: &Remote,
     key: &Key,
+    mut floor: Floor,
 ) -> CoreResult<()> {
+    if let Some(stale) =
+        (vault.entries.iter()).find(|entry| !floor.takes_entry(&entry.id, entry.revision))
+    {
+        return Err(format!(
+            "the vault's key is not replaced while the accounts server hands back entry {} older than this host's copy",
+            stale.id
+        )
+        .into());
+    }
     let next = seal::random_key().ok_or_else(|| CoreError::from("no randomness for the key"))?;
     let generation = vault.generation + 1;
     let hosts: BTreeSet<&String> = vault.holders.iter().chain(&vault.waiting).collect();
@@ -414,7 +406,8 @@ async fn rotate(
         entries,
     };
     host_request(core, Method::POST, "/v1/vault/rotate", Some(json!(rotate))).await?;
-    Ok(())
+    floor.generation = generation;
+    save_floor(core, account, &vault.recovery_key, floor).await
 }
 
 fn open_body(key: &Key, entry: &VaultEntry) -> Option<Body> {
@@ -728,9 +721,7 @@ fn apply(
             Some(revision) if *revision >= applied.revision => {
                 letting_go.push((id.clone(), applied.clone()));
             }
-            _ => eprintln!(
-                "sikemux core: vault entry {id} did not open here and is not listed as removed, so its sign-in stays"
-            ),
+            _ => {}
         }
     }
     for (id, applied) in letting_go {
@@ -758,7 +749,13 @@ async fn reconcile(
 ) -> CoreResult<()> {
     let (key, vault) = opened;
     let shown_before = super::shown::vault(core);
+    let data_dir = core.data_dir().clone();
+    let loading = (account.to_owned(), vault.recovery_key.clone());
+    let mut local =
+        blocking(move || Ok(local::load(data_dir.as_deref(), &loading.0, &loading.1))).await?;
     let mut entries = BTreeMap::new();
+    let mut opened = Vec::new();
+    let mut left_out = BTreeMap::new();
     let mut gone: BTreeMap<String, i64> = (vault.ended.iter().flatten())
         .map(|ended| (ended.id.clone(), ended.revision))
         .collect();
@@ -766,27 +763,45 @@ async fn reconcile(
         if entry.generation != vault.generation {
             continue;
         }
-        match open_body(&key, entry) {
-            Some(body)
-                if body
-                    .limited_to
-                    .as_ref()
-                    .is_some_and(|hosts| !hosts.contains_key(me)) =>
-            {
-                gone.insert(entry.id.clone(), entry.revision);
-            }
-            Some(body) => {
-                entries.insert(
-                    entry.id.clone(),
-                    Entry {
-                        revision: entry.revision,
-                        body,
-                    },
-                );
-            }
-            None => eprintln!("sikemux core: vault entry {} does not open", entry.id),
+        if !local.floor.takes_entry(&entry.id, entry.revision) {
+            left_out.insert(
+                entry.id.clone(),
+                "is older than this host's copy or was removed",
+            );
+            continue;
+        }
+        let Some(body) = open_body(&key, entry) else {
+            left_out.insert(entry.id.clone(), "does not open");
+            continue;
+        };
+        opened.push((entry.id.clone(), entry.revision));
+        if body
+            .limited_to
+            .as_ref()
+            .is_some_and(|hosts| !hosts.contains_key(me))
+        {
+            gone.insert(entry.id.clone(), entry.revision);
+            continue;
+        }
+        entries.insert(
+            entry.id.clone(),
+            Entry {
+                revision: entry.revision,
+                body,
+            },
+        );
+    }
+    for id in local.floor.revisions.keys() {
+        let listed = vault.entries.iter().any(|entry| entry.id == *id);
+        if !listed && !gone.contains_key(id) {
+            left_out.insert(id.clone(), "was left out without being listed as removed");
         }
     }
+    local.floor.saw(
+        vault.generation,
+        opened,
+        (vault.ended.iter().flatten()).map(|ended| (&ended.id, ended.revision)),
+    );
     let pending = {
         let mut state = core.vault().state.locked();
         let pending: Vec<(String, Body)> = std::mem::take(&mut state.pending)
@@ -803,6 +818,14 @@ async fn reconcile(
         state.entries = entries.clone();
         state.rules.clear();
         state.reindex();
+        for (id, why) in &left_out {
+            if !state.left_out.contains(id) {
+                eprintln!(
+                    "sikemux core: vault entry {id} {why}, so this host leaves it as it holds it"
+                );
+            }
+        }
+        state.left_out = left_out.into_keys().collect();
         pending
     };
     let compare = {
@@ -814,16 +837,9 @@ async fn reconcile(
     };
     let books = books(core);
     let data_dir = core.data_dir().clone();
-    let planning = (
-        books.clone(),
-        entries.clone(),
-        account.to_owned(),
-        me.to_owned(),
-        vault.recovery_key.clone(),
-    );
+    let planning = (books.clone(), entries.clone(), me.to_owned());
     let plan = blocking(move || {
-        let (books, entries, account, me, vault) = planning;
-        let local = local::load(data_dir.as_deref(), &account, &vault);
+        let (books, entries, me) = planning;
         let marks = local::marks(data_dir.as_deref()).map_err(CoreError::from)?;
         let planned = compare || !local.moved_in;
         let plan = if planned {
@@ -853,9 +869,6 @@ async fn reconcile(
     })
     .await?;
     let (mut plan, marks, planned) = plan;
-    plan.local
-        .floor
-        .saw(vault.generation, &listed(&vault), &ended(&vault));
     {
         let mut state = core.vault().state.locked();
         state.marks = marks.clone();
@@ -895,10 +908,23 @@ async fn reconcile(
             revision: write.revision,
         };
         let path = format!("/v1/vault/entries/{}", write.id);
-        let written: VaultEntry = match as_host(core, Method::PUT, &path, Some(json!(put))).await {
+        let written: CoreResult<VaultEntry> =
+            match as_host::<VaultEntry>(core, Method::PUT, &path, Some(json!(put))).await {
+                Ok(written) if written.revision == write.revision + 1 => Ok(written),
+                Ok(written) => Err(format!(
+                    "the accounts server put vault entry {} at revision {}, not {}",
+                    write.id,
+                    written.revision,
+                    write.revision + 1
+                )
+                .into()),
+                Err(error) => Err(error),
+            };
+        let written = match written {
             Ok(written) => written,
             Err(error) => {
                 core.vault().state.locked().dirty = true;
+                save_floor(core, account, &vault.recovery_key, plan.local.floor).await?;
                 return Err(error);
             }
         };
@@ -931,6 +957,7 @@ async fn reconcile(
     for (id, revision) in plan.deletes {
         let path = format!("/v1/vault/entries/{id}?revision={revision}");
         host_request(core, Method::DELETE, &path, None).await?;
+        plan.local.floor.end([(&id, revision)]);
         entries.remove(&id);
         gone.insert(id, revision);
     }

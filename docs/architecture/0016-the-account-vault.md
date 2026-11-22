@@ -87,15 +87,17 @@ when its home goes away.
   Each host keeps the recovery key it first saw the vault with and refuses a vault that names
   another, so the server cannot swap in a recovery key of its own. Each host also keeps the
   newest generation of the key it has read, every entry's revision and the last revision of each
-  entry the vault lists as removed, and refuses a vault older than that, so the server cannot hand
-  back an old key, an old copy of an entry or one that was removed. The server records each
-  removal, whichever host made it, and lists them with the vault, as an org's vault does; an entry
-  a host holds that the vault leaves out without listing it as removed fails the round and changes
-  nothing, so a server glitch clears by itself and a server that lost its data stops the vault's
-  sync on every host until it is restored. A host lets go of a sign-in only when the vault lists
-  its entry as removed, or as no longer meant for this host; a lying server can still list an
-  entry as removed, so the hosts let go of that sign-in, though it reads nothing. A host takes
-  the first vault it reads after it starts keeping these marks as it stands. A server that lies in what it
+  entry the vault lists as removed. A key older than that fails the round. An entry older than the
+  host's copy, one the vault removed, or one the host holds that the vault leaves out without
+  listing it as removed is left out for that round, its sign-in and marks kept, and the rest of the
+  vault syncs, as an org's vault does; so a server glitch clears by itself. Only an entry that opens
+  at the vault's generation moves its mark, a mark never goes down, and a host does not replace
+  the key while the vault hands back an entry older than its copy. The server records each removal,
+  whichever host made it, lists them with the vault, and refuses any write to a removed entry, so an
+  entry's id never comes back. A host lets go of a sign-in only when the vault lists its entry as
+  removed, or as no longer meant for this host; a lying server can still list an entry as removed,
+  so the hosts let go of that sign-in, though it reads nothing. A host takes the first vault it
+  reads after it starts keeping these marks as it stands. A server that lies in what it
   answers can still list a host key of its own among the hosts waiting to join: the hosts wrap the
   vault key for every host the account lists, since nothing yet lets them tell a real one apart,
   so such a server could read the vault from then on. Wrapping the key only for hosts whose join

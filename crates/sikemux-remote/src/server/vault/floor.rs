@@ -42,50 +42,34 @@ impl Floor {
         takes_generation(self.generation, generation)
     }
 
+    /// An account vault never lists a removed entry again, so any mark in `ended` refuses it.
     pub fn takes_entry(&self, id: &str, revision: i64) -> bool {
-        takes_entry(
-            self.revisions.get(id).copied(),
-            self.ended.get(id).copied(),
-            revision,
-        )
+        !self.ended.contains_key(id) && takes_entry(self.revisions.get(id).copied(), None, revision)
     }
 
-    /// The first entry this host holds that a vault leaves out without listing it as removed, or
-    /// lists as removed at a revision older than this host's copy.
-    pub fn missing<'a>(
-        &'a self,
-        listed: &BTreeMap<&str, i64>,
-        ended: &BTreeMap<&str, i64>,
-    ) -> Option<&'a str> {
-        (self.revisions.iter())
-            .filter(|(id, _)| !listed.contains_key(id.as_str()))
-            .find(|(id, held)| ended.get(id.as_str()).is_none_or(|ended| ended < held))
-            .map(|(id, _)| id.as_str())
-    }
-
-    /// Moves up to a read of the vault at `generation`: the revision of each entry it lists, and
-    /// of each it lists as removed.
-    pub fn saw(
+    /// Moves up to a read of the vault at `generation`, in which `opened` are the entries that
+    /// opened at that generation and `ended` the entries it lists as removed.
+    pub fn saw<Opened: AsRef<str>, Ended: AsRef<str>>(
         &mut self,
         generation: i64,
-        listed: &BTreeMap<&str, i64>,
-        ended: &BTreeMap<&str, i64>,
+        opened: impl IntoIterator<Item = (Opened, i64)>,
+        ended: impl IntoIterator<Item = (Ended, i64)>,
     ) {
-        end(
-            &mut self.ended,
-            ended.iter().map(|(id, revision)| (id, *revision)),
-        );
-        self.ended.retain(|id, _| !listed.contains_key(id.as_str()));
         self.generation = self.generation.max(generation);
-        self.revisions = (listed.iter())
-            .map(|(id, revision)| {
-                let held = self.revisions.get(*id).copied().unwrap_or(*revision);
-                (id.to_string(), held.max(*revision))
-            })
-            .collect();
+        for (id, revision) in opened {
+            self.wrote(id.as_ref(), revision);
+        }
+        self.end(ended);
     }
 
     pub fn wrote(&mut self, id: &str, revision: i64) {
-        self.revisions.insert(id.to_owned(), revision);
+        let mark = self.revisions.entry(id.to_owned()).or_insert(revision);
+        *mark = revision.max(*mark);
+    }
+
+    pub fn end<Id: AsRef<str>>(&mut self, gone: impl IntoIterator<Item = (Id, i64)>) {
+        end(&mut self.ended, gone);
+        let ended = &self.ended;
+        self.revisions.retain(|id, _| !ended.contains_key(id));
     }
 }
