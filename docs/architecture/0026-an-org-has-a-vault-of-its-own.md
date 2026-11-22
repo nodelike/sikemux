@@ -125,13 +125,17 @@ What still rests on the server:
   the key any more, what it held is lost: there is no recovery key. An owner's or admin's host
   can then make the vault again. In one step the server drops every entry and wrap, raises the
   generation and keeps only the asker's wrap of the new key, writing how many it dropped to the
-  org's log. Both the core and the server refuse while another computer that would seal the key
+  org's log. The server refuses a host the vault already opens on, and both the core and the
+  server refuse while another computer that would seal the key
   for it, its own account's or an owner's or admin's, may be online, and name that computer. The
   server counts one as online while it is connected, was seen in the last two minutes, or the
   server started too recently to know, since a restart forgets who was connected. Only an owner's
   or admin's host whose own wrap does not open is told which computers hold the key and when each
   was last online. The server alone gains nothing from a remake it could not already do by
   emptying the vault: hosts still take a key only from a listed holder.
+- **A remake is told from a rotation only by the server's `remadeAt`.** A host let in at the new
+  generation within one read has no evidence of its own to tell the two apart, so it takes the
+  server's word. #915 is for evidence the host holds itself.
 - **A host that cannot open the current generation holds nothing.** It lets go of the key and
   every entry, mid-rotation too, until a holder seals the new key for it, keeping only the
   generation, below which it refuses anything. It never writes back what it held: of a
