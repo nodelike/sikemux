@@ -822,12 +822,16 @@ async fn push(core: &Arc<Core>, shared: &Shared) {
         let Ok(value) = serde_json::to_value(&body) else {
             return;
         };
+        let at = vault::At {
+            revision,
+            made: made.clone(),
+        };
         match vault::put_project(
             core,
             &shared.org,
             PROJECT_MEMORY,
             &shared.entry_id(),
-            revision,
+            &at,
             &value,
             &read,
         )

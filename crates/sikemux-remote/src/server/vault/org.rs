@@ -1307,15 +1307,23 @@ pub enum Put {
     Refused(String),
 }
 
-/// Writes a project's entry of `kind` over the one at `revision` (0 for none), and reads the
-/// vault again. The server takes it as stale once any entry in `checked` has moved on from the
+/// Where an entry was read: its revision (0 for none), and when the vault it came from was last
+/// made again.
+#[derive(Clone, Debug, PartialEq)]
+pub struct At {
+    pub revision: i64,
+    pub made: Option<String>,
+}
+
+/// Writes a project's entry of `kind` over the one read `at`, and reads the vault again. Stale
+/// once the vault was made again since, or once any entry in `checked` has moved on from the
 /// revision given beside it.
 pub async fn put_project(
     core: &Core,
     org: &str,
     kind: &str,
     id: &str,
-    revision: i64,
+    at: &At,
     body: &Value,
     checked: &[(String, i64)],
 ) -> CoreResult<Put> {
@@ -1330,14 +1338,17 @@ pub async fn put_project(
             .get(org)
             .map(|org| org.held.clone())
             .unwrap_or_default();
-        let added_after = (revision == 0 && !held.entries.contains_key(id))
+        if held.made != at.made {
+            return Ok(Put::Stale);
+        }
+        let added_after = (at.revision == 0 && !held.entries.contains_key(id))
             .then(|| held.ended.get(id).copied())
             .flatten();
         (
             held.generation,
             held.key
                 .ok_or_else(|| CoreError::from("this host holds no key to the org's vault"))?,
-            added_after.unwrap_or(revision),
+            added_after.unwrap_or(at.revision),
         )
     };
     let put = OrgVaultEntryPut {
