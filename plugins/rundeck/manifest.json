@@ -83,6 +83,30 @@
       "required": ["job"]
     },
     {
+      "name": "rundeck_export",
+      "row": {"verb": "read", "kind": "read", "icon": "code", "target": ["{job} definition"]},
+      "method": "agentExport",
+      "description": "A job's whole definition as Rundeck's JSON: steps, scripts, options, schedule. Change it and pass it to rundeck import.",
+      "properties": {
+        "job": { "type": "string", "description": "Its id or group/name path." },
+        "project": { "type": "string", "description": "Where to find job. Default: every project." }
+      },
+      "required": ["job"]
+    },
+    {
+      "name": "rundeck_import",
+      "row": {"verb": "update", "kind": "edit", "icon": "code", "target": ["{job} definition"], "detail": ["{project}"]},
+      "method": "agentImport",
+      "description": "Replace a job's definition in place, keeping its uuid. definition is what rundeck export answered with, changed.",
+      "properties": {
+        "job": { "type": "string", "description": "Its id or group/name path." },
+        "project": { "type": "string", "description": "Where to find job. Default: every project." },
+        "definition": { "type": "object", "description": "The whole job, as export gives it." },
+        "production": { "type": "boolean", "description": "True only after the person agreed to change this production job." }
+      },
+      "required": ["job", "definition"]
+    },
+    {
       "name": "rundeck_executions",
       "row": {"verb": "list", "kind": "read", "icon": "activity", "target": ["runs of {job}", "{project} runs", "running jobs"]},
       "method": "agentExecutions",

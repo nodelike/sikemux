@@ -1271,7 +1271,7 @@ async fn tool_ship(
             };
             (ShipKind::ProductionWrite, Some(target))
         }
-        "rundeck_run" => {
+        "rundeck_run" | "rundeck_import" => {
             let place = plugged::call(core, RUNDECK, "agentJobPlace", arguments.clone())
                 .await
                 .ok();

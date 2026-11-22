@@ -5,6 +5,7 @@ mod agent;
 mod auth;
 mod client;
 mod config;
+mod definition;
 mod error;
 mod executions;
 mod jobs;
@@ -108,6 +109,15 @@ impl Plugin for Rundeck {
                 }
                 "agentRun" => {
                     answer(agent::run(
+                        session,
+                        params(input)?,
+                        &saved.settings.prod_envs,
+                    ))
+                    .await
+                }
+                "agentExport" => answer(definition::export(session, params(input)?)).await,
+                "agentImport" => {
+                    answer(definition::import(
                         session,
                         params(input)?,
                         &saved.settings.prod_envs,

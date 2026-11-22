@@ -161,6 +161,16 @@ pub async fn get_json_at_version<T: DeserializeOwned>(
     decode(send(session, version, Method::GET, endpoint, None, query).await?)
 }
 
+pub async fn post_json_at_version<T: DeserializeOwned>(
+    session: &Session,
+    version: u32,
+    endpoint: &str,
+    body: &Value,
+    query: &[(&str, String)],
+) -> RundeckResult<T> {
+    decode(send(session, version, Method::POST, endpoint, Some(body), query).await?)
+}
+
 pub async fn post_json<B: Serialize, T: DeserializeOwned>(
     session: &Session,
     endpoint: &str,
