@@ -21,27 +21,31 @@ Right-click a mod's row to:
 - **Edit with an agent**.
 - **Remove** it, which moves its folder to the Trash, on every host of your account.
 
-**Settings → Mods** lists every mod with what it reads, what it may change and the sites it reaches, and opens, turns off or removes each.
+**Settings → Connectors → Mods** lists every mod with what it reads, what it may change and the sites it reaches, and opens, turns off or removes each.
+
+### From GitHub
+
+A link such as `sikemux://install-mod?repo=owner/name`, or `?url=https://github.com/owner/name`, installs a mod from a GitHub repository. Sikemux reads the repository's `mod.json` at its newest commit and shows what the mod reads, what it may change and the sites it reaches, with **Read code**, **Cancel** and **Install**. Nothing downloads until **Install**; then the mod opens and shows under **Mods**. Installing it again updates it and sends the earlier copy to the Trash; a mod you made yourself is never replaced. Writes and the sites it reaches still ask when it opens.
 
 ### On every host
 
-When you're signed in, a mod follows your account to every host: its folder, pictures included, and its data. Change a mod on one host, yourself or with an agent, and your other hosts have the new version a few seconds after its files stop changing. A folder still being written, without a readable `mod.json` and `index.html`, waits until it is whole. Sikemux's server keeps the folder sealed under your [account vault](/agents/connectors/#account-vault)'s key, so it can't read the files or their names. Files starting with a dot, such as `.git`, and symbolic links stay on the host they're on. A mod can hold up to 512 files and 64 MB, at most 25 MB a file; one that holds more stays on its own host, and **Settings → Mods** says why.
+When you're signed in, a mod follows your account to every host: its folder, pictures included, and its data. Change a mod on one host, yourself or with an agent, and your other hosts have the new version a few seconds after its files stop changing. A folder still being written, without a readable `mod.json` and `index.html`, waits until it is whole. Sikemux's server keeps the folder sealed under your [account vault](/agents/connectors/#account-vault)'s key, so it can't read the files or their names. Files starting with a dot, such as `.git`, and symbolic links stay on the host they're on. A mod can hold up to 512 files and 64 MB, at most 25 MB a file; one that holds more stays on its own host, and **Settings → Connectors → Mods** says why.
 
-If two hosts change the same mod while apart, the one changed last wins on both, and the other copy goes to that host's Trash, where you can get it back. **Settings → Mods** says so under the mod on that host.
+If two hosts change the same mod while apart, the one changed last wins on both, and the other copy goes to that host's Trash, where you can get it back. **Settings → Connectors → Mods** says so under the mod on that host.
 
 What you allow a mod to change and the sites it may reach are asked once on each host, so a mod arriving from another host asks before it writes. Turning a mod off and showing it only in one project stay on the host where you chose them. A mod's folder deleted by hand comes back from your account; **Remove** it to remove it everywhere.
 
-A mod follows the account it first synced with. Sign in to another account and it stays on this host and keeps working, but **Settings → Mods** says it isn't syncing, and it syncs again when you sign back in; if the other account has a mod with the same name, that account's copy takes its place and yours goes to the Trash. A mod you make while signed out joins the first account you sign in to.
+A mod follows the account it first synced with. Sign in to another account and it stays on this host and keeps working, but **Settings → Connectors → Mods** says it isn't syncing, and it syncs again when you sign back in; if the other account has a mod with the same name, that account's copy takes its place and yours goes to the Trash. A mod you make while signed out joins the first account you sign in to.
 
 ### Examples
 
-Sikemux ships **Pull requests**, which shows the project's open pull requests with their checks and its latest CI runs on GitHub, GitLab, Bitbucket or Forgejo, and re-runs a failed one. Add it from **Settings → Mods** or **Open mod…**: it is copied into your mods folder, where you or an agent can change it.
+Sikemux ships **Pull requests**, which shows the project's open pull requests with their checks and its latest CI runs on GitHub, GitLab, Bitbucket or Forgejo, and re-runs a failed one. Add it from **Settings → Connectors → Mods** or **Open mod…**: it is copied into your mods folder, where you or an agent can change it.
 
 ## What a mod may do
 
 A mod reads only what its `mod.json` names, and never sees your sign-ins: Sikemux asks the service and hands the mod the answer.
 
-A mod that changes something, such as messaging an agent, adding a task to the board or re-running a CI run, names that in its `mod.json` as well. The first time it tries, Sikemux lists everything it may change and asks you once. **Allow** holds until its `mod.json` asks for more. **Take back approval** in **Settings → Mods** withdraws it.
+A mod that changes something, such as messaging an agent, adding a task to the board or re-running a CI run, names that in its `mod.json` as well. The first time it tries, Sikemux lists everything it may change and asks you once. **Allow** holds until its `mod.json` asks for more. **Take back approval** in **Settings → Connectors → Mods** withdraws it.
 
 A mod's page is closed to the internet. It cannot fetch, post a form, open a frame or load a picture or font from anywhere, so what it reads goes nowhere else. A mod that needs a site names it in `connect`, and Sikemux asks you when you open it, listing those sites with everything it may change. Until you allow it, the page stays closed, and the approval lapses whenever its `connect` or its writes change. A link opens in your browser only when you click it.
 
@@ -68,7 +72,7 @@ Each mod is a folder in `~/.config/sikemux/mods/`, named with lowercase letters,
 
 `icon` is one of Sikemux's icon names, such as `dashboard`, `pull-request`, `agents`, `board`, `gauge` or `jira`.
 
-`connect` lists the sites the page may fetch from, open a WebSocket to and show pictures from, each as an origin: `https://` or `wss://`, a host, and maybe a port, such as `https://api.example.com:8443`. `https://*.example.com` covers every host under `example.com`, though not `example.com` itself. Anything else, such as a path or `http://`, keeps the mod from showing, and **Settings → Mods** says why. Leave it out and the page reaches nothing.
+`connect` lists the sites the page may fetch from, open a WebSocket to and show pictures from, each as an origin: `https://` or `wss://`, a host, and maybe a port, such as `https://api.example.com:8443`. `https://*.example.com` covers every host under `example.com`, though not `example.com` itself. Anything else, such as a path or `http://`, keeps the mod from showing, and **Settings → Connectors → Mods** says why. Leave it out and the page reaches nothing.
 
 `index.html` is the page. Keep it one file, with its scripts and styles inline: pictures and fonts beside it are folded in, other files are not, and nothing loads from the internet but what `connect` names. It wears your theme through CSS variables such as `--foreground`, `--muted-foreground`, `--border`, `--accent`, `--success`, `--warning` and `--destructive`, and links open in your browser.
 
@@ -106,7 +110,7 @@ What a mod may change, each named in `writes`: `agents.send` (`{ agent, text }`,
 
 A mod keeps its own documents on your host, apart from its folder, so they stay when the page changes and an edit to the page never loses them. Each document is a JSON object, named by a collection and an id, such as `("posts", "2026-11-13")`.
 
-When you're signed in, a mod's data follows your account to every host. A change saves on the host where it was made at once and reaches your other hosts a few seconds later. It's sealed under your [account vault](/agents/connectors/#account-vault)'s key, so Sikemux's server can't read it, and it never learns your collection names or document ids. Two hosts that changed the same document while apart keep both changes when they're different fields. When both changed the same field, the later change wins and the other is kept in the document's history. A host that is offline works on its own copy and catches up when it's back. Removing a mod on one host removes its data on all of them. Each account's data is kept apart: signing in to another account shows that account's data, and what you had under the first comes back when you sign in to it again. What you make while signed out goes to the next account you sign in to. If your account runs out of room for mod data, the mod gets an amber dot in the rail and **Settings → Mods** says it isn't syncing; it keeps working on this host.
+When you're signed in, a mod's data follows your account to every host. A change saves on the host where it was made at once and reaches your other hosts a few seconds later. It's sealed under your [account vault](/agents/connectors/#account-vault)'s key, so Sikemux's server can't read it, and it never learns your collection names or document ids. Two hosts that changed the same document while apart keep both changes when they're different fields. When both changed the same field, the later change wins and the other is kept in the document's history. A host that is offline works on its own copy and catches up when it's back. Removing a mod on one host removes its data on all of them. Each account's data is kept apart: signing in to another account shows that account's data, and what you had under the first comes back when you sign in to it again. What you make while signed out goes to the next account you sign in to. If your account runs out of room for mod data, the mod gets an amber dot in the rail and **Settings → Connectors → Mods** says it isn't syncing; it keeps working on this host.
 
 | Call | What it does |
 | ---- | ------------ |

@@ -14,6 +14,7 @@ Sikemux runs the coding agent CLIs you already use. It finds them on your `PATH`
 | [Pi](/each-agent/pi/) | Yes | Yes | No | off to max | No | No |
 | [OMP](/each-agent/omp/) | Yes | Yes | No | off to max | No | No |
 | [Grok](/each-agent/grok/) | Yes | Yes | No | none to max | No | Yes |
+| [Antigravity](/each-agent/antigravity/) | Yes | Yes | No | None | No | Yes |
 | [Muse](/each-agent/muse/) | Yes | Yes | No | minimal to ultra | No | No |
 
 Each agent's page covers how to install it and sign in, how Sikemux runs it, and where Sikemux looks for it.
@@ -27,6 +28,7 @@ Each agent's page covers how to install it and sign in, how Sikemux runs it, and
 | OpenCode | `opencode serve`, OpenCode's own HTTP server and event stream, one per chat |
 | OMP, Hermes | `omp acp`, `hermes acp`: the Agent Client Protocol |
 | Grok | `grok agent --no-leader stdio`, one process per chat |
+| Antigravity | `agy acp`: the Agent Client Protocol |
 | Muse | `muse serve`, Muse's session protocol |
 | Pi | `pi --mode rpc`, Pi's own RPC mode |
 
@@ -40,13 +42,13 @@ printf '\e]7501;state=blocked:kind=permission\e\\'
 
 ## Where Sikemux looks
 
-Sikemux finds an agent on your `PATH`, and in `~/.local/bin`, `~/Library/pnpm`, `~/.npm/bin` and `~/.bun/bin`, plus each agent's own folder: `~/.claude/local` and `~/.claude/bin` for Claude, `~/.opencode/bin` for OpenCode, `~/.grok/bin` for Grok, and the ChatGPT app for Codex. Before using one, it checks that the program runs.
+Sikemux finds an agent on your `PATH`, and in `~/.local/bin`, `~/Library/pnpm`, `~/.npm/bin` and `~/.bun/bin`, plus each agent's own folder: `~/.claude/local` and `~/.claude/bin` for Claude, `~/.opencode/bin` for OpenCode, `~/.grok/bin` for Grok, `~/.local/bin/agy` for Antigravity, and the ChatGPT app for Codex. Before using one, it checks that the program runs.
 
-An agent that isn't installed shows **Not installed** on the welcome screen and in **Settings → Installed**, with an **Install** button, which runs the agent's own installer in a terminal you can watch. It installs where the agent's own updater expects, so the CLI works in your own terminal too. One that is signed out offers **Sign in** there, which runs the agent's own sign-in the same way, and one that is installed but won't run offers **Reinstall**.
+An agent that isn't installed shows **Not installed** on the welcome screen and in **Settings → Agents**, with an **Install** button, which runs the agent's own installer in a terminal you can watch. It installs where the agent's own updater expects, so the CLI works in your own terminal too. One that is signed out offers **Sign in** there, which runs the agent's own sign-in the same way, and one that is installed but won't run offers **Reinstall**.
 
 ## Updating agents
 
-**Settings → Installed** shows each agent's release under its name: the one installed, the newest out, and the models the update brings, such as Fable 5.2 for Claude. Open chats still running an older release say so, as they keep it until they restart. Sikemux looks up the newest releases at most every six hours, from npm for Claude, Codex, OpenCode, Pi and OMP, and by asking Grok's own updater for Grok.
+**Settings → Agents** gives every agent one row across your hosts: its release, **↑** with the newest when one is out, where it is installed, who is signed in, and its state. Open a row for each host's release and the models an update brings, such as Fable 5.2 for Claude. Open chats still running an older release say so, as they keep it until they restart. Sikemux looks up the newest releases at most every six hours, from npm for Claude, Codex, OpenCode, Pi and OMP, and by asking Grok's own updater for Grok.
 
 **Update** runs the agent's own updater, such as `claude update`, `opencode upgrade` or `grok update`; Codex has none, so its installer runs again. While it runs, the row shows the last line the updater printed, and a toast says when it is done. A failed update says why and offers **Retry**. **Update all** updates every agent with a newer release out, one at a time. When an update brings models, a chat's model menu says so too, such as **Update Claude to use Fable 5.2**, and choosing it updates Claude on the chat's host; new chats start on the new release.
 

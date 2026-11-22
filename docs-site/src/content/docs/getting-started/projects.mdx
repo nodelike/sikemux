@@ -10,7 +10,7 @@ sikemux .
 sikemux src/App.tsx:42:5
 ```
 
-Install the CLI from **Settings → Command line**.
+Install the CLI from **Settings → Connectors → Command line**.
 
 ## New and cloned projects
 
@@ -26,9 +26,9 @@ Markdown opens as it reads, and a `.dbml` schema opens as a diagram of its table
 
 ## Moving around
 
-The top bar is one row. From the left: back and forward, the tabs of the project in front and **+**, then a bell counting the calls waiting on you in every project and linked host, the branch, one figure for how much of their limits your agents have used, the battery, the clock, **Devices** and Focus mode. Tabs keep about twelve letters of their title; when more are open than fit, the strip scrolls. **Devices** shows the host in front, the hosts you can switch to and **Open Devices**.
+The top bar is one row. From the left: back and forward, the tabs of the project in front and **+**, then a bell counting the calls waiting on you in every project and linked host, the branch, the battery, the clock, **Devices** and Focus mode. Tabs keep about twelve letters of their title; when more are open than fit, the strip scrolls. **Devices** shows the host in front, the hosts you can switch to and **Open Devices**.
 
-The arrows at the left of the top bar go back to the tab you had in front before this one and forward again, as a browser does through pages: a chat, a file, a terminal, Git or a browser tab, in whichever project or host it was. ⌘[ and ⌘] do the same, and so do the back and forward buttons on a mouse and a two-finger swipe on the trackpad, one step per swipe: a swipe right goes back, the tab you go back to coming in from the left, and a swipe left goes forward. A tab closed since is passed over, and an arrow is greyed when there is nowhere left to go. Going to a new tab after going back forgets the way forward. A tab that shows a file only to look at, until you open another in its place, counts as one tab, so going back to it shows the file it holds now. In a file, ⌘[ and ⌘] first go back to where you were before a jump, such as to a definition, and on a browser page that has the keys they go back and forward in the page instead.
+Coming back to a project opens the host and chat you last had in front there. The arrows at the left of the top bar go back to the tab you had in front before this one and forward again, as a browser does through pages: a chat, a file, a terminal, Git or a browser tab, in whichever project or host it was. ⌘[ and ⌘] do the same, and so do the back and forward buttons on a mouse and a two-finger swipe on the trackpad, one step per swipe: a swipe right goes back, the tab you go back to coming in from the left, and a swipe left goes forward. A tab closed since is passed over, and an arrow is greyed when there is nowhere left to go. Going to a new tab after going back forgets the way forward. A tab that shows a file only to look at, until you open another in its place, counts as one tab, so going back to it shows the file it holds now. In a file, ⌘[ and ⌘] first go back to where you were before a jump, such as to a definition, and on a browser page that has the keys they go back and forward in the page instead.
 
 The rail on the right has three pages, picked from the icons at its foot or by swiping across the rail:
 
@@ -96,6 +96,8 @@ Processes go in its `tasks` list. Agents can start, read and stop them too. They
 `heavy` lists the project's heavy commands, by the program and its first words, such as `{ "command": "pnpm test", "final": true }`. `pnpm test` then matches `pnpm test --run` and not `pnpm install`. An agent running one [waits its turn](/getting-started/run/#heavy-commands-take-turns) on the host with the built-in ones, such as `cargo build`; `"final": true` marks a check run before a commit, which goes ahead of the others. `{ "command": "jest", "light": true }` keeps a command out of the line, and `"heavy": []` turns the line off for the project. Never list a dev server or a watcher, which would hold its turn until stopped. A command run by its path, such as `./gradlew`, does not wait.
 
 `resources` names what only so many agents can use at once, such as `"resources": { "port-3000": { "label": "The app on port 3000", "port": 3000 } }`. Each takes a `label`, a `count` (one unless you say), and an optional `port`, which Sikemux checks nothing else listens on before handing it out. `"perCheckout": true` counts checkouts instead of runs, such as `{ "label": "Dev stack", "count": 2, "perCheckout": true }` for two dev stacks at once: a checkout that holds it starts more of its processes freely, and a new checkout waits. It can't be used with a `port`. A process or `heavy` entry lists what it holds while it runs in `needs`, such as `"needs": ["port-3000"]`: it starts once everything it needs is free, and lets go when it ends. Agents can also hold one for their turn; see [Things used one at a time](/getting-started/run/#things-used-one-at-a-time).
+
+`hookEnv` sets environment variables for the git hooks an agent's push runs, such as `"hookEnv": { "LEFTHOOK_EXCLUDE": "test" }` to skip a slow hook there.
 
 `planFirst` lists paths, such as `"planFirst": ["server/**", "db/schema.sql"]`, whose change Sikemux suggests planning before it starts, when what you type names one. Migrations folders, `.proto` and OpenAPI files, a top-level `server/` or `api/`, and UI folders such as `components/` count in every project without it.
 

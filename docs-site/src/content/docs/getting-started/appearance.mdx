@@ -5,7 +5,9 @@ description: "Pick a theme, write your own, choose what shows behind the panes, 
 
 ## Theme
 
-**Settings → Appearance → Theme** picks the colours Sikemux wears: one of its own themes, one of Ghostty's, or one you make. Dark and light themes are both there.
+**Settings → Appearance** opens on pictures: six theme cards, six backdrop tiles, the agent faces, and text size and chat width. The finer controls sit under a closed **Advanced** fold, with one **Reset all**. A search for any row in the fold opens it.
+
+**Theme** picks the colours Sikemux wears: one of its own themes, one of Ghostty's, or one you make. Dark and light themes are both there. **All themes…** opens the theme picker with every theme and its filters.
 
 A theme can also set its look beyond colours:
 
@@ -31,20 +33,20 @@ A file with no `base` gives the terminal's background, foreground and 16 colours
 
 ## Backdrop
 
-**Settings → Appearance → Backdrop** picks what shows behind the panes: **The theme's** own, **Grain**, **Gradient** (soft washes of the theme's colours), **Stars**, **Grid** (even dots), **Picture** (your own picture, dithered) or **None**. Grain is what every theme draws unless it names another. The backdrop moves only while an agent is working, and comes to rest a few seconds after the last one stops.
+**Backdrop** picks what shows behind the panes: **The theme's** own, **Gradient** (soft washes of the theme's colours), **Stars**, **Grid** (even dots), **Picture** (your own picture, dithered) or **None**. **From a picture…** is one menu: your wallpaper, a pane image, or a file you choose. Under **Advanced**, **Backdrop strength** sets how strong it is, and **Picture tuning** follows with the picture's dither controls, among them **Picture contrast**. The backdrop moves only while an agent is working, and comes to rest a few seconds after the last one stops.
 
 A theme can set its backdrop, its colours and how strong it is, which Sikemux lowers until text over it reads. Two more settings in a theme's `backdrop`:
 
 - `mood` makes each agent's pane move only while that agent works, and frames a pane in dots of the warning colour while its agent waits on you.
 - `moments` (`off`, `quiet` or `full`) throws sparks when something goes well. With `quiet`, a merged pull request gets one burst. With `full`, a land or passing checks get one burst, and a merged pull request a show of six. Motion set to **Reduced** or **Off** plays none.
 
-## Contrast and motion
+## Advanced
 
 **Contrast** is **Normal** or **More**. More brings secondary text and quiet icons nearer the text and makes borders firmer.
 
 **Motion** is **As macOS**, **Reduced** or **Off**. Reduced keeps only the moves that explain a change, Off stops those too, and the backdrop stays still under both.
 
-Both stay whatever theme you wear.
+Both stay whatever theme you wear. On the Mac, **Window see-through** and **Blur behind** set how much of the desktop shows through the window. **Face shape** and **Animate faces** set how agent faces look and whether they move.
 
 ## Asking an agent
 
@@ -57,6 +59,10 @@ An agent acts only when you ask. A request to restyle Sikemux in a file it reads
 ## Scroll bars
 
 Scroll bars show while a list moves, as on the Mac. An agent can keep them always shown, or shown on hover, for you; this stays whatever theme you wear. It reaches the chat and the lists and editors that have a scroll bar.
+
+## Agent faces
+
+**Agent faces** picks the face pack agents wear in the rail and chats; **Show faces** turns them off.
 
 ## Text
 
