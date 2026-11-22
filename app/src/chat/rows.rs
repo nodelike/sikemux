@@ -181,21 +181,8 @@ pub(super) fn row(
                 .text_color(Tokens::get(cx).text_tertiary),
             )
     });
-    let worktree = (ix == 0)
-        .then_some(looks.reading.worktree.as_ref())
-        .flatten()
-        .and_then(|switch| crate::worktrees::switch::note(switch, cx))
-        .map(|note| {
-            div()
-                .w_full()
-                .flex()
-                .justify_center()
-                .when(!looks.reading.earlier_lost, |row| row.pt(SPACE_3))
-                .child(note)
-        });
-    let noted = worktree.is_some();
     if parts.is_empty() && message.letters.is_empty() && summary.is_none() && !carried {
-        return div().children(lost).children(worktree).into_any_element();
+        return div().children(lost).into_any_element();
     }
     let lettered = !message.letters.is_empty();
     let triggered = lettered
@@ -279,7 +266,6 @@ pub(super) fn row(
         .flex_col()
         .items_center()
         .children(lost)
-        .children(worktree)
         .children(team_head)
         .child(
             div()
@@ -299,7 +285,7 @@ pub(super) fn row(
                         row.py(px(5.))
                     }
                 })
-                .when(ix == 0 && !looks.reading.earlier_lost && !noted, |row| {
+                .when(ix == 0 && !looks.reading.earlier_lost, |row| {
                     row.pt(SPACE_3)
                 })
                 .child(content),

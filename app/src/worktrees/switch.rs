@@ -12,7 +12,7 @@ use gpui_kit::{
 use sikemux_view::workspace::AgentWorktree;
 
 use crate::icons::Icon;
-use crate::theme::{Tokens, SPACE_0, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS};
+use crate::theme::{Tokens, SPACE_2, TEXT_2XS};
 use crate::ui;
 
 /// Where the chat stands with a worktree.
@@ -24,12 +24,8 @@ pub enum Switch {
     Always,
     /// The worktree is being made, at `step`.
     Preparing { step: String },
-    /// It works in the worktree on `branch` at `path`, which reads as `shown`.
-    In {
-        branch: String,
-        path: String,
-        shown: String,
-    },
+    /// It works in the worktree on `branch` at `path`.
+    In { branch: String, path: String },
 }
 
 /// The switch a chat shows, or none for one that has started outside a worktree or is not
@@ -40,7 +36,6 @@ pub fn state(
     started: bool,
     preparing: Option<&str>,
     on: bool,
-    home: Option<&str>,
 ) -> Option<Switch> {
     if let Some(step) = preparing {
         return Some(Switch::Preparing {
@@ -48,11 +43,9 @@ pub fn state(
         });
     }
     if let Some(worktree) = worktree {
-        let path = worktree.path.to_string_lossy();
         return Some(Switch::In {
             branch: worktree.branch.clone(),
-            shown: crate::ui::path::tilde(&path, home),
-            path: path.into_owned(),
+            path: worktree.path.to_string_lossy().into_owned(),
         });
     }
     (is_repo && !started).then_some(Switch::Choosing { on })
@@ -64,7 +57,7 @@ fn about(switch: &Switch) -> String {
         Switch::Choosing { on: false } => t!("Click to start this chat in a new git worktree on its own branch.").into(),
         Switch::Always => t!("Hand off always works in a git worktree of its own.").into(),
         Switch::Preparing { step } => format!("{step}…"),
-        Switch::In { branch, path, .. } => {
+        Switch::In { branch, path } => {
             t!("Working in worktree {branch} at {path}", branch = branch, path = path)
         }
     }
@@ -125,77 +118,4 @@ pub fn toggle(id: impl Into<SharedString>, switch: &Switch, flip: Flip, cx: &App
                 .child(label),
         )
         .into_any_element()
-}
-
-/// The line above a chat's first message saying the worktree is being made, or which
-/// worktree the chat works in: its branch, then its folder more quietly.
-pub fn note(switch: &Switch, cx: &App) -> Option<AnyElement> {
-    let t = Tokens::get(cx).clone();
-    let note = div()
-        .w_full()
-        .max_w(px(800.))
-        .px(px(22.))
-        .pt(SPACE_3)
-        .text_size(crate::theme::ui_text(TEXT_2XS))
-        .text_color(t.text_tertiary);
-    match switch {
-        Switch::Choosing { .. } | Switch::Always => None,
-        Switch::Preparing { step } => {
-            Some(note.child(t!("{step}…", step = step)).into_any_element())
-        }
-        Switch::In { branch, shown, .. } => {
-            let tile = div()
-                .flex_none()
-                .size(px(30.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(crate::theme::radius_2())
-                .bg(Hsla {
-                    a: 0.16,
-                    ..t.accent
-                })
-                .child(ui::icon(Icon::Git, 14.).text_color(t.accent));
-            let lines = div()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(SPACE_0)
-                .child(
-                    div()
-                        .id("worktree-note-branch")
-                        .min_w_0()
-                        .flex()
-                        .tooltip(ui::tooltip(branch.clone()))
-                        .child(
-                            div()
-                                .flex_none()
-                                .whitespace_nowrap()
-                                .child(format!("{}\u{a0}", t!("Working in a worktree on"))),
-                        )
-                        .child(
-                            ui::mono(branch.clone(), TEXT_2XS, cx)
-                                .min_w_0()
-                                .truncate()
-                                .font_weight(gpui_kit::FontWeight::MEDIUM)
-                                .text_color(t.text_primary),
-                        ),
-                )
-                .child(
-                    div()
-                        .id("worktree-note-path")
-                        .min_w_0()
-                        .tooltip(ui::tooltip(shown.clone()))
-                        .child(ui::mono(shown.clone(), TEXT_2XS, cx).truncate()),
-                );
-            Some(
-                note.flex()
-                    .items_center()
-                    .gap(SPACE_2H)
-                    .child(tile)
-                    .child(lines)
-                    .into_any_element(),
-            )
-        }
-    }
 }

@@ -51,7 +51,6 @@ use crate::theme::Tokens;
 use crate::ui::{Button, IconButton, Variant};
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
 use crate::workbench::Workbench;
-use crate::worktrees::switch::Switch;
 use crate::{motion, syntax, theme, ui};
 
 mod announce;
@@ -520,8 +519,6 @@ struct Reading {
     unfolded: HashSet<SharedString>,
     /// The find bar is looking for something, so every long text shows all of itself.
     finding: bool,
-    /// Where the chat stands with a worktree, said above its first message.
-    worktree: Option<crate::worktrees::switch::Switch>,
     /// The runs of messages between agents the reader opened, and whether all of each shows,
     /// by the run.
     teams: HashMap<String, bool>,
@@ -1618,14 +1615,6 @@ pub fn pane(
         )
         .with_priority(1)
     });
-    let worktree = bench
-        .worktree_switch(&agent.id, cx)
-        .map(|(switch, _)| switch)
-        .filter(|switch| !matches!(switch, crate::worktrees::switch::Switch::Choosing { .. }));
-    let empty_note = worktree
-        .as_ref()
-        .filter(|_| chat.is_new(cx))
-        .and_then(|switch| crate::worktrees::switch::note(switch, cx));
     let bench_handle = cx.weak_entity();
     chat.activity_line
         .update(cx, |line, cx| line.wear(agent, bench_handle, cx));
@@ -1633,25 +1622,6 @@ pub fn pane(
     chat.announcer.update(cx, |announcer, _| {
         announcer.wear(level, agent.name.as_deref())
     });
-    chat.reader.update(cx, |reading, cx| {
-        if reading.worktree != worktree {
-            reading.worktree = worktree;
-            cx.notify();
-        }
-    });
-    let welcome = match (empty_note, welcome) {
-        (None, welcome) => welcome,
-        (Some(note), welcome) => Some(
-            div()
-                .w_full()
-                .flex()
-                .flex_col()
-                .items_center()
-                .child(note)
-                .children(welcome)
-                .into_any_element(),
-        ),
-    };
     let list = chat.transcript.read(cx).list().clone();
     // The scrollbar shows whenever its list moves, and a list following the latest rows moves
     // with every streamed line; only a reader who scrolled up has a thumb, as on the Mac, unless

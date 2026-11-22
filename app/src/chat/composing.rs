@@ -24,6 +24,7 @@ use super::*;
 use crate::chat::{Answering, Chat, Question};
 use crate::core::ChatAsk;
 use crate::ui::list_picker::{Choose, Close, Next, Previous};
+use crate::worktrees::switch::Switch;
 use sikemux_calls::workspace::AgentPatch;
 use sikemux_calls::workspace::UpdateAgentParams;
 
