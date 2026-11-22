@@ -92,7 +92,10 @@ when its home goes away.
   removal, whichever host made it, and lists them with the vault, as an org's vault does; an entry
   a host holds that the vault leaves out without listing it as removed fails the round and changes
   nothing, so a server glitch clears by itself and a server that lost its data stops the vault's
-  sync on every host until it is restored. A server that lies in what it
+  sync on every host until it is restored. A host lets go of a sign-in only when the vault lists
+  its entry as removed, or as no longer meant for this host; a lying server can still list an
+  entry as removed, so the hosts let go of that sign-in, though it reads nothing. A host takes
+  the first vault it reads after it starts keeping these marks as it stands. A server that lies in what it
   answers can still list a host key of its own among the hosts waiting to join: the hosts wrap the
   vault key for every host the account lists, since nothing yet lets them tell a real one apart,
   so such a server could read the vault from then on. Wrapping the key only for hosts whose join

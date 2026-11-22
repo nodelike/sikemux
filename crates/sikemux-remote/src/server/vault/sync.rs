@@ -660,9 +660,12 @@ fn same_contents(one: &Body, other: &Body) -> bool {
 }
 
 /// Takes in each entry that changed elsewhere, and lets go of each the vault no longer holds.
+/// Takes in each entry of `entries`, and lets go of a sign-in only once `gone` says its entry
+/// left this host at or after the revision it took in.
 fn apply(
     books: &[(String, PathBuf, &'static dyn Book)],
     entries: &BTreeMap<String, Entry>,
+    gone: &BTreeMap<String, i64>,
     local: &mut Local,
     marks: &Marks,
 ) -> bool {
@@ -716,13 +719,21 @@ fn apply(
     local
         .applied
         .retain(|_, applied| !marks.kept(&applied.plugin, &applied.identity));
-    let gone: Vec<(String, Applied)> = local
-        .applied
-        .iter()
-        .filter(|(id, _)| !entries.contains_key(*id))
-        .map(|(id, applied)| (id.clone(), applied.clone()))
-        .collect();
-    for (id, applied) in gone {
+    let mut letting_go = Vec::new();
+    for (id, applied) in local.applied.iter() {
+        if entries.contains_key(id) {
+            continue;
+        }
+        match gone.get(id) {
+            Some(revision) if *revision >= applied.revision => {
+                letting_go.push((id.clone(), applied.clone()));
+            }
+            _ => eprintln!(
+                "sikemux core: vault entry {id} did not open here and is not listed as removed, so its sign-in stays"
+            ),
+        }
+    }
+    for (id, applied) in letting_go {
         let Some((dir, kept)) = book(&applied.plugin) else {
             continue;
         };
@@ -748,6 +759,9 @@ async fn reconcile(
     let (key, vault) = opened;
     let shown_before = super::shown::vault(core);
     let mut entries = BTreeMap::new();
+    let mut gone: BTreeMap<String, i64> = (vault.ended.iter().flatten())
+        .map(|ended| (ended.id.clone(), ended.revision))
+        .collect();
     for entry in &vault.entries {
         if entry.generation != vault.generation {
             continue;
@@ -757,7 +771,10 @@ async fn reconcile(
                 if body
                     .limited_to
                     .as_ref()
-                    .is_some_and(|hosts| !hosts.contains_key(me)) => {}
+                    .is_some_and(|hosts| !hosts.contains_key(me)) =>
+            {
+                gone.insert(entry.id.clone(), entry.revision);
+            }
             Some(body) => {
                 entries.insert(
                     entry.id.clone(),
@@ -915,6 +932,7 @@ async fn reconcile(
         let path = format!("/v1/vault/entries/{id}?revision={revision}");
         host_request(core, Method::DELETE, &path, None).await?;
         entries.remove(&id);
+        gone.insert(id, revision);
     }
     {
         let mut state = core.vault().state.locked();
@@ -925,7 +943,7 @@ async fn reconcile(
     let me = me.to_owned();
     let mut local = plan.local;
     let took_in_or_let_go = blocking(move || {
-        let moved = apply(&books, &entries, &mut local, &marks);
+        let moved = apply(&books, &entries, &gone, &mut local, &marks);
         local.rules = rules_of(&entries, &local);
         local.host = me;
         local::save(data_dir.as_deref(), &local).map_err(CoreError::from)?;
