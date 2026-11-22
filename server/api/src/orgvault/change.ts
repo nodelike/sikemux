@@ -141,7 +141,10 @@ export async function vaultChanged(trx: Transaction<Tables>, orgId: string) {
   );
 }
 
-/** Keeps the last revision of each removed entry, for the next entry under its id to start above. */
+/**
+ * Marks each removed entry one revision above its last, so a write from a host that read it
+ * before it went is refused and only a host that saw it go can add an entry under its id.
+ */
 export async function keepEnded(
   trx: Transaction<Tables>,
   orgId: string,
@@ -151,7 +154,11 @@ export async function keepEnded(
   await trx
     .insertInto("org_vault_ended")
     .values(
-      removed.map(({ id, revision }) => ({ org_id: orgId, id, revision })),
+      removed.map(({ id, revision }) => ({
+        org_id: orgId,
+        id,
+        revision: revision + 1,
+      })),
     )
     .onConflict((oc) =>
       oc.columns(["org_id", "id"]).doUpdateSet({

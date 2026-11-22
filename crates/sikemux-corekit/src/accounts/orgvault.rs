@@ -26,7 +26,7 @@ pub struct OrgVault {
     /// When an owner's or admin's host last made the vault again, or null if none has.
     pub remade_at: Option<String>,
     pub entries: Vec<OrgVaultEntry>,
-    /// Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it.
+    /// Entries removed from the vault, each one revision above its last. A new entry under one of these ids is added at that revision; a write at the old one is refused.
     pub ended: Vec<OrgVaultEnded>,
     /// How many changes the vault's entries have had. A host passes it back as after to read only the entries changed or removed since.
     pub changes: OrgVaultChanges,
@@ -48,7 +48,7 @@ pub struct OrgVaultCreate {
     pub key: OrgVaultWrapped,
 }
 
-/// An entry removed from an org's vault, at the last revision it had.
+/// An entry removed from an org's vault, one revision above the last it had.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgVaultEnded {
