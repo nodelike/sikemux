@@ -14,7 +14,7 @@
 //! next ones start. A place is in window points: `x,y`, a box `x,y,w,h`, or the quoted label of
 //! a control the window reports. Times are in seconds.
 //!   stage W H / window W H      the frame and the window in its middle, in points
-//!   replies FILE                the stand-in Claude's scripted replies (see sikemux-fake-claude)
+//!   replies FILE                the stand-in agents' scripted replies (see sikemux-fake-claude)
 //!   team FOLDER ORIGIN          wakes the core on the account FOLDER, beside the scene, recorded:
 //!                               its orgs, what teammates share and its copies of their boards;
 //!                               each project step without its own REMOTE gets ORIGIN

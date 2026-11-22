@@ -49,15 +49,45 @@ impl World {
         }
         let bin = work.join("bin");
         std::fs::create_dir_all(&bin)?;
+        let stand_in = |name: &str, script: String| -> anyhow::Result<()> {
+            let path = bin.join(name);
+            std::fs::write(&path, script)?;
+            #[cfg(unix)]
+            std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+            Ok(())
+        };
         // ssh reads the config of the account's own home, not HOME, so the world's hosts are
         // reached by a stand-in that says it connected and then waits: nothing leaves the Mac.
-        let ssh = bin.join("ssh");
-        std::fs::write(
-            &ssh,
-            "#!/bin/sh\nfor host; do :; done\nprintf '\\033]6973;ssh;connected\\007'\nprintf 'Last login: Mon Nov  2 09:12:44 2026\\r\\n%s ~ $ ' \"$host\"\nexec /bin/sleep 86400\n",
+        stand_in(
+            "ssh",
+            "#!/bin/sh\nfor host; do :; done\nprintf '\\033]6973;ssh;connected\\007'\nprintf 'Last login: Mon Nov  2 09:12:44 2026\\r\\n%s ~ $ ' \"$host\"\nexec /bin/sleep 86400\n".into(),
         )?;
-        #[cfg(unix)]
-        std::fs::set_permissions(&ssh, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
+        // Antigravity and Codex chats run on the stand-in agents built beside the stand-in Claude.
+        let fake = |name: &str| args.claude.with_file_name(name).display().to_string();
+        let gemini = [
+            ("gemini-4-neon-high", "Gemini 4 Neon (High)"),
+            ("gemini-4-carbon-high", "Gemini 4 Carbon (High)"),
+            ("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"),
+        ];
+        let listed: String = gemini
+            .iter()
+            .map(|(id, name)| format!("{id}\\t{name}\\n"))
+            .collect();
+        let offered = json!(gemini
+            .iter()
+            .map(|(id, name)| json!({ "value": id, "name": name }))
+            .collect::<Vec<_>>());
+        stand_in(
+            "agy",
+            format!(
+                "#!/bin/sh\n[ \"$1\" = models ] && exec printf '{listed}'\nFAKE_ACP_MODELS='{offered}' exec '{}' \"$@\"\n",
+                fake("sikemux-fake-acp-agent")
+            ),
+        )?;
+        stand_in(
+            "codex",
+            format!("#!/bin/sh\nexec '{}' \"$@\"\n", fake("sikemux-fake-codex")),
+        )?;
         std::fs::write(
             home.join(".zshrc"),
             format!(
@@ -137,6 +167,7 @@ impl World {
         }
         if let Some(replies) = &replies {
             command.env("FAKE_CLAUDE_SCRIPT", replies);
+            command.env("FAKE_ACP_SCRIPT", replies);
         }
         // A clip paces the replies by its own time; snaps take the clock on the wall, so the
         // durations the chat shows are real ones.
