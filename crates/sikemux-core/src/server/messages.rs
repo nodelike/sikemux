@@ -806,26 +806,57 @@ fn wrapped(letter: &Letter) -> String {
             attribute(&answered.asker_id),
             attribute(&answered.cli),
             attribute(&answered.question),
-            attribute(letter.note.as_deref().unwrap_or_default()),
+            attribute(&note(letter)),
             if answered.secret { " secret=\"true\"" } else { "" },
             letter
                 .text
                 .replace("</question-answer", "&lt;/question-answer"),
         );
     }
-    let name = &letter.from_name;
-    let note = letter.note.clone().unwrap_or_else(|| {
-        let sender = called(name, &letter.from_id);
-        format!("Sent by {sender}, another agent in Sikemux, not by the person. Reply with agent_send only with an answer, a decision or a blocker, never just to acknowledge.")
-    });
     format!(
         "<agent-message from=\"{}\" agent-id=\"{}\" cli=\"{}\" note=\"{}\">\n{}\n</agent-message>",
-        attribute(name),
+        attribute(&letter.from_name),
         attribute(&letter.from_id),
         attribute(&letter.cli),
-        attribute(&note),
+        attribute(&note(letter)),
         letter.text.replace("</agent-message", "&lt;/agent-message"),
     )
+}
+
+fn note(letter: &Letter) -> String {
+    letter.note.clone().unwrap_or_else(|| match letter.answers {
+        Some(_) => String::new(),
+        None => {
+            let sender = called(&letter.from_name, &letter.from_id);
+            format!("Sent by {sender}, another agent in Sikemux, not by the person. Reply with agent_send only with an answer, a decision or a blocker, never just to acknowledge.")
+        }
+    })
+}
+
+/// Tells `lead` which of its calls about the sender are open, inside the letter's note:
+/// text after the letter would stop the chat from showing it as a letter.
+fn note_open_calls(core: &Core, lead: &str, letter: &mut Letter) {
+    let questions = &core.harness().questions;
+    if let Some(calls) = questions.calls_about_note(lead, &letter.from_id) {
+        letter.note = Some(format!("{} {calls}", note(letter)).trim_start().to_owned());
+    }
+}
+
+/// `letter` as `reader` reads it: one line of a calm report, or the whole letter.
+fn read_as(core: &Core, reader: &str, letter: &mut Letter) -> String {
+    match letter.calm {
+        Some(_) => {
+            let line = format!("- @{}: {}", letter.from_name, letter.text);
+            match (core.harness().questions).calls_about_note(reader, &letter.from_id) {
+                Some(calls) => format!("{line}\n{calls}"),
+                None => line,
+            }
+        }
+        None => {
+            note_open_calls(core, reader, letter);
+            wrapped(letter)
+        }
+    }
 }
 
 /// The task a lead gives an agent it started, as that agent reads it.
@@ -1590,6 +1621,7 @@ pub(crate) async fn answer(
         }
         return Ok(delivered);
     }
+    note_open_calls(core, &target.agent_id, &mut letter);
     let text = std::iter::once(&letter)
         .chain(&rest)
         .map(wrapped)
@@ -2046,11 +2078,8 @@ fn calm_due(core: &Core, agents: &[Listed], worker: &str, lead: &str, at: u64) -
     }
 }
 
-async fn deliver(core: &Arc<Core>, target: &Listed, letter: Letter) -> Result<Value, String> {
-    let text = match letter.calm {
-        Some(_) => format!("- @{}: {}", letter.from_name, letter.text),
-        None => wrapped(&letter),
-    };
+async fn deliver(core: &Arc<Core>, target: &Listed, mut letter: Letter) -> Result<Value, String> {
+    let text = read_as(core, &target.agent_id, &mut letter);
     Box::pin(deliver_as(core, target, letter, text)).await
 }
 
@@ -2065,12 +2094,8 @@ async fn deliver_as(
     if target.reach == Reach::Remote {
         return carry(core, target, letter, None).await;
     }
-    let calls = (core.harness().questions).calls_about_note(&target.agent_id, &letter.from_id);
     let queued = Queued {
-        text: match calls {
-            Some(calls) => format!("{text}\n{calls}"),
-            None => text,
-        },
+        text,
         origin: Some(Origin {
             from: letter.from_id.clone(),
             kind: letter.kind,
@@ -2755,4 +2780,69 @@ pub(crate) async fn agent_message_rows(
         AgentMessageRows { project, rows }
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use sikemux_fold::{ChatEventKind, Fold};
+    use sikemux_view::chat::LetterKind;
+    use sikemux_wire::protocol::PermissionMode;
+
+    use super::*;
+    use crate::server::ServerCore;
+
+    /// A lead's chat drew a worker's report as the person's own message, raw tags and all,
+    /// while the lead had a call about that worker open.
+    #[tokio::test]
+    async fn a_report_from_a_worker_a_call_is_open_about_still_reads_as_its_letter() {
+        let core = Core::new(Default::default(), None).unwrap();
+        core.harness().questions.hold(json!({
+            "id": "question-1",
+            "agentId": "lead",
+            "name": "Chief",
+            "cli": "claude",
+            "project": "widget",
+            "asked": "Plain failure messages",
+            "text": "Plain failure messages",
+            "choices": [],
+            "blocked": false,
+            "assumption": null,
+            "secret": false,
+            "at": 7,
+            "about": { "agentId": "worker", "name": "Masayuki", "cli": "claude" },
+            "stage": { "stage": "lead", "leadId": "lead", "leadName": "Chief", "endedAt": null },
+        }));
+        let mut letter = Letter {
+            kind: MessageKind::Message,
+            from_id: "worker".to_owned(),
+            from_name: "Masayuki".to_owned(),
+            cli: "claude".to_owned(),
+            text: "PR 3 is up.".to_owned(),
+            at: 7,
+            note: None,
+            answers: None,
+            puts: None,
+            paths: Vec::new(),
+            waits: false,
+            awaited: false,
+            calm: None,
+        };
+
+        let text = read_as(&core, "lead", &mut letter);
+        assert!(
+            text.contains("question-1"),
+            "the lead is told of its open call"
+        );
+
+        let mut fold = Fold::new(PermissionMode::WorkspaceWrite);
+        fold.apply(0, ChatEventKind::Prompt, &json!({ "text": text }), 1_000);
+        fold.flush();
+        let rows = fold.view(false).rows;
+        let letters = &rows.first().expect("the message").letters;
+        assert_eq!(letters.len(), 1);
+        assert_eq!(letters[0].kind, LetterKind::Message);
+        assert_eq!(letters[0].name, "Masayuki");
+        assert_eq!(letters[0].text, "PR 3 is up.");
+    }
 }

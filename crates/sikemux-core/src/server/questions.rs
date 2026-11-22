@@ -757,6 +757,12 @@ impl Questions {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn hold(&self, question: serde_json::Value) {
+        let question = serde_json::from_value(question).expect("a question");
+        self.state.locked().open.push(question);
+    }
+
     /// What `lead` is told with a report from `worker` while calls of the lead's about it are open.
     pub(crate) fn calls_about_note(&self, lead: &str, worker: &str) -> Option<String> {
         let calls = self.calls_of(lead, |call| {
