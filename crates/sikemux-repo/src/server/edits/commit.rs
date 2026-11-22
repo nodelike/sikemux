@@ -278,12 +278,17 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
 
 /// Pushes from `from` as `agent`, answering within [`PUSH_ANSWER_WAIT`]: none
 /// when the push is still going, and the agent is then woken with how it went.
+/// A push asked for while one from the same checkout runs joins it rather than
+/// running the repository's pre-push hook a second time beside it.
 fn push_or_tell(
     core: &Arc<Core>,
     from: PathBuf,
     agent: &str,
     force: bool,
 ) -> Result<Option<super::push::Pushed>, String> {
+    let Some(running) = Running::start(&from, agent) else {
+        return Ok(None);
+    };
     let (answer, answered) = std::sync::mpsc::channel();
     let runtime = tokio::runtime::Handle::try_current().ok();
     let (owner, agent) = (core.clone(), agent.to_owned());
@@ -297,20 +302,27 @@ fn push_or_tell(
                     false => super::push::push(&owner, &from, agents, "origin"),
                 },
             );
-        let Err(std::sync::mpsc::SendError(pushed)) = answer.send(pushed) else {
-            return;
-        };
-        if let (Ok(pushed), Some(runtime)) = (&pushed, &runtime) {
-            super::push::tell_sent_back(&owner, runtime, pushed);
-        }
-        let text = match pushed {
+        let mut waiting = running.finish();
+        let text = match &pushed {
             Ok(pushed) => format!(
                 "Your push ended: {}",
-                serde_json::to_string(&pushed).unwrap_or_default()
+                serde_json::to_string(pushed).unwrap_or_default()
             ),
             Err(why) => format!("Your push failed: {why}"),
         };
-        if let Some(runtime) = runtime {
+        match answer.send(pushed) {
+            Ok(()) => waiting.retain(|other| *other != agent),
+            Err(std::sync::mpsc::SendError(pushed)) => {
+                if let (Ok(pushed), Some(runtime)) = (&pushed, &runtime) {
+                    super::push::tell_sent_back(&owner, runtime, pushed);
+                }
+            }
+        }
+        let Some(runtime) = runtime else {
+            return;
+        };
+        for agent in waiting {
+            let (owner, text) = (owner.clone(), text.clone());
             runtime.spawn(async move {
                 let told = (owner.repo_above().messages_work_from_sikemux)(
                     &owner,
@@ -327,6 +339,46 @@ fn push_or_tell(
     match answered.recv_timeout(PUSH_ANSWER_WAIT) {
         Ok(pushed) => pushed.map(Some),
         Err(_) => Ok(None),
+    }
+}
+
+/// Pushes running from a checkout, with the agents to tell how each went.
+static RUNNING: std::sync::Mutex<BTreeMap<PathBuf, Vec<String>>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+/// A push running from one checkout, ended when dropped.
+struct Running(PathBuf);
+
+impl Running {
+    /// None when a push from `from` is already running; `agent` then hears how that one went.
+    fn start(from: &Path, agent: &str) -> Option<Self> {
+        let mut running = RUNNING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(waiting) = running.get_mut(from) {
+            if !waiting.iter().any(|other| other == agent) {
+                waiting.push(agent.to_owned());
+            }
+            return None;
+        }
+        running.insert(from.to_owned(), vec![agent.to_owned()]);
+        Some(Self(from.to_owned()))
+    }
+
+    fn finish(self) -> Vec<String> {
+        let mut running = RUNNING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        running.remove(&self.0).unwrap_or_default()
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let mut running = RUNNING
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        running.remove(&self.0);
     }
 }
 
