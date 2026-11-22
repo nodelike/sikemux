@@ -41,6 +41,7 @@ export type AuditAction =
   | "org_vault.rotated"
   | "org_vault.entry_written"
   | "org_vault.entry_removed"
+  | "org_vault.remade"
   | "mods.purged"
   | "billing.checkout_opened"
   | "billing.subscription_changed"

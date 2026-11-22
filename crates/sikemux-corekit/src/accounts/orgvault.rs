@@ -19,6 +19,8 @@ pub struct OrgVault {
     pub waiting: Vec<DeviceKey>,
     /// A host that held the key is no longer a member's host, so an owner's or admin's host should replace it.
     pub rotate: bool,
+    /// For an owner's or admin's host, each member's computer that holds the key at the current generation and when it was last online, so they can tell one that is asleep from one that is gone before making the vault again. Empty for any other member's host.
+    pub holding: Vec<OrgVaultHolder>,
     pub entries: Vec<OrgVaultEntry>,
     /// Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it.
     pub ended: Vec<OrgVaultEnded>,
@@ -89,12 +91,39 @@ pub struct OrgVaultEntryRead {
     pub revision: i64,
 }
 
+/// A member's computer that holds the org's key.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgVaultHolder {
+    pub host_key: DeviceKey,
+    /// The computer's name, as its account named it.
+    pub computer: String,
+    /// The role in the org of the account it is on.
+    pub role: OrgRole,
+    /// It is on the asking host's own account.
+    pub yours: bool,
+    /// It is connected to the accounts server now.
+    pub online: bool,
+    /// When it last connected to the accounts server or left it, or null if it never has.
+    pub last_seen_at: Option<String>,
+}
+
 /// A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgVaultKeysAdd {
     pub generation: VaultGeneration,
     pub keys: Vec<OrgWrappedKey>,
+}
+
+/// An owner's or admin's host whose computer cannot open the org's vault makes it again: every entry and every wrap is dropped, and the generation goes up with a new key held by the asking host alone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgVaultRemake {
+    /// The current generation.
+    pub from: VaultGeneration,
+    /// The new key sealed for the asking host at the next generation.
+    pub key: OrgVaultWrapped,
 }
 
 /// An owner's or admin's host replaces the org's key: every wrap and every entry moves to the next generation at once.
@@ -141,7 +170,9 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgVaultEntryKind" => through::<OrgVaultEntryKind>(json),
         "OrgVaultEntryPut" => through::<OrgVaultEntryPut>(json),
         "OrgVaultEntryRead" => through::<OrgVaultEntryRead>(json),
+        "OrgVaultHolder" => through::<OrgVaultHolder>(json),
         "OrgVaultKeysAdd" => through::<OrgVaultKeysAdd>(json),
+        "OrgVaultRemake" => through::<OrgVaultRemake>(json),
         "OrgVaultRotate" => through::<OrgVaultRotate>(json),
         "OrgVaultState" => through::<OrgVaultState>(json),
         "OrgVaultWrapped" => through::<OrgVaultWrapped>(json),

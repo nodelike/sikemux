@@ -1953,6 +1953,7 @@ export const schema = {
         "vault_rotated",
         "vault_entry_written",
         "vault_entry_removed",
+        "vault_remade",
       ],
     },
     OrgAuditCursor: {
@@ -2027,6 +2028,17 @@ export const schema = {
             "What its member calls the computer given the vault's key, at the time.",
           type: "string",
           maxLength: 64,
+        },
+        droppedEntries: {
+          description: "How many entries a vault made again dropped.",
+          type: "integer",
+          minimum: 0,
+        },
+        droppedComputers: {
+          description:
+            "How many computers' copies of the old key a vault made again dropped.",
+          type: "integer",
+          minimum: 0,
         },
         seats: {
           description: "The seat count a change set.",
@@ -2530,6 +2542,12 @@ export const schema = {
             "A host that held the key is no longer a member's host, so an owner's or admin's host should replace it.",
           type: "boolean",
         },
+        holding: {
+          description:
+            "For an owner's or admin's host, each member's computer that holds the key at the current generation and when it was last online, so they can tell one that is asleep from one that is gone before making the vault again. Empty for any other member's host.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgVaultHolder" },
+        },
         entries: { type: "array", items: { $ref: "#/$defs/OrgVaultEntry" } },
         ended: {
           description:
@@ -2554,6 +2572,7 @@ export const schema = {
         "holders",
         "waiting",
         "rotate",
+        "holding",
         "entries",
         "ended",
         "changes",
@@ -2665,6 +2684,44 @@ export const schema = {
       required: ["id", "revision"],
       additionalProperties: false,
     },
+    OrgVaultHolder: {
+      description: "A member's computer that holds the org's key.",
+      type: "object",
+      properties: {
+        hostKey: { $ref: "#/$defs/DeviceKey" },
+        computer: {
+          description: "The computer's name, as its account named it.",
+          type: "string",
+        },
+        role: {
+          description: "The role in the org of the account it is on.",
+          $ref: "#/$defs/OrgRole",
+        },
+        yours: {
+          description: "It is on the asking host's own account.",
+          type: "boolean",
+        },
+        online: {
+          description: "It is connected to the accounts server now.",
+          type: "boolean",
+        },
+        lastSeenAt: {
+          description:
+            "When it last connected to the accounts server or left it, or null if it never has.",
+          type: ["string", "null"],
+          format: "date-time",
+        },
+      },
+      required: [
+        "hostKey",
+        "computer",
+        "role",
+        "yours",
+        "online",
+        "lastSeenAt",
+      ],
+      additionalProperties: false,
+    },
     OrgVaultKeysAdd: {
       description:
         "A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one.",
@@ -2679,6 +2736,24 @@ export const schema = {
         },
       },
       required: ["generation", "keys"],
+      additionalProperties: false,
+    },
+    OrgVaultRemake: {
+      description:
+        "An owner's or admin's host whose computer cannot open the org's vault makes it again: every entry and every wrap is dropped, and the generation goes up with a new key held by the asking host alone.",
+      type: "object",
+      properties: {
+        from: {
+          description: "The current generation.",
+          $ref: "#/$defs/VaultGeneration",
+        },
+        key: {
+          description:
+            "The new key sealed for the asking host at the next generation.",
+          $ref: "#/$defs/OrgVaultWrapped",
+        },
+      },
+      required: ["from", "key"],
       additionalProperties: false,
     },
     OrgVaultRotate: {

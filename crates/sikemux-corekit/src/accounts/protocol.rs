@@ -1086,6 +1086,8 @@ pub enum OrgAuditAction {
     VaultEntryWritten,
     #[serde(rename = "vault_entry_removed")]
     VaultEntryRemoved,
+    #[serde(rename = "vault_remade")]
+    VaultRemade,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,
@@ -1142,6 +1144,12 @@ pub struct OrgAuditEntry {
     /// What its member calls the computer given the vault's key, at the time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer: Option<String>,
+    /// How many entries a vault made again dropped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dropped_entries: Option<i64>,
+    /// How many computers' copies of the old key a vault made again dropped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dropped_computers: Option<i64>,
     /// The seat count a change set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seats: Option<i64>,

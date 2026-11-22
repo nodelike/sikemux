@@ -34,6 +34,7 @@ import {
   requestContext,
   type Env,
 } from "./http.ts";
+import type { Presence } from "./live/hub.ts";
 import type { JoinSigner } from "./join/signer.ts";
 import { clientAddress, limit, type RateLimiter } from "./limits.ts";
 import type { Logger } from "./log.ts";
@@ -88,6 +89,8 @@ export interface Services {
   stash: StashFiles | null;
   /** The hosts connected for their webhooks, which hear at once of a request for them. */
   hookHosts: HookHosts;
+  /** Which devices are connected to /v1/live now. */
+  presence: Presence;
   /** The TXT records at a DNS name, each one's strings joined; throws when the lookup fails. */
   txtRecords: (name: string) => Promise<string[]>;
   billing: {

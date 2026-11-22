@@ -11,6 +11,7 @@ import { createApp, type Services } from "../src/app.ts";
 import { StandInProvider } from "../src/billing/stand-in.ts";
 import type { MacSignInExchange } from "../src/devices/mac-sign-in.ts";
 import { HookHosts } from "../src/hooks/hosts.ts";
+import { Presence } from "../src/live/hub.ts";
 import { RelayAccess } from "../src/relay/access.ts";
 import { openDatabase, type Database } from "../src/db.ts";
 import type { JoinSigner } from "../src/join/signer.ts";
@@ -118,6 +119,7 @@ export function testApp(
     relayAccessToken: null,
     stash: null,
     hookHosts: new HookHosts(),
+    presence: new Presence(),
     txtRecords: async () => [],
     billing: {
       provider: new StandInProvider("https://api.sikemux.com"),

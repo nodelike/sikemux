@@ -8,6 +8,16 @@
     "aa2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a7988"
   ],
   "rotate": false,
+  "holding": [
+    {
+      "hostKey": "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a7988",
+      "computer": "Studio",
+      "role": "admin",
+      "yours": false,
+      "online": false,
+      "lastSeenAt": "2026-11-20T09:30:00.000Z"
+    }
+  ],
   "entries": [],
   "ended": [],
   "changes": 0,

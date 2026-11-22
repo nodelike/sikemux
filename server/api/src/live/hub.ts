@@ -62,6 +62,11 @@ export class Hub {
     return true;
   }
 
+  /** Whether the device is connected now. */
+  online(deviceKey: string): boolean {
+    return this.byDevice.has(deviceKey);
+  }
+
   remove(member: Member) {
     const sockets = this.byUser.get(member.userId);
     sockets?.delete(member);
@@ -115,5 +120,14 @@ export class Hub {
 
   closeAll(spreadMs: number) {
     return byeAll(this.connections, spreadMs);
+  }
+}
+
+/** Which devices are connected now, as the live server's hub knows once it is attached. */
+export class Presence {
+  hub: Hub | undefined;
+
+  online(deviceKey: string): boolean {
+    return this.hub?.online(deviceKey) ?? false;
   }
 }

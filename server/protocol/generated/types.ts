@@ -1076,7 +1076,8 @@ export type OrgAuditAction =
   | "vault_host_added"
   | "vault_rotated"
   | "vault_entry_written"
-  | "vault_entry_removed";
+  | "vault_entry_removed"
+  | "vault_remade";
 export const orgAuditActionValues: readonly OrgAuditAction[] = [
   "created",
   "joined",
@@ -1105,6 +1106,7 @@ export const orgAuditActionValues: readonly OrgAuditAction[] = [
   "vault_rotated",
   "vault_entry_written",
   "vault_entry_removed",
+  "vault_remade",
 ];
 
 /** Where the next page of the audit log starts. Opaque to apps. */
@@ -1142,6 +1144,10 @@ export interface OrgAuditEntry {
   entryKind?: string;
   /** What its member calls the computer given the vault's key, at the time. */
   computer?: string;
+  /** How many entries a vault made again dropped. */
+  droppedEntries?: number;
+  /** How many computers' copies of the old key a vault made again dropped. */
+  droppedComputers?: number;
   /** The seat count a change set. */
   seats?: number;
   /** True when a seat change waits for the plan's renewal. */
@@ -1416,6 +1422,8 @@ export interface OrgVault {
   waiting: DeviceKey[];
   /** A host that held the key is no longer a member's host, so an owner's or admin's host should replace it. */
   rotate: boolean;
+  /** For an owner's or admin's host, each member's computer that holds the key at the current generation and when it was last online, so they can tell one that is asleep from one that is gone before making the vault again. Empty for any other member's host. */
+  holding: OrgVaultHolder[];
   entries: OrgVaultEntry[];
   /** Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it. */
   ended: OrgVaultEnded[];
@@ -1475,10 +1483,33 @@ export interface OrgVaultEntryRead {
   revision: number;
 }
 
+/** A member's computer that holds the org's key. */
+export interface OrgVaultHolder {
+  hostKey: DeviceKey;
+  /** The computer's name, as its account named it. */
+  computer: string;
+  /** The role in the org of the account it is on. */
+  role: OrgRole;
+  /** It is on the asking host's own account. */
+  yours: boolean;
+  /** It is connected to the accounts server now. */
+  online: boolean;
+  /** When it last connected to the accounts server or left it, or null if it never has. */
+  lastSeenAt: string | null;
+}
+
 /** A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one. */
 export interface OrgVaultKeysAdd {
   generation: VaultGeneration;
   keys: OrgWrappedKey[];
+}
+
+/** An owner's or admin's host whose computer cannot open the org's vault makes it again: every entry and every wrap is dropped, and the generation goes up with a new key held by the asking host alone. */
+export interface OrgVaultRemake {
+  /** The current generation. */
+  from: VaultGeneration;
+  /** The new key sealed for the asking host at the next generation. */
+  key: OrgVaultWrapped;
 }
 
 /** An owner's or admin's host replaces the org's key: every wrap and every entry moves to the next generation at once. */
@@ -2580,7 +2611,9 @@ export interface Definitions {
   OrgVaultEntryKind: OrgVaultEntryKind;
   OrgVaultEntryPut: OrgVaultEntryPut;
   OrgVaultEntryRead: OrgVaultEntryRead;
+  OrgVaultHolder: OrgVaultHolder;
   OrgVaultKeysAdd: OrgVaultKeysAdd;
+  OrgVaultRemake: OrgVaultRemake;
   OrgVaultRotate: OrgVaultRotate;
   OrgVaultState: OrgVaultState;
   OrgVaultWrapped: OrgVaultWrapped;

@@ -6,7 +6,7 @@ import type { RateLimiter } from "../limits.ts";
 import type { Logger } from "../log.ts";
 import type { Pusher } from "../push/send.ts";
 import { routeSockets } from "../sockets/upgrades.ts";
-import { Hub } from "./hub.ts";
+import { Hub, type Presence } from "./hub.ts";
 import {
   listenForEvents,
   type AccountWatcher,
@@ -23,6 +23,8 @@ interface LiveServices {
   log: Logger;
   appOrigin: string;
   pusher: Pusher;
+  /** Told of the hub, for the routes that say which devices are online. */
+  presence: Presence;
   /** Told of every account change the hub hears of. */
   watchers?: AccountWatcher[];
   options?: Partial<LiveOptions>;
@@ -41,6 +43,7 @@ export function attachLive(server: Server, services: LiveServices): Live {
   const options = { ...LIVE_OPTIONS, ...services.options };
   const { database, limiter, log, appOrigin } = services;
   const hub = new Hub(options);
+  services.presence.hub = hub;
   const context = {
     db: database.db,
     verifier: services.verifier,

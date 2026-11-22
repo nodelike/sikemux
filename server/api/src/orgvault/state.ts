@@ -9,6 +9,7 @@ import { sql, type Kysely } from "kysely";
 import { isStaff } from "../account/staff.ts";
 import type { Tables } from "../db.ts";
 import { notFound } from "../http.ts";
+import type { Presence } from "../live/hub.ts";
 
 /** A shared project's store of rules and knowledge, which agents read. */
 export const PROJECT_MEMORY = "project-memory";
@@ -99,19 +100,32 @@ export function memberHosts(db: Kysely<Tables>, orgId: string) {
   return db
     .selectFrom("devices")
     .innerJoin("org_users", "org_users.user_id", "devices.user_id")
-    .select("devices.key")
+    .select([
+      "devices.key",
+      "devices.name",
+      "devices.user_id",
+      "devices.last_seen_at",
+      "org_users.role",
+    ])
     .where("org_users.org_id", "=", orgId)
     .where("devices.role", "=", "host");
 }
 
+export interface Viewer {
+  hostKey: string;
+  userId: string;
+  role: OrgRole;
+}
+
 /**
- * The org's vault as `hostKey` sees it: the key sealed for it, and which members' hosts hold it or
- * wait. With `after`, only the entries changed or removed since that many changes.
+ * The org's vault as the viewer's host sees it: the key sealed for it, and which members' hosts
+ * hold it or wait. With `after`, only the entries changed or removed since that many changes.
  */
 export async function orgVaultState(
   db: Kysely<Tables>,
   orgId: string,
-  hostKey: string,
+  { hostKey, userId, role }: Viewer,
+  presence: Presence,
   after?: number,
 ): Promise<OrgVaultState> {
   const vault = await db
@@ -161,6 +175,19 @@ export async function orgVaultState(
     holders: [...holders],
     waiting: [...members].filter((key) => !holders.has(key)),
     rotate: keys.some((key) => !members.has(key.host_key)),
+    holding:
+      role === "user"
+        ? []
+        : hosts
+            .filter((host) => holders.has(host.key))
+            .map((host) => ({
+              hostKey: host.key,
+              computer: host.name,
+              role: host.role,
+              yours: host.user_id === userId,
+              online: presence.online(host.key),
+              lastSeenAt: host.last_seen_at?.toISOString() ?? null,
+            })),
     entries: entries.map(toEntry),
     ended,
     changes,

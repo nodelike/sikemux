@@ -5,6 +5,7 @@ import type {
   OrgVaultEntryPut,
   OrgVaultEntryRead,
   OrgVaultKeysAdd,
+  OrgVaultRemake,
   OrgVaultRotate,
   OrgWrappedKey,
 } from "@sikemux/protocol";
@@ -308,6 +309,46 @@ export async function rotateOrgVault(
     generation: next,
     hosts: keys.length,
     entries: entries.length,
+  });
+}
+
+/**
+ * For when no computer can open the vault any more: everything sealed under the old key is
+ * dropped, and the asking host's key at the next generation is the only one.
+ */
+export async function remakeOrgVault(
+  trx: Transaction<Tables>,
+  asker: Asker,
+  { from, key }: OrgVaultRemake,
+): Promise<void> {
+  const { orgId, hostKey } = asker;
+  atCurrent((await lockedVault(trx, orgId)).generation, from);
+  const dropped = await trx
+    .deleteFrom("org_vault_entries")
+    .where("org_id", "=", orgId)
+    .returning(["id", "revision"])
+    .execute();
+  await keepEnded(trx, orgId, dropped);
+  const wraps = await trx
+    .deleteFrom("org_vault_keys")
+    .where("org_id", "=", orgId)
+    .returning("host_key")
+    .execute();
+  const next = from + 1;
+  await trx
+    .updateTable("org_vaults")
+    .set({ generation: next, rotated_at: sql<Date>`now()` })
+    .where("org_id", "=", orgId)
+    .execute();
+  await trx
+    .insertInto("org_vault_keys")
+    .values(wrapRows(asker, next, [{ hostKey, wrapped: key }]))
+    .execute();
+  await vaultChanged(trx, orgId);
+  await auditOrg(trx, asker, "org_vault.remade", {
+    generation: next,
+    entries: dropped.length,
+    wraps: wraps.length,
   });
 }
 

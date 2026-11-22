@@ -609,7 +609,8 @@
         "vault_host_added",
         "vault_rotated",
         "vault_entry_written",
-        "vault_entry_removed"
+        "vault_entry_removed",
+        "vault_remade"
       ]
     },
     "OrgAuditEntry": {
@@ -688,6 +689,16 @@
           "description": "What its member calls the computer given the vault's key, at the time.",
           "type": "string",
           "maxLength": 64
+        },
+        "droppedEntries": {
+          "description": "How many entries a vault made again dropped.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "droppedComputers": {
+          "description": "How many computers' copies of the old key a vault made again dropped.",
+          "type": "integer",
+          "minimum": 0
         },
         "seats": {
           "description": "The seat count a change set.",

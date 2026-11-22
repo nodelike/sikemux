@@ -44,6 +44,7 @@ const SHOWN: Record<string, OrgAuditAction> = {
   "org_vault.rotated": "vault_rotated",
   "org_vault.entry_written": "vault_entry_written",
   "org_vault.entry_removed": "vault_entry_removed",
+  "org_vault.remade": "vault_remade",
 };
 
 /** What the Team plan's own changes are called in the org's log. */
@@ -118,6 +119,14 @@ function entryBody(
         ? detail.via === "domain"
           ? ("domain" as const)
           : ("invite" as const)
+        : undefined,
+    droppedEntries:
+      action === "vault_remade" && typeof detail.entries === "number"
+        ? detail.entries
+        : undefined,
+    droppedComputers:
+      action === "vault_remade" && typeof detail.wraps === "number"
+        ? detail.wraps
         : undefined,
     seats:
       action === "seats_changed" && typeof detail.quantity === "number"

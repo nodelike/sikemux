@@ -1051,6 +1051,8 @@ function auditLine(entry: OrgAuditEntry, org: Org): string {
       return `${by} saved ${entryWords(entry.entryKind)} in the vault`;
     case "vault_entry_removed":
       return `${by} removed ${entryWords(entry.entryKind)} from the vault`;
+    case "vault_remade":
+      return `${by}'s computer made the vault again after no computer could open it, and dropped ${entry.droppedEntries ?? 0} ${entry.droppedEntries === 1 ? "entry" : "entries"} and ${entry.droppedComputers ?? 0} ${entry.droppedComputers === 1 ? "computer's key" : "computers' keys"}`;
   }
 }
 
