@@ -119,8 +119,18 @@ What still rests on the server:
   moves them on, and so does signing a host out and in, which takes the backup's state.
 - **A wrap waits on its sealer.** A wrap whose sealer has left the org lists no holder that hosts
   trust, so its host cannot open it until the rotation that leaving asks for. If no host holds
-  the key any more, the vault is lost: there is no recovery key, and making an org's vault
-  again is not built, since the server refuses a second vault and nothing deletes one.
+  the key any more, what it held is lost: there is no recovery key. An owner's or admin's host
+  can then make the vault again. In one step the server drops every entry and wrap, raises the
+  generation and keeps only the asker's wrap of the new key, writing how many it dropped to the
+  org's log. The core refuses while a computer that would seal the key for it, its own account's
+  or an owner's or admin's, is online, and names that computer. The server alone gains nothing
+  from a remake it could not already do by emptying the vault: hosts still take a key only from
+  a listed holder.
+- **A host that cannot open the current generation holds nothing.** It lets go of the key and
+  every entry, mid-rotation too, until a holder seals the new key for it, keeping only the
+  floors that refuse older generations and revisions. It never writes back what it held: of a
+  shared project's rules and knowledge, its own person's go back to the project's store here,
+  the rest is forgotten, and none of it enters the new vault without that person's tap.
 
 ## Consequences
 
