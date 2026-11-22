@@ -85,7 +85,7 @@ impl Workbench {
             let (handle, place) = (cx.entity().downgrade(), place.clone());
             self.notify(
                 toast::undoable(
-                    t!("Snoozed until {time}", time = when(until)),
+                    t!("Snoozed until {time}", time = crate::ui::time::clock(until)),
                     move |_, cx| snooze(&handle, &place, agent_ids.clone(), None, cx),
                 ),
                 cx,
@@ -107,7 +107,7 @@ pub fn wake_label(until: u64, cx: &App) -> AnyElement {
         _ => Local
             .timestamp_millis_opt(until as i64)
             .single()
-            .map(|at| at.format("%a").to_string())
+            .map(crate::ui::time::weekday)
             .unwrap_or_default(),
     };
     let ink = Tokens::get(cx).text_tertiary;
@@ -120,17 +120,6 @@ pub fn wake_label(until: u64, cx: &App) -> AnyElement {
         .child(crate::ui::icon(Icon::Clock, 11.).text_color(ink))
         .child(crate::ui::meta(words, cx))
         .into_any_element()
-}
-
-/// `at` as the menu and toasts say it: the time today, else its weekday and time.
-fn when(at: u64) -> String {
-    let Some(at) = Local.timestamp_millis_opt(at as i64).single() else {
-        return String::new();
-    };
-    match at.date_naive() == Local::now().date_naive() {
-        true => at.format("%-I:%M %p").to_string(),
-        false => at.format("%a %-I:%M %p").to_string(),
-    }
 }
 
 /// Snooze and Settle in an agent's menu, or Wake and Restore once it is out of the main list,
@@ -164,7 +153,11 @@ pub fn menu_items(
             crate::ui::menu(move |menu, _, _| {
                 let menu = settling::presets().into_iter().fold(menu, |menu, preset| {
                     let (bench, id, place) = (bench.clone(), id.clone(), place.clone());
-                    let label = format!("{}  ·  {}", preset.label, when(preset.until));
+                    let label = format!(
+                        "{}  ·  {}",
+                        preset.label,
+                        crate::ui::time::clock(preset.until)
+                    );
                     menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
                         snooze(&bench, &place, id.clone(), Some(preset.until), cx)
                     }))
