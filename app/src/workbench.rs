@@ -110,6 +110,8 @@ pub struct Workbench {
     /// The project or host in front, and the one in front before it.
     pub place: Option<Strip>,
     pub last_place: Option<Strip>,
+    /// The host and project last noted in front, so its copy is remembered once per move.
+    pub(crate) front_copy_noted: Option<(crate::hosts::Place, String)>,
     pub(crate) visits: crate::visits::Visits,
     /// The person's ask opened from its card, while it is open.
     pub(crate) opened_task: Option<crate::opened_task::OpenedTask>,
@@ -375,6 +377,7 @@ impl Workbench {
             chat_drag: None,
             place: None,
             last_place: None,
+            front_copy_noted: None,
             visits: Default::default(),
             opened_task: None,
             task_sheet: None,

@@ -2,6 +2,7 @@
 //! is in front, and how the person moves to another copy or makes one on a host without.
 
 use crate::ui::Clicks;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use gpui_kit::component::menu::PopupMenu;
@@ -25,6 +26,40 @@ use crate::icons::Icon;
 use crate::theme::{radius_1, Tokens, SPACE_1H, TEXT_2XS};
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// The copy a project's row goes to: the one in front, else the one last in front, else the
+/// first in reach; one on a host out of reach only when no copy is in reach.
+fn pick_copy<'a>(
+    folded: &'a Folded,
+    in_front: Option<&'a HostCopy>,
+    chosen: Option<&String>,
+) -> Option<&'a HostCopy> {
+    let reached = |copy: &&HostCopy| !copy.away;
+    in_front
+        .or_else(|| {
+            let chosen = chosen?;
+            (folded.copies.iter())
+                .filter(reached)
+                .find(|copy| copy.front_key() == *chosen)
+        })
+        .or_else(|| folded.copies.iter().find(reached))
+        .or_else(|| folded.copies.first())
+}
+
+/// The copies last in front with `copy` as the one of `identity`, when that changes them.
+fn noted(
+    fronts: &BTreeMap<String, String>,
+    identity: &str,
+    copy: &HostCopy,
+) -> Option<BTreeMap<String, String>> {
+    let key = copy.front_key();
+    if fronts.get(identity) == Some(&key) {
+        return None;
+    }
+    let mut fronts = fronts.clone();
+    fronts.insert(identity.to_owned(), key);
+    Some(fronts)
+}
 
 /// One host's copy of a project.
 #[derive(Clone, PartialEq)]
@@ -187,22 +222,11 @@ impl Workbench {
         (folded.copies.iter()).find(|copy| copy.place == place && copy.project == project.id)
     }
 
-    /// The copy of `folded` the person works on: the one in front, else the one they last
-    /// chose, else this host's, else the first; one on a host out of reach only when no copy
-    /// is in reach.
+    /// The copy of `folded` the person works on, as [`pick_copy`] picks it.
     pub fn front_copy<'a>(&self, folded: &'a Folded) -> Option<&'a HostCopy> {
         let chosen = (folded.identity.as_ref())
             .and_then(|identity| self.preferences().front_copies.get(identity));
-        let reached = |copy: &&HostCopy| !copy.away;
-        self.copy_in_front(folded)
-            .or_else(|| {
-                let chosen = chosen?;
-                (folded.copies.iter())
-                    .filter(reached)
-                    .find(|copy| copy.front_key() == *chosen)
-            })
-            .or_else(|| folded.copies.iter().find(reached))
-            .or_else(|| folded.copies.first())
+        pick_copy(folded, self.copy_in_front(folded), chosen)
     }
 
     /// The project in front, as the rail lists it.
@@ -219,6 +243,25 @@ impl Workbench {
             },
         );
         self.remember_copy(identity, copy);
+    }
+
+    /// Remembers the copy in front as the one its project's row goes back to, however the
+    /// person got there: a chat's row, the host's row, the palette or Back.
+    pub(crate) fn note_front_copy(&mut self) {
+        let front = match self.strip() {
+            Some(crate::workbench::Strip::Project(project)) => Some((self.place(), project)),
+            _ => None,
+        };
+        if front.is_none() || self.front_copy_noted == front {
+            return;
+        }
+        let Some(folded) = self.folded_in_front() else {
+            return;
+        };
+        if let Some(copy) = self.copy_in_front(&folded) {
+            self.remember_copy(folded.identity.as_deref(), copy);
+        }
+        self.front_copy_noted = front;
     }
 
     /// Moves the new chat `agent` onto `copy`, on its host, and puts it in front there. The
@@ -261,13 +304,9 @@ impl Workbench {
         let Some(identity) = identity else {
             return;
         };
-        let key = copy.front_key();
-        let mut fronts = self.preferences().front_copies.clone();
-        if fronts.get(identity) == Some(&key) {
-            return;
+        if let Some(fronts) = noted(&self.preferences().front_copies, identity, copy) {
+            crate::settings::set(self, PreferenceChange::FrontCopies(fronts));
         }
-        fronts.insert(identity.to_owned(), key);
-        crate::settings::set(self, PreferenceChange::FrontCopies(fronts));
     }
 
     /// Opens the settings of `copy`'s project on its host.
@@ -688,4 +727,39 @@ pub fn where_held(folded: &Folded, cx: &App) -> Option<AnyElement> {
             .child(ui::text(label, TEXT_2XS, gpui_kit::FontWeight::MEDIUM))
             .into_any_element(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn copy(place: Place, host: &str) -> HostCopy {
+        HostCopy {
+            place,
+            project: "sikemux".into(),
+            host: host.to_owned().into(),
+            path: "/code/sikemux".into(),
+            git: None,
+            away: false,
+        }
+    }
+
+    #[test]
+    fn coming_back_to_a_project_goes_to_the_copy_last_in_front_not_the_last_clicked() {
+        let here = copy(Place::This, "This host");
+        let nexus = copy(Place::Account("nexus".into()), "nexus");
+        let sikemux = Folded {
+            name: "sikemux".into(),
+            identity: Some("github.com/nodelike/sikemux".into()),
+            own: None,
+            clones: Vec::new(),
+            copies: vec![here.clone(), nexus.clone()],
+        };
+        let identity = sikemux.identity.as_deref().unwrap();
+        let clicked_nexus = noted(&BTreeMap::new(), identity, &nexus).unwrap();
+        let chat_here_in_front = noted(&clicked_nexus, identity, &here).unwrap();
+        let back = pick_copy(&sikemux, None, chat_here_in_front.get(identity));
+        assert!(back == Some(&here));
+        assert!(noted(&chat_here_in_front, identity, &here).is_none());
+    }
 }
