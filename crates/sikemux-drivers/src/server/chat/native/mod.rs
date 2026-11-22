@@ -1,4 +1,5 @@
 pub mod acp;
+mod antigravity;
 pub mod claude;
 pub mod codex;
 mod commands;

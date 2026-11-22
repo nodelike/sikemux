@@ -27,6 +27,7 @@ use crate::server::chat::prompt::{command_parts, prompt_blocks};
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::super::Respond;
+use super::antigravity;
 use super::mcp_calls;
 use super::parts::inline_picture;
 use super::pending::{Answered, Purpose};
@@ -59,6 +60,11 @@ pub fn replay_saved(launch: &ChatLaunch, session: &str, sink: &Telling) -> Resul
         sink.update(session, update);
     }
     Ok(())
+}
+
+fn is_antigravity(launch: &ChatLaunch) -> bool {
+    crate::agent_catalog::AgentKind::from_name(&launch.provider)
+        == Some(crate::agent_catalog::AgentKind::Antigravity)
 }
 
 /// Whether the chat runs on its agent's own free models, which come and go, rather than on a
@@ -222,6 +228,7 @@ struct Driver {
     /// The agent's own name for its compaction command.
     compact: &'static str,
     free_models: bool,
+    antigravity: bool,
 }
 
 impl Driver {
@@ -330,6 +337,9 @@ impl Reads for Driver {
                     .unwrap_or_default();
                 if !crate::server::chat::prompt::drop_for_agent(&mut update) {
                     return;
+                }
+                if self.antigravity {
+                    antigravity::as_common_call(&mut update, &self.servers);
                 }
                 mcp_calls::as_mcp_call(&mut update, &self.servers);
                 offer_compact(&mut update, self.compact);
@@ -594,6 +604,7 @@ impl Backend for Acp {
             servers: server_names(launch),
             compact: compact_word(launch),
             free_models: on_free_models(launch),
+            antigravity: is_antigravity(launch),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
         let failed = |error: String| process.start_error(error);
@@ -825,6 +836,7 @@ impl Backend for Acp {
             servers: server_names(launch),
             compact: compact_word(launch),
             free_models: on_free_models(launch),
+            antigravity: is_antigravity(launch),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
         Ok(Self {
