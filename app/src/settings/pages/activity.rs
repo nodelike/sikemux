@@ -1,13 +1,17 @@
 //! What agents did across every project: the totals, the calendar, and the
 //! share each model, agent and project had, priced at API rates.
 
+use std::sync::Arc;
+
 use crate::ui::Clicks;
 use chrono::TimeZone;
+use gpui_kit::base::Popover;
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, relative, AnyElement, App, AppContext, Context, Entity, InteractiveElement,
-    IntoElement, ParentElement, SharedString, Styled, Window,
+    div, px, relative, Anchor, AnyElement, App, AppContext, ClipboardItem, Context, Entity, Image,
+    ImageFormat, InteractiveElement, IntoElement, ParentElement, SharedString, Styled, WeakEntity,
+    Window,
 };
 use serde_json::{json, Map, Value};
 use sikemux_calls::activity_log::ActivityModel;
@@ -18,6 +22,7 @@ use sikemux_calls::activity_log::ActivitySummaryParams;
 use sikemux_calls::activity_log::PriceOverride;
 use sikemux_calls::call;
 
+use super::week_card;
 use crate::activity_view::{self, Metric};
 use crate::core::{utc_offset_minutes, Target};
 use crate::icons::Icon;
@@ -30,6 +35,7 @@ use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS,
     TEXT_2XS_H, TEXT_SM,
 };
+use crate::toast;
 use crate::ui;
 use crate::ui::numbers::{compact, money, whole};
 use crate::ui::time::total;
@@ -44,10 +50,26 @@ pub(in crate::settings) const ENTRIES: &[Entry] = &[
     section(Usage, "By project", "repositories share breakdown"),
 ];
 
-/// The price being entered for a model, in USD per million tokens.
+/// How wide the float shows the card.
+const PREVIEW_WIDTH: f32 = 316.;
+
+/// The price being entered for a model, in USD per million tokens, and the week's card.
 pub struct Fields {
     model: Option<String>,
     prices: Vec<Entity<InputState>>,
+    week: Week,
+}
+
+/// The card of the last seven days, from the moment its float opens.
+#[derive(Clone)]
+enum Week {
+    Reading,
+    Empty,
+    Failed,
+    Drawn {
+        saved: Arc<Image>,
+        preview: Arc<Image>,
+    },
 }
 
 /// Each price the form asks for, and whether it may be left empty.
@@ -64,11 +86,13 @@ pub(super) fn make(bench: &mut Workbench, _: &mut Window, cx: &mut Context<Workb
         ActivitySummaryParams {
             utc_offset_minutes: i64::from(utc_offset_minutes()),
             project: None,
+            since_ms: None,
         },
     );
     let fields = Fields {
         model: None,
         prices: Vec::new(),
+        week: Week::Reading,
     };
     super::change_pages(bench, cx, |pages, _| pages.activity = Some(fields));
 }
@@ -563,6 +587,201 @@ fn pricing_note(summary: &ActivitySummary, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
+/// Asks the core for the last seven days, which the card is drawn from once they arrive.
+fn read_week(bench: &Workbench, cx: &mut App) {
+    let (since, _) = week_card::window();
+    Target::here(&bench.asks).answer::<call::ActivitySummary>(
+        Read::ActivityWeek,
+        ActivitySummaryParams {
+            utc_offset_minutes: i64::from(utc_offset_minutes()),
+            project: None,
+            since_ms: Some(since),
+        },
+    );
+    change_fields(bench, cx, |fields, cx| {
+        fields.week = Week::Reading;
+        cx.notify();
+    });
+}
+
+/// Draws the card from the week the core answered, away from the main thread.
+pub fn week_read(
+    bench: &mut Workbench,
+    summary: Option<ActivitySummary>,
+    cx: &mut Context<Workbench>,
+) {
+    let (_, range) = week_card::window();
+    let card = match summary {
+        None => Err(Week::Failed),
+        Some(summary) => week_card::Card::of(&summary, &range).ok_or(Week::Empty),
+    };
+    let card = match card {
+        Ok(card) => card,
+        Err(week) => {
+            change_fields(bench, cx, |fields, cx| {
+                fields.week = week;
+                cx.notify();
+            });
+            return;
+        }
+    };
+    let drawn = cx.background_spawn(async move {
+        let saved = week_card::draw(&card, week_card::SAVED_SCALE)?;
+        let preview = week_card::draw(&card, week_card::PREVIEW_SCALE)?;
+        Ok::<_, String>((saved, preview))
+    });
+    cx.spawn(async move |bench, cx| {
+        let week = match drawn.await {
+            Ok((saved, preview)) => Week::Drawn {
+                saved: Arc::new(Image::from_bytes(ImageFormat::Png, saved)),
+                preview: Arc::new(Image::from_bytes(ImageFormat::Png, preview)),
+            },
+            Err(error) => {
+                eprintln!("sikemux: the week's card could not be drawn: {error}");
+                Week::Failed
+            }
+        };
+        let _ = bench.update(cx, |bench, cx| {
+            change_fields(bench, cx, |fields, cx| {
+                fields.week = week;
+                cx.notify();
+            })
+        });
+    })
+    .detach();
+}
+
+/// "Share week" on the Overview's heading, opening the card with ways to keep it.
+fn share_week(fields: &Fields, this: &Entity<Workbench>) -> AnyElement {
+    let week = fields.week.clone();
+    let opened = this.downgrade();
+    let content_bench = this.downgrade();
+    Popover::new("usage-share-week")
+        .anchor(Anchor::TopRight)
+        .offset(SPACE_1H)
+        .trigger_with(|_, _, _| {
+            ui::Button::new("usage-share-week", t!("Share week"), ui::Variant::Outline)
+                .icon(Icon::Share)
+                .into_any_element()
+        })
+        .on_open_change(move |open, _, cx| {
+            if *open {
+                let _ = opened.update(cx, |bench, cx| read_week(bench, cx));
+            }
+        })
+        .content(move |_, _, cx| week_float(&week, content_bench, cx))
+        .into_any_element()
+}
+
+fn week_float(week: &Week, bench: WeakEntity<Workbench>, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    let frame = div()
+        .w(px(PREVIEW_WIDTH))
+        .h(px(PREVIEW_WIDTH * 9. / 16.))
+        .rounded(px(6.))
+        .border(theme::border())
+        .border_color(t.border)
+        .bg(gpui_kit::black())
+        .overflow_hidden();
+    let words = |text: &str| {
+        div()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(crate::theme::ui_text(TEXT_SM))
+            .text_color(t.text_tertiary)
+            .child(SharedString::from(text.to_owned()))
+    };
+    let (preview, kept) = match week {
+        Week::Drawn { saved, preview } => (
+            frame.child(gpui_kit::img(preview.clone()).size_full()),
+            Some(saved.clone()),
+        ),
+        Week::Reading => (frame.child(words(t!("Reading the week…"))), None),
+        Week::Empty => (frame.child(words(t!("Nothing recorded this week."))), None),
+        Week::Failed => (frame.child(words(t!("The week could not be read."))), None),
+    };
+    let (_, range) = week_card::window();
+    let save_bench = bench.clone();
+    let save_card = kept.clone();
+    let copy_card = kept.clone();
+    ui::float(cx)
+        .p(SPACE_3)
+        .flex()
+        .flex_col()
+        .gap(SPACE_3)
+        .child(preview)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .child(
+                    div()
+                        .flex_1()
+                        .text_size(crate::theme::ui_text(TEXT_SM))
+                        .text_color(t.text_secondary)
+                        .child(range),
+                )
+                .child(
+                    ui::Button::new("usage-week-save", t!("Save PNG"), ui::Variant::Outline)
+                        .icon(Icon::Download)
+                        .disabled(kept.is_none())
+                        .on_click(move |_, _, cx| {
+                            if let Some(card) = &save_card {
+                                save_week(save_bench.clone(), card.clone(), cx);
+                            }
+                        }),
+                )
+                .child(
+                    ui::Button::new("usage-week-copy", t!("Copy image"), ui::Variant::Primary)
+                        .icon(Icon::Copy)
+                        .disabled(kept.is_none())
+                        .on_click(move |_, _, cx| {
+                            if let Some(card) = &copy_card {
+                                cx.write_to_clipboard(ClipboardItem::new_image(card));
+                                toast::show(
+                                    &bench,
+                                    toast::success(t!("Copied the week's picture")),
+                                    cx,
+                                );
+                            }
+                        }),
+                ),
+        )
+        .into_any_element()
+}
+
+/// Asks where to keep the card, then writes it there.
+fn save_week(bench: WeakEntity<Workbench>, card: Arc<Image>, cx: &mut App) {
+    let (_, range) = week_card::window();
+    let name = format!(
+        "sikemux-week-{}.png",
+        range.replace(' ', "-").to_lowercase()
+    );
+    let folder = sikemux_process::paths::home()
+        .map(|home| home.join("Downloads"))
+        .unwrap_or_default();
+    let picked = cx.prompt_for_new_path(&folder, Some(&name));
+    cx.spawn(async move |cx| {
+        let Ok(Ok(Some(path))) = picked.await else {
+            return;
+        };
+        let note = match std::fs::write(&path, card.bytes()) {
+            Ok(()) => toast::success(t!(
+                "Saved the week's picture as {name}",
+                name = path.file_name().unwrap_or_default().to_string_lossy()
+            )),
+            Err(error) => {
+                toast::error(t!("The picture could not be saved: {error}", error = error))
+            }
+        };
+        cx.update(|cx| toast::show(&bench, note, cx));
+    })
+    .detach();
+}
+
 pub fn render(
     bench: &Workbench,
     pages: &super::State,
@@ -614,9 +833,10 @@ pub fn render(
         }))
         .children(summary.map(|summary| pricing_note(summary, cx)));
     vec![
-        rows::section(
+        rows::section_with(
             n!("Overview"),
             since,
+            Some(share_week(fields, this)),
             Some(t!("Counted from agents run and commits made inside Sikemux. Work done elsewhere is never read.").into()),
             lit("Overview"),
             overview,

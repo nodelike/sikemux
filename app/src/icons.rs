@@ -23,6 +23,10 @@ macro_rules! icons {
                 match self { $(Icon::$icon => concat!("icons/", $file, ".svg")),* }
             }
 
+            pub fn svg(self) -> &'static [u8] {
+                match self { $(Icon::$icon => include_bytes!(concat!("../assets/icons/", $file, ".svg"))),* }
+            }
+
             /// Whether it has colours of its own, rather than drawing in the text's.
             pub fn is_picture(self) -> bool {
                 match self { $(Icon::$icon => const { !tints(include_bytes!(concat!("../assets/icons/", $file, ".svg"))) }),* }

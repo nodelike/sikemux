@@ -3,6 +3,7 @@
 use gpui_kit::component::input::InputEvent;
 use gpui_kit::{AnyElement, App, Context, Entity, EventEmitter, Subscription, Window};
 
+pub use activity::week_read;
 pub use appearance::folded;
 
 use super::{Open, Page, Settings};
@@ -24,6 +25,7 @@ pub(super) mod outside;
 pub(super) mod settled;
 pub mod theme_editor;
 mod vault;
+mod week_card;
 
 /// What the pages keep while settings are open: what the core last answered
 /// for them, and the fields being typed in.

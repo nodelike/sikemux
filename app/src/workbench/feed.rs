@@ -417,6 +417,7 @@ impl Workbench {
             ActivitySummaryParams {
                 utc_offset_minutes: i64::from(utc_offset_minutes()),
                 project: path.clone(),
+                since_ms: None,
             },
         );
         target.watch_plain(Read::Mods);

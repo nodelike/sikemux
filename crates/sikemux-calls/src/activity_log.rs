@@ -131,6 +131,8 @@ pub struct ActivitySummaryParams {
     /// Minutes the person's clock is ahead of UTC, which places each event on their own day.
     pub utc_offset_minutes: i64,
     pub project: Option<String>,
+    /// Counts only what happened from this moment on, in ms since the Unix epoch.
+    pub since_ms: Option<i64>,
 }
 
 #[derive(Deserialize, Serialize)]
