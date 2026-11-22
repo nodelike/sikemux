@@ -249,11 +249,20 @@ export async function putEntry(
       .executeTakeFirst();
     if (existing && existing.user_id !== userId)
       throw conflict("That entry id is taken.");
-    if ((existing?.revision ?? 0) !== revision)
+    const ended = existing
+      ? undefined
+      : await trx
+          .selectFrom("vault_ended")
+          .select("revision")
+          .where("user_id", "=", userId)
+          .where("id", "=", id)
+          .executeTakeFirst();
+    const floor = ended?.revision ?? 0;
+    if ((existing?.revision ?? floor) !== revision)
       throw conflict(
         existing
           ? `The entry is at revision ${existing.revision}, not ${revision}.`
-          : "The vault has no such entry; add it at revision 0.",
+          : `The vault has no such entry; add it at revision ${floor}.`,
       );
     let row;
     if (existing) {
@@ -286,11 +295,17 @@ export async function putEntry(
           plugin,
           generation,
           sealed,
-          revision: 1,
+          revision: revision + 1,
           updated_by: hostKey,
         })
         .returning(ENTRY_COLUMNS)
         .executeTakeFirstOrThrow();
+      if (ended)
+        await trx
+          .deleteFrom("vault_ended")
+          .where("user_id", "=", userId)
+          .where("id", "=", id)
+          .execute();
     }
     await appendEvent(trx, { userId, type: "vault.changed" });
     await audit(trx, {
@@ -331,6 +346,15 @@ export async function removeEntry(
         `The entry is at revision ${existing.revision}, not ${revision}.`,
       );
     }
+    await trx
+      .insertInto("vault_ended")
+      .values({ user_id: userId, id, revision })
+      .onConflict((oc) =>
+        oc.columns(["user_id", "id"]).doUpdateSet({
+          revision: (eb) => eb.ref("excluded.revision"),
+        }),
+      )
+      .execute();
     await appendEvent(trx, { userId, type: "vault.changed" });
     await audit(trx, {
       userId,

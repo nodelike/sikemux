@@ -4089,6 +4089,12 @@ export const schema = {
           type: "boolean",
         },
         entries: { type: "array", items: { $ref: "#/$defs/VaultEntry" } },
+        ended: {
+          description:
+            "Entries removed from the vault, each at its last revision. A host holds a removed entry to it, and an entry added under one of these ids starts above it.",
+          type: "array",
+          items: { $ref: "#/$defs/VaultEnded" },
+        },
       },
       required: [
         "generation",
@@ -4099,6 +4105,7 @@ export const schema = {
         "waiting",
         "rotate",
         "entries",
+        "ended",
       ],
       additionalProperties: false,
     },
@@ -4115,6 +4122,17 @@ export const schema = {
         },
       },
       required: ["recoveryKey", "recoveryWrap", "key"],
+      additionalProperties: false,
+    },
+    VaultEnded: {
+      description:
+        "An entry removed from the account's vault, at the last revision it had.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/VaultEntryId" },
+        revision: { $ref: "#/$defs/VaultRevision" },
+      },
+      required: ["id", "revision"],
       additionalProperties: false,
     },
     VaultEntry: {

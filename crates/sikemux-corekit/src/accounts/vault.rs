@@ -153,6 +153,8 @@ pub struct Vault {
     /// A host left the account, so a holder should replace the vault key.
     pub rotate: bool,
     pub entries: Vec<VaultEntry>,
+    /// Entries removed from the vault, each at its last revision. A host holds a removed entry to it, and an entry added under one of these ids starts above it.
+    pub ended: Vec<VaultEnded>,
 }
 
 /// A host makes the account's vault, holding its key at generation 1.
@@ -163,6 +165,14 @@ pub struct VaultCreate {
     pub recovery_wrap: VaultSealed,
     /// The vault key sealed for the asking host.
     pub key: VaultSealed,
+}
+
+/// An entry removed from the account's vault, at the last revision it had.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultEnded {
+    pub id: VaultEntryId,
+    pub revision: VaultRevision,
 }
 
 /// One sign-in in the vault, sealed under the vault key of its generation.
@@ -318,6 +328,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "RecoveryKey" => through::<RecoveryKey>(json),
         "Vault" => through::<Vault>(json),
         "VaultCreate" => through::<VaultCreate>(json),
+        "VaultEnded" => through::<VaultEnded>(json),
         "VaultEntry" => through::<VaultEntry>(json),
         "VaultEntryId" => through::<VaultEntryId>(json),
         "VaultEntryPut" => through::<VaultEntryPut>(json),

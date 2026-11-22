@@ -2269,6 +2269,8 @@ export interface Vault {
   /** A host left the account, so a holder should replace the vault key. */
   rotate: boolean;
   entries: VaultEntry[];
+  /** Entries removed from the vault, each at its last revision. A host holds a removed entry to it, and an entry added under one of these ids starts above it. */
+  ended: VaultEnded[];
 }
 
 /** A host makes the account's vault, holding its key at generation 1. */
@@ -2277,6 +2279,12 @@ export interface VaultCreate {
   recoveryWrap: VaultSealed;
   /** The vault key sealed for the asking host. */
   key: VaultSealed;
+}
+
+/** An entry removed from the account's vault, at the last revision it had. */
+export interface VaultEnded {
+  id: VaultEntryId;
+  revision: VaultRevision;
 }
 
 /** One sign-in in the vault, sealed under the vault key of its generation. */
@@ -2718,6 +2726,7 @@ export interface Definitions {
   SubscriptionStatus: SubscriptionStatus;
   Vault: Vault;
   VaultCreate: VaultCreate;
+  VaultEnded: VaultEnded;
   VaultEntry: VaultEntry;
   VaultEntryId: VaultEntryId;
   VaultEntryPut: VaultEntryPut;

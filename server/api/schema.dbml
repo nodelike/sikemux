@@ -815,6 +815,16 @@ Table invoice_refunds {
   }
 }
 
+Table vault_ended {
+  user_id text [not null]
+  id text [not null, note: 'id ~ \'^[0-9a-f]{32}$\'']
+  revision integer [not null, note: 'revision >= 1']
+
+  indexes {
+    (user_id, id) [pk]
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -869,3 +879,4 @@ Ref: work_address_sittings.user_id > users.id [delete: cascade]
 Ref: addresses_seen.user_id > users.id [delete: cascade]
 Ref: ended_sessions.user_id > users.id [delete: cascade]
 Ref: invoice_refunds.invoice_id > invoices.id [delete: cascade]
+Ref: vault_ended.user_id > vaults.user_id [delete: cascade]

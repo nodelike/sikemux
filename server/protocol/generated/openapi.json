@@ -10252,6 +10252,11 @@
           "entries": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/VaultEntry" }
+          },
+          "ended": {
+            "description": "Entries removed from the vault, each at its last revision. A host holds a removed entry to it, and an entry added under one of these ids starts above it.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VaultEnded" }
           }
         },
         "required": [
@@ -10262,7 +10267,8 @@
           "holders",
           "waiting",
           "rotate",
-          "entries"
+          "entries",
+          "ended"
         ],
         "additionalProperties": false
       },
@@ -10278,6 +10284,16 @@
           }
         },
         "required": ["recoveryKey", "recoveryWrap", "key"],
+        "additionalProperties": false
+      },
+      "VaultEnded": {
+        "description": "An entry removed from the account's vault, at the last revision it had.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/VaultEntryId" },
+          "revision": { "$ref": "#/components/schemas/VaultRevision" }
+        },
+        "required": ["id", "revision"],
         "additionalProperties": false
       },
       "VaultEntry": {

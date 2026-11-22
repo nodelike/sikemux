@@ -47,7 +47,7 @@ export async function vaultState(
     .where("user_id", "=", userId)
     .executeTakeFirst();
   if (!vault) return { vault: null };
-  const [keys, hosts, entries] = await Promise.all([
+  const [keys, hosts, entries, ended] = await Promise.all([
     db
       .selectFrom("vault_keys")
       .select(["host_key", "wrapped"])
@@ -71,6 +71,12 @@ export async function vaultState(
       .orderBy("created_at")
       .orderBy("id")
       .execute(),
+    db
+      .selectFrom("vault_ended")
+      .select(["id", "revision"])
+      .where("user_id", "=", userId)
+      .orderBy("id")
+      .execute(),
   ]);
   const holders = new Set(keys.map((key) => key.host_key));
   const state: Vault = {
@@ -82,6 +88,7 @@ export async function vaultState(
     waiting: hosts.map((host) => host.key).filter((key) => !holders.has(key)),
     rotate: vault.rotate,
     entries: entries.map(toEntry),
+    ended,
   };
   return { vault: state };
 }
