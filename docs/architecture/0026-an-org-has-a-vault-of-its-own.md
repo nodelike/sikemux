@@ -90,11 +90,12 @@ keeps only sealed entries and wrapped keys. Against a server that lies in what i
   saw go, whether the server listed it as removed or a full read left it out, it keeps a mark at
   least one revision above the last it held, or the server's own if higher, and refuses the entry
   at or below it, dropping a held copy that is not above the mark. It does not replace the key
-  while the server lists an entry it refuses. The server can still keep a removal from a host, and
-  then hand it a write the removal made it refuse, as a later revision of the entry. A host that
-  neither held an entry nor was told it went has no mark for it, so the server can list it again.
-  A host replacing the key seals again what the server lists, so an entry taken back this way
-  crosses into the new generation as a valid entry of it.
+  while the server lists an entry it refuses. The server can still keep a removal from a host, or
+  understate its revision to a host that missed writes before it, and then hand it a write the
+  removal made it refuse, as a later revision of the entry. A host that neither held an entry nor
+  was told it went has no mark for it, so the server can list it again. A host replacing the key
+  seals again what the server lists, so an entry taken back this way crosses into the new
+  generation as a valid entry of it.
 - **A failed answer at the generation a host holds does not erase its copy.** A missing or
   untrusted wrap at that generation, or the server saying the vault does not exist while the host
   holds its key, leaves the copy as it is and shows the failure. A host lets go only when the
