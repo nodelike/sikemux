@@ -9,4 +9,6 @@ core handOff {"agentId":"$chat","provider":"claude","model":"claude-opus-5-5"}
 settle 4
 say "Carry on from there"
 settle 12
+front Ada
+settle 2
 snap context-handoff
