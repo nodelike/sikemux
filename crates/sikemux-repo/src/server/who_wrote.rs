@@ -525,23 +525,57 @@ fn ranges(lines: &[(u64, u64)]) -> String {
         .join(", ")
 }
 
-/// The checkout a target that is an absolute path lies in, which may not be
-/// the project's own, or that a path holds from a folder of repositories, else
-/// the project.
-fn checkout_dir(project: &Path, target: &str) -> Result<PathBuf, String> {
+/// Where `target` is read: the folder its relative path starts from, and the
+/// checkout that holds it. A path is read in the checkout it lies in; a commit,
+/// ref or run in the caller's own checkout `own`.
+fn checkout_of(project: &Path, own: &Path, target: &str) -> Result<(PathBuf, PathBuf), String> {
+    let top = |dir: &Path| {
+        git(dir, &["rev-parse", "--show-toplevel"])
+            .ok()
+            .map(|top| PathBuf::from(top.trim()))
+    };
     let path = target.split(char::is_whitespace).next().unwrap_or(target);
     let path = path
         .rsplit_once(':')
         .filter(|(_, spec)| line_range(spec).is_some())
         .map_or(path, |(path, _)| path);
     let path = Path::new(path);
-    if !path.is_absolute() {
-        return Ok(repo_below(project, path)?.unwrap_or_else(|| project.to_owned()));
+    if path.is_absolute() {
+        let folder = (path.ancestors())
+            .find(|folder| folder.is_dir())
+            .unwrap_or(project);
+        if let Some(top) = top(folder) {
+            return Ok((folder.to_owned(), top));
+        }
+    } else {
+        for base in [own, project] {
+            let full = base.join(path);
+            if full.symlink_metadata().is_err() {
+                continue;
+            }
+            let folder = full
+                .ancestors()
+                .find(|folder| folder.is_dir())
+                .unwrap_or(base);
+            if let Some(top) = top(folder) {
+                return Ok((base.to_owned(), top));
+            }
+        }
+        if let Some(repo) = repo_below(project, path)? {
+            if let Some(top) = top(&repo) {
+                return Ok((repo, top));
+            }
+        }
     }
-    Ok(path
-        .ancestors()
-        .find(|folder| folder.is_dir())
-        .map_or_else(|| project.to_owned(), Path::to_owned))
+    [own, project]
+        .into_iter()
+        .find_map(|dir| Some((dir.to_owned(), top(dir)?)))
+        .ok_or_else(|| {
+            format!(
+                "{} is not a git checkout; name a file inside one of the checkouts it holds",
+                project.display()
+            )
+        })
 }
 
 /// The agents the edit record has uncommitted lines of in `path`, among
@@ -701,8 +735,7 @@ pub fn behind(
     target: &str,
     most: usize,
 ) -> Result<Vec<Behind>, String> {
-    let dir = checkout_dir(project, target)?;
-    let top = PathBuf::from(git(&dir, &["rev-parse", "--show-toplevel"])?.trim());
+    let (dir, top) = checkout_of(project, project, target)?;
     let found = resolve(&dir, &top, target)?;
     let hashes: Vec<&str> = (found.commits.iter())
         .map(|(hash, _)| hash.as_str())
@@ -755,10 +788,12 @@ pub async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
         .ok_or("target must be a CI run, a commit, a file, file:line, file:start-end, or a test")?
         .to_owned();
     let project = PathBuf::from(&request.project);
+    let own = (request.agent_id.as_deref())
+        .and_then(|agent_id| core.workspaces().agent(agent_id))
+        .map_or_else(|| project.clone(), |agent| agent.cwd);
     let core_for_owners = core.clone();
     let (top, origin, asked, uncommitted) = blocking(move || {
-        let dir = checkout_dir(&project, &target)?;
-        let top = PathBuf::from(git(&dir, &["rev-parse", "--show-toplevel"])?.trim());
+        let (dir, top) = checkout_of(&project, &own, &target)?;
         let origin = git(&top, &["remote", "get-url", "origin"])
             .ok()
             .map(|url| url.trim().to_owned());
@@ -959,4 +994,54 @@ pub async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
         ci.describe(&mut answer);
     }
     Ok(answer)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn repo_with_file(root: &Path, name: &str) -> (PathBuf, String) {
+        let repo = root.join(name);
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::write(repo.join("src/main.txt"), name).unwrap();
+        let git = |args: &[&str]| {
+            let mut all = vec![
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ];
+            all.extend(args);
+            git(&repo, &all).unwrap()
+        };
+        git(&["init", "-q"]);
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "first"]);
+        let hash = git(&["rev-parse", "HEAD"]).trim().to_owned();
+        (sikemux_process::files::real_path(repo).unwrap(), hash)
+    }
+
+    /// who_wrote in a project whose root holds several checkouts but is not one
+    /// ran git at the root and failed with "not a git repository".
+    #[test]
+    fn a_root_of_checkouts_reads_each_target_in_its_own_checkout() {
+        let root = tempfile::tempdir().unwrap();
+        let root = sikemux_process::files::real_path(root.path()).unwrap();
+        let (web, _) = repo_with_file(&root, "web");
+        let (service, commit) = repo_with_file(&root, "service");
+
+        let (dir, top) = checkout_of(&root, &root, "web/src/main.txt:1").unwrap();
+        assert_eq!(top, web);
+        let found = resolve(&dir, &top, "web/src/main.txt:1").unwrap();
+        assert_eq!(found.path.as_deref(), Some("src/main.txt"));
+
+        let absolute = service.join("src/main.txt").to_string_lossy().into_owned();
+        assert_eq!(checkout_of(&root, &root, &absolute).unwrap().1, service);
+
+        let (dir, top) = checkout_of(&root, &service, &commit).unwrap();
+        assert_eq!(top, service);
+        assert_eq!(resolve(&dir, &top, &commit).unwrap().kind, "commit");
+    }
 }
