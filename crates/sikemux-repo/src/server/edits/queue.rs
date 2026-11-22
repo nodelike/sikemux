@@ -879,15 +879,18 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
                 false,
             );
         } else {
+            let said = (pushed.iter().filter_map(|pushed| pushed.note.as_deref()))
+                .map(|note| format!(" {note}"))
+                .collect::<String>();
             let on = format!(
-                "{} is on {} and origin/{} as {}",
+                "{} is on {} and origin/{} as {}.{said}",
                 waiting.short(),
                 key.1,
                 key.1,
                 shorts(commits)
             );
-            tell(core, &waiting.agent, format!("Your land of {on}.{stays}"));
-            tell_lead(core, &waiting.agent, format!("Its land of {on}."), true);
+            tell(core, &waiting.agent, format!("Your land of {on}{stays}"));
+            tell_lead(core, &waiting.agent, format!("Its land of {on}"), true);
         }
     }
 }

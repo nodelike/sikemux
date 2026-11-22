@@ -44,7 +44,7 @@ pub struct Pushed {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub waiting: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    note: Option<String>,
+    pub note: Option<String>,
     /// The end of what the push printed: the repository's pre-push hook, and the remote.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
@@ -414,15 +414,17 @@ fn push_once(
     }
     let unpushed = unpushed(top, fork.as_deref(), base.as_deref(), &head, whose, judge)?;
     if !unpushed.iter().any(|commit| commit.mine) {
+        let rebased = at == head || rebase_branch(signing, top, branch, &at, &head, true, LANDED)?;
         return Ok(Pushed {
             remote: remote.to_owned(),
             branch: branch.to_owned(),
             pushed: Vec::new(),
             kept: kept(&unpushed),
             waiting: Vec::new(),
-            note: Some(match unpushed.is_empty() {
-                true => "Every commit here is on the remote already.".to_owned(),
-                false => "Nothing of yours waits to be pushed here. The rest go out with their makers' pushes, or with git_commit push from the project's own checkout, which pushes all it holds.".to_owned(),
+            note: Some(match (rebased, unpushed.is_empty()) {
+                (false, _) => not_landed_here(remote, branch),
+                (true, true) => "Every commit here is on the remote already.".to_owned(),
+                (true, false) => "Nothing of yours waits to be pushed here. The rest go out with their makers' pushes, or with git_commit push from the project's own checkout, which pushes all it holds.".to_owned(),
             }),
             held: Vec::new(),
             sent_back: Vec::new(),
