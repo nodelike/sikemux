@@ -79,6 +79,9 @@ struct Held {
     entries: BTreeMap<String, Opened>,
     /// The last revision of each entry the vault removed, which a new entry under its id passes.
     ended: BTreeMap<String, i64>,
+    /// When the vault these entries came from was last made again, as the accounts server said.
+    /// An entry read before a different one began anew, under the same id.
+    made: Option<String>,
 }
 
 impl Held {
@@ -99,6 +102,7 @@ impl Held {
             key: None,
             entries: BTreeMap::new(),
             ended,
+            made: self.made,
         }
     }
 
@@ -134,6 +138,8 @@ struct KeptKey {
     key: Option<Key>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     ended: BTreeMap<String, i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    made: Option<String>,
 }
 
 impl Copy {
@@ -149,6 +155,7 @@ impl Copy {
                             Some(_) => BTreeMap::new(),
                             None => held.ended.clone(),
                         },
+                        made: held.made.clone(),
                     };
                     (id.clone(), kept)
                 })
@@ -174,6 +181,7 @@ fn read_entries(data_dir: Option<&Path>, account: &str, org: &str, kept: &KeptKe
             key: None,
             entries: BTreeMap::new(),
             ended: kept.ended.clone(),
+            made: kept.made.clone(),
         };
     };
     let (entries, ended) = data_dir
@@ -189,6 +197,7 @@ fn read_entries(data_dir: Option<&Path>, account: &str, org: &str, kept: &KeptKe
         key: Some(key),
         entries,
         ended,
+        made: kept.made.clone(),
     }
 }
 
@@ -614,7 +623,10 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
             core,
             &org.id,
             Org {
-                held: next,
+                held: Held {
+                    made: remade_at.clone(),
+                    ..next
+                },
                 status: OrgVaultStatus::Open,
                 holders: vault.holders.len(),
                 failed: None,
@@ -681,6 +693,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 key: Some(key),
                 entries,
                 ended,
+                made: remade_at.clone(),
             },
             status: OrgVaultStatus::Open,
             holders: vault.holders.len(),
@@ -882,6 +895,7 @@ async fn rotate(
         key: Some(next),
         entries: opened,
         ended: held.ended,
+        made: held.made,
     })
 }
 
@@ -937,6 +951,7 @@ async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
                     key: Some(key),
                     entries: BTreeMap::new(),
                     ended: BTreeMap::new(),
+                    made: None,
                 },
                 status: OrgVaultStatus::Open,
                 holders: 1,
@@ -1102,7 +1117,10 @@ pub async fn remake(core: &Arc<Core>, params: OrgParams) -> CoreResult<()> {
         .ok_or_else(|| CoreError::from("the org's key could not be wrapped"))?,
     };
     let path = format!("{}/remake", vault_path(&org.id));
-    host_request(core, Method::POST, &path, Some(json!(remake))).await?;
+    let answer = host_request(core, Method::POST, &path, Some(json!(remake))).await?;
+    let made = (answer.json::<OrgVaultState>().await.ok())
+        .and_then(|state| state.vault)
+        .and_then(|vault| vault.remade_at);
     set(
         core,
         &org.id,
@@ -1112,6 +1130,7 @@ pub async fn remake(core: &Arc<Core>, params: OrgParams) -> CoreResult<()> {
                 key: Some(key),
                 entries: BTreeMap::new(),
                 ended: held.held.ended,
+                made,
             },
             status: OrgVaultStatus::Open,
             holders: 1,
@@ -1217,15 +1236,26 @@ pub struct Read {
     pub body: Value,
 }
 
-/// Entry `id` of `org`'s vault: None while this host holds no key to it, Some(None) when the
-/// vault has no such entry.
-pub fn read(core: &Core, org: &str, id: &str) -> Option<Option<Read>> {
+/// What this host holds of one id in an org's vault.
+pub struct Reading {
+    /// When the vault was last made again, as the accounts server said; an entry read under
+    /// another of these came from a vault that is gone.
+    pub made: Option<String>,
+    /// None when the vault has no such entry.
+    pub entry: Option<Read>,
+}
+
+/// Entry `id` of `org`'s vault: None while this host holds no key to it.
+pub fn read(core: &Core, org: &str, id: &str) -> Option<Reading> {
     let state = core.vault().orgs().state.locked();
     let org = state.orgs.get(org).filter(|org| org.held.key.is_some())?;
-    Some(org.held.entries.get(id).map(|entry| Read {
-        revision: entry.revision,
-        body: entry.body.clone(),
-    }))
+    Some(Reading {
+        made: org.held.made.clone(),
+        entry: org.held.entries.get(id).map(|entry| Read {
+            revision: entry.revision,
+            body: entry.body.clone(),
+        }),
+    })
 }
 
 /// Whether this host holds the key to `org`'s vault, so the org's entries can be read and

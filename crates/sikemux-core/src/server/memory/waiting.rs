@@ -177,7 +177,7 @@ fn read<T: serde::de::DeserializeOwned + Default>(
     shared: &Shared,
     id: &str,
 ) -> Option<(i64, T)> {
-    match vault::read(core, &shared.org, id)? {
+    match vault::read(core, &shared.org, id)?.entry {
         Some(read) => match serde_json::from_value(read.body) {
             Ok(body) => Some((read.revision, body)),
             Err(error) => {
