@@ -4091,7 +4091,7 @@ export const schema = {
         entries: { type: "array", items: { $ref: "#/$defs/VaultEntry" } },
         ended: {
           description:
-            "Entries removed from the vault, each at its last revision. A removed entry's id never comes back: the server refuses a write to it and a host takes no entry under it.",
+            "Entries removed from the vault, each at its last revision. A removed entry's id never comes back: the server refuses a write to it and a host takes no entry under it. Absent means none.",
           type: "array",
           items: { $ref: "#/$defs/VaultEnded" },
         },
@@ -4105,7 +4105,6 @@ export const schema = {
         "waiting",
         "rotate",
         "entries",
-        "ended",
       ],
       additionalProperties: false,
     },

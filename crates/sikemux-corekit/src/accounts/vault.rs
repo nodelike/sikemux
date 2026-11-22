@@ -153,8 +153,9 @@ pub struct Vault {
     /// A host left the account, so a holder should replace the vault key.
     pub rotate: bool,
     pub entries: Vec<VaultEntry>,
-    /// Entries removed from the vault, each at its last revision. A removed entry's id never comes back: the server refuses a write to it and a host takes no entry under it.
-    pub ended: Vec<VaultEnded>,
+    /// Entries removed from the vault, each at its last revision. A removed entry's id never comes back: the server refuses a write to it and a host takes no entry under it. Absent means none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ended: Option<Vec<VaultEnded>>,
 }
 
 /// A host makes the account's vault, holding its key at generation 1.
