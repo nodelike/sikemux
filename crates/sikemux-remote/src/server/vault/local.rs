@@ -9,6 +9,8 @@ use sha2::{Digest, Sha256};
 use sikemux_plugin_api::vault::SignIn;
 use sikemux_process::sync::Locked;
 
+use super::floor::Floor;
+
 const RECOVERY_SERVICE: &str = if cfg!(debug_assertions) {
     "sikemux-vault-recovery-dev"
 } else {
@@ -30,6 +32,8 @@ pub struct Local {
     /// has not reached the account since it started still knows.
     pub host: String,
     pub rules: BTreeMap<String, Rule>,
+    #[serde(default)]
+    pub floor: Floor,
 }
 
 /// What an entry holds and who refreshes it, without its secrets.

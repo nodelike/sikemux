@@ -176,6 +176,7 @@ async fn open(
         }
     };
     check_recovery_key(core, account, &vault.recovery_key).await?;
+    check_floor(core, account, &vault).await?;
     let listed: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
     let context = seal::wrap_context(account, vault.generation, me);
     let key = vault
@@ -259,6 +260,55 @@ async fn check_recovery_key(core: &Core, account: &str, recovery_key: &str) -> C
         super::inbox_changed(core);
     }
     Ok(())
+}
+
+/// Refuses a vault older than this host last read it: an earlier generation of its key, or an
+/// entry at an earlier revision or that it saw removed, so nothing it holds is taken back.
+async fn check_floor(core: &Core, account: &str, vault: &Remote) -> CoreResult<()> {
+    let data_dir = core.data_dir().clone();
+    let (account, recovery_key) = (account.to_owned(), vault.recovery_key.clone());
+    let floor = blocking(move || Ok(local::load(data_dir.as_deref(), &account, &recovery_key)))
+        .await?
+        .floor;
+    if !floor.takes_generation(vault.generation) {
+        return Err(format!(
+            "the accounts server handed back generation {} of the vault's key, older than the {} this host read",
+            vault.generation, floor.generation
+        )
+        .into());
+    }
+    let stale = (vault.entries.iter())
+        .filter(|entry| entry.generation == vault.generation)
+        .find(|entry| !floor.takes_entry(&entry.id, entry.revision));
+    if let Some(stale) = stale {
+        return Err(format!(
+            "the accounts server handed back vault entry {} at revision {}, older than this host's copy",
+            stale.id, stale.revision
+        )
+        .into());
+    }
+    if let Some(missing) = floor.missing(&listed(vault), &ended(vault)) {
+        return Err(format!(
+            "the accounts server left vault entry {missing} out without saying it was removed"
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn listed(vault: &Remote) -> BTreeMap<&str, i64> {
+    let mut listed = BTreeMap::new();
+    for entry in &vault.entries {
+        let revision = listed.entry(entry.id.as_str()).or_default();
+        *revision = entry.revision.max(*revision);
+    }
+    listed
+}
+
+fn ended(vault: &Remote) -> BTreeMap<&str, i64> {
+    (vault.ended.iter().flatten())
+        .map(|gone| (gone.id.as_str(), gone.revision))
+        .collect()
 }
 
 async fn create(core: &Arc<Core>, account: &str, me: &str, secret: &Key) -> CoreResult<()> {
@@ -786,6 +836,9 @@ async fn reconcile(
     })
     .await?;
     let (mut plan, marks, planned) = plan;
+    plan.local
+        .floor
+        .saw(vault.generation, &listed(&vault), &ended(&vault));
     {
         let mut state = core.vault().state.locked();
         state.marks = marks.clone();
@@ -832,6 +885,7 @@ async fn reconcile(
                 return Err(error);
             }
         };
+        plan.local.floor.wrote(&write.id, written.revision);
         if let Some(digest) = write.holds {
             plan.local.applied.insert(
                 write.id.clone(),
