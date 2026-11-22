@@ -1139,22 +1139,6 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             if target.agent_id == from {
                 return Err("That agent is you".into());
             }
-            let name = target.name.as_deref().unwrap_or(&target.agent_id);
-            if let Err(why) = blind_between(&core, &from, &target.agent_id, name) {
-                let refused = Queued {
-                    text: String::new(),
-                    origin: Some(Origin {
-                        from: from.clone(),
-                        kind: MessageKind::Message,
-                        awaited: false,
-                        calm: None,
-                    }),
-                    mark: None,
-                    paths: Vec::new(),
-                };
-                log(&core, &target.agent_id, [&refused], MessageOutcome::Refused);
-                return Err(why.into());
-            }
             let mut letter = letter_from(&agents, MessageKind::Message, from, text, None);
             if let Some(Answering { id, .. }) =
                 answers.as_ref().filter(|_| target.reach != Reach::Remote)
@@ -1451,7 +1435,6 @@ pub(crate) async fn from_host(
         .name
         .clone()
         .unwrap_or_else(|| target.agent_id.clone());
-    blind_between(core, &carried.from_id, &target.agent_id, &name)?;
     let mut letter = Letter {
         kind: carried.kind,
         from_id: carried.from_id.clone(),
@@ -1524,25 +1507,6 @@ pub(crate) async fn from_hosts(
         Some(HOSTS_NOTE.to_owned()),
     );
     deliver(core, &target, letter).await
-}
-
-/// Refuses any contact between a reviewer Auto started blind and another
-/// agent, either way.
-pub(crate) fn blind_between(
-    core: &Core,
-    from: &str,
-    to: &str,
-    to_name: &str,
-) -> Result<(), String> {
-    if core.names().is_blind(from) {
-        return Err("You review a card blind for Auto, so you may not reach other agents; ask the person with ask if you must".into());
-    }
-    if core.names().is_blind(to) {
-        return Err(format!(
-            "{to_name} reviews a card blind for Auto, so no agent may reach it"
-        ));
-    }
-    Ok(())
 }
 
 /// Puts the question `id`, worded `text`, from one agent to its lead, with `note` in

@@ -330,9 +330,7 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
                     super::turn_state::listed_line(turn, answer.as_deref(), agent.parent.is_some())
                 }),
                 "lastActive": since(agent.active_at, now),
-                "canMessage": agent.reach != Reach::Stopped
-                    && agent.agent_id != caller
-                    && super::messages::blind_between(core, caller, &agent.agent_id, "").is_ok(),
+                "canMessage": agent.reach != Reach::Stopped && agent.agent_id != caller,
             });
             if let Some(fields) = row.as_object_mut() {
                 if let Some(parent) = &agent.parent {

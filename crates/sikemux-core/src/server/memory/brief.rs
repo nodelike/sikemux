@@ -1,8 +1,7 @@
 //! What a new agent is handed at the end of its task, in the same letter:
 //! the project's rules and the decisions its task names, and once it holds a
 //! card or its lead does, where its goal stands and the goal's rules, with only
-//! the knowledge its task and card name. Stale knowledge stays out. A blind
-//! reviewer gets only what the person said, nothing an agent added.
+//! the knowledge its task and card name. Stale knowledge stays out.
 
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -92,7 +91,6 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<S
     let reader = Reader {
         project: core.names().get(agent_id)?.project,
         goal,
-        blind: core.names().is_blind(agent_id),
         read,
         task,
         on_board,
@@ -111,7 +109,6 @@ pub(crate) fn for_chat(core: &Core, cwd: &Path) -> Option<String> {
     let reader = Reader {
         project: core.workspaces().project_of(cwd),
         goal: None,
-        blind: false,
         read: String::new(),
         task: String::new(),
         on_board: Vec::new(),
@@ -124,8 +121,6 @@ struct Reader {
     project: String,
     /// The goal its card sits under.
     goal: Option<GoalRef>,
-    /// Only what the person said counts, for a blind reviewer.
-    blind: bool,
     /// The words knowledge is picked by, lowercase.
     read: String,
     /// The lead's task alone, lowercase, which picks the decisions.
@@ -138,7 +133,6 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
     let Reader {
         project,
         goal,
-        blind,
         read,
         task,
         on_board,
@@ -146,7 +140,7 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
     let fresh_since = epoch_ms().saturating_sub(FRESH_MS);
     let (mut rules, mut knowledge, mut testing) = (Vec::new(), Vec::new(), Vec::new());
     let mut notes = Vec::new();
-    let room_for_note = |notes: &Vec<String>| !blind && notes.len() < MAX_AGENT_NOTES;
+    let room_for_note = |notes: &Vec<String>| notes.len() < MAX_AGENT_NOTES;
     {
         let state = core.memory().state.locked();
         for held in state.applying(&project) {
@@ -227,7 +221,7 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
         }
     }
     let goal = goal.as_ref().map(|goal| goal.card);
-    let decisions = decided(core, &project, goal, &task, blind);
+    let decisions = decided(core, &project, goal, &task);
     if !decisions.is_empty() {
         sections.push(format!("Decided:\n{}", decisions.join("\n")));
     }
@@ -238,9 +232,8 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
 }
 
 /// The project's decisions `task` names, else its newest, those made on `goal` first; a line each.
-fn decided(core: &Core, project: &str, goal: Option<u64>, task: &str, blind: bool) -> Vec<String> {
-    let mut standing = board::goal::standing(core, project);
-    standing.retain(|decision| !blind || decision.learned.agent.is_none());
+fn decided(core: &Core, project: &str, goal: Option<u64>, task: &str) -> Vec<String> {
+    let standing = board::goal::standing(core, project);
     let named: Vec<&Decision> = (standing.iter())
         .filter(|decision| task_names(task, &decision.text))
         .collect();

@@ -150,9 +150,6 @@ fn chat(core: &Core, named: &str) -> Result<Listed, String> {
     if target.reach == Reach::Remote {
         return Err("That chat runs on a linked host; reach it from that host".into());
     }
-    if core.names().is_blind(&target.agent_id) {
-        return Err("That agent reviews a card blind, so nothing outside may reach it".into());
-    }
     Ok(target)
 }
 

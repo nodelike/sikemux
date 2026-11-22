@@ -61,13 +61,6 @@ struct Entry {
     /// started it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     quiet: bool,
-    /// A reviewer Auto started, which no agent may reach and which may reach
-    /// none.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    blind: bool,
-    /// Auto started it for a card, so it counts as an agent that agents started.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    by_auto: bool,
     provider: Option<String>,
     /// The provider's own session.
     session_id: Option<String>,
@@ -156,10 +149,6 @@ struct ClosedSession {
     lead: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     quiet: bool,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    blind: bool,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    by_auto: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     chosen: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -303,8 +292,6 @@ impl Names {
             project: adopted.project,
             parent: adopted.parent.map(str::to_owned),
             quiet: !adopted.reports,
-            blind: false,
-            by_auto: false,
             provider: Some(adopted.provider.to_owned()),
             session_id: None,
             at: epoch_ms(),
@@ -336,8 +323,6 @@ impl Names {
                 project: project.to_owned(),
                 parent: None,
                 quiet: false,
-                blind: false,
-                by_auto: false,
                 provider: None,
                 session_id: None,
                 at: epoch_ms(),
@@ -493,8 +478,6 @@ impl Names {
             project,
             parent: Some(worker.lead.to_owned()),
             quiet: !worker.reports,
-            blind: false,
-            by_auto: false,
             provider: Some(worker.provider.to_owned()),
             session_id: worker.session.map(str::to_owned),
             at: epoch_ms(),
@@ -519,30 +502,6 @@ impl Names {
         if book.remove(|entry| entry.agent_id == agent_id) {
             self.save(&book);
         }
-    }
-
-    pub fn count_as_started(&self, agent_id: &str) {
-        let mut book = self.book.locked();
-        if let Some(entry) = book.entry_mut(agent_id).filter(|entry| !entry.by_auto) {
-            entry.by_auto = true;
-            self.save(&book);
-        }
-    }
-
-    pub fn make_blind(&self, agent_id: &str) {
-        let mut book = self.book.locked();
-        if let Some(entry) = book.entry_mut(agent_id).filter(|entry| !entry.blind) {
-            entry.blind = true;
-            self.save(&book);
-        }
-    }
-
-    pub fn is_blind(&self, agent_id: &str) -> bool {
-        self.book
-            .locked()
-            .agents
-            .iter()
-            .any(|entry| entry.agent_id == agent_id && entry.blind)
     }
 
     /// The agent that hears how the agent's turns end, if any.
@@ -710,18 +669,6 @@ impl Names {
                 .closed_sessions
                 .iter()
                 .any(|closed| closed.ran.session_id == session_id)
-    }
-
-    /// The agents here that run or recently ran `session_id`.
-    pub fn agents_of_session(&self, session_id: &str) -> HashSet<String> {
-        let book = self.book.locked();
-        let open = (book.agents.iter())
-            .filter(|entry| entry.session_id.as_deref() == Some(session_id))
-            .map(|entry| entry.agent_id.clone());
-        let closed = (book.closed_sessions.iter())
-            .filter(|closed| closed.ran.session_id == session_id)
-            .map(|closed| closed.agent_id.clone());
-        open.chain(closed).collect()
     }
 
     /// Keeps the account each agent of `runs` runs on, by profile id, and whether it runs in a
@@ -1011,8 +958,6 @@ impl Book {
                     name: Some(entry.name.clone()),
                     lead: entry.parent.clone(),
                     quiet: entry.quiet,
-                    blind: entry.blind,
-                    by_auto: entry.by_auto,
                     chosen: entry.chosen,
                     buddy: entry.buddy.clone(),
                 });
@@ -1108,8 +1053,6 @@ impl Book {
             project,
             parent: None,
             quiet: false,
-            blind: false,
-            by_auto: false,
             provider: provider.map(str::to_owned),
             session_id: resume_id.map(str::to_owned),
             at: epoch_ms(),
@@ -1166,8 +1109,6 @@ impl Book {
             project: project.to_owned(),
             parent: lead,
             quiet: closed.quiet,
-            blind: closed.blind,
-            by_auto: closed.by_auto,
             provider: Some(closed.ran.provider),
             session_id: Some(closed.ran.session_id),
             at: epoch_ms(),

@@ -19,7 +19,6 @@ use sikemux_wire::protocol::AgentStatus;
 
 use super::chat::feed::Feed;
 use super::connection::blocking;
-use super::messages;
 use super::roster::{self, Listed, Reach};
 use super::Core;
 use crate::acp::failure::{out_of_usage, PAUSED_FOR_AGENTS};
@@ -705,11 +704,6 @@ pub(crate) async fn read(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             if target.agent_id == caller {
                 return Err("That agent is you".into());
             }
-            let name = target
-                .name
-                .clone()
-                .unwrap_or_else(|| target.agent_id.clone());
-            messages::blind_between(&core, &caller, &target.agent_id, &name)?;
             Ok(target)
         })
         .await
@@ -760,16 +754,10 @@ pub(crate) async fn read_here(
     let target = {
         let core = core.clone();
         blocking(move || {
-            let target = roster::listed(&core)
+            roster::listed(&core)
                 .into_iter()
                 .find(|agent| agent.agent_id == agent_id && agent.reach != Reach::Remote)
-                .ok_or("that agent is not on this host")?;
-            if core.names().is_blind(&target.agent_id) {
-                return Err(
-                    "that agent reviews a card blind for Auto, so no agent may reach it".into(),
-                );
-            }
-            Ok(target)
+                .ok_or_else(|| "that agent is not on this host".into())
         })
         .await
         .map_err(|error| error.to_string())?
@@ -894,7 +882,6 @@ pub(crate) fn waited(
         if waited.agent_id == caller {
             return Err("You cannot wait on yourself".into());
         }
-        messages::blind_between(core, caller, &waited.agent_id, &waited.name)?;
         if !found.iter().any(|known| known.agent_id == waited.agent_id) {
             found.push(waited);
         }
