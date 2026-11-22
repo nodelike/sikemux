@@ -82,8 +82,11 @@ impl Teammates {
     pub(crate) fn new(folder: Option<&Path>) -> Self {
         let file = folder.map(|folder| folder.join(FILE));
         let kept = (file.as_ref())
-            .and_then(|file| std::fs::read(file).ok())
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .and_then(|file| {
+                sikemux_process::files::read_or_set_aside(file, |bytes| {
+                    serde_json::from_slice(bytes)
+                })
+            })
             .unwrap_or_default();
         Self {
             file,

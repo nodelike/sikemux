@@ -232,12 +232,16 @@ fn read_all(folder: &Path) -> Vec<Pin> {
                 .extension()
                 .is_some_and(|ending| ending == "jsonl")
         })
-        .filter_map(|entry| std::fs::read(entry.path()).ok())
-        .flat_map(|bytes| {
-            (bytes.split(|byte| *byte == b'\n'))
-                .filter_map(|line| serde_json::from_slice::<Pin>(line).ok())
-                .collect::<Vec<_>>()
+        .filter_map(|entry| {
+            sikemux_process::files::read_or_set_aside(&entry.path(), |bytes| {
+                Ok::<_, std::convert::Infallible>(
+                    (bytes.split(|byte| *byte == b'\n'))
+                        .filter_map(|line| serde_json::from_slice::<Pin>(line).ok())
+                        .collect::<Vec<_>>(),
+                )
+            })
         })
+        .flatten()
         .collect()
 }
 

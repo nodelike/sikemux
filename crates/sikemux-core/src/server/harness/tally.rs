@@ -35,17 +35,17 @@ pub(super) fn record_tool_call(path: &Path, tool: &str, succeeded: bool) {
 }
 
 pub(super) fn add_tool_call(path: &Path, tool: &str, succeeded: bool) -> std::io::Result<()> {
-    let mut tallies: BTreeMap<String, Tally> = std::fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default();
+    let mut tallies: BTreeMap<String, Tally> =
+        sikemux_process::files::read_or_set_aside(path, |bytes| serde_json::from_slice(bytes))
+            .unwrap_or_default();
     let tally = tallies.entry(tool.to_owned()).or_default();
     tally.calls += 1;
     if !succeeded {
         tally.failures += 1;
     }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(path, serde_json::to_vec_pretty(&tallies)?)
+    sikemux_process::files::write_atomic_unsynced(
+        path,
+        &serde_json::to_vec_pretty(&tallies)?,
+        false,
+    )
 }

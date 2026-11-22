@@ -12,7 +12,6 @@ pub use sikemux_calls::usage::Step;
 use sikemux_corekit::usage::account_hash;
 pub use sikemux_corekit::usage::{do_not_track, signed_in_user, Install};
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -369,9 +368,8 @@ fn reported_channel(
 }
 
 fn load_record(path: &Path) -> Result<UsageRecord, String> {
-    if let Some(record) = fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+    if let Some(record) =
+        sikemux_process::files::read_or_set_aside(path, |bytes| serde_json::from_slice(bytes))
     {
         return Ok(record);
     }
@@ -576,8 +574,8 @@ fn platform() -> Platform {
 
 #[cfg(target_os = "linux")]
 fn os_release() -> (Option<String>, Option<String>) {
-    let text = fs::read_to_string("/etc/os-release")
-        .or_else(|_| fs::read_to_string("/usr/lib/os-release"))
+    let text = std::fs::read_to_string("/etc/os-release")
+        .or_else(|_| std::fs::read_to_string("/usr/lib/os-release"))
         .unwrap_or_default();
     (
         os_release_field(&text, "ID"),
@@ -630,7 +628,7 @@ mod tests {
         let first = load_record(&path).unwrap();
         assert_eq!(load_record(&path).unwrap().install_id, first.install_id);
 
-        fs::write(&path, b"not json").unwrap();
+        std::fs::write(&path, b"not json").unwrap();
         let replaced = load_record(&path).unwrap();
         assert_ne!(replaced.install_id, first.install_id);
         assert_eq!(replaced.last_reported_day, None);

@@ -92,8 +92,11 @@ impl Outside {
         let path = data_dir.map(|dir| dir.join(FILE));
         let stored = path
             .as_deref()
-            .and_then(|path| std::fs::read(path).ok())
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .and_then(|path| {
+                sikemux_process::files::read_or_set_aside(path, |bytes| {
+                    serde_json::from_slice(bytes)
+                })
+            })
             .unwrap_or_default();
         Self {
             path,
