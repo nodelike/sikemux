@@ -701,7 +701,9 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 let kept = (held.entries.get(&entry.id))
                     .filter(|kept| (ended.get(&entry.id)).is_none_or(|mark| kept.revision > *mark));
                 if let Some(kept) = kept {
-                    entries.insert(entry.id.clone(), kept.clone());
+                    entries
+                        .entry(entry.id.clone())
+                        .or_insert_with(|| kept.clone());
                 }
             }
         }
