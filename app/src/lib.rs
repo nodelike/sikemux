@@ -39,6 +39,7 @@ mod keyboard;
 mod keymap;
 mod links;
 pub mod memory;
+mod mod_install;
 mod mod_pane;
 mod mods;
 mod motion;

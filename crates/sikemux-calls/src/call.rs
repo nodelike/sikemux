@@ -216,6 +216,8 @@ crate::calls! {
     "turnModOff" TurnModOff (crate::mods::OffParams) -> ();
     "removeMod" RemoveMod (crate::mods::ModParams) -> ();
     "addExampleMod" AddExampleMod (crate::mods::ModParams) -> ();
+    "previewRepoMod" PreviewRepoMod (crate::mods::RepoParams) -> crate::mods::RepoMod;
+    "installRepoMod" InstallRepoMod (crate::mods::InstallRepoParams) -> String;
     "stashPrompt" StashPrompt (crate::stash::StashPromptParams) -> crate::stash::StashedPrompt;
     "seeStash" SeeStash (crate::stash::SeeParams) -> sikemux_corekit::accounts::protocol::StashSeen;
     "stashFile" StashFile (crate::stash::StashItemParams) -> crate::stash::StashKept;

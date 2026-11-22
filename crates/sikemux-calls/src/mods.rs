@@ -202,3 +202,79 @@ pub fn follows(name: &str) -> Option<Moved> {
         _ => return None,
     })
 }
+
+#[derive(Deserialize, Serialize)]
+pub struct RepoParams {
+    /// A GitHub repository as `owner/name`.
+    pub repo: String,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct InstallRepoParams {
+    pub repo: String,
+    /// The commit the person was shown, so what installs is what they read.
+    pub commit: String,
+}
+
+/// A mod in a GitHub repository, as its `mod.json` at one commit describes it, before
+/// anything of it is downloaded.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoMod {
+    pub repo: String,
+    pub commit: String,
+    /// The folder it installs into.
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub reads: Vec<String>,
+    #[serde(default)]
+    pub writes: Vec<String>,
+    #[serde(default)]
+    pub connect: Vec<String>,
+    /// The collections of its own data it keeps.
+    #[serde(default)]
+    pub collections: Vec<String>,
+    /// An earlier install from the same repository is there, and this one takes its place.
+    #[serde(default)]
+    pub replaces: bool,
+}
+
+/// `text` as a GitHub repository's `owner/name`: the pair itself, or a `github.com` URL of it.
+pub fn github_repo(text: &str) -> Option<String> {
+    let text = text.trim();
+    let path = match text.split_once("://") {
+        Some((scheme, rest)) => {
+            let (host, path) = rest.split_once('/')?;
+            let host = host.to_ascii_lowercase();
+            if scheme != "https" || !matches!(host.as_str(), "github.com" | "www.github.com") {
+                return None;
+            }
+            path
+        }
+        None => text,
+    };
+    let path = path.split(['?', '#']).next()?.trim_end_matches('/');
+    let mut parts = path.split('/');
+    let (owner, name) = (parts.next()?, parts.next()?);
+    if parts.next().is_some() {
+        return None;
+    }
+    let name = name.strip_suffix(".git").unwrap_or(name);
+    let owner_fits = (1..=39).contains(&owner.len())
+        && !owner.starts_with('-')
+        && !owner.ends_with('-')
+        && owner
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-');
+    let name_fits = (1..=100).contains(&name.len())
+        && !name.starts_with('.')
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte));
+    (owner_fits && name_fits).then(|| format!("{owner}/{name}"))
+}

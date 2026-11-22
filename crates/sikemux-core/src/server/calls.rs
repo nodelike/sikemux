@@ -454,6 +454,8 @@ calls! { core, client, method, params;
     "turnModOff" = TurnModOff: Owner => super::mods::turn_off(&core, params)?,
     "removeMod" = RemoveMod: Owner => super::mods::remove(&core, params).await?,
     "addExampleMod" = AddExampleMod: Owner => super::mods::add_example(&core, params).await?,
+    "previewRepoMod" = PreviewRepoMod: Owner => super::mods::github::preview(&core, params).await?,
+    "installRepoMod" = InstallRepoMod: Owner, counted => super::mods::github::install(&core, params).await?,
     "stash" = Stash: Owner => super::stash::list(&core, params.unwrap_or_default()).await?,
     "stashPrompt" = StashPrompt: Owner, counted => {
         super::stash::stash_prompt(&core, params).await?

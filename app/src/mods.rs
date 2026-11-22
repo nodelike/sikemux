@@ -25,11 +25,11 @@ const EXAMPLE: &str = "example:";
 
 /// The icon a mod's `mod.json` names, or the one every mod without one wears.
 pub fn icon(shown: &ModInfo) -> Icon {
-    shown
-        .icon
-        .as_deref()
-        .and_then(Icon::named)
-        .unwrap_or(Icon::Dashboard)
+    icon_named(shown.icon.as_deref())
+}
+
+pub fn icon_named(name: Option<&str>) -> Icon {
+    name.and_then(Icon::named).unwrap_or(Icon::Dashboard)
 }
 
 impl Workbench {
