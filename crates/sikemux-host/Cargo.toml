@@ -26,9 +26,6 @@ rundeck = ["dep:sikemux-plugin-rundeck"]
 signoz = ["dep:sikemux-plugin-signoz"]
 slack = ["dep:sikemux-plugin-slack"]
 vercel = ["dep:sikemux-plugin-vercel"]
-# Test kits only: plugins answer from dev/plugins files and never reach a service. Never on in a
-# release.
-fake-plugins = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
