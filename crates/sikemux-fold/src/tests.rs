@@ -2662,6 +2662,36 @@ mod transcript {
         listed.turn_completed(Some("end_turn"));
         assert_eq!(texts(&listed.rows()), ["- one thing"]);
     }
+
+    /// @Reach on Antigravity said "\n\n-" between its tool calls and thoughts on
+    /// 22 Nov, with no message id, and each drew an empty bullet mid-turn.
+    #[test]
+    fn a_lone_dash_mid_turn_goes_when_the_next_part_opens() {
+        let said = |text: &str| json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": text } });
+        let mut chat = Chat::running();
+        chat.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "t1", "title": "ls", "kind": "execute", "status": "completed" }))
+            .update(said("\n\n-"));
+        chat.flush();
+        chat.update(json!({ "sessionUpdate": "agent_thought_chunk", "content": { "type": "text", "text": "Next, the OG card." } }))
+            .update(json!({ "sessionUpdate": "tool_call", "toolCallId": "t2", "title": "cp", "kind": "execute", "status": "in_progress" }));
+        let changes = chat.flush();
+        assert!(
+            changes.iter().any(
+                |change| matches!(change, ChatChange::Row { row, .. } if row.parts.len() == 3)
+            ),
+            "the client is sent the dash's row again without it: {changes:?}"
+        );
+        let rows = chat.rows();
+        let kinds: Vec<&str> = (rows.iter().flat_map(|row| &row.parts))
+            .map(|part| match part {
+                ChatPart::Text { .. } => "text",
+                ChatPart::Thought { .. } => "thought",
+                ChatPart::Tool { .. } => "tool",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(kinds, ["tool", "thought", "tool"]);
+    }
 }
 
 mod tool_labels {

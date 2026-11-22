@@ -215,8 +215,26 @@ impl Row {
         self.fields.insert(field);
     }
 
-    fn next_part_id(&self) -> String {
+    /// The id the next part takes. The text before it is finished then, so a
+    /// lone dash or blank there goes rather than draw as an empty bullet.
+    fn open_part(&mut self) -> String {
+        self.drop_said_nothing();
         format!("{}.{}", self.msg.id, self.msg.parts.len())
+    }
+
+    /// Antigravity says "-" between tool calls, and any agent whose answer goes to
+    /// its lead ends a quiet turn on one; markdown would draw it as an empty bullet.
+    fn drop_said_nothing(&mut self) {
+        let Some(ChatPart::Text { text, .. }) = self.msg.parts.last() else {
+            return;
+        };
+        if !matches!(text.trim(), "" | "-") {
+            return;
+        }
+        self.msg.parts.pop();
+        self.sides.pop();
+        self.parts.clear();
+        self.fresh = true;
     }
 }
 
@@ -1747,7 +1765,7 @@ impl Fold {
                 doc.push(more);
             }
         } else {
-            let id = row.next_part_id();
+            let id = row.open_part();
             let part = match text {
                 Some(text) if part_kind == THOUGHT_PART => ChatPart::Thought {
                     id,
@@ -1801,7 +1819,7 @@ impl Fold {
             transcript.push(Row::new(new_id, ChatRole::Assistant, index))
         };
         let row = transcript.rows.get_mut(position)?;
-        let id = row.next_part_id();
+        let id = row.open_part();
         row.push_part(part(id));
         let place = (row.msg.id.clone(), row.msg.parts.len() - 1);
         transcript.touch(position);
@@ -2618,7 +2636,7 @@ impl Fold {
         let id = self.row_id(index, &None);
         let mut row = Row::new(id, ChatRole::Assistant, index);
         row.msg.opens_turn = Some(TurnStart { at });
-        let part_id = row.next_part_id();
+        let part_id = row.open_part();
         row.push_part(part(part_id));
         let position = self.main.push(row);
         self.note_main_change(&None, position);
@@ -2976,7 +2994,7 @@ impl Fold {
                 .last_mut()
                 .filter(|row| row.msg.role == ChatRole::Assistant)
             {
-                drop_said_nothing(last);
+                last.drop_said_nothing();
                 last.msg.ended_at = Some(at);
                 last.set("endedAt");
                 let position = self.main.rows.len() - 1;
@@ -3056,22 +3074,6 @@ fn sent_row(text: &str, paths: &[String]) -> Row {
     });
     read_sent(&mut row, &[]);
     row
-}
-
-/// A turn's last text that says nothing goes, and the row goes out again whole.
-/// An agent whose answer is sent to its lead ends on a lone dash to send nothing,
-/// and markdown would draw that dash as an empty bullet.
-fn drop_said_nothing(row: &mut Row) {
-    let Some(ChatPart::Text { text, .. }) = row.msg.parts.last() else {
-        return;
-    };
-    if !matches!(text.trim(), "" | "-") {
-        return;
-    }
-    row.msg.parts.pop();
-    row.sides.pop();
-    row.parts.clear();
-    row.fresh = true;
 }
 
 fn answer_in(row: &Row) -> Option<&AgentLetter> {
