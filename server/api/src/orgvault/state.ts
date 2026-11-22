@@ -136,18 +136,10 @@ export async function orgVaultState(
 ): Promise<OrgVaultState> {
   const vault = await db
     .selectFrom("org_vaults")
-    .select(["generation", "changes"])
+    .select(["generation", "changes", "remade_at"])
     .where("org_id", "=", orgId)
     .executeTakeFirst();
   if (!vault) return { vault: null };
-  const remade = await db
-    .selectFrom("audit")
-    .select("at")
-    .where("subject", "=", orgId)
-    .where("action", "=", "org_vault.remade")
-    .orderBy("id", "desc")
-    .limit(1)
-    .executeTakeFirst();
   const changes = Number(vault.changes);
   const since = after !== undefined && after <= changes ? after : null;
   const [keys, hosts, entries, ended] = await Promise.all([
@@ -213,7 +205,7 @@ export async function orgVaultState(
         lastSeenAt: host.last_seen_at?.toISOString() ?? null,
       })),
     }),
-    remadeAt: remade?.at.toISOString() ?? null,
+    remadeAt: vault.remade_at?.toISOString() ?? null,
     entries: entries.map(toEntry),
     ended,
     changes,

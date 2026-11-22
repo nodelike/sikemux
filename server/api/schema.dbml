@@ -657,6 +657,7 @@ Table org_vaults {
   created_at timestamptz [not null, default: `now()`]
   rotated_at timestamptz
   changes bigint [not null, default: 0]
+  remade_at timestamptz
 }
 
 Table org_vault_keys {

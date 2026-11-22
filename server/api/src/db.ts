@@ -358,6 +358,7 @@ export interface Tables {
     created_by: string;
     created_at: CreatedAt;
     rotated_at: ColumnType<Date | null, never, Date>;
+    remade_at: ColumnType<Date | null, never, Date>;
     changes: ColumnType<string, never, never>;
   };
   org_vault_keys: {

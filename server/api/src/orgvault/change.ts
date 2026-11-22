@@ -337,7 +337,11 @@ export async function remakeOrgVault(
   const next = from + 1;
   await trx
     .updateTable("org_vaults")
-    .set({ generation: next, rotated_at: sql<Date>`now()` })
+    .set({
+      generation: next,
+      rotated_at: sql<Date>`now()`,
+      remade_at: sql<Date>`now()`,
+    })
     .where("org_id", "=", orgId)
     .execute();
   await trx
