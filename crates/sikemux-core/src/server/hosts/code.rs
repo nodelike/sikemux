@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::files;
 
 use super::super::connection::blocking;
 use super::super::edits::land::own_checkout;
@@ -466,28 +467,10 @@ fn claims_lock() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// The claims kept; a file that cannot be read is moved aside, so the next claim does not
-/// write over what it held.
 fn read_claims(core: &Core) -> Vec<Claim> {
-    let Some(file) = claims_file(core) else {
-        return Vec::new();
-    };
-    let Ok(bytes) = std::fs::read(&file) else {
-        return Vec::new();
-    };
-    serde_json::from_slice(&bytes).unwrap_or_else(|error| {
-        let aside = file.with_extension("unreadable.json");
-        let moved = std::fs::rename(&file, &aside);
-        eprintln!(
-            "sikemux core: the copies' claims at {} could not be read ({error}); {}",
-            file.display(),
-            match moved {
-                Ok(()) => format!("they were kept as {}", aside.display()),
-                Err(error) => format!("they could not be moved aside: {error}"),
-            }
-        );
-        Vec::new()
-    })
+    (claims_file(core))
+        .and_then(|file| files::read_or_set_aside(&file, |bytes| serde_json::from_slice(bytes)))
+        .unwrap_or_default()
 }
 
 fn write_claims(core: &Core, claims: &[Claim]) -> Result<(), String> {
