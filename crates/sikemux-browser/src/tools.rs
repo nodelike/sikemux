@@ -72,10 +72,7 @@ pub fn execute(
         .agent_id
         .as_deref()
         .ok_or("browser tools need the agent's id")?;
-    let acts_on_a_tab = !matches!(
-        request.method.as_str(),
-        "browser.tab.close" | "browser.page" | BROWSER_PICTURE_METHOD
-    );
+    let acts_on_a_tab = brings_the_desk_out(&request.method, manager.active_view(agent_id).is_ok());
     let mut marks = Vec::new();
     if acts_on_a_tab {
         manager.announce_acting(agent_id);
@@ -976,6 +973,16 @@ async fn run(
     }
 }
 
+/// Whether `method` brings the agent's desk on screen: only a call that opens a page, or works
+/// on the tab already there. A call with no tab to work on would show an empty desk.
+fn brings_the_desk_out(method: &str, has_a_tab: bool) -> bool {
+    match method {
+        "browser.tab.close" | "browser.page" | BROWSER_PICTURE_METHOD => false,
+        "browser.navigate" | "browser.act" => true,
+        _ => has_a_tab,
+    }
+}
+
 /// Runs an agent's script in `view`, an expression or statements ending in
 /// return, and answers with what it returned as JSON.
 async fn run_agent_script(
@@ -1755,6 +1762,14 @@ impl BrowserManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn looking_at_the_page_with_no_tab_leaves_the_desk_shut() {
+        assert!(!brings_the_desk_out("browser.state", false));
+        assert!(!brings_the_desk_out("browser.page", false));
+        assert!(brings_the_desk_out("browser.state", true));
+        assert!(brings_the_desk_out("browser.navigate", false));
+    }
 
     #[test]
     fn a_step_becomes_its_tool_call_and_reports_only_what_it_did() {
