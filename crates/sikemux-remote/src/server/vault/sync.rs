@@ -599,9 +599,11 @@ fn plan(
             .map(|(id, _)| id.clone())
             .collect();
         for id in signed_out {
-            local.applied.remove(&id);
-            if let Some(entry) = entries.get(&id) {
-                deletes.push((id, entry.revision));
+            match entries.get(&id) {
+                Some(entry) => deletes.push((id, entry.revision)),
+                None => {
+                    local.applied.remove(&id);
+                }
             }
         }
     }
@@ -967,7 +969,15 @@ async fn reconcile(
     }
     for (id, revision) in plan.deletes {
         let path = format!("/v1/vault/entries/{id}?revision={revision}");
-        host_request(core, Method::DELETE, &path, None).await?;
+        if let Err(error) = host_request(core, Method::DELETE, &path, None).await {
+            core.vault().state.locked().dirty = true;
+            let data_dir = core.data_dir().clone();
+            let saving = plan.local;
+            blocking(move || local::save(data_dir.as_deref(), &saving).map_err(CoreError::from))
+                .await?;
+            return Err(error);
+        }
+        plan.local.applied.remove(&id);
         plan.local.floor.end([(&id, revision)]);
         entries.remove(&id);
         gone.insert(id, revision);
