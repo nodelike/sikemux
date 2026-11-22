@@ -86,7 +86,16 @@ def shown_in_chat(run):
     asked = time.time()
     page = desk.until(lambda: (lambda page: page if page.get("title") == "Kit shown page" and not page.get("loading") else None)(desk.active_page(run.desk())), 40) or {}
     waited = f"its desk tab loaded {time.time() - asked:.1f} s after it was shown" if page else "no desk tab loaded it"
-    carded = desk.until(card, 10)
+    last = {}
+
+    def settled_card():
+        frame, now = card(), time.time()
+        if frame != last.get("frame"):
+            last.update(frame=frame, since=now)
+        return frame if frame and now - last["since"] >= 1 else None
+
+    # The reply's last lines can still push the card up after it first shows, so click it only once it holds still.
+    carded = desk.until(settled_card, 10)
     # The tab opens behind the chat, as a person reading it would; clicking the card brings it forward.
     if carded:
         x, y, width, height = carded
