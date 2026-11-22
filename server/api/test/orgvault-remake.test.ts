@@ -162,4 +162,23 @@ describe("making an org's vault again", () => {
     await lastSeen(owner, 60);
     expect((await remake(admin, orgId)).status).toBe(200);
   });
+
+  it("is refused while the API cannot yet tell who is online", async () => {
+    const { orgId, owner, admin } = await vault();
+    await lastSeen(owner, 60);
+
+    app = testApp(database, undefined, {
+      clerk: new FakeClerk(),
+      presence: new Presence(),
+    });
+    expect((await remake(admin, orgId)).status).toBe(409);
+
+    const started = new Presence();
+    started.attach({ online: () => false });
+    app = testApp(database, undefined, {
+      clerk: new FakeClerk(),
+      presence: started,
+    });
+    expect((await remake(admin, orgId)).status).toBe(409);
+  });
 });

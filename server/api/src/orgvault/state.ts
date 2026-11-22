@@ -116,6 +116,19 @@ export function memberHosts(db: Kysely<Tables>, orgId: string) {
     .where("devices.role", "=", "host");
 }
 
+/** Whether `hostKey`'s wrap among `wraps` opens: sealed by itself, or by another holder. */
+export function opensOwnWrap(
+  hostKey: string,
+  wraps: { host_key: string; wrapped_by: string }[],
+): boolean {
+  const own = wraps.find((wrap) => wrap.host_key === hostKey);
+  return (
+    own !== undefined &&
+    (own.wrapped_by === hostKey ||
+      wraps.some((wrap) => wrap.host_key === own.wrapped_by))
+  );
+}
+
 export interface Viewer {
   hostKey: string;
   userId: string;
@@ -177,11 +190,8 @@ export async function orgVaultState(
   const holders = new Set(current.map((key) => key.host_key));
   const own = current.find((key) => key.host_key === hostKey);
   const key = own?.wrapped ?? null;
-  const opens =
-    own !== undefined &&
-    (own.wrapped_by === hostKey || holders.has(own.wrapped_by));
   const holding =
-    role === "user" || opens
+    role === "user" || opensOwnWrap(hostKey, current)
       ? null
       : hosts.filter(
           (host) =>

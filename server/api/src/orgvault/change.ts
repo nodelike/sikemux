@@ -19,6 +19,7 @@ import { ApiFailure, badRequest, forbidden, notFound } from "../http.ts";
 import {
   ENTRY_COLUMNS,
   memberHosts,
+  opensOwnWrap,
   PROJECT_KINDS,
   PROJECT_MEMORY,
   PROJECT_MEMORY_DROPS,
@@ -315,8 +316,8 @@ export async function rotateOrgVault(
 
 /**
  * For when no computer can open the vault any more: everything sealed under the old key is
- * dropped, and the asking host's key at the next generation is the only one. Refused while a
- * computer that would seal the key for the asking host may be online, as it can do that instead.
+ * dropped, and the asking host's key at the next generation is the only one. Refused when the
+ * vault opens on the asking host, or while a computer that would seal the key for it may be online.
  */
 export async function remakeOrgVault(
   trx: Transaction<Tables>,
@@ -333,21 +334,22 @@ export async function remakeOrgVault(
         .on("org_vault_keys.org_id", "=", orgId)
         .on("org_vault_keys.generation", "=", from),
     )
-    .where("devices.key", "!=", hostKey)
-    .where((eb) =>
-      eb.or([
-        eb("devices.user_id", "=", userId),
-        eb("org_users.role", "!=", "user"),
-      ]),
-    )
+    .select(["org_vault_keys.host_key", "org_vault_keys.wrapped_by"])
     .orderBy("devices.created_at")
     .execute();
-  const awake = holders.find((host) =>
-    presence.mayBeOnline(host.key, host.last_seen_at),
+  if (opensOwnWrap(hostKey, holders))
+    throw conflict(
+      "The vault already opens on this host, so there is nothing to make again.",
+    );
+  const awake = holders.find(
+    (host) =>
+      host.key !== hostKey &&
+      (host.user_id === userId || host.role !== "user") &&
+      presence.mayBeOnline(host.key, host.last_seen_at),
   );
   if (awake)
     throw conflict(
-      `${awake.name} can still open the org's vault and may be online. Let it seal the key for this computer instead.`,
+      `${awake.name} may be online, so the vault opens here shortly with nothing lost. Keep ${awake.name} awake and wait a moment.`,
     );
   const dropped = await trx
     .deleteFrom("org_vault_entries")
