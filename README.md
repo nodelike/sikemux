@@ -4,13 +4,13 @@
 
 **A whole team of AI coders, in one window.**
 
-English · [简体中文](README.zh-CN.md)
+English · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
 Other tools give you one AI assistant. Sikemux gives you a team: Claude Code, Codex and more, side by side in one native app, where you see who's working, who's stuck and who needs you.
 
 Out of Claude? The chat carries on in Codex.
 
-A native app, not Electron, about 30 MB. Claude Code, Codex and more on the plans you already pay for, working as one team. Free and MIT, for Apple Silicon Macs and Linux.
+A native app, not Electron, about 30 MB. Claude Code, Codex and more on the plans you already pay for, working as one team. Free and MIT, for Apple Silicon Macs, Windows and Linux.
 
 ![Sikemux with a Claude Code agent and its browser tab](docs/screenshots/sikemux-hero.png)
 
@@ -34,13 +34,20 @@ Or on a Mac with Homebrew:
 brew install --cask nodelike/tap/sikemux
 ```
 
+On Windows with [Scoop](https://scoop.sh):
+
+```powershell
+scoop bucket add sikemux https://github.com/nodelike/scoop-bucket
+scoop install sikemux/sikemux
+```
+
 On a headless server, install just the core:
 
 ```bash
 curl -fsSL https://sikemux.com/install | sh -s -- --host
 ```
 
-macOS 11+ on Apple Silicon, or Linux on x86_64 and arm64. The `.dmg`, `.deb`, Arch package and AppImage are also on [Releases](https://github.com/nodelike/sikemux/releases/latest).
+macOS 11+ on Apple Silicon, Windows 10 22H2+ on x64 and arm64, or Linux on x86_64 and arm64. The `.dmg`, the Windows `.exe` installers, the `.deb` and the AppImage are also on [Releases](https://github.com/nodelike/sikemux/releases/latest).
 
 ## Why Sikemux
 
