@@ -121,10 +121,10 @@ pub fn picture(glyph: Icon, size: f32, tint: Hsla) -> AnyElement {
     }
 }
 
-/// A project's chief's mark in place of a face: Sikemux's purple S, as big as an agent's mark of
-/// `size`. The S fills only 265 of its glyph's 420-wide box, so it draws larger.
+/// A project's chief's mark in place of a face: Sikemux's purple S, filling three quarters of a
+/// `size` box as the notch island draws it. The S fills only 265 of its glyph's 420-wide box.
 pub fn chief_mark(size: f32) -> AnyElement {
-    mark_box(size, mark("sikemux", size * 1.42)).into_any_element()
+    mark_box(size, mark("sikemux", size * 0.75 * 420. / 265.)).into_any_element()
 }
 
 /// An agent's mark at `size`, in its brand colour.
