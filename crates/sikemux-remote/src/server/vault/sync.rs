@@ -829,6 +829,9 @@ async fn reconcile(
             );
             continue;
         }
+        if (vault.ended.iter().flatten()).any(|ended| ended.id == entry.id) {
+            continue;
+        }
         if !local.floor.takes_entry(&entry.id, entry.revision) {
             left_out.insert(
                 entry.id.clone(),
