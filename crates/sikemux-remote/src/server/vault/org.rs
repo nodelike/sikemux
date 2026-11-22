@@ -36,6 +36,9 @@ use super::floor;
 use super::seal::{self, Key};
 
 const TICK: Duration = Duration::from_secs(60);
+/// How often a vault this host waits on is read while computers that could let it in are listed,
+/// so the person sees soon when the last of them goes offline. Nothing else tells this host.
+const WAITING_TICK: Duration = Duration::from_secs(20);
 const SETTLE: Duration = Duration::from_secs(2);
 const MODEL_KEY: &str = "model-key";
 /// The most hosts one request may seal the key for.
@@ -90,18 +93,13 @@ impl Held {
     }
 
     /// What this host holds once it cannot open the vault at `generation`: no key and no
-    /// entries, only the floors that keep the server from handing back what it held.
+    /// entries, only the generation, below which the server is refused anything it hands back.
     fn let_go(self, generation: i64) -> Held {
-        let mut ended = self.ended;
-        floor::end(
-            &mut ended,
-            (self.entries.iter()).map(|(id, entry)| (id, entry.revision)),
-        );
         Held {
             generation: generation.max(self.generation),
             key: None,
             entries: BTreeMap::new(),
-            ended,
+            ended: BTreeMap::new(),
             made: self.made,
         }
     }
@@ -131,13 +129,11 @@ struct Keys {
 }
 
 /// An org's key at its generation. Once this host can no longer open the vault, only the
-/// generation and the entries' floors, as the entries file is sealed under the key let go.
+/// generation, as the entries file is sealed under the key let go.
 #[derive(Serialize, Deserialize)]
 struct KeptKey {
     generation: i64,
     key: Option<Key>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    ended: BTreeMap<String, i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     made: Option<String>,
 }
@@ -151,10 +147,6 @@ impl Copy {
                     let kept = KeptKey {
                         generation: held.generation,
                         key: held.key,
-                        ended: match held.key {
-                            Some(_) => BTreeMap::new(),
-                            None => held.ended.clone(),
-                        },
                         made: held.made.clone(),
                     };
                     (id.clone(), kept)
@@ -180,7 +172,7 @@ fn read_entries(data_dir: Option<&Path>, account: &str, org: &str, kept: &KeptKe
             generation: kept.generation,
             key: None,
             entries: BTreeMap::new(),
-            ended: kept.ended.clone(),
+            ended: BTreeMap::new(),
             made: kept.made.clone(),
         };
     };
@@ -280,6 +272,16 @@ impl OrgVaults {
     pub fn wake(&self) {
         self.wake.notify_one();
     }
+
+    fn waits_on_openers(&self) -> bool {
+        (self.state.locked().orgs.values()).any(|org| {
+            org.status == OrgVaultStatus::Waiting
+                && org
+                    .openers
+                    .as_ref()
+                    .is_some_and(|openers| !openers.is_empty())
+        })
+    }
 }
 
 fn wrap_context(org: &str, generation: i64, holder: &str) -> String {
@@ -309,12 +311,17 @@ async fn run(core: Weak<Core>) {
         return;
     };
     let mut first = true;
+    let mut tick = TICK;
     loop {
-        if !first && tokio::time::timeout(TICK, wake.notified()).await.is_ok() {
+        if !first && tokio::time::timeout(tick, wake.notified()).await.is_ok() {
             tokio::time::sleep(SETTLE).await;
         }
         first = false;
         let Some(core) = core.upgrade() else { return };
+        tick = match core.vault().orgs().waits_on_openers() {
+            true => WAITING_TICK,
+            false => TICK,
+        };
         let _busy = core.vault().orgs().busy.lock().await;
         if let Err(error) = round(&core).await {
             eprintln!("sikemux core: the org vaults did not sync: {error}");
@@ -599,7 +606,12 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
         },
         (_, None) => (None, None),
     };
-    let openers = vault.holding.clone();
+    let openers = (vault.holding.clone()).map(|openers| {
+        openers
+            .into_iter()
+            .filter(|opener| opener.host_key != me)
+            .collect()
+    });
     let remade_at = vault.remade_at.clone();
     let Some(key) = key else {
         set(
@@ -1129,7 +1141,7 @@ pub async fn remake(core: &Arc<Core>, params: OrgParams) -> CoreResult<()> {
                 generation,
                 key: Some(key),
                 entries: BTreeMap::new(),
-                ended: held.held.ended,
+                ended: BTreeMap::new(),
                 made,
             },
             status: OrgVaultStatus::Open,
