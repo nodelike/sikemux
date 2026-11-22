@@ -200,7 +200,6 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
                         crate::settings::leaves(div().child(chip), cx).into_any_element()
                     }),
                 )
-                .children(crate::agents::limits::chip(bench, cx))
                 .children(battery_chip(bench, cx))
                 .child(clock(cx))
                 .child(crate::hosts::bar::devices(bench, cx))

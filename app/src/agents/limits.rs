@@ -1,5 +1,5 @@
 //! The Limits panel: how much of its plan each agent's account has used, drawn as a ruler per
-//! agent, with every account in a float over the rows and in the top bar's popover.
+//! agent, with every account in a float over the rows.
 
 use crate::ui::Clicks;
 use std::cell::Cell;
@@ -7,7 +7,6 @@ use std::f32::consts::TAU;
 use std::sync::Arc;
 use std::time::Duration;
 
-use gpui_kit::base::Popover;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     anchored, canvas, deferred, div, fill, point, px, size, Anchor, AnchoredPositionMode,
@@ -51,9 +50,6 @@ const ROW: f32 = 30.;
 const ROW_COMPACT: f32 = 28.;
 const ROW_GAP: f32 = 2.;
 
-/// The top bar chip's agent marks, each on a disc of the bar's colour that rings it where they overlap.
-const MARK: f32 = 12.;
-const DISC: f32 = 18.;
 const HEADER: f32 = 24.;
 const AGENT_HEAD: f32 = 34.;
 const ACCOUNT_LINE: f32 = 24.;
@@ -72,10 +68,9 @@ const FLOAT_GAP: f32 = 6.;
 const FLOAT_LEAST: f32 = 120.;
 const RAIL_HEAD: f32 = 41.;
 const FLOAT_MARGIN: f32 = 52.;
-const POPOVER_WIDTH: f32 = 300.;
-const POPOVER_MARGIN: f32 = 60.;
+const FLOAT_WIDTH: f32 = 300.;
 
-/// What the Limits float and popover hold while they are on screen.
+/// What the Limits float holds while it is on screen.
 #[derive(Default)]
 pub struct Reveal {
     open: bool,
@@ -83,7 +78,6 @@ pub struct Reveal {
     over_panel: bool,
     over_float: bool,
     settling: Option<Task<()>>,
-    popover: bool,
     undo: Option<Undo>,
     reading: Option<Task<()>>,
     /// The reset pressed once, by account and kind, waiting for the press that spends it.
@@ -367,7 +361,7 @@ pub(crate) fn limits(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<i
             .when(open, |panel| {
                 let float = div()
                     .id("limits-float")
-                    .w(px(POPOVER_WIDTH))
+                    .w(px(FLOAT_WIDTH))
                     .pb(px(FLOAT_GAP))
                     .occlude()
                     .on_hover(hovered(view.this.clone(), |reveal| &mut reveal.over_float))
@@ -572,33 +566,6 @@ fn reading_is_old(bench: &Workbench, now: u64) -> bool {
                 .read_at
                 .is_none_or(|read| now.saturating_sub(read) >= every)
         })
-}
-
-/// One of an agent's windows, added up over the accounts that have read it.
-struct Total {
-    /// Points left, out of 100 for each account counted.
-    left: f64,
-    accounts: usize,
-}
-
-type Pick = for<'b, 'c> fn(&'b Shown<'c>) -> Option<&'b UsageWindow>;
-
-impl Total {
-    fn of(agent: &Agent, now: u64, window: Pick) -> Option<Self> {
-        let left: Vec<f64> = (agent.accounts.iter())
-            .filter(|shown| !shown.signed_out)
-            .filter_map(|shown| Some(100. - window(shown)?.used_at(now)))
-            .collect();
-        (!left.is_empty()).then(|| Self {
-            left: left.iter().sum(),
-            accounts: left.len(),
-        })
-    }
-
-    /// How much of the whole is used, as one window would say it.
-    fn used(&self) -> f64 {
-        100. - self.left / self.accounts as f64
-    }
 }
 
 /// The accounts the rail lists, each beside its agent.
@@ -1530,10 +1497,9 @@ impl Reveal {
     }
 }
 
-/// Draws what shows the plan limits again: the rail's panel and the top bar's popover.
+/// Draws the rail's plan limits again.
 pub(crate) fn redraw(bench: &Workbench, cx: &mut App) {
     bench.parts.redraw(&bench.parts.agents, cx);
-    bench.parts.redraw(&bench.parts.bar, cx);
 }
 
 /// Reads the limits again when the window comes to the front with them on screen and the last
@@ -1549,109 +1515,6 @@ pub(crate) fn usage_read(bench: &mut Workbench, cx: &mut App) {
     if bench.accounts.limits.reading.take().is_some() {
         redraw(bench, cx);
     }
-}
-
-/// The top bar's chip: every agent's mark, then how much of their weeks they have used together,
-/// opening the accounts card in a popover. It only draws what was read already.
-pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<impl IntoElement> {
-    let agents = agents(bench, true);
-    if agents.is_empty() {
-        return None;
-    }
-    let t = Tokens::get(cx).clone();
-    let now = ui::time::now_ms();
-    let this = cx.weak_entity();
-    let open_this = this.clone();
-    let week: Pick = |shown| shown.week();
-    let pairs: Vec<(String, Option<Total>)> = (agents.iter())
-        .map(|agent| (agent.provider.to_owned(), Total::of(agent, now, week)))
-        .collect();
-    drop(agents);
-    Some(
-        Popover::new("limits-chip")
-            .anchor(Anchor::TopRight)
-            .offset(SPACE_1H)
-            .trigger_with(move |open, _, _| {
-                let read: Vec<(f64, f64)> = (pairs.iter())
-                    .filter_map(|(_, week)| week.as_ref())
-                    .map(|week| (week.used(), week.accounts as f64))
-                    .collect();
-                let worst = read
-                    .iter()
-                    .map(|(used, _)| *used)
-                    .fold(None, |worst, used| {
-                        Some(worst.map_or(used, |worst: f64| worst.max(used)))
-                    });
-                let (text, ink) = match worst {
-                    Some(worst) => {
-                        let used: f64 = read.iter().map(|(used, accounts)| used * accounts).sum();
-                        let caps: f64 = read.iter().map(|(_, accounts)| accounts * 100.).sum();
-                        let ink = if worst < 70. {
-                            t.text_secondary
-                        } else {
-                            signal(worst, &t)
-                        };
-                        (format!("{}% / {}%", used.round(), caps), ink)
-                    }
-                    None => ("–".to_owned(), t.text_tertiary),
-                };
-                let marks = pairs.iter().enumerate().rev().map(|(at, (provider, _))| {
-                    div()
-                        .size(px(DISC))
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_full()
-                        .bg(t.surface)
-                        .when(at > 0, |disc| disc.ml(px(-5.)))
-                        .child(ui::mark(provider, MARK))
-                });
-                div()
-                    .id("limits-chip-button")
-                    .h(px(26.))
-                    .pl(px(crate::tabs::CHIP_INSET - (DISC - MARK) / 2.))
-                    .pr(px(crate::tabs::CHIP_INSET))
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_1H)
-                    .rounded(radius_2())
-                    .cursor_pointer()
-                    .when(open, |chip| chip.bg(t.surface_chosen))
-                    .when(!open, |chip| chip.hover(|chip| chip.bg(t.surface_hover)))
-                    .child(div().flex().flex_row_reverse().children(marks))
-                    .child(
-                        ui::text(text, TEXT_2XS, FontWeight::NORMAL)
-                            .font_features(theme::tabular())
-                            .text_color(ink),
-                    )
-                    .into_any_element()
-            })
-            .on_open_change(move |open: &bool, _: &mut Window, cx: &mut App| {
-                let open = *open;
-                let _ = open_this.update(cx, |bench, cx| {
-                    bench.accounts.limits.popover = open;
-                    bench.accounts.limits.arming = None;
-                    if open && reading_is_old(bench, ui::time::now_ms()) {
-                        start_reading(bench, cx);
-                    }
-                    redraw(bench, cx);
-                });
-            })
-            .content(move |_, window, cx| {
-                let Some(bench) = this.upgrade() else {
-                    return div().into_any_element();
-                };
-                let bench = bench.read(cx);
-                let agents = self::agents(bench, true);
-                let room = f32::from(window.viewport_size().height) - POPOVER_MARGIN;
-                let view = self::view(bench, false, false, room.max(FLOAT_LEAST), this);
-                floating(cx)
-                    .w(px(POPOVER_WIDTH))
-                    .child(every_account(&view, &agents, cx))
-                    .into_any_element()
-            }),
-    )
 }
 
 /// One window's ruler: a tick for each 4 points, lit for as much as is used, or none lit when
@@ -1716,26 +1579,17 @@ pub(crate) fn reset_at(window: &UsageWindow) -> Option<chrono::DateTime<chrono::
 }
 
 impl Workbench {
-    /// Whether the rail is up and its last draw held the panel. On an SSH host the
+    /// Whether the rail is up and its last draw held the plan limits. On an SSH host the
     /// rail draws something else, and a peeking rail draws it with the rail kept closed.
-    fn limits_panel_shown(&self) -> bool {
+    pub(crate) fn limits_shown(&self) -> bool {
         (self.rails.tab_open || self.rails.peeking == Some(Rail::Agents))
             && self.accounts.limits.panel_drawn.get()
     }
 
-    /// Whether plan limits are on screen: the panel or the top bar's popover. The chip alone
-    /// never counts, since each read boots the agent's CLI.
-    pub(crate) fn limits_shown(&self) -> bool {
-        self.limits_panel_shown() || self.accounts.limits.popover
-    }
-
-    /// Lets go of what a panel or chip no longer on screen was holding open.
+    /// Lets go of what a panel no longer on screen was holding open.
     pub(crate) fn settle_limits(&mut self) {
-        if !self.limits_panel_shown() {
+        if !self.limits_shown() {
             self.accounts.limits.pointer_gone();
-        }
-        if self.accounts.limits.popover && launchers(self, true).is_empty() {
-            self.accounts.limits.popover = false;
         }
     }
 
