@@ -1042,6 +1042,7 @@ pub(super) fn on_host(wanted: &str) -> (&str, Option<&str>) {
 /// What `agent_send` takes as `to` for every other agent of the caller's team.
 const TEAM: &str = "team";
 const MAX_TO_BYTES: usize = 2000;
+const MAX_SWITCH_BYTES: usize = 200;
 
 /// Sends one message to every other agent of `from`'s team: the agent that
 /// leads it and every agent it started, each delivered as a message of its own.
@@ -1111,6 +1112,11 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         }),
         Some(_) => return Err("answers must be the id of the question this answers".into()),
     };
+    let run_on = super::caller::text_param(&request.params, "runOn", MAX_SWITCH_BYTES)?;
+    let switching = run_on.is_some();
+    if switching && (to.contains(',') || to.trim().eq_ignore_ascii_case(TEAM)) {
+        return Err("runOn switches one agent at a time".into());
+    }
     if to.trim().eq_ignore_ascii_case(TEAM) {
         if answers.is_some() {
             return Err("answers goes to one agent, not the team".into());
@@ -1194,6 +1200,11 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     };
     let (target, letter) = match found {
         Found::Open(target, letter) => (target, *letter),
+        Found::Closed(name, _) | Found::ClosedElsewhere(name) if switching => {
+            return Err(format!(
+                "{name} had closed; agent_spawn it again with the cli and model it should run on"
+            ));
+        }
         Found::Closed(name, ran) if calls_off(&message_text(core, &request.params)?) => {
             return Ok(called_off(
                 &name,
@@ -1207,11 +1218,25 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         Found::ClosedElsewhere(name) => return reopen_elsewhere(core, request, &name).await,
     };
     let from = letter.from_id.clone();
+    if target.reach == Reach::Remote && switching {
+        return Err("it runs on another host, so runOn cannot switch it from here".into());
+    }
     if target.reach == Reach::Remote {
         return carry(core, &target, letter, answers).await;
     }
+    let switched = match run_on {
+        Some(run_on) => {
+            let name = target.name.as_deref().unwrap_or(&target.agent_id);
+            let switched = super::chat::switch::switch(core, &target.agent_id, run_on).await;
+            Some(switched.map_err(|why| format!("{name} was not switched or sent this: {why}"))?)
+        }
+        None => None,
+    };
     let answer = letter.text.clone();
     let mut sent = deliver(core, &target, letter).await?;
+    if let (Some(switched), Some(fields)) = (switched, sent.as_object_mut()) {
+        fields.insert("runsOn".into(), switched.into());
+    }
     core.seen().called(&target.agent_id);
     core.changed(What::Agents);
     match answers {

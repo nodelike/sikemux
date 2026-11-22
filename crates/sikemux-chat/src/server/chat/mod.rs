@@ -24,6 +24,7 @@ pub mod rotation;
 mod shelf;
 pub mod side;
 mod start;
+pub mod switch;
 use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use sikemux_drivers::server::chat::states;

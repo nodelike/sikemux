@@ -878,6 +878,12 @@ or `agent_spawn` with `resume` reopens one.
 by its name or id, and each chat carries on there. It moves every one it may
 and lists the rest under `refused` with why.
 
+`agent_send` with `runOn` switches one open agent before the message goes:
+a model, by its id or the name its picker shows, such as `gpt-5.5`; another
+agent, such as `codex`; or both, as `codex/gpt-5.5`. Another agent starts a
+fresh session handed the chat so far, keeping the name, tab and lead, and is
+refused mid-turn. The answer's `runsOn` says where it went.
+
 ### Standing roles
 
 `agent_hire`, for @Chief only, gives an open agent a standing role: `name` is

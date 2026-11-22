@@ -1724,7 +1724,7 @@
           "maxLength": 65536
         },
         "answers": {
-          "description": "Id of an open question that agent asked you, never of a call of yours",
+          "description": "Id of a question that agent asked you, never of your own call",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
@@ -1734,6 +1734,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 8192
+        },
+        "runOn": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
         }
       },
       "required": [
@@ -1917,7 +1922,7 @@
       "description": "Read what an agent said.",
       "properties": {
         "agent": {
-          "description": "Or a teammate's task from task_list, with a question to ask about it",
+          "description": "Or a teammate's task from task_list, with a question about it",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
