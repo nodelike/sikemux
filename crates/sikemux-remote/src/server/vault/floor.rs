@@ -3,6 +3,11 @@
 
 use std::collections::BTreeMap;
 
+/// Whether a vault at `generation` is no older than the one this host last read, at `held`.
+pub fn takes_generation(held: i64, generation: i64) -> bool {
+    generation >= held
+}
+
 /// Whether an entry at `revision` is no older than the copy this host holds, at `held`, and
 /// newer than the last revision the vault removed it at, `ended`.
 pub fn takes_entry(held: Option<i64>, ended: Option<i64>, revision: i64) -> bool {
