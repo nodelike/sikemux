@@ -748,9 +748,8 @@ pub(super) fn trouble(
 
 /// What an empty chat says while its session is not ready, in the welcome's place: that it
 /// stopped or failed with a way back, or that a message waits for its agent to start. A
-/// chat taken up again stays blank while its agent warms up unseen; None while the welcome
-/// belongs there.
-/// What `agent`'s empty chat says in place of the welcome while its session is not ready.
+/// spawned agent's brief is that message, so its chat never shows the welcome. A chat taken
+/// up again stays blank while its agent warms up unseen; None while the welcome belongs there.
 pub(crate) fn connection_note(
     agent: &AgentRow,
     chat: &Chat,
@@ -762,10 +761,15 @@ pub(crate) fn connection_note(
         .as_ref()
         .map_or(ChatConnection::Connecting, |head| head.connection);
     let dropped = matches!(connection, ChatConnection::Error | ChatConnection::Stopped);
-    if connection == ChatConnection::Ready || (!resumes && !dropped && !chat.awaits_agent) {
+    let spawned = agent.lead.is_some();
+    let awaits = chat.awaits_agent || spawned;
+    if spawned && connection == ChatConnection::Ready {
+        return Some(div().into_any_element());
+    }
+    if connection == ChatConnection::Ready || (!resumes && !dropped && !awaits) {
         return None;
     }
-    if !dropped && !chat.awaits_agent {
+    if !dropped && !awaits {
         return Some(div().into_any_element());
     }
     let t = Tokens::get(cx).clone();

@@ -109,7 +109,7 @@ fn welcoming(bench: &Workbench, agent: Option<&AgentRow>, cx: &App) -> f32 {
     let Some(agent) = agent else {
         return 1.;
     };
-    if bench.in_terminal(&agent.id) {
+    if bench.in_terminal(&agent.id) || agent.lead.is_some() {
         return 0.;
     }
     match bench.chats.open.get(&agent.id) {
@@ -148,6 +148,9 @@ fn agent_shown(
                 .unwrap_or_else(|| welcome(bench, 1. - gone, cx).into_any_element())
         });
         return chat::pane(bench, agent, chat, welcome, cx).into_any_element();
+    }
+    if agent.is_some_and(|agent| agent.lead.is_some()) {
+        return div().size_full().into_any_element();
     }
     centred(welcome(bench, 1., cx))
         .size_full()
