@@ -70,7 +70,7 @@ pnpm android                # builds the development app and runs it on a device
 
 #### Designing phone screens
 
-Every phone screen is drawn first in `mobile/design/screens.src.html`, with the Mac app's own icons and fonts. A design change starts there, before the app: run `pnpm design` in `mobile/` and open http://127.0.0.1:8791/mobile/design/screens.html, which rebuilds on each reload. In the PR, add a screenshot of each screen you changed or added from that page, so the design is reviewed before the code. `{{IconName}}` or `{{IconName:size}}` in the file draws one of the app's icons. The glyphs the phone draws itself live in `mobile/app/src/ui/drawnIcons.ts`, which the Android app and the page read and `scripts/generate-notch-icons.mjs` turns into the iPhone app's icons.
+Every phone screen is drawn first in `mobile/design/screens.src.html`, with the Mac app's own icons and fonts. A design change starts there, before the app: run `pnpm design` in `mobile/` and open http://127.0.0.1:8791/mobile/design/screens.html, which rebuilds on each reload. In the PR, add a screenshot of each screen you changed or added from that page, so the design is reviewed before the code. `{{IconName}}` or `{{IconName:size}}` in the file draws one of the app's icons. The glyphs the phone draws itself live in `shared/ui/drawnIcons.ts`, which the Android app and the page read and `scripts/generate-notch-icons.mjs` turns into the iPhone app's icons.
 
 ### The accounts server
 

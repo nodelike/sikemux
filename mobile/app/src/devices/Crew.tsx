@@ -87,6 +87,16 @@ export function crumbsOf(crew: Crew, agentId: string | undefined, project: strin
   return led ? [head, led] : [head];
 }
 
+/** Sikemux's S, as big as an agent's face of `size`. The S fills only 265 of its glyph's 420-wide box, so it draws larger. */
+export function ChiefMark({ size }: { size: number }) {
+  const colors = useColors();
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <Icon name="Logo" size={size * 1.42} color={colors.accent} />
+    </View>
+  );
+}
+
 /** An agent's own mark: Sikemux's S on a project's chief, else the face the host gave it, else its CLI's logo. */
 export function OwnMark({
   agentId,
@@ -103,17 +113,10 @@ export function OwnMark({
   size: number;
   still?: boolean;
 }) {
-  const colors = useColors();
-  return chief ? (
-    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-      <Icon name="Logo" size={size * 0.78} color={colors.accent} />
-    </View>
-  ) : (
-    <AgentFace agentId={agentId} provider={provider} turn={turn} size={size} still={still} />
-  );
+  return chief ? <ChiefMark size={size} /> : <AgentFace agentId={agentId} provider={provider} turn={turn} size={size} still={still} />;
 }
 
-const openChat = (core: string, agent: string) => {
+export const openChat = (core: string, agent: string) => {
   haptics.select();
   router.push(`/device/${core}/chat/${agent}`);
 };

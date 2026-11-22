@@ -1,0 +1,10 @@
+# What's New opened from Settings ▸ About, its sky under the sheet's rounded top-left corner.
+stage 1440 900
+window 1440 900
+project storefront shop
+settle 3
+settings About
+settle 2
+click "What’s New"
+settle 4
+snap whats-new

@@ -101,8 +101,7 @@ pub(crate) fn restart_when_keys_rest(asks: UnboundedSender<Ask>, cx: &mut App) {
     .detach();
 }
 
-/// Restarts into an update that began by itself once the person has been idle a while,
-/// unless a chat started a turn meanwhile, which the core reports by waiting again.
+/// Restarts into an update that began by itself once the person has been idle a while.
 pub(crate) fn restart_when_idle(cx: &mut Context<Workbench>) {
     if WAITING_FOR_IDLE.swap(true, Ordering::SeqCst) {
         return;
@@ -267,15 +266,6 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
                 version = version,
                 error = update.error.as_deref().unwrap_or(t!("unknown error"))
             )),
-        ),
-        UpdateState::Waiting => (
-            install_button(update).0,
-            Icon::Download,
-            ui::Variant::Outline,
-            Some(match update.by_itself {
-                true => t!("It installs once no agent is in the middle of a turn. Open to update now.").into(),
-                false => t!("Some agents can't be carried over yet. Within two minutes the update goes on and starts them again on their sessions. Open to see them or update now.").into(),
-            }),
         ),
         UpdateState::Ready if update.by_itself => (
             install_button(update).0,
@@ -513,15 +503,7 @@ pub(crate) fn install_button(update: &UpdateStatus) -> (String, bool) {
         UpdateState::Installing => (t!("Verifying & installing…").to_owned(), false),
         UpdateState::Ready if update.by_itself => (t!("Restart to update").to_owned(), true),
         UpdateState::Ready => (t!("Restarting…").to_owned(), false),
-        UpdateState::Waiting => (waiting_label(update.blockers.len()), false),
         UpdateState::Failed => (t!("Retry v{version}", version = version), true),
         UpdateState::Idle => (t!("Install v{version}", version = version), true),
-    }
-}
-
-pub(crate) fn waiting_label(count: usize) -> String {
-    match count {
-        1 => t!("Update waiting on 1 agent").to_owned(),
-        count => t!("Update waiting on {count} agents", count = count),
     }
 }

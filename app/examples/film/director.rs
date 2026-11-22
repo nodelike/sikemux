@@ -946,11 +946,16 @@ impl Director {
                 let name = step.text(0)?;
                 let page = sikemux_gpui::settings::Page::named(name)
                     .ok_or_else(|| anyhow!("line {}: no settings page called {name}", step.line))?;
+                let section: Option<&'static str> =
+                    (step.text(1).ok()).map(|section| &*section.to_owned().leak());
                 let bench = self.bench.clone().ok_or_else(|| anyhow!("no workbench"))?;
                 self.cx
                     .update_window(self.window, |_, window, cx| {
-                        bench.update(cx, |bench, cx| {
-                            sikemux_gpui::settings::open(bench, page, window, cx)
+                        bench.update(cx, |bench, cx| match section {
+                            Some(section) => {
+                                sikemux_gpui::settings::open_at(bench, page, section, window, cx)
+                            }
+                            None => sikemux_gpui::settings::open(bench, page, window, cx),
                         })
                     })
                     .map_err(|error| anyhow!("{error}"))?;

@@ -111,7 +111,7 @@ if [[ "$NOTARIZED" == "1" ]]; then
 fi
 # A nightly's version and notes are stamped onto main's files by scripts/stamp-nightly.sh before it runs.
 STAMPED=()
-[[ "$CHANNEL" == "nightly" ]] && STAMPED=(':!package.json' ':!Cargo.toml' ':!Cargo.lock' ':!RELEASE_NOTES.md')
+[[ "$CHANNEL" == "nightly" ]] && STAMPED=(':!package.json' ':!Cargo.toml' ':!Cargo.lock' ':!RELEASE_NOTES.md' ':!RELEASE_CHANGES.md')
 [[ -z "$(git status --porcelain --untracked-files=all -- . ${STAMPED[@]+"${STAMPED[@]}"})" ]] || fail "working tree must be clean"
 # Stable ships from a release line so a hotfix can go out while main runs ahead.
 # A tag build checks out a detached commit, so the check is which branches hold it.

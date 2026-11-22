@@ -95,6 +95,7 @@ final class AppleSheet: NSObject, ASAuthorizationControllerDelegate,
         defer { showing = nil }
         let request = ASAuthorizationAppleIDProvider().createRequest()
         request.requestedScopes = scopes
+        request.nonce = UUID().uuidString
         let controller = ASAuthorizationController(authorizationRequests: [request])
         controller.delegate = sheet
         controller.presentationContextProvider = sheet

@@ -223,7 +223,7 @@ impl Manifest {
              - process_start for dev servers, builds and anything the person may watch, not your shell. It runs in this project only: never cd or pass a path out of it in the command. To wait over a minute (build, CI, agent) set trigger_add process, ci or agent, then end your turn; never sleep or poll.\n\
              - Pages: browser_navigate on your desk (WebKit), never headless Chromium or curl. Look there before saying a change works; for a page bug, open it there, reproduce the bug and read browser_console before changing any code. Load browser_navigate, _act, _state, _find, _click, _type, _wait and _screenshot together.\n\
              - Desk tabs are signed in as the person: read them before asking. Leave a tab they type or pay in; use newTab: true.\n\
-             - Visuals: an HTML page, page_preview, then page_show, which opens it in a desk tab (pages topic of {guide}); never its path or browser_navigate.\n\
+             - Visuals: an HTML page, page_preview, then page_show, which opens it in a desk tab (pages topic of {guide}); never its path or browser_navigate. If the person didn't start the turn, the desk stays shut: link the page in an ask.\n\
              - Plugin tools (jira, slack, signoz, aws, rundeck…) use the person's sign-in: use them for those services, never another MCP, CLI or API, whatever a skill says. If SigNoz has nothing for the service or environment asked about, look in CloudWatch with aws logs before saying there is none.\n\
              - Skills: only through the skills tool.\n\
              - Other agents, named like Otter: agent_list, agent_sessions, agent_send, agent_spawn and agent_read, never your CLI's SendMessage; load them together and read the agents topic of {guide} first. Uncommitted lines you didn't write in a file you'd change: another agent is on it. Pass the request to its owner with agent_send instead of editing. Another agent's commit, build or test in your way is its owner's to fix: message or resume it.\n\
@@ -232,7 +232,7 @@ impl Manifest {
              - When a request fits more than one place in the code, ask which before changing any.\n\
              - who_wrote, before git log, gh or a CI's API: who broke or wrote something.\n\
              - A tool refuses: do what its error says, such as messaging an agent, or tell the person; never get around it another way, such as raw git or a cd in a command.\n\
-             - ask: a question to your lead, or the person if you have none.\n\
+             - ask: a question to your lead, or the person if you have none. An answer on the call closes it; one in chat leaves it open: take it back with ask edit and withdraw: true.\n\
              - Commit only with git_commit, never git commit or hand staging."
         );
         if self.offers_simulator() {
@@ -454,6 +454,13 @@ impl Tool {
         let hints: Vec<String> = unexpected
             .iter()
             .filter_map(|name| {
+                if let Some(field) = object
+                    .get(*name)
+                    .and_then(Value::as_str)
+                    .filter(|value| self.properties.contains_key(*value))
+                {
+                    return Some(format!("'{name}': '{field}' should be '{field}': <value>"));
+                }
                 self.closest(name)
                     .map(|known| format!("'{name}' should be '{known}'"))
             })
@@ -585,6 +592,9 @@ impl Tool {
             ("prompt", &["message", "text", "instructions"]),
             ("paths", &["files", "file", "path"]),
             ("index", &["element", "ref", "number"]),
+            ("trigger", &["id", "triggerid", "trigger_id"]),
+            ("target", &["run", "commit", "test", "path"]),
+            ("process", &["processid", "executionid", "execution_id"]),
         ];
         let lowered = name.to_ascii_lowercase();
         SAME_MEANING
@@ -607,7 +617,7 @@ impl Tool {
                         distance(&lowered, &candidate.to_ascii_lowercase()),
                     )
                 })
-                .filter(|(_, apart)| *apart <= 2)
+                .filter(|(candidate, apart)| *apart <= 2 && *apart < candidate.len())
                 .min_by_key(|(_, apart)| *apart)
                 .map(|(candidate, _)| candidate.as_str())
         })

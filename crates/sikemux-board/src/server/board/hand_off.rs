@@ -15,7 +15,10 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
-use super::{add_card, claim_card, long_text, project_at, project_view, title_of, Adding, By};
+use super::{
+    add_card, claim_card, long_text, project_at, project_view, taken_up, title_of, Adding, By,
+    TriggerCard,
+};
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
 use crate::server::worktree::agent::{self, Unclaimed};
@@ -133,11 +136,42 @@ pub async fn person_held_card(core: &Arc<Core>, mut held: HeldCard) -> Result<u6
     .map_err(|error| error.to_string())
 }
 
+/// Takes a trigger's firing on to the agent of the card it went to: a new one for a card nobody
+/// holds, else the card's own, reopened when it has closed.
+pub async fn carry(core: Arc<Core>, project: String, went: TriggerCard) {
+    let (card, task) = match went {
+        TriggerCard::Kept => return,
+        TriggerCard::TakeUp { card, task } => (card, task),
+        TriggerCard::Owner {
+            card,
+            agent,
+            text,
+            task,
+        } => {
+            let note = "Sent by a trigger the person set up for the board, about a card you held.";
+            let reached =
+                (core.board_above().messages_reopening)(&core, agent.clone(), text, note.into())
+                    .await;
+            match reached {
+                Some(reached) => {
+                    if reached != agent {
+                        let _ = claim_card(&core, &project, &reached, card);
+                    }
+                    taken_up(&core, &project, card);
+                    return;
+                }
+                None => (card, task),
+            }
+        }
+    };
+    take_up(core, project, card, task).await
+}
+
 /// Starts an agent in a checkout of its own on card `card` of `project`, which a trigger added
 /// and nobody holds, and sends it the card's title and details as its task.
-pub async fn take_up(core: Arc<Core>, project: String, card: u64, task: String) {
+async fn take_up(core: Arc<Core>, project: String, card: u64, task: String) {
     let worker = Worker {
-        project,
+        project: project.clone(),
         launcher: None,
         provider: None,
         model: None,
@@ -148,6 +182,7 @@ pub async fn take_up(core: Arc<Core>, project: String, card: u64, task: String) 
         claim_card(core, project, agent, card).map(|_| card)
     })
     .await;
+    taken_up(&core, &project, card);
     match started {
         Ok((agent, started)) => {
             hand_task(
@@ -191,7 +226,8 @@ async fn start_worker(
             let folder = Path::new(&project);
             let (checkout, cwd) = agent::cut_for(folder, folder, &worktree::branch_for(&text))?;
             let mut unclaimed = Unclaimed(Some(checkout.clone()));
-            let (mut launch, launcher) = core.workspaces().board_launch(
+            let (mut launch, launcher, notice) = super::launch_own(
+                &core,
                 worker.launcher.as_deref(),
                 &cwd,
                 worker.provider.as_deref(),
@@ -212,7 +248,12 @@ async fn start_worker(
                 core.open_agents(),
             );
             launch.agent_id = agent.clone();
-            let chat = chat::begin(&core, launch, None, Some(launcher), false, false)
+            let starting = chat::Starting {
+                waits_for_person: false,
+                briefed: false,
+                notice,
+            };
+            let chat = chat::begin_as(&core, launch, None, Some(launcher), starting)
                 .inspect_err(|_| core.names().forget(&agent))?;
             let mut kept = checkout.clone();
             crate::server::ports::checkout::claim(&core, &mut kept);

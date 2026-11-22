@@ -64,7 +64,7 @@ pub(crate) const SEAT: &str = "You are @Chief, this project's chief in Sikemux. 
 - Send work in a standing role's area to that hire with agent_send instead of spawning a new worker; hire one with agent_hire when an area will need someone for weeks.
 - Start workers with agent_spawn for anything longer than a few minutes, and stay thin: shell output and file reads belong to workers. Their reports reach you; read more with agent_read only when you need it.
 - Pass work: true on the agent_spawn or agent_send that starts work the person asked for this turn; that alone makes it their task. Never pass it for a question, a remark, a reply to a call or a message about other work.
-- A worker's turn that ends waiting on something set to wake it, such as a trigger, a run or a land in line, sends you nothing, and agent_list says what it waits on. A turn that fails, asks something, stops, or a land sent back reaches you at once. A turn that finished calmly, or a land that went in, is one line with your next turn, or wakes you after 5 minutes, at once when no other worker of yours is open. When a turn a worker's message started changes nothing for the person, end it without writing anything.
+- A worker's turn that ends waiting on something set to wake it, such as a trigger, a run or a land in line, sends you nothing, and agent_list says what it waits on. A turn that fails, asks something, stops, or a land sent back reaches you at once. A turn that finished calmly, or a land that went in, is one line with your next turn, and wakes you only once no other worker of yours is at work. When a turn a worker's message started changes nothing for the person, end it without writing anything.
 - A bug the person reports starts its fix in the same turn, without a go. A design question gets your one-line take and a Fable consult started in that turn.
 - Send a bug to the worker that already holds that area with a built checkout, when one does, rather than starting a new one.
 - A bug the person reports a second time is fixed with a check that reproduces their report, and the fix names each earlier one and why it missed.
@@ -630,7 +630,8 @@ pub(crate) async fn digest(core: &Arc<Core>, chief: &str) -> Vec<ChatContext> {
 /// [`can_start`], unless the chief's session was told the same since it last lost what it was
 /// told, to a compaction or a fresh session.
 fn can_start_untold(core: &Core, chief: &str) -> Option<Vec<ChatContext>> {
-    let contexts = can_start(core);
+    let project = project_of_chief(core, chief).map(|project| project.path);
+    let contexts = can_start(core, project.as_deref().unwrap_or(Path::new("")));
     let text: String = contexts
         .iter()
         .map(|context| context.text.as_str())
@@ -650,7 +651,7 @@ fn can_start_untold(core: &Core, chief: &str) -> Option<Vec<ChatContext>> {
 /// offered, with what each model costs where that is known. Read from memory, with no model or
 /// provider asked. Accounts, keys and limits stay out: the core picks the account, moves chats
 /// off a full one and resumes them by itself.
-pub(crate) fn can_start(core: &Core) -> Vec<ChatContext> {
+pub(crate) fn can_start(core: &Core, project: &Path) -> Vec<ChatContext> {
     let mut kinds: Vec<String> = Vec::new();
     for launcher in core.workspaces().chat_launchers() {
         if matches!(launcher.status, Some(AgentStatus::Ready { .. }))
@@ -667,7 +668,8 @@ pub(crate) fn can_start(core: &Core) -> Vec<ChatContext> {
         Some((input, output)) => format!("{model} ${}/${}", dollars(input), dollars(output)),
         None => model.to_owned(),
     };
-    let connected: Vec<(String, Vec<String>)> = (super::model_providers::on_hand(core).into_iter())
+    let on_hand = super::model_providers::on_hand(core, project);
+    let connected: Vec<(String, Vec<String>)> = (on_hand.into_iter())
         .filter(|provider| provider.agents.iter().any(|agent| kinds.contains(agent)))
         .map(|provider| {
             let models = (provider.models.iter())

@@ -974,6 +974,38 @@ pub enum LiveServerMessage {
     Unknown,
 }
 
+/// What the Mac's browser sign-in handed back to it. The API trades the code at Clerk itself and keeps none of the tokens, so the Mac never holds one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacSignIn {
+    pub code: String,
+    /// The PKCE verifier the Mac made for this sign-in.
+    pub code_verifier: String,
+    /// Where the browser handed the code back, on the Mac itself.
+    pub redirect_uri: String,
+}
+
+/// Adds the Mac's host to the account its sign-in proved. The signature is the host key's, over the same text a DeviceRegistration signs, with the account from MacSignInState.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacSignInFinish {
+    pub key: DeviceKey,
+    pub name: String,
+    pub platform: Platform,
+    pub channel: Channel,
+    pub nonce: String,
+    pub signature: String,
+}
+
+/// The account the browser signed in to, and a challenge good for two minutes that the Mac signs as it would a DeviceRegistration and sends back in MacSignInFinish.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacSignInState {
+    pub account: String,
+    pub nonce: String,
+    pub expires_at: String,
+}
+
 /// The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none.
 pub type MemberName = String;
 
@@ -1705,6 +1737,29 @@ pub struct RenewalCharge {
     pub amount: Money,
 }
 
+/// Which address is the store reviewers' demo account, so an app can tell it apart before sending a password anywhere but Clerk.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewAccount {
+    /// SHA-256 of the address, trimmed and lowercased, in lowercase hex.
+    pub address_sha256: String,
+}
+
+/// A one-time Clerk sign-in token for the demo account, which the app signs in with by Clerk's ticket strategy.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewSignIn {
+    pub ticket: String,
+}
+
+/// The demo account's address and password, sent only once the app has matched the address against ReviewAccount.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewSignInRequest {
+    pub email: String,
+    pub password: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScheduledChange {
@@ -1745,6 +1800,15 @@ pub struct ShareMember {
     pub you: bool,
 }
 
+/// Moves the account's registration of `project` with the org to `host`, the project's home. Refused when the account no longer shares `project` with the org, so a move never brings back a share the person ended.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareMove {
+    pub org: OrgId,
+    pub project: ProjectKey,
+    pub host: DeviceKey,
+}
+
 /// A project the account shares with one of its orgs, and the host that holds its record. Sent again with another host when the project's home moves.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1766,6 +1830,14 @@ pub struct ShareRegistry {
 #[serde(rename_all = "camelCase")]
 pub struct ShareRemoval {
     pub org: OrgId,
+    pub project: ProjectKey,
+}
+
+/// Moves the account's registration of `from`, in whichever of its orgs holds it, paid or not, to `project`, the repository's new key. When the account already registers `project`, the one the person tapped Share for last stays. Only the host the registration names moves it; another of the account's hosts is refused, and so is a rename of a project the account shares with no org.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareRename {
+    pub from: ProjectKey,
     pub project: ProjectKey,
 }
 
@@ -2194,6 +2266,9 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "LiveRevoked" => through::<LiveServerMessage>(json),
         "LiveRole" => through::<LiveRole>(json),
         "LiveServerMessage" => through::<LiveServerMessage>(json),
+        "MacSignIn" => through::<MacSignIn>(json),
+        "MacSignInFinish" => through::<MacSignInFinish>(json),
+        "MacSignInState" => through::<MacSignInState>(json),
         "MemberName" => through::<MemberName>(json),
         "Money" => through::<Money>(json),
         "Org" => through::<Org>(json),
@@ -2264,13 +2339,18 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "PushTokenRegistration" => through::<PushTokenRegistration>(json),
         "PushTokenState" => through::<PushTokenState>(json),
         "RenewalCharge" => through::<RenewalCharge>(json),
+        "ReviewAccount" => through::<ReviewAccount>(json),
+        "ReviewSignIn" => through::<ReviewSignIn>(json),
+        "ReviewSignInRequest" => through::<ReviewSignInRequest>(json),
         "ScheduledChange" => through::<ScheduledChange>(json),
         "SeatPause" => through::<SeatPause>(json),
         "SharedProject" => through::<SharedProject>(json),
         "ShareMember" => through::<ShareMember>(json),
+        "ShareMove" => through::<ShareMove>(json),
         "ShareRegistration" => through::<ShareRegistration>(json),
         "ShareRegistry" => through::<ShareRegistry>(json),
         "ShareRemoval" => through::<ShareRemoval>(json),
+        "ShareRename" => through::<ShareRename>(json),
         "ShedBoxes" => through::<ShedBoxes>(json),
         "SignInAddressCheck" => through::<SignInAddressCheck>(json),
         "SignInRemoval" => through::<SignInRemoval>(json),

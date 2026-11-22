@@ -409,6 +409,9 @@ pub trait SinkPort: Send + Sync {
     /// Says `message` in the chat as an error.
     fn error_text(&self, message: String);
 
+    /// The agent would not open a session until it is signed in.
+    fn needs_sign_in(&self);
+
     /// The agent can no longer run as the chat shows it, so it is started again on its session.
     fn broke(&self, reason: String);
 

@@ -6,7 +6,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import type { ProjectInfo } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
-import { connectionOf, reloadDevices, retry, useDevices, useHostStatus, useLive } from '@/devices/hub';
+import { reloadDevices, retry, useDevices, useHostStatus, useLive } from '@/devices/hub';
 import { deviceKind, deviceName, type PairedDevice, updateDevice } from '@/devices/paired';
 import { CallsTab } from '@/calls/CallsTab';
 import { openCalls } from '@/calls/hostCalls';
@@ -457,13 +457,7 @@ export default function Device() {
                       ) : tab === 'terminals' ? (
                         <Terminals snapshot={snapshot} scope={scope} />
                       ) : (
-                        <CallsTab
-                          core={core}
-                          snapshot={snapshot}
-                          scope={scope}
-                          connection={connectionOf(live)}
-                          canAnswer={device?.access !== 'watch' && live.status === 'open'}
-                        />
+                        <CallsTab core={core} snapshot={snapshot} scope={scope} />
                       )
                     ) : null}
                   </View>

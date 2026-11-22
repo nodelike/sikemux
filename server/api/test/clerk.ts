@@ -1,4 +1,9 @@
-import type { ClerkBackend, SignIns, SignUp } from "../src/account/clerk.ts";
+import type {
+  ClerkBackend,
+  DemoAccount,
+  SignIns,
+  SignUp,
+} from "../src/account/clerk.ts";
 
 /** Clerk's Backend API as the tests want it to answer: done, or failing until told otherwise. */
 export class FakeClerk implements ClerkBackend {
@@ -52,6 +57,24 @@ export class FakeClerk implements ClerkBackend {
     this.revoked.push(sessionId);
   }
 
+  async sessionOver(sessionId: string) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    const known = [...this.userSessions.values()]
+      .flat()
+      .some((session) => session.id === sessionId);
+    return !known || this.revoked.includes(sessionId);
+  }
+
+  readonly userSessions = new Map<string, { id: string; createdAt: Date }[]>();
+
+  async sessions(userId: string) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return (this.userSessions.get(userId) ?? []).map((session) => ({
+      ...session,
+      live: !this.revoked.includes(session.id),
+    }));
+  }
+
   async appleAccessTokens(userId: string) {
     if (this.failing) throw new Error("Clerk answered 500");
     return this.appleTokens.get(userId) ?? [];
@@ -61,7 +84,8 @@ export class FakeClerk implements ClerkBackend {
 
   async signIns(userId: string) {
     if (this.failing) throw new Error("Clerk answered 500");
-    return this.users.get(userId) ?? null;
+    const user = this.users.get(userId);
+    return user ? structuredClone(user) : null;
   }
 
   async setPrimaryAddress(userId: string, addressId: string) {
@@ -80,5 +104,42 @@ export class FakeClerk implements ClerkBackend {
       user.externalAccounts = user.externalAccounts.filter(
         (a) => a.id !== accountId,
       );
+  }
+
+  async removePhone(phoneId: string) {
+    for (const user of this.users.values())
+      user.phones = user.phones.filter((phone) => phone.id !== phoneId);
+  }
+
+  async removeWallet(userId: string, walletId: string) {
+    const user = this.users.get(userId);
+    if (user) user.wallets = user.wallets.filter((w) => w.id !== walletId);
+  }
+
+  async replacePassword(userId: string) {
+    const user = this.users.get(userId);
+    if (user) user.passwordSetAt = new Date(Date.now() + 1);
+  }
+
+  /** The users marked as the demo account, and each user's password. */
+  readonly demos = new Map<string, DemoAccount>();
+  readonly passwords = new Map<string, string>();
+  readonly signInTokens: string[] = [];
+
+  async demoAccount(userId: string) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return this.demos.get(userId) ?? null;
+  }
+
+  async passwordMatches(userId: string, password: string) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return this.passwords.get(userId) === password;
+  }
+
+  async signInToken(userId: string) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    const token = `sign-in token ${this.signInTokens.length} for ${userId}`;
+    this.signInTokens.push(token);
+    return token;
   }
 }

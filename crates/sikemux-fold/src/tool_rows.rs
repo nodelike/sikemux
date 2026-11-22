@@ -1683,6 +1683,28 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "rundeck_export",
+        Spec {
+            verb: "read",
+            kind: "read",
+            icon: "code",
+            target: &["{job} definition"],
+            detail: &[],
+            plugin: Some("sikemux.rundeck"),
+        },
+    ),
+    (
+        "rundeck_import",
+        Spec {
+            verb: "update",
+            kind: "edit",
+            icon: "code",
+            target: &["{job} definition"],
+            detail: &["{project}"],
+            plugin: Some("sikemux.rundeck"),
+        },
+    ),
+    (
         "rundeck_executions",
         Spec {
             verb: "list",

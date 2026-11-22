@@ -26,8 +26,6 @@ struct RowLook: Equatable {
     /// The messages before and after this one are the person's own too, so they stack together.
     var followsOwn = false
     var followedByOwn = false
-    /// The workers' finished work that goes after this row.
-    var results: [ResultRow] = []
 }
 
 struct RowEntry: Equatable {

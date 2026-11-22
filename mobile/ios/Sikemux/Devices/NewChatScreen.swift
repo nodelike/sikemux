@@ -198,11 +198,12 @@ private struct NewChatContent: View {
                 print("sikemux: could not read the smart pick: \(Sikemux.problem(error))")
             }
         }
-        .task(id: [launcher?.provider, live.isOpen ? "open" : nil]) {
+        .task(id: [launcher?.provider, project?.id, live.isOpen ? "open" : nil]) {
             routes = []
-            guard let launcher, let connection = live.connection else { return }
+            guard let launcher, let project, let connection = live.connection else { return }
             do {
-                routes = try await connection.call(PhoneCall.ModelRoutes.self, RoutesParams(agent: launcher.provider))
+                routes = try await connection.call(
+                    PhoneCall.ModelRoutes.self, RoutesParams(agent: launcher.provider, project: project.id))
             } catch {
                 print("sikemux: could not read the model providers: \(Sikemux.problem(error))")
             }

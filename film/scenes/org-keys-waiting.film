@@ -9,7 +9,7 @@ asleep mac-mini
 orgrole user "Fjord Labs"
 signed-in
 settle 5
-settings "API providers"
+settings Models "API providers"
 settle 2
 cursor 900,600
 scroll -6000 1

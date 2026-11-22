@@ -914,5 +914,47 @@
       ]
     },
     "maxTurns": 8
+  },
+  {
+    "id": "wait-16",
+    "from": [
+      "32 trigger_add refusals, 2026-11-16 to 2026-11-21: set beside process_start with the idempotencyKey, the label or a made-up id as process"
+    ],
+    "category": "malformed_call",
+    "severity": "med",
+    "tools": [
+      "process_start",
+      "trigger_add"
+    ],
+    "prompt": "Run the whole workspace's tests (`cargo test --workspace`, about 15 minutes on this machine) and tell me which tests failed once it ends.",
+    "fixture": {
+      "processOutput": "test result: FAILED. 1412 passed; 2 failed; 0 ignored; finished in 14m 02s\n\nfailures:\n    server::questions::tests::edit_keeps_pages\n    tools_mcp::tests::schemas_stay_lean\n"
+    },
+    "grade": {
+      "expect": [
+        {
+          "tool": "process_start",
+          "args": {
+            "command": "/cargo\\s+test\\s+[^|;&]*--workspace/"
+          }
+        },
+        {
+          "tool": "trigger_add",
+          "args": {
+            "process": "/^exec-eval-\\d+$/"
+          }
+        }
+      ],
+      "forbid": [
+        {
+          "tool": "trigger_add",
+          "args": {
+            "process": "/^(?!exec-eval-\\d+$|\"\")/"
+          },
+          "why": "set the trigger with a process id it made up, before process_start had returned one"
+        }
+      ]
+    },
+    "maxTurns": 8
   }
 ]

@@ -46,7 +46,7 @@ const FLAGS = [
 const CORE_FLAGS = ["historyBeforeStart"];
 const DRIVERS = ["claude", "codex", "muse", "pi", "opencode", "acp"];
 const PROVIDERS = ["routed", "reads"];
-const ROUTED_APIS = ["anthropic", "responses", "chat"];
+const ROUTED_APIS = ["anthropic", "responses", "chat", "gemini"];
 
 /** Everything the share page paints in an agent's colour, as a selector with `%` for the agent and the property it sets. */
 const BRANDED = [[".agent-glyph.%", "color"]];
@@ -218,11 +218,13 @@ for (const agent of agents) {
       isName(privateHome?.config) &&
       typeof privateHome.emptyConfig === "string" &&
       isName(privateHome.sessionStore) &&
-      typeof privateHome.sessionStoreIsFolder === "boolean"
+      typeof privateHome.sessionStoreIsFolder === "boolean" &&
+      (privateHome.login === undefined ||
+        (isName(privateHome.login?.variable) && isName(privateHome.login.file)))
     )
   )
     fail(
-      "home.private must be absent or { config, emptyConfig, sessionStore, sessionStoreIsFolder }",
+      "home.private must be absent or { config, emptyConfig, sessionStore, sessionStoreIsFolder, login? }, with login { variable, file }",
     );
   if (
     agent.commitMessages !== null &&
@@ -375,6 +377,14 @@ ${modes}
                 empty_config: ${rustString(privateHome.emptyConfig)},
                 session_store: ${rustString(privateHome.sessionStore)},
                 session_store_is_folder: ${privateHome.sessionStoreIsFolder},
+${
+  privateHome.login
+    ? `                login: Some(Login {
+                    variable: ${rustString(privateHome.login.variable)},
+                    file: ${rustString(privateHome.login.file)},
+                }),`
+    : "                login: None,"
+}
             }),`
     : "            private: None,";
   const links = home?.accountLinks;
@@ -466,13 +476,13 @@ ${agents.map((agent) => `            Self::${pascal(agent.type)} => ${JSON.strin
 
 await emit(
   bundledPath,
-  `// ${banner}
+  rustfmt(`// ${banner}
 use super::AgentKind;
 
 pub(super) const BUNDLED_MANIFESTS: &[(AgentKind, &str)] = &[
 ${agents.map((agent) => `    (AgentKind::${pascal(agent.type)}, include_str!("manifests/${agent.type}.json")),`).join("\n")}
 ];
-`,
+`),
 );
 
 await emit(
@@ -567,6 +577,15 @@ pub struct PrivateHome {
     /// The agent's saved sessions, shared with the person's own home.
     pub session_store: &'static str,
     pub session_store_is_folder: bool,
+    /// The file its sign-in is saved in, kept in the person's own home so a
+    /// sign-in made in one private copy reaches every other.
+    pub login: Option<Login>,
+}
+
+/// A file an agent keeps its sign-in in, and the variable that moves it out of its home.
+pub struct Login {
+    pub variable: &'static str,
+    pub file: &'static str,
 }
 
 /// The API an agent speaks to a provider Sikemux points it at.
@@ -579,6 +598,8 @@ pub enum RoutedApi {
     /// OpenAI's chat completions, which every provider serves. The agent knows the
     /// provider by an id of Sikemux's and its models as \`<id>/<model>\`.
     Chat,
+    /// Google's Gemini API, which takes the key in \`x-goog-api-key\`.
+    Gemini,
 }
 
 /// How Sikemux points the agent at a provider in place of its maker's account.

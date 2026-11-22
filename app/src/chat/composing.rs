@@ -24,6 +24,7 @@ use super::*;
 use crate::chat::{Answering, Chat, Question};
 use crate::core::ChatAsk;
 use crate::ui::list_picker::{Choose, Close, Next, Previous};
+use crate::worktrees::switch::Switch;
 use sikemux_calls::workspace::AgentPatch;
 use sikemux_calls::workspace::UpdateAgentParams;
 
@@ -697,7 +698,7 @@ pub(super) fn composer(
             choices: Vec::new(),
         })
     });
-    if let Some(saved) = saved.filter(|_| fresh || model.is_some()) {
+    if let Some(saved) = saved {
         let moving: crate::chat::model_picker::Move = {
             let (this, agent) = (this.clone(), agent.id.clone());
             Rc::new(move |to: crate::chat::model_picker::Moving, _, cx| {
@@ -709,6 +710,13 @@ pub(super) fn composer(
             })
         };
         let started = head.is_some_and(|head| head.connection == ChatConnection::Ready);
+        let reading = reads_models
+            || head.is_some_and(|head| {
+                matches!(
+                    head.connection,
+                    ChatConnection::Starting | ChatConnection::Initializing
+                )
+            });
         let picked = crate::chat::model_picker::Picked {
             provider: agent.provider.clone(),
             profile: saved.profile_id.clone(),
@@ -716,8 +724,10 @@ pub(super) fn composer(
             effort: effort.clone(),
             speed: head.and_then(|head| head.speed.clone()).filter(|_| started),
             model_provider: saved.model_provider.clone(),
+            project: saved.project.clone(),
             locked: !fresh,
-            pending: match (started, reads_models) {
+            idle: idle(head),
+            pending: match (started, reading) {
                 (true, _) => None,
                 (false, true) => Some(t!("Reading the models…")),
                 (false, false) => Some(t!("Models show once the agent starts")),
@@ -780,6 +790,17 @@ pub(super) fn composer(
         });
     }
     Some((composer, offering || tray_open))
+}
+
+/// Whether no agent is running the chat: it rests until the person writes, or it ended.
+fn idle(head: Option<&ChatHead>) -> bool {
+    head.is_none_or(|head| {
+        !head.running
+            && matches!(
+                head.connection,
+                ChatConnection::Connecting | ChatConnection::Stopped | ChatConnection::Error
+            )
+    })
 }
 
 /// Whether the chat takes a new account, mode or model now: its agent is up, or has not
@@ -1220,12 +1241,10 @@ impl Workbench {
                     InputEvent::PressEnter {
                         shift: false,
                         secondary,
-                    } => bench.send(&owner, *secondary, window, cx),
-                    InputEvent::PressEnter { shift: true, .. } => {
-                        if let Some(call) = crate::calls::reply::call_of(&owner) {
-                            bench.follow_up(call, window, cx);
-                        }
-                    }
+                    } => match crate::calls::reply::call_of(&owner) {
+                        Some(call) if *secondary => bench.follow_up(call, window, cx),
+                        _ => bench.send(&owner, *secondary, window, cx),
+                    },
                     InputEvent::Change => {
                         let empty = draft.read(cx).value().is_empty();
                         if was_empty.replace(empty) != empty {

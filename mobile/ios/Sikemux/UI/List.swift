@@ -126,6 +126,7 @@ struct Row<Mark: View, End: View, After: View>: View {
                         .tracking(-0.15)
                         .foregroundStyle(dim ? palette.tertiary : palette.ink)
                         .lineLimit(1)
+                        .layoutPriority(aside == nil ? 0 : 1)
                     if let aside {
                         Text("  \(aside)")
                             .font(Theme.ui(14.5))

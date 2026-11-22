@@ -95,6 +95,7 @@ interface ClerkSignIn {
     readonly status: string | null;
     create(params: { identifier: string }): Answer;
     password(params: { password: string }): Answer;
+    ticket(params: { ticket: string }): Answer;
     finalize(params?: Finalize): Answer;
     mfa: {
         sendEmailCode(): Answer;
@@ -128,6 +129,14 @@ type Flow = {
     done?: () => void;
     /** Why the screen cannot go on: the account needs a step it does not do, or more than it asks for. */
     unsupported: { signIn: string; signUp: string };
+    /**
+     * The store reviewers' demo account, which signs in without an emailed code: whether an address
+     * is its, decided on the device, and a one-time sign-in for it from the accounts API.
+     */
+    review?: {
+        isDemo(email: string): Promise<boolean>;
+        ticket(email: string, password: string): Promise<string>;
+    };
 };
 
 function check({ error }: { error: unknown }) {
@@ -138,7 +147,7 @@ function check({ error }: { error: unknown }) {
  * Signing in with an email address and a password or emailed code, the same on the web app and the
  * phone: each step's Clerk calls, throwing Clerk's problem when one refuses, and `go` to the next.
  */
-export function signInFlow({ signIn, signUp, go, finalize, done, unsupported }: Flow) {
+export function signInFlow({ signIn, signUp, go, finalize, done, unsupported, review }: Flow) {
     const finished = async (who: ClerkSignIn | ClerkSignUp) => {
         check(await who.finalize(finalize?.()));
         done?.();
@@ -161,7 +170,12 @@ export function signInFlow({ signIn, signUp, go, finalize, done, unsupported }: 
             check({ error });
             go({ kind: "password" });
         },
-        async submitPassword(password: string) {
+        async submitPassword(email: string, password: string) {
+            if (review && (await review.isDemo(email))) {
+                check(await signIn.ticket({ ticket: await review.ticket(email, password) }));
+                if (signIn.status !== "complete") throw new Error(unsupported.signIn);
+                return finished(signIn);
+            }
             check(await signIn.password({ password }));
             await afterPassword();
         },

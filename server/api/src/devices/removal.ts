@@ -14,6 +14,8 @@ interface Removal {
   reason: RevokeReason;
   actor: Actor;
   detail?: Record<string, unknown>;
+  /** Whether Clerk can end the device's session, which then holds new sign-ins until it has. */
+  endsSession?: boolean;
 }
 
 export interface Removed {
@@ -31,7 +33,7 @@ export interface Removed {
  */
 export async function removeDevice(
   trx: Transaction<Tables>,
-  { userId, key, reason, actor, detail = {} }: Removal,
+  { userId, key, reason, actor, detail = {}, endsSession = true }: Removal,
 ): Promise<Removed | undefined> {
   const row = await trx
     .deleteFrom("devices")
@@ -50,7 +52,9 @@ export async function removeDevice(
       acked_event_id: row.acked_event_id,
       clerk_session_id: row.clerk_session_id,
       clerk_retry_at:
-        reason === "removed" && row.clerk_session_id ? sql<Date>`now()` : null,
+        endsSession && reason === "removed" && row.clerk_session_id
+          ? sql<Date>`now()`
+          : null,
     })
     .execute();
   if (row.role === "host") {
@@ -76,6 +80,7 @@ export async function removeDevice(
         reason,
         actor,
         detail: { ...detail, with: key },
+        endsSession,
       });
   }
   await appendEvent(trx, {

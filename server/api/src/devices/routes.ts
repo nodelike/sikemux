@@ -91,6 +91,7 @@ export function deviceRoutes(
                 reason,
                 actor: `user:${userId}`,
                 detail: { via },
+                endsSession: clerk !== null,
               });
               return { device, reason };
             });

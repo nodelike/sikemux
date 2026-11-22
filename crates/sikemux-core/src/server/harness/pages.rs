@@ -10,6 +10,7 @@ pub use sikemux_calls::harness::{PageHtml, PageParams};
 pub(super) const PAGE_IN_TAB: &str = "The page is open in a tab on your desk, and your reply shows a card that brings it forward. Do not describe or restate it; write only what it does not already say.";
 pub(super) const PAGE_ON_DESK: &str =
     "The page is open on your desk, beside your terminal, where the person can see it.";
+const PAGE_ON_SHUT_DESK: &str = "The person did not start this turn, so the page waits in a tab on your desk, which stays shut. To have them look, raise a call with ask and this page's id in page.";
 pub(super) const PAGE_NO_WINDOW: &str = "No Sikemux window is open to show it on your desk.";
 
 fn pages_dir(core: &Core) -> Result<(PathBuf, PathBuf), String> {
@@ -84,11 +85,17 @@ pub(super) async fn show_page(
     };
     let (_, kept) = pages_dir(core)?;
     let in_chat = (asker.as_deref()).is_none_or(|agent_id| core.chats().get(agent_id).is_some());
+    let quiet = in_chat
+        && (asker.as_deref())
+            .and_then(|agent_id| core.chats().get(agent_id))
+            .is_some_and(|chat| chat.feed.person_said().is_empty());
     let mut on_desk = false;
+    let mut shut = false;
     if core.window().is_open() {
-        request.params = json!({ "id": page.id, "picture": in_chat });
+        request.params = json!({ "id": page.id, "picture": in_chat, "quiet": quiet });
         let shown = forward(core, request).await;
         on_desk = shown.is_ok();
+        shut = (shown.as_ref().ok()).is_some_and(|shown| shown["shut"] == true);
         if let Some(picture) = shown
             .as_ref()
             .ok()
@@ -101,6 +108,7 @@ pub(super) async fn show_page(
         shown_by(core, agent_id, &page);
     }
     let note = match (on_desk, in_chat) {
+        (true, true) if shut => PAGE_ON_SHUT_DESK,
         (true, true) => PAGE_IN_TAB,
         (true, false) => PAGE_ON_DESK,
         (false, _) => PAGE_NO_WINDOW,

@@ -1341,13 +1341,20 @@
           "minLength": 1,
           "maxLength": 4096
         },
+        "wake": {
+          "description": "Prompt for you once it exits; end your turn",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
         "needs": {
-          "type": "array"
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
-      "required": [
-        "idempotencyKey"
-      ]
+      "required": []
     },
     {
       "name": "process_restart",
@@ -1676,6 +1683,10 @@
       "properties": {
         "allProjects": {
           "type": "boolean"
+        },
+        "full": {
+          "description": "true: every field, such as model",
+          "type": "boolean"
         }
       },
       "required": []
@@ -1707,7 +1718,7 @@
           "maxLength": 65536
         },
         "answers": {
-          "description": "Id of the question this answers",
+          "description": "Id of an open question that agent asked you, never of a call of yours",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
@@ -2067,8 +2078,8 @@
         "about": {"description": "Agent whose work it is, when not yours", "type": "string", "minLength": 1, "maxLength": 200},
         "page": {"description": "Id of a page you showed that pictures it", "type": "string", "minLength": 32, "maxLength": 32},
         "pages": {"description": "Several such page ids, in order; on edit, the new list", "type": "array", "maxItems": 6, "items": {"type": "string", "minLength": 32, "maxLength": 32}},
-        "edit": {"description": "questionId of your open call: change it in place with the fields given", "type": "string", "minLength": 1, "maxLength": 64},
-        "withdraw": {"description": "With edit: take the call back", "type": "boolean"}
+        "edit": {"description": "questionId, or title, of your open call: change it in place with the fields given", "type": "string", "minLength": 1, "maxLength": 64},
+        "withdraw": {"description": "With edit: take the call back, once the person answered in chat or it no longer stands", "type": "boolean"}
       },
       "required": []
     },
@@ -2461,7 +2472,7 @@
           "type": "string"
         },
         "process": {
-          "description": "Fire once this executionId ends",
+          "description": "Fire once this executionId ends; it comes in process_start's result, so start first",
           "type": "string"
         },
         "agent": {
@@ -2531,7 +2542,7 @@
       "description": "Commit only the lines you wrote.",
       "properties": {
         "message": {
-          "description": "Omit to only sync, land or push; no Co-Authored-By trailer naming yourself",
+          "description": "Omit to only sync, land or push; no Co-Authored-By naming you",
           "type": "string",
           "minLength": 1,
           "maxLength": 65536
@@ -2547,15 +2558,19 @@
           }
         },
         "sync": {
-          "description": "Own checkout: bring it up to the branch it was cut from",
+          "description": "Own checkout: catch up with its base branch",
           "type": "boolean"
         },
         "land": {
-          "description": "Own checkout: queue your commits for the branch it was cut from; a message says how the land ended",
+          "description": "Own checkout: queue your commits for its base branch; a message says how it ended",
           "type": "boolean"
         },
         "push": {
-          "description": "Push your commits, when the person or the project's rules say to; from your own checkout without land, to its own branch",
+          "description": "Push when the person or project rules say to; own checkout without land: to its own branch",
+          "type": "boolean"
+        },
+        "force": {
+          "description": "After a rebase: replace the pushed branch; never main or release/*",
           "type": "boolean"
         }
       },

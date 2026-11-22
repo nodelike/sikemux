@@ -73,6 +73,40 @@ export async function workAddressRefusal(
   return (await proofs.executeTakeFirst()) ? { why: "address", domain } : null;
 }
 
+/** workAddressRefusal for an address known only by its own keyed hash and its domain's. */
+export async function goneAddressRefusal(
+  db: Kysely<Tables>,
+  proofKey: Buffer,
+  { address_hash, domain_hash }: { address_hash: Buffer; domain_hash: Buffer },
+  addedAt: Date,
+): Promise<Refusal | null> {
+  const since = await sinceRefusing(db);
+  if (!since || addedAt < since) return null;
+  const domains = await db
+    .selectFrom("org_domains")
+    .innerJoin("orgs", "orgs.id", "org_domains.org_id")
+    .select(["org_domains.domain", "orgs.id", "orgs.name"])
+    .where("org_domains.ours_since", "<", addedAt)
+    .execute();
+  const org = domains.find((row) =>
+    addressHash(proofKey, row.domain).equals(domain_hash),
+  );
+  if (org)
+    return {
+      why: "domain",
+      domain: org.domain,
+      orgId: org.id,
+      orgName: org.name,
+    };
+  const proof = await db
+    .selectFrom("address_proofs")
+    .select("domain")
+    .where("address_hash", "=", address_hash)
+    .where("proven_at", "<", addedAt)
+    .executeTakeFirst();
+  return proof ? { why: "address", domain: proof.domain } : null;
+}
+
 /**
  * Whether any verified address on a sign-up keeps it from standing as an account of its own,
  * not only the main one: an address added and made main does not hide a work address. A sign-in

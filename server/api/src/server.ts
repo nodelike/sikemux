@@ -5,12 +5,15 @@ import type { Server } from "node:http";
 import type { Duplex } from "node:stream";
 
 import { appleSignIn } from "./account/apple.ts";
+import { clerkMacSignIn } from "./devices/mac-sign-in.ts";
 import { workGoogle } from "./account/work-google.ts";
 import { admittingVerifier } from "./account/admission.ts";
 import { clerkBackend } from "./account/clerk.ts";
 import { sweepClerk } from "./account/clerk-sweeper.ts";
+import { ReviewAccount } from "./account/review-sign-in.ts";
 import { makeDueCalls } from "./billing/calls.ts";
 import { sweepDeletedBilling } from "./billing/deleted.ts";
+import { alertWaitingKeptRefunds } from "./billing/seat-pause.ts";
 import { PaddleProvider } from "./billing/paddle.ts";
 import { PaddleApi } from "./billing/paddle-api.ts";
 import { endSandboxPlans } from "./billing/sandbox.ts";
@@ -60,6 +63,16 @@ export async function startServer(config: Config, log: Logger) {
     config.addressProofKey,
     log,
   );
+  const review =
+    config.reviewAccountUserId && clerk
+      ? new ReviewAccount(config.reviewAccountUserId)
+      : null;
+  if (review && clerk) {
+    review.keepLoading(clerk, log);
+    log.info(
+      "the store reviewers' demo account signs in without an emailed code",
+    );
+  }
   const apple = config.appleSignIn ? appleSignIn(config.appleSignIn) : null;
   if (apple)
     log.info(
@@ -161,7 +174,9 @@ export async function startServer(config: Config, log: Logger) {
     limiter,
     relayAccess,
     clerk,
+    review,
     appleSignIn: apple,
+    macSignIn: clerkMacSignIn(config.clerkIssuer, config.macClientId),
     webhookSecret: config.clerkWebhookSecret,
     network: config.network,
     push: config.push,
@@ -211,8 +226,9 @@ export async function startServer(config: Config, log: Logger) {
     sweeping = true;
     Promise.all([
       clerk &&
-        sweepClerk(database.db, clerk, log).catch((error: unknown) =>
-          log.error({ err: error }, "retrying calls to Clerk failed"),
+        sweepClerk(database.db, clerk, config.addressProofKey, log).catch(
+          (error: unknown) =>
+            log.error({ err: error }, "retrying calls to Clerk failed"),
         ),
       provider &&
         makeDueCalls(database.db, provider, log).catch((error: unknown) =>
@@ -221,6 +237,9 @@ export async function startServer(config: Config, log: Logger) {
             "making the calls billing owes the payment provider failed",
           ),
         ),
+      alertWaitingKeptRefunds(database.db, log).catch((error: unknown) =>
+        log.error({ err: error }, "checking waiting kept refunds failed"),
+      ),
       sweepDeletedBilling(database.db, provider, log).catch((error: unknown) =>
         log.error(
           { err: error },

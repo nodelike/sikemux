@@ -41,6 +41,10 @@ const UNPAIR_WAIT_MS = 3000;
 const AWAY_MS = 10_000;
 /** After the phone changes network, a connection that cannot answer in this time is replaced. */
 const CHECK_MS = 5000;
+/** Back in front, a connection that cannot answer in this time is replaced. */
+const RETURN_CHECK_MS = 2000;
+/** A try that has not ended by now is given up and made again; the slowest dial ends well before. */
+const ATTEMPT_MS = 30_000;
 
 type Entry = {
   live: Live;
@@ -52,7 +56,6 @@ type Entry = {
   failure?: string;
   /** A connection that was up dropped without the phone asking, and it is being made again. */
   recovering?: boolean;
-  opening?: Promise<void>;
   /** The connection being made or held; a listener of any other is ignored. */
   current?: object;
   retrying?: ReturnType<typeof setTimeout>;
@@ -256,13 +259,12 @@ function listener(core: string, found: Entry, attempt: object): CoreListener {
   };
 }
 
-function open(core: string): Promise<void> {
+/** Starts a try unless one is under way; `again` gives up the one under way first. */
+function open(core: string, again = false) {
   const found = entry(core);
-  if (forgotten.has(core) || away || found.live.status === 'open') return Promise.resolve();
-  found.opening ??= connect(core, found).finally(() => {
-    found.opening = undefined;
-  });
-  return found.opening;
+  if (forgotten.has(core) || away || found.live.status === 'open') return;
+  if (found.current && !again) return;
+  connect(core, found);
 }
 
 async function connect(core: string, found: Entry) {
@@ -270,6 +272,9 @@ async function connect(core: string, found: Entry) {
   set(core, found, { status: 'connecting', problem: found.recovering ? undefined : found.failure, snapshot: found.live.snapshot });
   const attempt = {};
   found.current = attempt;
+  const late = setTimeout(() => {
+    if (found.current === attempt) drop(core, translate('The host did not answer in time.'));
+  }, ATTEMPT_MS);
   let connection: ConnectionLike;
   try {
     const device = await thisDevice();
@@ -277,6 +282,8 @@ async function connect(core: string, found: Entry) {
   } catch (error) {
     if (found.current === attempt) drop(core, problem(error), error);
     return;
+  } finally {
+    clearTimeout(late);
   }
   if (found.current !== attempt || found.watchers === 0 || forgotten.has(core) || away) {
     connection.close();
@@ -412,21 +419,26 @@ AppState.addEventListener('change', (state) => {
   // Timers do not run while the phone has the app suspended, so the time away is measured too.
   const wasAway = away || Date.now() - leftAt > AWAY_MS;
   away = false;
+  // The phone's way onto the network went quiet while the app slept, and tries through it stall; a fresh one is up in a second.
+  if (wasAway) goOffline();
   entries.forEach((found, core) => {
-    // A connection the phone held while it slept may be dead without having noticed yet.
-    if (found.live.status === 'open' && (wasAway || !found.live.connection.isOpen())) {
+    if (found.live.status === 'open') {
+      if (!wasAway) {
+        check(core, found, found.live.connection, RETURN_CHECK_MS);
+        return;
+      }
       close(core, found, translate('Reconnecting.'));
       found.recovering = true;
     }
-    if (found.watchers === 0 || found.live.status === 'open') return;
+    if (found.watchers === 0) return;
     if (found.live.status === 'closed' && found.live.unpaired) return;
     found.attempt = 0;
-    open(core);
+    open(core, true);
   });
 });
 
 /** Asks a connection to answer after the network changed under it, and replaces it when it cannot. */
-function check(core: string, found: Entry, connection: ConnectionLike) {
+function check(core: string, found: Entry, connection: ConnectionLike, wait = CHECK_MS) {
   const stillThis = () => found.live.status === 'open' && found.live.connection === connection;
   if (!connection.isOpen()) {
     reconnect(core, found, translate('The network changed.'));
@@ -438,7 +450,7 @@ function check(core: string, found: Entry, connection: ConnectionLike) {
     timer = setTimeout(() => {
       abort.abort();
       fail(new Error(translate('No answer.')));
-    }, CHECK_MS);
+    }, wait);
   });
   Promise.race([connection.host({ signal: abort.signal }), late])
     .catch(() => {
@@ -537,11 +549,12 @@ export function rejoined(core: string) {
   else set(core, found, { status: 'connecting' });
 }
 
+/** Gives up any try under way and starts a fresh one now. */
 export function retry(core: string) {
   const found = entry(core);
   clearTimeout(found.retrying);
   found.attempt = 0;
-  open(core);
+  open(core, true);
 }
 
 /** A chat's events from this host, in the batches they arrived in. Events from a connection already replaced never arrive. */

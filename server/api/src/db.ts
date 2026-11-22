@@ -57,6 +57,7 @@ export interface Tables {
     stash_seen_at: ColumnType<Date | null, never, Date>;
     staff: ColumnType<boolean, never, boolean>;
     admitted_at: ColumnType<Date | null, Date | undefined, Date>;
+    frozen_at: ColumnType<Date | null, never, Date | null>;
     new_kept_at: ColumnType<Date | null, never, Date>;
   };
   address_proofs: {
@@ -80,6 +81,11 @@ export interface Tables {
     created_at: CreatedAt;
     expires_at: Date;
     done_at: ColumnType<Date | null, never, Date>;
+    started_session: ColumnType<
+      string | null,
+      string | null | undefined,
+      never
+    >;
   };
   events: {
     id: Generated<string>;
@@ -110,6 +116,28 @@ export interface Tables {
     provider: string | null;
     removed_at: CreatedAt;
     told_at: Date | null;
+    end_sessions_from: Date | null;
+    swept_from: Date | null;
+    address_seen_id: string | null;
+    rerun_attempts: Generated<number>;
+    rerun_at: Generated<Date>;
+  };
+  addresses_seen: {
+    id: Generated<string>;
+    user_id: string;
+    address_hash: Buffer;
+    domain_hash: Buffer;
+    first_seen: Date;
+    ended_at: Date | null;
+    could_sign_in: Generated<boolean>;
+  };
+  ended_sessions: {
+    session_id: string;
+    user_id: string;
+    made_at: Date;
+    ended_at: ColumnType<Date | null, never, Date>;
+    clerk_attempts: Generated<number>;
+    clerk_retry_at: Generated<Date>;
   };
   removed_devices: {
     key: string;
@@ -154,8 +182,23 @@ export interface Tables {
     >;
     /** Its join tickets say it never signs for the person. */
     hands_only: ColumnType<boolean, boolean | undefined, boolean>;
+    sign_in_session: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
+    >;
+    mac_signed_in_at: ColumnType<
+      Date | null,
+      Date | null | undefined,
+      Date | null
+    >;
   };
-  challenges: { nonce: string; user_id: string; expires_at: Date };
+  challenges: {
+    nonce: string;
+    user_id: string;
+    expires_at: Date;
+    mac_signed_in_at: Date | null;
+  };
   host_sign_ins: {
     code_hash: string;
     user_code: string;
@@ -164,6 +207,16 @@ export interface Tables {
     platform: Platform;
     channel: Channel;
     approved_by: string | null;
+    approved_session: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
+    >;
+    approved_mac_signed_in_at: ColumnType<
+      Date | null,
+      Date | null | undefined,
+      Date | null
+    >;
     requested_from: string | null;
     created_at: CreatedAt;
     expires_at: Date;
@@ -393,8 +446,10 @@ export interface Tables {
   };
   org_shares: {
     member_id: string;
+    user_id: string;
     project: string;
     host: string;
+    tapped_at: ColumnType<Date, Date | undefined, Date>;
     created_at: CreatedAt;
     updated_at: ColumnType<Date, never, Date>;
   };
@@ -477,9 +532,20 @@ export interface Tables {
     seats_cut_to: Generated<number | null>;
     seats_cut_at: Generated<Date | null>;
     paused_for_seat_at: Generated<Date | null>;
+    seat_pause_asked_for: Generated<Date | null>;
+    cancel_asked_at: Generated<Date | null>;
+    kept_without_refund_at: Generated<Date | null>;
+    resume_asked_at: Generated<Date | null>;
+    resume_asked_for: Generated<Date | null>;
     /** An interval, only ever reckoned with in SQL. */
     paid_left: Generated<string | null>;
     resumes_at: Generated<Date | null>;
+  };
+  invoice_refunds: {
+    provider_refund_id: string;
+    invoice_id: string;
+    amount: ColumnType<string, number, never>;
+    at: Date;
   };
   invoices: {
     id: Generated<string>;
@@ -501,6 +567,7 @@ export interface Tables {
     >;
     kept_refunded_at: Generated<Date | null>;
     kept_refund_refused_at: Generated<Date | null>;
+    kept_refund_check_at: Generated<Date | null>;
   };
   billing_events: {
     provider: string;
@@ -529,7 +596,11 @@ export interface Tables {
     id: Generated<string>;
     provider: string;
     action:
-      "cancel_now" | "cancel_at_period_end" | "refund" | "settle_seat_pause";
+      | "cancel_now"
+      | "cancel_at_period_end"
+      | "keep_cancel"
+      | "refund"
+      | "settle_seat_pause";
     subscription: ColumnType<
       Record<string, unknown> | null,
       string | null,

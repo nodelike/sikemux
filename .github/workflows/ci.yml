@@ -648,11 +648,18 @@ jobs:
         if: matrix.arch == 'x86_64'
         run: scripts/check-rust.sh no-plugins
 
-      # nextest leaves doc tests out, so cargo runs those.
-      - name: Run the core's tests on Linux
+      # On x86_64, the Rust test jobs already run these tests.
+      - name: Run the core's tests on Arm Linux
+        if: matrix.arch == 'aarch64'
         run: |
           read -ra crates <<<"$CORE_CRATES"
           cargo nextest run --locked "${crates[@]}"
+
+      # nextest leaves doc tests out, so cargo runs those.
+      - name: Run the core's doc tests
+        if: matrix.arch == 'x86_64'
+        run: |
+          read -ra crates <<<"$CORE_CRATES"
           cargo test --locked --doc "${crates[@]}"
 
       # The packages are unsigned and go nowhere but this run.

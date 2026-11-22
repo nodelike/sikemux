@@ -20,7 +20,7 @@ extension WireDevice: Identifiable {
     var id: DeviceKey { key }
 }
 
-/// The accounts server's routes, signed in as the person.
+/// The accounts server's routes, signed in as the person unless `signedOut`.
 @MainActor
 enum AccountAPI {
     static let offline = String(localized: "Can't reach Sikemux. Check the phone is online.")
@@ -29,14 +29,15 @@ enum AccountAPI {
         _ method: String,
         _ path: String,
         body: (any Encodable)? = nil,
-        as: Answer.Type = Answer.self
+        as: Answer.Type = Answer.self,
+        signedOut: Bool = false
     ) async throws -> Answer {
-        let data = try await request(method, path, body: body)
+        let data = try await request(method, path, body: body, signedOut: signedOut)
         return try JSONDecoder().decode(Answer.self, from: data)
     }
 
     static func send(_ method: String, _ path: String, body: (any Encodable)? = nil) async throws {
-        _ = try await request(method, path, body: body)
+        _ = try await request(method, path, body: body, signedOut: false)
     }
 
     /// Sends a file's bytes, read from disk as they go, with `headers` beside them.
@@ -59,7 +60,9 @@ enum AccountAPI {
         return file
     }
 
-    private static func request(_ method: String, _ path: String, body: (any Encodable)?) async throws -> Data {
+    private static func request(
+        _ method: String, _ path: String, body: (any Encodable)?, signedOut: Bool
+    ) async throws -> Data {
         #if DEBUG
             if let answer = ShowcaseAccount.answer(method, path) {
                 try check(
@@ -69,7 +72,7 @@ enum AccountAPI {
                 return answer.body
             }
         #endif
-        var request = try await signedIn(method, path)
+        var request = signedOut ? plain(method, path) : try await signedIn(method, path)
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(body)
@@ -79,9 +82,14 @@ enum AccountAPI {
         return (response as? HTTPURLResponse)?.statusCode == 204 ? Data("{}".utf8) : data
     }
 
-    private static func signedIn(_ method: String, _ path: String) async throws -> URLRequest {
+    private static func plain(_ method: String, _ path: String) -> URLRequest {
         var request = URLRequest(url: URL(string: Config.apiUrl.absoluteString + path)!, timeoutInterval: 30)
         request.httpMethod = method
+        return request
+    }
+
+    private static func signedIn(_ method: String, _ path: String) async throws -> URLRequest {
+        var request = plain(method, path)
         do {
             request.setValue("Bearer \(try await Account.shared.token())", forHTTPHeaderField: "Authorization")
         } catch {

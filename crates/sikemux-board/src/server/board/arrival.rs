@@ -18,8 +18,8 @@ const MAX_DETAILS_CHARS: usize = 4000;
 
 pub enum Key<'a> {
     Ticket(&'a str),
-    /// A trigger, by its id on the host it is on.
-    Trigger(u64, Option<&'a str>),
+    /// A trigger, by its id on the host it is on, and what its firing is about.
+    Trigger(u64, Option<&'a str>, Option<&'a str>),
     /// Any of what CI failed on.
     Ci(&'a Broke),
 }
@@ -28,20 +28,26 @@ impl<'a> Key<'a> {
     pub fn of(adding: &'a Adding) -> Option<Self> {
         match (&adding.ticket, adding.trigger, &adding.ci) {
             (Some(ticket), _, _) => Some(Key::Ticket(&ticket.key)),
-            (None, Some(trigger), _) => Some(Key::Trigger(trigger, adding.fired_on.as_deref())),
+            (None, Some(trigger), _) => Some(Key::Trigger(
+                trigger,
+                adding.fired_on.as_deref(),
+                adding.about.as_deref(),
+            )),
             (None, None, Some(broke)) => Some(Key::Ci(broke)),
             (None, None, None) => None,
         }
     }
 
-    fn held_by(&self, card: &Card) -> bool {
+    pub fn held_by(&self, card: &Card) -> bool {
         match self {
             Key::Ticket(key) => card
                 .ticket
                 .as_ref()
                 .is_some_and(|ticket| ticket.key.eq_ignore_ascii_case(key)),
-            Key::Trigger(trigger, host) => {
-                card.trigger == Some(*trigger) && card.fired_on.as_deref() == *host
+            Key::Trigger(trigger, host, about) => {
+                card.trigger == Some(*trigger)
+                    && card.fired_on.as_deref() == *host
+                    && card.about.as_deref() == *about
             }
             Key::Ci(broke) => broke.held_by(&card.ci),
         }
@@ -60,23 +66,7 @@ pub fn holder(board: &Board, key: &Key) -> Option<u64> {
 /// agent answering for the card is told: its owner, else the lead of the
 /// team it was last in.
 pub fn arrived_again(card: &mut Card, adding: &Adding) -> Option<Notice> {
-    if card.arrivals.len() >= MAX_ARRIVALS {
-        card.arrivals.remove(0);
-    }
-    let at = epoch_ms();
-    let details = adding
-        .ci
-        .as_ref()
-        .map_or(&adding.details, |broke| &broke.output);
-    card.arrivals.push(Arrival {
-        title: adding.title.clone(),
-        details: clipped(details, MAX_DETAILS_CHARS),
-        at,
-    });
-    if let Some(broke) = &adding.ci {
-        broke.hold(&mut card.ci);
-    }
-    card.updated_at = at;
+    keep(card, adding);
     let to = card
         .owner_id()
         .map(str::to_owned)
@@ -94,4 +84,25 @@ pub fn arrived_again(card: &mut Card, adding: &Adding) -> Option<Notice> {
             card.id
         ),
     })
+}
+
+/// Keeps `adding` on `card`, which held its key already, among its newest arrivals.
+pub fn keep(card: &mut Card, adding: &Adding) {
+    if card.arrivals.len() >= MAX_ARRIVALS {
+        card.arrivals.remove(0);
+    }
+    let at = epoch_ms();
+    let details = adding
+        .ci
+        .as_ref()
+        .map_or(&adding.details, |broke| &broke.output);
+    card.arrivals.push(Arrival {
+        title: adding.title.clone(),
+        details: clipped(details, MAX_DETAILS_CHARS),
+        at,
+    });
+    if let Some(broke) = &adding.ci {
+        broke.hold(&mut card.ci);
+    }
+    card.updated_at = at;
 }

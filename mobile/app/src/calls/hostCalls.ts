@@ -10,12 +10,10 @@ import { liveOf } from '@/devices/hub';
 /** What the person has done on a call's card while it waits: the options chosen, the note or their words, What runs. */
 export type Draft = { chosen?: string[]; typed: string; runsOpen: boolean; sending: boolean };
 
-/** What one host's calls hold beyond its view: what the core took as seen, the call each chat shows, and failures. */
+/** What one host's calls hold beyond its view: what the core took as seen, and failures. */
 type Kept = {
   /** The calls the core has taken word that this phone drew, which a production call needs before its answer counts. */
   seen: ReadonlySet<string>;
-  /** The call a chat shows, by the chat's agent, when the person chose one other than the oldest. */
-  focused: Readonly<Record<string, string>>;
   /** Why an answer from a notification did not go, by call. */
   failed: Readonly<Record<string, string>>;
 };
@@ -27,7 +25,7 @@ const seeing = new Set<string>();
 function kept(core: string): ExternalValue<Kept> {
   let found = hosts.get(core);
   if (!found) {
-    found = externalValue<Kept>({ seen: new Set(), focused: {}, failed: {} });
+    found = externalValue<Kept>({ seen: new Set(), failed: {} });
     hosts.set(core, found);
   }
   return found;
@@ -66,16 +64,6 @@ export function queueOf(calls: readonly PersonCall[] | undefined, agentId: strin
         call.state === 'open' && (call.asker.agentId === agentId || (call.joined ?? []).some((joined) => joined.agentId === agentId)),
     )
     .sort((a, b) => a.raisedAt - b.raisedAt);
-}
-
-/** The call agent `agentId`'s chat docks: the one the person chose, while it waits, else the oldest. */
-export function waitingCall(queue: PersonCall[], held: Kept, agentId: string): PersonCall | undefined {
-  return queue.find((call) => call.id === held.focused[agentId]) ?? queue[0];
-}
-
-/** Makes `call` the one the chat of agent `chat` docks. */
-export function focus(core: string, call: PersonCall, chat: string) {
-  change(core, (now) => ({ ...now, focused: { ...now.focused, [chat]: call.id } }));
 }
 
 /** What the person has done on `call`'s card. Drafts of calls no longer open go. */

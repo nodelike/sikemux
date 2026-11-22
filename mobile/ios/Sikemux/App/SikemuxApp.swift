@@ -60,7 +60,7 @@ struct RootView: View {
             if phase == .active { session.foreground() } else if phase == .background { session.background() }
         }
         .onChange(of: network.updateRequired) { _, required in
-            if required != nil { Task { await Identity.shared.goOffline() } }
+            if required != nil { Identity.shared.goOffline() }
         }
         .task {
             Task { _ = await Network.shared.relays() }
@@ -131,6 +131,7 @@ struct ScreenFor: View {
         case .device(let core, let tab): HostScoped(core: core) { DeviceScreen(core: core, linkedTab: tab) }
         case .chat(let core, let agent):
             HostScoped(core: core) { ChatScreen(core: core, agentId: agent) }
+        case .call(let core, let call): HostScoped(core: core) { CallScreen(core: core, id: call) }
         case .newChat(let core, let project, let launcher):
             HostScoped(core: core) { NewChatScreen(core: core, project: project, launcher: launcher) }
         case .pairing(let core): HostScoped(core: core) { PairingScreen(core: core) }

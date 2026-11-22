@@ -364,6 +364,8 @@ pub struct Chat {
     /// The turn at work is being stopped only to go on under another account, so its lead
     /// is not told it stopped.
     pub moving_on: AtomicBool,
+    /// The agent last would not start until it is signed in.
+    pub needs_sign_in: AtomicBool,
     pub edits: Box<dyn std::any::Any + Send + Sync>,
     /// The version of the agent's CLI, once the agent has said it.
     cli_version: Mutex<Option<String>>,
@@ -380,6 +382,8 @@ pub struct Chat {
     /// A new chat starts its agent only once the person writes in it or something is sent to it.
     unstarted: AtomicBool,
     wanted: tokio::sync::Notify,
+    /// A message was sent before the agent was ready, and the agent has not taken it yet.
+    message_waiting: AtomicBool,
     /// The person sent a message or Stop, which a handoff note being written gives way to.
     pub person_came: tokio::sync::Notify,
     /// The person's ask the latest message answers, by number, when the person sent it.
@@ -792,6 +796,7 @@ impl Chat {
                 }
                 state.turn = Turn::Idle;
             }
+            chat.turn_over.notify_waiters();
             if giving_up {
                 chat.feed.give_up_subagents();
             }
@@ -1060,12 +1065,32 @@ impl Chat {
         }
     }
 
+    /// Waits until no turn is at work and no subagent of one still runs, or the chat ends.
+    pub async fn settled(&self) {
+        let mut readiness = self.readiness.subscribe();
+        loop {
+            let over = self.turn_over.notified();
+            let at_work = {
+                let state = self.turn.locked();
+                state.running() || state.turn == Turn::Held
+            };
+            if !at_work {
+                return;
+            }
+            tokio::select! {
+                () = over => {}
+                _ = readiness.wait_for(|readiness| matches!(readiness, Readiness::Ended(_))) => return,
+            }
+        }
+    }
+
     pub fn prompted(&self) -> bool {
         self.turn.locked().turn == Turn::Prompted
     }
 
     /// A prompt this side sent is being answered from now. Answers whether one already was.
     pub fn start_prompted(&self) -> bool {
+        self.message_waiting.store(false, Ordering::Release);
         let mut state = self.turn.locked();
         let was = state.turn == Turn::Prompted;
         state.turn = Turn::Prompted;
@@ -1187,6 +1212,7 @@ impl Chat {
     }
 
     fn end(&self, error: Option<String>) {
+        self.message_waiting.store(false, Ordering::Release);
         self.readiness.send_if_modified(|readiness| {
             if matches!(readiness, Readiness::Ended(_)) {
                 return false;
@@ -1399,8 +1425,25 @@ impl Chat {
     /// Starts the agent of a chat that waited for the person, once; later calls do nothing.
     pub fn start_agent(&self) {
         if self.unstarted.swap(false, Ordering::AcqRel) {
+            self.emit(ChatEventKind::Status, json!({ "state": "starting" }));
             self.wanted.notify_one();
         }
+    }
+
+    /// Notes a message sent before the agent is ready, which a handoff would lose.
+    pub fn note_message_waiting(&self) {
+        if !self.is_ready() {
+            self.message_waiting.store(true, Ordering::Release);
+        }
+    }
+
+    pub fn message_waiting(&self) -> bool {
+        self.message_waiting.load(Ordering::Acquire)
+    }
+
+    /// The person's Stop: a message still waiting for the agent no longer holds the chat.
+    pub fn let_waiting_message_go(&self) {
+        self.message_waiting.store(false, Ordering::Release);
     }
 
     pub fn unstarted(&self) -> bool {

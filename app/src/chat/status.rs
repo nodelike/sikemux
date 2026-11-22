@@ -600,17 +600,53 @@ pub(super) fn trouble(
         ChatConnection::Error | ChatConnection::Stopped
     );
     if dropped && !chat.is_new(cx) {
-        let why = (head.ended.as_ref()).and_then(|ended| ended.message.clone());
+        let ended = head.ended.as_ref();
+        let signed_out = ended.is_some_and(|ended| ended.failure == Some(FailureKind::SignIn));
+        let reconnect = act(t!("Reconnect"), "chat-reconnect", |bench, agent| {
+            bench.reconnect(agent)
+        });
+        let start_over = act(t!("Start new chat"), "chat-start-over", |bench, agent| {
+            bench.start_over(agent)
+        });
+        if signed_out {
+            let name = bench.agent_name(&agent.provider);
+            let (said, sign_in) = match &agent.place {
+                crate::hosts::Place::This => {
+                    let (this, provider) = (this.clone(), agent.provider.clone());
+                    let sign_in = Button::new(
+                        "chat-sign-in-agent",
+                        t!("Sign in to {name}", name = name),
+                        Variant::Outline,
+                    )
+                    .on_click(move |_, window, cx| {
+                        this.update(cx, |bench, cx| bench.sign_in_agent(&provider, window, cx))
+                            .ok();
+                    });
+                    (
+                        t!("{agent} isn't signed in", agent = name),
+                        Some(sign_in.into_any_element()),
+                    )
+                }
+                crate::hosts::Place::Account(key) => (
+                    t!(
+                        "{agent} isn't signed in on {host}",
+                        agent = name,
+                        host = bench.host_name(key)
+                    ),
+                    None,
+                ),
+            };
+            let parts = vec![
+                said,
+                t!("sign in, or pick another agent from the model menu").to_owned(),
+            ];
+            let buttons = sign_in.into_iter().chain([reconnect, start_over]).collect();
+            return Some(centred(failed(parts, buttons, cx), cx).into_any_element());
+        }
+        let why = ended.and_then(|ended| ended.message.clone());
         let mut parts = vec![t!("the session dropped").to_owned()];
         parts.extend(why);
-        let buttons = vec![
-            act(t!("Reconnect"), "chat-reconnect", |bench, agent| {
-                bench.reconnect(agent)
-            }),
-            act(t!("Start new chat"), "chat-start-over", |bench, agent| {
-                bench.start_over(agent)
-            }),
-        ];
+        let buttons = vec![reconnect, start_over];
         return Some(centred(failed(parts, buttons, cx), cx).into_any_element());
     }
     let error = head.error.clone()?;
@@ -712,9 +748,8 @@ pub(super) fn trouble(
 
 /// What an empty chat says while its session is not ready, in the welcome's place: that it
 /// stopped or failed with a way back, or that a message waits for its agent to start. A
-/// chat taken up again stays blank while its agent warms up unseen; None while the welcome
-/// belongs there.
-/// What `agent`'s empty chat says in place of the welcome while its session is not ready.
+/// spawned agent's brief is that message, so its chat never shows the welcome. A chat taken
+/// up again stays blank while its agent warms up unseen; None while the welcome belongs there.
 pub(crate) fn connection_note(
     agent: &AgentRow,
     chat: &Chat,
@@ -726,10 +761,15 @@ pub(crate) fn connection_note(
         .as_ref()
         .map_or(ChatConnection::Connecting, |head| head.connection);
     let dropped = matches!(connection, ChatConnection::Error | ChatConnection::Stopped);
-    if connection == ChatConnection::Ready || (!resumes && !dropped && !chat.awaits_agent) {
+    let spawned = agent.lead.is_some();
+    let awaits = chat.awaits_agent || spawned;
+    if spawned && connection == ChatConnection::Ready {
+        return Some(div().into_any_element());
+    }
+    if connection == ChatConnection::Ready || (!resumes && !dropped && !awaits) {
         return None;
     }
-    if !dropped && !chat.awaits_agent {
+    if !dropped && !awaits {
         return Some(div().into_any_element());
     }
     let t = Tokens::get(cx).clone();

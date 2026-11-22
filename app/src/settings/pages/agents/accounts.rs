@@ -17,8 +17,7 @@ use crate::accounts::{self, SignIn};
 use crate::icons::Icon;
 use crate::settings::rows;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H,
-    TEXT_3XS_H, TEXT_SM,
+    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS_H, TEXT_3XS_H, TEXT_XS,
 };
 use crate::ui::{self, dialog, sign_in};
 use crate::workbench::Workbench;
@@ -26,7 +25,7 @@ use sikemux_agents::agent_accounts::BUILT_IN;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
-    crate::settings::index::section(crate::settings::index::Page::Accounts, "Accounts", "profiles executable path sign in login logout email subscription max pro plus chatgpt switch rotate limit add second work personal claude codex"),
+    crate::settings::index::section(crate::settings::index::Page::Agents, "Accounts", "move between accounts smart rotation rotate switch limit week sign in login logout subscription max pro plus chatgpt add second work personal claude codex"),
 ];
 
 fn plan(plan: &str) -> String {
@@ -149,23 +148,11 @@ fn account_row(
     let known = status.and_then(|status| status.as_ref().ok());
     let name = profile.shown_name(known);
     let signed_in = known.is_some_and(|status| status.signed_in);
-    let who: SharedString = match status {
-        None => t!("Checking…").into(),
-        Some(Err(_)) => t!("Could not ask who is signed in").into(),
-        Some(Ok(status)) if status.signed_in => {
-            let parts: Vec<String> = [
-                status.email.clone().or_else(|| status.organization.clone()),
-                status.plan.as_deref().map(plan),
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
-            match parts.is_empty() {
-                true => t!("Signed in").into(),
-                false => parts.join(" · ").into(),
-            }
-        }
-        Some(Ok(_)) => t!("Signed out").into(),
+    let who: Option<SharedString> = match status {
+        None => Some(t!("Checking…").into()),
+        Some(Ok(status)) if status.signed_in => status.plan.as_deref().map(|it| plan(it).into()),
+        Some(Ok(_)) => Some(t!("Signed out").into()),
+        Some(Err(_)) => None,
     };
     let id = profile.id.clone();
     let control: AnyElement = match signing(bench, &id, this, cx) {
@@ -280,35 +267,33 @@ fn account_row(
     div()
         .flex()
         .items_center()
-        .gap(SPACE_3)
-        .px(SPACE_4)
-        .py(SPACE_2H)
-        .border_b(crate::theme::border())
-        .border_color(t.line_soft)
-        .child(accounts::avatar(bench.accounts.avatar(profile), 24.))
+        .gap(SPACE_2)
+        .py(SPACE_1)
+        .child(accounts::avatar(bench.accounts.avatar(profile), 18.))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
                 .flex()
-                .flex_col()
-                .gap(SPACE_0)
+                .items_baseline()
+                .gap(SPACE_2)
                 .child(
                     div()
-                        .text_size(crate::theme::ui_text(TEXT_SM))
+                        .text_size(crate::theme::ui_text(TEXT_XS))
                         .text_color(t.text_primary)
                         .child(label),
                 )
-                .child(
+                .children(who.map(|who| {
                     div()
+                        .truncate()
                         .text_size(crate::theme::ui_text(TEXT_2XS_H))
                         .text_color(if known.is_some() && !signed_in {
                             t.warn
                         } else {
                             t.text_tertiary
                         })
-                        .child(who),
-                ),
+                        .child(who)
+                })),
         )
         .child(control)
         .children(more)
@@ -326,7 +311,7 @@ pub fn smart(
     let this = this.clone();
     let row = rows::row_with(
         None,
-        t!("Smart accounts"),
+        t!("Move between accounts"),
         Some(t!("Starts each chat on the account whose week ends soonest and moves on at a limit. Check each provider's terms first.").into()),
         Switch::new("smart-accounts")
             .checked(bench.accounts.smart())
@@ -336,64 +321,38 @@ pub fn smart(
             }),
         cx,
     );
-    rows::section(n!("Rotation"), None, None, lit("Rotation"), row, cx)
+    rows::section(n!("Accounts"), None, None, lit("Accounts"), row, cx)
 }
 
-pub fn render(
-    bench: &Workbench,
-    provider: &str,
-    lit: &dyn Fn(&str) -> bool,
-    this: &Entity<Workbench>,
-    cx: &App,
-) -> AnyElement {
-    let title = bench.agent_name(provider).to_owned();
-    let list = bench.accounts.of(provider);
-    let current = bench
-        .accounts
-        .current(provider)
-        .map(|profile| profile.id.clone());
-    let count = list.len();
+/// An agent's accounts, one line each, and the way to add another.
+pub fn list(bench: &Workbench, provider: &str, this: &Entity<Workbench>, cx: &App) -> AnyElement {
+    let current = (bench.accounts.current(provider)).map(|profile| profile.id.clone());
     let add = {
         let (this, provider) = (this.clone(), provider.to_owned());
-        div().p(SPACE_2H).child(
-            ui::Button::new(
-                SharedString::from(format!("account-add-{provider}")),
-                t!("Add account"),
-                ui::Variant::Dashed,
-            )
-            .icon(Icon::Plus)
-            .on_click(move |_, window, cx| {
-                this.update(cx, |bench, cx| {
-                    accounts::open_dialog(bench, &provider, window, cx)
-                })
-            }),
+        ui::Button::new(
+            SharedString::from(format!("account-add-{provider}")),
+            t!("Add"),
+            ui::Variant::Ghost,
         )
+        .icon(Icon::Plus)
+        .on_click(move |_, window, cx| {
+            this.update(cx, |bench, cx| {
+                accounts::open_dialog(bench, &provider, window, cx)
+            })
+        })
     };
-    let body = div()
-        .children(list.iter().map(|profile| {
-            account_row(
-                bench,
-                profile,
-                current.as_deref() == Some(profile.id.as_str()),
-                this,
-                cx,
-            )
+    div()
+        .flex()
+        .flex_col()
+        .children(bench.accounts.of(provider).iter().map(|profile| {
+            let in_use = current.as_deref() == Some(profile.id.as_str());
+            account_row(bench, profile, in_use, this, cx)
         }))
-        .child(add)
         .when(bench.accounts.book.is_none(), |body| {
             body.child(rows::note(t!("Reading accounts…"), cx))
-        });
-    rows::section(
-        title,
-        Some(match count {
-            1 => t!("1 account").into(),
-            count => t!("{count} accounts", count = count).into(),
-        }),
-        None,
-        lit("Accounts"),
-        body,
-        cx,
-    )
+        })
+        .child(div().pt(SPACE_1).child(add))
+        .into_any_element()
 }
 
 /// The add-account dialog while it is open: a name, then the agent's own login in the

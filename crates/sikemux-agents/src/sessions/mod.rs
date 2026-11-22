@@ -17,6 +17,7 @@ pub fn client_info() -> serde_json::Value {
     serde_json::json!({ "name": "sikemux", "title": "Sikemux", "version": env!("CARGO_PKG_VERSION") })
 }
 
+pub mod antigravity;
 pub mod asked;
 pub mod carry;
 pub mod claude;

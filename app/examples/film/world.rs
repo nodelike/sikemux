@@ -121,6 +121,7 @@ impl World {
             .arg(work.join("data"))
             .arg("--cli-endpoint")
             .arg(work.join("cli.json"))
+            .arg("--throwaway")
             .env("HOME", &home)
             // Agents' commands find the core by the endpoint it hands them only when it lies in
             // their config folder, so the core keeps the throwaway home's.
@@ -132,9 +133,7 @@ impl World {
             .stdout(log.try_clone()?)
             .stderr(log);
         if let Some(account) = &account {
-            command
-                .arg("--throwaway")
-                .env(sikemux_process::vars::API_URL, &account.api);
+            command.env(sikemux_process::vars::API_URL, &account.api);
         }
         if let Some(replies) = &replies {
             command.env("FAKE_CLAUDE_SCRIPT", replies);
@@ -639,22 +638,17 @@ impl World {
                     .chat
                     .clone()
                     .ok_or_else(|| anyhow!("open a chat first"))?;
-                let (_, path) = self.project()?.clone();
                 let title = step.text(0)?;
                 let every: u64 = step.text(1)?.parse()?;
-                let params = json!({ "title": title, "prompt": title, "every": every });
-                sikemux_corekit::cli::client::attempt(
-                    &self.work.join("cli.json"),
-                    &path.to_string_lossy(),
-                    Some(&chat),
-                    "trigger.add",
-                    &params,
-                    Duration::from_secs(10),
-                )
-                .map_err(|failure| match failure {
-                    sikemux_corekit::cli::client::Failure::NotSent(error)
-                    | sikemux_corekit::cli::client::Failure::Sent(error) => anyhow!(error),
-                })?;
+                self.call(
+                    "addTrigger",
+                    json!({
+                        "title": title,
+                        "prompt": title,
+                        "when": { "kind": "every", "seconds": every },
+                        "wakes": { "kind": "chat", "agent": chat },
+                    }),
+                )?;
             }
             "say" => {
                 let chat = self

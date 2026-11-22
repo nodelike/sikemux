@@ -21,7 +21,8 @@ export const OFFLINE = "Can't reach Sikemux. Check the phone is online.";
 
 const TIMEOUT_MS = 30_000;
 
-export const api = (token: TokenSource) =>
+/** The API signed in with `token`, or signed out without one. */
+export const api = (token?: TokenSource) =>
   connectApi({ url: apiUrl(), token, offline: translate(OFFLINE), timeoutMs: TIMEOUT_MS, say: translate });
 
 /**

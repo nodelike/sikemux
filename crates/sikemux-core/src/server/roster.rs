@@ -237,12 +237,17 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         Some(Value::Bool(all)) => *all,
         Some(_) => return Err("allProjects must be a boolean".into()),
     };
+    let full = matches!(request.params.get("full"), Some(Value::Bool(true)));
     let (core, request) = (core.clone(), request.clone());
     blocking(move || {
         let project = super::caller::project_of(&core, &request);
         let caller = request.agent_id.clone().unwrap_or_default();
         let rows = rows(&core, (!all).then_some(project.as_str()), &caller);
         let now = super::now::text_of_path(&core, &project);
+        if !full {
+            let lines: Vec<String> = rows.iter().map(line).collect();
+            return Ok(json!({ "project": project, "now": now, "agents": lines }));
+        }
         let updates = core.updates().status();
         Ok(json!({
             "project": project,
@@ -257,6 +262,34 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     })
     .await
     .map_err(|error| error.to_string())
+}
+
+/// One line for an agent's row: who it is, how it stands and what it last did.
+fn line(row: &Value) -> String {
+    let field = |key: &str| row.get(key).and_then(Value::as_str);
+    let mut line = format!(
+        "@{} ({}) {}, {}",
+        field("name").unwrap_or("?"),
+        field("agentId").unwrap_or_default(),
+        field("cli").unwrap_or_default(),
+        field("status").unwrap_or_default(),
+    );
+    for (label, key) in [
+        ("", "turn"),
+        ("started by @", "startedBy"),
+        ("on ", "host"),
+        ("project ", "project"),
+    ] {
+        if let Some(value) = field(key).filter(|value| !value.is_empty()) {
+            line.push_str(&format!("; {label}{value}"));
+        }
+    }
+    if row.get("you").is_some() {
+        line.push_str("; you");
+    } else if row.get("canMessage") == Some(&Value::Bool(false)) {
+        line.push_str("; can't message");
+    }
+    line
 }
 
 /// The agents in `project`, or in every project without one, as `agent_list` answers

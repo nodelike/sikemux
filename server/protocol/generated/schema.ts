@@ -1595,6 +1595,64 @@ export const schema = {
       ],
       discriminator: { propertyName: "type" },
     },
+    MacSignIn: {
+      description:
+        "What the Mac's browser sign-in handed back to it. The API trades the code at Clerk itself and keeps none of the tokens, so the Mac never holds one.",
+      type: "object",
+      properties: {
+        code: {
+          type: "string",
+          minLength: 8,
+          maxLength: 512,
+          pattern: "^[A-Za-z0-9._~-]+$",
+        },
+        codeVerifier: {
+          description: "The PKCE verifier the Mac made for this sign-in.",
+          type: "string",
+          pattern: "^[A-Za-z0-9._~-]{43,128}$",
+        },
+        redirectUri: {
+          description:
+            "Where the browser handed the code back, on the Mac itself.",
+          type: "string",
+          maxLength: 64,
+          pattern: "^http://127\\.0\\.0\\.1:[0-9]{1,5}/callback$",
+        },
+      },
+      required: ["code", "codeVerifier", "redirectUri"],
+      additionalProperties: false,
+    },
+    MacSignInFinish: {
+      description:
+        "Adds the Mac's host to the account its sign-in proved. The signature is the host key's, over the same text a DeviceRegistration signs, with the account from MacSignInState.",
+      type: "object",
+      properties: {
+        key: { $ref: "#/$defs/DeviceKey" },
+        name: { type: "string", minLength: 1, maxLength: 64 },
+        platform: { $ref: "#/$defs/Platform" },
+        channel: { $ref: "#/$defs/Channel" },
+        nonce: { type: "string", pattern: "^[0-9a-f]{64}$" },
+        signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
+      },
+      required: ["key", "name", "platform", "channel", "nonce", "signature"],
+      additionalProperties: false,
+    },
+    MacSignInState: {
+      description:
+        "The account the browser signed in to, and a challenge good for two minutes that the Mac signs as it would a DeviceRegistration and sends back in MacSignInFinish.",
+      type: "object",
+      properties: {
+        account: {
+          type: "string",
+          pattern: "^user_[A-Za-z0-9]+$",
+          maxLength: 64,
+        },
+        nonce: { type: "string", pattern: "^[0-9a-f]{64}$" },
+        expiresAt: { type: "string", format: "date-time" },
+      },
+      required: ["account", "nonce", "expiresAt"],
+      additionalProperties: false,
+    },
     MemberName: {
       description:
         "The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none.",
@@ -2957,6 +3015,40 @@ export const schema = {
       required: ["at", "amount"],
       additionalProperties: false,
     },
+    ReviewAccount: {
+      description:
+        "Which address is the store reviewers' demo account, so an app can tell it apart before sending a password anywhere but Clerk.",
+      type: "object",
+      properties: {
+        addressSha256: {
+          description:
+            "SHA-256 of the address, trimmed and lowercased, in lowercase hex.",
+          type: "string",
+          pattern: "^[0-9a-f]{64}$",
+        },
+      },
+      required: ["addressSha256"],
+      additionalProperties: false,
+    },
+    ReviewSignIn: {
+      description:
+        "A one-time Clerk sign-in token for the demo account, which the app signs in with by Clerk's ticket strategy.",
+      type: "object",
+      properties: { ticket: { type: "string", minLength: 1, maxLength: 4096 } },
+      required: ["ticket"],
+      additionalProperties: false,
+    },
+    ReviewSignInRequest: {
+      description:
+        "The demo account's address and password, sent only once the app has matched the address against ReviewAccount.",
+      type: "object",
+      properties: {
+        email: { type: "string", minLength: 1, maxLength: 320 },
+        password: { type: "string", minLength: 1, maxLength: 256 },
+      },
+      required: ["email", "password"],
+      additionalProperties: false,
+    },
     RevokeReason: {
       description:
         "Why a device left its account: removed from another device or the web, signed out on the device itself, or the account was deleted.",
@@ -3276,6 +3368,18 @@ export const schema = {
       required: ["id", "name", "imageUrl", "you"],
       additionalProperties: false,
     },
+    ShareMove: {
+      description:
+        "Moves the account's registration of `project` with the org to `host`, the project's home. Refused when the account no longer shares `project` with the org, so a move never brings back a share the person ended.",
+      type: "object",
+      properties: {
+        org: { $ref: "#/$defs/OrgId" },
+        project: { $ref: "#/$defs/ProjectKey" },
+        host: { $ref: "#/$defs/DeviceKey" },
+      },
+      required: ["org", "project", "host"],
+      additionalProperties: false,
+    },
     ShareOpen: {
       description:
         "Host only: start a share. The server answers opened or refused. Hosts on 0.5.3 and earlier send no viewers check, and their shares are open to anyone signed in who has the link.",
@@ -3398,6 +3502,17 @@ export const schema = {
         project: { $ref: "#/$defs/ProjectKey" },
       },
       required: ["org", "project"],
+      additionalProperties: false,
+    },
+    ShareRename: {
+      description:
+        "Moves the account's registration of `from`, in whichever of its orgs holds it, paid or not, to `project`, the repository's new key. When the account already registers `project`, the one the person tapped Share for last stays. Only the host the registration names moves it; another of the account's hosts is refused, and so is a rename of a project the account shares with no org.",
+      type: "object",
+      properties: {
+        from: { $ref: "#/$defs/ProjectKey" },
+        project: { $ref: "#/$defs/ProjectKey" },
+      },
+      required: ["from", "project"],
       additionalProperties: false,
     },
     ShareRole: {

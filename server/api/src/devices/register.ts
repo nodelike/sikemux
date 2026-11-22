@@ -1,11 +1,11 @@
 import type { Device, DeviceRegistration } from "@sikemux/protocol";
-import { sql, type Kysely, type Selectable } from "kysely";
+import { sql, type Kysely, type Selectable, type Transaction } from "kysely";
 
 import { audit } from "../audit.ts";
-import { holdStanding } from "../auth.ts";
+import { checkStanding, holdStanding, type Identity } from "../auth.ts";
 import type { Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
-import { ApiFailure, badRequest, forbidden } from "../http.ts";
+import { ApiFailure, badRequest, forbidden, unauthorized } from "../http.ts";
 import { vaultChanged } from "../orgvault/change.ts";
 import { proveKey } from "./challenge.ts";
 import { registrationMessage } from "./signature.ts";
@@ -29,10 +29,15 @@ export function toDevice(row: Selectable<Tables["devices"]>): Device {
  */
 interface Registrant {
   userId: string;
-  via: string;
+  via: Identity["via"] | "code";
+  /** The Clerk session behind the registration: the caller's, or the one that approved a host's code. */
   sessionId?: string | undefined;
+  /** When the Mac sign-in behind it was made: the Mac's own, or, for a code, the approving host's. */
+  issuedAt?: Date | undefined;
   /** The host that signed the request, when one did. */
   deviceKey?: string | undefined;
+  /** Whether the nonce is a challenge the API issued for a Mac's browser sign-in. */
+  macSignIn?: boolean;
 }
 
 /**
@@ -41,7 +46,7 @@ interface Registrant {
  */
 export async function registerDevice(
   db: Kysely<Tables>,
-  { userId, via, sessionId, deviceKey }: Registrant,
+  { userId, via, sessionId, issuedAt, deviceKey, macSignIn }: Registrant,
   registration: DeviceRegistration,
 ): Promise<{ row: Selectable<Tables["devices"]>; added: boolean }> {
   if (via === "host" && registration.role !== "client")
@@ -56,15 +61,37 @@ export async function registerDevice(
   const name = registration.name.trim();
   if (!name) throw badRequest("The device needs a name.");
 
-  await proveKey(db, userId, {
-    nonce: registration.nonce,
-    key: registration.key,
-    message: registrationMessage(registration.nonce, userId, registration.key),
-    signature: registration.signature,
-  });
+  await proveKey(
+    db,
+    userId,
+    {
+      nonce: registration.nonce,
+      key: registration.key,
+      message: registrationMessage(
+        registration.nonce,
+        userId,
+        registration.key,
+      ),
+      signature: registration.signature,
+    },
+    { macSignIn },
+  );
 
   return db.transaction().execute(async (trx) => {
     await holdStanding(trx, userId);
+    const signInSession =
+      via === "host"
+        ? (await signInOf(trx, userId, deviceKey)).session
+        : (sessionId ?? null);
+    const macSignedInAt =
+      via === "mac" || via === "code" ? issuedAt : undefined;
+    await checkStanding(trx, {
+      userId,
+      via: via === "code" ? "session" : via,
+      sessionId: signInSession ?? undefined,
+      issuedAt,
+      macSignedInAt,
+    });
     const existing = await trx
       .selectFrom("devices")
       .selectAll()
@@ -117,6 +144,12 @@ export async function registerDevice(
       hands_only: Boolean(existing?.hands_only || registration.handsOnly),
       clerk_session_id:
         registration.role === "client" ? (sessionId ?? null) : null,
+      ...(existing
+        ? {}
+        : {
+            sign_in_session: signInSession,
+            mac_signed_in_at: macSignedInAt ?? null,
+          }),
     };
     const eventId = await appendEvent(trx, {
       userId,
@@ -143,11 +176,32 @@ export async function registerDevice(
           })
           .returningAll()
           .executeTakeFirstOrThrow();
-    if (!existing)
+    if (!existing) {
+      await trx
+        .insertInto("ended_sessions")
+        .columns(["session_id", "user_id", "made_at", "clerk_retry_at"])
+        .expression(
+          trx
+            .selectFrom("removed_devices")
+            .select([
+              "clerk_session_id",
+              "user_id",
+              sql<Date>`now()`.as("made_at"),
+              sql<Date>`now()`.as("clerk_retry_at"),
+            ])
+            .where("key", "=", registration.key)
+            .where("reason", "=", "removed")
+            .where("clerk_session_id", "is not", null)
+            .where("clerk_revoked_at", "is", null)
+            .where("clerk_retry_at", "is not", null),
+        )
+        .onConflict((conflict) => conflict.column("session_id").doNothing())
+        .execute();
       await trx
         .deleteFrom("removed_devices")
         .where("key", "=", registration.key)
         .execute();
+    }
     if (!existing && registration.role === "host") {
       const vaults = await trx
         .selectFrom("org_users")
@@ -171,4 +225,28 @@ export async function registerDevice(
     });
     return { row, added: !existing };
   });
+}
+
+/**
+ * The Clerk session or Mac sign-in that put the host signing as `key` on the account, which also
+ * stands behind what it adds. Read under `holdStanding`, so a host the strip just removed is refused.
+ */
+export async function signInOf(
+  trx: Transaction<Tables>,
+  userId: string,
+  key: string | undefined,
+): Promise<{ session: string | null; macSignedInAt: Date | null }> {
+  const row = key
+    ? await trx
+        .selectFrom("devices")
+        .select(["sign_in_session", "mac_signed_in_at"])
+        .where("key", "=", key)
+        .where("user_id", "=", userId)
+        .executeTakeFirst()
+    : undefined;
+  if (!row) throw unauthorized("This host is not on an account.");
+  return {
+    session: row.sign_in_session,
+    macSignedInAt: row.mac_signed_in_at,
+  };
 }

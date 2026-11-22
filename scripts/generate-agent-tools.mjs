@@ -307,6 +307,22 @@ const described = [
   },
   ...plugins,
 ];
+function arraysWithoutItems(schema, path) {
+  if (Array.isArray(schema))
+    return schema.flatMap((value, index) =>
+      arraysWithoutItems(value, `${path}[${index}]`),
+    );
+  if (typeof schema !== "object" || schema === null) return [];
+  const types = [schema.type].flat();
+  const here =
+    types.includes("array") && schema.items === undefined ? [path] : [];
+  return [
+    ...here,
+    ...Object.entries(schema).flatMap(([key, value]) =>
+      arraysWithoutItems(value, path ? `${path}.${key}` : key),
+    ),
+  ];
+}
 const rows = {};
 for (const { where, plugin, tools } of described) {
   for (const tool of tools) {
@@ -347,6 +363,11 @@ for (const { where, plugin, tools } of described) {
         }
       }
     }
+    const itemless = arraysWithoutItems(tool.properties ?? {}, "");
+    if (itemless.length > 0)
+      fail(
+        `takes a list with no "items" at ${itemless.join(", ")}; Gemini refuses the whole request over one`,
+      );
     if (Object.hasOwn(rows, tool.name)) fail("is declared twice");
     rows[tool.name] = plugin ? { ...row, plugin } : row;
   }

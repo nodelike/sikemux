@@ -37,6 +37,9 @@ import type {
   InvoiceList,
   JoinRequest,
   JoinTicket,
+  MacSignIn,
+  MacSignInFinish,
+  MacSignInState,
   ModFiles,
   ModSeqParam,
   ModsPulled,
@@ -85,9 +88,14 @@ import type {
   PendingHost,
   PushTokenRegistration,
   PushTokenState,
+  ReviewAccount,
+  ReviewSignIn,
+  ReviewSignInRequest,
+  ShareMove,
   ShareRegistration,
   ShareRegistry,
   ShareRemoval,
+  ShareRename,
   SignInAddressCheck,
   SignInsTidied,
   StashAdd,
@@ -169,6 +177,11 @@ export function apiClient(send: Send) {
         `/v1/devices/${encodeURIComponent(key)}/join`,
         body,
       ),
+    /** Which address is the store reviewers' demo account. */
+    getReviewAccount: () => send<ReviewAccount>("GET", `/v1/review-sign-in`),
+    /** Sign in to the store reviewers' demo account with its password, without an emailed code. */
+    reviewSignIn: (body: ReviewSignInRequest) =>
+      send<ReviewSignIn>("POST", `/v1/review-sign-in`, body),
     /** Start signing in a host that has no browser, such as a server reached over SSH. */
     startHostSignIn: (body: HostSignInStart) =>
       send<HostSignIn>("POST", `/v1/host-sign-ins`, body),
@@ -199,6 +212,12 @@ export function apiClient(send: Send) {
     /** Refuse the waiting host. */
     refuseHostSignIn: (userCode: string) =>
       send<void>("DELETE", `/v1/host-sign-ins/${encodeURIComponent(userCode)}`),
+    /** Trade the Mac app's browser sign-in for a challenge that adds its host to the account. */
+    startMacSignIn: (body: MacSignIn) =>
+      send<MacSignInState>("POST", `/v1/mac-sign-ins`, body),
+    /** Add the signed-in Mac's host to the account, proving it holds its key. */
+    finishMacSignIn: (body: MacSignInFinish) =>
+      send<Device>("POST", `/v1/mac-sign-ins/finish`, body),
     /** Whether your account is in use or waiting to be deleted. */
     getAccount: () => send<Account>("GET", `/v1/account`),
     /** Delete your account and take every device off it. */
@@ -266,6 +285,12 @@ export function apiClient(send: Send) {
     /** Stop sharing a project with an org. */
     removeShare: (body: ShareRemoval) =>
       send<void>("POST", `/v1/account/shares/remove`, body),
+    /** Move a shared project to its home host. */
+    moveShare: (body: ShareMove) =>
+      send<void>("POST", `/v1/account/shares/move`, body),
+    /** Move a shared project to its repository's new name. */
+    renameShare: (body: ShareRename) =>
+      send<void>("POST", `/v1/account/shares/rename`, body),
     /** A ticket for this host to read what a teammate's host shares with an org. */
     createPeerTicket: (body: PeerTicketRequest) =>
       send<PeerTicket>("POST", `/v1/account/peer-tickets`, body),

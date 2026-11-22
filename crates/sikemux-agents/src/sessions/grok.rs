@@ -57,7 +57,7 @@ fn collect_grok_session_dirs(root: &Path) -> Vec<PathBuf> {
     out
 }
 
-fn percent_decode(input: &str) -> Option<String> {
+pub(super) fn percent_decode(input: &str) -> Option<String> {
     let hex = |byte: u8| match byte {
         b'0'..=b'9' => Some(byte - b'0'),
         b'a'..=b'f' => Some(byte - b'a' + 10),
@@ -439,7 +439,7 @@ impl AgentOps for Grok {
         agent_id: &'a str,
         program: &'a str,
         library: &'a Path,
-    ) -> Option<Pending<'a, Result<(String, String), String>>> {
+    ) -> Option<Pending<'a, Result<Vec<(String, String)>, String>>> {
         Some(Box::pin(tools.grok_home(
             "grok-chat",
             agent_id,

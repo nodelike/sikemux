@@ -4,6 +4,8 @@
 
 **A whole team of AI coders, in one window.**
 
+English · [简体中文](README.zh-CN.md)
+
 Other tools give you one AI assistant. Sikemux gives you a team: Claude Code, Codex and more, side by side in one native app, where you see who's working, who's stuck and who needs you.
 
 Out of Claude? The chat carries on in Codex.
@@ -15,7 +17,7 @@ A native app, not Electron, about 30 MB. Claude Code, Codex and more on the plan
 [![Latest release](https://img.shields.io/github/v/release/nodelike/sikemux?display_name=tag)](https://github.com/nodelike/sikemux/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-a277ff)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/UKfmHpF9kX)
-[![Website](https://img.shields.io/badge/website-sikemux.com-a277ff)](https://sikemux.com)
+[![Website](https://img.shields.io/badge/website-sikemux.com-a277ff)](https://sikemux.com/?utm_source=github&utm_medium=readme)
 [![Docs](https://img.shields.io/badge/docs-docs.sikemux.com-a277ff)](https://docs.sikemux.com)
 
 </div>

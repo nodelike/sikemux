@@ -430,7 +430,7 @@ impl RenderOnce for Composer {
             .as_ref()
             .is_some_and(|(picked, _)| !picked.locked);
         let model_menu = self.model_menu.map(|(picked, bench)| {
-            let enabled = settable || !picked.locked;
+            let enabled = settable || !picked.locked || picked.idle;
             let label = (picked.model.as_ref())
                 .filter(|model| !model.current.is_empty())
                 .map_or_else(

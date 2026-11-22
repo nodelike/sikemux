@@ -1,0 +1,68 @@
+---
+title: 在 Sikemux 里用 GLM、Kimi、DeepSeek 或 MiniMax
+description: "用智谱 GLM、Kimi Code、MiniMax 编程套餐或 DeepSeek API 运行 Sikemux 的智能体，以及代理怎么设置。"
+---
+
+本页由英文翻译而来。界面里的名称以 Sikemux 的简体中文界面为准：**设置 → 界面 → 语言**，选「简体中文」。
+
+Sikemux 支持国内的编程套餐和 API。填入密钥后，对话就可以在这些模型上运行，不需要 Anthropic 或 OpenAI 账号。
+
+## 选哪一个
+
+| 你有的是 | 在设置里找 | 页面 |
+|---|---|---|
+| 智谱 GLM 编程套餐（bigmodel.cn） | Zhipu GLM Coding Plan (China) | 编程套餐 |
+| Z.ai GLM 编程套餐（z.ai，海外） | Z.ai GLM Coding Plan | 编程套餐 |
+| Kimi Code（kimi.com） | Kimi Code (China) | 编程套餐 |
+| MiniMax 国内套餐 | MiniMax M Plan (China) | 编程套餐 |
+| DeepSeek 开放平台的 API 密钥 | DeepSeek | API 提供商 |
+| Moonshot 开放平台的 API 密钥 | Moonshot AI (China) | API 提供商 |
+
+国内账号的密钥只能用在国内的地址上，所以选名字后面带 **(China)** 的那一项。海外账号选不带的那一项。
+
+## 填入密钥
+
+1. 打开 **设置**，进入 **编程套餐**（DeepSeek 在 **API 提供商**）。
+2. 找到你的套餐。还没有密钥的话，点 **获取密钥** 打开它的控制台。
+3. 点 **添加密钥**，粘贴。Sikemux 会向提供商请求模型列表来检查密钥。
+4. 连上后，这一项会写明哪些智能体能运行它，以及默认用的模型。**检查工具调用** 可以试一下它的模型能不能给智能体用。
+
+密钥保存在 macOS 钥匙串里。智能体通过 Sikemux 访问提供商，由 Sikemux 在每个请求上加上密钥，智能体自己拿不到密钥。
+
+## 在对话里使用
+
+在对话的模型选择器里，你的套餐会作为一组列出来，选其中一个模型即可。这些提供商都支持 Anthropic 的接口，所以默认由 Claude Code 运行；没装 Claude Code 的话，Sikemux 会用它自己的安装程序装上。OpenCode、Pi 和 OMP 也能用，它们会把你连上的提供商列为 `sikemux-<提供商>`。
+
+一个对话开始后会固定在它的智能体和提供商上。想换套餐，新开一个对话。
+
+### 主力用一个模型，帮手用便宜的
+
+**设置 → 辅助程序** 决定智能体开出来的帮手用什么模型。比如领头的对话用 Claude，帮手都跑在 GLM 或 DeepSeek 上。
+
+## 代理设置
+
+Sikemux 用的是你登录 shell 里的代理设置，从程序坞打开也一样。它读取：
+
+- `HTTPS_PROXY`，没有的话读 `ALL_PROXY`（小写也可以）
+- `NO_PROXY`：不走代理的地址
+
+智能体发往模型的请求先到 Sikemux，再由 Sikemux 按上面的设置发出去。Sikemux 会自己把本机地址加进 `NO_PROXY`，所以智能体和 Sikemux 之间的连接不会绕到代理上。
+
+国内的套餐地址在国内可以直接访问，不需要代理。如果你的代理是全局的，建议把它们排除掉，免得绕一圈变慢。在 `~/.zshrc` 里加上：
+
+```sh
+export HTTPS_PROXY=http://127.0.0.1:7890
+export NO_PROXY=open.bigmodel.cn,api.kimi.com,api.minimax.cn,api.deepseek.com,api.moonshot.cn
+```
+
+端口换成你的代理软件实际用的端口。Sikemux 启动时读一次这些设置，所以改完后要用菜单里的 **退出并停止所有内容** 退出，再重新打开。普通的 **退出** 会让智能体在后台继续运行，读不到新设置。
+
+只用国内套餐的话，可以不设代理。用 Claude 或 Codex 的官方账号则需要代理。
+
+## 出了问题
+
+- **密钥检查不通过**：先确认选的是 (China) 那一项还是海外那一项，和你的账号对得上。
+- **请求很慢或超时**：看看这个地址是不是被全局代理绕出去了，把它加进 `NO_PROXY`。
+- **工具调用失败**：在设置里点 **检查工具调用**，换一个通过检查的模型。
+
+用起来有问题，或者界面里有翻译不对的地方，欢迎在 [GitHub](https://github.com/nodelike/sikemux/issues) 上告诉我们。

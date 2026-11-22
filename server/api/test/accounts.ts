@@ -5,7 +5,7 @@ import { expect } from "vitest";
 import { openDatabase, type Database } from "../src/db.ts";
 import { liveMessage, registrationMessage } from "../src/devices/signature.ts";
 import { migrate, readMigrations } from "../src/migrations.ts";
-import { body, freshDatabase, log } from "./support.ts";
+import { body, freshDatabase, log, macCodes } from "./support.ts";
 import { macToken, sessionToken } from "./tokens.ts";
 
 export interface TestDevice {
@@ -162,4 +162,40 @@ export async function events(database: Database): Promise<EventRow[]> {
     "select id::int, user_id, type, subject, subject_role, reason from events order by id",
   );
   return rows;
+}
+
+/** A Mac's browser sign-in for `userId`: the code it hands the API, and the host it adds. */
+export async function signInMac(
+  app: Requester,
+  userId: string,
+  { device = newDevice(), code = `code_${device.key.slice(0, 16)}` } = {},
+): Promise<TestDevice & { response: Response }> {
+  macCodes.set(code, await macToken(userId));
+  const post = (path: string, json: unknown) =>
+    Promise.resolve(
+      app.request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(json),
+      }),
+    );
+  const started = await post("/v1/mac-sign-ins", {
+    code,
+    codeVerifier: "v".repeat(43),
+    redirectUri: "http://127.0.0.1:53682/callback",
+  });
+  expect(started.status).toBe(200);
+  const { account, nonce } = await body(started, "MacSignInState");
+  const response = await post("/v1/mac-sign-ins/finish", {
+    key: device.key,
+    name: "Studio Mac",
+    platform: "macos",
+    channel: "stable",
+    nonce,
+    signature: signText(
+      device,
+      registrationMessage(nonce, account, device.key),
+    ),
+  });
+  return { ...device, response };
 }

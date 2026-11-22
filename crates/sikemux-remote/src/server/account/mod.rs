@@ -1,9 +1,10 @@
 //! Signing this host in to a Sikemux account, so devices on the same account
 //! find it. Sign-in happens in the person's browser (OAuth with PKCE), which
-//! hands back to a one-time listener on 127.0.0.1. That sign-in's token only
-//! registers the core's key with the account and is then dropped; every later
-//! request is signed with the key, so taking the host off the account cuts it
-//! off. The keychain keeps who signed in, the data folder their name and
+//! hands back to a one-time listener on 127.0.0.1. The core passes the code
+//! it got to the account server, which trades it at Clerk itself, and signs
+//! the challenge that comes back with its key. The core never holds a sign-in
+//! token; every later request is signed with the key, so taking the host off
+//! the account cuts it off. The keychain keeps who signed in, the data folder their name and
 //! picture, and the core's remote access which account owns the host. A host
 //! with no browser signs in by a code approved elsewhere, and keeps no record.
 
@@ -39,7 +40,9 @@ use sikemux_loopback::{challenge, Callback, Finish, LoopbackError};
 use sikemux_process::sync::Locked;
 use tokio::sync::{oneshot, watch};
 
-use crate::accounts::protocol::{AccountProfile, Challenge, DeviceRegistration, DeviceRole};
+use crate::accounts::protocol::{
+    AccountProfile, Device, MacSignIn, MacSignInFinish, MacSignInState,
+};
 use sikemux_view::device::AccountInfo;
 use sikemux_wire::protocol::HostRegistration;
 
@@ -49,7 +52,7 @@ use super::changed::Topic;
 use super::join::NAME_LIMIT;
 use super::remote_image::PictureData;
 use super::{remote, Core, CoreError, CoreResult};
-use crate::accounts::{client, feature_name};
+use crate::accounts::feature_name;
 
 /// The Clerk instance accounts live in, and this host's OAuth client there.
 /// Dev builds use Clerk's development instance, which the accounts server on
@@ -318,12 +321,6 @@ pub async fn picture(core: &Core, hash: &str) -> Option<PictureData> {
     })
 }
 
-#[derive(Deserialize)]
-struct Tokens {
-    access_token: String,
-    refresh_token: Option<String>,
-}
-
 fn authorize_url(redirect: &str, state: &str, challenge: &str) -> String {
     let query = url::form_urlencoded::Serializer::new(String::new())
         .append_pair("client_id", CLIENT_ID)
@@ -435,28 +432,7 @@ async fn finish(
         .code(state)
         .await
         .map_err(|error| format!("sign-in was not finished: {}", error.0))?;
-    let response = client()?
-        .post(format!("{CLERK}/oauth/token"))
-        .form(&[
-            ("grant_type", "authorization_code"),
-            ("code", code.as_str()),
-            ("redirect_uri", callback.redirect_uri()),
-            ("client_id", CLIENT_ID),
-            ("code_verifier", verifier),
-        ])
-        .send()
-        .await
-        .map_err(|error| error.to_string())?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "the account service did not finish the sign-in ({})",
-            response.status()
-        ));
-    }
-    let tokens: Tokens = response.json().await.map_err(|error| error.to_string())?;
-    let registered = register_host(core, peer, &tokens.access_token).await;
-    revoke(tokens.refresh_token).await;
-    let user_id = registered?;
+    let user_id = register_host(core, peer, code, callback.redirect_uri(), verifier).await?;
     keep_saved(
         core,
         Some(Saved {
@@ -504,85 +480,36 @@ async fn signed_in(core: &Core) -> Result<AccountInfo, String> {
         .ok_or_else(|| "the account let this host go as it signed in".to_owned())
 }
 
-/// Clerk hands out a refresh token only for offline access, which Sikemux
-/// does not ask for; should one come anyway, it is revoked at once.
-async fn revoke(refresh_token: Option<String>) {
-    let (Some(token), Ok(client)) = (refresh_token, client()) else {
-        return;
+/// Registers the core's key with the account the browser signed in to. The account trades
+/// the browser's code at Clerk itself, so this host never holds a sign-in token. Answers with
+/// the account.
+async fn register_host(
+    core: &Core,
+    peer: &Peer,
+    code: String,
+    redirect_uri: &str,
+    verifier: &str,
+) -> Result<String, String> {
+    let sign_in = MacSignIn {
+        code,
+        code_verifier: verifier.to_owned(),
+        redirect_uri: redirect_uri.to_owned(),
     };
-    let _ = client
-        .post(format!("{CLERK}/oauth/token/revoke"))
-        .form(&[
-            ("token", token.as_str()),
-            ("token_type_hint", "refresh_token"),
-            ("client_id", CLIENT_ID),
-        ])
-        .send()
-        .await;
-}
-
-/// The signed-in user's id, read from the access token Clerk just issued to
-/// this host. The server checks the token's signature on every request.
-fn subject(access_token: &str) -> Result<String, String> {
-    #[derive(Deserialize)]
-    struct Claims {
-        sub: String,
-    }
-    let payload = access_token
-        .split('.')
-        .nth(1)
-        .and_then(|part| URL_SAFE_NO_PAD.decode(part).ok())
-        .and_then(|bytes| serde_json::from_slice::<Claims>(&bytes).ok())
-        .ok_or("the sign-in token could not be read")?;
-    sikemux_client::accounts::check_user_id(&payload.sub)?;
-    Ok(payload.sub)
-}
-
-/// Registers the core's key with the account the browser signed in to, the
-/// one thing the sign-in's token is used for. Answers with the account.
-async fn register_host(core: &Core, peer: &Peer, access_token: &str) -> Result<String, String> {
-    let user_id = subject(access_token)?;
-    let api = |path: &str| {
-        format!(
-            "{}{path}",
-            crate::accounts::api_base().trim_end_matches('/')
-        )
-    };
-    let client = client()?;
-    let response = client
-        .post(api("/v1/devices/challenge"))
-        .bearer_auth(access_token)
-        .send()
+    let state: MacSignInState = code::post("/v1/mac-sign-ins", &sign_in).await?;
+    sikemux_client::accounts::check_user_id(&state.account)?;
+    let host = host_registration(core, &state.nonce, &state.account, peer)
         .await
         .map_err(|error| error.to_string())?;
-    if !response.status().is_success() {
-        return Err(crate::accounts::refusal(response).await);
-    }
-    let challenge: Challenge = response.json().await.map_err(|error| error.to_string())?;
-    let host = host_registration(core, &challenge.nonce, &user_id, peer)
-        .await
-        .map_err(|error| error.to_string())?;
-    let registration = DeviceRegistration {
+    let finish = MacSignInFinish {
         key: host.key,
-        role: DeviceRole::Host,
         name: host.name.chars().take(NAME_LIMIT).collect(),
         platform: super::host::PLATFORM,
-        channel: Some(host.channel.into()),
-        hands_only: None,
-        nonce: challenge.nonce,
+        channel: host.channel.into(),
+        nonce: state.nonce,
         signature: host.signature,
     };
-    let response = client
-        .post(api("/v1/devices"))
-        .bearer_auth(access_token)
-        .json(&registration)
-        .send()
-        .await
-        .map_err(|error| error.to_string())?;
-    if !response.status().is_success() {
-        return Err(crate::accounts::refusal(response).await);
-    }
-    Ok(user_id)
+    let _: Device = code::post("/v1/mac-sign-ins/finish", &finish).await?;
+    Ok(state.account)
 }
 
 /// This host as `user_id`'s account is to register it, signed for the challenge `nonce`, when
@@ -647,14 +574,5 @@ mod tests {
         assert!(released(None, true, "user_1"));
         assert!(released(Some("user_2"), true, "user_1"));
         assert!(!released(None, false, "user_1"));
-    }
-
-    #[test]
-    fn the_user_comes_from_the_token_subject() {
-        let claims = URL_SAFE_NO_PAD.encode(br#"{"sub":"user_2abc","client_id":"x"}"#);
-        assert_eq!(subject(&format!("h.{claims}.s")).unwrap(), "user_2abc");
-        let machine = URL_SAFE_NO_PAD.encode(br#"{"sub":"mch_1"}"#);
-        assert!(subject(&format!("h.{machine}.s")).is_err());
-        assert!(subject("not-a-token").is_err());
     }
 }

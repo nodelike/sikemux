@@ -65,8 +65,6 @@ const SETTLE_MS: u64 = 1500;
 /// How long an agent rests after a turn before messages nobody waits on, such as a trigger's or a
 /// teammate's report, start another, so those that come close together are read in one turn.
 const AUTO_SETTLE_MS: u64 = 30_000;
-/// How long a calm report waits for its lead's next turn before it starts one.
-const CALM_WAIT_MS: u64 = 5 * 60_000;
 /// How long Sikemux remembers that an agent reported, so the chief's digest does not repeat it.
 const REPORTED_MS: u64 = 24 * 60 * 60_000;
 /// Turns in a row an agent may start on messages nobody waits on before the rest wait for the
@@ -1126,7 +1124,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                                 .is_some_and(|name| name.eq_ignore_ascii_case(wanted))
                                 && super::roster::reaches(&core, agent, &project, &from)
                     };
-                    if answers.is_some() || agents.iter().any(named) {
+                    if agents.iter().any(named) {
                         return Err(why.into());
                     }
                     if let Some((_, ran)) = core.names().closed_worker(&from, wanted) {
@@ -1158,13 +1156,19 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                 return Err(why.into());
             }
             let mut letter = letter_from(&agents, MessageKind::Message, from, text, None);
-            if let Some(Answering { id, .. }) = answers.as_ref().filter(|_| target.reach != Reach::Remote) {
+            if let Some(Answering { id, .. }) =
+                answers.as_ref().filter(|_| target.reach != Reach::Remote)
+            {
                 let name = target.name.as_deref().unwrap_or(&target.agent_id);
                 let asked = core
                     .harness()
                     .questions
                     .asked_of(&letter.from_id, &target.agent_id, id)
-                    .ok_or_else(|| format!("{name} has no open question {id} that it asked you; it was answered already, or leave out answers to send this as a plain message"))?;
+                    .ok_or_else(|| {
+                        core.harness()
+                            .questions
+                            .not_asked(&letter.from_id, name, id)
+                    })?;
                 letter.kind = MessageKind::Answer;
                 letter.note = Some(lead_answer_note(&letter.from_name, &asked));
             }
@@ -1192,13 +1196,42 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         return carry(core, &target, letter, answers).await;
     }
     let answer = letter.text.clone();
-    let sent = deliver(core, &target, letter).await?;
+    let mut sent = deliver(core, &target, letter).await?;
     core.seen().called(&target.agent_id);
     core.changed(What::Agents);
-    if let Some(answering) = answers {
-        settle_answer(core, from, target.agent_id.clone(), answering, answer).await;
+    match answers {
+        Some(answering) => {
+            settle_answer(core, from, target.agent_id.clone(), answering, answer).await;
+        }
+        None => {
+            if let (Some(decided), Some(fields)) =
+                (decided_for(core, &target, &from), sent.as_object_mut())
+            {
+                fields.insert("decided".into(), decided.into());
+            }
+        }
     }
     Ok(sent)
+}
+
+/// What `author` decided in the last day by answering `target`'s questions that still stands, and how to
+/// correct it, so a message that changes course does not leave the old answer on record.
+fn decided_for(core: &Core, target: &Listed, author: &str) -> Option<String> {
+    let since = epoch_ms().saturating_sub(24 * 60 * 60_000);
+    let decided: Vec<String> = super::board::goal::standing_since(core, &target.project, since, 20)
+        .into_iter()
+        .filter(|decision| {
+            decision.holder.as_deref() == Some(target.agent_id.as_str())
+                && decision.learned.agent.as_deref() == Some(author)
+        })
+        .map(|decision| format!("#{} \"{}\"", decision.id, decision.text))
+        .collect();
+    (!decided.is_empty()).then(|| {
+        format!(
+            "Your answers to it stand as decisions {}. If this message changes one, correct it with decide, decision: its number.",
+            decided.join("; ")
+        )
+    })
 }
 
 enum Found {
@@ -1447,7 +1480,11 @@ pub(crate) async fn from_host(
             .harness()
             .questions
             .asked_of(&letter.from_id, &target.agent_id, id)
-            .ok_or_else(|| format!("{name} has no open question {id} that it asked you; it was answered already, or leave out answers to send this as a plain message"))?;
+            .ok_or_else(|| {
+                core.harness()
+                    .questions
+                    .not_asked(&letter.from_id, &name, id)
+            })?;
         letter.kind = MessageKind::Answer;
         letter.note = Some(lead_answer_note(&letter.from_name, &asked));
     }
@@ -2012,7 +2049,7 @@ async fn report_noted(
             let note = note(&called(&name, &worker));
             let mut letter = letter_from(&agents, MessageKind::Report, worker, text, Some(note));
             letter.from_name = name;
-            letter.calm = calm.then(|| calm_due(&agents, &letter.from_id, &target.agent_id, letter.at));
+            letter.calm = calm.then(|| calm_due(&core, &agents, &letter.from_id, &target.agent_id, letter.at));
             Ok(Some((target, letter)))
         })
         .await
@@ -2025,14 +2062,22 @@ async fn report_noted(
     }
 }
 
-/// A calm report is due at once when its lead has no other worker open to join it, and
-/// [`CALM_WAIT_MS`] after `at` otherwise.
-fn calm_due(agents: &[Listed], worker: &str, lead: &str, at: u64) -> u64 {
-    let others = agents
-        .iter()
-        .any(|agent| agent.agent_id != worker && agent.parent.as_deref() == Some(lead));
-    match others {
-        true => at + CALM_WAIT_MS,
+/// A calm report is due at once when no other worker of its lead is still at work, and
+/// otherwise waits for the lead's next turn, which that worker's own report starts.
+fn calm_due(core: &Core, agents: &[Listed], worker: &str, lead: &str, at: u64) -> u64 {
+    let turns = super::turn_state::all(core);
+    let at_work = agents.iter().any(|agent| {
+        agent.agent_id != worker
+            && agent.parent.as_deref() == Some(lead)
+            && (turns.get(&agent.agent_id)).is_some_and(|turn| {
+                matches!(
+                    turn.state,
+                    sikemux_view::turn::TurnPhase::Working | sikemux_view::turn::TurnPhase::Waiting
+                )
+            })
+    });
+    match at_work {
+        true => u64::MAX,
         false => at,
     }
 }
@@ -2056,8 +2101,12 @@ async fn deliver_as(
     if target.reach == Reach::Remote {
         return carry(core, target, letter, None).await;
     }
+    let calls = (core.harness().questions).calls_about_note(&target.agent_id, &letter.from_id);
     let queued = Queued {
-        text,
+        text: match calls {
+            Some(calls) => format!("{text}\n{calls}"),
+            None => text,
+        },
         origin: Some(Origin {
             from: letter.from_id.clone(),
             kind: letter.kind,
@@ -2398,6 +2447,10 @@ pub(crate) fn from_person(core: &Arc<Core>, agent_id: &str, text: String) -> Cor
     worked(core, agent_id);
     person_wrote(core, agent_id);
     super::now::asks::asked(core, agent_id, &text, &[], None);
+    let text = match core.harness().questions.open_calls_note(agent_id) {
+        Some(note) => format!("{text}\n\n{note}"),
+        None => text,
+    };
     let mailbox = &core.harness().mailbox;
     mailbox.wait(
         agent_id,
@@ -2599,7 +2652,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
             .calm_until(&agent_id)
             .filter(|until| *until > epoch_ms())
         {
-            next = sooner(next, Some(until));
+            next = sooner(next, Some(until).filter(|until| *until != u64::MAX));
             continue;
         }
         let rest = mailbox.rest_for(&agent_id);

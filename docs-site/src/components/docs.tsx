@@ -49,8 +49,8 @@ export function Docs(props: {
         githubUrl="https://github.com/nodelike/sikemux"
         nav={{ mode: "top", title: <Wordmark /> }}
         links={[
-          { text: "sikemux.com", url: "https://sikemux.com", external: true },
-          { text: "Changelog", url: "https://sikemux.com/changelog", external: true },
+          { text: "sikemux.com", url: "https://sikemux.com/?utm_source=docs&utm_medium=nav", external: true },
+          { text: "Changelog", url: "https://sikemux.com/changelog?utm_source=docs&utm_medium=nav", external: true },
           {
             type: "icon",
             text: "Discord",

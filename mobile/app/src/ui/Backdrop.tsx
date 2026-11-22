@@ -67,7 +67,7 @@ function keptFrame(key: string): File {
 async function keepFrame(gl: ExpoWebGLRenderingContext, key: string): Promise<string> {
   const shot = await GLView.takeSnapshotAsync(gl, { format: 'png' });
   const kept = keptFrame(key);
-  new File(shot.localUri).move(kept, { overwrite: true });
+  new File(shot.localUri).moveSync(kept, { overwrite: true });
   return kept.uri;
 }
 

@@ -272,7 +272,7 @@ fn launcher_of<'a>(bench: &'a Workbench, id: &str) -> Option<&'a LauncherInfo> {
 }
 
 /// Signs the launcher's agent in: the core does it for the agents whose accounts it keeps,
-/// and the agent's own command runs in Settings › Installed for the rest.
+/// and the agent's own command runs in Settings › Agents for the rest.
 fn sign_in(
     bench: &mut Workbench,
     launcher: &str,
@@ -283,7 +283,7 @@ fn sign_in(
         return;
     };
     // An agent with accounts is signed in by the core; the rest sign in with their own command,
-    // in the sheet Settings › Installed shows.
+    // in the sheet Settings › Agents shows.
     if bench
         .reads
         .catalog
@@ -297,7 +297,7 @@ fn sign_in(
             });
         return;
     }
-    bench.open_settings(crate::settings::Page::Installed, window, cx);
+    bench.open_settings(crate::settings::Page::Agents, window, cx);
     let folder = bench
         .accounts
         .current(&provider)
@@ -314,7 +314,7 @@ fn sign_in(
     }
 }
 
-/// Runs the agent's installer in Settings › Installed, as the agent's own sign-in runs there.
+/// Runs the agent's installer in Settings › Agents, as the agent's own sign-in runs there.
 fn install(
     bench: &mut Workbench,
     launcher: &str,
@@ -333,7 +333,7 @@ fn install(
         return;
     };
     let sheet = crate::agents::setup::installer(&launcher.provider, &launcher.label, command);
-    bench.open_settings(crate::settings::Page::Installed, window, cx);
+    bench.open_settings(crate::settings::Page::Agents, window, cx);
     crate::agents::setup::run(bench, sheet, cx);
 }
 

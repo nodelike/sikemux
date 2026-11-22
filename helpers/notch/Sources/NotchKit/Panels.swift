@@ -63,10 +63,17 @@ final class Panels {
         let settings = store.settings
         let isAsk: Bool
         if case .done = peek { isAsk = false } else { isAsk = true }
-        if isAsk, settings.sound { NSSound(named: "Tink")?.play() }
+        if isAsk, settings.sound { Self.ring() }
         guard settings.peeks == .all || (isAsk && settings.peeks == .needsYou) else { return }
         if isAsk { Haptics.tick() }
         shown.forEach { $0.island.peek(peek, for: isAsk ? 6 : 3) }
+    }
+
+    private static let chime = NSSound(named: "Tink")
+    private static let chimeQueue = DispatchQueue(label: "notch.chime", qos: .userInitiated)
+
+    private static func ring() {
+        chimeQueue.async { chime?.play() }
     }
 
     private static func displayId(_ screen: NSScreen) -> CGDirectDisplayID? {

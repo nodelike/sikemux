@@ -56,7 +56,7 @@ enum Config {
     static var backupDays: Int { release.account.backupDays }
 
     /// Where a person gets a newer app, until the App Store lists it.
-    static let updateLink = URL(string: "https://sikemux.com/")!
+    static let updateLink = URL(string: "https://sikemux.com/?utm_source=ios-app&utm_medium=app")!
 
     static var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"

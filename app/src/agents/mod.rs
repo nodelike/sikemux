@@ -276,7 +276,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                 .child(
                     ui::Button::new("set-up-agent", t!("Set one up"), ui::Variant::Outline)
                         .on_click(cx.listener(|bench, _, window, cx| {
-                            bench.open_settings(crate::settings::Page::Installed, window, cx)
+                            bench.open_settings(crate::settings::Page::Agents, window, cx)
                         })),
                 )
                 .into_any_element()
@@ -1116,8 +1116,8 @@ fn hang_lines(hang: &tree::Hang, cx: &App) -> Vec<AnyElement> {
 /// How far each level of a tree sits to the right of the one above.
 const INDENT: f32 = 18.;
 
-/// The workers the agents listed started on linked hosts, as each lead's core lists them in team
-/// order.
+/// The workers started on linked hosts that the rail lists, as each lead's core lists them in
+/// team order: those of the projects shown, or under a lead listed.
 fn remote_workers<'a>(bench: &'a Workbench, agents: &[AgentRow]) -> Vec<&'a RemoteAgent> {
     let mut places: Vec<&Place> = Vec::new();
     for agent in agents {
@@ -1125,10 +1125,51 @@ fn remote_workers<'a>(bench: &'a Workbench, agents: &[AgentRow]) -> Vec<&'a Remo
             places.push(&agent.place);
         }
     }
-    (places.into_iter())
-        .filter_map(|place| bench.view_at(place))
-        .flat_map(|view| &view.inbox.remote_agents)
-        .filter(|worker| worker.shown.lead.is_some())
+    let workers: Vec<(&Place, &RemoteAgent)> = (places.into_iter())
+        .filter_map(|place| Some((place, bench.view_at(place)?)))
+        .flat_map(|(place, view)| {
+            (view.inbox.remote_agents.iter()).map(move |worker| (place, worker))
+        })
+        .filter(|(_, worker)| worker.shown.lead.is_some())
+        .collect();
+    if bench.rails.all_projects {
+        return workers.into_iter().map(|(_, worker)| worker).collect();
+    }
+    let shown: Vec<(Place, String)> = (bench.folded_in_front().into_iter())
+        .flat_map(|folded| folded.copies)
+        .map(|copy| (copy.place, copy.project))
+        .collect();
+    in_scope(workers, agents, &shown)
+}
+
+/// Of `workers`, those of a project in `shown`, by its place and id there, or led by one of
+/// `agents` or another worker kept.
+fn in_scope<'a>(
+    workers: Vec<(&Place, &'a RemoteAgent)>,
+    agents: &[AgentRow],
+    shown: &[(Place, String)],
+) -> Vec<&'a RemoteAgent> {
+    let mut listed: HashSet<&str> = agents.iter().map(|agent| agent.id.as_str()).collect();
+    loop {
+        let more: Vec<&str> = (workers.iter())
+            .filter(|(_, worker)| !listed.contains(worker.shown.agent_id.as_str()))
+            .filter(|(place, worker)| {
+                let lead = worker.shown.lead.as_deref();
+                lead.is_some_and(|lead| listed.contains(lead))
+                    || (shown.iter()).any(|(at, project)| {
+                        at == *place && worker.shown.project.as_ref() == Some(project)
+                    })
+            })
+            .map(|(_, worker)| worker.shown.agent_id.as_str())
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        listed.extend(more);
+    }
+    (workers.into_iter())
+        .map(|(_, worker)| worker)
+        .filter(|worker| listed.contains(worker.shown.agent_id.as_str()))
         .collect()
 }
 
@@ -2031,5 +2072,38 @@ impl Workbench {
                 agent_id: agent.to_owned(),
                 to,
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn worker(name: &str, project: &str) -> RemoteAgent {
+        serde_json::from_value(serde_json::json!({
+            "agentId": format!("agent-{name}"), "name": name, "cli": "claude",
+            "title": format!("Pro theme sync proof on {name}"), "status": "working",
+            "group": "working", "label": "Working", "unread": false, "subagents": 0, "tasks": 0,
+            "busy": true, "failed": false, "background": false, "activeAt": null,
+            "project": project, "lead": "agent-rui",
+            "host": name, "hostId": name, "reachable": true,
+        }))
+        .expect("a worker")
+    }
+
+    #[test]
+    fn a_linked_hosts_worker_shows_only_in_the_rail_of_the_project_it_was_started_in() {
+        let sikemux = "/Users/nodelike/proj/pers/sikemux";
+        let marketingiq = "/Users/nodelike/proj/swishx/marketingiq";
+        let (temple, nexus) = (worker("temple", sikemux), worker("nexus", sikemux));
+        let workers = || vec![(&Place::This, &temple), (&Place::This, &nexus)];
+        let rail = |project: &str| {
+            in_scope(workers(), &[], &[(Place::This, project.to_owned())])
+                .into_iter()
+                .map(|worker| worker.shown.agent_id.clone())
+                .collect::<Vec<_>>()
+        };
+        assert!(rail(marketingiq).is_empty());
+        assert_eq!(rail(sikemux), ["agent-temple", "agent-nexus"]);
     }
 }

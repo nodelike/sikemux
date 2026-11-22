@@ -14,10 +14,16 @@ use super::connection::blocking;
 use super::{Core, CoreError, CoreResult};
 use crate::releases;
 
-pub(crate) async fn release_notes(params: NotesParams) -> CoreResult<releases::ReleaseNotes> {
-    releases::release_notes(params.version, params.since)
-        .await
-        .map_err(CoreError::from)
+pub(crate) async fn release_notes(
+    core: &Core,
+    params: NotesParams,
+) -> CoreResult<releases::ReleaseNotes> {
+    let dir = core.config().data_dir.as_deref();
+    match params.fetch {
+        true => releases::release_notes(params.version, params.since, dir).await,
+        false => releases::held_notes(params.version, params.since, dir),
+    }
+    .map_err(CoreError::from)
 }
 
 /// Contributors' pictures as `data:` addresses, by the address GitHub gave.

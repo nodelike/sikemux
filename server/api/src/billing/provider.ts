@@ -103,7 +103,8 @@ export type ProviderEvent = {
       reason: InvoiceReason;
       /** What the provider charged, in the currency it charged in. */
       total: Money;
-      /** The end of the period the payment is for, when the provider names one. */
+      /** The period the payment is for, when the provider names one. */
+      periodStart?: Date;
       periodEnd?: Date;
     }
   /**
@@ -113,6 +114,8 @@ export type ProviderEvent = {
   | {
       type: "payment.refunded";
       providerPaymentId: string;
+      /** The provider's id for this refund, the same in every event about it. */
+      providerRefundId: string;
       returned: Money;
       chargeback: boolean;
     }
@@ -244,12 +247,13 @@ export interface BillingProvider {
    * Pauses the subscription at once, with no end, and answers when the period it had paid for
    * would have ended, when the provider paused it, and whether it was set to cancel, which the pause
    * drops. A cancel the provider holds that `subscription` does not is answered with
-   * `cancelScheduled`, to be recorded before it is dropped. A pause the provider made before `since`
-   * is someone else's and is refused, as is a subscription that is not active. Inside the half hour
+   * `cancelScheduled`, to be recorded before it is dropped. A subscription already paused is taken
+   * as this pause only when `asked`, as a pause asked before whose answer was lost; otherwise it is
+   * someone else's and refused, as is a subscription that is not active. Inside the half hour
    * before a renewal or a scheduled cancel the provider takes no pause, so it answers when to ask
    * again instead, by which time the renewal or the cancel has gone through.
    */
-  pause(subscription: HeldSubscription, since: Date): Promise<PauseOutcome>;
+  pause(subscription: HeldSubscription, asked: boolean): Promise<PauseOutcome>;
   /**
    * Resumes a paused subscription on `at`, when the provider charges a new period; at once when
    * `at` has passed. Asking again moves the day. Answers "paused" when the resume is set, or the

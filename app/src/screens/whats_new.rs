@@ -14,13 +14,13 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, img, px, relative, AnyElement, App, Context, Entity, FocusHandle, FontWeight, Hsla, Image,
-    ImageFormat, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window,
+    div, img, px, relative, AnyElement, App, AsyncApp, Context, Entity, FocusHandle, FontWeight,
+    Hsla, Image, ImageFormat, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use gpui_transcript::{Markdown, Pen, Style};
 use serde::Deserialize;
-use sikemux_view::updates::{UpdateRelease, UpdateState, UpdateStatus};
+use sikemux_view::updates::{UpdateRelease, UpdateStatus};
 
 use crate::core::Target;
 use crate::screens::experience;
@@ -29,10 +29,7 @@ use crate::theme::{
     Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_5, SPACE_6, TEXT_2XS,
     TEXT_3XS, TEXT_SM, TEXT_XL, TEXT_XS,
 };
-use crate::updates::{
-    by_installer, copy_install_command, install, install_button, install_now, pending,
-    waiting_label,
-};
+use crate::updates::{by_installer, copy_install_command, install_button, install_now, pending};
 use crate::workbench::Workbench;
 use crate::{theme, ui};
 
@@ -46,8 +43,6 @@ pub struct WhatsNew {
     running: Option<String>,
     /// The release shown: an update waiting to install, else the one running.
     version: Option<String>,
-    /// The person asked to update now and is being told which agents that stops.
-    confirming: bool,
     notes: Option<Result<Notes, String>>,
     markdown: Option<Rc<Markdown>>,
     avatars: HashMap<String, Arc<Image>>,
@@ -120,32 +115,41 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         let Some(partial) = bundled else {
             return;
         };
-        let notes = here
-            .request_typed::<call::ReleaseNotes>(NotesParams {
-                version: shown.clone(),
-                since,
-            })
-            .await;
+        let params = |fetch| NotesParams {
+            version: shown.clone(),
+            since: since.clone(),
+            fetch,
+        };
+        let held = match here
+            .request_typed::<call::ReleaseNotes>(params(false))
+            .await
+        {
+            Ok(held) => Some((held, HashMap::new())),
+            Err(_) => partial.map(|bundled| (bundled.notes, bundled.avatars)),
+        };
+        if let Some((notes, avatars)) = &held {
+            answer(&bench, cx, &shown, Ok(notes.clone()), avatars.clone());
+        }
+        let notes = match held {
+            Some((held, _)) if held.complete => held,
+            held => match here.request_typed::<call::ReleaseNotes>(params(true)).await {
+                Ok(fetched) => {
+                    answer(&bench, cx, &shown, Ok(fetched.clone()), HashMap::new());
+                    fetched
+                }
+                Err(error) => {
+                    if held.is_none() {
+                        answer(&bench, cx, &shown, Err(error), HashMap::new());
+                    }
+                    return;
+                }
+            },
+        };
         let urls: Vec<String> = notes
-            .as_ref()
-            .map(|notes| {
-                notes
-                    .contributors
-                    .iter()
-                    .map(|person| person.avatar.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let _ = bench.update(cx, |bench, cx| {
-            if !showing(bench, &shown) {
-                return;
-            }
-            match (notes, partial) {
-                (Err(_), Some(bundled)) => show_notes(bench, Ok(bundled.notes), bundled.avatars),
-                (notes, _) => show_notes(bench, notes, HashMap::new()),
-            }
-            bench.parts.redraw(&bench.parts.over, cx);
-        });
+            .contributors
+            .iter()
+            .map(|person| person.avatar.clone())
+            .collect();
         if urls.is_empty() {
             return;
         }
@@ -158,15 +162,31 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
                 return;
             }
             if let Some(news) = news_of(bench) {
-                news.avatars = faces
-                    .into_iter()
-                    .filter_map(|(url, data)| Some((url, data_image(&data)?)))
-                    .collect();
+                news.avatars.extend(
+                    faces
+                        .into_iter()
+                        .filter_map(|(url, data)| Some((url, data_image(&data)?))),
+                );
             }
             bench.parts.redraw(&bench.parts.over, cx);
         });
     })
     .detach();
+}
+
+fn answer(
+    bench: &WeakEntity<Workbench>,
+    cx: &mut AsyncApp,
+    version: &str,
+    notes: Result<Notes, String>,
+    avatars: HashMap<String, Arc<Image>>,
+) {
+    let _ = bench.update(cx, |bench, cx| {
+        if showing(bench, version) {
+            show_notes(bench, notes, avatars);
+            bench.parts.redraw(&bench.parts.over, cx);
+        }
+    });
 }
 
 /// Whether the screen is still up on `version`, so an answer for a release it moved past is dropped.
@@ -245,6 +265,7 @@ impl Bundled {
                 commits,
                 compare,
                 contributors,
+                complete: false,
             },
             avatars,
             complete,
@@ -432,7 +453,10 @@ fn side(
                 .left_0()
                 .right_0()
                 .h(px(240.))
-                .child(crate::ui::grain::sky(0.15, 1., cx).size_full())
+                .child(
+                    crate::ui::grain::sky(theme::radius_4() - crate::theme::border(), 1., cx)
+                        .size_full(),
+                )
                 .children(ui::spot(|| "whats-new-sky".into())),
         )
         .child(
@@ -752,11 +776,6 @@ fn main(
                 .pb(px(32.))
                 .child(body),
         )
-        .children(
-            update
-                .filter(|update| update.state == UpdateState::Waiting)
-                .map(|update| waiting(news, update, this, cx)),
-        )
         .child(
             div()
                 .flex()
@@ -807,161 +826,6 @@ fn main(
                     }
                 })),
         )
-}
-
-/// An update held back by agents that cannot be carried over it yet, with a way to
-/// install now that names the agents it would stop.
-fn waiting(
-    news: &WhatsNew,
-    update: &UpdateStatus,
-    this: &Entity<Workbench>,
-    cx: &App,
-) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
-    let blockers = update.blockers.as_slice();
-    let count = blockers.len();
-    let stopping = blockers
-        .iter()
-        .filter(|blocker| blocker.reason != "turn")
-        .count();
-    let one = stopping == 1;
-    let paragraph = |text: String| div().line_height(relative(1.5)).child(text);
-    let confirm = |confirming: bool| {
-        let this = this.clone();
-        move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
-            this.update(cx, |bench, cx| {
-                if let Some(news) = news_of(bench) {
-                    news.confirming = confirming;
-                }
-                bench.parts.redraw(&bench.parts.over, cx);
-            })
-        }
-    };
-    let not_now = {
-        let this = this.clone();
-        move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
-            this.update(cx, |bench, _| {
-                Target::here(&bench.asks).call_typed::<call::UpdateCancel>(NoParams {});
-            })
-        }
-    };
-    let update_now = |force: bool| {
-        let this = this.clone();
-        move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
-            this.update(cx, |bench, _| install(bench, force))
-        }
-    };
-    let action = |id: &'static str, label: String, danger: bool| {
-        div()
-            .id(id)
-            .px(SPACE_3)
-            .py(px(7.))
-            .border(crate::theme::border())
-            .border_color(if danger {
-                Hsla { a: 0.5, ..t.danger }
-            } else {
-                t.border
-            })
-            .rounded(theme::radius_2())
-            .text_color(if danger { t.danger } else { t.text_secondary })
-            .cursor_pointer()
-            .when(danger, |button| {
-                button.hover(|button| {
-                    button.bg(Hsla {
-                        a: 0.12,
-                        ..t.danger
-                    })
-                })
-            })
-            .child(label)
-    };
-    let keep = match news.confirming {
-        true => action("whats-new-keep-waiting", t!("Keep waiting").into(), false)
-            .clicks(confirm(false)),
-        false => action("whats-new-not-now", t!("Not now").into(), false).clicks(not_now),
-    };
-    let go = match (stopping, news.confirming) {
-        (0, _) => {
-            action("whats-new-update-now", t!("Update now").into(), false).clicks(update_now(false))
-        }
-        (_, true) => action(
-            "whats-new-force",
-            match one {
-                true => t!("Stop it and update").into(),
-                false => t!("Stop {count} agents and update", count = stopping),
-            },
-            true,
-        )
-        .clicks(update_now(true)),
-        (_, false) => {
-            action("whats-new-ask-force", t!("Force update").into(), true).clicks(confirm(true))
-        }
-    };
-    let confirming = news.confirming && stopping > 0;
-    div()
-        .flex()
-        .flex_col()
-        .gap(SPACE_2H)
-        .pl(px(32.))
-        .pr(SPACE_5)
-        .py(SPACE_3)
-        .border_t(crate::theme::border())
-        .border_color(t.border)
-        .text_size(crate::theme::ui_text(TEXT_XS))
-        .text_color(t.text_secondary)
-        .child(
-            div()
-                .line_height(relative(1.5))
-                .child(
-                    div()
-                        .text_color(t.warn)
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(waiting_label(count)),
-                )
-                .child(match (stopping, one) {
-                    (0, _) => t!("It installs on its own once none of these is in the middle of a turn. Updating now carries them over without stopping them."),
-                    (_, true) => t!("Agents at work keep running through an update, but this one is still starting or in the middle of a request. The update installs on its own once it is ready."),
-                    (_, false) => t!("Agents at work keep running through an update, but these are still starting or in the middle of a request. The update installs on its own once they are ready."),
-                }),
-        )
-        .when(stopping == 0 || confirming, |section| {
-            let listed = blockers.iter().filter(|blocker| stopping == 0 || blocker.reason != "turn");
-            section.child(div().flex().flex_col().gap(SPACE_1H).children(listed.map(|blocker| {
-                    let title = blocker.title.clone().unwrap_or_else(|| blocker.agent_id.clone());
-                    let state = match blocker.reason.as_str() {
-                        "starting" => t!("starting"),
-                        "turn" => t!("in a turn"),
-                        _ => t!("busy"),
-                    };
-                    div()
-                        .flex()
-                        .items_baseline()
-                        .justify_between()
-                        .gap(SPACE_3)
-                        .min_w_0()
-                        .px(SPACE_2H)
-                        .py(px(7.))
-                        .border(crate::theme::border())
-                        .border_color(t.border)
-                        .rounded(theme::radius_2())
-                        .bg(t.surface_raised)
-                        .child(div().min_w_0().truncate().text_color(t.text_primary).child(title))
-                        .child(
-                            div()
-                                .flex_none()
-                                .text_color(t.text_tertiary)
-                                .child(format!("{} · {state}", blocker.provider)),
-                        )
-                })))
-        })
-        .when(confirming, |section| {
-            section
-                .child(paragraph(match one {
-                    true => t!("Updating now stops it and starts it again on the same chat. Whatever it was doing stops.").to_owned(),
-                    false => t!("Updating now stops them and starts them again on the same chat. Whatever they were doing stops.").to_owned(),
-                }).text_color(t.text_tertiary))
-        })
-        .child(div().flex().justify_end().gap(SPACE_2).child(keep).child(go))
 }
 
 fn notes_markdown(

@@ -26,7 +26,7 @@ use crate::server::chat::Fault;
 use super::SessionEnd;
 use sikemux_fold::update::turn_answer;
 use sikemux_fold::{ChatEventKind, UpdateKind};
-use sikemux_view::chat::{SessionRotation, StopReason};
+use sikemux_view::chat::{SessionRotation, SignInMethod, StopReason};
 use sikemux_view::questions::QuestionChoice;
 use sikemux_wire::protocol::{AgentState, ChatAccount, ChatContext, ChatLaunch, ChatStart};
 
@@ -340,6 +340,10 @@ impl SinkPort for ChatSink {
         let _ = self.broken.send(reason);
     }
 
+    fn needs_sign_in(&self) {
+        self.chat.needs_sign_in.store(true, Ordering::Release);
+    }
+
     fn approves(&self) -> bool {
         self.chat.approves()
     }
@@ -507,6 +511,7 @@ pub async fn run<B: Backend>(
             let first = rebind.is_none();
             chat.emit(ChatEventKind::Status, json!({ "state": "starting" }));
             let signed_in_at_start = sign_in::signed_in(&provider, &launch.env);
+            chat.needs_sign_in.store(false, Ordering::Release);
             let Carried {
                 replay,
                 exhausted,
@@ -1139,7 +1144,12 @@ impl<B: Backend> Running<'_, B> {
             }
             ChatCommand::RetryFailed => self.retry_failed().await,
             ChatCommand::Authenticate { method_id, reply } => {
-                let _ = reply.send(self.backend.authenticate(&method_id).await);
+                let answer = if offers_sign_in(&self.state.capabilities, &method_id) {
+                    self.backend.authenticate(&method_id).await
+                } else {
+                    Err(format!("This chat does not offer the sign-in {method_id}"))
+                };
+                let _ = reply.send(answer);
             }
             ChatCommand::DiscardFailed => {
                 self.state.hold_failed(&self.chat, None);
@@ -1673,4 +1683,15 @@ async fn restart(
         signed_in_again: false,
         notice: Some(super::super::restart_notice(title, why)),
     }))
+}
+
+/// Whether the agent offered `method_id` as a sign-in it runs by itself.
+fn offers_sign_in(capabilities: &Value, method_id: &str) -> bool {
+    let methods: Vec<SignInMethod> = capabilities
+        .get("signInMethods")
+        .and_then(|methods| serde_json::from_value(methods.clone()).ok())
+        .unwrap_or_default();
+    methods
+        .iter()
+        .any(|method| matches!(method, SignInMethod::Agent { id, .. } if id == method_id))
 }

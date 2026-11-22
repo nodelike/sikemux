@@ -133,6 +133,7 @@ pub use sikemux_serve::server::session;
 pub use sikemux_workspace::server::saved_sessions;
 pub use sikemux_workspace::server::search;
 pub(crate) use sikemux_workspace::server::seen;
+mod org_routes;
 pub(crate) mod peer;
 mod session_watch;
 pub mod settling;
@@ -263,6 +264,11 @@ pub struct ServerConfig {
     /// How long an update waits for every chat to be able to hand its agent over before it
     /// goes on as if forced. Tests shorten it.
     pub update_patience: Duration,
+    /// Shows the island over the notch once a window opens. Only the person's own core does.
+    pub notch: bool,
+    /// The process this core stops everything with once it is gone, so a run that starts a
+    /// throwaway core and dies leaves nothing behind.
+    pub ends_with: Option<u32>,
 }
 
 impl ServerConfig {
@@ -281,6 +287,8 @@ impl ServerConfig {
             restart_wait: chat::RESTART_WAIT,
             handover_settle: upgrade::HANDOVER_SETTLE,
             update_patience: upgrade::UPDATE_PATIENCE,
+            notch: false,
+            ends_with: None,
         }
     }
 
@@ -307,6 +315,8 @@ impl ServerConfig {
             restart_wait: chat::RESTART_WAIT,
             handover_settle: upgrade::HANDOVER_SETTLE,
             update_patience: upgrade::UPDATE_PATIENCE,
+            notch: true,
+            ends_with: None,
         }
     }
 }
@@ -907,6 +917,10 @@ pub(crate) async fn run_core(
         tokio::spawn(sweep(core.clone())),
         tokio::spawn(network_watch::run(core.clone())),
     ]);
+    #[cfg(unix)]
+    if let Some(starter) = config.ends_with {
+        background.push(tokio::spawn(end_with(core.clone(), starter)));
+    }
     let mut shutdown = core.shutdown().subscribe();
     let mut frozen = core.updating().watch();
     crate::waiting::wake(&config.socket);
@@ -973,6 +987,23 @@ pub(crate) async fn run_core(
     crate::waiting::wake(&config.socket);
     eprintln!("sikemux core: stopped");
     Ok(())
+}
+
+/// Stops everything once the process that started this core is gone, which shows as this
+/// core being handed to another parent; macOS has no signal for it.
+#[cfg(unix)]
+async fn end_with(core: Arc<Core>, starter: u32) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        if std::os::unix::process::parent_id() != starter {
+            break;
+        }
+    }
+    eprintln!(
+        "sikemux core: stopping everything, as the process that started it ({starter}) is gone"
+    );
+    core.stop_everything().await;
+    core.begin_shutdown();
 }
 
 /// How long the app and the notch get to hear that the core is stopping.

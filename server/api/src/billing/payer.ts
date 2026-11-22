@@ -38,7 +38,7 @@ export async function payerLeft(
       trx,
       customer.provider,
       open.map((row) => ({
-        action: row.status === "lapsed" ? "cancel_now" : "cancel_at_period_end",
+        action: row.status === "active" ? "cancel_at_period_end" : "cancel_now",
         subscription: heldSubscription(row, customer.provider_customer_id),
       })),
     );

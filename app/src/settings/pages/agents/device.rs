@@ -12,130 +12,129 @@ use sikemux_view::notch::{NotchDisplays, NotchFullScreen, NotchOpenWith, NotchPe
 use sikemux_view::prefs::PreferenceChange;
 
 use crate::settings::rows::{self, Choice};
-use crate::settings::Page;
 use crate::voice::Phase;
 use crate::workbench::Workbench;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
     crate::settings::index::section(
-        crate::settings::index::Page::Notch,
+        crate::settings::index::Page::ThisMac,
         "Notch",
         "island dynamic menu bar notch overlay agents running",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Notch,
+        crate::settings::index::Page::ThisMac,
         "Notch",
         "Show the island",
         "notch dynamic island enable disable",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Notch,
+        crate::settings::index::Page::ThisMac,
         "Notch",
         "Show on",
         "display monitor external screen",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Notch,
+        crate::settings::index::Page::ThisMac,
         "Notch",
         "Open with",
         "hover click",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Notch,
+        crate::settings::index::Page::ThisMac,
         "Notch",
         "In full-screen apps",
         "fullscreen hide",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Notch,
+        crate::settings::index::Page::ThisMac,
         "Notch",
         "Peek when",
         "peek finished needs you",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Notch,
+        crate::settings::index::Page::ThisMac,
         "Notch",
         "Answer permissions in the notch",
         "allow deny permission",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Notch,
+        crate::settings::index::Page::ThisMac,
         "Notch",
         "Sound when an agent needs you",
         "sound alert",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Notch,
+        crate::settings::index::Page::ThisMac,
         "Notch",
         "Haptic feedback",
         "haptics trackpad force touch tick vibration swipe",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Notch,
+        crate::settings::index::Page::ThisMac,
         "Notch",
         "Step aside for Sikemux Dev",
         "dev build development",
     ),
     crate::settings::index::section(
-        crate::settings::index::Page::Voice,
+        crate::settings::index::Page::ThisMac,
         "Voice",
         "dictation microphone speech talk transcribe",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Voice,
+        crate::settings::index::Page::ThisMac,
         "Voice",
         "Dictate with right Option",
         "dictation microphone speech push to talk hold",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Voice,
+        crate::settings::index::Page::ThisMac,
         "Voice",
         "Speech model",
         "parakeet download neural engine",
     ),
     crate::settings::index::section(
-        crate::settings::index::Page::Simulator,
+        crate::settings::index::Page::ThisMac,
         "iOS Simulator",
         "iphone ipad xcode devicehub simulator phone mobile bezel frame buttons",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Simulator,
+        crate::settings::index::Page::ThisMac,
         "iOS Simulator",
         "Let agents drive simulators and Android devices",
         "iphone android tap swipe app test mobile",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Simulator,
+        crate::settings::index::Page::ThisMac,
         "iOS Simulator",
         "Xcode",
         "xcode-select developer tools",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Simulator,
+        crate::settings::index::Page::ThisMac,
         "iOS Simulator",
         "iOS runtimes",
         "ios version runtime",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Simulator,
+        crate::settings::index::Page::ThisMac,
         "iOS Simulator",
         "Simulator helper",
         "download idb",
     ),
     crate::settings::index::section(
-        crate::settings::index::Page::Simulator,
+        crate::settings::index::Page::ThisMac,
         "Android Emulator",
         "android emulator avd pixel phone sdk adb",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Simulator,
+        crate::settings::index::Page::ThisMac,
         "Android Emulator",
         "Android SDK",
         "sdk android_home set up install download",
     ),
     crate::settings::index::row(
-        crate::settings::index::Page::Simulator,
+        crate::settings::index::Page::ThisMac,
         "Android Emulator",
         "Virtual devices",
         "avd pixel emulator",
@@ -482,7 +481,6 @@ fn android_rows(
 pub fn render(
     bench: &Workbench,
     fields: &Fields,
-    page: Page,
     lit: &dyn Fn(&str) -> bool,
     this: &Entity<Workbench>,
     cx: &App,
@@ -587,28 +585,26 @@ pub fn render(
         ))
         .children(simulator_rows(fields, cx));
 
-    let section = match page {
-        Page::Voice => rows::section(n!("Voice"), None, None, lit("Voice"), voice, cx),
-        Page::Notch => rows::section(n!("Notch"), None, None, lit("Notch"), island, cx),
-        _ => {
-            let android = rows::section(
-                n!("Android Emulator"),
-                None,
-                None,
-                lit("Android Emulator"),
-                div().children(android_rows(bench, fields, this, cx)),
-                cx,
-            );
-            let ios = rows::section(
-                n!("iOS Simulator"),
-                None,
-                None,
-                lit("iOS Simulator"),
-                simulator,
-                cx,
-            );
-            return vec![ios, android];
-        }
-    };
-    vec![section]
+    let android = rows::section(
+        n!("Android Emulator"),
+        None,
+        None,
+        lit("Android Emulator"),
+        div().children(android_rows(bench, fields, this, cx)),
+        cx,
+    );
+    let ios = rows::section(
+        n!("iOS Simulator"),
+        None,
+        None,
+        lit("iOS Simulator"),
+        simulator,
+        cx,
+    );
+    vec![
+        rows::section(n!("Notch"), None, None, lit("Notch"), island, cx),
+        rows::section(n!("Voice"), None, None, lit("Voice"), voice, cx),
+        ios,
+        android,
+    ]
 }

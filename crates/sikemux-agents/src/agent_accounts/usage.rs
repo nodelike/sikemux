@@ -733,7 +733,7 @@ pub(super) async fn codex_app_server(
     topic: &str,
 ) -> Result<Value, String> {
     let command = cli("codex", executable, config_path, BTreeMap::new());
-    codex_ask(command, method, Value::Null, topic).await
+    codex_ask(command, method, serde_json::json!({}), topic).await
 }
 
 /// Asks `command`, a `codex` program, one question as a short-lived app server.

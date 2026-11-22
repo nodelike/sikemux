@@ -11,6 +11,7 @@ pub enum AgentKind {
     Opencode,
     Omp,
     Grok,
+    Antigravity,
     Muse,
 }
 
@@ -95,6 +96,15 @@ pub struct PrivateHome {
     /// The agent's saved sessions, shared with the person's own home.
     pub session_store: &'static str,
     pub session_store_is_folder: bool,
+    /// The file its sign-in is saved in, kept in the person's own home so a
+    /// sign-in made in one private copy reaches every other.
+    pub login: Option<Login>,
+}
+
+/// A file an agent keeps its sign-in in, and the variable that moves it out of its home.
+pub struct Login {
+    pub variable: &'static str,
+    pub file: &'static str,
 }
 
 /// The API an agent speaks to a provider Sikemux points it at.
@@ -107,6 +117,8 @@ pub enum RoutedApi {
     /// OpenAI's chat completions, which every provider serves. The agent knows the
     /// provider by an id of Sikemux's and its models as `<id>/<model>`.
     Chat,
+    /// Google's Gemini API, which takes the key in `x-goog-api-key`.
+    Gemini,
 }
 
 /// How Sikemux points the agent at a provider in place of its maker's account.
@@ -418,6 +430,7 @@ pub const AGENTS: &[AgentEntry] = &[
                 empty_config: "{}\n",
                 session_store: "state.db",
                 session_store_is_folder: false,
+                login: None,
             }),
         }),
         terminal: Terminal {
@@ -618,6 +631,10 @@ pub const AGENTS: &[AgentEntry] = &[
                 empty_config: "",
                 session_store: "sessions",
                 session_store_is_folder: true,
+                login: Some(Login {
+                    variable: "GROK_AUTH_PATH",
+                    file: "auth.json",
+                }),
             }),
         }),
         terminal: Terminal {
@@ -635,6 +652,54 @@ pub const AGENTS: &[AgentEntry] = &[
         }),
         providers: None,
         routed: None,
+    },
+    AgentEntry {
+        kind: "antigravity",
+        label: "Antigravity",
+        about: "Google's coding agent",
+        command: "agy",
+        brand: "#4285f4",
+        maker: Some("Google"),
+        featured: false,
+        accounts: false,
+        usage: true,
+        free_models: false,
+        deletable_chats: false,
+        resumes_by_path: false,
+        relocatable_sessions: false,
+        history_before_start: false,
+        bypass: true,
+        auto: false,
+        commit_models: &[],
+        careful_model: None,
+        efforts: &[],
+        install: Some("curl -fsSL https://antigravity.google/cli/install.sh | bash"),
+        login: Some(&["acp", "--login"]),
+        update: Some(&["update"]),
+        models_since: &[],
+        latest: None,
+        probe: &["--version"],
+        install_paths: &["~/.local/bin/agy"],
+        git_shim_args: &[],
+        home: None,
+        terminal: Terminal {
+            normal: &["--mode", "accept-edits"],
+            bypass: Some(&["--dangerously-skip-permissions"]),
+            auto: None,
+            effort: None,
+            resume: Resume::Flag("--conversation"),
+            with_choices: &[],
+        },
+        chat: Some(ChatDriver::Acp {
+            args: &["acp"],
+            modes: None,
+            compact: "compact",
+        }),
+        providers: Some(ProviderUse::Routed),
+        routed: Some(Routed {
+            api: RoutedApi::Gemini,
+            rank: 5,
+        }),
     },
     AgentEntry {
         kind: "muse",
@@ -687,7 +752,7 @@ pub const AGENTS: &[AgentEntry] = &[
 ];
 
 impl AgentKind {
-    pub const ALL: [AgentKind; 8] = [
+    pub const ALL: [AgentKind; 9] = [
         AgentKind::Claude,
         AgentKind::Codex,
         AgentKind::Hermes,
@@ -695,6 +760,7 @@ impl AgentKind {
         AgentKind::Opencode,
         AgentKind::Omp,
         AgentKind::Grok,
+        AgentKind::Antigravity,
         AgentKind::Muse,
     ];
 

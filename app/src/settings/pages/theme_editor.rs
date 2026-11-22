@@ -401,16 +401,17 @@ pub fn edit(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut Conte
     .detach();
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone)]
 pub enum Picture {
     Wallpaper,
     PaneImage,
+    File(std::path::PathBuf),
 }
 
 pub use wallpaper::offered as wallpaper_offered;
 
-/// Works out a theme from the colours of the desktop wallpaper or the pane image, and opens
-/// it to edit.
+/// Works out a theme from the colours of the desktop wallpaper, the pane image or a picture
+/// file, and opens it to edit.
 pub fn from_picture(
     bench: &mut Workbench,
     picture: Picture,
@@ -424,13 +425,12 @@ pub fn from_picture(
             .pane_image
             .clone()
             .map(std::path::PathBuf::from),
+        Picture::File(ref path) => Some(path.clone()),
     };
     let Some(path) = path else {
         return;
     };
-    change_appearance(bench, cx, |appearance, _| {
-        appearance.reading = Some(picture)
-    });
+    change_appearance(bench, cx, |appearance, _| appearance.reading = true);
     let asks = bench.asks.clone();
     cx.spawn_in(window, async move |bench, cx| {
         let read = cx
@@ -442,7 +442,7 @@ pub fn from_picture(
             Some((name, pixels)) => {
                 let name = match picture {
                     Picture::Wallpaper => format!("{name} wallpaper"),
-                    Picture::PaneImage => name,
+                    Picture::PaneImage | Picture::File(_) => name,
                 };
                 let asked = Target::here(&asks)
                     .request_typed::<call::ThemeFromPixels>(PixelsParams { name, pixels });
@@ -451,11 +451,12 @@ pub fn from_picture(
             None => None,
         };
         let _ = bench.update_in(cx, |bench, window, cx| {
-            change_appearance(bench, cx, |appearance, _| appearance.reading = None);
+            change_appearance(bench, cx, |appearance, _| appearance.reading = false);
             if unread {
                 let note = match picture {
                     Picture::Wallpaper => t!("This wallpaper's format can't be read."),
                     Picture::PaneImage => t!("This pane image's format can't be read."),
+                    Picture::File(_) => t!("This picture's format can't be read."),
                 };
                 bench.notify(crate::toast::error(note), cx);
             }

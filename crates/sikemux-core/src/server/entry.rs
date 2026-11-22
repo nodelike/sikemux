@@ -29,8 +29,9 @@ struct CoreArgs {
     update_patience: Option<Duration>,
     cli_endpoint: Option<PathBuf>,
     data_dir: Option<PathBuf>,
-    /// A core a film starts for a while: it reaches other hosts on this computer alone and
-    /// keeps its key beside its socket, out of the person's Keychain.
+    /// A core a film starts for a while: it reaches other hosts on this computer alone, keeps
+    /// its key beside its socket, out of the person's Keychain, shows no island over the notch
+    /// and stops everything with the process that started it.
     #[cfg(debug_assertions)]
     throwaway: bool,
     upgrade_info: bool,
@@ -258,6 +259,9 @@ pub fn main(
     let production = ServerConfig {
         remote_direct_only: production.remote_direct_only || throwaway,
         secret_store: production.secret_store && !throwaway,
+        notch: production.notch && !throwaway,
+        #[cfg(unix)]
+        ends_with: throwaway.then(std::os::unix::process::parent_id),
         ..production
     };
     let exit = exit_code(super::run(ServerConfig {

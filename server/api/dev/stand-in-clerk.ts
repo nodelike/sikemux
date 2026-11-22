@@ -10,7 +10,8 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
  * Under /google it is Google too, for proving a work address, signing in whatever address is typed.
  * Maya and Kofi each have two accounts: a personal one, and one made with a work address at
  * acme.example, Maya's just now. Maya also has a third, made just now with another address of
- * her own, for the catch that only asks.
+ * her own, for the catch that only asks. Rae is the store reviewers' demo account, whose password
+ * signs in through the API's review sign-in.
  */
 const LONG_AGO = Date.parse("2025-06-01T09:00:00Z");
 const ADDED_LATER = Date.parse("2025-09-01T09:00:00Z");
@@ -24,6 +25,7 @@ const PEOPLE: {
   address?: string;
   alsoAt?: string[];
   createdAt?: number;
+  password?: string;
 }[] = [
   {
     key: "ines",
@@ -91,6 +93,13 @@ const PEOPLE: {
     address: "maya.okafor@okafor.example",
     createdAt: STARTED,
   },
+  {
+    key: "review",
+    id: "user_standinreview",
+    name: "Rae Reviewer",
+    domain: "acme.example",
+    password: "the demo account's password",
+  },
 ];
 const deleted = new Set<string>();
 const standing = () => PEOPLE.filter((p) => !deleted.has(p.id));
@@ -103,8 +112,13 @@ const jwks = {
   keys: [{ ...(await exportJWK(publicKey)), kid: "stand-in", alg: "RS256" }],
 };
 
+const sessions = new Map<string, { createdAt: number; revoked: boolean }>();
+
 function token(userId: string) {
-  return new SignJWT({ sid: `sess_${userId}`, azp: appOrigin, fva: [0, -1] })
+  const sid = `sess_${userId}`;
+  if (!sessions.has(sid))
+    sessions.set(sid, { createdAt: Date.now(), revoked: false });
+  return new SignJWT({ sid, azp: appOrigin, fva: [0, -1] })
     .setProtectedHeader({ alg: "RS256", kid: "stand-in", typ: "JWT" })
     .setIssuer(issuer)
     .setSubject(userId)
@@ -120,7 +134,13 @@ type Address = {
   verification: { status: string };
   linked_to: { type: string; id: string }[];
 };
-type Account = { id: string; provider: string; email_address: string };
+type Account = {
+  id: string;
+  external_account_id: string;
+  provider: string;
+  email_address: string;
+  created_at: number;
+};
 type Held = { primary: string; addresses: Address[]; accounts: Account[] };
 
 const CODE = "424242";
@@ -161,6 +181,9 @@ function user(person: (typeof PEOPLE)[number]) {
     primary_email_address_id: kept.primary,
     email_addresses: kept.addresses,
     created_at: person.createdAt ?? LONG_AGO,
+    private_metadata: person.key === "review" ? { storeReviewDemo: true } : {},
+    password_last_updated_at: LONG_AGO,
+    two_factor_enabled: false,
     external_accounts: kept.accounts.map((account) => ({
       ...account,
       provider: `oauth_${account.provider}`,
@@ -327,6 +350,31 @@ createServer(async (request, response) => {
         .map(user),
     );
   }
+  if (url.pathname === "/v1/sessions") {
+    const sid = `sess_${url.searchParams.get("user_id")}`;
+    const session = sessions.get(sid);
+    const status = session?.revoked ? "revoked" : "active";
+    return send(
+      200,
+      session ? [{ id: sid, status, created_at: session.createdAt }] : [],
+    );
+  }
+  const asked = url.pathname.match(/^\/v1\/sessions\/([^/]+)$/)?.[1];
+  if (asked && method === "GET") {
+    const session = sessions.get(asked);
+    if (!session)
+      return send(404, { errors: [{ code: "resource_not_found" }] });
+    const status = session.revoked ? "revoked" : "active";
+    return send(200, { id: asked, status, created_at: session.createdAt });
+  }
+  const revoking = url.pathname.match(/^\/v1\/sessions\/(.+)\/revoke$/)?.[1];
+  if (revoking && method === "POST") {
+    const session = sessions.get(revoking);
+    if (session) session.revoked = true;
+    return send(200, { id: revoking, status: "revoked" });
+  }
+  if (url.pathname === "/v1/sign_in_tokens" && method === "POST")
+    return send(200, { token: randomBytes(16).toString("hex") });
   const one = standing().find((p) => url.pathname === `/v1/users/${p.id}`);
   if (one && request.method === "DELETE") {
     deleted.add(one.id);
@@ -340,6 +388,14 @@ createServer(async (request, response) => {
   if (byId) {
     const kept = holding(byId);
     const rest = url.pathname.slice(`/v1/users/${byId.id}`.length);
+    if (rest === "/verify_password" && method === "POST") {
+      const { password } = await bodyOf(request);
+      if (!byId.password)
+        return send(400, { errors: [{ code: "no_password" }] });
+      if (password !== byId.password)
+        return send(422, { errors: [{ code: "incorrect_password" }] });
+      return send(200, { verified: true });
+    }
     if (rest === "" && method === "PATCH") {
       kept.primary =
         (await bodyOf(request)).primary_email_address_id ?? kept.primary;
@@ -347,21 +403,35 @@ createServer(async (request, response) => {
     }
     const account = rest.match(/^\/external_accounts\/(.+)$/);
     if (account && method === "DELETE") {
-      kept.accounts = kept.accounts.filter((a) => a.id !== account[1]);
+      if (!kept.accounts.some((a) => a.external_account_id === account[1]))
+        return send(404, { errors: [{ code: "external_account_not_found" }] });
+      kept.accounts = kept.accounts.filter(
+        (a) => a.external_account_id !== account[1],
+      );
       return send(200, { deleted: true });
     }
     if (rest === "") return send(200, user(byId));
   }
   const address = url.pathname.match(/^\/v1\/email_addresses\/(.+)$/);
   if (address && method === "DELETE") {
-    for (const kept of held.values())
+    for (const kept of held.values()) {
+      const linked = kept.addresses
+        .find((a) => a.id === address[1])
+        ?.linked_to.some((link) => kept.accounts.some((a) => a.id === link.id));
+      if (linked)
+        return send(400, {
+          errors: [{ code: "delete_linked_identification_disallowed" }],
+        });
       kept.addresses = kept.addresses.filter((a) => a.id !== address[1]);
+    }
     return send(200, { deleted: true });
   }
 
   const me = standing().find((p) => p.key === url.searchParams.get("as"));
   if (url.pathname === "/token") {
     if (!me) return send(404, { error: "no such person" });
+    if (sessions.get(`sess_${me.id}`)?.revoked)
+      return send(401, { error: "the session was ended" });
     return send(200, { token: await token(me.id) });
   }
   if (url.pathname.startsWith("/me") && me) {
@@ -420,11 +490,13 @@ createServer(async (request, response) => {
     const person = standing().find((p) => p.key === form.as);
     if (!person) return send(404, { error: "no such person" });
     const kept = holding(person);
-    const id = `eac_${person.key}${form.provider}${++made}`;
+    const id = `idn_${person.key}${form.provider}${++made}`;
     kept.accounts.push({
       id,
+      external_account_id: `eac_${person.key}${form.provider}${made}`,
       provider: form.provider,
       email_address: form.email,
+      created_at: Date.now(),
     });
     if (!kept.addresses.some((a) => a.email_address === form.email))
       kept.addresses.push({

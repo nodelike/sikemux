@@ -374,7 +374,8 @@ fn apply<T: Kept>(
         return Err(format!("A new {word} is added, not changed"));
     };
     let id = *id;
-    let kept = kept.ok_or_else(|| format!("{whose} has no {word} #{id}"))?;
+    let owner = whose.strip_suffix("'s").unwrap_or(whose);
+    let kept = kept.ok_or_else(|| format!("{owner} has no {word} #{id}"))?;
     if kept.retired() {
         return Err(format!(
             "{whose} {word} #{id} was retired; add it again instead"
@@ -521,7 +522,7 @@ pub async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
     let given: ToolDecide =
         serde_json::from_value(request.params.clone()).map_err(|error| error.to_string())?;
     let core = core.clone();
-    let project = request.project.clone();
+    let project = crate::server::caller::project_of(&core, request);
     blocking(move || {
         if let Some(environments) = given.environments {
             let why = given.why.as_deref().unwrap_or_default();

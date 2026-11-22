@@ -57,6 +57,7 @@ let user = shape(await me());
 async function reload() {
   user = shape(await me());
   listeners.forEach((listener) => listener());
+  return user;
 }
 
 function address(raw: Raw["email_addresses"][number]) {

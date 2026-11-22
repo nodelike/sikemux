@@ -1,5 +1,5 @@
 //! The composer a call is answered with on its page: the chat's own, one line tall, which
-//! sends the call's answer in place of a message, or with ⇧⏎ a note to its asker that leaves
+//! sends the call's answer in place of a message, or with ⌘⏎ a note to its asker that leaves
 //! the call open.
 
 use std::rc::Rc;
@@ -140,7 +140,10 @@ impl Workbench {
             paths,
             ..PromptChatParams::new(
                 asker.agent_id,
-                format!("On your call \"{about}\", which stays open: {words}"),
+                format!(
+                    "On your call {} \"{about}\", which stays open: {words}",
+                    call.id
+                ),
             )
         };
         let sent =

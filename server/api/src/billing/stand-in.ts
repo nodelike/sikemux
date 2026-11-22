@@ -343,11 +343,11 @@ export class StandInProvider implements BillingProvider {
     return this.setCancel(held, false);
   }
 
-  async pause(held: HeldSubscription, since: Date): Promise<PauseOutcome> {
+  async pause(held: HeldSubscription, asked: boolean): Promise<PauseOutcome> {
     const id = held.providerSubscriptionId;
     const already = this.pausedAt.get(id);
     if (already)
-      return already < since
+      return !asked
         ? { refused: "paused_elsewhere" }
         : {
             paidUntil: held.currentPeriodEnd,
@@ -406,6 +406,7 @@ export class StandInProvider implements BillingProvider {
         total: cents(
           (unitPrice(held.product, held.interval)?.amount ?? 0) * held.quantity,
         ),
+        periodStart: now,
         periodEnd: currentPeriodEnd,
       },
     );
@@ -465,6 +466,7 @@ export class StandInProvider implements BillingProvider {
     return this.send({
       ...this.event("payment.refunded"),
       providerPaymentId,
+      providerRefundId: `ref_${randomUUID()}`,
       returned:
         amount === undefined
           ? paid

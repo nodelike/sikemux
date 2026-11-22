@@ -15,6 +15,7 @@ Table users {
   billing_retry_at timestamptz
   admitted_at timestamptz
   new_kept_at timestamptz
+  frozen_at timestamptz
 
   indexes {
     billing_retry_at [name: 'users_awaiting_billing', note: 'where (billing_retry_at IS NOT NULL)']
@@ -37,9 +38,12 @@ Table devices {
   clerk_session_id text
   registered_by text
   hands_only boolean [not null, default: `false`]
+  sign_in_session text
+  mac_signed_in_at timestamptz
 
   indexes {
     (user_id, created_at) [name: 'devices_by_user', note: 'created_at desc']
+    sign_in_session [name: 'devices_sign_in_session', note: 'where (sign_in_session IS NOT NULL)']
   }
 }
 
@@ -47,6 +51,7 @@ Table challenges {
   nonce text [pk]
   user_id text [not null]
   expires_at timestamptz [not null]
+  mac_signed_in_at timestamptz
 
   indexes {
     expires_at [name: 'challenges_by_expiry']
@@ -193,6 +198,8 @@ Table host_sign_ins {
   created_at timestamptz [not null, default: `now()`]
   expires_at timestamptz [not null]
   requested_from text
+  approved_session text
+  approved_mac_signed_in_at timestamptz
 
   indexes {
     expires_at [name: 'host_sign_ins_by_expiry']
@@ -393,6 +400,7 @@ Table org_users {
 
   indexes {
     (org_id, user_id) [pk]
+    (id, user_id) [unique]
     user_id [name: 'org_users_by_user']
   }
 }
@@ -454,6 +462,11 @@ Table subscriptions {
   paused_for_seat_at timestamptz
   paid_left interval [note: 'paid_left >= \'00:00:00\'::interval']
   resumes_at timestamptz
+  seat_pause_asked_for timestamptz
+  cancel_asked_at timestamptz
+  kept_without_refund_at timestamptz
+  resume_asked_at timestamptz
+  resume_asked_for timestamptz
 
   indexes {
     customer_id [name: 'subscriptions_by_customer', note: 'where (status <> \'ended\')']
@@ -480,13 +493,14 @@ Table invoices {
   kept_refund bigint [note: 'kept_refund > 0']
   kept_refunded_at timestamptz
   kept_refund_refused_at timestamptz
+  kept_refund_check_at timestamptz
 
   indexes {
     (customer_id, at) [name: 'invoices_by_customer', note: 'at desc']
     provider_payment_id [name: 'invoices_by_provider', unique]
   }
 
-  Note: '(status = \'refunded\') = (refunded_at IS NOT NULL); (kept_refunded_at IS NULL) OR (kept_refund IS NOT NULL); (kept_refund_refused_at IS NULL) OR (kept_refund IS NOT NULL)'
+  Note: '(status = \'refunded\') = (refunded_at IS NOT NULL); (kept_refunded_at IS NULL) OR (kept_refund IS NOT NULL); (kept_refund_refused_at IS NULL) OR (kept_refund IS NOT NULL); (kept_refund_check_at IS NULL) OR (kept_refund IS NOT NULL)'
 }
 
 Table billing_events {
@@ -504,7 +518,7 @@ Table billing_events {
 Table billing_calls {
   id bigint [pk, increment]
   provider text [not null]
-  action text [not null, note: 'action = ANY (ARRAY[\'cancel_now\', \'cancel_at_period_end\', \'refund\', \'settle_seat_pause\'])']
+  action text [not null, note: 'action = ANY (ARRAY[\'cancel_now\', \'cancel_at_period_end\', \'keep_cancel\', \'refund\', \'settle_seat_pause\'])']
   subscription jsonb
   provider_payment_id text
   attempts integer [not null, default: 0]
@@ -517,7 +531,7 @@ Table billing_calls {
     retry_at [name: 'billing_calls_due']
   }
 
-  Note: '(action = \'refund\') = (provider_payment_id IS NOT NULL); (action = ANY (ARRAY[\'cancel_now\', \'cancel_at_period_end\'])) = (subscription IS NOT NULL); (action = \'settle_seat_pause\') = (user_id IS NOT NULL); (action = \'refund\') OR (refund_amount IS NULL)'
+  Note: '(action = \'refund\') = (provider_payment_id IS NOT NULL); (action = ANY (ARRAY[\'cancel_now\', \'cancel_at_period_end\', \'keep_cancel\'])) = (subscription IS NOT NULL); (action = \'settle_seat_pause\') = (user_id IS NOT NULL); (action = \'refund\') OR (refund_amount IS NULL)'
 }
 
 Table billing_strays {
@@ -627,9 +641,12 @@ Table org_shares {
   host text [not null, note: 'host ~ \'^[0-9a-f]{64}$\'']
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
+  user_id text [not null]
+  tapped_at timestamptz [not null, default: `now()`]
 
   indexes {
     (member_id, project) [pk]
+    (user_id, project) [unique]
   }
 }
 
@@ -710,6 +727,7 @@ Table account_folds {
   created_at timestamptz [not null, default: `now()`]
   expires_at timestamptz [not null]
   done_at timestamptz
+  started_session text
 
   indexes {
     from_user [name: 'account_folds_by_from', note: 'where (done_at IS NOT NULL)']
@@ -727,9 +745,16 @@ Table sign_in_removals {
   provider text
   removed_at timestamptz [not null, default: `now()`]
   told_at timestamptz
+  end_sessions_from timestamptz
+  swept_from timestamptz
+  address_seen_id bigint
+  rerun_attempts integer [not null, default: 0]
+  rerun_at timestamptz [not null, default: `(now() + '00:01:00'::interval)`]
 
   indexes {
     (user_id, address_id) [unique]
+    rerun_at [name: 'sign_in_removals_rerun_due', note: 'where (end_sessions_from IS NOT NULL)']
+    user_id [name: 'sign_in_removals_sessions_left', note: 'where (end_sessions_from IS NOT NULL)']
     user_id [name: 'sign_in_removals_untold', note: 'where (told_at IS NULL)']
   }
 }
@@ -747,6 +772,46 @@ Table work_address_sittings {
 
   indexes {
     user_id [name: 'work_address_sittings_by_user']
+  }
+}
+
+Table addresses_seen {
+  id bigint [pk, increment]
+  user_id text [not null]
+  address_hash bytea [not null]
+  domain_hash bytea [not null]
+  first_seen timestamptz [not null]
+  ended_at timestamptz
+  could_sign_in boolean [not null, default: `false`]
+
+  indexes {
+    (user_id, address_hash, ended_at) [name: 'addresses_seen_ended', note: 'where (ended_at IS NOT NULL)']
+    (user_id, address_hash) [name: 'addresses_seen_open', unique, note: 'where (ended_at IS NULL)']
+  }
+}
+
+Table ended_sessions {
+  session_id text [pk]
+  user_id text [not null]
+  made_at timestamptz [not null]
+  ended_at timestamptz
+  clerk_attempts integer [not null, default: 0]
+  clerk_retry_at timestamptz [not null, default: `(now() + '00:01:00'::interval)`]
+
+  indexes {
+    clerk_retry_at [name: 'ended_sessions_unfinished', note: 'where (ended_at IS NULL)']
+    user_id [name: 'ended_sessions_user']
+  }
+}
+
+Table invoice_refunds {
+  provider_refund_id text [pk]
+  invoice_id uuid [not null]
+  amount bigint [not null, note: 'amount >= 0']
+  at timestamptz [not null]
+
+  indexes {
+    invoice_id [name: 'invoice_refunds_by_invoice']
   }
 }
 
@@ -788,6 +853,7 @@ Ref: org_team_members.member_id > org_users.id [delete: cascade]
 Ref: org_team_members.team_id > org_teams.id [delete: cascade]
 Ref: org_domains.org_id > orgs.id [delete: cascade]
 Ref: org_shares.member_id > org_users.id [delete: cascade]
+Ref: org_shares.(member_id, user_id) > org_users.(id, user_id) [delete: cascade]
 Ref: org_vaults.org_id - orgs.id [delete: cascade]
 Ref: org_vault_keys.org_id > org_vaults.org_id [delete: cascade]
 Ref: org_vault_entries.org_id > org_vaults.org_id [delete: cascade]
@@ -797,5 +863,9 @@ Ref: address_proofs.user_id > users.id [delete: cascade]
 Ref: account_folds.from_user > users.id [delete: cascade]
 Ref: account_folds.into_user > users.id [delete: cascade]
 Ref: account_folds.org_id > orgs.id [delete: set null]
+Ref: sign_in_removals.address_seen_id > addresses_seen.id [delete: cascade]
 Ref: sign_in_removals.user_id > users.id [delete: cascade]
 Ref: work_address_sittings.user_id > users.id [delete: cascade]
+Ref: addresses_seen.user_id > users.id [delete: cascade]
+Ref: ended_sessions.user_id > users.id [delete: cascade]
+Ref: invoice_refunds.invoice_id > invoices.id [delete: cascade]

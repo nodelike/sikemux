@@ -2,20 +2,21 @@
 //! with a name, a line about them, and the control that changes them.
 
 use sikemux_view::prefs::PreferenceChange;
-use std::cell::RefCell;
+use std::cell::Cell;
+use std::rc::Rc;
 
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::IndexPath;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, AppContext, Context, Div, Entity, FontWeight, Global, Hsla,
+    canvas, div, px, AnyElement, App, AppContext, Bounds, Context, Div, Entity, Global, Hsla,
     IntoElement, ParentElement, Pixels, SharedString, Styled, Subscription, Window,
 };
 
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4, TEXT_2XS_H, TEXT_LG,
-    TEXT_SM, TEXT_XS,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_LG, TEXT_SM,
+    TEXT_XS,
 };
 use crate::ui;
 use crate::workbench::Workbench;
@@ -26,22 +27,24 @@ pub struct Shown(pub &'static str);
 
 impl Global for Shown {}
 
-/// The sections a page drew this frame, in order, so a search's hit scrolls to the one that
-/// drew rather than counting the page's list, some of whose sections show only at times.
+/// The section a search led to, and where it was last drawn, so settings can scroll it to the top.
 #[derive(Default)]
-pub struct Drawn(pub RefCell<Vec<SharedString>>);
+pub struct Reveal(pub Option<(&'static str, DrawnAt)>);
 
-impl Global for Drawn {}
+/// Where a section was last drawn, once it has been.
+pub type DrawnAt = Rc<Cell<Option<Bounds<Pixels>>>>;
 
-/// The fill under a section's card: the theme's ground, held back enough that the
-/// pane's picture still shows around the cards while their words stay readable over it.
+impl Global for Reveal {}
+
+/// The fill under the settings sheet: the theme's ground, held back enough that the
+/// pane's picture still shows through while the words stay readable over it.
 pub fn card_fill(cx: &App) -> Hsla {
     let t = Tokens::get(cx);
     t.surface.opacity(if t.dark { 0.84 } else { 0.9 })
 }
 
-/// A section of a page: a card with its heading, a count or state beside it, a line
-/// under it, and its rows. One a search led to is lit for a moment.
+/// A section of a page: its name in spaced capitals over a hairline, a count or state beside
+/// it, a line under it, and its rows. One a search led to is lit for a moment.
 pub fn section(
     title: impl Into<SharedString>,
     meta: Option<SharedString>,
@@ -65,9 +68,11 @@ pub fn section_with(
 ) -> AnyElement {
     let t = Tokens::get(cx);
     let title: SharedString = title.into();
-    if let Some(drawn) = cx.try_global::<Drawn>().filter(|_| !title.is_empty()) {
-        drawn.0.borrow_mut().push(title.clone());
-    }
+    let revealed = (cx
+        .try_global::<Reveal>()
+        .and_then(|reveal| reveal.0.clone()))
+    .filter(|(section, _)| !title.is_empty() && *section == title.as_ref())
+    .map(|(_, at)| at);
     let named = !title.is_empty()
         && cx
             .try_global::<Shown>()
@@ -76,10 +81,11 @@ pub fn section_with(
     let heading = div()
         .flex()
         .flex_col()
-        .gap(px(3.))
+        .gap(SPACE_1)
         .px(SPACE_4)
-        .pt(SPACE_3H)
-        .pb(SPACE_2H)
+        .pb(SPACE_2)
+        .border_b(crate::theme::border())
+        .border_color(t.border)
         .when(named || meta.is_some() || action.is_some(), |heading| {
             heading.child(
                 div()
@@ -96,13 +102,7 @@ pub fn section_with(
                             .gap(SPACE_2)
                             .when(named, |line| {
                                 line.child(
-                                    ui::text(
-                                        crate::i18n::tr(&title).to_owned(),
-                                        TEXT_SM,
-                                        FontWeight::SEMIBOLD,
-                                    )
-                                    .whitespace_nowrap()
-                                    .text_color(t.text_primary),
+                                    ui::caps(crate::i18n::tr(&title), cx).whitespace_nowrap(),
                                 )
                             })
                             .children(meta.map(|meta| {
@@ -126,42 +126,39 @@ pub fn section_with(
                 .child(sub)
         }));
     div()
+        .relative()
+        .mx(-SPACE_4)
         .flex()
         .flex_col()
         .overflow_hidden()
-        .bg(if flash {
-            t.surface_chosen
-        } else {
-            card_fill(cx)
-        })
-        .border(crate::theme::border())
-        .border_color(t.border)
         .rounded(theme::radius_3())
-        .when(headed, |card| card.child(heading))
-        .child(
-            div()
-                .when(headed, |body| {
-                    body.border_t(crate::theme::border())
-                        .border_color(t.line_soft)
-                })
-                .child(div().mb(px(-1.)).flex().flex_col().child(body)),
-        )
+        .when(flash, |sheet| sheet.bg(t.surface_chosen))
+        .when(headed, |sheet| sheet.child(heading))
+        .child(div().mb(px(-1.)).flex().flex_col().child(body))
+        .when_some(revealed, |sheet, at| {
+            sheet.child(
+                canvas(
+                    move |bounds, window, _| {
+                        at.set(Some(bounds));
+                        window.refresh();
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
+        })
         .into_any_element()
 }
 
-/// A card with no heading, for a section that is one picture of itself.
+/// A section with no heading, for one that is one picture of itself.
 pub fn card(flash: bool, body: impl IntoElement, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     div()
+        .mx(-SPACE_4)
         .overflow_hidden()
-        .bg(if flash {
-            t.surface_chosen
-        } else {
-            card_fill(cx)
-        })
-        .border(crate::theme::border())
-        .border_color(t.border)
         .rounded(theme::radius_3())
+        .when(flash, |sheet| sheet.bg(t.surface_chosen))
         .child(body)
         .into_any_element()
 }
@@ -278,7 +275,7 @@ fn laid_out(
         .items_center()
         .gap(SPACE_4)
         .px(SPACE_4)
-        .py(px(11.))
+        .py(px(10.))
         .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .child(named)
@@ -345,21 +342,6 @@ impl Choice {
         Self {
             state,
             _picked: picked,
-        }
-    }
-
-    /// Whether the one showing is other than the one at `chosen`.
-    pub fn strays_from(&self, chosen: usize, cx: &App) -> bool {
-        self.state.read(cx).selected_index(cx).map(|at| at.row) != Some(chosen)
-    }
-
-    /// Shows the one at `chosen` once run, as when it was picked somewhere else.
-    pub fn show(&self, chosen: usize) -> impl FnOnce(&mut Window, &mut App) {
-        let state = self.state.clone();
-        move |window, cx| {
-            state.update(cx, |state, cx| {
-                state.set_selected_index(Some(IndexPath::new(chosen)), window, cx)
-            })
         }
     }
 

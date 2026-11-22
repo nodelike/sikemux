@@ -78,6 +78,7 @@ fn collect<'a>(
                 description: description.map(str::to_owned),
                 is_default: row["isDefault"] == true,
                 superseded: false,
+                maker: maker_of(value).map(str::to_owned),
             },
         ));
     }
@@ -131,6 +132,18 @@ fn release(label: &str) -> Option<(String, Vec<u64>)> {
 
 /// The model a provider Sikemux handed the agent serves, by the name its API gives it:
 /// the agent's own name for it leads with the provider's, as `LithosAI/model`.
+/// Who made the model `value` names, from the family its name starts with.
+fn maker_of(value: &str) -> Option<&'static str> {
+    let model = value.rsplit('/').next()?.to_ascii_lowercase();
+    match model.split(['-', '.']).next()? {
+        "claude" => Some("Anthropic"),
+        "gemini" | "gemma" => Some("Google"),
+        "gpt" | "o1" | "o3" | "o4" | "codex" => Some("OpenAI"),
+        "grok" => Some("xAI"),
+        _ => None,
+    }
+}
+
 fn provided_model(value: &str) -> Option<&str> {
     let (provider, model) = value.split_once('/')?;
     (provider.starts_with("sikemux-") && !model.is_empty()).then_some(model)
@@ -232,6 +245,7 @@ mod tests {
                 description: Some("Custom provider".into()),
                 is_default: false,
                 superseded: false,
+                maker: None,
             }]
         );
     }

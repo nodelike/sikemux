@@ -3,6 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
+use sikemux_process::user_environment::shell_var;
+
 use crate::agent_catalog::{AgentKind, Home, PrivateHome};
 
 /// The home `kind` keeps, when Sikemux gives its launches private copies of it.
@@ -13,11 +15,13 @@ pub fn private(kind: AgentKind) -> Option<(&'static Home, &'static PrivateHome)>
 
 /// Makes `destination` a private copy of `kind`'s home: of `source`, else of
 /// the one the person's shell names, sharing the store its sessions are in.
+/// Answers the variable that keeps its sign-in where the person's shell says,
+/// else in the home it copies, so a sign-in made in any copy reaches them all.
 pub fn private_home(
     kind: AgentKind,
     destination: &Path,
     source: Option<PathBuf>,
-) -> Result<(), String> {
+) -> Result<Option<(String, String)>, String> {
     let (_, private) =
         private(kind).ok_or_else(|| format!("{} keeps no private home", kind.as_str()))?;
     let source = source
@@ -29,7 +33,12 @@ pub fn private_home(
         private.session_store_is_folder,
     )
     .and_then(|()| copy_home(destination, &source, private.config, private.empty_config))
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    Ok(private.login.as_ref().map(|login| {
+        let path = shell_var(login.variable)
+            .unwrap_or_else(|| source.join(login.file).to_string_lossy().into_owned());
+        (login.variable.to_owned(), path)
+    }))
 }
 
 /// Makes `home` a copy of `source`: every entry is linked back to the real

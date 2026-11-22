@@ -53,13 +53,14 @@ function merged<T extends object>(on: T, fields: unknown): T {
     return next as unknown as T;
 }
 
-/* A part's tree follows the core's changes while each one fits the text it
-   ends at; one that does not loses it until the core sends a whole tree. */
-function nextTree(tree: PartTree | undefined, change: MdChange | undefined, text: string): PartTree | undefined {
+/* A part's tree follows the core's changes while each one starts at the text
+   the tree was made from and ends at the text it reaches; one that does not
+   loses it until the core sends a whole tree. */
+function nextTree(tree: PartTree | undefined, change: MdChange | undefined, from: string, text: string): PartTree | undefined {
     if (!change) return tree;
     const first = change.o[0];
     const whole = first !== undefined && first.p.length === 0 && first.at === 0 && "c" in first;
-    if (!whole && !tree) return undefined;
+    if (!whole && tree?.n !== from.length) return undefined;
     const blocks = applyPatch(whole ? [] : (tree?.blocks ?? []), change.o);
     return change.n === text.length ? { blocks, n: change.n } : undefined;
 }
@@ -127,7 +128,7 @@ function applyChange(state: ChatRows, change: ChatChange): ChatRows {
                     withPart(row, change.part, (part) => {
                         if (part.kind !== "text" && part.kind !== "thought") return part;
                         const text = part.text + change.text;
-                        return { ...part, text, md: nextTree(part.md, change.md, text) };
+                        return { ...part, text, md: nextTree(part.md, change.md, part.text, text) };
                     }),
                 ),
             );

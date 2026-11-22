@@ -37,7 +37,7 @@ use super::{
     lifecycle, messages, pins, requests, session_watch, ssh, tasks, themes, triggers, upgrade,
     worktree, Core, CoreResult,
 };
-use super::{finished, hooks, inbox, mods, shares, stash};
+use super::{finished, hooks, inbox, mods, org_routes, shares, stash};
 use serde_json::Value;
 use sikemux_wire::protocol::ChatLaunch;
 
@@ -132,6 +132,8 @@ pub(super) fn workspace_above() -> WorkspaceAbove {
         chat_place,
         preference_changed,
         shown_preferences: |core| core.shown_preferences(),
+        project_org: shares::project_org,
+        org_keys_changed: org_routes::sweep,
     }
 }
 
@@ -303,6 +305,7 @@ pub(super) fn chat_above() -> ChatAbove {
         turn_state_now: turn_state::now,
         agent_accounts_turn_ended: agent_accounts::turn_ended,
         board_take_note: board::chat_goal::take_note,
+        questions_open_calls: questions::open_calls,
         memory_take_removed: memory::take_removed_note,
         memory_chat_ready: memory::chat_ready,
         chief_brief: chief::brief,
@@ -481,6 +484,16 @@ pub(super) fn board_above() -> BoardAbove {
         messages_from_board: |core, to, text, note| {
             Box::pin(messages::from_board(core, to, text, note))
         },
+        messages_reopening: |core, to, text, note| {
+            Box::pin(async move {
+                let reached = messages::reopened(core, &to).await?;
+                if let Err(error) = messages::from_trigger(core, reached.clone(), text, note).await
+                {
+                    eprintln!("sikemux core: a trigger's note did not reach {reached}: {error}");
+                }
+                Some(reached)
+            })
+        },
         messages_overruled: |core, overruled| {
             Box::pin(async move {
                 let answered = messages::Answered {
@@ -511,6 +524,10 @@ pub(super) fn board_above() -> BoardAbove {
         },
         chief_card_closed: chief::card_closed,
         chief_card_reopened: chief::card_reopened,
+        org_moved: |core, cwd, provider, model| {
+            org_routes::refused(core, cwd, provider, model)
+                .map(|why| org_routes::moved_notice(&why))
+        },
         hosts_started_by: |core, agent| core.hosts().team.get(agent)?.parent,
         hosts_rows_moved: hosts::route::rows_moved,
         records_changed: |core, keys| {

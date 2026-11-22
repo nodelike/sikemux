@@ -425,7 +425,7 @@ async fn keep(core: &Core, account: Option<&str>) -> CoreResult<()> {
 
 /// Hands the model keys of the orgs whose plan is paid to the host's providers, which replace
 /// what they held. A lapsed org's keys stay held here and go to no agent.
-fn hand_on(core: &Core, orgs: &[AccountOrg]) {
+fn hand_on(core: &Arc<Core>, orgs: &[AccountOrg]) {
     let Some(providers) = core.workspaces().providers() else {
         return;
     };
@@ -458,6 +458,7 @@ fn hand_on(core: &Core, orgs: &[AccountOrg]) {
             .collect()
     };
     providers.set_org_keys(&keys);
+    (core.workspace_above().org_keys_changed)(core);
 }
 
 fn model_keys(held: &Held) -> impl Iterator<Item = (&String, ModelKey)> {

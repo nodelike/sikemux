@@ -44,7 +44,7 @@ use sikemux_view::chat::{
     SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail, ToolStatus, TurnStart,
     Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
 };
-use sikemux_view::shown::{ResultRow, TurnShown};
+use sikemux_view::shown::TurnShown;
 use sikemux_view::turn::TurnState;
 use tools::WithRow;
 
@@ -520,16 +520,20 @@ fn retry_of(update: &Value) -> Option<Retrying> {
     })
 }
 
+fn failure_kind(kind: &str) -> Option<FailureKind> {
+    match kind {
+        "signIn" => Some(FailureKind::SignIn),
+        "limit" => Some(FailureKind::Limit),
+        "payment" => Some(FailureKind::Payment),
+        "network" => Some(FailureKind::Network),
+        "other" => Some(FailureKind::Other),
+        _ => None,
+    }
+}
+
 fn failure_of(payload: &Value) -> Option<ChatFailure> {
     let failure = payload.get("failure")?;
-    let kind = match text_of(failure.get("kind"))? {
-        "signIn" => FailureKind::SignIn,
-        "limit" => FailureKind::Limit,
-        "payment" => FailureKind::Payment,
-        "network" => FailureKind::Network,
-        "other" => FailureKind::Other,
-        _ => return None,
-    };
+    let kind = failure_kind(text_of(failure.get("kind"))?)?;
     Some(ChatFailure {
         kind,
         details: text_of(failure.get("details"))
@@ -875,14 +879,10 @@ impl Fold {
         }
     }
 
-    pub fn set_shown(&mut self, shown: Vec<TurnShown>, results: Vec<ResultRow>) {
+    pub fn set_shown(&mut self, shown: Vec<TurnShown>) {
         if self.head.shown != shown {
             self.head.shown = shown;
             self.set_head("shown");
-        }
-        if self.head.results != results {
-            self.head.results = results;
-            self.set_head("results");
         }
     }
 
@@ -1178,6 +1178,7 @@ impl Fold {
                 .unwrap_or("requested")
                 .to_owned(),
             message: text_of(payload.get("message")).map(str::to_owned),
+            failure: text_of(payload.get("failure")).and_then(failure_kind),
         });
         self.set_head("ended");
         self.head.connection = state;
@@ -1316,11 +1317,14 @@ impl Fold {
         match kind {
             UpdateKind::SubagentStateUpdate => return self.set_subagent_state(update, at),
             UpdateKind::SubagentUsage => {
-                if let (Some(id), Some(tokens)) = (
-                    text_of(update.get("subagentSessionId")),
-                    update.get("tokens").and_then(Value::as_u64),
-                ) {
+                let Some(id) = text_of(update.get("subagentSessionId")) else {
+                    return;
+                };
+                if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
                     self.patch_card(id, |card| card.tokens = Some(tokens));
+                }
+                if let Some(model) = text_of(update.get("model")) {
+                    self.patch_card(id, |card| card.model = Some(model.to_owned()));
                 }
                 return;
             }
@@ -2386,6 +2390,7 @@ impl Fold {
             state: SubagentState::Running,
             tokens: None,
             calls: 0,
+            model: text_of(update.get("model")).map(str::to_owned),
             last_tool: None,
             can_stop: update.get("canStop").and_then(Value::as_bool) == Some(true),
         };
@@ -2957,6 +2962,7 @@ impl Fold {
                 .last_mut()
                 .filter(|row| row.msg.role == ChatRole::Assistant)
             {
+                drop_said_nothing(last);
                 last.msg.ended_at = Some(at);
                 last.set("endedAt");
                 let position = self.main.rows.len() - 1;
@@ -3036,6 +3042,22 @@ fn sent_row(text: &str, paths: &[String]) -> Row {
     });
     read_sent(&mut row, &[]);
     row
+}
+
+/// A turn's last text that says nothing goes, and the row goes out again whole.
+/// An agent whose answer is sent to its lead ends on a lone dash to send nothing,
+/// and markdown would draw that dash as an empty bullet.
+fn drop_said_nothing(row: &mut Row) {
+    let Some(ChatPart::Text { text, .. }) = row.msg.parts.last() else {
+        return;
+    };
+    if !matches!(text.trim(), "" | "-") {
+        return;
+    }
+    row.msg.parts.pop();
+    row.sides.pop();
+    row.parts.clear();
+    row.fresh = true;
 }
 
 fn answer_in(row: &Row) -> Option<&AgentLetter> {

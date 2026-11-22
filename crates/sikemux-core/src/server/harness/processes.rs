@@ -349,14 +349,12 @@ pub(super) async fn process_start(
     let (key, ready_when) = if restart {
         (uuid::Uuid::new_v4().to_string(), None)
     } else {
-        let key = required_text(&request.params, "idempotencyKey")?;
+        let key = text(&request.params, "idempotencyKey")?
+            .map_or_else(|| uuid::Uuid::new_v4().to_string(), str::to_owned);
         if key.chars().count() > 128 {
             return Err("idempotencyKey must be at most 128 characters".into());
         }
-        (
-            key.to_owned(),
-            text(&request.params, "readyWhen")?.map(str::to_owned),
-        )
+        (key, text(&request.params, "readyWhen")?.map(str::to_owned))
     };
     let begun = begin_start(
         core,
@@ -366,21 +364,45 @@ pub(super) async fn process_start(
         &key,
         restart,
     )?;
-    let execution_id = match begun {
-        Begun::Existing(execution_id) => execution_id,
+    let (execution_id, started) = match begun {
+        Begun::Existing(execution_id) => (execution_id, false),
         Begun::New {
             execution_id,
             previous,
         } => {
             launch(core, execution_id.clone(), previous, false);
-            execution_id
+            (execution_id, true)
         }
     };
     let mut answer = answer_start(core, &request.project, &execution_id, until, ready_when).await?;
     if let Some(said) = in_line(core, &execution_id).await {
         set_param(&mut answer, "inLine", said.into());
     }
+    if let Some(wake) = text(&request.params, "wake")?.filter(|_| started) {
+        let woken = wake_on_exit(core, request, &execution_id, wake).await?;
+        set_param(&mut answer, "wake", woken);
+    }
     Ok(answer)
+}
+
+/// The trigger `wake` asks for, set on the run just started so no second call needs its id.
+async fn wake_on_exit(
+    core: &Arc<Core>,
+    request: &HarnessRequest,
+    execution_id: &str,
+    prompt: &str,
+) -> Result<Value, String> {
+    let shown = ["label", "command", "processId"]
+        .iter()
+        .find_map(|field| text(&request.params, field).ok().flatten())
+        .unwrap_or(execution_id);
+    let title: String = shown.chars().take(120).collect();
+    let trigger = HarnessRequest {
+        method: "trigger.add".to_owned(),
+        params: json!({ "title": title, "prompt": prompt, "process": execution_id }),
+        ..request.clone()
+    };
+    super::super::triggers::add(core, &trigger).await
 }
 
 /// The names of the project's things `process_start` was asked to hold while the command runs.

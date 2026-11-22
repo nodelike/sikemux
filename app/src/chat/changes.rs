@@ -201,7 +201,6 @@ named_fields!(head_field, ChatHead {
     "chief" => chief,
     "chiefHears" => chief_hears,
     "shown" => shown,
-    "results" => results,
 });
 
 named_fields!(row_field, ChatMessage {

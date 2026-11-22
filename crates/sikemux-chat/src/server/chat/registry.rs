@@ -467,7 +467,10 @@ impl Chats {
     /// Whether the agent's chat is in a turn or has tasks running.
     pub fn at_work(&self, agent_id: &str) -> bool {
         self.get(agent_id).is_some_and(|chat| {
-            chat.state_now().busy() || chat.feed.running_tasks() > 0 || chat.meter.compacting()
+            chat.state_now().busy()
+                || chat.message_waiting()
+                || chat.feed.running_tasks() > 0
+                || chat.meter.compacting()
         })
     }
 
@@ -562,6 +565,7 @@ impl Chats {
             retry_waits: AtomicBool::new(false),
             reloadable: AtomicBool::new(true),
             moving_on: AtomicBool::new(false),
+            needs_sign_in: AtomicBool::new(false),
             edits: (core.chat_above().new_edits)(),
             cli_version: Mutex::new(None),
             keeper,
@@ -569,6 +573,7 @@ impl Chats {
             restarts: Mutex::new(Default::default()),
             published: Mutex::new(AgentState::Unknown),
             unstarted: AtomicBool::new(false),
+            message_waiting: AtomicBool::new(false),
             brief: Mutex::new(None),
             given_task: Mutex::new(None),
             meter: Default::default(),

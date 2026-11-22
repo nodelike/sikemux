@@ -3,7 +3,15 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 
 import type { AppleSignIn } from "./account/apple.ts";
+import {
+  macSignInRoutes,
+  type MacSignInExchange,
+} from "./devices/mac-sign-in.ts";
 import { profileRoutes } from "./account/profile.ts";
+import {
+  reviewSignInRoutes,
+  type ReviewAccount,
+} from "./account/review-sign-in.ts";
 import type { ClerkBackend } from "./account/clerk.ts";
 import { foldRoutes } from "./account/fold.ts";
 import { accountRoutes } from "./account/routes.ts";
@@ -61,8 +69,12 @@ export interface Services {
   relayAccess: RelayAccess;
   /** Clerk's Backend API, or null when CLERK_SECRET_KEY is not set. */
   clerk: ClerkBackend | null;
+  /** The store reviewers' demo account, or null when REVIEW_ACCOUNT_USER_ID is not set. */
+  review: ReviewAccount | null;
   /** Apple's token endpoints, or null when APPLE_SIGNIN_KEY_FILE is not set. */
   appleSignIn: AppleSignIn | null;
+  /** Clerk's token endpoint, where a Mac's browser sign-in code is traded. */
+  macSignIn: MacSignInExchange;
   /** The secret Clerk signs webhooks with, or null when CLERK_WEBHOOK_SECRET is not set. */
   webhookSecret: string | null;
   network: Network;
@@ -133,6 +145,8 @@ export function createApp(services: Services) {
   app.route("/v1/network", networkRoutes(network, limiter));
   app.route("/v1/devices", deviceRoutes(services));
   app.route("/v1/host-sign-ins", hostSignInRoutes(services));
+  app.route("/v1/mac-sign-ins", macSignInRoutes(services));
+  app.route("/v1/review-sign-in", reviewSignInRoutes(services));
   app.route("/v1/account/profile", profileRoutes(services));
   app.route("/v1/account/allowance", allowanceRoutes(services));
   app.route("/v1/account/orgs", membershipRoutes(services));
@@ -152,6 +166,7 @@ export function createApp(services: Services) {
       services.billing.provider,
       services.clerk,
       services.addressProofKey,
+      services.review,
     ),
   );
   app.route("/v1/hooks", hookRoutes(services));

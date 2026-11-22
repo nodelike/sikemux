@@ -13,9 +13,7 @@ struct AskerMark: View {
 
     var body: some View {
         if chief {
-            IconView(icon: Icons.brand, size: size * 0.85)
-                .foregroundStyle(palette.accent)
-                .frame(width: size, height: size)
+            ChiefMark(size: size, color: palette.accent)
         } else {
             AgentFaceView(agentId: agentId, provider: provider, turn: turn, asking: asking, size: size)
                 .frame(width: size, height: size)

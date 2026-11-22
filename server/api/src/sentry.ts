@@ -52,6 +52,19 @@ function scrubEvent<E extends Sentry.Event>(event: E): E {
   return event;
 }
 
+/** A log line's `fingerprint` makes its own issue; before Dedupe, which drops a repeat of the last message. */
+const fingerprintFromLog = {
+  name: "FingerprintFromLog",
+  processEvent(event: Sentry.Event) {
+    const pino = event.contexts?.pino;
+    if (Array.isArray(pino?.fingerprint)) {
+      event.fingerprint = pino.fingerprint.map(String);
+      Reflect.deleteProperty(pino, "fingerprint");
+    }
+    return event;
+  },
+};
+
 /**
  * Reports errors, a sample of requests and the logs to Sentry. Only citadel sets SENTRY_DSN,
  * so dev servers and tests send nothing.
@@ -83,6 +96,7 @@ export function startSentry(env: NodeJS.ProcessEnv) {
     tracesSampleRate: TRACES_SAMPLE_RATE,
     tracePropagationTargets: [],
     integrations: (defaults) => [
+      fingerprintFromLog,
       // It pauses on every exception in a debugger to read variables, which are never sent.
       ...defaults.filter(({ name }) => name !== "LocalVariablesAsync"),
       // Paths from the API's folder, the same in every release's folder on citadel.
@@ -118,6 +132,22 @@ export function startSentry(env: NodeJS.ProcessEnv) {
 /** Marks what the rest of this request reports as the signed-in account's, by its pseudonym. */
 export function reportAs(userId: string) {
   if (Sentry.isEnabled()) Sentry.setUser({ id: accountHash(userId) });
+}
+
+/** Raises an issue of its own for one account, named only by its pseudonym, for staff to look at. */
+export function alertStaff(
+  userId: string,
+  what: string,
+  detail?: Record<string, unknown>,
+) {
+  if (!Sentry.isEnabled()) return;
+  const account = accountHash(userId);
+  Sentry.captureMessage(what, {
+    level: "error",
+    fingerprint: [what, account],
+    user: { id: account },
+    ...(detail && { extra: detail }),
+  });
 }
 
 /** Sends what is queued before the process exits. */

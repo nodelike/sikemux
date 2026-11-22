@@ -49,8 +49,6 @@ final class HostCalls {
     /// The calls the core has taken word that this phone drew, which a production call needs before its answer counts.
     private(set) var seen: Set<String> = []
     @ObservationIgnored private var seeing: Set<String> = []
-    /// The call a chat shows, by the chat's agent, when the person chose one other than the oldest.
-    private var focused: [String: String] = [:]
     /// Why an answer from a notification did not go, by call.
     private(set) var failed: [String: String] = [:]
 
@@ -82,17 +80,6 @@ final class HostCalls {
                     && (call.asker.agentId == agentId || (call.joined ?? []).contains { $0.agentId == agentId })
             }
             .sorted { $0.raisedAt < $1.raisedAt }
-    }
-
-    /// The call agent `agentId`'s chat docks: the one the person chose, while it waits, else the oldest.
-    func waiting(for agentId: String) -> PersonCall? {
-        let queue = queue(for: agentId)
-        return queue.first { $0.id == focused[agentId] } ?? queue.first
-    }
-
-    /// Makes `call` the one the chat of agent `chat` docks.
-    func focus(_ call: PersonCall, in chat: String) {
-        focused[chat] = call.id
     }
 
     /// What the person has done on `call`'s card. Drafts of calls no longer open go.

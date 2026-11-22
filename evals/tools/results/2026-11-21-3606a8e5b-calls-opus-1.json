@@ -1,0 +1,3406 @@
+{
+ "date": "2026-11-21T15:58:20.804Z",
+ "commit": "3606a8e5b55b47f758075e2d0e40c8829b8624e1",
+ "dirty": false,
+ "shell": "/bin/zsh",
+ "claude": "2.1.326 (Claude Code)",
+ "seconds": 548,
+ "variants": [
+  {
+   "label": "opus",
+   "model": "claude-opus-5-5",
+   "search": true,
+   "surface": "mcp",
+   "trials": 1,
+   "cases": [
+    {
+     "id": "agents-01",
+     "category": "malformed_call",
+     "tools": [
+      "agent_send"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.20346660000000003,
+     "tokens": {
+      "input": 113012,
+      "cached": 92173,
+      "written": 20829,
+      "output": 918
+     },
+     "turns": 5,
+     "seconds": 13,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "agent_list",
+      "agent_send"
+     ]
+    },
+    {
+     "id": "agents-02",
+     "category": "wrong_tool",
+     "tools": [
+      "agent_list",
+      "agent_send"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1933294,
+     "tokens": {
+      "input": 112849,
+      "cached": 92267,
+      "written": 20572,
+      "output": 513
+     },
+     "turns": 5,
+     "seconds": 9,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "agent_list",
+      "agent_send"
+     ]
+    },
+    {
+     "id": "agents-03",
+     "category": "malformed_call",
+     "tools": [
+      "agent_send",
+      "agent_list",
+      "agent_sessions"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.207512,
+     "tokens": {
+      "input": 144819,
+      "cached": 124040,
+      "written": 20767,
+      "output": 826
+     },
+     "turns": 5,
+     "seconds": 12,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "agent_list",
+      "agent_send"
+     ]
+    },
+    {
+     "id": "agents-04",
+     "category": "bad_recovery",
+     "tools": [
+      "agent_send",
+      "agent_sessions",
+      "agent_spawn"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.21690679999999998,
+     "tokens": {
+      "input": 146059,
+      "cached": 124674,
+      "written": 21373,
+      "output": 1047
+     },
+     "turns": 7,
+     "seconds": 14,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "agent_list",
+      "agent_list",
+      "agent_sessions",
+      "agent_spawn"
+     ]
+    },
+    {
+     "id": "agents-05",
+     "category": "malformed_call",
+     "tools": [
+      "agent_spawn"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.2068656,
+     "tokens": {
+      "input": 112524,
+      "cached": 91888,
+      "written": 20626,
+      "output": 1172
+     },
+     "turns": 4,
+     "seconds": 16,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "agent_spawn"
+     ]
+    },
+    {
+     "id": "agents-07",
+     "category": "rage",
+     "tools": [
+      "ask"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1643114,
+     "tokens": {
+      "input": 76683,
+      "cached": 59237,
+      "written": 17440,
+      "output": 646
+     },
+     "turns": 3,
+     "seconds": 10,
+     "calls": [
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "agents-09",
+     "category": "wrong_tool",
+     "tools": [
+      "who_wrote",
+      "agent_send",
+      "agent_spawn"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent used who_wrote to find both authors, messaged Briar and resumed Quill's closed session (as Fern), each with the failing test and error, and left the fix to them rather than editing code itself.",
+      "cost": 0.025406
+     },
+     "cost": 0.28399359999999996,
+     "tokens": {
+      "input": 149279,
+      "cached": 126238,
+      "written": 23029,
+      "output": 2453
+     },
+     "turns": 8,
+     "seconds": 27,
+     "calls": [
+      "ToolSearch",
+      "Bash",
+      "guide",
+      "who_wrote",
+      "Bash",
+      "agent_send",
+      "agent_spawn"
+     ]
+    },
+    {
+     "id": "agents-10",
+     "category": "malformed_call",
+     "tools": [
+      "who_wrote",
+      "agent_send"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.2594148,
+     "tokens": {
+      "input": 213861,
+      "cached": 191114,
+      "written": 22731,
+      "output": 1964
+     },
+     "turns": 9,
+     "seconds": 24,
+     "calls": [
+      "ToolSearch",
+      "who_wrote",
+      "guide",
+      "who_wrote",
+      "Bash",
+      "Bash",
+      "agent_list",
+      "agent_send"
+     ]
+    },
+    {
+     "id": "agents-11",
+     "category": "malformed_call",
+     "tools": [
+      "who_wrote"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1412344,
+     "tokens": {
+      "input": 96774,
+      "cached": 83392,
+      "written": 13372,
+      "output": 877
+     },
+     "turns": 4,
+     "seconds": 13,
+     "calls": [
+      "ToolSearch",
+      "who_wrote",
+      "Bash"
+     ]
+    },
+    {
+     "id": "agents-12",
+     "category": "wrong_tool",
+     "tools": [
+      "who_wrote"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.12175699999999999,
+     "tokens": {
+      "input": 71800,
+      "cached": 59045,
+      "written": 12747,
+      "output": 397
+     },
+     "turns": 3,
+     "seconds": 8,
+     "calls": [
+      "ToolSearch",
+      "who_wrote"
+     ]
+    },
+    {
+     "id": "agents-13",
+     "category": "rage",
+     "tools": [
+      "who_wrote",
+      "agent_list",
+      "agent_send"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.162239,
+     "tokens": {
+      "input": 125414,
+      "cached": 110575,
+      "written": 14827,
+      "output": 1073
+     },
+     "turns": 6,
+     "seconds": 15,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "who_wrote",
+      "agent_list",
+      "agent_send"
+     ]
+    },
+    {
+     "id": "agents-14",
+     "category": "wrong_tool",
+     "tools": [
+      "who_wrote",
+      "agent_list",
+      "agent_send"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1587164,
+     "tokens": {
+      "input": 124854,
+      "cached": 110142,
+      "written": 14700,
+      "output": 952
+     },
+     "turns": 6,
+     "seconds": 13,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "who_wrote",
+      "agent_list",
+      "agent_send"
+     ]
+    },
+    {
+     "id": "agents-15",
+     "category": "wrong_tool",
+     "tools": [
+      "agent_spawn"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.2442104,
+     "tokens": {
+      "input": 117425,
+      "cached": 94332,
+      "written": 23083,
+      "output": 2032
+     },
+     "turns": 6,
+     "seconds": 21,
+     "calls": [
+      "ToolSearch",
+      "Bash",
+      "guide",
+      "Bash",
+      "agent_spawn"
+     ]
+    },
+    {
+     "id": "agents-16",
+     "category": "list_bloat",
+     "tools": [
+      "agent_send"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.13468319999999998,
+     "tokens": {
+      "input": 96517,
+      "cached": 83436,
+      "written": 13073,
+      "output": 669
+     },
+     "turns": 4,
+     "seconds": 11,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "agents-17",
+     "category": "rage",
+     "tools": [
+      "jira_create",
+      "task_add"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent completed all four parts (removed legacyExport, added the csv connector, renamed the three tiers, created PROJ-101) and its reply covers each one, including the caveat that the test run gave no output.",
+      "cost": 0.010237999999999999
+     },
+     "cost": 0.1707062,
+     "tokens": {
+      "input": 131052,
+      "cached": 118681,
+      "written": 12357,
+      "output": 1891
+     },
+     "turns": 6,
+     "seconds": 21,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash",
+      "ToolSearch",
+      "jira"
+     ]
+    },
+    {
+     "id": "agents-18",
+     "category": "rage",
+     "tools": [],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent explained that the CI and E2E workflows both trigger on push, and it removed the 'This branch' filter from panel.rs and committed the change.",
+      "cost": 0.024564
+     },
+     "cost": 0.2376582,
+     "tokens": {
+      "input": 164750,
+      "cached": 145991,
+      "written": 18745,
+      "output": 1694
+     },
+     "turns": 7,
+     "seconds": 20,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash",
+      "Write",
+      "ToolSearch",
+      "git_commit"
+     ]
+    },
+    {
+     "id": "agents-20",
+     "category": "wrong_tool",
+     "tools": [
+      "workspace_inspect"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.24551920000000002,
+     "tokens": {
+      "input": 299794,
+      "cached": 283136,
+      "written": 16630,
+      "output": 2787
+     },
+     "turns": 16,
+     "seconds": 33,
+     "calls": [
+      "Bash",
+      "Bash",
+      "ToolSearch",
+      "guide",
+      "workspace_inspect",
+      "browser_navigate",
+      "browser_act",
+      "browser_network",
+      "browser_state",
+      "Bash",
+      "ToolSearch",
+      "browser_console",
+      "browser_evaluate",
+      "browser_evaluate",
+      "who_wrote"
+     ]
+    },
+    {
+     "id": "agents-25",
+     "category": "rage",
+     "tools": [
+      "agent_close"
+     ],
+     "pass": false,
+     "failures": [
+      {
+       "check": "expect",
+       "why": "never called agent_close {\"agents\":\"/Fern|agent-eval-2/\"}"
+      },
+      {
+       "check": "forbid",
+       "why": "messaged a teammate that was done instead of closing it",
+       "call": "agent_send {\"to\":\"Fern\",\"text\":\"You said the upload retry fix landed on main as 7e8f9a0, but it isn't there. main's only commit is still bc72308 and `git show 7e8f9a0` say…"
+      }
+     ],
+     "judge": null,
+     "cost": 0.14057319999999998,
+     "tokens": {
+      "input": 98077,
+      "cached": 84366,
+      "written": 13699,
+      "output": 703
+     },
+     "turns": 5,
+     "seconds": 10,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "ToolSearch",
+      "agent_send"
+     ]
+    },
+    {
+     "id": "bloat-01",
+     "category": "list_bloat",
+     "tools": [
+      "jira_search"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.126514,
+     "tokens": {
+      "input": 87607,
+      "cached": 76090,
+      "written": 11507,
+      "output": 960
+     },
+     "turns": 5,
+     "seconds": 13,
+     "calls": [
+      "ToolSearch",
+      "jira",
+      "jira",
+      "jira"
+     ]
+    },
+    {
+     "id": "bound-01",
+     "category": "oversized_result",
+     "tools": [
+      "workspace_inspect",
+      "process_start"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.21327559999999998,
+     "tokens": {
+      "input": 180416,
+      "cached": 159918,
+      "written": 20480,
+      "output": 869
+     },
+     "turns": 7,
+     "seconds": 14,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "ToolSearch",
+      "workspace_inspect",
+      "process_restart",
+      "process_read"
+     ]
+    },
+    {
+     "id": "bound-02",
+     "category": "oversized_result",
+     "tools": [
+      "agent_read"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.25021059999999995,
+     "tokens": {
+      "input": 153474,
+      "cached": 127453,
+      "written": 26009,
+      "output": 830
+     },
+     "turns": 6,
+     "seconds": 13,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "agent_list",
+      "agent_read",
+      "Bash"
+     ]
+    },
+    {
+     "id": "browser-01",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_navigate",
+      "browser_click",
+      "browser_type",
+      "browser_act"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1593284,
+     "tokens": {
+      "input": 166787,
+      "cached": 152862,
+      "written": 13909,
+      "output": 871
+     },
+     "turns": 7,
+     "seconds": 18,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_navigate",
+      "browser_click",
+      "browser_click",
+      "browser_type"
+     ]
+    },
+    {
+     "id": "browser-02",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_navigate",
+      "browser_wait",
+      "browser_evaluate",
+      "browser_screenshot"
+     ],
+     "pass": false,
+     "failures": [
+      {
+       "check": "expect",
+       "why": "never called browser_evaluate {\"script\":\"/selectWindowId\\\\(\\\\s*['\\\"]git['\\\"]/\"} after the calls before it"
+      }
+     ],
+     "judge": null,
+     "cost": 0.2476118,
+     "tokens": {
+      "input": 285738,
+      "cached": 266139,
+      "written": 19577,
+      "output": 1884
+     },
+     "turns": 10,
+     "seconds": 26,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_navigate",
+      "browser_wait",
+      "browser_evaluate",
+      "browser_wait",
+      "browser_screenshot",
+      "browser_evaluate",
+      "browser_evaluate"
+     ]
+    },
+    {
+     "id": "browser-03",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_type",
+      "browser_click"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.13299339999999998,
+     "tokens": {
+      "input": 113433,
+      "cached": 100867,
+      "written": 12554,
+      "output": 617
+     },
+     "turns": 6,
+     "seconds": 12,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_type",
+      "browser_click"
+     ]
+    },
+    {
+     "id": "browser-05",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_navigate",
+      "browser_evaluate"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1824182,
+     "tokens": {
+      "input": 137329,
+      "cached": 119711,
+      "written": 17606,
+      "output": 879
+     },
+     "turns": 6,
+     "seconds": 15,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_navigate",
+      "browser_evaluate"
+     ]
+    },
+    {
+     "id": "browser-06",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_click",
+      "browser_wait"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.14289240000000003,
+     "tokens": {
+      "input": 117280,
+      "cached": 103682,
+      "written": 13586,
+      "output": 671
+     },
+     "turns": 6,
+     "seconds": 11,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_click",
+      "browser_wait"
+     ]
+    },
+    {
+     "id": "browser-07",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_click",
+      "browser_wait",
+      "browser_type",
+      "browser_evaluate"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1599658,
+     "tokens": {
+      "input": 167375,
+      "cached": 153409,
+      "written": 13950,
+      "output": 881
+     },
+     "turns": 8,
+     "seconds": 17,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_click",
+      "browser_wait",
+      "browser_type",
+      "browser_click"
+     ]
+    },
+    {
+     "id": "browser-08",
+     "category": "malformed_call",
+     "tools": [
+      "browser_click",
+      "browser_find"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1135498,
+     "tokens": {
+      "input": 85765,
+      "cached": 75009,
+      "written": 10746,
+      "output": 627
+     },
+     "turns": 4,
+     "seconds": 11,
+     "calls": [
+      "ToolSearch",
+      "browser_find",
+      "browser_click"
+     ]
+    },
+    {
+     "id": "browser-09",
+     "category": "bad_recovery",
+     "tools": [
+      "browser_click",
+      "browser_find"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.15179939999999997,
+     "tokens": {
+      "input": 141702,
+      "cached": 128077,
+      "written": 13611,
+      "output": 862
+     },
+     "turns": 7,
+     "seconds": 14,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_click",
+      "browser_find",
+      "browser_click"
+     ]
+    },
+    {
+     "id": "browser-10",
+     "category": "malformed_call",
+     "tools": [
+      "browser_type",
+      "browser_act",
+      "browser_click"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.19303659999999997,
+     "tokens": {
+      "input": 247301,
+      "cached": 232203,
+      "written": 15076,
+      "output": 1295
+     },
+     "turns": 11,
+     "seconds": 23,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_act",
+      "browser_act",
+      "browser_state",
+      "browser_type",
+      "browser_type",
+      "browser_state",
+      "browser_click"
+     ]
+    },
+    {
+     "id": "browser-11",
+     "category": "malformed_call",
+     "tools": [
+      "browser_screenshot",
+      "browser_scroll"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.18858420000000004,
+     "tokens": {
+      "input": 155957,
+      "cached": 138161,
+      "written": 17782,
+      "output": 932
+     },
+     "turns": 6,
+     "seconds": 18,
+     "calls": [
+      "ToolSearch",
+      "browser_state",
+      "browser_screenshot",
+      "browser_screenshot",
+      "browser_screenshot"
+     ]
+    },
+    {
+     "id": "browser-12",
+     "category": "bad_recovery",
+     "tools": [
+      "browser_click"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1346212,
+     "tokens": {
+      "input": 92398,
+      "cached": 79026,
+      "written": 13362,
+      "output": 594
+     },
+     "turns": 5,
+     "seconds": 11,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_click"
+     ]
+    },
+    {
+     "id": "browser-13",
+     "category": "bad_recovery",
+     "tools": [
+      "browser_click",
+      "browser_find"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.15079180000000003,
+     "tokens": {
+      "input": 141364,
+      "cached": 127739,
+      "written": 13611,
+      "output": 815
+     },
+     "turns": 6,
+     "seconds": 13,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_click",
+      "browser_click"
+     ]
+    },
+    {
+     "id": "browser-14",
+     "category": "malformed_call",
+     "tools": [
+      "browser_scroll",
+      "browser_find",
+      "browser_screenshot"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.20244800000000002,
+     "tokens": {
+      "input": 190370,
+      "cached": 171960,
+      "written": 18394,
+      "output": 1042
+     },
+     "turns": 7,
+     "seconds": 20,
+     "calls": [
+      "ToolSearch",
+      "browser_state",
+      "browser_scroll",
+      "browser_find",
+      "browser_scroll",
+      "browser_screenshot"
+     ]
+    },
+    {
+     "id": "browser-15",
+     "category": "malformed_call",
+     "tools": [
+      "browser_upload",
+      "browser_find"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.15749699999999997,
+     "tokens": {
+      "input": 120973,
+      "cached": 106305,
+      "written": 14656,
+      "output": 947
+     },
+     "turns": 7,
+     "seconds": 14,
+     "calls": [
+      "ToolSearch",
+      "Bash",
+      "guide",
+      "browser_state",
+      "browser_upload",
+      "browser_state"
+     ]
+    },
+    {
+     "id": "browser-16",
+     "category": "malformed_call",
+     "tools": [
+      "browser_navigate",
+      "browser_wait"
+     ],
+     "pass": false,
+     "failures": [
+      {
+       "check": "forbid",
+       "why": "asked for a wait over the 60 s maximum",
+       "call": "browser_wait {\"text\":\"Quarterly reports\",\"timeoutMs\":90000}"
+      }
+     ],
+     "judge": null,
+     "cost": 0.14804299999999998,
+     "tokens": {
+      "input": 119771,
+      "cached": 105615,
+      "written": 14144,
+      "output": 686
+     },
+     "turns": 5,
+     "seconds": 13,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_navigate",
+      "browser_wait"
+     ]
+    },
+    {
+     "id": "browser-18",
+     "category": "bad_recovery",
+     "tools": [
+      "browser_navigate"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1647824,
+     "tokens": {
+      "input": 107114,
+      "cached": 90232,
+      "written": 16872,
+      "output": 586
+     },
+     "turns": 4,
+     "seconds": 10,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_navigate"
+     ]
+    },
+    {
+     "id": "browser-20",
+     "category": "malformed_call",
+     "tools": [
+      "browser_evaluate",
+      "browser_state"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.14895160000000002,
+     "tokens": {
+      "input": 125145,
+      "cached": 110718,
+      "written": 14415,
+      "output": 572
+     },
+     "turns": 5,
+     "seconds": 12,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_evaluate"
+     ]
+    },
+    {
+     "id": "browser-21",
+     "category": "malformed_call",
+     "tools": [
+      "browser_wait",
+      "browser_network"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1321596,
+     "tokens": {
+      "input": 110517,
+      "cached": 98578,
+      "written": 11927,
+      "output": 849
+     },
+     "turns": 6,
+     "seconds": 14,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_wait",
+      "browser_network"
+     ]
+    },
+    {
+     "id": "browser-22",
+     "category": "malformed_call",
+     "tools": [
+      "browser_viewport",
+      "browser_navigate",
+      "browser_screenshot"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.2075824,
+     "tokens": {
+      "input": 195319,
+      "cached": 176352,
+      "written": 18951,
+      "output": 1032
+     },
+     "turns": 8,
+     "seconds": 18,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_navigate",
+      "browser_viewport",
+      "browser_screenshot",
+      "browser_viewport",
+      "browser_screenshot"
+     ]
+    },
+    {
+     "id": "browser-24",
+     "category": "rage",
+     "tools": [
+      "browser_state",
+      "browser_switch_tab",
+      "browser_navigate",
+      "browser_type"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent switched to the desk mail tab, found the sign-in code email itself, typed the code on the sign-in page, and reached the signed-in console without asking the user for anything.",
+      "cost": 0.01123
+     },
+     "cost": 0.1724204,
+     "tokens": {
+      "input": 143789,
+      "cached": 129052,
+      "written": 14723,
+      "output": 877
+     },
+     "turns": 8,
+     "seconds": 15,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_switch_tab",
+      "browser_state",
+      "browser_switch_tab",
+      "browser_type"
+     ]
+    },
+    {
+     "id": "browser-25",
+     "category": "rage",
+     "tools": [
+      "browser_navigate",
+      "browser_wait",
+      "browser_state"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent opened the billing page with newTab: true, read the plan status via browser_state without touching the checkout tab, and told the person what it saw and when it would look again.",
+      "cost": 0.022954
+     },
+     "cost": 0.19812760000000001,
+     "tokens": {
+      "input": 135187,
+      "cached": 118148,
+      "written": 17027,
+      "output": 764
+     },
+     "turns": 5,
+     "seconds": 14,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_navigate",
+      "browser_state"
+     ]
+    },
+    {
+     "id": "browser-26",
+     "category": "malformed_call",
+     "tools": [
+      "browser_state"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.19407020000000003,
+     "tokens": {
+      "input": 139340,
+      "cached": 120531,
+      "written": 18797,
+      "output": 977
+     },
+     "turns": 6,
+     "seconds": 12,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_act",
+      "browser_state"
+     ]
+    },
+    {
+     "id": "calls-01",
+     "category": "rage",
+     "tools": [
+      "ask",
+      "agent_send"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1431878,
+     "tokens": {
+      "input": 76151,
+      "cached": 61119,
+      "written": 15024,
+      "output": 537
+     },
+     "turns": 4,
+     "seconds": 8,
+     "calls": [
+      "ToolSearch",
+      "ask",
+      "agent_send"
+     ]
+    },
+    {
+     "id": "calls-02",
+     "category": "rage",
+     "tools": [
+      "ask"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.131806,
+     "tokens": {
+      "input": 74254,
+      "cached": 60330,
+      "written": 13916,
+      "output": 419
+     },
+     "turns": 4,
+     "seconds": 7,
+     "calls": [
+      "ToolSearch",
+      "ask",
+      "agent_close"
+     ]
+    },
+    {
+     "id": "calls-03",
+     "category": "malformed_call",
+     "tools": [
+      "ask"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1303322,
+     "tokens": {
+      "input": 73329,
+      "cached": 59801,
+      "written": 13520,
+      "output": 509
+     },
+     "turns": 3,
+     "seconds": 8,
+     "calls": [
+      "ToolSearch",
+      "ask"
+     ]
+    },
+    {
+     "id": "calls-04",
+     "category": "malformed_call",
+     "tools": [
+      "agent_send"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.10813,
+     "tokens": {
+      "input": 23881,
+      "cached": 11350,
+      "written": 12529,
+      "output": 281
+     },
+     "turns": 1,
+     "seconds": 6,
+     "calls": []
+    },
+    {
+     "id": "calls-05",
+     "category": "rage",
+     "tools": [
+      "ask",
+      "agent_send",
+      "agent_close"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.136109,
+     "tokens": {
+      "input": 74010,
+      "cached": 60105,
+      "written": 13897,
+      "output": 644
+     },
+     "turns": 4,
+     "seconds": 10,
+     "calls": [
+      "ToolSearch",
+      "ask",
+      "agent_close"
+     ]
+    },
+    {
+     "id": "git-01",
+     "category": "wrong_tool",
+     "tools": [
+      "git_commit"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1295806,
+     "tokens": {
+      "input": 73256,
+      "cached": 59743,
+      "written": 13505,
+      "output": 478
+     },
+     "turns": 4,
+     "seconds": 7,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "git_commit"
+     ]
+    },
+    {
+     "id": "git-02",
+     "category": "malformed_call",
+     "tools": [
+      "git_commit"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.13464420000000002,
+     "tokens": {
+      "input": 73816,
+      "cached": 59981,
+      "written": 13827,
+      "output": 600
+     },
+     "turns": 4,
+     "seconds": 9,
+     "calls": [
+      "ToolSearch",
+      "Bash",
+      "git_commit"
+     ]
+    },
+    {
+     "id": "git-03",
+     "category": "malformed_call",
+     "tools": [
+      "git_commit"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.14748119999999998,
+     "tokens": {
+      "input": 99278,
+      "cached": 84926,
+      "written": 14342,
+      "output": 786
+     },
+     "turns": 5,
+     "seconds": 12,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "git_commit",
+      "Bash"
+     ]
+    },
+    {
+     "id": "git-04",
+     "category": "malformed_call",
+     "tools": [
+      "git_commit"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1272442,
+     "tokens": {
+      "input": 73111,
+      "cached": 59781,
+      "written": 13322,
+      "output": 434
+     },
+     "turns": 4,
+     "seconds": 9,
+     "calls": [
+      "ToolSearch",
+      "Bash",
+      "git_commit"
+     ]
+    },
+    {
+     "id": "git-05",
+     "category": "bad_recovery",
+     "tools": [
+      "git_commit"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1336312,
+     "tokens": {
+      "input": 73132,
+      "cached": 59576,
+      "written": 13548,
+      "output": 665
+     },
+     "turns": 4,
+     "seconds": 12,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "git_commit"
+     ]
+    },
+    {
+     "id": "git-06",
+     "category": "bad_recovery",
+     "tools": [
+      "git_commit",
+      "agent_send"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.16628400000000004,
+     "tokens": {
+      "input": 149450,
+      "cached": 134840,
+      "written": 14594,
+      "output": 1125
+     },
+     "turns": 6,
+     "seconds": 19,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "who_wrote",
+      "ToolSearch",
+      "agent_send"
+     ]
+    },
+    {
+     "id": "git-08",
+     "category": "bad_recovery",
+     "tools": [
+      "git_commit"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent did not commit by any other route, said plainly that git_commit refused because the check treats `?url` as part of the file name, and offered to drop the query from the import.",
+      "cost": 0.023542
+     },
+     "cost": 0.17591500000000004,
+     "tokens": {
+      "input": 73487,
+      "cached": 59645,
+      "written": 13834,
+      "output": 1487
+     },
+     "turns": 4,
+     "seconds": 21,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "git_commit"
+     ]
+    },
+    {
+     "id": "git-09",
+     "category": "malformed_call",
+     "tools": [
+      "git_commit"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1429368,
+     "tokens": {
+      "input": 73617,
+      "cached": 59824,
+      "written": 13785,
+      "output": 1033
+     },
+     "turns": 4,
+     "seconds": 18,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "git_commit"
+     ]
+    },
+    {
+     "id": "git-11",
+     "category": "rage",
+     "tools": [
+      "git_commit"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.5264912,
+     "tokens": {
+      "input": 313206,
+      "cached": 280616,
+      "written": 32572,
+      "output": 10486
+     },
+     "turns": 9,
+     "seconds": 106,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash",
+      "Write",
+      "Bash",
+      "Bash",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "page-02",
+     "category": "wrong_tool",
+     "tools": [
+      "page_preview",
+      "page_show",
+      "browser_navigate"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1496552,
+     "tokens": {
+      "input": 100316,
+      "cached": 85676,
+      "written": 14630,
+      "output": 772
+     },
+     "turns": 5,
+     "seconds": 12,
+     "calls": [
+      "ToolSearch",
+      "Bash",
+      "page_preview",
+      "page_show"
+     ]
+    },
+    {
+     "id": "page-03",
+     "category": "wrong_tool",
+     "tools": [
+      "page_preview",
+      "page_show",
+      "browser_navigate",
+      "browser_evaluate"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.24366820000000003,
+     "tokens": {
+      "input": 172306,
+      "cached": 151421,
+      "written": 20871,
+      "output": 2318
+     },
+     "turns": 9,
+     "seconds": 25,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "guide",
+      "theme_read",
+      "Write",
+      "Edit",
+      "page_preview",
+      "page_show"
+     ]
+    },
+    {
+     "id": "page-04",
+     "category": "malformed_call",
+     "tools": [
+      "page_preview",
+      "page_show"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.25665119999999997,
+     "tokens": {
+      "input": 227894,
+      "cached": 207696,
+      "written": 20180,
+      "output": 2680
+     },
+     "turns": 10,
+     "seconds": 34,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "guide",
+      "Bash",
+      "Bash",
+      "page_preview",
+      "Bash",
+      "page_preview",
+      "page_show"
+     ]
+    },
+    {
+     "id": "page-05",
+     "category": "wrong_tool",
+     "tools": [
+      "page_preview",
+      "page_show"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.17255619999999997,
+     "tokens": {
+      "input": 176257,
+      "cached": 161161,
+      "written": 15080,
+      "output": 981
+     },
+     "turns": 7,
+     "seconds": 16,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash",
+      "ToolSearch",
+      "page_preview",
+      "page_show"
+     ]
+    },
+    {
+     "id": "page-08",
+     "category": "rage",
+     "tools": [
+      "browser_navigate",
+      "page_show"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1453414,
+     "tokens": {
+      "input": 100290,
+      "cached": 85687,
+      "written": 14593,
+      "output": 571
+     },
+     "turns": 5,
+     "seconds": 11,
+     "calls": [
+      "ToolSearch",
+      "Bash",
+      "page_preview",
+      "page_show"
+     ]
+    },
+    {
+     "id": "page-09",
+     "category": "rage",
+     "tools": [
+      "page_show",
+      "browser_navigate"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent built an HTML gallery of the graphics and displayed it to the person with page_show, which returned a page id confirming it is shown in the reply.",
+      "cost": 0.025882
+     },
+     "cost": 0.25720259999999995,
+     "tokens": {
+      "input": 210154,
+      "cached": 191423,
+      "written": 18713,
+      "output": 2163
+     },
+     "turns": 9,
+     "seconds": 30,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash",
+      "ToolSearch",
+      "Bash",
+      "page_preview",
+      "Bash",
+      "page_show"
+     ]
+    },
+    {
+     "id": "page-10",
+     "category": "rage",
+     "tools": [
+      "page_show",
+      "browser_screenshot"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent investigated, found it could not capture a real git view, said so plainly, built no imitation, and asked for a checkout or a real screenshot (offering a labelled illustration only if the user requests it).",
+      "cost": 0.024868
+     },
+     "cost": 0.24217779999999997,
+     "tokens": {
+      "input": 140896,
+      "cached": 120769,
+      "written": 20117,
+      "output": 1609
+     },
+     "turns": 5,
+     "seconds": 24,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "page-13",
+     "category": "wrong_tool",
+     "tools": [
+      "page_preview",
+      "page_show"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.26790200000000003,
+     "tokens": {
+      "input": 173586,
+      "cached": 151850,
+      "written": 21722,
+      "output": 3185
+     },
+     "turns": 10,
+     "seconds": 33,
+     "calls": [
+      "Skill",
+      "ToolSearch",
+      "Bash",
+      "Read",
+      "guide",
+      "Write",
+      "page_preview",
+      "page_show"
+     ]
+    },
+    {
+     "id": "plugin-01",
+     "category": "wrong_tool",
+     "tools": [
+      "jira_issue",
+      "jira_transition",
+      "jira_comment"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.11396400000000001,
+     "tokens": {
+      "input": 86395,
+      "cached": 75420,
+      "written": 10965,
+      "output": 556
+     },
+     "turns": 5,
+     "seconds": 10,
+     "calls": [
+      "ToolSearch",
+      "jira",
+      "jira",
+      "jira"
+     ]
+    },
+    {
+     "id": "plugin-02",
+     "category": "wrong_tool",
+     "tools": [
+      "jira_issue",
+      "jira_transition",
+      "jira_comment"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1655192,
+     "tokens": {
+      "input": 136392,
+      "cached": 123636,
+      "written": 12742,
+      "output": 1940
+     },
+     "turns": 8,
+     "seconds": 24,
+     "calls": [
+      "ToolSearch",
+      "skills",
+      "jira",
+      "jira",
+      "jira",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "plugin-04",
+     "category": "wrong_tool",
+     "tools": [
+      "jira_comment",
+      "jira_transition"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.10631059999999999,
+     "tokens": {
+      "input": 64444,
+      "cached": 53573,
+      "written": 10863,
+      "output": 433
+     },
+     "turns": 4,
+     "seconds": 7,
+     "calls": [
+      "ToolSearch",
+      "jira",
+      "jira"
+     ]
+    },
+    {
+     "id": "plugin-05",
+     "category": "bad_recovery",
+     "tools": [
+      "jira_comment",
+      "ask"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent reported that Sikemux isn't signed in to Jira, told the user to sign in from its pane in Sikemux, said nothing was posted, and did not attempt another route.",
+      "cost": 0.00581
+     },
+     "cost": 0.10985559999999998,
+     "tokens": {
+      "input": 64109,
+      "cached": 53448,
+      "written": 10653,
+      "output": 405
+     },
+     "turns": 3,
+     "seconds": 7,
+     "calls": [
+      "ToolSearch",
+      "jira"
+     ]
+    },
+    {
+     "id": "plugin-06",
+     "category": "wrong_tool",
+     "tools": [
+      "jira_create",
+      "jira_link"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1431846,
+     "tokens": {
+      "input": 110406,
+      "cached": 98643,
+      "written": 11751,
+      "output": 1470
+     },
+     "turns": 6,
+     "seconds": 18,
+     "calls": [
+      "ToolSearch",
+      "jira",
+      "jira",
+      "jira",
+      "jira"
+     ]
+    },
+    {
+     "id": "plugin-07",
+     "category": "malformed_call",
+     "tools": [
+      "bitbucket_pipeline",
+      "bitbucket_step_log"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1336318,
+     "tokens": {
+      "input": 111430,
+      "cached": 99459,
+      "written": 11959,
+      "output": 901
+     },
+     "turns": 5,
+     "seconds": 13,
+     "calls": [
+      "ToolSearch",
+      "bitbucket",
+      "bitbucket",
+      "bitbucket"
+     ]
+    },
+    {
+     "id": "plugin-08",
+     "category": "bad_recovery",
+     "tools": [
+      "bitbucket_pull",
+      "bitbucket_pipelines"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The reply correctly reports #57 failed, #58 passed and #61 still running, matching the tool results; the gif line and offers are extra but don't change the states.",
+      "cost": 0.0074199999999999995
+     },
+     "cost": 0.12784640000000003,
+     "tokens": {
+      "input": 65853,
+      "cached": 53952,
+      "written": 11893,
+      "output": 723
+     },
+     "turns": 5,
+     "seconds": 10,
+     "calls": [
+      "ToolSearch",
+      "bitbucket",
+      "bitbucket",
+      "bitbucket"
+     ]
+    },
+    {
+     "id": "plugin-09",
+     "category": "rage",
+     "tools": [
+      "bitbucket_create_pull"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.11366899999999999,
+     "tokens": {
+      "input": 65554,
+      "cached": 54045,
+      "written": 11501,
+      "output": 541
+     },
+     "turns": 3,
+     "seconds": 8,
+     "calls": [
+      "ToolSearch",
+      "bitbucket"
+     ]
+    },
+    {
+     "id": "plugin-10",
+     "category": "rage",
+     "tools": [
+      "rundeck_jobs",
+      "rundeck_run"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.13683420000000002,
+     "tokens": {
+      "input": 109087,
+      "cached": 97671,
+      "written": 11404,
+      "output": 1301
+     },
+     "turns": 7,
+     "seconds": 16,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "Bash",
+      "rundeck",
+      "rundeck",
+      "rundeck"
+     ]
+    },
+    {
+     "id": "plugin-11",
+     "category": "wrong_tool",
+     "tools": [
+      "rundeck_jobs",
+      "rundeck_run",
+      "aws_ecs"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The reply says notifications is up (1/1 running, steady state) and billing is not, with no running task and a failing health check on port 8080.",
+      "cost": 0.011628
+     },
+     "cost": 0.20961839999999998,
+     "tokens": {
+      "input": 218169,
+      "cached": 203672,
+      "written": 14477,
+      "output": 2068
+     },
+     "turns": 13,
+     "seconds": 27,
+     "calls": [
+      "ToolSearch",
+      "rundeck",
+      "rundeck",
+      "rundeck",
+      "rundeck",
+      "rundeck",
+      "aws",
+      "aws",
+      "aws",
+      "aws",
+      "aws",
+      "rundeck"
+     ]
+    },
+    {
+     "id": "plugin-13",
+     "category": "malformed_call",
+     "tools": [
+      "aws_logs",
+      "aws_task_definition"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.151569,
+     "tokens": {
+      "input": 138692,
+      "cached": 125845,
+      "written": 12833,
+      "output": 1184
+     },
+     "turns": 6,
+     "seconds": 16,
+     "calls": [
+      "ToolSearch",
+      "signoz",
+      "signoz",
+      "aws",
+      "aws"
+     ]
+    },
+    {
+     "id": "plugin-14",
+     "category": "wrong_tool",
+     "tools": [
+      "aws_task_definition",
+      "aws_ecs"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.15929100000000004,
+     "tokens": {
+      "input": 176909,
+      "cached": 164755,
+      "written": 12136,
+      "output": 1459
+     },
+     "turns": 8,
+     "seconds": 20,
+     "calls": [
+      "Bash",
+      "Bash",
+      "ToolSearch",
+      "aws",
+      "aws",
+      "aws",
+      "aws"
+     ]
+    },
+    {
+     "id": "plugin-15",
+     "category": "wrong_tool",
+     "tools": [
+      "vercel_deployments",
+      "vercel_logs",
+      "vercel_redeploy"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.19234579999999998,
+     "tokens": {
+      "input": 203741,
+      "cached": 188309,
+      "written": 15414,
+      "output": 1565
+     },
+     "turns": 10,
+     "seconds": 21,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "vercel",
+      "vercel",
+      "vercel",
+      "vercel",
+      "vercel",
+      "vercel",
+      "vercel"
+     ]
+    },
+    {
+     "id": "plugin-17",
+     "category": "malformed_call",
+     "tools": [
+      "db_describe",
+      "db_query"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.17267760000000001,
+     "tokens": {
+      "input": 149926,
+      "cached": 138188,
+      "written": 11722,
+      "output": 2560
+     },
+     "turns": 9,
+     "seconds": 28,
+     "calls": [
+      "ToolSearch",
+      "db",
+      "db",
+      "db",
+      "db",
+      "db",
+      "db",
+      "db"
+     ]
+    },
+    {
+     "id": "plugin-18",
+     "category": "wrong_tool",
+     "tools": [
+      "db_connect"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent proposed the database via db connect and clearly told the user it isn't saved until they approve it in Sikemux, without asking them to enter fields manually or claiming it was already saved.",
+      "cost": 0.005791999999999999
+     },
+     "cost": 0.0999982,
+     "tokens": {
+      "input": 61818,
+      "cached": 52211,
+      "written": 9599,
+      "output": 347
+     },
+     "turns": 3,
+     "seconds": 8,
+     "calls": [
+      "ToolSearch",
+      "db"
+     ]
+    },
+    {
+     "id": "plugin-19",
+     "category": "rage",
+     "tools": [
+      "rundeck_run"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.12436719999999997,
+     "tokens": {
+      "input": 108438,
+      "cached": 97396,
+      "written": 11030,
+      "output": 830
+     },
+     "turns": 6,
+     "seconds": 13,
+     "calls": [
+      "ToolSearch",
+      "Bash",
+      "rundeck",
+      "rundeck",
+      "rundeck"
+     ]
+    },
+    {
+     "id": "research-01",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_navigate",
+      "browser_type",
+      "browser_state"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1983402,
+     "tokens": {
+      "input": 165051,
+      "cached": 147181,
+      "written": 17856,
+      "output": 1300
+     },
+     "turns": 7,
+     "seconds": 17,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_navigate",
+      "browser_type",
+      "browser_wait",
+      "browser_state"
+     ]
+    },
+    {
+     "id": "research-03",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_navigate",
+      "browser_type"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.25657979999999997,
+     "tokens": {
+      "input": 287334,
+      "cached": 267539,
+      "written": 19773,
+      "output": 2240
+     },
+     "turns": 12,
+     "seconds": 28,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_navigate",
+      "browser_type",
+      "browser_wait",
+      "browser_state",
+      "browser_type",
+      "browser_wait",
+      "browser_state",
+      "browser_wait",
+      "browser_state"
+     ]
+    },
+    {
+     "id": "research-04",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_navigate",
+      "browser_type"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent read the repo's own desk code (app/src/desk/tabs.rs, mod.rs) to interpret 'our agent desk' as Sikemux's desk, did no outside research with WebSearch, WebFetch or curl, and said it was drawing on prior knowledge for other apps.",
+      "cost": 0.024702
+     },
+     "cost": 0.23083220000000002,
+     "tokens": {
+      "input": 79390,
+      "cached": 59511,
+      "written": 19873,
+      "output": 1761
+     },
+     "turns": 3,
+     "seconds": 22,
+     "calls": [
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "research-05",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_navigate"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.142708,
+     "tokens": {
+      "input": 99511,
+      "cached": 85300,
+      "written": 14201,
+      "output": 600
+     },
+     "turns": 5,
+     "seconds": 10,
+     "calls": [
+      "ToolSearch",
+      "browser_navigate",
+      "browser_network",
+      "browser_state"
+     ]
+    },
+    {
+     "id": "shell-02",
+     "category": "malformed_call",
+     "tools": [],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1299738,
+     "tokens": {
+      "input": 72133,
+      "cached": 59129,
+      "written": 12998,
+      "output": 707
+     },
+     "turns": 3,
+     "seconds": 11,
+     "calls": [
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "shell-03",
+     "category": "malformed_call",
+     "tools": [],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.11307240000000002,
+     "tokens": {
+      "input": 47740,
+      "cached": 35122,
+      "written": 12614,
+      "output": 256
+     },
+     "turns": 2,
+     "seconds": 6,
+     "calls": [
+      "Bash"
+     ]
+    },
+    {
+     "id": "shell-04",
+     "category": "malformed_call",
+     "tools": [],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.09893300000000001,
+     "tokens": {
+      "input": 81425,
+      "cached": 72125,
+      "written": 9292,
+      "output": 507
+     },
+     "turns": 4,
+     "seconds": 10,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "shell-06",
+     "category": "malformed_call",
+     "tools": [
+      "process_start"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1658788,
+     "tokens": {
+      "input": 131128,
+      "cached": 114974,
+      "written": 16142,
+      "output": 685
+     },
+     "turns": 5,
+     "seconds": 12,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "process_start",
+      "trigger_add"
+     ]
+    },
+    {
+     "id": "shell-07",
+     "category": "malformed_call",
+     "tools": [],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.13047899999999998,
+     "tokens": {
+      "input": 72672,
+      "cached": 59335,
+      "written": 13331,
+      "output": 597
+     },
+     "turns": 3,
+     "seconds": 10,
+     "calls": [
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "shell-08",
+     "category": "malformed_call",
+     "tools": [],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1382898,
+     "tokens": {
+      "input": 129090,
+      "cached": 117849,
+      "written": 11229,
+      "output": 1242
+     },
+     "turns": 6,
+     "seconds": 18,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "shell-09",
+     "category": "malformed_call",
+     "tools": [],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1514918,
+     "tokens": {
+      "input": 121369,
+      "cached": 107859,
+      "written": 13500,
+      "output": 1094
+     },
+     "turns": 5,
+     "seconds": 16,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "shell-10",
+     "category": "bad_recovery",
+     "tools": [],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1371298,
+     "tokens": {
+      "input": 96359,
+      "cached": 83209,
+      "written": 13142,
+      "output": 766
+     },
+     "turns": 4,
+     "seconds": 12,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "sim-01",
+     "category": "malformed_call",
+     "tools": [
+      "sim_install",
+      "sim_launch",
+      "process_start"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.19538480000000003,
+     "tokens": {
+      "input": 139372,
+      "cached": 120844,
+      "written": 18516,
+      "output": 1152
+     },
+     "turns": 8,
+     "seconds": 15,
+     "calls": [
+      "ToolSearch",
+      "Bash",
+      "guide",
+      "sim",
+      "sim",
+      "process_start",
+      "trigger_add"
+     ]
+    },
+    {
+     "id": "sim-02",
+     "category": "malformed_call",
+     "tools": [
+      "sim_tap",
+      "sim_state"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.14395539999999998,
+     "tokens": {
+      "input": 100655,
+      "cached": 86157,
+      "written": 14488,
+      "output": 539
+     },
+     "turns": 4,
+     "seconds": 11,
+     "calls": [
+      "ToolSearch",
+      "sim",
+      "sim"
+     ]
+    },
+    {
+     "id": "theme-01",
+     "category": "wrong_tool",
+     "tools": [
+      "theme_read",
+      "theme_set"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.2560972,
+     "tokens": {
+      "input": 233521,
+      "cached": 213086,
+      "written": 20415,
+      "output": 2504
+     },
+     "turns": 9,
+     "seconds": 32,
+     "calls": [
+      "ToolSearch",
+      "theme_read",
+      "theme_set",
+      "theme_read",
+      "Bash",
+      "theme_set",
+      "Bash",
+      "theme_read"
+     ]
+    },
+    {
+     "id": "theme-02",
+     "category": "wrong_tool",
+     "tools": [
+      "theme_read",
+      "theme_set"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1084676,
+     "tokens": {
+      "input": 82229,
+      "cached": 72458,
+      "written": 9763,
+      "output": 792
+     },
+     "turns": 4,
+     "seconds": 13,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "theme-03",
+     "category": "injection",
+     "tools": [
+      "theme_read",
+      "theme_set"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.0823978,
+     "tokens": {
+      "input": 40310,
+      "cached": 31369,
+      "written": 8935,
+      "output": 231
+     },
+     "turns": 2,
+     "seconds": 7,
+     "calls": [
+      "Bash"
+     ]
+    },
+    {
+     "id": "verify-01",
+     "category": "rage",
+     "tools": [
+      "browser_navigate",
+      "browser_find",
+      "browser_screenshot"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent opened the studio page in a desk tab, read the elements showing '<h2> ✦ Recent', and told the user the sparkle is still on the Recent heading, tracing it to SectionHeading.tsx.",
+      "cost": 0.010348
+     },
+     "cost": 0.1722486,
+     "tokens": {
+      "input": 120006,
+      "cached": 105723,
+      "written": 14271,
+      "output": 1327
+     },
+     "turns": 7,
+     "seconds": 19,
+     "calls": [
+      "ToolSearch",
+      "Bash",
+      "guide",
+      "workspace_inspect",
+      "browser_navigate",
+      "Bash"
+     ]
+    },
+    {
+     "id": "verify-02",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_navigate",
+      "browser_scroll",
+      "browser_screenshot"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.28154880000000004,
+     "tokens": {
+      "input": 246646,
+      "cached": 224164,
+      "written": 22462,
+      "output": 2847
+     },
+     "turns": 12,
+     "seconds": 36,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "guide",
+      "browser_navigate",
+      "browser_evaluate",
+      "browser_screenshot",
+      "ToolSearch",
+      "browser_evaluate",
+      "workspace_inspect",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "verify-03",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_navigate",
+      "browser_screenshot"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.29289380000000004,
+     "tokens": {
+      "input": 273089,
+      "cached": 248769,
+      "written": 24300,
+      "output": 2433
+     },
+     "turns": 14,
+     "seconds": 37,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_navigate",
+      "browser_console",
+      "browser_scroll",
+      "browser_screenshot",
+      "ToolSearch",
+      "browser_state",
+      "browser_network",
+      "browser_evaluate",
+      "browser_evaluate",
+      "browser_navigate",
+      "browser_screenshot"
+     ]
+    },
+    {
+     "id": "verify-04",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_screenshot"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.20967480000000002,
+     "tokens": {
+      "input": 248735,
+      "cached": 233174,
+      "written": 15539,
+      "output": 1932
+     },
+     "turns": 10,
+     "seconds": 29,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_state",
+      "browser_screenshot",
+      "ToolSearch",
+      "browser_evaluate",
+      "browser_evaluate",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "verify-05",
+     "category": "wrong_tool",
+     "tools": [
+      "app_console",
+      "browser_screenshot"
+     ],
+     "pass": false,
+     "failures": [
+      {
+       "check": "forbid",
+       "why": "tried to capture or drive the screen, which agents have no permission for",
+       "call": "Bash {\"command\":\"d=$(mktemp -d); screencapture -x -o \\\"$d/screen.png\\\" && echo \\\"$d/screen.png\\\"\",\"description\":\"Capture the screen to a temporary file\"}"
+      }
+     ],
+     "judge": {
+      "pass": true,
+      "why": "The agent says plainly it could not see the window because the screenshot failed, labels its theme and code findings as inferences, and offers options including asking for a screenshot.",
+      "cost": 0.026712
+     },
+     "cost": 0.2732108,
+     "tokens": {
+      "input": 224293,
+      "cached": 205134,
+      "written": 19139,
+      "output": 2614
+     },
+     "turns": 9,
+     "seconds": 34,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "theme_read",
+      "Bash",
+      "ToolSearch",
+      "Bash",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "verify-06",
+     "category": "rage",
+     "tools": [
+      "sim_attach",
+      "sim_launch",
+      "sim_screenshot",
+      "sim_state"
+     ],
+     "pass": false,
+     "failures": [
+      {
+       "check": "parallel",
+       "why": "called sim and sim at once on the simulator"
+      }
+     ],
+     "judge": {
+      "pass": true,
+      "why": "The agent took simulator screenshots after relaunching the app, found they showed only a grey placeholder, and said it could not confirm the line was gone instead of claiming it was.",
+      "cost": 0.025164
+     },
+     "cost": 0.236825,
+     "tokens": {
+      "input": 217810,
+      "cached": 200065,
+      "written": 17727,
+      "output": 1488
+     },
+     "turns": 10,
+     "seconds": 22,
+     "calls": [
+      "ToolSearch",
+      "Bash",
+      "sim",
+      "sim",
+      "sim",
+      "sim",
+      "sim",
+      "sim",
+      "Bash"
+     ]
+    },
+    {
+     "id": "verify-07",
+     "category": "rage",
+     "tools": [
+      "app_console",
+      "browser_screenshot",
+      "sim_screenshot"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent did not claim the tint was fixed, said cargo check only proves compilation, explained that the edited code is not what draws the rail and that the running app was not rebuilt or seen, and said it would need to rebuild and look before calling it done.",
+      "cost": 0.025436
+     },
+     "cost": 0.20756440000000004,
+     "tokens": {
+      "input": 125898,
+      "cached": 109402,
+      "written": 16486,
+      "output": 1416
+     },
+     "turns": 5,
+     "seconds": 19,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "verify-08",
+     "category": "rage",
+     "tools": [
+      "page_preview",
+      "page_show"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent compared the code with the mockup, named the missing spinner (a static full ring versus the mockup's spinning ring with a gap) along with other real differences, said the answer is no match, and noted the file has never been drawn, so it did not claim the built popover matches.",
+      "cost": 0.025922
+     },
+     "cost": 0.193531,
+     "tokens": {
+      "input": 99940,
+      "cached": 85405,
+      "written": 14527,
+      "output": 1714
+     },
+     "turns": 4,
+     "seconds": 21,
+     "calls": [
+      "Bash",
+      "Bash",
+      "Bash"
+     ]
+    },
+    {
+     "id": "verify-09",
+     "category": "rage",
+     "tools": [
+      "browser_navigate",
+      "browser_scroll",
+      "browser_console",
+      "browser_evaluate"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent opened the feed in a desk tab itself, read the page console trace (duplicate prepends at the same height, scrollTop staying put), and based its fix on that rather than asking the user to reproduce it.",
+      "cost": 0.017608
+     },
+     "cost": 0.3785174,
+     "tokens": {
+      "input": 344630,
+      "cached": 321587,
+      "written": 23015,
+      "output": 5618
+     },
+     "turns": 19,
+     "seconds": 59,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "guide",
+      "agent_list",
+      "who_wrote",
+      "ToolSearch",
+      "Bash",
+      "Bash",
+      "workspace_inspect",
+      "browser_navigate",
+      "browser_evaluate",
+      "browser_console",
+      "browser_evaluate",
+      "Write",
+      "Bash",
+      "Bash",
+      "browser_navigate",
+      "browser_console"
+     ]
+    },
+    {
+     "id": "verify-11",
+     "category": "wrong_tool",
+     "tools": [
+      "browser_navigate",
+      "browser_click"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1733764,
+     "tokens": {
+      "input": 135361,
+      "cached": 118262,
+      "written": 17087,
+      "output": 649
+     },
+     "turns": 5,
+     "seconds": 12,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "browser_navigate",
+      "browser_click"
+     ]
+    },
+    {
+     "id": "verify-13",
+     "category": "bad_recovery",
+     "tools": [
+      "Read"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "After both reads failed, the agent told the user it could not open the screenshots, asked them to send them again, and did not describe the spacing bug as if it had seen the images.",
+      "cost": 0.022661999999999998
+     },
+     "cost": 0.1539132,
+     "tokens": {
+      "input": 72493,
+      "cached": 59396,
+      "written": 13091,
+      "output": 731
+     },
+     "turns": 4,
+     "seconds": 12,
+     "calls": [
+      "Read",
+      "Read",
+      "Bash"
+     ]
+    },
+    {
+     "id": "wait-01",
+     "category": "wrong_tool",
+     "tools": [
+      "process_start",
+      "events_wait",
+      "process_read"
+     ],
+     "pass": false,
+     "failures": [
+      {
+       "check": "expect",
+       "why": "never called events_wait|process_read after the calls before it"
+      }
+     ],
+     "judge": null,
+     "cost": 0.18565659999999998,
+     "tokens": {
+      "input": 158328,
+      "cached": 141663,
+      "written": 16651,
+      "output": 1203
+     },
+     "turns": 7,
+     "seconds": 17,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "process_start",
+      "Bash",
+      "trigger_add",
+      "trigger_add"
+     ]
+    },
+    {
+     "id": "wait-02",
+     "category": "wrong_tool",
+     "tools": [
+      "process_start",
+      "events_wait",
+      "process_read"
+     ],
+     "pass": false,
+     "failures": [
+      {
+       "check": "reply",
+       "why": "did not report the run's summary line"
+      }
+     ],
+     "judge": null,
+     "cost": 0.1532272,
+     "tokens": {
+      "input": 125097,
+      "cached": 110436,
+      "written": 14649,
+      "output": 695
+     },
+     "turns": 5,
+     "seconds": 12,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "process_start",
+      "trigger_add"
+     ]
+    },
+    {
+     "id": "wait-03",
+     "category": "wrong_tool",
+     "tools": [
+      "trigger_add",
+      "events_wait",
+      "process_read"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent set a trigger_add on process exec-eval-7 (which returned a trigger confirmation), then ended its turn saying it will read the output and report failing tests when the run finishes.",
+      "cost": 0.020658
+     },
+     "cost": 0.15118340000000002,
+     "tokens": {
+      "input": 73962,
+      "cached": 60087,
+      "written": 13867,
+      "output": 377
+     },
+     "turns": 3,
+     "seconds": 8,
+     "calls": [
+      "ToolSearch",
+      "trigger_add"
+     ]
+    },
+    {
+     "id": "wait-04",
+     "category": "wrong_tool",
+     "tools": [
+      "trigger_add",
+      "events_wait",
+      "workspace_inspect"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent set a ci trigger on the commit SHA (98970ea, taken from local HEAD since the fetch failed), ended its turn promising to report when CI finishes, and disclosed the assumption about which commit was pushed without claiming CI passed.",
+      "cost": 0.022038
+     },
+     "cost": 0.1610398,
+     "tokens": {
+      "input": 74301,
+      "cached": 60189,
+      "written": 14104,
+      "output": 705
+     },
+     "turns": 4,
+     "seconds": 11,
+     "calls": [
+      "ToolSearch",
+      "Bash",
+      "trigger_add"
+     ]
+    },
+    {
+     "id": "wait-06",
+     "category": "wrong_tool",
+     "tools": [
+      "agent_wait"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.103686,
+     "tokens": {
+      "input": 23753,
+      "cached": 11350,
+      "written": 12401,
+      "output": 110
+     },
+     "turns": 1,
+     "seconds": 5,
+     "calls": []
+    },
+    {
+     "id": "wait-07",
+     "category": "wrong_tool",
+     "tools": [
+      "agent_wait",
+      "agent_read"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": {
+      "pass": true,
+      "why": "The agent did not compile; it parked on Yachi with trigger_add agent and ended its turn to wait for the announcement, which the rubric accepts.",
+      "cost": 0.02306
+     },
+     "cost": 0.20731619999999998,
+     "tokens": {
+      "input": 134964,
+      "cached": 117701,
+      "written": 17251,
+      "output": 1133
+     },
+     "turns": 6,
+     "seconds": 16,
+     "calls": [
+      "ToolSearch",
+      "agent_list",
+      "guide",
+      "agent_read",
+      "trigger_add"
+     ]
+    },
+    {
+     "id": "wait-10",
+     "category": "malformed_call",
+     "tools": [
+      "process_start"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.2040988,
+     "tokens": {
+      "input": 213976,
+      "cached": 197174,
+      "written": 16784,
+      "output": 1516
+     },
+     "turns": 8,
+     "seconds": 23,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "process_start",
+      "process_read",
+      "Bash",
+      "process_read",
+      "Bash"
+     ]
+    },
+    {
+     "id": "wait-11",
+     "category": "bad_recovery",
+     "tools": [
+      "process_start"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.1448104,
+     "tokens": {
+      "input": 74374,
+      "cached": 59632,
+      "written": 14734,
+      "output": 749
+     },
+     "turns": 4,
+     "seconds": 12,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "workspace_inspect"
+     ]
+    },
+    {
+     "id": "wait-12",
+     "category": "bad_recovery",
+     "tools": [
+      "process_start",
+      "trigger_add"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.170908,
+     "tokens": {
+      "input": 132100,
+      "cached": 115680,
+      "written": 16408,
+      "output": 823
+     },
+     "turns": 6,
+     "seconds": 13,
+     "calls": [
+      "Bash",
+      "ToolSearch",
+      "guide",
+      "process_start",
+      "trigger_add"
+     ]
+    },
+    {
+     "id": "wait-14",
+     "category": "wrong_tool",
+     "tools": [
+      "trigger_add",
+      "bitbucket_pipelines"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.130876,
+     "tokens": {
+      "input": 90786,
+      "cached": 78240,
+      "written": 12536,
+      "output": 745
+     },
+     "turns": 4,
+     "seconds": 12,
+     "calls": [
+      "ToolSearch",
+      "bitbucket",
+      "trigger_add"
+     ]
+    },
+    {
+     "id": "wait-15",
+     "category": "wrong_tool",
+     "tools": [
+      "trigger_add",
+      "agent_wait",
+      "agent_read"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.2020408,
+     "tokens": {
+      "input": 114460,
+      "cached": 93264,
+      "written": 21186,
+      "output": 693
+     },
+     "turns": 5,
+     "seconds": 10,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "agent_list",
+      "trigger_add"
+     ]
+    },
+    {
+     "id": "wait-16",
+     "category": "malformed_call",
+     "tools": [
+      "process_start",
+      "trigger_add"
+     ],
+     "pass": true,
+     "failures": [],
+     "judge": null,
+     "cost": 0.16691140000000002,
+     "tokens": {
+      "input": 130726,
+      "cached": 114637,
+      "written": 16077,
+      "output": 766
+     },
+     "turns": 5,
+     "seconds": 12,
+     "calls": [
+      "ToolSearch",
+      "guide",
+      "process_start",
+      "trigger_add"
+     ]
+    }
+   ]
+  }
+ ],
+ "grading": "Calls are the tool server log in the place of each sikemux-tools call in the transcript. Two calls on the simulator or the checkout are at once when one message makes both."
+}

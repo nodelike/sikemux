@@ -8,7 +8,7 @@ use gpui_kit::{
 use sikemux_view::inbox::AgentShown;
 
 use crate::icons::Icon;
-use crate::settings::index::Page::Settled;
+use crate::settings::index::Page::Agents;
 use crate::settings::index::{section, Entry};
 use crate::settings::rows;
 use crate::theme::{SPACE_2, SPACE_4};
@@ -17,7 +17,7 @@ use crate::workbench::Workbench;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[Entry] = &[section(
-    Settled,
+    Agents,
     "Settled chats",
     "settled archived archive hidden done restore unsettle snooze",
 )];

@@ -105,7 +105,7 @@ describe("Clerk's webhook", () => {
     );
     expect(deleting.status).toBe(202);
     await database.pool.query("update users set clerk_retry_at = now()");
-    await sweepClerk(database.db, clerk, log);
+    await sweepClerk(database.db, clerk, null, log);
     expect(await state()).toEqual(fromWebhook);
     expect(fromWebhook.users).toEqual([
       { id: "user_a", deleted: true, gone_from_clerk: true, purging: true },

@@ -63,7 +63,6 @@ if grep -q ' E: ' <<<"$lint"; then fail "namcap found errors"; fi
 pacman -U --noconfirm "$UPGRADE"
 check "upgrade"
 
-mkdir -p "$OUT/aur"
+mkdir -p "$OUT"
 cp "$FIRST" "$OUT/"
-cp "$WORK/1/PKGBUILD" "$WORK/1/.SRCINFO" "$WORK/1/sikemux.sysusers" "$WORK/1/sikemux.tmpfiles" "$OUT/aur/"
 echo "✓ $(basename "$FIRST")"

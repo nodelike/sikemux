@@ -130,7 +130,13 @@ jobs:
             exit 1
           fi
           case "${version%%+*}" in
-            *-nightly.*) channel=nightly ;;
+            *-nightly.*)
+              channel=nightly
+              if [[ "$(grep '^## ' RELEASE_CHANGES.md | tail -n 1)" != "## v$version · "* ]]; then
+                echo "::error::RELEASE_CHANGES.md does not end with v$version, so What's new would wait on GitHub"
+                exit 1
+              fi
+              ;;
             *-*)
               echo "::error::v$version is neither a nightly nor a stable version"
               exit 1
@@ -162,6 +168,7 @@ jobs:
             Cargo.toml
             Cargo.lock
             RELEASE_NOTES.md
+            RELEASE_CHANGES.md
 
   # Nothing that builds holds signing material, and nothing that signs runs the
   # build's dependencies or what it signs. The app is compiled with the hashes of
@@ -258,7 +265,7 @@ jobs:
       - &compile_through_cache
         name: Compile through the cache
         if: needs.plan.outputs.channel == 'nightly'
-        run: printf 'SCCACHE_GHA_ENABLED=true\nRUSTC_WRAPPER=sccache\n' >>"$GITHUB_ENV"
+        run: printf 'SCCACHE_GHA_ENABLED=true\nRUSTC_WRAPPER=sccache\nSCCACHE_IDLE_TIMEOUT=0\n' >>"$GITHUB_ENV"
 
       # The core and the app are stripped here, once their symbols are in a debug file published
       # beside the release, with the line tables of Sikemux's own crates. Those add about a tenth to
@@ -773,12 +780,11 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
         run: packaging/arch/build-release.sh "$VERSION" "target/release/bundle/tar/Sikemux_${VERSION}_amd64.tar.gz" target/release/bundle/arch
 
-      - name: Keep the package and its AUR recipe on the run
+      - name: Keep the package on the run
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sikemux-arch-${{ github.ref_name }}
           if-no-files-found: error
-          include-hidden-files: true
           path: target/release/bundle/arch
 
   build-host:

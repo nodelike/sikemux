@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "antigravity",
+  "version": "2026.11.21.1",
+  "rules": [
+    {
+      "id": "permission_prompt",
+      "state": "blocked",
+      "priority": 950,
+      "region": "bottomNonEmptyLines(16)",
+      "visibleBlocker": true,
+      "gate": {
+        "any": [
+          { "contains": ["no, deny"] },
+          { "contains": ["allow once", "deny"] },
+          { "contains": ["always allow", "deny"] }
+        ],
+        "all": [
+          {
+            "any": [
+              { "contains": ["enter"] },
+              { "contains": ["to select"] },
+              { "contains": ["confirm"] }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "working_hint",
+      "state": "working",
+      "priority": 700,
+      "region": "bottomNonEmptyLines(8)",
+      "visibleWorking": true,
+      "gate": {
+        "any": [
+          { "contains": ["esc to interrupt"] },
+          { "contains": ["ctrl+c to interrupt"] },
+          { "contains": ["press esc to interrupt"] }
+        ]
+      }
+    },
+    {
+      "id": "input_prompt",
+      "state": "idle",
+      "priority": 400,
+      "region": "bottomNonEmptyLines(4)",
+      "visibleIdle": true,
+      "gate": {
+        "lineRegex": ["^\\s*[>›❯]\\s*$"],
+        "not": [
+          { "contains": ["no, deny"] },
+          { "contains": ["esc to interrupt"] }
+        ]
+      }
+    }
+  ]
+}

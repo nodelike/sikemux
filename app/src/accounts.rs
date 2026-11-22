@@ -11,7 +11,7 @@ use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::{
-    div, img, px, AppContext, Context, Entity, Hsla, Image, InteractiveElement, IntoElement,
+    div, img, px, AppContext, Context, Entity, Image, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 use sikemux_agents::agent_accounts::status::AccountStatus;
@@ -88,25 +88,17 @@ type TakersKey = (String, String, Option<String>);
 
 const CHECK_ON_RETURN_AT_MOST_EVERY: Duration = Duration::from_secs(30);
 
-/// An account's colour, which the person may have set as `#rrggbb`.
-pub fn accent(profile: &Profile) -> Hsla {
-    profile
-        .accent
-        .strip_prefix('#')
-        .and_then(|hex| u32::from_str_radix(hex, 16).ok())
-        .map(|value| gpui_kit::rgb(value).into())
-        .unwrap_or_else(|| theme::brand(&profile.provider))
-}
-
 /// An account's avatar picture at `size`, as every list of accounts draws it.
 pub fn avatar(picture: Arc<Image>, size: f32) -> impl IntoElement {
     img(picture).size(px(size)).flex_none()
 }
 
-/// An account's avatar with its agent's mark on its corner, as the limits list draws it.
+/// An account's avatar with its agent's mark on its corner, as the limits list draws it. The mark
+/// sits on a raised disc cut out of the avatar by a ring of the panel, so it reads on any marble.
 pub fn face(picture: Arc<Image>, provider: &str, size: f32, cx: &gpui_kit::App) -> gpui_kit::Div {
     let t = crate::theme::Tokens::get(cx);
-    let badge = (size * 0.7).round();
+    let badge = (size * 0.8).round();
+    let disc = badge - 2.;
     div()
         .relative()
         .flex_none()
@@ -115,15 +107,24 @@ pub fn face(picture: Arc<Image>, provider: &str, size: f32, cx: &gpui_kit::App) 
         .child(
             div()
                 .absolute()
-                .right(px(-size * 0.19))
-                .bottom(px(-size * 0.19))
+                .right(px(-size * 0.22))
+                .bottom(px(-size * 0.22))
                 .size(px(badge))
                 .rounded_full()
                 .bg(t.surface)
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(crate::ui::mark(provider, (badge * 0.72).round())),
+                .child(
+                    div()
+                        .size(px(disc))
+                        .rounded_full()
+                        .bg(t.surface_active)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(crate::ui::mark(provider, disc - 1.)),
+                ),
         )
 }
 
@@ -223,12 +224,7 @@ impl Accounts {
 
     /// The account `provider` runs on now, else its first.
     pub fn current(&self, provider: &str) -> Option<&Profile> {
-        let chosen = self.book.as_ref()?.selected.get(provider);
-        let accounts = self.of(provider);
-        chosen
-            .and_then(|id| accounts.iter().find(|profile| profile.id == *id))
-            .or(accounts.first())
-            .copied()
+        self.book.as_ref()?.in_use(provider)
     }
 
     /// Drops what the core said each chat may move to and would pick, so the next look asks again.
@@ -510,7 +506,7 @@ pub fn open_sign_in(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    bench.open_settings(crate::settings::Page::Accounts, window, cx);
+    bench.open_settings(crate::settings::Page::Models, window, cx);
     open_dialog(bench, provider, window, cx);
     if let Some(id) = id {
         sign_in_again(bench, id, cx);

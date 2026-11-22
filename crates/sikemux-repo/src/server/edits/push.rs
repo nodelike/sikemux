@@ -27,6 +27,9 @@ use crate::trailers::{self, Agent, Commit, COMMITTERS_REF, NOTES_REF};
 const ATTEMPTS: usize = 4;
 const PUSH_WAIT: Duration = Duration::from_secs(5 * 60);
 const PUSH_OUTPUT_LIMIT: usize = 1024 * 1024;
+/// A repository's pre-push hook may run its whole test suite, so the push itself has no time
+/// limit and room for all a suite prints.
+const HOOK_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
 
 #[derive(Serialize)]
 pub struct Pushed {
@@ -41,7 +44,10 @@ pub struct Pushed {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub waiting: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    note: Option<String>,
+    pub note: Option<String>,
+    /// The end of what the push printed: the repository's pre-push hook, and the remote.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
     #[serde(skip)]
     pub held: Vec<String>,
     /// Commits taken off the branch, as they do not apply onto the remote's newest commits.
@@ -121,6 +127,80 @@ pub struct Landing<'a> {
 /// asked.
 pub fn push(core: &Core, dir: &Path, agents: &[String], remote: &str) -> Result<Pushed, String> {
     push_from(core, dir, agents, remote, None)
+}
+
+/// Pushes `dir`'s branch as it stands, replacing the remote's copy as long as it is still what
+/// was fetched, as after a rebase. Never the remote's default branch or a release line.
+pub fn force_push(
+    core: &Core,
+    dir: &Path,
+    agents: &[String],
+    remote: &str,
+) -> Result<Pushed, String> {
+    let top = PathBuf::from(git(dir, &["rev-parse", "--show-toplevel"])?.trim());
+    let branch = line(
+        git(&top, &["symbolic-ref", "--short", "-q", "HEAD"])
+            .map_err(|_| "force pushes a branch; this checkout is not on one".to_owned())?,
+    );
+    if protected(&top, remote, &branch) {
+        return Err(format!(
+            "{branch} is the default branch or a release line, which is never force-pushed; push without force"
+        ));
+    }
+    if !on_remote(&top, remote, &branch)? {
+        return push(core, dir, agents, remote);
+    }
+    let was = fetched_tip(&top, remote, &branch)?;
+    let head = line(git(&top, &["rev-parse", "HEAD"])?);
+    let listed = git(
+        &top,
+        &[
+            "log",
+            "--reverse",
+            "--format=%H%x00%s",
+            &format!("{was}..{head}"),
+        ],
+    )?;
+    let commits: Vec<(&str, &str)> = listed
+        .lines()
+        .filter_map(|entry| entry.split_once('\0'))
+        .collect();
+    if workflows::guarded(core, dir, remote).is_some()
+        && commits.iter().any(|(id, _)| workflows::waits(dir, id))
+    {
+        return Err("Some of these commits change CI workflows, which wait for the person; push without force so Sikemux asks them".to_owned());
+    }
+    let lease = format!("--force-with-lease=refs/heads/{branch}:{was}");
+    let output = match send(&top, remote, &format!("{head}:refs/heads/{branch}"), &[&lease]) {
+        Ok(output) => output,
+        Err(Attempt::Raced) => {
+            return Err(format!(
+                "{remote}/{branch} moved since it was fetched, so it was left as it is; look at what it holds before pushing again"
+            ))
+        }
+        Err(Attempt::Failed(why)) => return Err(why),
+    };
+    follow(&top, remote, &branch)?;
+    (core.repo_above().pushed)(core);
+    (core.repo_above().triggers_pushed)(core, dir, agents, &head);
+    Ok(Pushed {
+        remote: remote.to_owned(),
+        branch,
+        pushed: (commits.iter())
+            .map(|(id, subject)| format!("{} {subject}", short(id)))
+            .collect(),
+        kept: Vec::new(),
+        waiting: Vec::new(),
+        note: Some(format!(
+            "Replaced {remote}'s copy, which stood at {}.",
+            short(&was)
+        )),
+        output,
+        held: Vec::new(),
+        sent_back: Vec::new(),
+        blocked: Vec::new(),
+        tip: Some(head),
+    })
 }
 
 /// Pushes the project's checkout `dir` as it stands with `landing` on it, and
@@ -315,15 +395,43 @@ fn push_once(
         }
     };
     let moved = base != fork;
+    if let (true, Some(tip)) = (moved, &base) {
+        let rewritten = git(
+            top,
+            &[
+                "log",
+                "--cherry-pick",
+                "--left-only",
+                "--format=%H",
+                &format!("{tip}...{head}"),
+            ],
+        )?;
+        if rewritten.trim().is_empty() && !protected(top, remote, branch) {
+            return Err(Attempt::Failed(format!(
+                "{remote}/{branch} holds only older copies of this branch's commits, as after a rebase; push again with force: true to replace it"
+            )));
+        }
+    }
     let unpushed = unpushed(top, fork.as_deref(), base.as_deref(), &head, whose, judge)?;
     if !unpushed.iter().any(|commit| commit.mine) {
-        return Err(Attempt::Failed(match unpushed.is_empty() {
-            true => "Nothing to push: every commit here is on the remote".to_owned(),
-            false => format!(
-                "Nothing of yours waits to be pushed here. The rest go out with their makers' pushes, or with git_commit push from the project's own checkout, which pushes all it holds: {}",
-                kept(&unpushed).join("; ")
-            ),
-        }));
+        let rebased = at == head || rebase_branch(signing, top, branch, &at, &head, true, LANDED)?;
+        return Ok(Pushed {
+            remote: remote.to_owned(),
+            branch: branch.to_owned(),
+            pushed: Vec::new(),
+            kept: kept(&unpushed),
+            waiting: Vec::new(),
+            note: Some(match (rebased, unpushed.is_empty()) {
+                (false, _) => not_landed_here(remote, branch),
+                (true, true) => "Every commit here is on the remote already.".to_owned(),
+                (true, false) => "Nothing of yours waits to be pushed here. The rest go out with their makers' pushes, or with git_commit push from the project's own checkout, which pushes all it holds.".to_owned(),
+            }),
+            held: Vec::new(),
+            sent_back: Vec::new(),
+            blocked: Vec::new(),
+            output: None,
+            tip: None,
+        });
     }
     let shown = |commits: &[&Unpushed]| -> Vec<String> {
         (commits.iter())
@@ -339,7 +447,7 @@ fn push_once(
         unpushed.iter().partition(|commit| commit.mine);
     if held_ids.is_empty() && theirs.is_empty() && !moved {
         land::steps(top, branch, &at, &head)?;
-        send(top, remote, branch, &head)?;
+        let output = send(top, remote, &format!("{head}:refs/heads/{branch}"), &[])?;
         let rebased = at == head || rebase_branch(signing, top, branch, &at, &head, true, LANDED)?;
         return Ok(Pushed {
             remote: remote.to_owned(),
@@ -351,6 +459,7 @@ fn push_once(
             sent_back: Vec::new(),
             blocked: Vec::new(),
             note: (!rebased).then(|| not_landed_here(remote, branch)),
+            output,
             tip: Some(head),
         });
     }
@@ -432,6 +541,7 @@ fn push_once(
             })
             .collect(),
         blocked,
+        output: None,
         tip: None,
     };
     let landing = at != head;
@@ -450,7 +560,7 @@ fn push_once(
         return Err(cannot_go_alone());
     }
     land::steps(top, branch, &at, &rebuilt)?;
-    send(top, remote, branch, &tip)?;
+    let output = send(top, remote, &format!("{tip}:refs/heads/{branch}"), &[])?;
     let rebased = rebase_branch(
         signing,
         top,
@@ -471,6 +581,7 @@ fn push_once(
     });
     Ok(Pushed {
         tip: Some(tip),
+        output,
         note: match (moving, pushed.note.clone()) {
             (Some(moving), Some(waits)) => Some(format!("{waits} {moving}")),
             (moving, waits) => moving.or(waits),
@@ -533,32 +644,41 @@ pub fn tell_sent_back(core: &Arc<Core>, runtime: &tokio::runtime::Handle, pushed
 /// What a push says of the caller's commits it left for the person.
 const WAITS_FOR_PERSON: &str = "The commits under waiting change CI workflows, or build on such a change, so they wait for the person: Sikemux asked them, and pushes those commits itself once they pass. Do not push them another way, and go on with other work.";
 
-/// Pushes `commit` as the remote's `branch`; a remote that moved on since it
-/// was fetched is a race to try again.
-fn send(top: &Path, remote: &str, branch: &str, commit: &str) -> Result<(), Attempt> {
-    remote_git(
-        top,
-        &[
-            "push",
-            "--quiet",
-            remote,
-            &format!("{commit}:refs/heads/{branch}"),
-        ],
-    )
-    .map_err(|why| {
-        let raced = [
-            "non-fast-forward",
-            "fetch first",
-            "stale info",
-            "cannot lock ref",
-        ]
-        .iter()
-        .any(|sign| why.contains(sign));
-        match raced {
-            true => Attempt::Raced,
-            false => Attempt::Failed(why),
-        }
-    })
+/// Pushes `refspec`, for as long as the repository's pre-push hook runs, with the project's
+/// `hookEnv`; the end of what it printed, when it printed anything. A remote that moved on
+/// since it was fetched is a race to try again.
+fn send(
+    top: &Path,
+    remote: &str,
+    refspec: &str,
+    flags: &[&str],
+) -> Result<Option<String>, Attempt> {
+    let mut push = crate::git::Git::at(top)
+        .timeout(Duration::MAX)
+        .limit(HOOK_OUTPUT_LIMIT);
+    for (key, value) in crate::tasks::config::hook_env_near(top) {
+        push = push.env(&key, value);
+    }
+    let mut args = vec!["push", "--quiet"];
+    args.extend(flags);
+    args.extend([remote, refspec]);
+    let output = push.output(&args)?;
+    let said = crate::git::said(&output);
+    if output.status.success() {
+        return Ok((!said.is_empty()).then_some(said));
+    }
+    let raced = [
+        "non-fast-forward",
+        "fetch first",
+        "stale info",
+        "cannot lock ref",
+    ]
+    .iter()
+    .any(|sign| said.contains(sign));
+    match raced {
+        true => Err(Attempt::Raced),
+        false => Err(Attempt::Failed(format!("git push failed: {said}"))),
+    }
 }
 
 fn on_remote(top: &Path, remote: &str, branch: &str) -> Result<bool, String> {
@@ -947,6 +1067,26 @@ fn release_line(dir: &Path) -> Option<String> {
         .find(|branch| branch.starts_with(RELEASE_LINE))
 }
 
+/// Whether `branch` is never to be force-pushed: `remote`'s default branch, `main` or
+/// `master`, or a release line.
+fn protected(top: &Path, remote: &str, branch: &str) -> bool {
+    let default = git(
+        top,
+        &[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            &format!("refs/remotes/{remote}/HEAD"),
+        ],
+    )
+    .ok()
+    .and_then(|head| Some(line(head).strip_prefix(&format!("{remote}/"))?.to_owned()));
+    branch.starts_with(RELEASE_LINE)
+        || ["main", "master"].contains(&branch)
+        || default.as_deref() == Some(branch)
+        || release_line(top).is_some()
+}
+
 pub(super) fn on_release_line(dir: &Path) -> bool {
     release_line(dir).is_some()
 }
@@ -958,8 +1098,8 @@ fn tree(top: &Path, commit: &str) -> Result<String, String> {
     )?))
 }
 
-/// Runs git against a remote, which may ask over the network and run the
-/// repository's push hooks, so it gets longer than git run locally.
+/// Runs git against a remote, which may ask over the network, so it gets longer than git run
+/// locally.
 fn remote_git(top: &Path, args: &[&str]) -> Result<(), String> {
     git_remote_output(top, args).map(drop)
 }

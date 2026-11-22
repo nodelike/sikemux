@@ -14,8 +14,8 @@ use sikemux_calls::chat::QueuedParams;
 use sikemux_calls::share::GuestMessageParams;
 use sikemux_calls::triggers::TriggerParams;
 use sikemux_view::chat::{
-    AsyncTask, ChatTrigger, QueuedMessage, SubagentCard, TaskState, TriggerWhen, WorkflowAgent,
-    WorkflowAgentState,
+    AsyncTask, ChatTrigger, QueuedMessage, SubagentCard, SubagentState, TaskState, TriggerWhen,
+    WorkflowAgent, WorkflowAgentState,
 };
 
 use super::tools::word;
@@ -161,7 +161,7 @@ fn tokens(tokens: Option<u64>) -> Option<String> {
     })
 }
 
-fn cost(parts: [Option<String>; 2]) -> Option<String> {
+fn cost<const N: usize>(parts: [Option<String>; N]) -> Option<String> {
     let cost: Vec<String> = parts.into_iter().flatten().collect();
     (!cost.is_empty()).then(|| cost.join(" · "))
 }
@@ -489,7 +489,7 @@ fn running(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
     rows.extend(
         subagents
             .iter()
-            .map(|card| subagent_row(agent, card, chat, &t, &tints, cx)),
+            .map(|card| subagent_row(agent, card, chat, &t, cx)),
     );
     for (kind, group) in &kinds {
         for task in group {
@@ -593,7 +593,7 @@ fn work_row(
                 .truncate()
                 .text_color(t.text_primary)
                 .map(|name| match detail.is_some() {
-                    true => name.flex_shrink_0().max_w(gpui_kit::relative(0.5)),
+                    true => name.flex_shrink(1.).max_w(gpui_kit::relative(0.5)),
                     false => name.flex_1(),
                 }),
         )
@@ -636,49 +636,73 @@ fn subagent_row(
     card: &SubagentCard,
     chat: &Chat,
     t: &Tokens,
-    tints: &Tints,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    let activity = match &card.last_tool {
-        Some(tool) => format!("{} {}", word(&tool.row), tool.row.target)
-            .trim()
-            .to_owned(),
-        None => one_line(&card.task),
+    let stop = card.can_stop.then(|| {
+        let stopping = chat.stopping.contains(&card.session_id);
+        stop(&agent.id, &card.session_id, &card.name, stopping, t, cx)
+    });
+    subagent_line(card, &agent.provider, stop, t).into_any_element()
+}
+
+/// A subagent's row, drawn alike in the transcript and the dock: its name, what it is doing
+/// or was asked, its model and what it has cost, then how it stands and `after`.
+pub(super) fn subagent_line(
+    card: &SubagentCard,
+    provider: &str,
+    after: Option<AnyElement>,
+    t: &Tokens,
+) -> Div {
+    let running = card.state == SubagentState::Running;
+    let detail = match &card.last_tool {
+        Some(tool) if running => shimmer(
+            SharedString::from(format!("subagent-{}", card.session_id)),
+            format!("{} {}", word(&tool.row), tool.row.target)
+                .trim()
+                .to_owned(),
+        ),
+        _ => one_line(&card.task).into_any_element(),
     };
     let calls = (card.calls > 0).then(|| match card.calls {
         1 => t!("1 call").to_owned(),
         calls => t!("{calls} calls", calls = calls),
     });
+    let model = card.model.as_deref().map(ui::model_name);
+    let tints = Tints::new(t);
+    let ended = |mark: Icon, tint: Hsla, word: &str, ink: Hsla| -> AnyElement {
+        div()
+            .flex()
+            .items_center()
+            .gap(SPACE_1)
+            .text_size(theme::ui_text(TEXT_2XS_H))
+            .text_color(ink)
+            .child(ui::icon(mark, 12.).text_color(tint))
+            .child(word.to_owned())
+            .into_any_element()
+    };
+    let quiet = t.text_tertiary;
+    let state = match card.state {
+        SubagentState::Running => ui::working(11., tints.agent),
+        SubagentState::Completed => ended(Icon::Check, tints.task, t!("done"), quiet),
+        SubagentState::Failed => ended(Icon::Warning, t.danger, t!("failed"), t.danger),
+        SubagentState::Disconnected => ended(Icon::Plug, t.danger, t!("lost"), t.danger),
+        SubagentState::Cancelled => ended(Icon::Close, t.text_disabled, t!("stopped"), quiet),
+    };
     let end = div()
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .child(ui::working(11., tints.agent))
-        .when(card.can_stop, |end| {
-            let stopping = chat.stopping.contains(&card.session_id);
-            end.child(stop(
-                &agent.id,
-                &card.session_id,
-                &card.name,
-                stopping,
-                t,
-                cx,
-            ))
-        })
+        .child(state)
+        .children(after)
         .into_any_element();
-    let activity = shimmer(
-        SharedString::from(format!("subagent-{}", card.session_id)),
-        activity,
-    );
     work_row(
         t,
-        ui::mark(&agent.provider, 13.),
+        ui::mark(provider, 13.),
         card.name.clone(),
-        Some((activity, false)),
-        cost([tokens(card.tokens), calls]),
+        Some((detail, false)),
+        cost([model, tokens(card.tokens), calls]),
         Some(end),
     )
-    .into_any_element()
 }
 
 fn task_row_of(

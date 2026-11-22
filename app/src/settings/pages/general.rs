@@ -1,6 +1,6 @@
-//! The folders the person keeps projects in, and how deep each is searched; sending the project
-//! in front, with its chats and tabs, to another host; and whether the person's settings and
-//! skills follow them to their other hosts.
+//! The language the app speaks; the folders the person keeps projects in, and how deep each is
+//! searched; sending the project in front, with its chats and tabs, to another host; and whether
+//! the person's settings and skills follow them to their other hosts.
 
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -29,6 +29,11 @@ pub(in crate::settings) const ENTRIES: &[Entry] = &[
         General,
         "Project folders",
         "repos repositories directories roots scan depth index picker",
+    ),
+    section(
+        General,
+        "Language",
+        "language locale translation español deutsch français 中文 日本語 한국어 русский português",
     ),
     section(General, "Startup", ""),
     row(
@@ -61,6 +66,7 @@ pub struct Fields {
     itself: bool,
     _entering: Subscription,
     transfer: Transfer,
+    language: rows::Choice,
 }
 
 /// Where the project in front is to go, and how, and what came of the last send.
@@ -90,6 +96,7 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         }
     });
     let fields = Fields {
+        language: language(bench, window, cx),
         path,
         depth: 1,
         itself: false,
@@ -97,6 +104,37 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         transfer: Transfer::default(),
     };
     super::change_pages(bench, cx, |pages, _| pages.general = Some(fields));
+}
+
+/// The languages offered, the system's first, and a choice that speaks the one picked.
+fn language(bench: &Workbench, window: &mut Window, cx: &mut Context<Workbench>) -> rows::Choice {
+    let languages = crate::i18n::LANGUAGES;
+    let labels = [t!("Same as the system"), "English"]
+        .into_iter()
+        .chain(languages.iter().map(|language| language.name))
+        .collect::<Vec<_>>();
+    let chosen = match bench.preferences().language.as_deref() {
+        None => 0,
+        Some(code) => (languages.iter())
+            .position(|language| language.code == code)
+            .map_or(1, |at| at + 2),
+    };
+    rows::Choice::new(
+        labels,
+        chosen,
+        move |bench, at, _| {
+            let code = match at {
+                0 => None,
+                1 => Some("en".to_owned()),
+                at => languages
+                    .get(at - 2)
+                    .map(|language| language.code.to_owned()),
+            };
+            crate::settings::set(bench, PreferenceChange::Language(code))
+        },
+        window,
+        cx,
+    )
 }
 
 /// Changes the list of project folders in the core.
@@ -369,6 +407,18 @@ pub fn render(
             Some(t!("Each folder is scanned for git repos, as deep as its depth allows.").into()),
             lit("Project folders"),
             body,
+            cx,
+        ),
+        rows::card(
+            lit("Language"),
+            rows::row(
+                t!("Language"),
+                Some(t!(
+                    "The language Sikemux's own words are in. What agents write stays as they wrote it."
+                )),
+                fields.language.view(),
+                cx,
+            ),
             cx,
         ),
         rows::section(

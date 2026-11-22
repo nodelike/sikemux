@@ -35,3 +35,6 @@ runs:
         sudo apt-get update
         read -ra packages <<<"$(cat packaging/linux/build-packages.txt - <<<"$PACKAGES" | tr -s ' \n' ' ')"
         sudo apt-get install -y -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-archives" "${packages[@]}"
+        # apt leaves a root-owned lock and partial/ behind, which the cache step can't read to save.
+        sudo rm -rf ~/apt-archives/lock ~/apt-archives/partial
+        sudo chown -R "$(id -u):$(id -g)" ~/apt-archives

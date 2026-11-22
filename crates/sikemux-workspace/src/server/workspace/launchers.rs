@@ -190,6 +190,7 @@ fn catalog_efforts(provider: &str) -> Option<ConfigPicker> {
                 description: None,
                 is_default: false,
                 superseded: false,
+                maker: None,
             })
             .collect(),
     })
@@ -390,6 +391,11 @@ impl Workspaces {
         model: Option<String>,
     ) -> Result<ChatLaunch, String> {
         let agent = &launcher.agent;
+        let routed = match (provider, &model, &self.providers) {
+            (None, Some(model), Some(providers)) => providers.routing(model),
+            _ => None,
+        };
+        let provider = provider.or(routed.as_ref().map(|routed| routed.id.as_str()));
         let model = model.or_else(|| {
             self.providers
                 .as_ref()?

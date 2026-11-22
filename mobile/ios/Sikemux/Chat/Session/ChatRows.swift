@@ -180,12 +180,14 @@ extension ChatPart {
     mutating func append(_ text: String, _ change: MdChange?) {
         switch self {
         case .text(var part):
+            let from = part.text
             part.text += text
-            part.md = nextTree(part.md, change, part.text)
+            part.md = nextTree(part.md, change, from, part.text)
             self = .text(part)
         case .thought(var part):
+            let from = part.text
             part.text += text
-            part.md = nextTree(part.md, change, part.text)
+            part.md = nextTree(part.md, change, from, part.text)
             self = .thought(part)
         default:
             break
@@ -193,13 +195,13 @@ extension ChatPart {
     }
 }
 
-/// A part's tree follows the core's changes while each one fits the text it ends at; one that does not loses it
-/// until the core sends a whole tree.
-private func nextTree(_ tree: PartTree?, _ change: MdChange?, _ text: String) -> PartTree? {
+/// A part's tree follows the core's changes while each one starts at the text the tree was made from and ends at the
+/// text it reaches; one that does not loses it until the core sends a whole tree.
+private func nextTree(_ tree: PartTree?, _ change: MdChange?, _ from: String, _ text: String) -> PartTree? {
     guard let change else { return tree }
     var whole = false
     if case .list(let first) = change.o.first, first.p.isEmpty, first.at == 0 { whole = true }
-    if !whole && tree == nil { return nil }
+    if !whole && tree?.n != from.utf16.count { return nil }
     var blocks = whole ? [] : tree?.blocks ?? []
     for op in change.o { MdPatch.apply(op, to: &blocks) }
     return change.n == text.utf16.count ? PartTree(blocks: blocks, n: change.n) : nil

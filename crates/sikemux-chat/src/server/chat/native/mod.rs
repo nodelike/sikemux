@@ -16,6 +16,7 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::agent_catalog::ChatDriver;
+use sikemux_view::chat::FailureKind;
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::rebind::Outcome;
@@ -37,13 +38,19 @@ pub enum SessionEnd {
     Failed,
 }
 
-pub fn ended_status(result: &Result<SessionEnd, String>, started: bool) -> Value {
+/// `needs_sign_in` when the agent would not start until it is signed in.
+pub fn ended_status(
+    result: &Result<SessionEnd, String>,
+    started: bool,
+    needs_sign_in: bool,
+) -> Value {
     match result {
         Ok(end) => json!({ "state": "stopped", "reason": end }),
         Err(message) => json!({
             "state": "error",
             "reason": if started { SessionEnd::Exited } else { SessionEnd::Failed },
             "message": message,
+            "failure": needs_sign_in.then_some(FailureKind::SignIn),
         }),
     }
 }
@@ -55,6 +62,14 @@ fn driver(provider: &str) -> Option<&'static ChatDriver> {
 /// Whether a resumed chat of `provider` can show its saved history before its agent starts.
 fn shows_saved(provider: &str) -> bool {
     crate::agent_catalog::agent(provider).is_some_and(|agent| agent.history_before_start)
+}
+
+/// Whether `provider`'s CLI says what it offers without a session, so `read_options` can ask.
+pub fn reads_options(provider: &str) -> bool {
+    matches!(
+        driver(provider),
+        Some(ChatDriver::Claude | ChatDriver::Codex | ChatDriver::Pi | ChatDriver::Opencode)
+    )
 }
 
 /// The models and efforts `launch`'s agent offers, asked of its CLI without a session.

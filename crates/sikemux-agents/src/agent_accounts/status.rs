@@ -348,6 +348,25 @@ pub(crate) async fn pi_sign_in(program: &Path, config_path: Option<&str>) -> Age
     }
 }
 
+/// `agy models` answers only when agy is signed in with Google; a Gemini key Sikemux
+/// passes in `providers` stands in for it otherwise.
+pub(crate) async fn antigravity_sign_in(
+    program: &Path,
+    providers: BTreeMap<String, String>,
+) -> AgentStatus {
+    let keyed = providers
+        .get("GEMINI_API_KEY")
+        .is_some_and(|key| !key.trim().is_empty());
+    match exit_code_and_output("antigravity", program, None, &["models"]).await {
+        Some((Some(0), _)) => AgentStatus::Ready { account: None },
+        Some(_) if keyed => AgentStatus::Ready {
+            account: Some("apiKey".into()),
+        },
+        Some(_) => AgentStatus::SignedOut,
+        None => AgentStatus::Unknown,
+    }
+}
+
 pub(crate) async fn opencode_sign_in(providers: BTreeMap<String, String>) -> AgentStatus {
     let stored = crate::sessions::opencode::saved_credentials();
     let shell = sikemux_pty::user_shell::login_shell_environment();
@@ -666,6 +685,33 @@ mod tests {
             check_sign_in("claude", &signed_out, None, BTreeMap::new()).await,
             AgentStatus::SignedOut
         );
+    }
+
+    /// Codex 0.169 refuses `account/read` sent with `"params": null`, so Settings › Models said
+    /// it could not ask who is signed in. A stand-in app server refuses it the same way.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_is_asked_who_is_signed_in_with_params_it_accepts() {
+        let dir = tempfile::tempdir().unwrap();
+        let codex = dir.path().join("codex");
+        write_executable(
+            &codex,
+            r#"#!/bin/sh
+while IFS= read -r line; do
+  id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
+  case "$line" in
+    *'"method":"initialize"'*) printf '{"id":%s,"result":{}}\n' "$id";;
+    *'"method":"account/read"'*'"params":null'*|*'"params":null'*'"method":"account/read"'*)
+      printf '{"id":%s,"error":{"code":-32600,"message":"missing field params"}}\n' "$id";;
+    *'"method":"account/read"'*)
+      printf '{"id":%s,"result":{"account":{"type":"chatgpt","planType":"free"}}}\n' "$id";;
+  esac
+done
+"#,
+        );
+        let account = codex_account(&codex, None).await.unwrap();
+        assert!(account.signed_in);
+        assert_eq!(account.method.as_deref(), Some("subscription"));
     }
 
     #[test]

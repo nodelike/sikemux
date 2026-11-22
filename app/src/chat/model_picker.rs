@@ -102,8 +102,12 @@ pub struct Picked {
     pub speed: Option<ConfigPicker>,
     /// The connected provider paying for its turns, when one is.
     pub model_provider: Option<String>,
+    /// The chat's project, by id, which decides whether an org's providers are offered.
+    pub project: String,
     /// The chat has started, so it keeps its agent, account and provider.
     pub locked: bool,
+    /// No agent is running the chat now, so the menu stays open to hand it to another.
+    pub idle: bool,
     /// What the list says while the agent's models have not come yet.
     pub pending: Option<&'static str>,
     /// Why the agent could not say its models, and the account to sign in to when that is why.
@@ -293,6 +297,7 @@ impl Menu {
         let params = RoutesParams {
             agent: self.picked.provider.clone(),
             current: self.picked.model_provider.clone(),
+            project: Some(self.picked.project.clone()),
         };
         cx.spawn(async move |menu, cx| {
             let Ok(routes) = target.request_typed::<call::ModelRoutes>(params).await else {
@@ -343,6 +348,10 @@ impl Menu {
             (None, Some(maker)) => icons::model_provider(maker),
             (None, None) => icons::agent(own),
         };
+        let mark_of = |choice: &ConfigChoice| match (&paying, &choice.maker) {
+            (None, Some(maker)) => icons::model_provider(maker),
+            _ => own_mark,
+        };
         let paying = paying.map(|route| route.label.clone());
         let maker = maker.unwrap_or_else(|| bench.agent_name(own).to_owned());
         let mut groups = vec![
@@ -366,7 +375,7 @@ impl Menu {
                     .filter(|choice| shows(choice))
                     .map(|choice| Row {
                         group: OWN,
-                        mark: Some(own_mark),
+                        mark: Some(mark_of(choice)),
                         label: choice.label.clone(),
                         meta: choice.is_default.then(|| t!("Default").to_owned()),
                         current: choice.value == current,
@@ -402,7 +411,7 @@ impl Menu {
                 }),
                 false => options.extend(offered.iter().map(|choice| Row {
                     group: OWN,
-                    mark: Some(own_mark),
+                    mark: Some(mark_of(choice)),
                     label: choice.label.clone(),
                     meta: choice.is_default.then(|| t!("Default").to_owned()),
                     current: false,

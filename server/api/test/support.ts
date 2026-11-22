@@ -9,6 +9,7 @@ import { inject } from "vitest";
 import joinVector from "../../protocol/vectors/join.json" with { type: "json" };
 import { createApp, type Services } from "../src/app.ts";
 import { StandInProvider } from "../src/billing/stand-in.ts";
+import type { MacSignInExchange } from "../src/devices/mac-sign-in.ts";
 import { HookHosts } from "../src/hooks/hosts.ts";
 import { RelayAccess } from "../src/relay/access.ts";
 import { openDatabase, type Database } from "../src/db.ts";
@@ -78,6 +79,17 @@ export function joinKeyFile(): string {
   return file;
 }
 
+/** Codes the stand-in Clerk trades for a Mac's access token, each only once, as Clerk does. */
+export const macCodes = new Map<string, string>();
+
+const macSignIn: MacSignInExchange = {
+  async accessToken({ code }) {
+    const token = macCodes.get(code) ?? null;
+    macCodes.delete(code);
+    return token;
+  },
+};
+
 export function testApp(
   database: Database,
   limiter = new RateLimiter(),
@@ -95,7 +107,9 @@ export function testApp(
     limiter,
     relayAccess: new RelayAccess(database.db),
     clerk: null,
+    review: null,
     appleSignIn: null,
+    macSignIn,
     webhookSecret: null,
     network: readNetwork({}, []),
     push: { app: "production", allowSandbox: false },

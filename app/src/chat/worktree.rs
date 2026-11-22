@@ -41,7 +41,6 @@ impl Workbench {
             started,
             preparing,
             on,
-            self.home_at(self.chat_target(agent).place()).as_deref(),
         )?;
         Some((switch, self.flip_worktree_default(project, on)))
     }

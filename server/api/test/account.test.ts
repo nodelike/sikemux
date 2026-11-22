@@ -11,7 +11,7 @@ import {
 } from "vitest";
 
 import type { AppleSignIn } from "../src/account/apple.ts";
-import { clerkBackend } from "../src/account/clerk.ts";
+import { ClerkRefusal, clerkBackend } from "../src/account/clerk.ts";
 import { sweepClerk } from "../src/account/clerk-sweeper.ts";
 import { purgeAccounts, pruneHistory } from "../src/account/purge.ts";
 import type { Database } from "../src/db.ts";
@@ -125,7 +125,7 @@ async function restoreWindowEnds() {
   await database.pool.query(
     "update users set clerk_retry_at = now() where deleted_at is not null",
   );
-  await sweepClerk(database.db, clerk, log);
+  await sweepClerk(database.db, clerk, null, log);
 }
 
 async function count(sql: string, params: unknown[] = []) {
@@ -144,7 +144,7 @@ describe("deleting an account", () => {
       (Date.parse(deletion.deletesAt) - Date.parse(deletion.requestedAt)) /
       86_400_000;
     expect(days).toBe(30);
-    await sweepClerk(database.db, clerk, log);
+    await sweepClerk(database.db, clerk, null, log);
     expect(clerk.deleted).toEqual([]);
     await restoreWindowEnds();
     expect(clerk.deleted).toEqual(["user_a"]);
@@ -257,12 +257,12 @@ describe("deleting an account", () => {
     );
     expect(rows).toEqual([{ clerk_attempts: 1, later: true }]);
 
-    await sweepClerk(database.db, clerk, log);
+    await sweepClerk(database.db, clerk, null, log);
     expect(clerk.deleted).toEqual([]);
 
     clerk.failing = false;
     await database.pool.query("update users set clerk_retry_at = now()");
-    await sweepClerk(database.db, clerk, log);
+    await sweepClerk(database.db, clerk, null, log);
     expect(clerk.deleted).toEqual(["user_a"]);
     expect(
       await count(
@@ -281,7 +281,7 @@ describe("deleting an account", () => {
     const error = vi.spyOn(log, "error");
     for (let attempt = 1; attempt <= 6; attempt++) {
       await database.pool.query("update users set clerk_retry_at = now()");
-      await sweepClerk(database.db, clerk, log);
+      await sweepClerk(database.db, clerk, null, log);
     }
     const { rows } = await database.pool.query(
       "select clerk_attempts, extract(epoch from clerk_retry_at - now())::int as wait from users",
@@ -480,10 +480,79 @@ describe("removing a phone from elsewhere", () => {
     await database.pool.query(
       "update removed_devices set clerk_retry_at = now()",
     );
-    await sweepClerk(database.db, clerk, log);
+    await sweepClerk(database.db, clerk, null, log);
     expect(clerk.revoked).toEqual(["sess_phone"]);
-    await sweepClerk(database.db, clerk, log);
+    await sweepClerk(database.db, clerk, null, log);
     expect(clerk.revoked).toEqual(["sess_phone"]);
+  });
+
+  it("keeps the revocation owed and the old session refused when the phone signs in again", async () => {
+    const phone = await registered(app, "user_a", "client", {
+      sessionId: "sess_phone",
+    });
+    clerk.failing = true;
+    await call(
+      `/v1/devices/${phone.key}`,
+      await sessionToken("user_a", { claims: { sid: "sess_web" } }),
+      { method: "DELETE" },
+    );
+    clerk.failing = false;
+    await registered(app, "user_a", "client", {
+      device: phone,
+      sessionId: "sess_phone_again",
+    });
+
+    const old = await sessionToken("user_a", { claims: { sid: "sess_phone" } });
+    expect((await call("/v1/devices", old)).status).toBe(401);
+    await database.pool.query(
+      "update ended_sessions set clerk_retry_at = now()",
+    );
+    await sweepClerk(database.db, clerk, null, log);
+    expect(clerk.revoked).toEqual(["sess_phone"]);
+    expect((await call("/v1/devices", old)).status).toBe(401);
+  });
+});
+
+describe("a removed phone's session Clerk refuses to revoke", () => {
+  async function removedThenBack() {
+    const phone = await registered(app, "user_a", "client", {
+      sessionId: "sess_phone",
+    });
+    clerk.revokeSession = () =>
+      Promise.reject(new ClerkRefusal("Clerk answered 400"));
+    await call(
+      `/v1/devices/${phone.key}`,
+      await sessionToken("user_a", { claims: { sid: "sess_web" } }),
+      { method: "DELETE" },
+    );
+    await registered(app, "user_a", "client", {
+      device: phone,
+      sessionId: "sess_phone_again",
+    });
+    await database.pool.query(
+      "update ended_sessions set clerk_retry_at = now()",
+    );
+  }
+  const unfinished = async () =>
+    (
+      await database.pool.query(
+        "select 1 from ended_sessions where ended_at is null",
+      )
+    ).rowCount;
+
+  it("stays owed while Clerk still lists the session as live", async () => {
+    clerk.userSessions.set("user_a", [
+      { id: "sess_phone", createdAt: new Date() },
+    ]);
+    await removedThenBack();
+    await sweepClerk(database.db, clerk, null, log);
+    expect(await unfinished()).toBe(1);
+  });
+
+  it("counts as done once Clerk no longer lists the session as live", async () => {
+    await removedThenBack();
+    await sweepClerk(database.db, clerk, null, log);
+    expect(await unfinished()).toBe(0);
   });
 });
 
@@ -608,9 +677,43 @@ describe("the Clerk Backend API client", () => {
   });
 
   it("counts a user or session Clerk no longer has as done", async () => {
-    const client = clerkBackend("sk_test_abc", stub(404).fetcher);
+    const client = clerkBackend(
+      "sk_test_abc",
+      stub(404, { errors: [{ code: "resource_not_found" }] }).fetcher,
+    );
     await expect(client.deleteUser("user_a")).resolves.toBeUndefined();
     await expect(client.revokeSession("sess_1")).resolves.toBeUndefined();
+  });
+
+  it("does not count a 404 from something other than Clerk as a revoked session or a deleted user", async () => {
+    const fetcher = async () =>
+      new Response("<html>Not Found</html>", { status: 404 });
+    const client = clerkBackend("sk_test_abc", fetcher);
+    await expect(client.revokeSession("sess_1")).rejects.toThrow("404");
+    await expect(client.deleteUser("user_a")).rejects.toThrow("404");
+    await expect(client.sessionOver("sess_1")).rejects.toThrow("404");
+  });
+
+  it("counts a session over only by a status Clerk documents as over, or Clerk not having it", async () => {
+    const over = (status: number, answer: unknown) =>
+      clerkBackend("sk_test_abc", stub(status, answer).fetcher).sessionOver(
+        "sess_1",
+      );
+    for (const status of [
+      "ended",
+      "expired",
+      "removed",
+      "replaced",
+      "revoked",
+      "abandoned",
+    ])
+      expect(await over(200, { id: "sess_1", status })).toBe(true);
+    for (const status of ["active", "pending", "Active", "suspended"])
+      expect(await over(200, { id: "sess_1", status })).toBe(false);
+    expect(await over(404, { errors: [{ code: "resource_not_found" }] })).toBe(
+      true,
+    );
+    await expect(over(200, {})).rejects.toThrow();
   });
 
   it("fails on anything else, so the sweeper retries", async () => {
@@ -638,6 +741,85 @@ describe("the Clerk Backend API client", () => {
         "user_a",
       ),
     ).toEqual([]);
+  });
+
+  describe("a connected account", () => {
+    const google = {
+      id: "idn_google",
+      external_account_id: "eac_google",
+      provider: "oauth_google",
+      email_address: "maya@acme.example",
+      created_at: 1_700_000_000_000,
+    };
+    function clerkHolding(
+      accounts: object[],
+      { deletes }: { deletes: boolean },
+    ) {
+      const requests: string[] = [];
+      const fetcher = async (
+        input: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        const method = init?.method ?? "GET";
+        const path = new URL(String(input)).pathname;
+        requests.push(`${method} ${path}`);
+        if (method === "GET" && path === "/v1/users/user_a")
+          return Response.json({ id: "user_a", external_accounts: accounts });
+        const id = path.match(
+          /^\/v1\/users\/user_a\/external_accounts\/(.+)$/,
+        )?.[1];
+        const index = accounts.findIndex(
+          (account) => (account as typeof google).external_account_id === id,
+        );
+        if (method === "DELETE" && deletes && index >= 0) {
+          accounts.splice(index, 1);
+          return Response.json({ deleted: true });
+        }
+        return Response.json(
+          { errors: [{ code: "external_account_not_found" }] },
+          { status: 404 },
+        );
+      };
+      return { requests, client: clerkBackend("sk_test_abc", fetcher) };
+    }
+
+    it("is removed by the eac_ id Clerk's user JSON gives it", async () => {
+      const accounts = [{ ...google }];
+      const { requests, client } = clerkHolding(accounts, { deletes: true });
+      const [account] =
+        (await client.signIns("user_a"))?.externalAccounts ?? [];
+      if (!account) throw new Error("no account read");
+      await client.removeExternalAccount("user_a", account.id);
+      expect(requests).toEqual([
+        "GET /v1/users/user_a",
+        "DELETE /v1/users/user_a/external_accounts/eac_google",
+      ]);
+      expect(accounts).toEqual([]);
+    });
+
+    it("is not counted removed on a 404 while Clerk still lists it", async () => {
+      const { client } = clerkHolding([{ ...google }], { deletes: false });
+      await expect(
+        client.removeExternalAccount("user_a", "eac_google"),
+      ).rejects.toBeInstanceOf(ClerkRefusal);
+    });
+
+    it("is counted removed on a 404 once Clerk no longer lists it", async () => {
+      const { client } = clerkHolding([], { deletes: false });
+      await expect(
+        client.removeExternalAccount("user_a", "eac_google"),
+      ).resolves.toBeUndefined();
+    });
+
+    it("is reported, not dropped, when Clerk gives it no eac_ id", async () => {
+      const { client } = clerkHolding(
+        [{ ...google, external_account_id: undefined }],
+        { deletes: true },
+      );
+      const signIns = await client.signIns("user_a");
+      expect(signIns?.externalAccounts).toEqual([]);
+      expect(signIns?.accountsWithoutId).toEqual(["google"]);
+    });
   });
 
   it("never puts an id that is not Clerk's into the URL", async () => {

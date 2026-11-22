@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSignIn, useSignUp } from '@clerk/expo';
 import { explain, signInFlow, type CodePurpose, type SignInStep } from '@shared/account/account';
 
+import { review } from '@/account/review';
 import { type Translate, useT } from '@/i18n';
 import { CodeEntry } from '@/ui/CodeEntry';
 import { goBack, goHome } from '@/ui/navigate';
@@ -64,6 +65,7 @@ export default function SignIn() {
     signUp,
     go,
     done: goHome,
+    review,
     unsupported: {
       signIn: t('This account needs a sign-in step the app does not do yet; sign in on the web first.'),
       signUp: t('The account needs more than this app asks for; finish signing up on the web.'),
@@ -71,7 +73,7 @@ export default function SignIn() {
   });
 
   const submitEmail = () => attempt(() => flow.submitEmail(email));
-  const submitPassword = () => attempt(() => flow.submitPassword(password));
+  const submitPassword = () => attempt(() => flow.submitPassword(email, password));
   const submitNewAccount = () => attempt(() => flow.submitNewAccount(email, password));
   const forgot = () => attempt(flow.forgot);
   const submitNewPassword = () => attempt(() => flow.submitNewPassword(password));

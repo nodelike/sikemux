@@ -168,6 +168,107 @@ describe("the share registry", () => {
   });
 });
 
+describe("a share's one registration", () => {
+  const RENAMED = "cd".repeat(32);
+  const registrations = () =>
+    database.db
+      .selectFrom("org_shares")
+      .innerJoin("org_users", "org_users.id", "org_shares.member_id")
+      .select(["org_users.org_id as org", "org_shares.project"])
+      .where("org_users.user_id", "=", ARJUN)
+      .execute();
+
+  it("is not brought back by a move or rename once it is gone", async () => {
+    const orgId = await org(true);
+    const arjun = await registered(app, ARJUN, "host");
+    const moved = await signed(arjun, "/v1/account/shares/move", "POST", {
+      org: orgId,
+      project: PROJECT,
+      host: arjun.key,
+    });
+    expect(moved.status).toBe(409);
+    const renamed = await signed(arjun, "/v1/account/shares/rename", "POST", {
+      from: PROJECT,
+      project: RENAMED,
+    });
+    expect(renamed.status).toBe(409);
+    expect(await registrations()).toEqual([]);
+  });
+
+  it("leaves the org it was in when it is shared with another", async () => {
+    const first = await org(true);
+    const second = await org(true);
+    const arjun = await registered(app, ARJUN, "host");
+    expect((await share(arjun, first)).status).toBe(204);
+    expect((await share(arjun, second)).status).toBe(204);
+    expect(await registrations()).toEqual([{ org: second, project: PROJECT }]);
+  });
+
+  it("stays one when Shares to different orgs race", async () => {
+    const orgs = [await org(true), await org(true), await org(true)];
+    const arjun = await registered(app, ARJUN, "host");
+    const answers = await Promise.all(orgs.map((one) => share(arjun, one)));
+    expect(answers.map((answer) => answer.status)).not.toContain(500);
+    expect(await registrations()).toHaveLength(1);
+  });
+
+  it("follows a rename in an org whose plan lapsed", async () => {
+    const lapsed = await org(false);
+    const arjun = await registered(app, ARJUN, "host");
+    const { id } = await database.db
+      .selectFrom("org_users")
+      .select("id")
+      .where("org_id", "=", lapsed)
+      .where("user_id", "=", ARJUN)
+      .executeTakeFirstOrThrow();
+    await database.db
+      .insertInto("org_shares")
+      .values({
+        member_id: id,
+        user_id: ARJUN,
+        project: PROJECT,
+        host: arjun.key,
+      })
+      .execute();
+    const renamed = await signed(arjun, "/v1/account/shares/rename", "POST", {
+      from: PROJECT,
+      project: RENAMED,
+    });
+    expect(renamed.status).toBe(204);
+    expect(await registrations()).toEqual([{ org: lapsed, project: RENAMED }]);
+  });
+
+  it("keeps the later tap when a rename meets one already under the new name", async () => {
+    const [a, b] = [await org(true), await org(true)];
+    const home = await registered(app, ARJUN, "host");
+    const copy = await registered(app, ARJUN, "host");
+    expect((await share(home, a)).status).toBe(204);
+    const moved = await signed(copy, "/v1/account/shares/move", "POST", {
+      org: a,
+      project: PROJECT,
+      host: copy.key,
+    });
+    expect(moved.status).toBe(204);
+    const rename = { from: PROJECT, project: RENAMED };
+    const copyRenamed = await signed(
+      copy,
+      "/v1/account/shares/rename",
+      "POST",
+      rename,
+    );
+    expect(copyRenamed.status).toBe(204);
+    expect((await share(home, b)).status).toBe(204);
+    const homeRenamed = await signed(
+      home,
+      "/v1/account/shares/rename",
+      "POST",
+      rename,
+    );
+    expect(homeRenamed.status).toBe(204);
+    expect(await registrations()).toEqual([{ org: b, project: RENAMED }]);
+  });
+});
+
 describe("peer tickets", () => {
   it("name the asking member and both hosts, only toward a host that shares with the org", async () => {
     const orgId = await org(true);

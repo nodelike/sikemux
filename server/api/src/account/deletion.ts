@@ -12,7 +12,7 @@ import { conflict } from "../http.ts";
 import type { Logger } from "../log.ts";
 import { dropUnshared } from "../orgvault/projects.ts";
 import { retryLater } from "../retry.ts";
-import type { ClerkBackend } from "./clerk.ts";
+import { endSessionInClerk, type ClerkBackend } from "./clerk.ts";
 import { dropSeatProofs } from "./proofs.ts";
 
 /**
@@ -354,7 +354,7 @@ export async function revokeRemovedSession(
   if (!clerk) {
     log.warn(
       { key: key.slice(0, 8) },
-      "CLERK_SECRET_KEY is not set, so revoking the removed phone's session waits until it is",
+      "CLERK_SECRET_KEY is not set, so the removed phone's session stays signed in",
     );
     return;
   }
@@ -370,7 +370,7 @@ export async function revokeRemovedSession(
       .executeTakeFirst();
     if (!tombstone?.clerk_session_id) return;
     try {
-      await clerk.revokeSession(tombstone.clerk_session_id);
+      await endSessionInClerk(clerk, tombstone.clerk_session_id);
     } catch (error) {
       await trx
         .updateTable("removed_devices")

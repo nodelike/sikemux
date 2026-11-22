@@ -6,7 +6,8 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 
 - Work directly on the `main` branch for day-to-day work and nightly releases.
 - Release branches are the only exception. Cut `release/<major.minor>` from `main`
-  to stabilise a stable release, and cut hotfix branches from `release/*`.
+  to stabilise a stable release. A hotfix is fixed on `main` and shipped as a promoted
+  nightly; `docs/releasing.md` says when one goes onto `release/*` instead.
 - Never merge a release branch into `main`. Cherry-pick the fix commit instead, so
   version-bump commits stay on the release line.
 - Do not create Git worktrees by hand. A teammate started with `agent_spawn` and
@@ -35,7 +36,8 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 - Never write a test that restates the implementation: same branches, same constants,
   mocks of everything it calls.
 - Keep the checks that hold things we decided: the stale-output checks in `pnpm check`
-  (`grammars:check`, `file-icons:check`, `release:check`, the server protocol), contract tests such as `mobile/app/test/updatePaths.test.ts`,
+  (`grammars:check`, `file-icons:check`, `release:check`), the server protocol check in
+  `server/`'s `pnpm check`, contract tests such as `mobile/app/test/updatePaths.test.ts`,
   and the end-to-end runs. Do not weaken or delete them to get a change through.
 - When a change breaks an existing test, decide whether the behaviour it pins was meant
   to change. Update the test only if so; otherwise fix the code.

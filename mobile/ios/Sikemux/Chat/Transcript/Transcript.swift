@@ -59,17 +59,13 @@ struct Transcript<Footer: View>: View {
             folds.isOpen(Folds.teamAll(id), false) ? .all : folds.isOpen(Folds.team(id), false) ? .open : .closed
         }
         let liveId = rows.running ? messages.last?.id : nil
-        let results = ResultRow.placed(rows.head.results ?? [], in: messages)
         var order: [String] = []
         var entries: [String: RowEntry] = [:]
         for (index, message) in messages.enumerated() {
             let run = runs[message.id]
             let fold = ShownRows.fold(message, { folds.isOpen(Folds.work($0), false) }, run)
             // A folded row that draws nothing stays out of the list, so it costs nothing to measure.
-            guard !fold.hidden || fold.summary != nil || run?.head != nil else {
-                if let after = results[index], let last = order.last { entries[last]?.look.results += after }
-                continue
-            }
+            guard !fold.hidden || fold.summary != nil || run?.head != nil else { continue }
             var look = RowLook()
             look.live = message.id == liveId
             look.kept = fold.kept
@@ -83,7 +79,6 @@ struct Transcript<Footer: View>: View {
                 look.teamAll = folds.isOpen(Folds.teamAll(run.id), false)
             }
             if index == 0, !hasEarlier { look.worktree = worktree }
-            look.results = results[index] ?? []
             if message.plainlySent {
                 look.followsOwn = index > 0 && messages[index - 1].plainlySent
                 look.followedByOwn = index + 1 < messages.count && messages[index + 1].plainlySent

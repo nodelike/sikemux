@@ -47,7 +47,7 @@ export function Row({
   /** The linked host the agent runs on, marked before its name as the Mac's rail marks it and said to TalkBack. */
   host?: string;
   title?: string;
-  /** Quiet words after the title on its line, such as what a chief's chat is on. */
+  /** Quiet words after the title on its line, such as a chief's role; they shrink first, so the title stays whole. */
   aside?: string;
   detail?: ReactNode;
   /** The project the row belongs to, marked with the folder the Mac's rail puts beside it. */
@@ -81,7 +81,9 @@ export function Row({
       {mark ? <View style={styles.mark}>{mark}</View> : null}
       <View style={styles.rowBody}>
         <View style={styles.rowLabel}>
-          <Text style={[styles.rowTitle, { color: dim ? colors.tertiary : colors.ink }]} numberOfLines={1}>
+          <Text
+            style={[styles.rowTitle, aside ? styles.rowTitleWhole : null, { color: dim ? colors.tertiary : colors.ink }]}
+            numberOfLines={1}>
             {label}
           </Text>
           {aside ? (
@@ -169,6 +171,7 @@ const makeStyles = (colors: Palette) => {
     rowBody: { flex: 1, minWidth: 0 },
     rowLabel: { flexDirection: 'row', alignItems: 'baseline' },
     rowTitle: { ...type.row, fontSize: 14.5, flexShrink: 1 },
+    rowTitleWhole: { flexShrink: 0 },
     rowHostDim: { opacity: 0.55 },
     rowAside: { flexShrink: 1, marginLeft: 6, fontFamily: fonts.ui, fontSize: 14.5, color: colors.tertiary },
     rowName: { maxWidth: 110, fontFamily: fonts.ui, fontSize: 11.5, color: colors.tertiary },

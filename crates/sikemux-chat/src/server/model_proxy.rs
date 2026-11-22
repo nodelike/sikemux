@@ -9,6 +9,7 @@ use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddrV4};
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
@@ -35,10 +36,11 @@ use crate::launch::providers::{
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const ACCEPT_RETRY: Duration = Duration::from_millis(50);
 const X_API_KEY: HeaderName = HeaderName::from_static("x-api-key");
+const X_GOOG_API_KEY: HeaderName = HeaderName::from_static("x-goog-api-key");
 
 /// Headers about one connection, which stop at the proxy, with `host` and what the agent sent
 /// as its key.
-const NOT_FORWARDED: [&str; 10] = [
+const NOT_FORWARDED: [&str; 11] = [
     "connection",
     "keep-alive",
     "proxy-authenticate",
@@ -49,10 +51,19 @@ const NOT_FORWARDED: [&str; 10] = [
     "upgrade",
     "host",
     "x-api-key",
+    "x-goog-api-key",
 ];
 
-/// By a token's digest, the one provider it is good for, or `None` for any that is connected.
-type Grants = Mutex<HashMap<Vec<u8>, Option<String>>>;
+/// By a token's digest, what the token may reach.
+type Grants = Mutex<HashMap<Vec<u8>, Scope>>;
+
+#[derive(Clone)]
+struct Scope {
+    /// The one provider the token is good for, or `None` for any that is connected.
+    provider: Option<String>,
+    /// Where its agent works, which decides whether an org's keys are good there.
+    cwd: PathBuf,
+}
 
 #[derive(Default)]
 pub struct ModelProxy {
@@ -72,6 +83,7 @@ struct Serving {
 pub struct Grant {
     token: String,
     provider: Option<String>,
+    cwd: PathBuf,
     grants: Arc<Grants>,
 }
 
@@ -81,6 +93,8 @@ pub struct Grant {
 pub struct KeptGrant {
     token: String,
     provider: Option<String>,
+    #[serde(default)]
+    cwd: PathBuf,
 }
 
 impl Grant {
@@ -89,6 +103,7 @@ impl Grant {
         KeptGrant {
             token: std::mem::take(&mut self.token),
             provider: self.provider.take(),
+            cwd: std::mem::take(&mut self.cwd),
         }
     }
 
@@ -97,6 +112,7 @@ impl Grant {
         KeptGrant {
             token: self.token.clone(),
             provider: self.provider.clone(),
+            cwd: self.cwd.clone(),
         }
     }
 }
@@ -123,21 +139,34 @@ impl ModelProxy {
     ) -> Result<Option<(Grant, ChatLaunch)>, String> {
         let reads_any = agent_catalog::agent(&launch.provider)
             .is_some_and(|agent| matches!(agent.providers, Some(ProviderUse::Reads)));
-        let scope = launch.model_provider.clone().filter(|_| !reads_any);
+        let picked = || {
+            let providers = core.workspaces().providers()?;
+            Some(providers.gemini_route(&launch.provider)?.id.clone())
+        };
+        let scope = (launch.model_provider.clone())
+            .or_else(picked)
+            .filter(|_| !reads_any);
         let mut resolved = launch.clone();
-        let grant = self.grant(core, &mut resolved.env, &mut resolved.args, scope)?;
+        let grant = self.grant(
+            core,
+            &mut resolved.env,
+            &mut resolved.args,
+            scope,
+            &launch.cwd,
+        )?;
         Ok(grant.map(|grant| (grant, resolved)))
     }
 
     /// Puts the proxy's address and a new token in place of the slots in `env` and `args`,
     /// answering with the grant that keeps the token good, for `scope` or any connected
-    /// provider. `None` for a launch that holds no slots.
+    /// provider, for an agent working in `cwd`. `None` for a launch that holds no slots.
     pub fn grant(
         &self,
         core: &Arc<Core>,
         env: &mut BTreeMap<String, String>,
         args: &mut [String],
         scope: Option<String>,
+        cwd: &Path,
     ) -> Result<Option<Grant>, String> {
         if !env.values().any(|value| value == MODEL_TOKEN_SLOT) {
             return Ok(None);
@@ -147,7 +176,13 @@ impl ModelProxy {
             .map_err(|error| format!("Sikemux could not reach the model provider: {error}"))?
             .port;
         let token = (core.chat_above().new_token)();
-        self.grants.locked().insert(digest(&token), scope.clone());
+        self.grants.locked().insert(
+            digest(&token),
+            Scope {
+                provider: scope.clone(),
+                cwd: cwd.to_owned(),
+            },
+        );
         let origin = format!("http://{}:{port}", Ipv4Addr::LOCALHOST);
         let filled = |value: &str| {
             value
@@ -171,18 +206,24 @@ impl ModelProxy {
         Ok(Some(Grant {
             token,
             provider: scope,
+            cwd: cwd.to_owned(),
             grants: self.grants.clone(),
         }))
     }
 
     /// Makes the token of an agent an earlier core ran good here.
     pub fn restore(&self, kept: KeptGrant) -> Grant {
-        self.grants
-            .locked()
-            .insert(digest(&kept.token), kept.provider.clone());
+        self.grants.locked().insert(
+            digest(&kept.token),
+            Scope {
+                provider: kept.provider.clone(),
+                cwd: kept.cwd.clone(),
+            },
+        );
         Grant {
             token: kept.token,
             provider: kept.provider,
+            cwd: kept.cwd,
             grants: self.grants.clone(),
         }
     }
@@ -293,13 +334,13 @@ async fn forward(
             )
         })?;
     let route = Route::of(request.uri().path())
-        .filter(|route| scope.as_deref().is_none_or(|only| only == route.provider))
+        .filter(|route| (scope.provider.as_deref()).is_none_or(|only| only == route.provider))
         .ok_or_else(|| refused(StatusCode::FORBIDDEN, "This token is for another provider"))?;
     let provider_id = route.provider.to_owned();
     let core = core
         .upgrade()
         .ok_or_else(|| refused(StatusCode::SERVICE_UNAVAILABLE, "Sikemux is stopping"))?;
-    let (provider, key) = provider_and_key(core, provider_id).await?;
+    let (provider, key) = provider_and_key(core, provider_id, scope.cwd).await?;
     let target = route
         .target(&provider, request.uri().query())
         .ok_or_else(|| refused(StatusCode::NOT_FOUND, "That provider has no such API"))?;
@@ -332,15 +373,26 @@ async fn forward(
 }
 
 /// Blocks, as reading a key can start the Keychain, so it runs off the async threads.
-async fn provider_and_key(core: Arc<Core>, id: String) -> Result<(Arc<Provider>, String), Refused> {
+async fn provider_and_key(
+    core: Arc<Core>,
+    id: String,
+    cwd: PathBuf,
+) -> Result<(Arc<Provider>, String), Refused> {
     let found = tokio::task::spawn_blocking(move || {
         let providers: &Providers = core.workspaces().providers()?;
-        Some((providers.find(&id)?, providers.key(&id)))
+        let provider = providers.find(&id)?;
+        if let Some(org) = &provider.org {
+            if (core.workspace_above().project_org)(&core, &cwd).as_deref() != Some(&org.id) {
+                return Some(Err(org_only(&org.name)));
+            }
+        }
+        Some(Ok((provider, providers.key(&id))))
     })
     .await;
     match found {
-        Ok(Some((provider, Some(key)))) => Ok((provider, key)),
-        Ok(Some((provider, None))) => Err(refused(
+        Ok(Some(Err(refusal))) => Err(refused(StatusCode::FORBIDDEN, refusal)),
+        Ok(Some(Ok((provider, Some(key))))) => Ok((provider, key)),
+        Ok(Some(Ok((provider, None)))) => Err(refused(
             StatusCode::UNAUTHORIZED,
             format!("Connect {} in Settings to run chats on it", provider.label),
         )),
@@ -351,12 +403,19 @@ async fn provider_and_key(core: Arc<Core>, id: String) -> Result<(Arc<Provider>,
     }
 }
 
+/// Why an org's provider does not run outside the projects shared with that org.
+pub fn org_only(org: &str) -> String {
+    format!("{org}'s key runs only in projects shared with {org}")
+}
+
 fn presented_token(headers: &HeaderMap) -> Option<&str> {
     let bearer = headers
         .get(AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
-    bearer.or_else(|| headers.get(X_API_KEY)?.to_str().ok())
+    bearer
+        .or_else(|| headers.get(X_API_KEY)?.to_str().ok())
+        .or_else(|| headers.get(X_GOOG_API_KEY)?.to_str().ok())
 }
 
 fn provider_credential(
@@ -366,6 +425,7 @@ fn provider_credential(
 ) -> Result<(HeaderName, HeaderValue), Refused> {
     let (name, value) = match (api, provider.anthropic.as_ref().map(|api| api.auth)) {
         (Api::Anthropic, Some(AnthropicAuth::XApiKey)) => (X_API_KEY, key.to_owned()),
+        (Api::Gemini, _) => (X_GOOG_API_KEY, key.to_owned()),
         _ => (AUTHORIZATION, format!("Bearer {key}")),
     };
     let mut value = HeaderValue::from_str(&value).map_err(|_| {
@@ -382,6 +442,7 @@ fn provider_credential(
 enum Api {
     OpenAi,
     Anthropic,
+    Gemini,
 }
 
 /// What a request's path names: `/<provider>/<api>/<the rest of the provider's path>`.
@@ -398,6 +459,7 @@ impl<'a> Route<'a> {
         let api = match parts.next()? {
             "openai" => Api::OpenAi,
             "anthropic" => Api::Anthropic,
+            "gemini" => Api::Gemini,
             _ => return None,
         };
         Some(Self {
@@ -413,6 +475,7 @@ impl<'a> Route<'a> {
         let base = match self.api {
             Api::OpenAi => provider.openai.as_str(),
             Api::Anthropic => provider.anthropic.as_ref()?.url.as_str(),
+            Api::Gemini => provider.gemini.as_deref()?,
         };
         let mut text = format!("{}/{}", base.trim_end_matches('/'), self.rest);
         if let Some(query) = query {

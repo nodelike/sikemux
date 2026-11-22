@@ -50,6 +50,10 @@ pub struct RoutesParams {
     pub agent: String,
     #[serde(default)]
     pub current: Option<String>,
+    /// The project the chat works in. An org's routes are offered only in projects shared with
+    /// that org, so without one none are.
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 /// A connected provider the agent can run on, with the models it serves.

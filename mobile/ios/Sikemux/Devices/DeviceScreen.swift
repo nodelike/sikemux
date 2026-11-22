@@ -154,9 +154,7 @@ private struct DeviceContent: View {
                             switch tab {
                             case .terminals: Terminals(view: view, scope: scope)
                             case .calls:
-                                CallsTab(
-                                    core: core, view: view, scope: scope,
-                                    canAnswer: device?.access != .watch && live.isOpen)
+                                CallsTab(core: core, view: view, scope: scope)
                             default:
                                 DeviceAgents(
                                     core: core, view: view, scope: scope, provider: provider,

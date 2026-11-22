@@ -11,9 +11,6 @@ use crate::prefs::UpdateChannel;
 pub enum UpdateState {
     #[default]
     Idle,
-    /// Downloaded and in place, waiting for the chats in `blockers` to finish
-    /// what they are doing.
-    Waiting,
     Downloading,
     Installing,
     /// In place; the windows start again into it.
@@ -58,11 +55,10 @@ pub struct UpdateStatus {
     pub available: Option<UpdateRelease>,
     pub state: UpdateState,
     pub error: Option<String>,
-    pub blockers: Vec<UpdateBlocker>,
     pub downloaded_bytes: u64,
     pub total_bytes: Option<u64>,
-    /// The person chose to stop the chats rather than wait, which the window
-    /// that starts again tells the next core.
+    /// The update goes in without giving busy chats the core's patience, as when the account
+    /// no longer works with this build; the window that starts again tells the next core.
     pub forced: bool,
     /// What to run in a terminal to install `available`, for an app that its
     /// installer updates rather than itself.
@@ -107,8 +103,8 @@ pub struct UpdateOutcome {
     pub evidence: Option<String>,
 }
 
-/// A chat whose agent is at work, which an update now would stop and
-/// start again on its session.
+/// A chat that cannot hand its agent over to a new core yet, which replacing the core now
+/// would stop and start again on its session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateBlocker {

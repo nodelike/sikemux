@@ -136,7 +136,7 @@ function AccountHostCard({ host }: { host: Device }) {
   );
 }
 
-const DOWNLOAD = 'https://sikemux.com/phone';
+const DOWNLOAD = 'https://sikemux.com/phone?utm_source=android-app&utm_medium=share';
 
 /** Where the next host lands: it turns into that host's row once it signs in to the account. */
 function HostSlot({ onDismiss }: { onDismiss?: () => void }) {

@@ -118,10 +118,14 @@ export function clerkVerifier(options: VerifierOptions): Verifier {
         if (payload.client_id !== options.macClientId) {
           throw unauthorized("The sign-in token was issued to another app.");
         }
+        if (typeof payload.iat !== "number")
+          throw unauthorized(
+            "The sign-in token does not say when it was issued.",
+          );
         return {
           userId: payload.sub,
           via: "mac",
-          issuedAt: new Date((payload.iat ?? 0) * 1000),
+          issuedAt: new Date(payload.iat * 1000),
           expiresAt: new Date((payload.exp ?? 0) * 1000),
         };
       }
@@ -152,27 +156,80 @@ export function clerkVerifier(options: VerifierOptions): Verifier {
   };
 }
 
+/** How far Clerk's clock may be from ours, when one of its times is held to one of ours. */
+export const CLERK_CLOCK_SLACK_MS = 2 * 60_000;
+
+/** Refuses a sign-in to an account frozen because a work address may have let someone take it over. */
+export function accountFrozen(): ApiFailure {
+  return forbidden(
+    "This account is locked for its safety: someone may have signed in to it through a work address. Write to contact@sikemux.com and we'll help you back in.",
+  );
+}
+
+/** How long Clerk keeps a Mac's sign-in code good for, so a code minted before a session ended can still be traded after it. */
+export const MAC_SIGN_IN_CODE_MS = 11 * 60_000;
+
 /**
- * Refuses a token that is still unexpired but no longer stands: its account was deleted, or it
- * belongs to the session of a phone removed from the account.
+ * Refuses a token that is still unexpired but no longer stands: its account was deleted or frozen, it
+ * belongs to the session of a phone removed from the account or of one the strip ended, or it is
+ * a Mac's sign-in made while such a session was open, or any Mac's while the strip has yet to end one.
  */
 export async function checkStanding(
   db: Kysely<Tables>,
-  identity: Identity,
+  identity: {
+    userId: string;
+    via: Identity["via"];
+    sessionId?: string | undefined;
+    issuedAt?: Date | undefined;
+    /** The Mac sign-in a host's code was approved under, when a Mac's host approved it. */
+    macSignedInAt?: Date | undefined;
+  },
   { allowDeleted = false } = {},
 ): Promise<void> {
-  const { rows } = await sql<{ deleted: boolean; removed: boolean }>`
+  const macSignedInAt =
+    identity.macSignedInAt ??
+    (identity.via === "mac" ? identity.issuedAt : undefined);
+  const { rows } = await sql<{
+    deleted: boolean;
+    frozen: boolean;
+    removed: boolean;
+    ended: boolean;
+    ending: boolean;
+  }>`
     select
       exists (select 1 from users where id = ${identity.userId} and deleted_at is not null) as deleted,
+      exists (select 1 from users where id = ${identity.userId} and frozen_at is not null) as frozen,
       exists (
         select 1 from removed_devices
         where clerk_session_id = ${identity.sessionId ?? null}
           and user_id = ${identity.userId}
           and reason = 'removed'
-      ) as removed`.execute(db);
+      ) as removed,
+      exists (
+        select 1 from ended_sessions
+        where user_id = ${identity.userId}
+          and (
+            session_id = ${identity.sessionId ?? null}
+            or ${macSignedInAt ?? null}::timestamptz between made_at - ${`${CLERK_CLOCK_SLACK_MS} milliseconds`}::interval
+              and ended_at + ${`${CLERK_CLOCK_SLACK_MS + MAC_SIGN_IN_CODE_MS} milliseconds`}::interval
+          )
+      ) as ended,
+      ${macSignedInAt !== undefined} and exists (
+        select 1 from ended_sessions
+        where user_id = ${identity.userId} and ended_at is null
+      ) as ending`.execute(db);
   if (rows[0]?.deleted && !allowDeleted) throw accountDeleted();
+  if (rows[0]?.frozen) throw accountFrozen();
   if (rows[0]?.removed)
     throw unauthorized("This sign-in was removed from the account.");
+  if (rows[0]?.ended)
+    throw unauthorized(
+      "This sign-in was ended because it came through a work address. Sign in again with your own.",
+    );
+  if (rows[0]?.ending)
+    throw unauthorized(
+      "This account is still being signed out of what a removed work address opened. Try again in a few minutes.",
+    );
 }
 
 export type AuthEnv = Env & {
@@ -340,7 +397,10 @@ export function requireIdentity(
     admit(identity, accept);
     c.set("identity", identity);
     c.set("checkBody", checkBody);
-    c.set("log", c.get("log").child({ userId: identity.userId }));
+    c.set(
+      "log",
+      c.get("log").child({ userId: identity.userId, via: identity.via }),
+    );
     reportAs(identity.userId);
     await next();
   };

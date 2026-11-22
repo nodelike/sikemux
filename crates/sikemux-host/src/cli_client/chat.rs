@@ -233,7 +233,11 @@ impl Caller {
 
     fn list(&self, all: bool) -> Result<Value, String> {
         match self {
-            Caller::Agent(_) => self.tool("", "agent.list", json!({ "allProjects": all })),
+            Caller::Agent(_) => self.tool(
+                "",
+                "agent.list",
+                json!({ "allProjects": all, "full": true }),
+            ),
             Caller::Outside(_) => {
                 let everything = || self.tool("chat_list", "", json!({}));
                 if all {

@@ -1,4 +1,10 @@
-import { HandleSSOCallback, useAuth, useClerk, useUser } from "@clerk/react";
+import {
+  HandleSSOCallback,
+  useAuth,
+  useClerk,
+  useSignIn,
+  useUser,
+} from "@clerk/react";
 import {
   useEffect,
   useEffectEvent,
@@ -173,14 +179,7 @@ export function App() {
           </main>
         ) : path === "/sso-callback" ? (
           <main className="center">
-            <Panel>
-              <p className="quiet">Signing you in…</p>
-              <HandleSSOCallback
-                navigateToApp={afterSignIn}
-                navigateToSignIn={afterSignIn}
-                navigateToSignUp={afterSignIn}
-              />
-            </Panel>
+            <SsoCallback done={afterSignIn} />
           </main>
         ) : signedIn && path !== SIGNED_IN && !fold.open ? (
           <main className="center">{fold.screen}</main>
@@ -418,5 +417,25 @@ function Account({
         <AccountPage onDelete={follow(DELETE_ACCOUNT)} />
       )}
     </Shell>
+  );
+}
+
+/** A new account may first ask the person to prove they're human, in the widget Clerk draws inside the callback. */
+function SsoCallback({ done }: { done: () => void }) {
+  const { signIn } = useSignIn();
+  return (
+    <Panel>
+      <p className="quiet">
+        {signIn.isTransferable ? "Creating your account…" : "Signing you in…"}
+      </p>
+      <HandleSSOCallback
+        navigateToApp={done}
+        navigateToSignIn={done}
+        navigateToSignUp={done}
+      />
+      <a className="link" href="/">
+        Back to sign in
+      </a>
+    </Panel>
   );
 }

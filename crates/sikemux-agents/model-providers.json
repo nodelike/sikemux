@@ -393,6 +393,16 @@
         "model": "mistral-medium-latest"
     },
     {
+        "id": "gemini",
+        "modelsDev": "google",
+        "label": "Google AI Studio",
+        "kind": "api",
+        "signUpUrl": "https://aistudio.google.com/apikey",
+        "key": { "env": ["GEMINI_API_KEY", "GOOGLE_API_KEY"], "check": "https://generativelanguage.googleapis.com/v1beta/openai/models" },
+        "openai": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "gemini": "https://generativelanguage.googleapis.com"
+    },
+    {
         "id": "vercel",
         "modelsDev": "vercel",
         "label": "Vercel AI Gateway",

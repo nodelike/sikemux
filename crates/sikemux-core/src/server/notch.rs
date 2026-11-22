@@ -12,7 +12,7 @@ use crate::server::workspace_state::WorkspaceParts;
 /// Starts or stops the helper, as the person's Notch preferences say.
 pub(crate) fn follow(core: &Core) {
     #[cfg(target_os = "macos")]
-    {
+    if core.config().notch {
         let socket = core.config().socket.clone();
         let enabled = core.preferences().get().notch.enabled;
         tokio::task::spawn_blocking(move || {

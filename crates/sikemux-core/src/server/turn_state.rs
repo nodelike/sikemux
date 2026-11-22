@@ -629,11 +629,12 @@ pub(crate) fn work_now(core: &Arc<Core>, agent_id: &str) -> Option<WorkAt> {
 }
 
 fn keep_work(core: &Arc<Core>, agent_id: &str) {
+    let let_go = core.inbox().let_go_count(agent_id);
     let Some(work) = work_of(core, agent_id) else {
         return;
     };
     let shows = (work.can_try).then(|| (work.project.clone(), work.changes));
-    if core.inbox().keep_work(agent_id, work) {
+    if core.inbox().keep_read_work(agent_id, work, let_go) {
         core.changed(What::View);
         super::finished::moved(core);
     }

@@ -78,12 +78,23 @@ pub fn routed_agents() -> impl Iterator<Item = &'static str> {
 }
 
 /// An agent's model id that reaches a provider Sikemux routed it to, not one of its own.
+/// The provider id in a model OMP or OpenCode names `sikemux-<id>/<model>`.
+pub fn routed_id(model: &str) -> Option<&str> {
+    model.split_once('/')?.0.strip_prefix(AGENT_ID_PREFIX)
+}
+
 pub fn routed_model(model: &str) -> bool {
     model.starts_with(AGENT_ID_PREFIX)
 }
 
 fn routed_api(agent: &str) -> Option<RoutedApi> {
     Some(agent_catalog::agent(agent)?.routed.as_ref()?.api)
+}
+
+/// Whether `agent` names its models apart from the provider it is routed to, so it picks
+/// them itself: `agy` on Google's Gemini API.
+pub fn picks_own_models(agent: &str) -> bool {
+    routed_api(agent) == Some(RoutedApi::Gemini)
 }
 
 /// A provider an agent that speaks chat completions is pointed at.
@@ -211,6 +222,9 @@ pub struct Provider {
     pub responses: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub anthropic: Option<AnthropicApi>,
+    /// Base URL of its Gemini API, which takes the key in `x-goog-api-key`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gemini: Option<String>,
     /// The provider's id on models.dev.
     #[serde(skip_serializing)]
     pub models_dev: Option<String>,
@@ -234,13 +248,27 @@ pub struct ProviderOrg {
     pub name: String,
 }
 
+const ORG_ROUTE: &str = "org-";
+
 impl ProviderOrg {
     /// The catalogue provider an org's `route` runs on.
     pub fn provider_in<'a>(&self, route: &'a str) -> &'a str {
         route
-            .strip_prefix(&format!("org-{}-", self.id))
+            .strip_prefix(&format!("{ORG_ROUTE}{}-", self.id))
             .unwrap_or(route)
     }
+}
+
+/// Whether `route` names an org's key, whether or not this computer still holds it.
+pub fn org_route(route: &str) -> bool {
+    route.starts_with(ORG_ROUTE)
+}
+
+/// Whether `route` names a key of the org `org`.
+pub fn route_of_org(route: &str, org: &str) -> bool {
+    (route.strip_prefix(ORG_ROUTE))
+        .and_then(|rest| rest.strip_prefix(org))
+        .is_some_and(|rest| rest.starts_with('-'))
 }
 
 /// A catalogue provider's key an org's vault holds for its members.
@@ -256,7 +284,7 @@ impl OrgKey {
     /// Its own route, apart from the person's own key to the same provider, so neither is ever
     /// taken for the other.
     pub fn route(&self) -> String {
-        format!("org-{}-{}", self.org.id, self.provider)
+        format!("{ORG_ROUTE}{}-{}", self.org.id, self.provider)
     }
 }
 
@@ -296,6 +324,7 @@ impl Custom {
                 url,
                 auth: AnthropicAuth::Bearer,
             }),
+            gemini: None,
             models_dev: None,
             model: None,
             agent_models: BTreeMap::new(),
@@ -321,7 +350,8 @@ impl Custom {
 pub struct KeySpec {
     /// Every name an agent looks for this key under.
     pub env: Vec<String>,
-    /// Answers 401 or 403 to a key the provider does not know.
+    /// Answers 401 or 403 to a key the provider does not know. Google answers 400, saying
+    /// to pass a valid API key.
     pub check: String,
 }
 
@@ -445,6 +475,7 @@ impl Provider {
             openai: self.openai.clone(),
             responses: self.responses,
             anthropic: self.anthropic.clone(),
+            gemini: self.gemini.clone(),
             models_dev: self.models_dev.clone(),
             model: self.model.clone(),
             agent_models: self.agent_models.clone(),
@@ -457,13 +488,17 @@ impl Provider {
     /// recommended one while models.dev lists it and the provider serves it,
     /// else the newest that reasons and calls tools, else the first served.
     /// `served` is what the provider listed, when it was asked. Claude Code
-    /// is told of a context of a million tokens by the `[1m]` suffix.
+    /// is told of a context of a million tokens by the `[1m]` suffix. None for an agent
+    /// that [`picks_own_models`].
     pub fn coding_model(
         &self,
         agent: &str,
         feed: &Snapshot,
         served: Option<&[String]>,
     ) -> Option<String> {
+        if picks_own_models(agent) {
+            return None;
+        }
         let serves = |id: &str| served.is_none_or(|served| served.iter().any(|model| model == id));
         let listed = self.models_dev.as_deref().and_then(|id| feed.models(id));
         let recommended = self
@@ -523,6 +558,7 @@ impl Provider {
             Some(RoutedApi::Anthropic) => self.anthropic.is_some(),
             Some(RoutedApi::Responses) => self.speaks_responses(),
             Some(RoutedApi::Chat) => true,
+            Some(RoutedApi::Gemini) => self.gemini.is_some(),
             None => false,
         }
     }
@@ -532,7 +568,8 @@ impl Provider {
         self.responses || (self.kind == Kind::Local && !self.custom)
     }
 
-    /// The APIs it serves: `chat` completions, OpenAI's `responses`, and `anthropic` messages.
+    /// The APIs it serves: `chat` completions, OpenAI's `responses`, `anthropic` messages and
+    /// Google's `gemini`.
     pub fn speaks(&self) -> Vec<&'static str> {
         let mut apis = vec!["chat"];
         if self.speaks_responses() {
@@ -540,6 +577,9 @@ impl Provider {
         }
         if self.anthropic.is_some() {
             apis.push("anthropic");
+        }
+        if self.gemini.is_some() {
+            apis.push("gemini");
         }
         apis
     }
@@ -596,6 +636,23 @@ impl Provider {
         } else {
             url.to_owned()
         }
+    }
+
+    /// Points Antigravity's `agy` at this provider's Gemini API, with a token the model proxy
+    /// swaps for the key.
+    fn gemini_env(&self, env: &mut BTreeMap<String, String>) -> Option<()> {
+        let url = self.gemini.as_ref()?;
+        let token = if self.key.is_some() {
+            MODEL_TOKEN_SLOT.to_owned()
+        } else {
+            self.id.clone()
+        };
+        env.insert(
+            "GOOGLE_GEMINI_BASE_URL".into(),
+            self.reached_at("gemini", url),
+        );
+        env.insert("GEMINI_API_KEY".into(), token);
+        Some(())
     }
 
     /// `agent` pointed at this provider and running `model`.
@@ -665,6 +722,10 @@ impl Provider {
                     env.insert(format!("ANTHROPIC_DEFAULT_{tier}_MODEL"), model.to_owned());
                 }
             }
+            return Some(Wiring { env, args });
+        }
+        if api == RoutedApi::Gemini {
+            self.gemini_env(&mut env)?;
             return Some(Wiring { env, args });
         }
         let mut config = |key: &str, value: &str| {
@@ -762,6 +823,11 @@ impl Providers {
     /// The provider OMP or OpenCode names `name`, when it is one Sikemux handed them.
     pub fn named_by_agent(&self, name: &str) -> Option<Arc<Provider>> {
         self.find(name.strip_prefix(AGENT_ID_PREFIX)?)
+    }
+
+    /// The provider a model OMP or OpenCode names `sikemux-<id>/<model>` runs on.
+    pub fn routing(&self, model: &str) -> Option<Arc<Provider>> {
+        self.find(routed_id(model)?)
     }
 
     /// The catalogue's providers, then those the person added, then the orgs' keys.
@@ -972,6 +1038,18 @@ impl Providers {
             .collect()
     }
 
+    /// The connected provider an agent on the Gemini API runs on when it is not signed in.
+    pub fn gemini_route(&self, agent: &str) -> Option<&'static Provider> {
+        if routed_api(agent) != Some(RoutedApi::Gemini) {
+            return None;
+        }
+        let connected = self.connected();
+        catalogue()
+            .iter()
+            .find(|provider| provider.routes(agent) && connected.contains(&provider.id))
+            .map(Arc::as_ref)
+    }
+
     /// Tells an agent that reads connected providers of each one, through the model proxy,
     /// adding to `env` and `args`. Reads the disk, so it blocks.
     pub fn list_connected(
@@ -980,6 +1058,12 @@ impl Providers {
         env: &mut BTreeMap<String, String>,
         args: &mut Vec<String>,
     ) -> Result<(), String> {
+        if routed_api(agent) == Some(RoutedApi::Gemini) {
+            if let Some(provider) = self.gemini_route(agent) {
+                provider.gemini_env(env);
+            }
+            return Ok(());
+        }
         if !reads_connected(agent) {
             return Ok(());
         }

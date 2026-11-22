@@ -10,9 +10,25 @@ export function addressHash(key: Buffer, address: string): Buffer {
     .digest();
 }
 
+const withoutStanding = new Set<string>();
+
+/** The store reviewers' demo account's addresses, whose password is shared, so they give no standing. */
+export function giveNoStanding(addresses: readonly string[]) {
+  withoutStanding.clear();
+  for (const address of addresses)
+    withoutStanding.add(address.trim().toLowerCase());
+}
+
+/**
+ * The domain an address gives standing at, or null. Clerk's test mode verifies any `+clerk_test`
+ * address with a fixed code and sends no mail, so one proves nothing about its domain; nor does
+ * the demo account's.
+ */
 export function domainOf(address: string): string | null {
   const at = address.lastIndexOf("@");
-  return at > 0
+  return at > 0 &&
+    !/clerk_test/iu.test(address) &&
+    !withoutStanding.has(address.trim().toLowerCase())
     ? address
         .slice(at + 1)
         .trim()

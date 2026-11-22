@@ -14,7 +14,7 @@ on:
         type: string
         default: ""
       release_run:
-        description: The Release run publishing this nightly; empty publishes nothing
+        description: The Release run that published this version; empty publishes nothing
         type: string
         default: ""
 
@@ -74,11 +74,8 @@ jobs:
         run: |
           if [ -z "$VERSION" ]; then
             VERSION="$(scripts/stamp-nightly.sh)"
-          else
-            from="$(node -p 'require("./package.json").version')"
-            for file in Cargo.toml Cargo.lock; do
-              sed -i "s/^version = \"$from\"$/version = \"$VERSION\"/" "$file"
-            done
+          elif ! grep -q "\"version\": \"$VERSION\"" package.json; then
+            scripts/set-version.sh "$VERSION"
           fi
           echo "version=$VERSION" >>"$GITHUB_OUTPUT"
 
@@ -244,7 +241,7 @@ jobs:
           path: ${{ runner.temp }}/manifests
 
   release:
-    name: Wait for Release to publish the nightly
+    name: Wait for Release to publish
     if: ${{ inputs.release_run != '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -265,7 +262,7 @@ jobs:
 
   # Publishing builds nothing, so it runs the scripts of this workflow's commit, not the release's.
   publish:
-    name: Add the installers to the nightly
+    name: Add the installers to the release
     needs: [installer, release]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -297,7 +294,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: ./scripts/sign-host.sh "${{ inputs.version }}" windows
 
-      - name: Publish them and repoint the feeds serving this nightly
+      - name: Publish them and repoint the feeds serving this release
         env:
           GH_TOKEN: ${{ github.token }}
         run: ./scripts/publish-windows.sh "${{ inputs.version }}"

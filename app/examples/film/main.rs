@@ -60,7 +60,7 @@
 //!   pinch FACTOR [S]            pinches at the cursor, above 1 to zoom in
 //!   pan DX,DY [S] / scroll DY [S]          two-finger scrolls at the cursor
 //!   shape arrow|hand|beam|auto  which pointer is drawn
-//!   settings PAGE               opens settings at the page of that name
+//!   settings PAGE [SECTION]     opens settings at the page of that name, at its SECTION
 //!   ask NAME AGENT TASK "TEXT"  the teammate NAME's agent AGENT asks the core about task TASK
 //!                               of the shared project over the peer link, on a recorded team
 //!   wait S / mark KIND / still NAME / end [HOLD]

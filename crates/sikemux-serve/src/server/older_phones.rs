@@ -1,6 +1,6 @@
 //! What a phone build still in the stores reads differently from this core's JSON, put right on its
 //! connection alone.
-//! phone-compat: 0.2.0 dotSize paneDotSize customThemes paneShader cloudBrowser cloudBrowserShortcut running next assertions
+//! phone-compat: 0.2.0 dotSize paneDotSize customThemes paneShader cloudBrowser cloudBrowserShortcut running next assertions blockers
 
 use std::borrow::Cow;
 
@@ -30,7 +30,7 @@ pub fn fit(older: bool, frame: &[u8]) -> Cow<'_, [u8]> {
 }
 
 fn mentions_any(payload: &[u8]) -> bool {
-    [&b"otSize\""[..], b"\"cards\""]
+    [&b"otSize\""[..], b"\"cards\"", b"\"downloadedBytes\""]
         .iter()
         .any(|key| payload.windows(key.len()).any(|window| window == *key))
 }
@@ -55,6 +55,9 @@ fn put_right(value: &mut Value) {
             }
             if object.contains_key("cards") && object.contains_key("settings") {
                 object.entry("running").or_insert(Value::from(0));
+            }
+            if object.contains_key("downloadedBytes") {
+                object.entry("blockers").or_insert(Value::Array(Vec::new()));
             }
             if object.contains_key("acceptance") && object.contains_key("column") {
                 object.entry("next").or_insert(Value::Array(Vec::new()));

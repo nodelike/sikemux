@@ -417,7 +417,7 @@ private struct TranscriptFooter: View {
                 TurnLine(
                     core: core, agentId: agentId, provider: provider, chief: rows.head.chief == true, turn: turn,
                     canAct: reachable,
-                    docked: HostCalls.of(core).waiting(for: agentId) != nil, onLook: { focus.request() })
+                    docked: !HostCalls.of(core).queue(for: agentId).isEmpty, onLook: { focus.request() })
             }
             Trouble(session: session, provider: provider, hostName: hostName, canAct: reachable)
         }

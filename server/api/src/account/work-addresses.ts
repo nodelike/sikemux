@@ -137,7 +137,11 @@ export function workAddressRoutes({
           nonce: sitting.nonce,
           redirectUri,
         });
-        const domain = domainOf(email) ?? "";
+        const domain = domainOf(email);
+        if (!domain)
+          throw conflict(
+            "That address is a test address, so it can't be verified as a work address. Verify your own work address instead.",
+          );
         const hash = addressHash(key, email);
         const proven = await db.transaction().execute(async (trx) => {
           const org = await trx

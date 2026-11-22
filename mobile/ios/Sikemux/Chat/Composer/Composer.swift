@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The bottom of a chat: what waits on the person docked above the composer, the menus over it, and the composer
+/// The bottom of a chat: what waits on the person docked above the composer, its calls folded to a line each, the menus over it, and the composer
 /// with its bar of attach, stash, YOLO, model and effort, context, and send or stop.
 struct Composer: View {
     @Environment(\.palette) private var palette
@@ -73,14 +73,18 @@ struct Composer: View {
                     requests: requests, provider: provider, answering: session.answering, onAnswer: session.answer))
         }
         let calls = HostCalls.of(core)
-        guard let call = calls.waiting(for: session.agentId) else { return nil }
+        let queue = calls.queue(for: session.agentId)
+        guard !queue.isEmpty else { return nil }
         return AnyView(
-            CallDock(
-                core: core, call: call, chat: session.agentId, queue: calls.queue(for: session.agentId),
-                draft: calls.draft(call),
-                canAnswer: !watchOnly && !offline, report: session.report
+            CallRows(calls: queue, counted: CallWords.waiting, opens: true) { call in
+                Router.shared.push(.call(core: core, call: call.id))
+            }
+            .padding(.horizontal, 12)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(palette.overlay))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.borderStrong, lineWidth: 1)
             )
-            .id(call.id))
+            .padding(.bottom, 8))
     }
 
     @ViewBuilder
@@ -236,16 +240,7 @@ struct Composer: View {
                 }
                 send()
             } label: {
-                Group {
-                    if uploading {
-                        ProgressView().tint(palette.ground).controlSize(.small)
-                    } else {
-                        IconView(icon: Icons.arrowUp, size: 16).foregroundStyle(palette.ground)
-                    }
-                }
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(palette.ink))
-                .opacity(!sendable || offline ? 0.28 : 1)
+                SendCircle(busy: uploading, dim: !sendable || offline)
             }
             .buttonStyle(PressFade())
             .disabled(uploading)
@@ -454,5 +449,25 @@ struct ModelChip: View {
         .accessibilityLabel(
             [named.map { String(localized: "Model, \($0)") }, effort.map { String(localized: "Effort, \($0)") }]
                 .compactMap { $0 }.joined(separator: ", "))
+    }
+}
+
+/// The composer's send arrow on its round button, a spinner while what it sends is on its way.
+struct SendCircle: View {
+    @Environment(\.palette) private var palette
+    let busy: Bool
+    let dim: Bool
+
+    var body: some View {
+        Group {
+            if busy {
+                ProgressView().tint(palette.ground).controlSize(.small)
+            } else {
+                IconView(icon: Icons.arrowUp, size: 16).foregroundStyle(palette.ground)
+            }
+        }
+        .frame(width: 34, height: 34)
+        .background(Circle().fill(palette.ink))
+        .opacity(dim ? 0.28 : 1)
     }
 }

@@ -1,3 +1,4 @@
+import antigravity from "../../../shared/assets/agent-logos/antigravity.svg";
 import codex from "../../../shared/assets/agent-logos/codex.svg";
 import muse from "../../../shared/assets/agent-logos/muse.svg";
 import omp from "../../../shared/assets/agent-logos/omp.svg";
@@ -50,7 +51,7 @@ const drawn: Record<string, [string, ReactNode]> = {
   ],
 };
 
-const pictured: Record<string, { src: string }> = { codex, muse, omp };
+const pictured: Record<string, { src: string }> = { antigravity, codex, muse, omp };
 
 export function agentOf(url: string | undefined) {
   const slug = url?.match(/^\/each-agent\/([\w-]+)/)?.[1];

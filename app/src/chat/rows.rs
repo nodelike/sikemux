@@ -181,21 +181,8 @@ pub(super) fn row(
                 .text_color(Tokens::get(cx).text_tertiary),
             )
     });
-    let worktree = (ix == 0)
-        .then_some(looks.reading.worktree.as_ref())
-        .flatten()
-        .and_then(|switch| crate::worktrees::switch::note(switch, cx))
-        .map(|note| {
-            div()
-                .w_full()
-                .flex()
-                .justify_center()
-                .when(!looks.reading.earlier_lost, |row| row.pt(SPACE_3))
-                .child(note)
-        });
-    let noted = worktree.is_some();
     if parts.is_empty() && message.letters.is_empty() && summary.is_none() && !carried {
-        return div().children(lost).children(worktree).into_any_element();
+        return div().children(lost).into_any_element();
     }
     let lettered = !message.letters.is_empty();
     let triggered = lettered
@@ -279,7 +266,6 @@ pub(super) fn row(
         .flex_col()
         .items_center()
         .children(lost)
-        .children(worktree)
         .children(team_head)
         .child(
             div()
@@ -299,7 +285,7 @@ pub(super) fn row(
                         row.py(px(5.))
                     }
                 })
-                .when(ix == 0 && !looks.reading.earlier_lost && !noted, |row| {
+                .when(ix == 0 && !looks.reading.earlier_lost, |row| {
                     row.pt(SPACE_3)
                 })
                 .child(content),
@@ -1431,135 +1417,27 @@ pub(super) fn subagent(
     let t = Tokens::get(cx).clone();
     let key = format!("subagent:{}", card.session_id);
     let open = looks.reading.opened.contains(&key);
-    let (tint, mark, word) = match card.state {
-        SubagentState::Running => (
-            theme::mix(t.accent, t.text_disabled, 0.62),
-            Icon::Hourglass,
-            t!("working"),
-        ),
-        SubagentState::Completed => (
-            theme::mix(t.live, t.text_disabled, 0.58),
-            Icon::Check,
-            t!("done"),
-        ),
-        SubagentState::Failed => (t.danger, Icon::Warning, t!("failed")),
-        SubagentState::Disconnected => (t.danger, Icon::Plug, t!("lost")),
-        SubagentState::Cancelled => (t.text_disabled, Icon::Close, t!("stopped")),
-    };
-    let tokens = card.tokens.map(|tokens| {
-        t!(
-            "{tokens} tokens",
-            tokens = crate::ui::numbers::compact(tokens as f64)
-        )
-    });
-    let calls = (card.calls > 0).then(|| match card.calls {
-        1 => t!("1 call").to_owned(),
-        calls => t!("{calls} calls", calls = calls),
-    });
-    let cost = [tokens, calls]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" · ");
-    let task = card
-        .task
-        .split('\n')
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_owned();
-    let doing = card.last_tool.as_ref().map(|tool| {
-        let row = &tool.row;
-        row.activity
-            .clone()
-            .unwrap_or_else(|| row.subject.clone().unwrap_or_else(|| row.target.clone()))
-    });
-    let state = match (card.state, doing) {
-        (SubagentState::Running, Some(doing)) if !doing.is_empty() => div()
-            .min_w_0()
-            .flex()
-            .items_center()
-            .gap(SPACE_1H)
-            .text_color(t.text_secondary)
-            .child(div().flex_none().child(ui::working(11., tint)))
-            .child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .child(shimmer(format!("{key}:doing"), doing)),
-            )
-            .into_any_element(),
-        (SubagentState::Running, _) => div()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(SPACE_1H)
-            .text_color(looks.quiet)
-            .child(ui::working(11., tint))
-            .child(word)
-            .into_any_element(),
-        _ => div()
-            .flex_none()
-            .flex()
-            .items_center()
-            .gap(SPACE_1H)
-            .text_color(
-                if matches!(
-                    card.state,
-                    SubagentState::Failed | SubagentState::Disconnected
-                ) {
-                    tint
-                } else {
-                    looks.quiet
-                },
-            )
-            .child(ui::icon(mark, 12.).text_color(tint))
-            .child(word)
-            .into_any_element(),
-    };
-    let (reader, toggled, hover) = (looks.reader.clone(), key.clone(), looks.hover);
+    let chevron = motion::turn(
+        format!("{key}:chevron"),
+        motion::fold_angle(open),
+        motion::DETAIL_FOLD,
+        ui::icon(Icon::Chevron, 12.).text_color(t.text_tertiary),
+    );
+    let (reader, toggled) = (looks.reader.clone(), key.clone());
     let summary = div()
         .id(SharedString::from(key.clone()))
-        .h(px(30.))
-        .px(SPACE_3)
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .rounded(theme::radius_3())
-        .text_size(crate::theme::ui_text(TEXT_XS_H))
-        .hover(move |summary| summary.bg(hover))
         .clicks(move |_, _, cx| {
             reader.update(cx, |reading, cx| {
                 reading.toggle(&toggled);
                 cx.notify();
             })
         })
-        .child(div().flex_none().child(ui::mark(&looks.provider, 17.)))
-        .child(
-            div()
-                .flex_none()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(looks.ink)
-                .child(card.name.clone()),
-        )
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .text_color(looks.quiet)
-                .child(task),
-        )
-        .child(state)
-        .child(div().flex_1())
-        .when(!cost.is_empty(), |summary| {
-            summary.child(div().flex_none().text_color(looks.faint).child(cost))
-        })
-        .child(div().flex_none().child(motion::turn(
-            format!("{key}:chevron"),
-            motion::fold_angle(open),
-            motion::DETAIL_FOLD,
-            ui::icon(Icon::Chevron, 12.).text_color(looks.quiet),
-        )));
+        .child(super::live::subagent_line(
+            card,
+            &looks.provider,
+            Some(chevron.into_any_element()),
+            &t,
+        ));
     let body = open.then(|| {
         let rows = looks
             .reading
@@ -1611,11 +1489,9 @@ pub(super) fn subagent(
     div()
         .flex()
         .flex_col()
+        .p(SPACE_1)
         .rounded(theme::radius_3())
-        .bg(Hsla {
-            a: 0.55,
-            ..t.surface_raised
-        })
+        .bg(t.surface_raised)
         .child(summary)
         .children(body)
         .into_any_element()

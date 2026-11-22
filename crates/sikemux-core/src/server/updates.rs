@@ -1,18 +1,22 @@
 //! Updating the app this core runs inside, on the person's channel. The core
 //! checks the release feeds, downloads the newest build while checking its
-//! signature, and puts it in place of the app. Once no chat would lose work it
-//! says the update is ready, the windows start again into it, and the new
+//! signature, and puts it in place of the app. Then it says the update is
+//! ready, the windows start again into it, and the new
 //! build takes over this core with its agents still running. A Linux host's
-//! core has no app around it: root puts the new core in place, once no chat
-//! is in a turn, and the core hands itself over to it.
+//! core has no app around it: root puts the new core in place, and the core
+//! hands itself over to it.
 
+#[cfg(windows)]
 use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
+#[cfg(windows)]
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
-use crate::server::workspace_state::{WorkspaceCore, WorkspaceParts};
+#[cfg(windows)]
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::updates::{HostUpdatesParams, UpdateInstallParams};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -33,8 +37,7 @@ use crate::releases::bundled_credits;
 use sikemux_view::device::Flag;
 use sikemux_view::prefs::{PreferenceChange, UpdateChannel};
 use sikemux_view::updates::{
-    UpdateBlocker, UpdateCheck, UpdateOutcome, UpdateOutcomeState, UpdateRelease, UpdateState,
-    UpdateStatus,
+    UpdateCheck, UpdateOutcome, UpdateOutcomeState, UpdateRelease, UpdateState, UpdateStatus,
 };
 use sikemux_wire::protocol::BuildChannel;
 
@@ -45,7 +48,6 @@ const CHECK_EVERY: Duration = Duration::from_secs(30 * 60);
 const NIGHTLY_CHECK_EVERY: Duration = Duration::from_secs(5 * 60);
 /// Staff take each build the moment it is published, so a push reaches them in about a minute.
 const STAFF_CHECK_EVERY: Duration = Duration::from_secs(60);
-const BLOCKERS_EVERY: Duration = Duration::from_secs(2);
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 /// How long a host's core waits after `sikemux update` hears what root put in
 /// place, so the answer reaches it before the core hands itself over.
@@ -65,10 +67,8 @@ const APT_UPGRADE: &str = "sudo apt update && sudo apt install --only-upgrade si
 /// it may stop before that until the one it replaced is put back.
 const READY_AFTER: Duration = Duration::from_secs(30);
 const STARTS_BEFORE_ROLL_BACK: u32 = 3;
-/// How long an update may download or install, and a host's core wait for its chats to hand
-/// their agents over, before it counts as failed.
+/// How long an update may download or install before it counts as failed.
 const WORKING_LIMIT: Duration = Duration::from_secs(30 * 60);
-const HANDING_OVER_LIMIT: Duration = Duration::from_secs(5 * 60);
 const WATCH_EVERY: Duration = Duration::from_secs(30);
 
 /// Where to fetch the release `available` names.
@@ -94,7 +94,7 @@ pub(crate) struct Updates {
     held: std::sync::Mutex<Held>,
     /// Rings for a check out of turn, such as when the person changes channel.
     wake: Notify,
-    /// Rings when a chat may have come to rest, for a host waiting for a quiet
+    /// Rings when a chat may have come to rest, for a Windows app waiting for a quiet
     /// moment to update.
     quiet: Notify,
 }
@@ -362,7 +362,7 @@ pub(crate) async fn serve(core: Arc<Core>) {
     tokio::time::sleep(FIRST_CHECK).await;
     loop {
         if check(&core).await.is_ok() {
-            update_when_quiet(&core).await;
+            update_by_itself(&core).await;
         }
         let _ = tokio::time::timeout(check_every(&core), core.updates().wake.notified()).await;
     }
@@ -375,53 +375,6 @@ fn read_switch() -> bool {
         .map_or(true, |switch| {
             switch.as_deref() != Some(host_update::SWITCH_OFF)
         })
-}
-
-/// The agents an update waits on: those it would stop and start again rather than carry
-/// over, and, for one that goes in by itself, every other agent here in a turn or that might
-/// be, including one in a terminal the core cannot read.
-fn waits_on(core: &Core, by_itself: bool) -> Vec<UpdateBlocker> {
-    let chats = core.chats();
-    let mut blockers: Vec<UpdateBlocker> = chats
-        .blockers()
-        .into_iter()
-        .map(|blocker| UpdateBlocker {
-            agent_id: blocker.agent_id,
-            provider: blocker.provider,
-            title: blocker.title,
-            reason: blocker.reason,
-        })
-        .collect();
-    if !by_itself {
-        return blockers;
-    }
-    let in_turn = |agent_id: String, provider: String, title: Option<String>| UpdateBlocker {
-        agent_id,
-        provider,
-        title,
-        reason: "turn".to_owned(),
-    };
-    for chat in chats.all() {
-        let counted = blockers.iter().any(|b| b.agent_id == chat.agent_id());
-        if !counted && (chat.state_now().busy() || chat.turn_running()) {
-            blockers.push(in_turn(
-                chat.agent_id().to_owned(),
-                chat.provider().to_owned(),
-                chat.feed.title(),
-            ));
-        }
-    }
-    for agent in core.running_agents() {
-        let counted = blockers.iter().any(|b| b.agent_id == agent);
-        let now = core.agent_now(&agent);
-        if !counted && now.maybe_mid_turn() {
-            let provider = now.cli().unwrap_or_default();
-            let title = core.names().name(&agent).map(|name| format!("@{name}"));
-            blockers.push(in_turn(agent, provider, title));
-        }
-    }
-    blockers.sort_by(|a, b| a.agent_id.cmp(&b.agent_id));
-    blockers
 }
 
 /// Whether the desktop app installs updates by itself: the person's choice, else on for the
@@ -453,18 +406,17 @@ pub(crate) fn follow_when_idle(core: &Core) {
             return;
         }
         held.status.by_itself = false;
-        if matches!(held.status.state, UpdateState::Waiting | UpdateState::Ready) {
+        if held.status.state == UpdateState::Ready {
             held.status.state = UpdateState::Idle;
-            held.status.blockers.clear();
         }
     });
     core.updates().check_soon();
 }
 
 /// A host, or a desktop app the person lets update by itself, puts the release `check` found
-/// in place once no chat is in a turn, or at once when the account no longer works with this
-/// build, since it then reaches nobody. It waits at most until the next check.
-async fn update_when_quiet(core: &Arc<Core>) {
+/// in place at once, since terminals and chats carry over the core's restart into it. At once
+/// too when the account no longer works with this build, which then reaches nobody.
+async fn update_by_itself(core: &Arc<Core>) {
     let status = core.updates().status();
     if status.automatic != Some(true)
         || status.available.is_none()
@@ -472,24 +424,33 @@ async fn update_when_quiet(core: &Arc<Core>) {
     {
         return;
     }
-    let until = tokio::time::Instant::now() + check_every(core);
-    loop {
-        let rested = core.updates().quiet.notified();
-        if waits_on(core, true).is_empty() || core.remote().too_old() {
-            break;
-        }
-        if tokio::time::timeout_at(until, rested).await.is_err() {
-            return;
-        }
+    #[cfg(windows)]
+    if !quiet_on_windows(core).await {
+        return;
     }
     let force = core.remote().too_old();
     if force {
-        let interrupted = core.chats().blockers().len();
-        eprintln!(
-            "sikemux core: this version is too old for the account, so it updates now, interrupting {interrupted} chats"
-        );
+        eprintln!("sikemux core: this version is too old for the account, so it updates now");
     }
     let _ = begin_install(core, force, !force && !is_host());
+}
+
+/// Windows replaces the whole app and core, which stops terminals and cuts turns, so an update
+/// there waits for no agent to be in a turn, at most until the next check.
+#[cfg(windows)]
+async fn quiet_on_windows(core: &Core) -> bool {
+    let until = tokio::time::Instant::now() + check_every(core);
+    loop {
+        let rested = core.updates().quiet.notified();
+        let mid_turn = core.chats().in_turn() > 0
+            || (core.running_agents().iter()).any(|agent| core.agent_now(agent).maybe_mid_turn());
+        if !mid_turn || core.remote().too_old() {
+            return true;
+        }
+        if tokio::time::timeout_at(until, rested).await.is_err() {
+            return false;
+        }
+    }
 }
 
 /// Looks for a release newer than this one on the person's channel. One feed
@@ -506,10 +467,7 @@ pub(crate) async fn check(core: &Core) -> CoreResult<UpdateStatus> {
     }
     if matches!(
         status.state,
-        UpdateState::Downloading
-            | UpdateState::Installing
-            | UpdateState::Waiting
-            | UpdateState::Ready
+        UpdateState::Downloading | UpdateState::Installing | UpdateState::Ready
     ) {
         return Ok(status);
     }
@@ -615,8 +573,16 @@ async fn apply_through_service(_core: &Core) -> CoreResult<()> {
     ))
 }
 
-/// `by_itself` is an update a desktop app began on its own, which waits for every chat to rest
-/// however long that takes and stops none.
+#[cfg(target_os = "macos")]
+fn on_read_only_disk(bundle: &Path) -> bool {
+    bundle.parent().is_some_and(|folder| {
+        rustix::fs::statvfs(folder)
+            .is_ok_and(|disk| disk.f_flag.contains(rustix::fs::StatVfsMountFlags::RDONLY))
+    })
+}
+
+/// `by_itself` is an update a desktop app began on its own, which restarts the windows only once
+/// the person is idle.
 fn begin_install(core: &Arc<Core>, force: bool, by_itself: bool) -> CoreResult<UpdateStatus> {
     let status = core.updates().status();
     if matches!(
@@ -626,6 +592,13 @@ fn begin_install(core: &Arc<Core>, force: bool, by_itself: bool) -> CoreResult<U
         return Ok(status);
     }
     let app = own_app().ok_or_else(|| CoreError::from("this build does not update itself"))?;
+    #[cfg(target_os = "macos")]
+    if matches!(&app, OwnApp::Bundle(bundle) if on_read_only_disk(bundle)) {
+        return Err(CoreError::from(
+            "Sikemux is running from its disk image, which it cannot change. Drag it to \
+             Applications and open it from there to get updates.",
+        ));
+    }
     let (found, installed) = {
         let held = core.updates().held.locked();
         (held.found.clone(), held.installed)
@@ -641,7 +614,7 @@ fn begin_install(core: &Arc<Core>, force: bool, by_itself: bool) -> CoreResult<U
         held.status.downloaded_bytes = 0;
         held.status.total_bytes = None;
         held.status.state = if installed {
-            UpdateState::Waiting
+            UpdateState::Ready
         } else {
             UpdateState::Downloading
         };
@@ -656,8 +629,9 @@ fn begin_install(core: &Arc<Core>, force: bool, by_itself: bool) -> CoreResult<U
             });
             return;
         }
-        wait_for_chats(&core).await;
-        if matches!(app, OwnApp::Host) && core.updates().status().state == UpdateState::Ready {
+        core.updates()
+            .edit(&core, |held| held.status.state = UpdateState::Ready);
+        if matches!(app, OwnApp::Host) {
             restart_into_installed(&core).await;
         }
     });
@@ -712,13 +686,7 @@ fn refusal(steps: &[UpdateStep]) -> String {
 /// and chats. Returns only if that failed.
 async fn restart_into_installed(core: &Arc<Core>) {
     let force = core.updates().status().forced;
-    let error = upgrade::replace_with(
-        core,
-        PathBuf::from(INSTALLED_CORE),
-        force,
-        HANDING_OVER_LIMIT,
-    )
-    .await;
+    let error = upgrade::replace_with(core, PathBuf::from(INSTALLED_CORE), force).await;
     core.updates().edit(core, |held| {
         held.status.state = UpdateState::Failed;
         held.status.error = Some(format!("could not restart into it: {error}"));
@@ -927,9 +895,7 @@ pub(crate) fn host_view(core: &Core) -> Option<UpdateStatus> {
     is_host().then(|| core.updates().status())
 }
 
-/// `sikemux update` on a host: puts the newest release in place now, without
-/// waiting for a quiet moment, then hands over to it once no chat is in the
-/// middle of a request.
+/// `sikemux update` on a host: puts the newest release in place now, then hands over to it.
 pub(crate) async fn update_host(core: &Arc<Core>) -> CoreResult<HostUpdate> {
     if !is_host() {
         return Err("this core was not put in place by Sikemux's installer, so it does not update itself; rerun the installer".into());
@@ -952,7 +918,7 @@ pub(crate) async fn update_host(core: &Arc<Core>) -> CoreResult<HostUpdate> {
     core.updates().edit(core, |held| {
         held.installed = in_place.is_some();
         held.status.state = match (&in_place, failed) {
-            (Some(_), _) => UpdateState::Waiting,
+            (Some(_), _) => UpdateState::Ready,
             (None, true) => UpdateState::Failed,
             (None, false) => UpdateState::Idle,
         };
@@ -962,7 +928,6 @@ pub(crate) async fn update_host(core: &Arc<Core>) -> CoreResult<HostUpdate> {
         let core = core.clone();
         tokio::spawn(async move {
             tokio::time::sleep(ANSWER_GRACE).await;
-            wait_for_chats(&core).await;
             if core.updates().status().state == UpdateState::Ready {
                 restart_into_installed(&core).await;
             }
@@ -1002,14 +967,9 @@ pub(crate) async fn set_automatic(
     Ok(core.updates().status())
 }
 
-/// Stops waiting on chats; the update stays in place for later.
+/// No update waits on agents any more, so there is nothing to cancel; released clients may
+/// still call it.
 pub(crate) fn cancel(core: &Core) -> UpdateStatus {
-    core.updates().edit(core, |held| {
-        if held.status.state == UpdateState::Waiting {
-            held.status.state = UpdateState::Idle;
-            held.status.blockers.clear();
-        }
-    });
     core.updates().status()
 }
 
@@ -1124,44 +1084,6 @@ async fn expect_the_new_core(core: &Core) {
     .await;
     core.updates()
         .edit(core, |held| held.status.outcome = Some(outcome));
-}
-
-/// Says the update is ready once no chat would lose work to the restart, at once when the
-/// person chose to stop them, or once the chats have had the core's patience, which then
-/// stops the ones still busy and starts them again on their sessions. One that began by
-/// itself has no end to its patience, needs every chat out of its turn, and keeps watching
-/// until the app restarts, waiting again whenever a chat starts one.
-async fn wait_for_chats(core: &Core) {
-    let patience = tokio::time::Instant::now() + core.config().update_patience;
-    loop {
-        let status = core.updates().status();
-        let watching = if status.by_itself {
-            UpdateState::Ready
-        } else {
-            UpdateState::Waiting
-        };
-        if !matches!(status.state, UpdateState::Installing | UpdateState::Waiting)
-            && status.state != watching
-        {
-            return;
-        }
-        let blockers = waits_on(core, status.by_itself);
-        let out_of_patience = !status.by_itself && tokio::time::Instant::now() >= patience;
-        let ready = status.forced || blockers.is_empty() || out_of_patience;
-        core.updates().edit(core, |held| {
-            held.status.forced |= out_of_patience && !blockers.is_empty();
-            held.status.blockers = blockers;
-            held.status.state = if ready {
-                UpdateState::Ready
-            } else {
-                UpdateState::Waiting
-            };
-        });
-        if ready && !status.by_itself {
-            return;
-        }
-        tokio::time::sleep(BLOCKERS_EVERY).await;
-    }
 }
 
 /// `.<name>.<suffix>` in the folder `file` is in.

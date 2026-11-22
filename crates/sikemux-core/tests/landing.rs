@@ -506,7 +506,7 @@ async fn reads(onlooker: &mut Agent, id: &str, stands: &str) {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         let listed = onlooker
-            .tool("agent.list", json!({}))
+            .tool("agent.list", json!({ "full": true }))
             .await
             .expect("the agents");
         let turn = (listed["agents"].as_array().into_iter().flatten())

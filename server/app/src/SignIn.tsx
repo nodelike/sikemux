@@ -6,7 +6,13 @@ import {
   type SignInStep,
 } from "@shared/account/account";
 import { IconBack, IconEye, IconEyeOff } from "@shared/ui/Icons";
-import { useEffect, useRef, useState, type SubmitEvent } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type SubmitEvent,
+} from "react";
 
 import { AppleMark, GitHubMark, GoogleMark, Logo } from "./icons.tsx";
 import { useInviteOrg } from "./invite.ts";
@@ -85,6 +91,14 @@ export function SignIn({ ready }: { ready: boolean }) {
     setBusy(action);
   };
 
+  /** A sign-in left from an earlier visit, such as an abandoned provider page, would make the provider buttons do nothing. */
+  const dropStale = useEffectEvent(() => {
+    if (signIn.id) void signIn.reset();
+  });
+  useEffect(() => {
+    if (ready) dropStale();
+  }, [ready]);
+
   useEffect(() => {
     if (!ready || !queued.current) return;
     const { action, work } = queued.current;
@@ -117,7 +131,7 @@ export function SignIn({ ready }: { ready: boolean }) {
   const submitEmail = () => attempt("submit", () => flow.submitEmail(email));
 
   const submitPassword = () =>
-    attempt("submit", () => flow.submitPassword(password));
+    attempt("submit", () => flow.submitPassword(email, password));
 
   const submitNewAccount = () =>
     attempt("submit", () => flow.submitNewAccount(email, password));

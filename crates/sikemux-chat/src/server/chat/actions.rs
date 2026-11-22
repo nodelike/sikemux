@@ -266,6 +266,9 @@ pub fn prompt(
     }
     let chat = core.chats().running(agent_id)?;
     context.extend((core.chat_above().board_take_note)(core, agent_id));
+    if whose.person {
+        context.extend((core.chat_above().questions_open_calls)(core, agent_id));
+    }
     context.extend((core.chat_above().memory_take_removed)(core, agent_id));
     context.extend(
         (core.chat_above().turn_state_now)(core, agent_id)
@@ -273,6 +276,7 @@ pub fn prompt(
     );
     // The agent reads it only once it has started, which takes seconds, so the person
     // sees it sent now.
+    chat.note_message_waiting();
     let shown = !chat.is_ready() && chat.history_in_place();
     if shown {
         chat.record_prompt(Some(&message_id), &text, &paths, &context, whose);
@@ -471,6 +475,7 @@ pub fn cancel(core: &Core, agent_id: &str) -> CoreResult<()> {
     chat.feed.clear_queue();
     super::cap::stop_summarising(&chat);
     chat.stop_asked();
+    chat.let_waiting_message_go();
     chat.send(ChatCommand::Cancel)
 }
 

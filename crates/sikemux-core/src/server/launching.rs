@@ -139,9 +139,10 @@ pub(crate) async fn terminal_agent(
         return None;
     };
     spawn.env.extend(launch.env);
+    let cwd = PathBuf::from(spawn.cwd.clone().unwrap_or_default());
     let grant = core
         .model_proxy()
-        .grant(core, &mut listed, &mut [], None)
+        .grant(core, &mut listed, &mut [], None, &cwd)
         .inspect_err(|error| eprintln!("sikemux core: {error}"))
         .ok()
         .flatten();
@@ -353,6 +354,16 @@ pub(crate) async fn start(
     mut chosen: Launch,
 ) -> CoreResult<Arc<chat::Chat>> {
     let notice = place(core, &mut chosen).await;
+    let off_org = super::org_routes::refused(
+        core,
+        &chosen.cwd,
+        chosen.model_provider.as_deref(),
+        chosen.model.as_deref(),
+    );
+    if off_org.is_some() {
+        chosen.model_provider = None;
+        chosen.model = None;
+    }
     let launcher = core.workspaces().launcher(&chosen.launcher)?;
     let program = match chosen.program {
         Some(program) => program,
@@ -369,6 +380,12 @@ pub(crate) async fn start(
             .map_err(CoreError::from)
     })
     .await?;
+    if off_org.is_some() {
+        super::org_routes::forget_route(core, &chosen.agent_id);
+    }
+    let notice = (off_org.as_deref())
+        .map(super::org_routes::moved_notice)
+        .or(notice);
     launch.agent_id = chosen.agent_id;
     launch.resume_id = chosen.resume_id;
     if let Some(mode) = chosen.permission_mode {
@@ -805,13 +822,8 @@ pub(crate) async fn start_new(
     if started.unstarted() {
         return Ok((agent_id, not_started()));
     }
-    match chat::until_started(core, started).await {
-        Ok(start) => Ok((agent_id, start)),
-        Err(error) => {
-            super::workspace::close_gone(core, &[agent_id]);
-            Err(error)
-        }
-    }
+    let start = chat::until_started(core, started).await?;
+    Ok((agent_id, start))
 }
 
 /// Gives an agent taken up again what it had when it closed and its session does not keep: its

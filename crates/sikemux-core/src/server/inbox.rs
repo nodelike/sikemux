@@ -546,16 +546,35 @@ impl Turns {
         (self.turns.locked().get(agent_id)).is_some_and(|turn| turn.committed)
     }
 
-    /// Keeps where git said the agent's work is, answering whether that moved.
-    pub(crate) fn keep_work(&self, agent_id: &str, work: turn_state::Work) -> bool {
-        self.change(|turns| {
-            let Some(turn) = turns.get_mut(agent_id) else {
-                return false;
-            };
-            let moved = turn.work.as_ref() != Some(&work);
-            turn.work = Some(work);
-            moved
+    /// How many times what the agent's latest turn left was let go, which a read of its work
+    /// started now hands back to [`Self::keep_read_work`].
+    pub(crate) fn let_go_count(&self, agent_id: &str) -> u64 {
+        (self.turns.locked().get(agent_id)).map_or(0, |turn| turn.let_go)
+    }
+
+    /// Keeps where git said the agent's work is, read from when what its turn left was let go
+    /// `let_go` times, answering whether that moved. A read that started before a file
+    /// came to light or a commit is dropped, since the newer read that follows them must not be
+    /// overwritten by it.
+    pub(crate) fn keep_read_work(
+        &self,
+        agent_id: &str,
+        work: turn_state::Work,
+        let_go: u64,
+    ) -> bool {
+        self.change(|turns| match turns.get_mut(agent_id) {
+            Some(turn) if turn.let_go == let_go => {
+                let moved = turn.work.as_ref() != Some(&work);
+                turn.work = Some(work);
+                moved
+            }
+            _ => false,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn keep_work(&self, agent_id: &str, work: turn_state::Work) -> bool {
+        self.keep_read_work(agent_id, work, self.let_go_count(agent_id))
     }
 
     /// Whether the agent's latest turn ended by itself, with no problem.

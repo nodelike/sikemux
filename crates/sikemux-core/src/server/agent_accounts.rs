@@ -912,17 +912,13 @@ fn kept_resets(account: &AccountUsage, offered: &[Candidate], now: u64) -> Vec<K
 /// The agents found on this host, each on the account chosen for it. An agent that
 /// keeps accounts is listed even when it is not found, so its account can be set up.
 pub(super) async fn installed(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
-    let book = core.workspaces().accounts().unwrap_or_default();
+    let book = core
+        .workspaces()
+        .accounts()
+        .unwrap_or_default()
+        .with_built_ins();
     let listed = AGENTS.iter().filter_map(|def| {
-        let chosen = book.chosen(def.kind);
-        let accounts = || {
-            book.profiles
-                .iter()
-                .filter(|profile| profile.provider == def.kind)
-        };
-        let profile = accounts()
-            .find(|profile| profile.id == chosen)
-            .or_else(|| accounts().next());
+        let profile = book.in_use(def.kind);
         let explicit = profile.and_then(|profile| profile.executable_path.as_deref());
         (def.accounts || !discovery::candidates(def, explicit).is_empty())
             .then_some((def, profile, explicit))

@@ -63,6 +63,8 @@ export interface Config extends MigrationConfig {
   relayAccessToken: string | null;
   /** Null when STASH_DIR and STASH_KEY are not set, and the stash answers that it is not set up. */
   stash: StashSettings | null;
+  /** The Clerk user that is the store reviewers' demo account, or null for no demo sign-in. */
+  reviewAccountUserId: string | null;
   /** Keys the hash a proven work address is kept as. Null leaves addresses unproven; every release has one. */
   addressProofKey: Buffer | null;
   /** The Google client a work address is proven with; null hides verifying. */
@@ -241,6 +243,13 @@ export function loadConfig(
   if (addressProofKey === null && release)
     problems.push("ADDRESS_PROOF_KEY is not set");
 
+  const reviewAccountUserId = optional("REVIEW_ACCOUNT_USER_ID") ?? null;
+  if (
+    reviewAccountUserId !== null &&
+    !/^user_[A-Za-z0-9]+$/.test(reviewAccountUserId)
+  )
+    problems.push("REVIEW_ACCOUNT_USER_ID is not a Clerk user id");
+
   const workGoogle = readWorkGoogle(
     env,
     problems,
@@ -286,6 +295,7 @@ export function loadConfig(
     addressProofKey: addressProofKey
       ? Buffer.from(addressProofKey, "hex")
       : null,
+    reviewAccountUserId,
     workGoogle,
     billing,
     logLevel,

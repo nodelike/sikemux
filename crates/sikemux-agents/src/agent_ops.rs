@@ -24,6 +24,8 @@ use crate::sessions::tokens::{ModelTally, ReadState};
 use crate::sessions::transcript::Said;
 use crate::sessions::{self, AgentSession, FileStamp};
 
+pub type EnvironmentVariables = Vec<(String, String)>;
+
 pub type Pending<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Asks the agent's CLI at `executable`, on the account `config_path` names, to rename a session.
@@ -67,6 +69,12 @@ pub trait AgentOps: Sync {
     /// The folder it keeps its settings and sessions in, for an agent whose catalog
     /// entry names no home.
     fn home(&self) -> Option<PathBuf> {
+        None
+    }
+
+    /// The sign-in a chat falls back to when the agent says it is signed out, for a key
+    /// Sikemux put in the environment `env` it starts with.
+    fn key_sign_in(&self, _env: &BTreeMap<String, String>) -> Option<&'static str> {
         None
     }
 
@@ -170,15 +178,15 @@ pub trait AgentOps: Sync {
         setup: &'a mut TerminalSetup<'_>,
     ) -> Pending<'a, Result<Vec<String>, String>>;
 
-    /// A private home holding the skills `library` for a chat, as the variable that
-    /// names it and the folder, for agents that read skills only from their home.
+    /// A private home holding the skills `library` for a chat, as the variables that
+    /// start the agent in it, for agents that read skills only from their home.
     fn chat_home<'a>(
         &self,
         _tools: &'a Tools,
         _agent_id: &'a str,
         _program: &'a str,
         _library: &'a Path,
-    ) -> Option<Pending<'a, Result<(String, String), String>>> {
+    ) -> Option<Pending<'a, Result<EnvironmentVariables, String>>> {
         None
     }
 
@@ -343,6 +351,7 @@ impl AgentKind {
             AgentKind::Pi => &sessions::pi::Pi,
             AgentKind::Opencode => &sessions::opencode::Opencode,
             AgentKind::Omp => &sessions::omp::Omp,
+            AgentKind::Antigravity => &sessions::antigravity::Antigravity,
             AgentKind::Grok => &sessions::grok::Grok,
             AgentKind::Muse => &sessions::muse::Muse,
         }

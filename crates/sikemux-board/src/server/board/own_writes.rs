@@ -25,6 +25,8 @@ pub enum OwnWrite {
         host: String,
         title: String,
         details: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        subject: Option<super::Subject>,
     },
     CheckPassed {
         agents: Vec<String>,
@@ -66,7 +68,7 @@ pub(super) fn sent_home(core: &Core, project: &str, write: OwnWrite) -> bool {
 }
 
 /// A linked host sent what the board there wrote by itself, to the project whose board this host
-/// keeps. A trigger's card that nobody holds is taken up here.
+/// keeps. A trigger's card that nobody holds is taken up here, and its agent reopened here.
 pub fn write_here(core: &Arc<Core>, at_home: AtHome) -> Result<(), String> {
     let project = super::project_at(core, &at_home.project)?;
     match at_home.write {
@@ -75,12 +77,17 @@ pub fn write_here(core: &Arc<Core>, at_home: AtHome) -> Result<(), String> {
             host,
             title,
             details,
+            subject,
         } => {
-            if let Some((card, task)) =
-                super::add_for_trigger(core, &project, (trigger, &host), &title, &details)?
-            {
-                tokio::spawn(super::hand_off::take_up(core.clone(), project, card, task));
-            }
+            let went = super::add_for_trigger(
+                core,
+                &project,
+                (trigger, &host),
+                &title,
+                &details,
+                subject,
+            )?;
+            tokio::spawn(super::hand_off::carry(core.clone(), project, went));
         }
         OwnWrite::CheckPassed { agents, sha } => super::check_passed(core, &project, &agents, &sha),
         OwnWrite::Committed {

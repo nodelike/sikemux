@@ -333,9 +333,6 @@ pub struct ChatHead {
     /// The pages its latest turns changed, as the core took them, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shown: Vec<crate::shown::TurnShown>,
-    /// Its workers' finished work, oldest first; empty for a chat that leads nobody.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub results: Vec<crate::shown::ResultRow>,
     /// What the agent predicts the person will send next, from the turn that ended last; none
     /// while a turn runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -457,6 +454,9 @@ pub struct SessionEnded {
     pub reason: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// What the person can do about it, when the core knows, such as signing the agent in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<FailureKind>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1703,6 +1703,9 @@ pub struct SubagentCard {
     pub tokens: Option<u64>,
     /// How many tools it called.
     pub calls: u64,
+    /// The model it runs on, as its agent names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// The last tool it called, which says what it is up to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_tool: Option<ToolCall>,

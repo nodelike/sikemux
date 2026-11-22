@@ -1,6 +1,7 @@
-# 0.2.0-nightly.24
-• Sikemux speaks eight languages on iPhone and Android.
-• Search a host's chats by what was said in them, and open one at those words.
-• A decision an agent made shows under its reply, with Overrule.
-• What you type for an access call stays private, as with a secret.
-• Works with hosts on the Sikemux 0.6.1 nightlies.
+# 0.2.1
+
+• Sign in with Apple works on iPhone again.
+• Signing in asks "Already on Sikemux?", so a phone joins the account you already have.
+• The agent list follows the Mac's tree: teammates under their lead, with working and waiting marks.
+• Calls show what the agent asks you to do or look at, folded when answered.
+• Signing out on Android no longer loops back to the account screen.

@@ -342,7 +342,11 @@
                     "config": "config.toml",
                     "emptyConfig": "",
                     "sessionStore": "sessions",
-                    "sessionStoreIsFolder": true
+                    "sessionStoreIsFolder": true,
+                    "login": {
+                        "variable": "GROK_AUTH_PATH",
+                        "file": "auth.json"
+                    }
                 }
             },
             "terminal": {
@@ -361,6 +365,49 @@
             },
             "providers": null,
             "routed": null,
+            "resumesByPath": false,
+            "relocatableSessions": false,
+            "historyBeforeStart": false,
+            "commitMessages": null
+        },
+        {
+            "type": "antigravity",
+            "label": "Antigravity",
+            "about": "Google's coding agent",
+            "command": "agy",
+            "brand": "#4285f4",
+            "maker": "Google",
+            "featured": false,
+            "accounts": false,
+            "usage": true,
+            "freeModels": false,
+            "deletableChats": false,
+            "efforts": [],
+            "install": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+            "login": ["acp", "--login"],
+            "update": ["update"],
+            "latest": null,
+            "modelsSince": [],
+            "probe": ["--version"],
+            "installPaths": ["~/.local/bin/agy"],
+            "gitShimArgs": [],
+            "home": null,
+            "terminal": {
+                "normal": ["--mode", "accept-edits"],
+                "bypass": ["--dangerously-skip-permissions"],
+                "auto": null,
+                "effort": null,
+                "resume": {
+                    "flag": "--conversation"
+                },
+                "withChoices": []
+            },
+            "chat": {
+                "driver": "acp",
+                "args": ["acp"]
+            },
+            "providers": "routed",
+            "routed": { "api": "gemini", "rank": 5 },
             "resumesByPath": false,
             "relocatableSessions": false,
             "historyBeforeStart": false,

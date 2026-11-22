@@ -20,6 +20,8 @@ use crate::agent_catalog::AgentKind;
 use crate::cli::protocol::is_tool_agent_id;
 use crate::launch::{homes, skills};
 
+type EnvironmentVariable = (String, String);
+
 const CONFIG_TIMEOUT: Duration = Duration::from_secs(5);
 const TOOLS_MCP_FLAG: &str = "--tools-mcp";
 /// The tools' server name, and the one for agents whose config keys take no hyphen.
@@ -134,7 +136,7 @@ impl TerminalSetup<'_> {
                 self.library.as_deref(),
             )
             .await?;
-        self.environment.push(home);
+        self.environment.extend(home);
         Ok(Vec::new())
     }
 
@@ -239,9 +241,7 @@ impl Tools {
             return;
         };
         match home.await {
-            Ok((variable, home)) => {
-                env.insert(variable, home);
-            }
+            Ok(home) => env.extend(home),
             Err(error) => {
                 eprintln!("Sikemux skills are unavailable to this {provider} chat: {error}")
             }
@@ -304,7 +304,7 @@ impl Tools {
         tools: Option<&McpLaunch>,
         library: Option<&Path>,
     ) -> Result<(String, String), String> {
-        let (variable, home) = self.private_home(AgentKind::Hermes, host, agent_id)?;
+        let (variable, home, _) = self.private_home(AgentKind::Hermes, host, agent_id)?;
         let set = |key: &str, value: &str| {
             let args = ["config", "set", key, value, "--force"].map(str::to_owned);
             run_config_command(program, args.to_vec(), (variable, home.clone()), "Hermes")
@@ -329,7 +329,8 @@ impl Tools {
     }
 
     /// A private Grok home for `agent_id`, kept under `host`, given the tools
-    /// when `tools` names them and the skills `library`.
+    /// when `tools` names them and the skills `library`, as the variables that
+    /// name it and the sign-in it shares with the person's own home.
     pub(crate) async fn grok_home(
         &self,
         host: &str,
@@ -337,8 +338,8 @@ impl Tools {
         program: &str,
         tools: Option<&McpLaunch>,
         library: Option<&Path>,
-    ) -> Result<(String, String), String> {
-        let (variable, home) = self.private_home(AgentKind::Grok, host, agent_id)?;
+    ) -> Result<Vec<(String, String)>, String> {
+        let (variable, home, login) = self.private_home(AgentKind::Grok, host, agent_id)?;
         if let Some(launch) = tools {
             let mut args = ["mcp", "add", TOOLS_KEY, "--"].map(str::to_owned).to_vec();
             args.push(launch.command.clone());
@@ -353,22 +354,25 @@ impl Tools {
                 Err(error) => eprintln!("Sikemux skills are unavailable to Grok: {error}"),
             }
         }
-        Ok((variable.to_owned(), home.to_string_lossy().into_owned()))
+        Ok([(variable.to_owned(), home.to_string_lossy().into_owned())]
+            .into_iter()
+            .chain(login)
+            .collect())
     }
 
     /// A private copy of `kind`'s home for `agent_id`, which Sikemux can add a
-    /// server to without touching the person's own config, and the variable
-    /// that names it.
+    /// server to without touching the person's own config, the variable that
+    /// names it, and the one that keeps its sign-in in the person's own home.
     fn private_home(
         &self,
         kind: AgentKind,
         host: &str,
         agent_id: &str,
-    ) -> Result<(&'static str, PathBuf), String> {
+    ) -> Result<(&'static str, PathBuf, Option<EnvironmentVariable>), String> {
         let (home, _) = homes::private(kind).ok_or("the agent keeps no private home")?;
         let destination = self.state_dir()?.join(host).join(agent_id);
-        homes::private_home(kind, &destination, None)?;
-        Ok((home.variable, destination))
+        let login = homes::private_home(kind, &destination, None)?;
+        Ok((home.variable, destination, login))
     }
 }
 
@@ -732,5 +736,35 @@ mod tests {
             .unwrap();
         assert_eq!(empty["skills"]["paths"][0].as_str(), Some(LIBRARY));
         assert!(grok_config("skills = 3", Path::new(LIBRARY)).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_grok_sign_in_in_a_terminal_reaches_its_chat() {
+        let data = tempfile::tempdir().unwrap();
+        let own = data.path().join("own-grok");
+        std::env::set_var("GROK_HOME", &own);
+        std::env::remove_var("GROK_AUTH_PATH");
+        let tools = Tools {
+            executable: "/Apps/Sikemux.app/sikemux-host".into(),
+            endpoint: data.path().join("core.sock"),
+            data_dir: Some(data.path().to_path_buf()),
+        };
+        let library = data.path().join("skills");
+        let chat = AgentKind::Grok.ops();
+        let login = |env: Vec<(String, String)>| {
+            env.into_iter()
+                .find(|(name, _)| name == "GROK_AUTH_PATH")
+                .map(|(_, path)| PathBuf::from(path))
+        };
+        let shared = Some(own.join("auth.json"));
+        let terminal = tools.grok_home("grok", "agent-one", "grok", None, None);
+        assert_eq!(login(terminal.await.unwrap()), shared);
+        let first = chat.chat_home(&tools, "agent-one", "grok", &library);
+        assert_eq!(login(first.unwrap().await.unwrap()), shared);
+
+        let elsewhere = data.path().join("secrets").join("grok.json");
+        std::env::set_var("GROK_AUTH_PATH", &elsewhere);
+        let again = chat.chat_home(&tools, "agent-one", "grok", &library);
+        assert_eq!(login(again.unwrap().await.unwrap()), Some(elsewhere));
     }
 }

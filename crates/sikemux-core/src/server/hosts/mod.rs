@@ -1002,6 +1002,7 @@ pub(crate) fn unlinked(core: &Core, host: &str, why: &str) {
         connection.close(link::NOT_LINKED.into(), b"unlinked");
     }
     route::host_gone(core, host, why);
+    crate::server::shares::takeover_moved(core);
     changed(core);
 }
 

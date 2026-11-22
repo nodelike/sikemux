@@ -121,12 +121,13 @@ pub fn picture(glyph: Icon, size: f32, tint: Hsla) -> AnyElement {
     }
 }
 
-/// An agent's mark at `size`, in its brand colour.
-/// A project's chief's mark, `size` across in place of a face: Sikemux's own purple S.
+/// A project's chief's mark in place of a face: Sikemux's purple S, as big as an agent's mark of
+/// `size`. The S fills only 265 of its glyph's 420-wide box, so it draws larger.
 pub fn chief_mark(size: f32) -> AnyElement {
-    mark_box(size, mark("sikemux", size * 1.2)).into_any_element()
+    mark_box(size, mark("sikemux", size * 1.42)).into_any_element()
 }
 
+/// An agent's mark at `size`, in its brand colour.
 pub fn mark(provider: &str, size: f32) -> AnyElement {
     picture(icons::agent(provider), size, theme::brand(provider))
 }

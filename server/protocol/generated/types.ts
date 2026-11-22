@@ -884,6 +884,32 @@ export type LiveServerMessage =
   | LiveBye
   | LivePushed;
 
+/** What the Mac's browser sign-in handed back to it. The API trades the code at Clerk itself and keeps none of the tokens, so the Mac never holds one. */
+export interface MacSignIn {
+  code: string;
+  /** The PKCE verifier the Mac made for this sign-in. */
+  codeVerifier: string;
+  /** Where the browser handed the code back, on the Mac itself. */
+  redirectUri: string;
+}
+
+/** Adds the Mac's host to the account its sign-in proved. The signature is the host key's, over the same text a DeviceRegistration signs, with the account from MacSignInState. */
+export interface MacSignInFinish {
+  key: DeviceKey;
+  name: string;
+  platform: Platform;
+  channel: Channel;
+  nonce: string;
+  signature: string;
+}
+
+/** The account the browser signed in to, and a challenge good for two minutes that the Mac signs as it would a DeviceRegistration and sends back in MacSignInFinish. */
+export interface MacSignInState {
+  account: string;
+  nonce: string;
+  expiresAt: string;
+}
+
 /** The name a member shows their teammates: their account's name, or their membership id's first eight characters when it has none. */
 export type MemberName = string;
 
@@ -1663,6 +1689,23 @@ export interface RenewalCharge {
   amount: Money;
 }
 
+/** Which address is the store reviewers' demo account, so an app can tell it apart before sending a password anywhere but Clerk. */
+export interface ReviewAccount {
+  /** SHA-256 of the address, trimmed and lowercased, in lowercase hex. */
+  addressSha256: string;
+}
+
+/** A one-time Clerk sign-in token for the demo account, which the app signs in with by Clerk's ticket strategy. */
+export interface ReviewSignIn {
+  ticket: string;
+}
+
+/** The demo account's address and password, sent only once the app has matched the address against ReviewAccount. */
+export interface ReviewSignInRequest {
+  email: string;
+  password: string;
+}
+
 /** Why a device left its account: removed from another device or the web, signed out on the device itself, or the account was deleted. */
 export type RevokeReason = "removed" | "signed_out" | "account_deleted";
 export const revokeReasonValues: readonly RevokeReason[] = [
@@ -1843,6 +1886,13 @@ export interface ShareMember {
   you: boolean;
 }
 
+/** Moves the account's registration of `project` with the org to `host`, the project's home. Refused when the account no longer shares `project` with the org, so a move never brings back a share the person ended. */
+export interface ShareMove {
+  org: OrgId;
+  project: ProjectKey;
+  host: DeviceKey;
+}
+
 /** Host only: start a share. The server answers opened or refused. Hosts on 0.5.3 and earlier send no viewers check, and their shares are open to anyone signed in who has the link. */
 export interface ShareOpen {
   type: "open";
@@ -1916,6 +1966,12 @@ export interface ShareRegistry {
 /** A project the account no longer shares with the org. */
 export interface ShareRemoval {
   org: OrgId;
+  project: ProjectKey;
+}
+
+/** Moves the account's registration of `from`, in whichever of its orgs holds it, paid or not, to `project`, the repository's new key. When the account already registers `project`, the one the person tapped Share for last stays. Only the host the registration names moves it; another of the account's hosts is refused, and so is a rename of a project the account shares with no org. */
+export interface ShareRename {
+  from: ProjectKey;
   project: ProjectKey;
 }
 
@@ -2442,6 +2498,9 @@ export interface Definitions {
   LiveRevoked: LiveRevoked;
   LiveRole: LiveRole;
   LiveServerMessage: LiveServerMessage;
+  MacSignIn: MacSignIn;
+  MacSignInFinish: MacSignInFinish;
+  MacSignInState: MacSignInState;
   MemberName: MemberName;
   MinimumVersions: MinimumVersions;
   ModConflict: ModConflict;
@@ -2548,6 +2607,9 @@ export interface Definitions {
   RecoveryKey: RecoveryKey;
   Relay: Relay;
   RenewalCharge: RenewalCharge;
+  ReviewAccount: ReviewAccount;
+  ReviewSignIn: ReviewSignIn;
+  ReviewSignInRequest: ReviewSignInRequest;
   RevokeReason: RevokeReason;
   ScheduledChange: ScheduledChange;
   Sealed: Sealed;
@@ -2571,6 +2633,7 @@ export interface Definitions {
   ShareHost: ShareHost;
   ShareId: ShareId;
   ShareMember: ShareMember;
+  ShareMove: ShareMove;
   ShareOpen: ShareOpen;
   ShareOpened: ShareOpened;
   SharePing: SharePing;
@@ -2582,6 +2645,7 @@ export interface Definitions {
   ShareRegistration: ShareRegistration;
   ShareRegistry: ShareRegistry;
   ShareRemoval: ShareRemoval;
+  ShareRename: ShareRename;
   ShareRole: ShareRole;
   ShareSeq: ShareSeq;
   ShareServerMessage: ShareServerMessage;

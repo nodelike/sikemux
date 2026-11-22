@@ -8,6 +8,7 @@ use crate::workbench::actions;
 use sikemux_calls::call;
 use sikemux_view::prefs::PreferenceChange;
 use std::cell::Cell;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -20,8 +21,8 @@ use gpui_kit::{
 
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_2XS_H,
-    TEXT_3XS, TEXT_XL, TEXT_XS_H,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_6, TEXT_2XS_H, TEXT_3XS,
+    TEXT_XL, TEXT_XS_H,
 };
 use crate::ui;
 use crate::workbench::{Strip, Workbench};
@@ -57,7 +58,6 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("down", ResultDown, search),
         KeyBinding::new("enter", OpenResult, search),
     ]);
-    pages::install(cx);
 }
 
 /// Settings, which stand in the stage's place while they are open.
@@ -95,8 +95,9 @@ pub struct Open {
     chosen: usize,
     /// A place a search led to, lit for a moment.
     flash: Option<(&'static str, Instant)>,
-    /// The section to scroll to once its page has drawn.
-    reveal_section: Cell<Option<&'static str>>,
+    /// The section to scroll to once its page has drawn, and where it drew.
+    reveal_section: Cell<Option<(Page, &'static str)>>,
+    revealed_at: rows::DrawnAt,
     scroll: ScrollHandle,
     /// Held while settings are open, so Escape and their other keys reach them wherever the
     /// person clicked.
@@ -145,6 +146,7 @@ pub fn open(bench: &mut Workbench, page: Page, window: &mut Window, cx: &mut Con
         chosen: 0,
         flash: None,
         reveal_section: Cell::new(None),
+        revealed_at: Rc::default(),
         scroll: ScrollHandle::new(),
         focus: cx.focus_handle(),
         nav: ScrollHandle::new(),
@@ -288,10 +290,13 @@ fn go_to(
             settings.pages.keybindings = None;
         }
         settings.flash = Some((entry.section, Instant::now()));
+        settings.pages.advanced |= pages::folded(entry.section);
         settings
             .search
             .update(cx, |search, cx| search.set_value("", window, cx));
-        settings.reveal_section.set(Some(entry.section));
+        settings
+            .reveal_section
+            .set(Some((entry.page, entry.section)));
     });
     if shown.is_none() {
         return;
@@ -317,8 +322,11 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
     let mut dialogs = Vec::new();
     if settings.query.trim().is_empty() {
         let page = settings.page;
+        let wanted = (settings.reveal_section.get())
+            .filter(|(wanted_page, _)| *wanted_page == page)
+            .map(|(_, section)| (section, settings.revealed_at.clone()));
         cx.set_global(rows::Shown(page.name()));
-        cx.set_global(rows::Drawn::default());
+        cx.set_global(rows::Reveal(wanted));
         pages::prepare(bench, page, window, cx);
         dialogs = pages::dialogs(bench, &this, window, cx);
     }
@@ -581,11 +589,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         true => vec![div()
             .flex()
             .flex_col()
-            .p(SPACE_1)
-            .bg(rows::card_fill(cx))
-            .border(crate::theme::border())
-            .border_color(t.border)
-            .rounded(theme::radius_3())
+            .mx(-SPACE_3)
             .children(found.iter().enumerate().map(|(at, entry)| {
                 let (entry, this) = (*entry, this.clone());
                 let chosen = at == settings.chosen;
@@ -624,11 +628,13 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                 .filter(|(_, at)| at.elapsed() < FLASH)
                 .map(|(section, _)| section);
             let mut sections = pages::render(bench, settings, flash, &this, window, cx);
-            if let Some(wanted) = settings.reveal_section.take() {
-                let drawn = cx.global::<rows::Drawn>().0.borrow();
-                if let Some(at) = drawn.iter().position(|title| title.as_ref() == wanted) {
-                    settings.scroll.scroll_to_item(at + 1);
-                }
+            if let Some(at) = settings.revealed_at.take() {
+                let offset = settings.scroll.offset();
+                let top = settings.scroll.bounds().top() + SPACE_3;
+                settings
+                    .scroll
+                    .set_offset(gpui_kit::point(offset.x, offset.y - (at.top() - top)));
+                settings.reveal_section.set(None);
             }
             sections.extend(dialogs);
             sections
@@ -671,6 +677,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                         .flex_1()
                         .min_w_0()
                         .h_full()
+                        .bg(rows::card_fill(cx))
                         .child(
                             div()
                                 .id("settings-scroll")
@@ -684,7 +691,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                                 .pb(px(40.))
                                 .flex()
                                 .flex_col()
-                                .gap(SPACE_4)
+                                .gap(px(28.))
                                 .child(div().w_full().max_w(px(760.)).mx_auto().child(header))
                                 .children(body.into_iter().map(|part| {
                                     div().w_full().max_w(px(760.)).mx_auto().child(part)

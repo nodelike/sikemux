@@ -600,6 +600,23 @@ struct Relay: Codable, Hashable, Sendable {
     var quicPort: Int?
 }
 
+/// Which address is the store reviewers' demo account, so an app can tell it apart before sending a password anywhere but Clerk.
+struct ReviewAccount: Codable, Hashable, Sendable {
+    /// SHA-256 of the address, trimmed and lowercased, in lowercase hex.
+    var addressSha256: String
+}
+
+/// A one-time Clerk sign-in token for the demo account, which the app signs in with by Clerk's ticket strategy.
+struct ReviewSignIn: Codable, Hashable, Sendable {
+    var ticket: String
+}
+
+/// The demo account's address and password, sent only once the app has matched the address against ReviewAccount.
+struct ReviewSignInRequest: Codable, Hashable, Sendable {
+    var email: String
+    var password: String
+}
+
 /// What the host sealed for the share's viewers: a 12-byte nonce, then AES-256-GCM ciphertext and tag, in unpadded base64url. The key lives only in the share's link, so the server cannot read it.
 typealias Sealed = String
 

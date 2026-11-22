@@ -302,7 +302,7 @@ private struct AccountNote: View {
 private struct BringItIn: View {
     @Environment(\.palette) private var palette
     @State private var copied = false
-    private static let download = URL(string: "https://sikemux.com/phone")!
+    private static let download = URL(string: "https://sikemux.com/phone?utm_source=ios-app&utm_medium=share")!
 
     var body: some View {
         let user = Account.shared.user

@@ -9,7 +9,7 @@ import { settleSeatPause } from "./seat-pause.ts";
 /** Something to ask of the provider, kept until it is taken. */
 export type ProviderCall =
   | {
-      action: "cancel_now" | "cancel_at_period_end";
+      action: "cancel_now" | "cancel_at_period_end" | "keep_cancel";
       subscription: HeldSubscription;
     }
   | { action: "refund"; providerPaymentId: string; amount?: number };
@@ -124,6 +124,8 @@ export async function makeDueCalls(
               call.provider_payment_id,
               Number(call.refund_amount),
             ));
+      else if (call.action === "keep_cancel" && call.subscription)
+        await keepCancel(db, provider, held(call.subscription));
       else if (call.subscription)
         await provider.cancel(
           held(call.subscription),
@@ -148,4 +150,69 @@ export async function makeDueCalls(
       busy.delete(key);
     }
   }
+}
+
+/**
+ * Puts the person's cancel back at the provider, only while it still stands here: not taken back,
+ * and the plan neither ended nor paused for a seat, whose settle carries the cancel itself. The
+ * provider takes no cancel at the period's end on a paused plan. A take-back clears the cancel in
+ * its own turn before it asks the provider, so the two never cross.
+ */
+async function keepCancel(
+  db: Kysely<Tables>,
+  provider: Calling,
+  subscription: HeldSubscription,
+) {
+  await db.transaction().execute(async (trx) => {
+    if (
+      !(await takeCancelTurn(trx, subscription.providerSubscriptionId, false))
+    )
+      throw new Error("A take-back of this cancel is under way.");
+    const stands = await trx
+      .selectFrom("subscriptions")
+      .innerJoin(
+        "billing_customers",
+        "billing_customers.id",
+        "subscriptions.customer_id",
+      )
+      .select("subscriptions.id")
+      .where("billing_customers.provider", "=", provider.name)
+      .where(
+        "subscriptions.provider_subscription_id",
+        "=",
+        subscription.providerSubscriptionId,
+      )
+      .where("subscriptions.product", "=", subscription.product)
+      .where("subscriptions.cancel_asked_at", "is not", null)
+      .where("subscriptions.status", "<>", "ended")
+      .where("subscriptions.status", "in", ["active", "lapsed"])
+      .where("subscriptions.paused_for_seat_at", "is", null)
+      .executeTakeFirst();
+    if (stands) await provider.cancel(subscription, "period_end");
+  });
+}
+
+/**
+ * Takes, until the transaction ends, the turn to change whether the provider holds a
+ * subscription's cancel. A take-back waits for its turn; a re-cancel or a seat pause whose turn is
+ * taken tries again later, since the stand-in provider applies its events while a call is under way.
+ */
+export async function takeCancelTurn(
+  trx: Kysely<Tables>,
+  providerSubscriptionId: string,
+  wait = true,
+) {
+  const key = `cancel:${providerSubscriptionId}`;
+  if (wait) {
+    await sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`.execute(
+      trx,
+    );
+    return true;
+  }
+  const { rows } = await sql<{
+    taken: boolean;
+  }>`select pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) as taken`.execute(
+    trx,
+  );
+  return rows[0]?.taken === true;
 }

@@ -98,7 +98,7 @@ fn opencode_call(update: &mut Value, servers: &[String]) {
 /// `sikemux-tools` and its tool `page_show`. A server's name is joined to its
 /// tool's with an underscore, OMP making its dashes underscores too, so only the
 /// servers' own names tell where one ends.
-fn split(name: &str, servers: &[String]) -> Option<(String, String)> {
+pub(super) fn split(name: &str, servers: &[String]) -> Option<(String, String)> {
     servers
         .iter()
         .map(String::as_str)

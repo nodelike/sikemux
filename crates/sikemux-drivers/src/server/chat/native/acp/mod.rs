@@ -27,6 +27,7 @@ use crate::server::chat::prompt::{command_parts, prompt_blocks};
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::super::Respond;
+use super::antigravity;
 use super::mcp_calls;
 use super::parts::inline_picture;
 use super::pending::{Answered, Purpose};
@@ -42,7 +43,7 @@ pub struct Asked {
 
 const COMPACT: &str = "compact";
 
-/// The error code an agent turns a prompt down with when it needs a sign-in.
+/// The error code an agent turns a prompt, or a new session, down with when it needs a sign-in.
 const AUTH_REQUIRED: i64 = -32000;
 
 /// Shows a saved session of an agent that keeps one Sikemux can read, as the agent would
@@ -59,6 +60,11 @@ pub fn replay_saved(launch: &ChatLaunch, session: &str, sink: &Telling) -> Resul
         sink.update(session, update);
     }
     Ok(())
+}
+
+fn is_antigravity(launch: &ChatLaunch) -> bool {
+    crate::agent_catalog::AgentKind::from_name(&launch.provider)
+        == Some(crate::agent_catalog::AgentKind::Antigravity)
 }
 
 /// Whether the chat runs on its agent's own free models, which come and go, rather than on a
@@ -134,6 +140,35 @@ fn describe(error: &Value) -> String {
         .map_or_else(|_| error_text(error), |error| error.to_string())
 }
 
+/// Why the agent would not open the chat's session, in its own words.
+enum Refused {
+    SignIn(String),
+    Other(String),
+}
+
+impl Refused {
+    fn of(error: &Value) -> Self {
+        let said = describe(error);
+        if error.get("code").and_then(Value::as_i64) == Some(AUTH_REQUIRED) {
+            Self::SignIn(said)
+        } else {
+            Self::Other(said)
+        }
+    }
+}
+
+impl From<String> for Refused {
+    fn from(error: String) -> Self {
+        Self::Other(error)
+    }
+}
+
+impl From<&str> for Refused {
+    fn from(error: &str) -> Self {
+        Self::Other(error.to_owned())
+    }
+}
+
 /// The largest picture handed to an ACP agent as itself. Agents differ in
 /// whether they shrink pictures, so this stays within what the model takes as sent.
 const MAX_IMAGE_BYTES: u64 = 3_750_000;
@@ -193,6 +228,7 @@ struct Driver {
     /// The agent's own name for its compaction command.
     compact: &'static str,
     free_models: bool,
+    antigravity: bool,
 }
 
 impl Driver {
@@ -302,6 +338,9 @@ impl Reads for Driver {
                 if !crate::server::chat::prompt::drop_for_agent(&mut update) {
                     return;
                 }
+                if self.antigravity {
+                    antigravity::as_common_call(&mut update, &self.servers);
+                }
                 mcp_calls::as_mcp_call(&mut update, &self.servers);
                 offer_compact(&mut update, self.compact);
                 let session_id = params
@@ -377,16 +416,17 @@ impl Acp {
         driver: &Driver,
         launch: &ChatLaunch,
         servers: Vec<McpServer>,
-    ) -> Result<(String, Value), String> {
+    ) -> Result<(String, Value), Refused> {
+        let request = NewSessionRequest::new(&launch.cwd)
+            .mcp_servers(servers)
+            .meta(native::session_meta(&launch.provider));
         let setup = driver
-            .call(
-                AGENT_METHOD_NAMES.session_new,
-                NewSessionRequest::new(&launch.cwd)
-                    .mcp_servers(servers)
-                    .meta(native::session_meta(&launch.provider)),
-                None,
-            )
-            .await?;
+            .rpc
+            .start(AGENT_METHOD_NAMES.session_new, params(request)?)
+            .map_err(|error| describe(&error))?
+            .answer(None)
+            .await
+            .map_err(|error| Refused::of(&error))?;
         let session_id = setup
             .get("sessionId")
             .and_then(Value::as_str)
@@ -403,7 +443,7 @@ impl Acp {
         driver: &Driver,
         launch: &ChatLaunch,
         reopens: Reopens,
-    ) -> Result<(String, Value), String> {
+    ) -> Result<(String, Value), Refused> {
         let servers = servers::tool_servers(launch);
         let Some(existing) = launch.resume_id.clone() else {
             return Self::open_new(driver, launch, servers).await;
@@ -443,7 +483,7 @@ impl Acp {
             Err(_) if driver.sink.reloading() && !driver.sink.has_answered() => {
                 Self::open_new(driver, launch, servers).await
             }
-            Err(error) => Err(describe(&error)),
+            Err(error) => Err(Refused::of(&error)),
         }
     }
 
@@ -564,6 +604,7 @@ impl Backend for Acp {
             servers: server_names(launch),
             compact: compact_word(launch),
             free_models: on_free_models(launch),
+            antigravity: is_antigravity(launch),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
         let failed = |error: String| process.start_error(error);
@@ -578,6 +619,9 @@ impl Backend for Acp {
         let command =
             crate::agent_catalog::agent(&launch.provider).map_or("", |entry| entry.command);
         let sign_in = crate::acp::sign_in::methods(&initialized, command);
+        let key_sign_in = crate::agent_catalog::AgentKind::from_name(&launch.provider)
+            .and_then(|agent| agent.ops().key_sign_in(&launch.env));
+        let signs_in = !sign_in.is_empty();
         let initialized: InitializeResponse =
             serde_json::from_value(initialized).map_err(|error| failed(error.to_string()))?;
         if let Some(agent) = &initialized.agent_info {
@@ -600,7 +644,25 @@ impl Backend for Acp {
             Reopens::No
         };
 
-        let (session_id, setup) = Self::open(&driver, launch, reopens).await.map_err(failed)?;
+        let opened = match Self::open(&driver, launch, reopens).await {
+            Err(Refused::SignIn(_)) if key_sign_in.is_some() => {
+                let method = json!({ "methodId": key_sign_in });
+                (driver
+                    .call(AGENT_METHOD_NAMES.authenticate, method, None)
+                    .await)
+                    .map_err(failed)?;
+                Self::open(&driver, launch, reopens).await
+            }
+            opened => opened,
+        };
+        let (session_id, setup) = match opened {
+            Ok(opened) => opened,
+            Err(Refused::SignIn(said)) if signs_in => {
+                driver.sink.needs_sign_in();
+                return Err(said);
+            }
+            Err(Refused::SignIn(error) | Refused::Other(error)) => return Err(failed(error)),
+        };
         driver.sink.loaded();
 
         let mut acp = Self {
@@ -774,6 +836,7 @@ impl Backend for Acp {
             servers: server_names(launch),
             compact: compact_word(launch),
             free_models: on_free_models(launch),
+            antigravity: is_antigravity(launch),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
         Ok(Self {

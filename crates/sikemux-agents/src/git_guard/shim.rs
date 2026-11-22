@@ -249,17 +249,35 @@ pub fn run_if_git() -> Option<i32> {
     let mut args = std::env::args_os();
     let name = args.next()?;
     let name = Path::new(&name).file_name()?.to_str()?;
-    match name
+    let name = name
         .strip_suffix(std::env::consts::EXE_SUFFIX)
-        .unwrap_or(name)
-    {
-        "git" => Some(run(args.collect())),
-        HOOK => Some(run_hook(args.next().is_some_and(|arg| arg == SHIP_ONLY))),
-        TIMEOUT => Some(crate::timeout::run(args.collect())),
-        footer::LINK => Some(footer::run(args.collect())),
-        identity::HELPER => Some(credential::run(args.collect())),
-        program => (stands_in_for(program) || linked_as(program))
-            .then(|| run_program(program, args.collect())),
+        .unwrap_or(name);
+    let ours = matches!(
+        name,
+        "git" | HOOK | TIMEOUT | footer::LINK | identity::HELPER
+    ) || stands_in_for(name)
+        || linked_as(name);
+    if !ours {
+        return None;
+    }
+    die_on_closed_pipe();
+    Some(match name {
+        "git" => run(args.collect()),
+        HOOK => run_hook(args.next().is_some_and(|arg| arg == SHIP_ONLY)),
+        TIMEOUT => crate::timeout::run(args.collect()),
+        footer::LINK => footer::run(args.collect()),
+        identity::HELPER => credential::run(args.collect()),
+        program => run_program(program, args.collect()),
+    })
+}
+
+/// Rust ignores SIGPIPE, so a message written after the caller closed its end
+/// panicked; the programs the shim stands in for just stop.
+fn die_on_closed_pipe() {
+    #[cfg(unix)]
+    // SAFETY: restoring the default action of a signal has no other effect.
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 }
 
@@ -373,7 +391,7 @@ fn run_hook(ship_only: bool) -> i32 {
         return 0;
     };
     if let Some(refusal) = (!ship_only)
-        .then(|| super::refusal(command, &cwd, &others))
+        .then(|| super::refusal(command, &cwd, &others, &in_project))
         .flatten()
     {
         eprintln!("{refusal}");
@@ -845,7 +863,7 @@ fn run(args: Vec<OsString>) -> i32 {
         .collect();
     let private_index = std::env::var_os("GIT_INDEX_FILE").is_some();
     let real = || sikemux_process::user_environment::command(&git);
-    if let Some(refusal) = super::refused(&words, private_index, &real, &others) {
+    if let Some(refusal) = super::refused(&words, private_index, &real, &others, &in_project) {
         eprintln!("{refusal}");
         return 1;
     }
@@ -912,6 +930,24 @@ fn others(dir: &Path, paths: &[String]) -> Option<Vec<String>> {
     )
     .ok()?;
     serde_json::from_value(answer.get("others")?.clone()).ok()
+}
+
+/// Whether `dir` is in a project checkout the core that started this agent manages. Git run
+/// outside every agent's processes, or by a build, is never in one.
+fn in_project(dir: &Path) -> Option<bool> {
+    if std::env::var_os(vars::AGENT_ID).is_none() || std::env::var_os(vars::BUILD_TURN).is_some() {
+        return Some(false);
+    }
+    let answer = crate::cli::client::attempt(
+        &footer::endpoint()?,
+        &dir.to_string_lossy(),
+        None,
+        crate::cli::protocol::GIT_GUARD_METHOD,
+        &json!({ "in_project": true }),
+        GUARD_WAIT,
+    )
+    .ok()?;
+    answer.get("in_project")?.as_bool()
 }
 
 const GUARD_WAIT: Duration = Duration::from_secs(10);

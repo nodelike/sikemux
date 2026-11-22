@@ -26,10 +26,10 @@ import { useTranscriptScroll } from '@/chat/transcriptScroll';
 import { HostContext } from '@/chat/hostFiles';
 import { WorktreeNote, worktreeOf } from '@/chat/Worktree';
 import { LiveSheet, LiveStrip } from '@/chat/Live';
-import { CallDock } from '@/calls/CallDock';
+import { CallRows } from '@/calls/CallRows';
 import { TurnLine } from '@/calls/TurnLine';
-import { queueOf, useKept, waitingCall } from '@/calls/hostCalls';
-import { TELL_CHIEF, sendToTold } from '@shared/calls/words';
+import { queueOf } from '@/calls/hostCalls';
+import { TELL_CHIEF, sendToTold, waitingCalls } from '@shared/calls/words';
 import { useOnScreen } from '@/calls/onScreen';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
 import { stripOf, stripOwner } from '@/chat/messageMeta';
@@ -40,7 +40,6 @@ import { Activity } from '@/chat/Activity';
 import { SmartPick } from '@/chat/Notices';
 import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
 import { ActsContext, AgentContext, ChiefContext, liveRunKey, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
-import { placeResults, ResultCard } from '@/chat/ResultCard';
 import { crumbsOf, useCrew } from '@/devices/Crew';
 import { useChat } from '@/chat/useChat';
 import { useHostCall } from '@/core/hostCalls';
@@ -132,10 +131,9 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   if (editing !== undefined && !canEdit) setEditing(undefined);
   const editable = (message: ChatMessage) =>
     canEdit && message.role === 'user' && message.promptId !== undefined && !message.context?.length && !chat.unsent.has(message.id);
-  const results = useMemo(() => placeResults(state.results, rows), [state.results, rows]);
   const marks = useMemo(
-    () => [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing, results],
-    [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing, results],
+    () => [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing],
+    [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing],
   );
   const subagents = useMemo(() => subagentsOf(state.messages, state.subagentRows), [state.messages, state.subagentRows]);
   const { handoff, guests, plan, runningSubagents, tasks, queued } = state;
@@ -224,32 +222,25 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const recalls = !watchOnly && (queued.length > 0 || state.messages.some((message) => message.role === 'user'));
   const strip = liveShown ? <LiveStrip work={work} provider={provider} onOpen={openLive} /> : null;
   const input = useRef<TextInput>(null);
-  const keptCalls = useKept(core);
-  // The hub keeps the host's calls as the same array while none changes, so typing beside a docked call does not
-  // redraw it on every view the host sends.
+  // The hub keeps the host's calls as the same array while none changes, so typing beside the calls' rows does not
+  // redraw them on every view the host sends.
   const calls = live.snapshot?.calls;
   const queue = useMemo(() => queueOf(calls, agentId), [calls, agentId]);
-  const docked = waitingCall(queue, keptCalls, agentId);
-  const canAnswerCall = !watchOnly && live.status === 'open';
   // The composer says who an idle chat's words go to, as the Mac does: the chief, or a worker the chief hears.
   const composerTo = state.chief
     ? { words: t(TELL_CHIEF), commands: true }
     : state.chiefHears && info?.name
       ? { words: sendToTold(info.name, t), commands: false }
       : undefined;
-  // React's compiler keeps this element while its inputs stay the same, so a view from the host leaves the card be.
-  const dock = docked ? (
-    <CallDock
-      key={docked.id}
-      core={core}
-      calls={calls}
-      call={docked}
-      chat={agentId}
-      queue={queue}
-      connection={connection}
-      canAnswer={canAnswerCall}
-      report={session.report}
-    />
+  const dock = queue.length ? (
+    <View style={styles.calls}>
+      <CallRows
+        calls={queue}
+        counted={(count) => waitingCalls(count, t)}
+        opens
+        onPress={(call) => router.push(`/device/${core}/call/${call.id}`)}
+      />
+    </View>
   ) : null;
   const unreachable = chat.attached !== 'live' && live.status === 'closed';
   const status = unreachable ? (
@@ -351,16 +342,12 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                       onToggle={() => toggleWork(fold.id)}
                                     />
                                   ) : null;
-                                  const finished = results
-                                    .get(index)
-                                    ?.map((result) => <ResultCard key={result.agentId} row={result} connection={connection} />);
                                   if (hidden)
-                                    return note || summary || head || finished ? (
+                                    return note || summary || head ? (
                                       <>
                                         {note}
                                         {head}
                                         {summary}
-                                        {finished}
                                       </>
                                     ) : (
                                       <View />
@@ -384,7 +371,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                         followsOwn={plainlySent(item) && plainlySent(rows[index - 1])}
                                         followedByOwn={plainlySent(item) && plainlySent(rows[index + 1])}
                                       />
-                                      {finished}
                                     </>
                                   );
                                 }}
@@ -419,7 +405,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                         turn={state.turn}
                                         connection={connection}
                                         canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
-                                        docked={!!docked}
+                                        docked={queue.length > 0}
                                         onLook={() => input.current?.focus()}
                                       />
                                     ) : null}
@@ -577,6 +563,14 @@ const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     more: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
     transcript: { flex: 1 },
+    calls: {
+      marginBottom: 8,
+      paddingHorizontal: 12,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      backgroundColor: colors.overlay,
+    },
     alone: { justifyContent: 'flex-end' },
     content: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 28 },
     jumpPlace: { position: 'absolute', bottom: 8, alignSelf: 'center' },

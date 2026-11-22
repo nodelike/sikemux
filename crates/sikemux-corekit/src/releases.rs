@@ -1,9 +1,11 @@
-//! What a release says about itself: its notes, read from the GitHub release,
-//! and who made it, read from the commits since the previous release on the
-//! same channel, or since the build whose notes the person last read. Avatars are fetched here too, because the window only draws
-//! images handed to it as `data:` URLs.
+//! What a release says about itself: its notes, baked into the build or read from the GitHub
+//! release, and who made it, read from the commits since the previous release on the same
+//! channel, or since the build whose notes the person last read. What GitHub answered is kept
+//! on disk. Avatars are fetched here too, because the window only draws images handed to it
+//! as `data:` URLs.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
@@ -25,6 +27,11 @@ const COMMITS_PER_PAGE: usize = 100;
 const AVATAR_PIXELS: u32 = 64;
 const MAX_AVATAR_BYTES: usize = 64 * 1024;
 const MAX_AVATARS: usize = 64;
+/// The notes of the release this was built as, and every change since the last stable
+/// release, both written by `scripts/stamp-nightly.sh` just before the release build.
+const BAKED_NOTES: &str = include_str!("../../../RELEASE_NOTES.md");
+const BAKED_CHANGES: &str = include_str!("../../../RELEASE_CHANGES.md");
+const CACHE_FILE: &str = "release-notes.json";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +42,9 @@ pub struct ReleaseNotes {
     pub commits: Option<u32>,
     pub compare: Option<String>,
     pub contributors: Vec<Contributor>,
+    /// Nothing GitHub holds would add to it.
+    #[serde(default)]
+    pub complete: bool,
 }
 
 #[derive(Deserialize)]
@@ -102,12 +112,24 @@ pub fn bundled_credits(manifest: &serde_json::Value) -> Option<ReleaseCredits> {
     Some(credits)
 }
 
-/// The notes of one published release, and everyone who committed to it. Given the build
-/// the person last read, the notes list every change since that build instead of the
-/// release's own. The notes are what matter, so a failed contributor lookup leaves the
-/// credits empty rather than failing the whole answer.
-pub async fn release_notes(version: String, since: Option<String>) -> Result<ReleaseNotes, String> {
-    let parsed = Version::parse(&version)
+/// The notes this host holds without asking anyone: those fetched before, else those the
+/// build was made with. They are `complete` only once fetched, as a build cannot know its
+/// release date or who committed to it.
+pub fn held_notes(
+    version: String,
+    since: Option<String>,
+    dir: Option<&Path>,
+) -> Result<ReleaseNotes, String> {
+    let (_, since) = range(&version, since)?;
+    if let Some(known) = dir.and_then(|dir| cached_notes(dir, &cache_key(&version, &since))) {
+        return Ok(known);
+    }
+    baked_notes(BAKED_NOTES, BAKED_CHANGES, &version, since.as_deref())
+        .ok_or_else(|| format!("this build holds no notes for v{version}"))
+}
+
+fn range(version: &str, since: Option<String>) -> Result<(Version, Option<String>), String> {
+    let parsed = Version::parse(version)
         .map_err(|_| "a release version must be a semantic version".to_owned())?;
     let since = since
         .map(|since| match Version::parse(&since) {
@@ -117,11 +139,103 @@ pub async fn release_notes(version: String, since: Option<String>) -> Result<Rel
         })
         .transpose()?
         .flatten();
-    let key = match &since {
+    Ok((parsed, since))
+}
+
+fn cache_key(version: &str, since: &Option<String>) -> String {
+    match since {
         Some(since) => format!("{since}...{version}"),
-        None => version.clone(),
+        None => version.to_owned(),
+    }
+}
+
+/// The changes `scripts/stamp-nightly.sh` lists under each nightly since the last stable.
+struct Shipped<'a> {
+    tag: &'a str,
+    commits: u32,
+    changes: Vec<&'a str>,
+}
+
+/// The last stable release's tag, and what each nightly since it shipped, oldest first.
+fn shipped_since_stable(changes: &str) -> Option<(&str, Vec<Shipped<'_>>)> {
+    let mut lines = changes.lines();
+    let base = lines.next()?.strip_prefix("# Changes since ")?;
+    let mut shipped: Vec<Shipped> = Vec::new();
+    for line in lines {
+        if let Some(heading) = line.strip_prefix("## ") {
+            let (tag, commits) = heading.split_once(" · ")?;
+            shipped.push(Shipped {
+                tag,
+                commits: commits.strip_suffix(" commits")?.parse().ok()?,
+                changes: Vec::new(),
+            });
+        } else if let Some(change) = line.strip_prefix("- ") {
+            shipped.last_mut()?.changes.push(change);
+        }
+    }
+    Some((base, shipped))
+}
+
+fn baked_notes(
+    notes: &str,
+    changes: &str,
+    version: &str,
+    since: Option<&str>,
+) -> Option<ReleaseNotes> {
+    let tag = format!("v{version}");
+    let own = notes.lines().next() == Some(format!("# Sikemux {tag}").as_str());
+    let ranges = shipped_since_stable(changes)
+        .filter(|(_, shipped)| shipped.last().is_some_and(|last| last.tag == tag));
+    let (notes, credits) = match (since, ranges) {
+        (Some(since), Some((base, shipped))) => {
+            let from = format!("v{since}");
+            let after = match shipped.iter().position(|it| it.tag == from) {
+                Some(at) => at + 1,
+                None if from == base => 0,
+                None => return None,
+            };
+            let later = shipped.get(after..)?;
+            let changes = later.iter().flat_map(|it| it.changes.iter().copied());
+            let commits = later.iter().map(|it| it.commits).sum();
+            (new_since(since, changes), Some((from, commits)))
+        }
+        (Some(_), None) => return None,
+        (None, _) if !own => return None,
+        (None, ranges) => {
+            let credits = ranges.and_then(|(base, shipped)| {
+                let (own, before) = shipped.split_last()?;
+                let from = before.last().map_or(base, |it| it.tag);
+                Some((from.to_owned(), own.commits))
+            });
+            (Some(notes.to_owned()), credits)
+        }
     };
-    if let Some(known) = cached_notes(&key) {
+    let (compare, commits) = credits
+        .map(|(from, commits)| (format!("{REPO_WEB}/compare/{from}...{tag}"), commits))
+        .unzip();
+    Some(ReleaseNotes {
+        version: version.to_owned(),
+        notes,
+        date: None,
+        commits,
+        compare,
+        contributors: Vec::new(),
+        complete: false,
+    })
+}
+
+/// The notes of one published release, and everyone who committed to it. Given the build
+/// the person last read, the notes list every change since that build instead of the
+/// release's own. The notes are what matter, so a failed contributor lookup leaves the
+/// credits empty rather than failing the whole answer.
+pub async fn release_notes(
+    version: String,
+    since: Option<String>,
+    dir: Option<&Path>,
+) -> Result<ReleaseNotes, String> {
+    let (parsed, since) = range(&version, since)?;
+    let key = cache_key(&version, &since);
+    if let Some(known) = dir.and_then(|dir| cached_notes(dir, &key)) {
         return Ok(known);
     }
     let tag = format!("v{version}");
@@ -149,9 +263,10 @@ pub async fn release_notes(version: String, since: Option<String>) -> Result<Rel
         contributors: credits
             .map(|credits| credits.contributors)
             .unwrap_or_default(),
+        complete: true,
     };
-    if notes.compare.is_some() {
-        remember_notes(&key, notes.clone());
+    if let Some(dir) = dir.filter(|_| notes.compare.is_some()) {
+        remember_notes(dir, &key, &notes);
     }
     Ok(notes)
 }
@@ -159,15 +274,15 @@ pub async fn release_notes(version: String, since: Option<String>) -> Result<Rel
 /// The `feat`, `fix` and `perf` subjects since `since`, oldest first, listed as
 /// `scripts/stamp-nightly.sh` lists a nightly's.
 fn changes_since(since: &str, subjects: &[String]) -> Option<String> {
-    let changes: Vec<String> = subjects
-        .iter()
-        .filter_map(|subject| change(subject))
-        .map(|change| format!("- {change}"))
-        .collect();
-    if changes.is_empty() {
+    new_since(since, subjects.iter().filter_map(|subject| change(subject)))
+}
+
+fn new_since<'a>(since: &str, changes: impl Iterator<Item = &'a str>) -> Option<String> {
+    let listed: Vec<String> = changes.map(|change| format!("- {change}")).collect();
+    if listed.is_empty() {
         return None;
     }
-    Some(format!("## New since {since}\n\n{}\n", changes.join("\n")))
+    Some(format!("## New since {since}\n\n{}\n", listed.join("\n")))
 }
 
 /// `fix(rail)!: The chip waits. More detail` as `The chip waits.`; nothing for another kind.
@@ -303,24 +418,36 @@ async fn get_json<T: DeserializeOwned>(url: &str) -> Result<T, String> {
     response.json().await.map_err(|error| error.to_string())
 }
 
-fn notes_cache() -> &'static Mutex<HashMap<String, ReleaseNotes>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, ReleaseNotes>>> = OnceLock::new();
-    CACHE.get_or_init(Default::default)
+fn read_cache(dir: &Path) -> HashMap<String, ReleaseNotes> {
+    std::fs::read(dir.join(CACHE_FILE))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
 }
 
-fn cached_notes(version: &str) -> Option<ReleaseNotes> {
-    notes_cache()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .get(version)
-        .cloned()
+fn cached_notes(dir: &Path, key: &str) -> Option<ReleaseNotes> {
+    read_cache(dir).remove(key)
 }
 
-fn remember_notes(version: &str, notes: ReleaseNotes) {
-    notes_cache()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .insert(version.to_owned(), notes);
+/// Keeps notes only for this release and newer ones, since older ones are never shown again.
+fn remember_notes(dir: &Path, key: &str, notes: &ReleaseNotes) {
+    let Ok(shown) = Version::parse(&notes.version) else {
+        return;
+    };
+    let mut cache = read_cache(dir);
+    cache.retain(|_, kept| Version::parse(&kept.version).is_ok_and(|kept| kept >= shown));
+    cache.insert(key.to_owned(), notes.clone());
+    let written = serde_json::to_vec(&cache)
+        .map_err(std::io::Error::other)
+        .and_then(|json| {
+            let mut file = tempfile::NamedTempFile::new_in(dir)?;
+            std::io::Write::write_all(&mut file, &json)?;
+            file.persist(dir.join(CACHE_FILE))?;
+            Ok(())
+        });
+    if let Err(error) = written {
+        eprintln!("sikemux core: the release notes were not kept: {error}");
+    }
 }
 
 /// Avatars keyed by the address GitHub gave. One that fails to load is left
@@ -490,6 +617,56 @@ mod tests {
         elsewhere["credits"]["compare"] = json!("https://example.com/compare/a...b");
         assert_eq!(bundled_credits(&elsewhere), None);
         assert_eq!(bundled_credits(&json!({ "version": "0.4.2" })), None);
+    }
+
+    const NOTES: &str = "# Sikemux v0.6.3-nightly.566\n\n## New since 0.6.3-nightly.557\n\n- open each call as its own page\n";
+    const CHANGES: &str = "# Changes since v0.6.2
+
+## v0.6.3-nightly.12 · 40 commits
+
+- one-sheet Settings
+
+## v0.6.3-nightly.557 · 2 commits
+
+- calls fold to a row
+
+## v0.6.3-nightly.566 · 9 commits
+
+- open each call as its own page
+";
+
+    #[test]
+    fn whats_new_since_an_earlier_nightly_needs_no_network() {
+        let since = |since| baked_notes(NOTES, CHANGES, "0.6.3-nightly.566", since);
+        let read_557 = since(Some("0.6.3-nightly.557")).expect("held");
+        assert_eq!(
+            read_557.notes.as_deref(),
+            Some("## New since 0.6.3-nightly.557\n\n- open each call as its own page\n")
+        );
+        assert_eq!(read_557.commits, Some(9));
+        assert!(!read_557.complete);
+        let read_stable = since(Some("0.6.2")).expect("held");
+        assert_eq!(read_stable.commits, Some(51));
+        assert_eq!(
+            read_stable.compare.as_deref(),
+            Some("https://github.com/nodelike/sikemux/compare/v0.6.2...v0.6.3-nightly.566")
+        );
+        assert_eq!(
+            since(None).and_then(|own| own.notes).as_deref(),
+            Some(NOTES)
+        );
+        assert!(since(Some("0.6.1")).is_none());
+        assert!(baked_notes(NOTES, CHANGES, "0.6.3-nightly.570", None).is_none());
+    }
+
+    #[test]
+    fn fetched_notes_are_held_for_the_next_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut fetched = baked_notes(NOTES, CHANGES, "0.6.3-nightly.566", None).unwrap();
+        fetched.complete = true;
+        remember_notes(dir.path(), "0.6.3-nightly.566", &fetched);
+        let held = held_notes("0.6.3-nightly.566".into(), None, Some(dir.path())).unwrap();
+        assert!(held.complete);
     }
 
     #[test]

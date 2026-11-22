@@ -8,22 +8,20 @@ on:
     branches: [main]
     paths: &paths
       - "mobile/**"
+      # The Rust the phone links, then the crates scripts/generate-wire-types.mjs reads the phone's types from.
       - "crates/sikemux-mobile/**"
+      - "crates/sikemux-client/**"
+      - "crates/sikemux-wire/**"
       - "crates/sikemux-core/**"
       - "crates/sikemux-calls/**"
       - "crates/sikemux-corekit/**"
       - "crates/sikemux-git/**"
       - "crates/sikemux-agents/**"
-      - "crates/sikemux-kernel/**"
-      - "crates/sikemux-serve/**"
-      - "crates/sikemux-workspace/**"
-      - "crates/sikemux-chat/**"
-      - "crates/sikemux-remote/**"
-      - "crates/sikemux-repo/**"
-      - "crates/sikemux-board/**"
       - "crates/sikemux-drivers/**"
-      - "crates/sikemux-client/**"
-      - "crates/sikemux-wire/**"
+      - "crates/sikemux-view/**"
+      - "crates/sikemux-plugin-api/**"
+      - "crates/sikemux-markdown/**"
+      - "crates/sikemux-base/**"
       - "helpers/notch/Sources/NotchKit/**"
       - "helpers/notch/settings.json"
       - "scripts/generate-notch-icons.mjs"
@@ -31,7 +29,6 @@ on:
       - "scripts/generate-wire-types.mjs"
       - "brand/mark/**"
       - "app/assets/icons/**"
-      - "crates/sikemux-core/src/assets/agent-catalog.json"
       - "helpers/notch/Fonts/**"
       - "packaging/icons/**"
       - "Cargo.lock"
@@ -120,6 +117,10 @@ jobs:
         run: |
           # The generated wrapper gives up on downloading Gradle after 10 seconds, too short from a runner.
           sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          # Maven Central and the plugin portal now and then answer "not found" for files they hold, and
+          # no Gradle download is cached between runs, so the build's plugins are fetched first, with retries.
+          ./gradlew help --no-daemon || ./gradlew help --no-daemon --refresh-dependencies ||
+            ./gradlew help --no-daemon --refresh-dependencies
           ./gradlew :notify:testDebugUnitTest :widgets:compileDebugKotlin --no-daemon
 
   ios:

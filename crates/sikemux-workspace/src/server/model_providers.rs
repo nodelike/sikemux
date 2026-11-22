@@ -11,6 +11,7 @@ pub use sikemux_calls::model_providers::{
     RoutesParams, ServedModels,
 };
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -196,7 +197,14 @@ async fn check_key(provider: &Provider, key: &str) -> CoreResult<()> {
         .send()
         .await
         .map_err(|_| format!("Could not reach {} to check the key", provider.label))?;
-    match check_failure(&provider.label, response.status()) {
+    let status = response.status();
+    if status == StatusCode::BAD_REQUEST && provider.gemini.is_some() {
+        let said = response.text().await.unwrap_or_default();
+        if said.contains("valid API key") {
+            return Err(format!("{} did not accept that key", provider.label).into());
+        }
+    }
+    match check_failure(&provider.label, status) {
         Some(failure) => Err(failure.into()),
         None => Ok(()),
     }
@@ -238,7 +246,15 @@ async fn model_list(
         _ => {}
     }
     let list: ModelList = response.json().await.map_err(|_| Unlisted::NotAList)?;
-    Ok(list.data.into_iter().map(|model| model.id).collect())
+    let unprefixed = |id: String| match id.strip_prefix("models/") {
+        Some(name) => name.to_owned(),
+        None => id,
+    };
+    Ok(list
+        .data
+        .into_iter()
+        .map(|model| unprefixed(model.id))
+        .collect())
 }
 
 /// What the provider serves, by its OpenAI-compatible model list. `None` when
@@ -291,14 +307,16 @@ pub struct OnHand {
 
 /// The connected providers, read from memory with none asked, so a runner on this computer
 /// counts only once the person added it.
-pub fn on_hand(core: &Core) -> Vec<OnHand> {
+pub fn on_hand(core: &Core, cwd: &Path) -> Vec<OnHand> {
     let Some(store) = core.workspaces().providers() else {
         return Vec::new();
     };
     let (saved, feed) = (store.connected(), store.feed());
+    let org = project_org(core, cwd);
     (store.all().into_iter())
-        .filter(|provider| {
-            provider.custom || provider.org.is_some() || saved.contains(&provider.id)
+        .filter(|provider| match &provider.org {
+            Some(owner) => org.as_deref() == Some(owner.id.as_str()),
+            None => provider.custom || saved.contains(&provider.id),
         })
         .map(|provider| {
             let mut checked: Vec<_> = (core.workspaces().model_checks.of(&provider.id))
@@ -343,12 +361,24 @@ pub async fn models(core: &Arc<Core>, params: ProviderParams) -> CoreResult<Serv
 }
 
 /// The connected providers `agent` can run on, each with the models it serves. A provider
-/// that lists none is left out, unless the chat already runs on it.
+/// that lists none is left out, unless the chat already runs on it. None for an agent that
+/// picks its own models, whose own list is the whole menu.
 pub async fn routes(core: &Arc<Core>, params: RoutesParams) -> CoreResult<Vec<ModelRoute>> {
+    if providers::picks_own_models(&params.agent) {
+        return Ok(Vec::new());
+    }
     let listed = list(core).await?;
+    let org = match &params.project {
+        Some(project) => project_org(core, &core.workspaces().project_path(project)?),
+        None => None,
+    };
     let asking: Vec<_> = listed
         .into_iter()
         .filter(|provider| provider.connected && provider.agents.contains(&params.agent))
+        .filter(|provider| match &provider.org {
+            Some(owner) => org.as_deref() == Some(owner.id.as_str()),
+            None => true,
+        })
         .map(|provider| {
             let core = core.clone();
             tokio::spawn(async move {
@@ -398,6 +428,11 @@ pub async fn routes(core: &Arc<Core>, params: RoutesParams) -> CoreResult<Vec<Mo
         });
     }
     Ok(routes)
+}
+
+/// The org whose keys may run at `path`, if any.
+pub fn project_org(core: &Core, path: &Path) -> Option<String> {
+    (core.workspace_above().project_org)(core, path)
 }
 
 /// Asks the provider whether `model` calls tools the way agents need, now.

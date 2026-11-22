@@ -635,13 +635,9 @@ fn updates_row(updates: &Value) -> String {
     let checked = updates.get("checked");
     let state = match (updates["state"].as_str(), newest) {
         (Some("downloading" | "installing"), Some(newest)) => format!("installing {newest}"),
-        (Some("waiting"), Some(newest)) => {
-            let chats = updates["blockers"].as_array().map_or(0, Vec::len);
-            format!("{newest} waits for {chats} chat(s) to finish what they are doing")
-        }
         (Some("ready"), Some(newest)) => format!("restarting into {newest}"),
         (Some("failed"), _) => format!("the last update failed: {}", text("error")),
-        (_, Some(newest)) => format!("{newest} installs once no chat is in a turn"),
+        (_, Some(newest)) => format!("{newest} installs at once"),
         (_, None) => match (
             checked
                 .and_then(|checked| checked.get("at"))

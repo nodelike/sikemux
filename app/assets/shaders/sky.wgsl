@@ -2,13 +2,14 @@
 // a band, so it neither fills solid nor empties out, with each dot's colour taken from
 // a gradient running across the sky, and fading out down it.
 //
-// params: where the clock starts, how fast it runs, device pixels per point and how far
-// down the fade begins, then the gradient's three colours.
+// params: where the clock starts, how fast it runs, device pixels per point and the
+// radius in points of the sky's top-left corner, then the gradient's three colours.
 
 const PX_SIZE: f32 = 3.0;
 const SCALE: f32 = 1.4;
 const DENSITY_FLOOR: f32 = 0.12;
 const DENSITY_PEAK: f32 = 0.42;
+const FADE_FROM: f32 = 0.15;
 
 @fragment
 fn fs_main(input: Varying) -> @location(0) vec4<f32> {
@@ -22,7 +23,11 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
     let scale = setup.z;
     let size = shader.bounds.zw / scale;
     let local = (device - shader.bounds.xy) / scale;
-    let fade = 1.0 - clamp((local.y / size.y - setup.w) / (1.0 - setup.w), 0.0, 1.0);
+    // Only the top-left corner is the sheet's, so the other three fall outside the sky.
+    if (outside_corners(local, size + 2.0 * setup.w, setup.w)) {
+        discard;
+    }
+    let fade = 1.0 - clamp((local.y / size.y - FADE_FROM) / (1.0 - FADE_FROM), 0.0, 1.0);
     let point = vec2<f32>(local.x, size.y - local.y);
 
     let cell = (point - 0.5 * size) / PX_SIZE;

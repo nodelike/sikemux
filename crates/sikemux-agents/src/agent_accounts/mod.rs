@@ -211,6 +211,16 @@ impl Book {
             .unwrap_or_else(|| format!("{BUILT_IN}{provider}"))
     }
 
+    /// The account `provider`'s agents run on: the chosen one, else its first. Ask the book
+    /// `with_built_ins` gives, since the choice falls back to a built-in account.
+    pub fn in_use(&self, provider: &str) -> Option<&Profile> {
+        let chosen = self.chosen(provider);
+        let accounts = || (self.profiles.iter()).filter(|profile| profile.provider == provider);
+        accounts()
+            .find(|profile| profile.id == chosen)
+            .or_else(|| accounts().next())
+    }
+
     pub fn spec(&self, provider: &str, config_path: Option<&str>) -> AgentSpec {
         self.profiles
             .iter()
@@ -394,5 +404,31 @@ mod tests {
                 .map(|profile| profile.provider.as_str()),
             Some("codex")
         );
+    }
+
+    /// Settings › Agents said Claude was signed out while Models showed the account in use signed
+    /// in: with the built-in account in use, Agents read the first added account instead.
+    #[test]
+    fn the_built_in_account_is_in_use_until_another_is_chosen() {
+        let work = Profile {
+            id: "work".into(),
+            name: "Work".into(),
+            provider: "claude".into(),
+            accent: "#abcdef".into(),
+            executable_path: None,
+            config_path: Some("/accounts/work".into()),
+            environment_keys: Vec::new(),
+        };
+        let mut book = Book {
+            profiles: vec![work],
+            ..Book::default()
+        }
+        .with_built_ins();
+        let in_use = |book: &Book| book.in_use("claude").map(|profile| profile.id.clone());
+        assert_eq!(in_use(&book).as_deref(), Some("builtin-claude"));
+        book.selected.insert("claude".into(), "work".into());
+        assert_eq!(in_use(&book).as_deref(), Some("work"));
+        book.selected.insert("claude".into(), "removed".into());
+        assert_eq!(in_use(&book).as_deref(), Some("builtin-claude"));
     }
 }

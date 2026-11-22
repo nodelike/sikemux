@@ -190,7 +190,8 @@ async fn start(core: &Arc<Core>, project: &str) -> Result<(), String> {
                 .of(&project)
                 .map(|board| board.settings.clone());
             let settings = settings.unwrap_or_default();
-            let (mut launch, launcher) = core.workspaces().board_launch(
+            let (mut launch, launcher, notice) = super::launch_own(
+                &core,
                 settings.launcher.as_deref(),
                 folder,
                 settings.provider.as_deref(),
@@ -207,7 +208,12 @@ async fn start(core: &Arc<Core>, project: &str) -> Result<(), String> {
                 core.open_agents(),
             );
             launch.agent_id = agent.clone();
-            let chat = chat::begin(&core, launch, None, Some(launcher), false, false)
+            let starting = chat::Starting {
+                waits_for_person: false,
+                briefed: false,
+                notice,
+            };
+            let chat = chat::begin_as(&core, launch, None, Some(launcher), starting)
                 .inspect_err(|_| core.names().forget(&agent))?;
             let adding = Adding {
                 title: TITLE.to_owned(),

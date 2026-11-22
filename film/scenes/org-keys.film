@@ -13,7 +13,7 @@ orgkey here "Harbor Works" deepseek
 orgplan lapsed "Harbor Works"
 orgrole user "Harbor Works"
 settle 5
-settings "API providers"
+settings Models "API providers"
 settle 2
 snap org-keys
 cursor 900,600

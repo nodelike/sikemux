@@ -1,0 +1,20 @@
+# A call whose picked choice is long: Go with names it on one line, cut short inside the button.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies call-follow-up.json
+project storefront shop
+chat Wren
+title "Cache the product pages"
+say "question {\"questions\":[{\"question\":\"What should the product page do until its cache is warm?\",\"header\":\"Cold cache\",\"options\":[{\"label\":\"Serve the page straight from the database with a clear banner saying prices may lag, and warm the cache in the background for the next visitor\",\"description\":\"Nobody waits, a few visitors see the banner\"},{\"label\":\"Hold the request until the cache is warm\",\"description\":\"Slower first visit, never stale\"}]}]}"
+settle 8
+front Wren
+settle 2
+click "What should the product page do until its cache is warm?"
+settle 2
+click 900,245
+settle 2
+zoom 912,300 1.9
+settle 1
+snap calls-long-choice

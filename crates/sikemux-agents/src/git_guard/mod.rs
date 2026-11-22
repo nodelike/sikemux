@@ -19,6 +19,10 @@ use std::path::{Path, PathBuf};
 /// cannot say.
 pub(crate) type Others<'a> = dyn Fn(&Path, &[String]) -> Option<Vec<String>> + 'a;
 
+/// Whether a folder is in one of the project checkouts Sikemux manages, rather than a clone of
+/// the agent's own, such as of an outside repository. None when the core cannot say.
+pub(crate) type InProject<'a> = dyn Fn(&Path) -> Option<bool> + 'a;
+
 const COMMIT_INSTEAD: &str = "Commit with the git_commit tool: it takes the lines you wrote, and with `paths`, only those files or folders, with every change there no other agent wrote, such as files your own scripts made.";
 
 /// What a command does to a whole checkout, and what to run instead.
@@ -56,18 +60,23 @@ pub fn waits_for_turn(root: u32) -> bool {
 }
 
 /// Why `command`, a shell command line run in `cwd`, may not run, if it may not.
-pub fn refusal(command: &str, cwd: &Path, others: &Others) -> Option<String> {
+pub fn refusal(
+    command: &str,
+    cwd: &Path,
+    others: &Others,
+    in_project: &InProject,
+) -> Option<String> {
     segments(command).iter().find_map(|words| {
         let words = command_words(words)?;
         if let Some(script) = shell_script(words) {
-            return refusal(script, cwd, others);
+            return refusal(script, cwd, others, in_project);
         }
         let (first, args) = words.split_first()?;
         if base_name(first) != "git" {
             return None;
         }
         let git = || crate::git::git_command(cwd);
-        refused(args, false, &git, others)
+        refused(args, false, &git, others, in_project)
     })
 }
 
@@ -102,9 +111,10 @@ fn refused(
     private_index: bool,
     git: &dyn Fn() -> Command,
     others: &Others,
+    in_project: &InProject,
 ) -> Option<String> {
     let subcommand = git_args(args);
-    if let Some(why) = pushes_shared_branch(subcommand, args, git) {
+    if let Some(why) = pushes_shared_branch(subcommand, args, git, in_project) {
         return Some(why);
     }
     let touched = touches(subcommand, private_index)?;
@@ -175,26 +185,28 @@ fn refused(
     }
 }
 
-/// Why an agent's `git push` of a branch from a repository's own checkout may
+/// Why an agent's `git push` of a branch from a project's own checkout may
 /// not run: git_commit's push runs the land check first, and a raw push would
-/// skip it. Pushing tags stays allowed, as does git run by a build or a person.
+/// skip it. Pushing tags stays allowed, as does a push from a clone outside
+/// every project, which git_commit cannot reach.
 fn pushes_shared_branch(
     subcommand: &[String],
     args: &[String],
     git: &dyn Fn() -> Command,
+    in_project: &InProject,
 ) -> Option<String> {
-    use sikemux_process::vars;
     let (sub, rest) = subcommand.split_first()?;
     if sub != "push" || rest.iter().any(|arg| arg == "--tags") {
-        return None;
-    }
-    if std::env::var_os(vars::AGENT_ID).is_none() || std::env::var_os(vars::BUILD_TURN).is_some() {
         return None;
     }
     let options = args
         .get(..args.len() - subcommand.len())
         .unwrap_or_default();
-    if checkout(git(), options)?.linked || pushes_to_git_dependency(rest, options, git) {
+    let checkout = checkout(git(), options)?;
+    if checkout.linked
+        || in_project(&checkout.dir) == Some(false)
+        || pushes_to_git_dependency(rest, options, git)
+    {
         return None;
     }
     let refspecs: Vec<&str> = (rest.iter())
@@ -727,7 +739,8 @@ mod tests {
         git(&["add", "store.ts"]);
         git(&["commit", "-qm", "store"]);
         let others = |_: &Path, _: &[String]| Some(vec!["Cowslip".to_owned()]);
-        let refused = |command: &str| refusal(command, top, &others).is_some();
+        let in_project = |_: &Path| Some(true);
+        let refused = |command: &str| refusal(command, top, &others, &in_project).is_some();
         assert!(!refused("git reset --hard HEAD"));
         assert!(refused("git clean -fdx"));
         std::fs::write(top.join("store.ts"), "y\n").unwrap();
@@ -757,7 +770,8 @@ mod tests {
                 false => Vec::new(),
             })
         };
-        let refused = |command: &str| refusal(command, top, &others).is_some();
+        let in_project = |_: &Path| Some(true);
+        let refused = |command: &str| refusal(command, top, &others, &in_project).is_some();
         assert!(refused("git add store.ts"));
         assert!(refused("git commit -qm 'fix: store' -- store.ts"));
         assert!(refused(&format!("git apply -R '{}'", patch.display())));
@@ -795,9 +809,40 @@ mod tests {
         git(&["commit", "-qam", "z"]);
         assert!(!git(&["rebase", "side"]));
         let others = |_: &Path, _: &[String]| Some(vec!["Cowslip".to_owned()]);
-        let refused = |command: &str| refusal(command, top, &others).is_some();
+        let in_project = |_: &Path| Some(true);
+        let refused = |command: &str| refusal(command, top, &others, &in_project).is_some();
         assert!(!refused("git add store.ts"));
         std::fs::write(top.join("other.ts"), "o\n").unwrap();
         assert!(refused("git add store.ts other.ts"));
+    }
+
+    #[test]
+    fn a_clone_of_an_outside_repository_pushes_and_a_project_checkout_does_not() {
+        let top = tempfile::tempdir().unwrap();
+        let (upstream, clone) = (top.path().join("upstream"), top.path().join("clone"));
+        let git = |dir: &Path, args: &[&str]| {
+            let mut git = sikemux_process::user_environment::command("git");
+            git.args(["-c", "user.name=t", "-c", "user.email=t@t"]);
+            assert!(git.args(args).current_dir(dir).status().unwrap().success());
+        };
+        git(top.path(), &["init", "-q", "--bare", "upstream"]);
+        git(top.path(), &["clone", "-q", "upstream", "clone"]);
+        git(&clone, &["checkout", "-qb", "add-sikemux"]);
+        git(
+            &clone,
+            &["commit", "-q", "--allow-empty", "-m", "add Sikemux"],
+        );
+        let others = |_: &Path, _: &[String]| Some(Vec::new());
+        let push = "git push -u origin add-sikemux";
+
+        let outside = |_: &Path| Some(false);
+        assert_eq!(refusal(push, &clone, &others, &outside), None);
+        git(&clone, &["push", "-q", "-u", "origin", "add-sikemux"]);
+        git(&upstream, &["rev-parse", "--verify", "-q", "add-sikemux"]);
+
+        let project = |_: &Path| Some(true);
+        let unsure = |_: &Path| None;
+        assert!(refusal(push, &clone, &others, &project).is_some());
+        assert!(refusal(push, &clone, &others, &unsure).is_some());
     }
 }

@@ -25,7 +25,7 @@ const OUTCOME_LOG_LINES: usize = 30;
 const MOST_JOBS_WITH_OPTIONS: usize = 40;
 const CLOSEST_NAMES: usize = 5;
 
-fn path_of(detail: &JobDetail) -> String {
+pub fn path_of(detail: &JobDetail) -> String {
     match detail.group.as_deref() {
         Some(group) if !group.is_empty() => format!("{group}/{}", detail.name),
         _ => detail.name.clone(),

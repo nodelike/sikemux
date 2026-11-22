@@ -141,6 +141,7 @@ impl Board {
             ticket: None,
             trigger: None,
             fired_on: None,
+            about: None,
             ci: Vec::new(),
             arrivals: Vec::new(),
             recordings: Vec::new(),

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useEffectEvent } from 'react';
 import { useAuth } from '@clerk/expo';
 import * as SecureStore from 'expo-secure-store';
 import type { FoldCatch } from '@sikemux/protocol';
@@ -26,7 +26,10 @@ const GIVE_UP_AFTER = 3;
 const GIVE_UP_AFTER_MS = 60_000;
 const TOO_MANY = 429;
 
-const gateNow = externalValue<FoldGate>({ kind: 'checking' });
+const CHECKING: FoldGate = { kind: 'checking' };
+const OPEN: FoldGate = { kind: 'open' };
+
+const gateNow = externalValue<FoldGate>(CHECKING);
 const waitingNow = externalValue<Waiting | null>(null);
 const round = externalValue(0);
 let unasked: { userId: string; failures: number; since?: number } | null = null;
@@ -51,13 +54,13 @@ export function dropFold() {
 
 /** Asks the server again whether this account may stand, after it refused to add the phone. */
 export function checkFoldAgain() {
-  gateNow.set({ kind: 'checking' });
+  gateNow.set(CHECKING);
   round.set(round.get() + 1);
 }
 
 /** Lets the account in, and remembers it so it is not asked again. */
 export async function openFold(userId: string) {
-  gateNow.set({ kind: 'open' });
+  gateNow.set(OPEN);
   await SecureStore.setItemAsync(settledItem(userId), '1').catch(() => {});
   await SecureStore.setItemAsync(SIGNED_IN_HERE, '1').catch(() => {});
 }
@@ -117,11 +120,12 @@ function stillSignedIn(userId: string) {
 /** Decides the gate on each sign-in, before the phone is added to the account. */
 export function useFoldGateFeed() {
   const { isSignedIn, userId, getToken } = useAuth();
+  const token = useEffectEvent(() => getToken());
   const again = useExternalValue(round);
   useEffect(() => {
     signedIn = isSignedIn && userId ? userId : null;
     if (!isSignedIn || !userId) {
-      gateNow.set({ kind: 'checking' });
+      gateNow.set(CHECKING);
       return;
     }
     let current = true;
@@ -133,11 +137,11 @@ export function useFoldGateFeed() {
       }
       dropFold();
       if (again === 0 && (await SecureStore.getItemAsync(settledItem(userId)).catch(() => null))) {
-        if (current) gateNow.set({ kind: 'open' });
+        if (current) gateNow.set(OPEN);
         return;
       }
       try {
-        const caught = await askCatch(() => getToken());
+        const caught = await askCatch(token);
         if (!current) return;
         if (caught.ask) {
           gateNow.set({ kind: 'catch', caught });
@@ -147,7 +151,7 @@ export function useFoldGateFeed() {
         console.warn('sikemux: could not ask whether this account may stand', error);
         if (!current) return;
         unasked = { userId, failures: 0 };
-        gateNow.set({ kind: 'open' });
+        gateNow.set(OPEN);
         return;
       }
       if (current) await openFold(userId);
@@ -155,5 +159,5 @@ export function useFoldGateFeed() {
     return () => {
       current = false;
     };
-  }, [isSignedIn, userId, getToken, again]);
+  }, [isSignedIn, userId, again]);
 }
