@@ -347,7 +347,7 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
                     fields.insert(
                         "startedBy".into(),
                         (names.get(parent).cloned())
-                            .or_else(|| core.names().get(parent).map(|named| named.name))
+                            .or_else(|| core.names().name(parent))
                             .unwrap_or_else(|| parent.clone())
                             .into(),
                     );

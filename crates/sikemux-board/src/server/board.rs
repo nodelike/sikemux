@@ -1183,7 +1183,7 @@ fn team_of(core: &Core, board: &Board, card: &Card) -> Option<Team> {
         .up_from(card)
         .find(|card| card.owner_id().or(card.maker_id()).is_some())?;
     let agent = card.owner_id().or(card.maker_id())?;
-    if core.names().name(agent).is_none() {
+    if core.names().get(agent).is_none() {
         return card.team.clone().or_else(|| {
             Some(Team {
                 lead: agent.to_owned(),

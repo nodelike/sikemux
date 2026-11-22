@@ -360,13 +360,15 @@ impl Names {
         }
     }
 
+    /// The agent's name, also once it has closed, until a new agent takes it.
     pub fn name(&self, agent_id: &str) -> Option<String> {
-        self.book
-            .locked()
-            .agents
-            .iter()
-            .find(|entry| entry.agent_id == agent_id)
-            .map(|entry| entry.name.clone())
+        let book = self.book.locked();
+        match book.agents.iter().find(|entry| entry.agent_id == agent_id) {
+            Some(entry) => Some(entry.name.clone()),
+            None => (book.closed_sessions.iter())
+                .find(|closed| closed.agent_id == agent_id)
+                .and_then(|closed| closed.name.clone()),
+        }
     }
 
     /// The id and name of the agent `named` names by its id or its name, a name read first among

@@ -1176,7 +1176,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             if target.agent_id == from {
                 return Err("That agent is you".into());
             }
-            let mut letter = letter_from(&agents, MessageKind::Message, from, text, None);
+            let mut letter = letter_from(&core, &agents, MessageKind::Message, from, text, None);
             if let Some(Answering { id, .. }) =
                 answers.as_ref().filter(|_| target.reach != Reach::Remote)
             {
@@ -1584,7 +1584,14 @@ pub(crate) async fn question(
                 .find(|agent| agent.agent_id == to && agent.reach != Reach::Stopped)
                 .cloned()
                 .ok_or("that agent is not running")?;
-            let mut letter = letter_from(&agents, MessageKind::Question, from, text, Some(note));
+            let mut letter = letter_from(
+                &core,
+                &agents,
+                MessageKind::Question,
+                from,
+                text,
+                Some(note),
+            );
             letter.puts = Some(id);
             Ok((target, letter))
         })
@@ -1887,6 +1894,7 @@ pub(crate) fn is_waiting(core: &Core, agent_id: &str, mark: &str) -> bool {
 }
 
 fn letter_from(
+    core: &Core,
     agents: &[Listed],
     kind: MessageKind,
     from: String,
@@ -1898,7 +1906,7 @@ fn letter_from(
         kind,
         from_name: sender
             .and_then(|agent| agent.name.clone())
-            .unwrap_or_else(|| from.clone()),
+            .unwrap_or_else(|| core.names().name_or_id(&from)),
         cli: sender.map_or_else(|| "agent".to_owned(), |agent| agent.cli.clone()),
         from_id: from,
         text,
@@ -2068,7 +2076,7 @@ async fn report_noted(
             };
             let name = name.unwrap_or_else(|| worker.clone());
             let note = note(&called(&name, &worker));
-            let mut letter = letter_from(&agents, MessageKind::Report, worker, text, Some(note));
+            let mut letter = letter_from(&core, &agents, MessageKind::Report, worker, text, Some(note));
             letter.from_name = name;
             letter.calm = calm.then(|| calm_due(&core, &agents, &letter.from_id, &target.agent_id, letter.at));
             Ok(Some((target, letter)))
@@ -2869,5 +2877,59 @@ mod tests {
         assert_eq!(letters[0].kind, LetterKind::Message);
         assert_eq!(letters[0].name, "Masayuki");
         assert_eq!(letters[0].text, "PR 3 is up.");
+    }
+
+    /// CI failed after a closed worker's push, and the note Sikemux sent its lead in the
+    /// worker's place showed as "@agent-8f42…" instead of the worker's name.
+    #[test]
+    fn a_letter_sent_for_a_closed_agent_carries_its_name() {
+        use crate::server::names::{Starting, Worker};
+
+        let core = Core::new(Default::default(), None).unwrap();
+        let open = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect();
+        let lead = Starting {
+            agent_id: "agent-lead",
+            project: "/p".into(),
+            provider: Some("claude"),
+            resume_id: None,
+        };
+        core.names().give(lead, open(&["agent-lead"]));
+        let worker = Worker {
+            agent_id: "agent-8f42",
+            lead: "agent-lead",
+            project: None,
+            provider: "claude",
+            session: Some("ses-1"),
+            reports: true,
+            task: None,
+        };
+        let name = core
+            .names()
+            .hire(worker, open(&["agent-lead"]))
+            .unwrap()
+            .name;
+        core.names().settle(open(&["agent-lead", "agent-8f42"]));
+        core.names().settle(open(&["agent-lead"]));
+
+        let letter = letter_from(
+            &core,
+            &[],
+            MessageKind::Report,
+            "agent-8f42".to_owned(),
+            "CI on 7b4da8e54 failed:".to_owned(),
+            None,
+        );
+        let mut fold = Fold::new(PermissionMode::WorkspaceWrite);
+        fold.apply(
+            0,
+            ChatEventKind::Prompt,
+            &json!({ "text": wrapped(&letter) }),
+            1_000,
+        );
+        fold.flush();
+        let rows = fold.view(false).rows;
+        let letters = &rows.first().expect("the message").letters;
+        assert_eq!(letters[0].name, name);
+        assert_ne!(letters[0].name, "agent-8f42");
     }
 }
