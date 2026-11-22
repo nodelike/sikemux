@@ -172,10 +172,10 @@ fn effective(
 }
 
 fn read(data_dir: &Path) -> Picks {
-    std::fs::read(data_dir.join(PICKS_FILE))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+    sikemux_process::files::read_or_set_aside(&data_dir.join(PICKS_FILE), |bytes| {
+        serde_json::from_slice(bytes)
+    })
+    .unwrap_or_default()
 }
 
 /// Projects are keyed by their real folder, as the core names them.

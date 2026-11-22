@@ -162,10 +162,10 @@ impl PluginHost {
         let Some(file) = &self.disabled_file else {
             return;
         };
-        let ids = std::fs::read(file)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Vec<String>>(&bytes).ok())
-            .unwrap_or_default();
+        let ids = sikemux_process::files::read_or_set_aside(file, |bytes| {
+            serde_json::from_slice::<Vec<String>>(bytes)
+        })
+        .unwrap_or_default();
         self.keep_disabled(ids);
     }
 

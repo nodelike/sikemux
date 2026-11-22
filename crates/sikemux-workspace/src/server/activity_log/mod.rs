@@ -324,8 +324,11 @@ impl ActivityLog {
     fn price_overrides(&self) -> HashMap<String, PriceOverride> {
         self.prices_path
             .as_ref()
-            .and_then(|path| fs::read(path).ok())
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .and_then(|path| {
+                sikemux_process::files::read_or_set_aside(path, |bytes| {
+                    serde_json::from_slice(bytes)
+                })
+            })
             .unwrap_or_default()
     }
 
