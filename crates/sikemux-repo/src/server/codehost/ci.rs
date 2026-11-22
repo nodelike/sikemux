@@ -69,10 +69,12 @@ struct State {
 impl State {
     fn feeds(&mut self, core: &Core) -> &mut Vec<Feed> {
         self.feeds.get_or_insert_with(|| {
-            let saved =
-                (core.data_dir().as_ref()).and_then(|dir| std::fs::read(dir.join(FEEDS_FILE)).ok());
-            saved
-                .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            (core.data_dir().as_ref())
+                .and_then(|dir| {
+                    sikemux_process::files::read_or_set_aside(&dir.join(FEEDS_FILE), |bytes| {
+                        serde_json::from_slice(bytes)
+                    })
+                })
                 .unwrap_or_default()
         })
     }

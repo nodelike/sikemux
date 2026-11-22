@@ -64,8 +64,9 @@ fn path(data_dir: &Path) -> PathBuf {
 }
 
 pub fn read(data_dir: Option<&Path>) -> Option<Local> {
-    let bytes = std::fs::read(path(data_dir?)).ok()?;
-    serde_json::from_slice(&bytes).ok()
+    sikemux_process::files::read_or_set_aside(&path(data_dir?), |bytes| {
+        serde_json::from_slice(bytes)
+    })
 }
 
 pub fn load(data_dir: Option<&Path>, account: &str, vault: &str) -> Local {
@@ -211,6 +212,7 @@ pub fn keep_uses<T: Serialize>(data_dir: Option<&Path>, unsent: &Unsent<T>) -> R
 }
 
 pub fn kept_uses<T: serde::de::DeserializeOwned>(data_dir: Option<&Path>) -> Option<Unsent<T>> {
-    let bytes = std::fs::read(uses_path(data_dir?)).ok()?;
-    serde_json::from_slice(&bytes).ok()
+    sikemux_process::files::read_or_set_aside(&uses_path(data_dir?), |bytes| {
+        serde_json::from_slice(bytes)
+    })
 }
