@@ -97,6 +97,12 @@ pub fn wrap_context(account: &str, generation: i64, holder: &str) -> String {
     format!("sikemux-vault-key|v1|{account}|{generation}|{holder}")
 }
 
+/// What a vault key wrapped for a host by [`wrap_from`] is bound to, so a copy cannot pass for
+/// another account's, generation's or holder's.
+pub fn host_wrap_context(account: &str, generation: i64, holder: &str) -> String {
+    format!("sikemux-vault-key|v2|{account}|{generation}|{holder}")
+}
+
 /// The vault key sealed for the holder of `to`'s secret, with a key made for this once.
 pub fn wrap(vault: &Key, to: &MontgomeryPoint, context: &str) -> Option<String> {
     let ephemeral = random_key()?;
@@ -157,6 +163,21 @@ pub fn unwrap_from(wrapped: &str, secret: &Key, context: &str) -> Option<(Key, M
     let key = aead_key(&shared, context, &[sender.as_bytes(), ephemeral.as_bytes()])?;
     let vault = open_with(&key, context, sealed)?.try_into().ok()?;
     Some((vault, sender))
+}
+
+/// Opens a wrap made by [`wrap_from`] only if one of `holders`, hosts by their Ed25519 key in
+/// hex, sealed it, so a server cannot hand over a key of its own making.
+pub fn unwrap_from_holder<'a>(
+    wrapped: &str,
+    secret: &Key,
+    context: &str,
+    holders: impl IntoIterator<Item = &'a str>,
+) -> Option<Key> {
+    let (key, sender) = unwrap_from(wrapped, secret, context)?;
+    (holders.into_iter())
+        .filter_map(host_public)
+        .any(|holder| holder == sender)
+        .then_some(key)
 }
 
 /// What a sealed entry is bound to, so the server cannot hand back an older copy of it.
