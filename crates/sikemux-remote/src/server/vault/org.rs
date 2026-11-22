@@ -1133,22 +1133,24 @@ pub async fn remake(core: &Arc<Core>, params: OrgParams) -> CoreResult<()> {
     let made = (answer.json::<OrgVaultState>().await.ok())
         .and_then(|state| state.vault)
         .and_then(|vault| vault.remade_at);
-    set(
-        core,
-        &org.id,
-        Org {
-            held: Held {
-                generation,
-                key: Some(key),
-                entries: BTreeMap::new(),
-                ended: BTreeMap::new(),
-                made,
+    if made.is_some() {
+        set(
+            core,
+            &org.id,
+            Org {
+                held: Held {
+                    generation,
+                    key: Some(key),
+                    entries: BTreeMap::new(),
+                    ended: BTreeMap::new(),
+                    made,
+                },
+                status: OrgVaultStatus::Open,
+                holders: 1,
+                ..Org::default()
             },
-            status: OrgVaultStatus::Open,
-            holders: 1,
-            ..Org::default()
-        },
-    );
+        );
+    }
     settle(core).await
 }
 
