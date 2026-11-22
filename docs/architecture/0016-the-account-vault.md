@@ -89,10 +89,15 @@ when its home goes away.
   newest generation of the key it has read, every entry's revision and the last revision of each
   entry the vault lists as removed. A key older than that fails the round. An entry older than the
   host's copy, one the vault removed, or one the host holds that the vault leaves out without
-  listing it as removed is left out for that round, its sign-in and marks kept, and the rest of the
-  vault syncs, as an org's vault does; so a server glitch clears by itself. Only an entry that opens
+  listing it as removed is left out for that round, its sign-in, marks and refresher kept, and the
+  rest of the vault syncs, as an org's vault does; so a server glitch clears by itself. A sign-out
+  of a left-out entry removes it once the vault lists it again. Only an entry that opens
   at the vault's generation moves its mark, a mark never goes down, and a host does not replace
-  the key while the vault hands back an entry older than its copy. The server records each removal,
+  the key while the vault hands back an entry older than its copy: it skips the replacement that
+  round and syncs the rest. A server can still show a host that was away an older vault and ask
+  it to replace the key; each replacement reseals that host's older copies one revision up, until
+  they pass the other hosts' marks and those hosts take an older copy in. Removed entries stay
+  removed. This is still open. The server records each removal,
   whichever host made it, lists them with the vault, and refuses any write to a removed entry, so an
   entry's id never comes back. A host lets go of a sign-in only when the vault lists its entry as
   removed, or as no longer meant for this host; a lying server can still list an entry as removed,
