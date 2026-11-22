@@ -104,12 +104,10 @@ impl Process {
     /// collected as one.
     pub fn adopt(
         record: &AgentRecord,
-        agent_id: &str,
         stdin: OwnedFd,
         stdout: OwnedFd,
         stderr: OwnedFd,
     ) -> Result<(Self, Writer, Lines), String> {
-        crate::server::callers::started(record.pid, agent_id);
         let pipes = open(stdin, stdout, stderr)
             .map_err(|error| format!("The agent's pipes cannot be read: {error}"))?;
         Ok(Self::take_up(

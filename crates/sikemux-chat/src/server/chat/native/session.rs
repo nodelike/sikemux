@@ -570,7 +570,7 @@ pub async fn run<B: Backend>(
                 asked,
             } = *adopted;
             let [stdin, stdout, stderr] = pipes;
-            let adopted = Process::adopt(&agent, &launch.agent_id, stdin, stdout, stderr)
+            let adopted = Process::adopt(&agent, stdin, stdout, stderr)
                 .inspect_err(|_| super::process::kill_and_reap(agent.pid))
                 .and_then(|process| B::adopt(&launch, sink(false), kept, process));
             match adopted {
