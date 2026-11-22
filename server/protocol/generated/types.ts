@@ -2269,7 +2269,7 @@ export interface Vault {
   /** A host left the account, so a holder should replace the vault key. */
   rotate: boolean;
   entries: VaultEntry[];
-  /** Entries removed from the vault, each at its last revision. A host holds a removed entry to it, and an entry added under one of these ids starts above it. */
+  /** Entries removed from the vault, each at its last revision. A removed entry's id never comes back: the server refuses a write to it and a host takes no entry under it. */
   ended: VaultEnded[];
 }
 
