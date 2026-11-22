@@ -265,7 +265,7 @@ jobs:
       - &compile_through_cache
         name: Compile through the cache
         if: needs.plan.outputs.channel == 'nightly'
-        run: printf 'SCCACHE_GHA_ENABLED=true\nRUSTC_WRAPPER=sccache\n' >>"$GITHUB_ENV"
+        run: printf 'SCCACHE_GHA_ENABLED=true\nRUSTC_WRAPPER=sccache\nSCCACHE_IDLE_TIMEOUT=0\n' >>"$GITHUB_ENV"
 
       # The core and the app are stripped here, once their symbols are in a debug file published
       # beside the release, with the line tables of Sikemux's own crates. Those add about a tenth to
