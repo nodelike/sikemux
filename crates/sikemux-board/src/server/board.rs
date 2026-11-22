@@ -232,14 +232,6 @@ struct Places {
 }
 
 impl Board {
-    /// The card `agent` works now: the one in progress it claimed last, else the one it last
-    /// claimed, finished or not.
-    pub fn working_card(&self, agent: &str) -> Option<&Card> {
-        (self.cards.iter())
-            .filter(|card| card.owner_id() == Some(agent))
-            .max_by_key(|card| card.work_rank())
-    }
-
     pub fn open_working_card(&self, agent: &str) -> Option<&Card> {
         (self.cards.iter())
             .filter(|card| card.owner_id() == Some(agent) && card.status != CardStatus::Done)

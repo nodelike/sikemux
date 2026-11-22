@@ -1,4 +1,4 @@
-//! AutoPull requests and their checks on the project's code host, through its
+//! Pull requests and their checks on the project's code host, through its
 //! plugin and the person's own sign-in to it, and what reviewers say on them.
 
 use crate::server::workspace_state::WorkspaceParts;
@@ -47,18 +47,6 @@ impl Host {
                 None => server == known,
             })
     }
-
-    /// The ways to merge, tried in order; none is the repository's own default.
-    fn merges(&self) -> Vec<Option<&'static str>> {
-        if self.spec.merges.is_empty() {
-            return vec![None];
-        }
-        self.spec
-            .merges
-            .iter()
-            .map(|method| Some(method.as_str()))
-            .collect()
-    }
 }
 
 fn hosts(core: &Core) -> impl Iterator<Item = Host> {
@@ -68,16 +56,6 @@ fn hosts(core: &Core) -> impl Iterator<Item = Host> {
             spec: manifest.code_host.as_ref()?,
         })
     })
-}
-
-fn plugin_of(id: &str) -> String {
-    format!("sikemux.{id}")
-}
-
-fn host(core: &Core, id: &str) -> Result<Host, String> {
-    hosts(core)
-        .find(|host| host.id() == id)
-        .ok_or_else(|| format!("Sikemux does not know the code host {id}"))
 }
 
 /// A repository on a code host, and the account that reaches it.
@@ -97,18 +75,6 @@ impl Repo {
             params.extend(more);
         }
         params
-    }
-}
-
-impl AutoPull {
-    fn repo(&self, core: &Core) -> Result<Repo, String> {
-        Ok(Repo {
-            plugins: plugged::provided(core),
-            host: host(core, &self.host)?,
-            owner: self.owner.clone(),
-            name: self.name.clone(),
-            account: self.account.clone(),
-        })
     }
 }
 
@@ -289,16 +255,6 @@ impl std::fmt::Display for RepoId {
     }
 }
 
-impl AutoPull {
-    pub fn repo_id(&self) -> RepoId {
-        RepoId {
-            provider: plugin_of(&self.host),
-            owner: self.owner.clone(),
-            name: self.name.clone(),
-        }
-    }
-}
-
 /// What clients show of the code host the remote `url` is on.
 pub async fn shown(
     core: &Core,
@@ -389,13 +345,15 @@ pub async fn branch_pull(repo: &Repo, branch: &str) -> Result<Option<ProjectPull
     else {
         return Ok(None);
     };
-    let pull = pull_of(repo, found)?;
+    let number = found["number"]
+        .as_u64()
+        .ok_or("the code host answered without the pull request's number")?;
     let checks = pull_checks(repo, found).await?;
     Ok(Some(ProjectPull {
-        number: pull.number,
+        number,
         title: text(found, "title").unwrap_or_default(),
         draft: found["draft"].as_bool().unwrap_or(false),
-        url: pull.url,
+        url: text(found, "url").unwrap_or_default(),
         checks,
     }))
 }
@@ -439,45 +397,6 @@ pub async fn pulls_of(
     Ok(found.as_array().cloned().unwrap_or_default())
 }
 
-fn pull_of(repo: &Repo, found: &Value) -> Result<AutoPull, String> {
-    let number = found["number"]
-        .as_u64()
-        .ok_or("the code host answered without the pull request's number")?;
-    Ok(AutoPull {
-        host: repo.host.id().to_owned(),
-        owner: repo.owner.clone(),
-        name: repo.name.clone(),
-        number,
-        url: text(found, "url").unwrap_or_default(),
-        account: repo.account.clone(),
-    })
-}
-
-/// Opens a pull request for `head` onto `base`, or finds the one already open.
-pub async fn open(
-    repo: &Repo,
-    title: &str,
-    head: &str,
-    base: &str,
-    body: &str,
-) -> Result<AutoPull, String> {
-    let made = json!({ "title": title, "head": head, "base": base, "body": body });
-    let error = match repo.call("createPull", made).await {
-        Ok(found) => return pull_of(repo, &found),
-        Err(error) => error,
-    };
-    let open = repo
-        .call("pulls", json!({ "state": "open" }))
-        .await
-        .unwrap_or_default();
-    open.as_array()
-        .into_iter()
-        .flatten()
-        .find(|pull| text(pull, "head").as_deref() == Some(head))
-        .map(|found| pull_of(repo, found))
-        .unwrap_or_else(|| Err(error.into()))
-}
-
 /// How long a pushed commit may go without any CI run before it counts as
 /// never checked.
 pub const CI_START_WAIT_MS: u64 = 3 * 60 * 1000;
@@ -496,16 +415,6 @@ pub enum Checks {
     /// A run was cancelled or ended in a way that says nothing of the change,
     /// a line each.
     Stopped(String),
-}
-
-/// How the CI runs on `sha` of `pull`'s repository went.
-pub async fn checks(
-    core: &Core,
-    pull: &AutoPull,
-    branch: &str,
-    sha: &str,
-) -> Result<Checks, String> {
-    commit_checks(&pull.repo(core)?, Some(branch), sha, &[]).await
 }
 
 /// How the CI runs on `sha` went, the one way a code host's checks on a commit
@@ -803,144 +712,6 @@ fn digits(rest: &str) -> Option<Value> {
     (!digits.is_empty()).then(|| digits.into())
 }
 
-/// Where a pull request stands.
-pub struct Looked {
-    /// `open`, `merged` or `closed`.
-    pub state: String,
-    /// Moves whenever anything on the pull request does, such as a comment.
-    pub mark: String,
-}
-
-pub async fn look(core: &Core, pull: &AutoPull) -> Result<Looked, String> {
-    let repo = pull.repo(core)?;
-    let found = repo.call("pull", json!({ "number": pull.number })).await?;
-    Ok(Looked {
-        state: text(&found, "state").unwrap_or_else(|| "open".to_owned()),
-        mark: format!(
-            "{} {}",
-            found.get("updatedAt").unwrap_or(&Value::Null),
-            found.get("comments").unwrap_or(&Value::Null)
-        ),
-    })
-}
-
-/// A comment or review left on a pull request.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Feedback {
-    pub id: String,
-    pub author: Option<String>,
-    #[serde(default, skip_serializing)]
-    pub bot: bool,
-    #[serde(default)]
-    pub body: String,
-    pub path: Option<String>,
-    pub line: Option<u64>,
-    pub state: Option<String>,
-    #[serde(default, skip_serializing)]
-    pub at: String,
-}
-
-/// The comments and reviews on the pull request that changed at or after `since`.
-pub async fn feedback(
-    core: &Core,
-    pull: &AutoPull,
-    since: Option<&str>,
-) -> Result<Vec<Feedback>, String> {
-    let repo = pull.repo(core)?;
-    let found = repo
-        .call(
-            "reviewFeedback",
-            json!({ "number": pull.number, "since": since }),
-        )
-        .await?;
-    serde_json::from_value(found).map_err(|error| error.to_string())
-}
-
-/// Answers each comment in its own thread with `(comment id, text, what it
-/// said)`, then asks `reviewers` to look again where the host can.
-pub async fn answer(
-    core: &Core,
-    pull: &AutoPull,
-    replies: &[(String, String, String)],
-    reviewers: &[String],
-) -> Result<(), String> {
-    let repo = pull.repo(core)?;
-    let replies: Vec<Value> = replies
-        .iter()
-        .map(|(to, body, quote)| json!({ "to": to, "body": body, "quote": quote }))
-        .collect();
-    let answered = json!({ "number": pull.number, "replies": replies, "reviewers": reviewers });
-    Ok(repo.call("answerReview", answered).await.map(drop)?)
-}
-
-/// The open pull request whose latest commit is `head`.
-pub async fn pull_at(repo: &Repo, head: &str) -> Result<Option<AutoPull>, String> {
-    let open = repo.call("pulls", json!({ "state": "open" })).await?;
-    open.as_array()
-        .into_iter()
-        .flatten()
-        .find(|pull| text(pull, "headSha").as_deref() == Some(head))
-        .map(|found| pull_of(repo, found))
-        .transpose()
-}
-
-/// The pull request's description, while it is still open.
-pub async fn open_body(core: &Core, pull: &AutoPull) -> Result<Option<String>, String> {
-    let repo = pull.repo(core)?;
-    let found = repo.call("pull", json!({ "number": pull.number })).await?;
-    let open = text(&found, "state").is_none_or(|state| state == "open");
-    Ok(open.then(|| text(&found, "body").unwrap_or_default()))
-}
-
-pub async fn describe(core: &Core, pull: &AutoPull, body: &str) -> Result<(), String> {
-    let repo = pull.repo(core)?;
-    let edit = json!({ "number": pull.number, "body": body });
-    Ok(repo.call("editPull", edit).await.map(drop)?)
-}
-
-/// Hands the picture at `path` to the pull request's code host under `name`, and answers
-/// where a description shows it from.
-pub async fn attach(
-    core: &Core,
-    pull: &AutoPull,
-    path: &str,
-    name: &str,
-) -> Result<String, String> {
-    let repo = pull.repo(core)?;
-    let kept = repo
-        .call("attachPicture", json!({ "path": path, "name": name }))
-        .await?;
-    text(&kept, "url").ok_or_else(|| "the code host kept the picture without saying where".into())
-}
-
-pub async fn close(core: &Core, pull: &AutoPull) -> Result<(), String> {
-    let repo = pull.repo(core)?;
-    let closed = json!({ "number": pull.number, "state": "closed" });
-    Ok(repo.call("setPullState", closed).await.map(drop)?)
-}
-
-/// Merges the pull request at `sha`, the commit whose checks passed, the
-/// first way the repository allows.
-pub async fn merge(core: &Core, pull: &AutoPull, sha: &str) -> Result<(), String> {
-    let repo = pull.repo(core)?;
-    let mut refused = None;
-    for method in repo.host.merges() {
-        let asked = json!({ "number": pull.number, "method": method, "sha": sha });
-        match repo.call("mergePull", asked).await {
-            Ok(_) => return Ok(()),
-            Err(failure) if failure.category == FailureCategory::MergeMethod => {
-                refused = Some(failure)
-            }
-            Err(failure) => return Err(failure.into()),
-        }
-    }
-    Err(refused.map_or_else(|| "the code host merges no way".to_owned(), String::from))
-}
-
-#[cfg(test)]
-impl Repo {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1017,15 +788,4 @@ mod tests {
             }
         }
     }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AutoPull {
-    pub host: String,
-    pub owner: String,
-    pub name: String,
-    pub number: u64,
-    pub url: String,
-    pub account: Option<String>,
 }

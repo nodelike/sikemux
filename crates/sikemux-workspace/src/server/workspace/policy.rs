@@ -138,10 +138,6 @@ impl Workspaces {
         Ok((launch, Some(launcher.id)))
     }
 
-    pub fn has_launchers(&self) -> bool {
-        !self.published.locked().launchers.is_empty()
-    }
-
     /// How the board starts an agent of its own in `cwd`: with the launcher
     /// named, else the first the app offers that works, in that launcher's own
     /// permission mode. A launcher gone is to be picked again `picked_in`.
@@ -177,48 +173,5 @@ impl Workspaces {
         }
         let launch = self.chat_launch(&chosen, still_there(&chosen)?, cwd, provider, model)?;
         Ok((launch, chosen.id))
-    }
-
-    /// The CLI the app's launcher `id` runs, such as `claude`.
-    pub fn launcher_cli(&self, id: &str) -> Option<String> {
-        self.published
-            .locked()
-            .launchers
-            .iter()
-            .find(|launcher| launcher.id == id)
-            .map(|launcher| launcher.agent.provider.clone())
-    }
-
-    /// The launcher a reviewer starts with: `chosen`, else the first signed
-    /// in that runs another CLI than `builder`. None when there is none.
-    pub fn reviewer_launcher(
-        &self,
-        chosen: Option<&str>,
-        builder: Option<&str>,
-    ) -> Result<Option<String>, String> {
-        let published = self.published.locked();
-        let other = |launcher: &&Launcher| builder != Some(launcher.agent.provider.as_str());
-        let Some(id) = chosen else {
-            return Ok(published
-                .launchers
-                .iter()
-                .filter(other)
-                .find(|launcher| matches!(launcher.status, Some(AgentStatus::Ready { .. })))
-                .map(|launcher| launcher.id.clone()));
-        };
-        let launcher = published
-            .launchers
-            .iter()
-            .find(|launcher| launcher.id == id)
-            .ok_or_else(|| {
-                format!("Sikemux can no longer start the reviewer {id}; pick another in the board's Auto settings")
-            })?;
-        if !other(&launcher) {
-            return Err(format!(
-                "The reviewer chosen in Auto's settings, {}, runs the same CLI as the card's agent; pick one on another",
-                launcher.label
-            ));
-        }
-        Ok(Some(launcher.id.clone()))
     }
 }
