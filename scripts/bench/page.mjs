@@ -10,9 +10,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 const dir = process.argv[2] ?? join(here, "results");
 const out = process.argv[3] ?? join(dir, "index.html");
 const order = ["sikemux", "t3code", "orca", "conductor"];
+if (!existsSync(dir)) {
+  console.error(`no results folder at ${dir}; run run.mjs first`);
+  process.exit(1);
+}
 const runs = order.filter((name) => existsSync(join(dir, `${name}.json`))).map((name) => ({ key: name, ...JSON.parse(readFileSync(join(dir, `${name}.json`), "utf8")) }));
 if (runs.length === 0) {
-  console.error(`no results in ${dir}: ${readdirSync(dir).join(", ")}`);
+  console.error(`no results in ${dir}: ${readdirSync(dir).join(", ") || "it is empty"}`);
   process.exit(1);
 }
 
@@ -96,7 +100,7 @@ ${bars}
 <ul>
 <li>Sikemux and T3 Code open the sessions as chats in one project folder; Orca and Conductor give each session its own git worktree, as they do by default.</li>
 <li>Orca runs each session as the Claude Code terminal interface inside a shell; the others drive Claude Code without a terminal.</li>
-<li>Apps stop idle agents on their own schedule: Sikemux puts an idle chat to sleep after 2 minutes unless its answer is still unread, and T3 Code stops one after 30 minutes. The "claude running" count shows how many were alive at the end.</li>
+<li>Apps stop idle agents on their own schedule: Sikemux puts an idle chat to sleep after 2 minutes unless its answer is still unread, and keeps at most 3 idle chats awake that no window shows, sleeping the oldest beyond that even when unread; T3 Code stops one after 30 minutes. The "claude running" count shows how many were alive at the end.</li>
 <li>Conductor has no way to start sessions from outside, so its first session was started by hand; it opened the other ${runs[0].sessionsOpened - 1} itself with its own CreateWorkspace tool. Conductor uses the same claude binary as the others through its <code>claude_executable_path</code> setting.</li>
 <li>Each app gives its agents its own tools and prompts, which changes what the agent CLIs hold.</li>
 </ul>

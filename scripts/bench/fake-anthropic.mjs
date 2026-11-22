@@ -26,10 +26,11 @@ function readBody(request) {
 const text = (content) =>
   typeof content === "string" ? content : (content ?? []).map((block) => block.text ?? "").join("");
 
+const firstPrompt = (request) => text(request.messages?.find((entry) => entry.role === "user")?.content);
+
 function nextWorkspace(request) {
   const tool = request.tools?.find((candidate) => /CreateWorkspace$/.test(candidate.name ?? ""));
-  const first = request.messages?.find((entry) => entry.role === "user");
-  if (!sessionsToOpen || !tool || !/bench session 1:/.test(text(first?.content))) return null;
+  if (!sessionsToOpen || !tool || !/bench session 1:/.test(firstPrompt(request))) return null;
   const opened = (request.messages ?? [])
     .flatMap((entry) => (Array.isArray(entry.content) ? entry.content : []))
     .filter((block) => block.type === "tool_result" && !block.is_error).length;
@@ -101,7 +102,8 @@ const server = http.createServer(async (request, response) => {
     } catch {
       parsed = {};
     }
-    for (const match of body.matchAll(/bench session (\d+)/g)) sessions.add(match[1]);
+    const session = firstPrompt(parsed).match(/bench session (\d+)/)?.[1];
+    if (session) sessions.add(session);
     const model = parsed.model ?? "claude-bench";
     const block = nextWorkspace(parsed) ?? { type: "text", text: reply };
     if (parsed.stream) return stream(response, model, block);
