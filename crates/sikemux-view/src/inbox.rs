@@ -94,9 +94,6 @@ pub enum InboxKind {
     /// longer holds, or a slice's ticket was closed with nothing of it landed,
     /// for the reason in `detail`.
     Held,
-    /// An assumption an agent went on with, as a host of an earlier release lists it. This
-    /// release's core keeps assumptions in the decision log instead.
-    Assumption,
     /// The slice on `card` waits for the person to pass `gate`.
     Gate,
     /// An agent's action that leaves this machine, held as `hold` until the
@@ -214,9 +211,6 @@ pub struct InboxItem {
     /// The evidence the gate of a Gate item leads with, without what a run printed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<Evidence>,
-    /// What the person looks at, for a Gate item at Looks right on a goal's card.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub look: Option<InboxLook>,
     /// The action a Ship item holds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hold: Option<ShipHold>,
@@ -241,103 +235,6 @@ pub struct InboxItem {
     /// What a HostAlert item is about.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_alert: Option<crate::host_stats::HostAlert>,
-    /// What the person can do about the slice on `card` losing `agentId`: `boardResumeOwner`
-    /// or `boardHandOn`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stalled: Option<InboxStalled>,
-    /// What a lead says about the decision it raised to the person.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub raised: Option<InboxRaised>,
-    /// The one of `answers` the agent that asked would take.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pick: Option<String>,
-    /// What the agent that asked goes on assuming until the person answers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub assumption: Option<String>,
-}
-
-/// The one look the person takes at a goal whose work changes what people see, once every slice
-/// that shows something is Built.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InboxLook {
-    /// What it asks the person, naming the goal once it has a short name.
-    pub question: String,
-    /// What the goal goes by while it waits for its short name, which `question` leaves out.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unnamed: Option<String>,
-    /// The slices whose work it shows, in the board's order.
-    pub slices: Vec<LookSlice>,
-    /// Every picture and recording those slices hold, from before each one's first commit and
-    /// on its latest, in the order they were taken.
-    pub pictures: Vec<LookPicture>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LookSlice {
-    pub card: u64,
-    pub title: String,
-    pub promise: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner_name: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LookPicture {
-    /// The slice that holds it, which a note on it goes to with `evidence`'s id.
-    pub card: u64,
-    /// Taken before the slice's first commit, so it shows how things were.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub before: bool,
-    /// A picture: its width is set for the phone's and tablet's takes, and its length for a
-    /// recording.
-    pub evidence: Evidence,
-}
-
-/// A decision a lead raised to the person, which stands alone: `detail` says what is being
-/// decided and `answers` the options.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InboxRaised {
-    pub reason: RaisedFor,
-    /// The lead that raised it, when it was not the asker.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub by: Option<String>,
-    /// The option it would take.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pick: Option<String>,
-    /// What breaks if that is wrong, or what stays stuck without the access it asks for.
-    pub breaks: String,
-}
-
-/// Why a decision is the person's to make rather than a lead's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RaisedFor {
-    Irreversible,
-    Money,
-    Taste,
-    Access,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InboxStalled {
-    /// Whether the agent or its session is there to start again.
-    pub can_resume: bool,
-    /// The agents open in the project that could take the slice.
-    pub hand_to: Vec<InboxHandTo>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InboxHandTo {
-    pub agent_id: String,
-    pub name: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

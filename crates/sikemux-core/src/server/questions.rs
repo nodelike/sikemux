@@ -370,8 +370,6 @@ pub(crate) struct ForPerson {
     /// The picture each of `answers` shows, when its asker gave them.
     pub pictures: Vec<Option<String>>,
     pub at: u64,
-    /// The one of `answers` its asker would take.
-    pub pick: Option<String>,
 }
 
 /// A question's choices as a call's options, each named by its place, and the one marked as the pick.
@@ -419,12 +417,6 @@ fn form_choices(kind: CallKind) -> Option<Vec<QuestionChoice>> {
             })
             .collect(),
     )
-}
-
-fn recommended_of(choices: &[QuestionChoice]) -> Option<String> {
-    (choices.iter())
-        .find(|choice| choice.recommended)
-        .map(|choice| choice.label.clone())
 }
 
 struct Asked {
@@ -667,7 +659,6 @@ impl Questions {
                         .collect(),
                 },
                 at: question.at,
-                pick: recommended_of(&question.choices),
             })
             .collect();
         let mut latest: HashMap<&str, (u64, &str)> = HashMap::new();

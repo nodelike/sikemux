@@ -31,54 +31,6 @@ pub enum Passer {
     Core,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum GateState {
-    Passed,
-    /// The first gate not passed: what the slice is at now.
-    Waiting,
-    /// After the one waiting.
-    Ahead,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GateView {
-    pub gate: Gate,
-    pub passer: Passer,
-    pub state: GateState,
-    /// The agent that passed it, or that may pass it as the owner; none for
-    /// the person and the core.
-    pub agent: Option<String>,
-    pub agent_name: Option<String>,
-    /// When it was passed.
-    pub at: Option<u64>,
-    /// What is not so yet that it needs before it can pass.
-    pub needs: Vec<Need>,
-    /// The project's environment this step is, by name. A client that knows no
-    /// environments reads such a step's `gate` as Landed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub environment: Option<String>,
-    /// Who an environment's step waits on, in the core's few words.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub why: Option<String>,
-}
-
-/// What a gate needs before it can pass, besides the gates before it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Need {
-    /// The project's check to pass on the slice's latest commit.
-    PassingCheck,
-    /// The slice's commits to be on the project's branch.
-    OnBranch,
-    /// Every assertion the slice fulfils to have evidence of its kind, which
-    /// held up, collected on the slice's latest commit.
-    Assertions,
-    /// Every change the person asked for on it to be ticked off by the agent it went to.
-    Changes,
-}
-
 /// Whether evidence held up when the core checked it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -106,7 +58,7 @@ pub struct Evidence {
     /// The goal's assertions it was collected for.
     #[serde(default)]
     pub assertions: Vec<u64>,
-    /// The project's environment it was collected toward, as `GateView` names it.
+    /// The project's environment it was collected toward, by name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
 }
@@ -229,35 +181,6 @@ pub struct Tick {
     /// The piece of the slice's evidence that shows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<u64>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SliceView {
-    /// One sentence saying what it changes.
-    pub promise: String,
-    pub state: SliceState,
-    /// The gates it passes on its way to done, in order.
-    pub gates: Vec<GateView>,
-    /// What the core collected itself to show its work, oldest first.
-    pub evidence: Vec<Evidence>,
-    /// The piece of it the gate waiting leads with, by its id.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub leading: Option<u64>,
-    pub notes: Vec<Note>,
-    /// The goal's assertions it fulfils, each with whether its evidence is in.
-    #[serde(default)]
-    pub asserts: Vec<Asserted>,
-    /// Assertions it named that no longer stand on its goal, so no longer bind it.
-    #[serde(default)]
-    pub detached: Vec<u64>,
-    /// What the gate it waits at waits on now; none when it is done, or
-    /// nothing is under way.
-    #[serde(default)]
-    pub wait: Option<Wait>,
-    /// The address of the pull request its work is reviewed in, once the core found it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pull: Option<String>,
 }
 
 /// What a slice waits on now, since when, and roughly how long it takes.
@@ -409,7 +332,7 @@ pub struct NextGate {
     pub passer: Passer,
     #[serde(default)]
     pub wait: Option<Wait>,
-    /// The project's environment this step is, as `GateView` names it.
+    /// The project's environment this step is, by name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
 }
@@ -510,22 +433,6 @@ impl Decision {
             None => self.text.clone(),
         }
     }
-}
-
-/// One of a goal's assertions a slice fulfils.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Asserted {
-    pub assertion: u64,
-    /// Its evidence held up on the slice's latest commit.
-    pub met: bool,
-    /// Its command waits for the person to approve it, and does not run until they do.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub awaits_approval: bool,
-    /// Its command does not run on the slice's latest commit, which holds a file it names as the
-    /// person turned it down.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub turned_down: bool,
 }
 
 /// What must hold once a goal's slices are done, agreed before they are cut,
