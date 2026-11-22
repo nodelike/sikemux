@@ -2542,7 +2542,7 @@
       "description": "Commit only the lines you wrote.",
       "properties": {
         "message": {
-          "description": "Omit to only sync, land or push; no Co-Authored-By trailer naming yourself",
+          "description": "Omit to only sync, land or push; no Co-Authored-By naming you",
           "type": "string",
           "minLength": 1,
           "maxLength": 65536
@@ -2558,19 +2558,19 @@
           }
         },
         "sync": {
-          "description": "Own checkout: bring it up to the branch it was cut from",
+          "description": "Own checkout: catch up with its base branch",
           "type": "boolean"
         },
         "land": {
-          "description": "Own checkout: queue your commits for the branch it was cut from; a message says how the land ended",
+          "description": "Own checkout: queue your commits for its base branch; a message says how it ended",
           "type": "boolean"
         },
         "push": {
-          "description": "Push your commits, when the person or the project's rules say to; from your own checkout without land, to its own branch; no time limit, a slow one wakes you when done",
+          "description": "Push when the person or project rules say to; own checkout without land: to its own branch",
           "type": "boolean"
         },
         "force": {
-          "description": "With push and no land: push the branch as it stands over the remote's copy, after a rebase (force-with-lease); never the default branch or release/*",
+          "description": "After a rebase: replace the pushed branch; never main or release/*",
           "type": "boolean"
         }
       },
