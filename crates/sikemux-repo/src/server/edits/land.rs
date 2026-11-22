@@ -141,8 +141,10 @@ fn own_commits(
         ]
         .concat(),
     )?;
-    if mine.lines().any(|commit| commit.split(' ').count() > 2) {
-        return Err("Your commits include a merge, which the land queue doesn't take; rebase them onto the branch they land on so they form one line, then land again".into());
+    let landed = |merged: &str| git(tree, &["merge-base", "--is-ancestor", merged, tip]).is_ok();
+    let brings_unlanded = |commit: &str| commit.split(' ').skip(2).any(|merged| !landed(merged));
+    if mine.lines().any(brings_unlanded) {
+        return Err("Your commits merge in commits the branch they land on lacks, which the land queue doesn't take; rebase them onto that branch so they form one line, then land again".into());
     }
     let mine: HashSet<&str> = mine
         .lines()
