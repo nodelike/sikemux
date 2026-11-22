@@ -160,13 +160,17 @@ fn server_instructions_fit_before_agents_cut_them_off() {
 
 /// Every agent pays for the whole tool list and the instructions on every request, schemas
 /// included. Growing it needs a reason and a tool eval run showing agents do no worse.
+/// `_meta` tells the agent's program how to list a tool and never reaches the model.
 #[test]
 fn the_tool_list_every_agent_gets_stays_within_its_byte_budget() {
     let offered = Manifest::load().offering(false);
-    let bytes = Value::Array(offered.declarations(&[], false))
-        .to_string()
-        .len()
-        + offered.instructions().len();
+    let mut declarations = offered.declarations(&[], false);
+    for declaration in &mut declarations {
+        if let Some(fields) = declaration.as_object_mut() {
+            fields.remove("_meta");
+        }
+    }
+    let bytes = Value::Array(declarations).to_string().len() + offered.instructions().len();
     assert!(
         bytes <= 33_950,
         "every agent is sent {bytes} bytes of tools and instructions on each request; cut before adding"

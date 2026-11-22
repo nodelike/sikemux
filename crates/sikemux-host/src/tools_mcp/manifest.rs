@@ -34,6 +34,10 @@ pub struct Tool {
     /// The tool a plugin offers its tools as, which the core says beside each.
     #[serde(default)]
     family: Option<Family>,
+    /// Set on the few tools nearly every chat calls, so Claude Code lists them up front
+    /// instead of spending a round trip to look each one up.
+    #[serde(default, rename = "alwaysLoad")]
+    always_load: bool,
 }
 
 #[derive(Default, Deserialize)]
@@ -428,12 +432,16 @@ impl Tool {
     }
 
     pub fn declaration(&self) -> Value {
-        declaration(
+        let mut declared = declaration(
             &self.name,
             &self.description,
             &self.properties,
             &self.required,
-        )
+        );
+        if let Some(fields) = declared.as_object_mut().filter(|_| self.always_load) {
+            fields.insert("_meta".into(), json!({ "anthropic/alwaysLoad": true }));
+        }
+        declared
     }
 
     /// The wording matches what the agent used to read from the Python server,

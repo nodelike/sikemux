@@ -1697,6 +1697,7 @@
     },
     {
       "name": "agent_send",
+      "alwaysLoad": true,
       "row": {"verb": "message", "kind": "edit", "icon": "message", "target": ["{to}"], "detail": ["{text}"]},
       "method": "agent.send",
       "description": "Message a Sikemux agent.",
@@ -2546,6 +2547,7 @@
     },
     {
       "name": "git_commit",
+      "alwaysLoad": true,
       "row": {"verb": "commit", "kind": "edit", "icon": "commit", "target": ["{message}"]},
       "method": "git.commit",
       "description": "Commit only the lines you wrote.",
