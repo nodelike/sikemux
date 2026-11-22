@@ -104,10 +104,24 @@ impl Held {
         }
     }
 
-    fn takes_entry(&self, id: &str, revision: i64) -> bool {
+    /// The marks of entries this host saw go once it reads `vault`: those the server lists, and
+    /// in a full read those it leaves out, each at least one above the copy this host held.
+    fn ended_after(&self, vault: &Remote, partial: bool) -> BTreeMap<String, i64> {
+        let above_held = |id: &str| self.entries.get(id).map_or(0, |entry| entry.revision + 1);
+        let listed =
+            (vault.ended.iter()).map(|gone| (&gone.id, gone.revision.max(above_held(&gone.id))));
+        let left_out = (self.entries.keys())
+            .filter(|id| !partial && !vault.entries.iter().any(|entry| &entry.id == *id))
+            .map(|id| (id, above_held(id)));
+        let mut ended = self.ended.clone();
+        floor::end(&mut ended, listed.chain(left_out));
+        ended
+    }
+
+    fn takes_entry(&self, ended: &BTreeMap<String, i64>, id: &str, revision: i64) -> bool {
         floor::takes_entry(
             self.entries.get(id).map(|held| held.revision),
-            self.ended.get(id).copied(),
+            ended.get(id).copied(),
             revision,
         )
     }
@@ -629,8 +643,11 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
         );
         return Ok(());
     };
+    // A rotation reseals every entry, so an answer at a new generation lists them all.
+    let partial = vault.since.is_some() && held.generation == vault.generation;
+    let mut ended = held.ended_after(&vault, partial);
     if vault.rotate && manages(org) {
-        let next = rotate(core, &org.id, me, secret, &vault, &key).await?;
+        let next = rotate(core, &org.id, me, secret, &vault, &key, ended).await?;
         set(
             core,
             &org.id,
@@ -653,8 +670,6 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
     if !vault.waiting.is_empty() {
         add_keys(core, org, secret, &vault, &key).await?;
     }
-    // A rotation reseals every entry, so an answer at a new generation lists them all.
-    let partial = vault.since.is_some() && held.generation == vault.generation;
     let mut entries = match partial {
         true => held.entries.clone(),
         false => BTreeMap::new(),
@@ -662,19 +677,9 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
     for gone in vault.ended.iter().filter(|_| partial) {
         entries.remove(&gone.id);
     }
-    let mut ended = held.ended.clone();
-    let listed = (vault.ended.iter()).map(|gone| {
-        let above_held = (held.entries.get(&gone.id)).map_or(0, |entry| entry.revision + 1);
-        (&gone.id, gone.revision.max(above_held))
-    });
-    floor::end(&mut ended, listed);
     for entry in &vault.entries {
         let opened = (entry.generation == vault.generation
-            && floor::takes_entry(
-                held.entries.get(&entry.id).map(|held| held.revision),
-                ended.get(&entry.id).copied(),
-                entry.revision,
-            ))
+            && held.takes_entry(&ended, &entry.id, entry.revision))
         .then(|| open_entry(&key, &org.id, entry))
         .flatten();
         match opened {
@@ -693,16 +698,14 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                     "sikemux core: entry {} of an org's vault is older than this host's copy or does not open, so the copy stays",
                     entry.id
                 );
-                if let Some(kept) = held.entries.get(&entry.id) {
+                let kept = (held.entries.get(&entry.id))
+                    .filter(|kept| (ended.get(&entry.id)).is_none_or(|mark| kept.revision > *mark));
+                if let Some(kept) = kept {
                     entries.insert(entry.id.clone(), kept.clone());
                 }
             }
         }
     }
-    let unlisted = (held.entries.iter())
-        .filter(|(id, _)| !partial && !entries.contains_key(*id))
-        .map(|(id, entry)| (id, entry.revision + 1));
-    floor::end(&mut ended, unlisted);
     ended.retain(|id, _| !entries.contains_key(id));
     set(
         core,
@@ -845,10 +848,11 @@ async fn rotate(
     secret: &Key,
     vault: &Remote,
     key: &Key,
+    mut ended: BTreeMap<String, i64>,
 ) -> CoreResult<Held> {
     let held = held(core, org);
     if let Some(stale) = vault.entries.iter().find(|entry| {
-        entry.generation != vault.generation || !held.takes_entry(&entry.id, entry.revision)
+        entry.generation != vault.generation || !held.takes_entry(&ended, &entry.id, entry.revision)
     }) {
         return Err(format!(
             "entry {} of the org's vault is older than this host's copy, so its key is not replaced",
@@ -910,11 +914,12 @@ async fn rotate(
     };
     let path = format!("{}/rotate", vault_path(org));
     host_request(core, Method::POST, &path, Some(json!(rotate))).await?;
+    ended.retain(|id, _| !opened.contains_key(id));
     Ok(Held {
         generation,
         key: Some(next),
         entries: opened,
-        ended: held.ended,
+        ended,
         made: held.made,
     })
 }
