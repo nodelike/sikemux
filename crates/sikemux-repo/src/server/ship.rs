@@ -308,7 +308,7 @@ fn check_call(
     call: Option<ToolCall>,
     follows: bool,
 ) -> Result<Option<Deploy>, String> {
-    let project = (core.names().get(agent_id).map(|named| named.project))
+    let mut project = (core.names().get(agent_id).map(|named| named.project))
         .filter(|project| !project.is_empty())
         .unwrap_or_else(|| core.workspaces().project_of(cwd));
     let mut ship = ship;
@@ -317,12 +317,23 @@ fn check_call(
             return Ok(None);
         }
     }
-    if ship.kind == ShipKind::Push && !same_repository(&push::run_in(&ship.what, cwd), &project) {
-        return Ok(None);
+    let pushed_in = push::run_in(&ship.what, cwd);
+    if ship.kind == ShipKind::Push && !same_repository(&pushed_in, &project) {
+        let Some(top) = sikemux_process::files::repo_root(&pushed_in) else {
+            return Ok(None);
+        };
+        project = core.workspaces().project_of(top);
     }
     if ship.kind == ShipKind::Push {
         match push::reach(&ship.what, cwd) {
             Reach::Branches => return Ok(None),
+            Reach::Project if places::found::vercel_deploys_pushes(Path::new(&project)) => {
+                ship = Ship {
+                    kind: ShipKind::Deploy,
+                    target: Some(Target::Vercel { production: true }),
+                    what: ship.what,
+                };
+            }
             Reach::Project => {}
             Reach::Tags(names) => {
                 if (core.repo_above().board_landing)(core, &project) != Landing::Core {
@@ -356,6 +367,7 @@ fn check_call(
             }
         }
     }
+    let cwd = pushed_in.as_path();
     if matches!(ship.kind, ShipKind::Push | ShipKind::Merge) {
         if (core.repo_above().board_landing)(core, &project) == Landing::Core {
             return Ok(None);

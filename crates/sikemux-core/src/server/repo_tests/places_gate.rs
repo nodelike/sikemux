@@ -613,6 +613,41 @@ async fn a_push_from_another_repository_reaches_none_of_the_projects_places() {
     assert!(open_calls(&core).is_empty());
 }
 
+/// An agent in Sikemux's project ran `git -C ~/projects/personal/sikemux-front push origin main`,
+/// which deploys sikemux.com on Vercel, and it went with nobody asked; so did a plain
+/// `git push origin main` from an agent working in sikemux-front itself.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_that_deploys_another_repositorys_vercel_is_held() {
+    let (ours, theirs) = (repo(), repo());
+    let (cwd, project) = work_of(&ours);
+    let core = core_at(None, &project, Vec::new());
+    let site = theirs.path().join("work");
+    std::fs::write(
+        site.join("vercel.json"),
+        r#"{"git": {"deploymentEnabled": {"*": false, "main": true}}}"#,
+    )
+    .unwrap();
+    let push = |what: &str| Ship {
+        kind: ShipKind::Push,
+        what: format!("git -C {} push origin {what}", site.display()),
+        target: None,
+    };
+    assert!(run(&core, push("work"), &cwd).is_ok_and(|deploy| deploy.is_none()));
+    assert!(open_calls(&core).is_empty());
+    assert!(run(&core, push("main"), &cwd).is_err());
+    assert_eq!(open_calls(&core).len(), 1);
+    let (site, project) = work_of(&theirs);
+    let found = crate::server::places::found::in_files(&site);
+    let core = core_at(None, &project, found);
+    let push = Ship {
+        kind: ShipKind::Push,
+        what: "git push origin main".to_owned(),
+        target: None,
+    };
+    assert!(run(&core, push, &site).is_err());
+    assert_eq!(open_calls(&core).len(), 1);
+}
+
 /// An agent pushed a scratch clone to its local bare remote with
 /// `S=…; cd $S/r/w && /usr/bin/git push …` and was asked whether to change Sikemux's releases
 /// on GitHub, shown the push without its `cd`.
