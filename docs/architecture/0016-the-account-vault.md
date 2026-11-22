@@ -10,7 +10,8 @@
   step to allow a host or narrow an entry to projects; a host an older entry's list left out
   does not take it in, and the first host on the list to reach it writes it again without the list;
   2026-11-17, by [ADR 0026](./0026-an-org-has-a-vault-of-its-own.md): an org's secrets go in a vault
-  of the org's own, never in a member's account vault
+  of the org's own, never in a member's account vault; 2026-11-22, to say hosts refuse a vault
+  older than they last read
 
 ## Context
 
@@ -84,7 +85,14 @@ when its home goes away.
 - **What holds against a server that turns hostile.** Someone who reads the server's data, or
   takes a copy of it, gets nothing of the vault: it keeps only sealed entries and wrapped keys.
   Each host keeps the recovery key it first saw the vault with and refuses a vault that names
-  another, so the server cannot swap in a recovery key of its own. A server that lies in what it
+  another, so the server cannot swap in a recovery key of its own. Each host also keeps the
+  newest generation of the key it has read, every entry's revision and the last revision of each
+  entry the vault lists as removed, and refuses a vault older than that, so the server cannot hand
+  back an old key, an old copy of an entry or one that was removed. The server records each
+  removal, whichever host made it, and lists them with the vault, as an org's vault does; an entry
+  a host holds that the vault leaves out without listing it as removed fails the round and changes
+  nothing, so a server glitch clears by itself and a server that lost its data stops the vault's
+  sync on every host until it is restored. A server that lies in what it
   answers can still list a host key of its own among the hosts waiting to join: the hosts wrap the
   vault key for every host the account lists, since nothing yet lets them tell a real one apart,
   so such a server could read the vault from then on. Wrapping the key only for hosts whose join
