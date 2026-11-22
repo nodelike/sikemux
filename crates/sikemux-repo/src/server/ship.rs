@@ -324,6 +324,7 @@ fn check_call(
         };
         project = core.workspaces().project_of(top);
     }
+    let mut sends = None;
     if ship.kind == ShipKind::Push {
         match push::reach(&ship.what, cwd) {
             Reach::Branches => return Ok(None),
@@ -339,6 +340,7 @@ fn check_call(
                 if (core.repo_above().board_landing)(core, &project) != Landing::Core {
                     return hold(core, agent_id, &project, ship, cwd, call, None);
                 }
+                sends = push::tag_commits(&names, &pushed_in);
                 let name = match names.as_slice() {
                     [name] => name.clone(),
                     _ => String::new(),
@@ -400,7 +402,14 @@ fn check_call(
                 reason = "a judgement that tells always names its place"
             )]
             let told = judged.place.as_ref().expect("a place tells");
-            let (key, _) = key_of(told, &ship, work::of(cwd).as_deref(), call.is_some());
+            let work = work::of(cwd);
+            let (key, _) = key_of(
+                told,
+                &ship,
+                work.as_deref(),
+                sends.as_deref(),
+                call.is_some(),
+            );
             let raise = call_for(core, agent_id, &project, &ship, cwd, told, None);
             Ok(deploy(None, Some(Telling { key, raise })))
         }
@@ -411,7 +420,13 @@ fn check_call(
             )]
             let gated = judged.place.clone().expect("a place asks");
             let work = work::of(cwd);
-            let (key, once) = key_of(&gated, &ship, work.as_deref(), call.is_some());
+            let (key, once) = key_of(
+                &gated,
+                &ship,
+                work.as_deref(),
+                sends.as_deref(),
+                call.is_some(),
+            );
             let yes = person_calls::find_key(core, &project, &key)
                 .filter(|call| passes(core, call, agent_id))
                 .filter(|call| core.ship().claim(&call.id, once, follows));
@@ -449,12 +464,13 @@ fn check_call(
 
 /// What a yes at `place` is kept under for `ship`, and whether it covers the action once. A
 /// deploy of work with a fingerprint is covered with its retries, however spelled, at the same
-/// target; anything else, or work git can't fingerprint, only as the exact action, from any
-/// checkout of the project.
+/// target; anything else, or work git can't fingerprint, only as the exact action sending the
+/// same commits `sends`, such as those a pushed tag names, from any checkout of the project.
 pub fn key_of(
     place: &places::Place,
     ship: &Ship,
     work: Option<&str>,
+    sends: Option<&str>,
     tool: bool,
 ) -> (String, bool) {
     let target = (ship.target.as_ref())
@@ -472,7 +488,8 @@ pub fn key_of(
             false,
         ),
         _ => {
-            let action = digest(&format!("{target}\n{}", ship.what));
+            let sends = sends.unwrap_or_default();
+            let action = digest(&format!("{target}\n{}\n{sends}", ship.what));
             (format!("place:{id}:work::action:{action}"), true)
         }
     }
@@ -707,8 +724,8 @@ fn releases_on_tags(core: &Core, project: &str) -> bool {
 
 /// A change to the production place `place` waits for the person's yes on one call for this
 /// piece of work there, which every agent waiting on the same work there joins. A no holds for
-/// that work there until the work changes or the person writes to the agent again, with no
-/// second call. An agent waits on one call at a place: a new action there, such as a retry
+/// that work there until the work changes, the person writes to the agent again or says yes
+/// to another change there, with no second call. An agent waits on one call at a place: a new action there, such as a retry
 /// spelled another way, withdraws the call it waited on.
 fn gate(
     core: &Core,
@@ -723,7 +740,11 @@ fn gate(
     if let Some(no) = person_calls::find_key(core, project, &key).filter(refused) {
         let answered = no.answer.as_ref().map_or(0, |answer| answer.at);
         let spoke = core.ship().state.locked().spoke.get(agent_id).copied();
-        if spoke.is_none_or(|spoke| spoke <= answered) {
+        let yes_since = person_calls::find_keys(core, project, |held| same_place(held, &key))
+            .into_iter()
+            .filter_map(|(_, call)| call.answer)
+            .any(|answer| said_yes(answer.option.as_deref()) && answer.at > answered);
+        if spoke.is_none_or(|spoke| spoke <= answered) && !yes_since {
             return Err(format!(
                 "Not yet: the person said no to changing {} with this work, until the work changes or they tell you otherwise.",
                 place.name()

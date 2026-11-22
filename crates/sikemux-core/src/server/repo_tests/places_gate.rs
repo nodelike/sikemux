@@ -397,15 +397,22 @@ fn a_tool_call_is_covered_once_exactly() {
         what: format!("vercel_promote {{\"id\":\"{id}\"}}"),
         target: Some(Target::Vercel { production: true }),
     };
-    let (one, once) = ship::key_of(&place, &promote("dpl_A"), Some("work"), true);
-    let (other, _) = ship::key_of(&place, &promote("dpl_B"), Some("work"), true);
+    let (one, once) = ship::key_of(&place, &promote("dpl_A"), Some("work"), None, true);
+    let (other, _) = ship::key_of(&place, &promote("dpl_B"), Some("work"), None, true);
     assert!(once);
     assert_ne!(one, other);
-    let (command, once) = ship::key_of(&place, &deploy("vercel --prod"), Some("work"), false);
+    let (command, once) = ship::key_of(&place, &deploy("vercel --prod"), Some("work"), None, false);
     assert!(!once);
     assert_eq!(
         command,
-        ship::key_of(&place, &deploy("vercel deploy --prod"), Some("work"), false).0
+        ship::key_of(
+            &place,
+            &deploy("vercel deploy --prod"),
+            Some("work"),
+            None,
+            false
+        )
+        .0
     );
 }
 
@@ -547,6 +554,57 @@ async fn from_now_on_counts_as_the_person_confirming_that_place() {
     answer(&core, &call.id, ship::FROM_NOW_ON).await;
     assert!(run(&core, tag("v0.6.2-nightly.2"), Path::new("/nowhere")).is_ok());
     assert!(run(&core, tag("v0.6.2"), Path::new("/nowhere")).is_err());
+}
+
+/// The person said no to `git push origin v0.6.3`; the release was recut and the same push
+/// was refused with no new call, and a later yes at Releases on GitHub never reached it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_no_to_a_tag_ends_when_the_tag_moves_or_the_place_gets_a_yes() {
+    let dir = repo();
+    let (cwd, _) = work_of(&dir);
+    let cwd = sikemux_process::files::real_path(cwd).unwrap();
+    let project = cwd.to_string_lossy().into_owned();
+    let found = {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join(".github/workflows")).unwrap();
+        std::fs::write(
+            root.path().join(".github/workflows/release.yml"),
+            TAG_RELEASES,
+        )
+        .unwrap();
+        crate::server::places::found::in_files(root.path())
+    };
+    let core = core_at(None, &project, found);
+    let push = |what: &str| Ship {
+        kind: ShipKind::Push,
+        what: what.into(),
+        target: None,
+    };
+    let refused = |said: Result<Option<Deploy>, String>| {
+        said.err().is_some_and(|said| said.starts_with("Not yet"))
+    };
+    git(&cwd, &["tag", "v0.6.3"]);
+    assert!(run(&core, push("git push origin v0.6.3"), &cwd).is_err());
+    let call = open_calls(&core).remove(0);
+    answer(&core, &call.id, "refuse").await;
+    assert!(refused(run(&core, push("git push origin v0.6.3"), &cwd)));
+    assert!(open_calls(&core).is_empty());
+
+    std::fs::write(cwd.join("app.txt"), "three\n").unwrap();
+    git(&cwd, &["commit", "-qam", "three"]);
+    git(&cwd, &["tag", "-f", "v0.6.3"]);
+    assert!(!refused(run(&core, push("git push origin v0.6.3"), &cwd)));
+    let call = open_calls(&core).remove(0);
+    answer(&core, &call.id, "refuse").await;
+    assert!(refused(run(&core, push("git push origin v0.6.3"), &cwd)));
+
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    git(&cwd, &["tag", "v0.6.3-again"]);
+    assert!(run(&core, push("git push origin v0.6.3-again"), &cwd).is_err());
+    let call = open_calls(&core).remove(0);
+    answer(&core, &call.id, "allow").await;
+    assert!(!refused(run(&core, push("git push origin v0.6.3"), &cwd)));
+    assert_eq!(open_calls(&core).len(), 1);
 }
 
 /// `git push origin main marker` with no release pattern for `marker` went past the person's

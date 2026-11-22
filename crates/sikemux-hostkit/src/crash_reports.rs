@@ -596,7 +596,20 @@ fn event(report: &PanicReport) -> Event<'static> {
         .insert("thread".into(), report.thread.clone().into());
     event.release = Some(release.into());
     event.transaction = Some(report.location.clone());
+    // A panic inside a library has no frame of ours but the panic hook's, so without its place
+    // Sentry files every such panic under one issue.
+    event.fingerprint = vec!["{{ default }}".into(), panic_site(&report.location).into()].into();
     event
+}
+
+/// Where a panic was raised, from its crate on, so the same line groups alike across machines and
+/// toolchains.
+fn panic_site(location: &str) -> String {
+    let Some((folders, file)) = location.rsplit_once("/src/") else {
+        return location.to_owned();
+    };
+    let krate = folders.rsplit('/').next().unwrap_or(folders);
+    format!("{krate}/src/{file}")
 }
 
 static LOGGER: Breadcrumbs = Breadcrumbs;

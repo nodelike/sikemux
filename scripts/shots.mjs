@@ -29,6 +29,8 @@ import { homedir, tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
+import { guardCheckout, SAFE_SHOOTER } from "./lib/shots-checkout.mjs";
+
 const { values: options, positionals } = parseArgs({
   allowPositionals: true,
   options: { out: { type: "string" }, compare: { type: "boolean" } },
@@ -109,7 +111,13 @@ function moveTo(rev) {
       home,
     );
   }
-  run("git", ["checkout", "--quiet", "--force", "--detach", rev], checkout);
+  guardCheckout(checkout);
+  run(
+    "git",
+    ["checkout", "--quiet", "--force", "--detach", rev],
+    checkout,
+    SAFE_SHOOTER,
+  );
   if (git(checkout, "status", "--porcelain", "--untracked-files=all"))
     run("git", ["clean", "-fdq"], checkout);
   if (
@@ -180,6 +188,12 @@ function shootMac(side) {
   const bin = join(checkout, "target/debug");
   for (const scene of scenes) {
     const work = mkdtempSync(join(tmpdir(), "sxshot"));
+    // The film puts run/bin first on its cores' PATH. Builds older than its own stand-in `open`
+    // would let a signed-out agent CLI open its sign-in page in the person's browser.
+    mkdirSync(join(work, "run/bin"), { recursive: true });
+    writeFileSync(join(work, "run/bin/open"), "#!/bin/sh\nexit 0\n", {
+      mode: 0o755,
+    });
     try {
       run(
         join(bin, "examples/film"),
