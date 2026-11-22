@@ -452,31 +452,37 @@ fn end(core: &Core, state: &mut State, now: &HashMap<String, Shared>, unheard: &
         .collect();
     let told = !ended.is_empty();
     for (key, kept_for) in ended {
-        let Some(org) = state.held.remove(&key) else {
-            continue;
-        };
-        if let Some(KeptFor { local, member }) = kept_for {
-            let theirs = |id: u64| org.writers.get(&id) == Some(&member);
-            let own = holding_or_personal(state, &local, Store::Project);
-            let to = own.key.clone();
-            own.next = own.next.max(org.next);
-            for rule in org.rules.into_iter().filter(|rule| theirs(rule.id)) {
-                if !(own.rules.iter()).any(|kept| kept.text.eq_ignore_ascii_case(&rule.text)) {
-                    own.rules.push(rule);
-                }
-            }
-            for known in org.knowledge.into_iter().filter(|known| theirs(known.id)) {
-                if !(own.knowledge.iter()).any(|kept| kept.text.eq_ignore_ascii_case(&known.text)) {
-                    own.knowledge.push(known);
-                }
-            }
-            core.memory().save(state, &to);
-        }
-        core.memory().forget(state, &key);
+        forget_org(core, state, &key, kept_for);
     }
     if told || state.shared != *now {
         tell_clients(core, false);
     }
+}
+
+/// Forgets the org's store kept here under `key`, first moving what this account's person put
+/// there back to the project's own store.
+fn forget_org(core: &Core, state: &mut State, key: &str, kept_for: Option<KeptFor>) {
+    let Some(org) = state.held.remove(key) else {
+        return;
+    };
+    if let Some(KeptFor { local, member }) = kept_for {
+        let theirs = |id: u64| org.writers.get(&id) == Some(&member);
+        let own = holding_or_personal(state, &local, Store::Project);
+        let to = own.key.clone();
+        own.next = own.next.max(org.next);
+        for rule in org.rules.into_iter().filter(|rule| theirs(rule.id)) {
+            if !(own.rules.iter()).any(|kept| kept.text.eq_ignore_ascii_case(&rule.text)) {
+                own.rules.push(rule);
+            }
+        }
+        for known in org.knowledge.into_iter().filter(|known| theirs(known.id)) {
+            if !(own.knowledge.iter()).any(|kept| kept.text.eq_ignore_ascii_case(&known.text)) {
+                own.knowledge.push(known);
+            }
+        }
+        core.memory().save(state, &to);
+    }
+    core.memory().forget(state, key);
 }
 
 /// Brings the vault's entry into the project's org store here, keeping the changes made here
@@ -505,9 +511,22 @@ fn mirror(core: &Core, shared: &Shared) {
         local,
         member: shared.member.clone(),
     });
+    // The vault was made again without this store, so what was read of it before is not
+    // rebased into the new one: the person's own entries go back to the project's store. What
+    // an owner or admin here dropped from a member's list stays dropped once it is listed again.
+    let gone = (state.held.get(&key))
+        .filter(|held| (held.base.as_ref()).is_some_and(|base| base.revision > 0))
+        .filter(|_| remote.revision == 0)
+        .map(|held| held.drops.clone());
+    if gone.is_some() {
+        forget_org(core, &mut state, &key, kept_for.clone());
+    }
     let Ok(held) = holding(&mut state, &key, Store::Org) else {
         return;
     };
+    if let Some(drops) = gone {
+        held.drops = drops;
+    }
     let refollowed = kept_for.is_some() && held.kept_for != kept_for;
     if refollowed {
         held.kept_for = kept_for;
