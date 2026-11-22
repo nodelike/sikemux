@@ -218,8 +218,7 @@ async fn open(
         announce(core);
     }
     let Some(key) = key else { return Ok(None) };
-    if vault.rotate {
-        rotate(core, account, me, &vault, &key, floor).await?;
+    if vault.rotate && rotate(core, account, me, &vault, &key, floor).await? {
         core.vault().wake();
         return Ok(None);
     }
@@ -363,6 +362,8 @@ async fn add_keys(core: &Arc<Core>, account: &str, vault: &Remote, key: &Key) ->
 }
 
 /// A host left, so the key it held is replaced. The entries it refreshed pass to this host.
+/// Not while the vault hands back an entry older than this host's copy, since its reseal would
+/// carry that copy past every floor.
 async fn rotate(
     core: &Arc<Core>,
     account: &str,
@@ -370,15 +371,20 @@ async fn rotate(
     vault: &Remote,
     key: &Key,
     mut floor: Floor,
-) -> CoreResult<()> {
-    if let Some(stale) =
-        (vault.entries.iter()).find(|entry| !floor.takes_entry(&entry.id, entry.revision))
-    {
-        return Err(format!(
-            "the vault's key is not replaced while the accounts server hands back entry {} older than this host's copy",
-            stale.id
-        )
-        .into());
+) -> CoreResult<bool> {
+    let stale = (vault.entries.iter()).find(|entry| !floor.takes_entry(&entry.id, entry.revision));
+    let held_before = std::mem::replace(
+        &mut core.vault().state.locked().rotation_held,
+        stale.is_some(),
+    );
+    if let Some(stale) = stale {
+        if !held_before {
+            eprintln!(
+                "sikemux core: the vault's key is not replaced while the accounts server hands back entry {} older than this host's copy",
+                stale.id
+            );
+        }
+        return Ok(false);
     }
     let next = seal::random_key().ok_or_else(|| CoreError::from("no randomness for the key"))?;
     let generation = vault.generation + 1;
@@ -418,7 +424,8 @@ async fn rotate(
     };
     host_request(core, Method::POST, "/v1/vault/rotate", Some(json!(rotate))).await?;
     floor.generation = generation;
-    save_floor(core, account, &vault.recovery_key, floor).await
+    save_floor(core, account, &vault.recovery_key, floor).await?;
+    Ok(true)
 }
 
 fn open_body(key: &Key, entry: &VaultEntry) -> Option<Body> {
@@ -465,6 +472,25 @@ struct Plan {
     local: Local,
     /// What is decided for each sign-in this host holds.
     seen: Vec<Mark>,
+    /// A sign-in left this host while its entry was left out, so its delete waits for a round
+    /// that reads the entry.
+    retry: bool,
+}
+
+/// Which entries a read of the vault lists, and which it lists as gone from this host.
+struct Seen {
+    listed: BTreeSet<String>,
+    gone: BTreeMap<String, i64>,
+}
+
+impl Seen {
+    /// Whether an entry this host took in has left the vault for it: listed as removed, or never
+    /// marked and not listed, as when it was removed before this host kept marks.
+    fn left(&self, id: &str, floor: &Floor) -> bool {
+        self.gone.contains_key(id)
+            || floor.ended.contains_key(id)
+            || (!floor.revisions.contains_key(id) && !self.listed.contains(id))
+    }
 }
 
 fn newest_change(dir: &Path) -> u64 {
@@ -502,6 +528,7 @@ fn owned_body(body: &Body, sign_in: SignIn, me: &str, written_at: u64) -> Body {
 fn plan(
     books: &[(String, PathBuf, &'static dyn Book)],
     entries: &BTreeMap<String, Entry>,
+    vault: &Seen,
     mut local: Local,
     marks: &Marks,
     me: &str,
@@ -511,6 +538,7 @@ fn plan(
     let mut writes = Vec::new();
     let mut deletes = Vec::new();
     let mut seen = Vec::new();
+    let mut retry = false;
     for (plugin, dir, book) in books {
         let here = book.sign_ins(dir).map_err(CoreError::from)?;
         let made_at = newest_change(dir);
@@ -599,11 +627,12 @@ fn plan(
             .map(|(id, _)| id.clone())
             .collect();
         for id in signed_out {
-            match entries.get(&id) {
-                Some(entry) => deletes.push((id, entry.revision)),
-                None => {
-                    local.applied.remove(&id);
-                }
+            if let Some(entry) = entries.get(&id) {
+                deletes.push((id, entry.revision));
+            } else if vault.left(&id, &local.floor) {
+                local.applied.remove(&id);
+            } else {
+                retry = true;
             }
         }
     }
@@ -655,6 +684,7 @@ fn plan(
         deletes,
         local,
         seen,
+        retry,
     })
 }
 
@@ -774,6 +804,10 @@ async fn reconcile(
         .collect();
     for entry in &vault.entries {
         if entry.generation != vault.generation {
+            left_out.insert(
+                entry.id.clone(),
+                "is sealed under another generation of the key",
+            );
             continue;
         }
         if !local.floor.takes_entry(&entry.id, entry.revision) {
@@ -815,9 +849,19 @@ async fn reconcile(
         opened,
         (vault.ended.iter().flatten()).map(|ended| (&ended.id, ended.revision)),
     );
-    let pending = {
+    let left_out_ids: BTreeSet<String> = left_out.keys().cloned().collect();
+    let (pending, carried) = {
         let mut state = core.vault().state.locked();
-        let pending: Vec<(String, Body)> = std::mem::take(&mut state.pending)
+        let carried: BTreeMap<String, Entry> = (state.entries.iter())
+            .filter(|(id, _)| left_out_ids.contains(*id))
+            .map(|(id, entry)| (id.clone(), entry.clone()))
+            .collect();
+        let (held_back, pending): (BTreeSet<String>, BTreeSet<String>) =
+            std::mem::take(&mut state.pending)
+                .into_iter()
+                .partition(|id| carried.contains_key(id));
+        state.pending = held_back;
+        let pending: Vec<(String, Body)> = pending
             .into_iter()
             .filter_map(|id| {
                 let shared = state.entries.get(&id)?.body.shared.clone();
@@ -829,7 +873,8 @@ async fn reconcile(
             })
             .collect();
         state.entries = entries.clone();
-        state.rules.clear();
+        state.entries.extend(carried.clone());
+        state.rules.retain(|id, _| left_out_ids.contains(id));
         state.reindex();
         for (id, why) in &left_out {
             if !state.left_out.contains(id) {
@@ -838,8 +883,8 @@ async fn reconcile(
                 );
             }
         }
-        state.left_out = left_out.into_keys().collect();
-        pending
+        state.left_out.clone_from(&left_out_ids);
+        (pending, carried)
     };
     let compare = {
         let mut state = core.vault().state.locked();
@@ -850,19 +895,24 @@ async fn reconcile(
     };
     let books = books(core);
     let data_dir = core.data_dir().clone();
+    let seen = Seen {
+        listed: vault.entries.iter().map(|entry| entry.id.clone()).collect(),
+        gone: gone.clone(),
+    };
     let planning = (books.clone(), entries.clone(), me.to_owned());
     let plan = blocking(move || {
         let (books, entries, me) = planning;
         let marks = local::marks(data_dir.as_deref()).map_err(CoreError::from)?;
         let planned = compare || !local.moved_in;
         let plan = if planned {
-            plan(&books, &entries, local, &marks, &me)?
+            plan(&books, &entries, &seen, local, &marks, &me)?
         } else {
             Plan {
                 writes: Vec::new(),
                 deletes: Vec::new(),
                 local,
                 seen: Vec::new(),
+                retry: false,
             }
         };
         let marks = local::change_marks(data_dir.as_deref(), |marks| {
@@ -882,6 +932,9 @@ async fn reconcile(
     })
     .await?;
     let (mut plan, marks, planned) = plan;
+    if plan.retry {
+        core.vault().state.locked().dirty = true;
+    }
     {
         let mut state = core.vault().state.locked();
         state.marks = marks.clone();
@@ -985,6 +1038,7 @@ async fn reconcile(
     {
         let mut state = core.vault().state.locked();
         state.entries = entries.clone();
+        state.entries.extend(carried);
         state.reindex();
     }
     let data_dir = core.data_dir().clone();
@@ -992,7 +1046,13 @@ async fn reconcile(
     let mut local = plan.local;
     let took_in_or_let_go = blocking(move || {
         let moved = apply(&books, &entries, &gone, &mut local, &marks);
-        local.rules = rules_of(&entries, &local);
+        let mut rules = rules_of(&entries, &local);
+        for id in &left_out_ids {
+            if let Some(rule) = local.rules.get(id) {
+                rules.entry(id.clone()).or_insert_with(|| rule.clone());
+            }
+        }
+        local.rules = rules;
         local.host = me;
         local::save(data_dir.as_deref(), &local).map_err(CoreError::from)?;
         Ok(moved)
@@ -1168,6 +1228,7 @@ async fn renew_due(core: &Arc<Core>, me: &str) {
             .filter(|(id, entry)| {
                 others
                     && entry.body.refresher == me
+                    && !state.left_out.contains(*id)
                     && entry
                         .body
                         .shared

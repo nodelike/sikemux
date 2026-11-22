@@ -114,6 +114,8 @@ pub struct State {
     here: Vec<local::Mark>,
     /// Entries the vault lists that this host leaves out, so each is logged once.
     left_out: BTreeSet<String>,
+    /// The key is due to be replaced but this host holds off, as it last read the vault.
+    rotation_held: bool,
 }
 
 impl State {
