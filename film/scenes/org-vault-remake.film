@@ -6,6 +6,8 @@ orgrole admin "Fjord Labs"
 orgkey mac-mini "Fjord Labs" openrouter
 asleep mac-mini
 signed-in
+settle 100
+orgrole admin "Fjord Labs"
 settle 5
 settings Models "API providers"
 settle 2

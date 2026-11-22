@@ -1017,8 +1017,8 @@ fn opener_row(opener: &ShownOrgOpener, cx: &App) -> AnyElement {
     let seen = match (opener.online, opener.last_online, whose.is_some()) {
         (true, _, true) => t!("online now, the vault opens here shortly").to_owned(),
         (true, _, false) => t!("Online now, the vault opens here shortly").to_owned(),
-        (false, Some(at), true) => t!("last online {ago}", ago = ago(at)),
-        (false, Some(at), false) => t!("Last online {ago}", ago = ago(at)),
+        (false, Some(at), true) => t!("last online {ago}", ago = when(at)),
+        (false, Some(at), false) => t!("Last online {ago}", ago = when(at)),
         (false, None, true) => t!("not online since it was linked").to_owned(),
         (false, None, false) => t!("Not online since it was linked").to_owned(),
     };
@@ -1121,16 +1121,20 @@ fn remake_said(wake: Option<&(String, Option<u64>)>, hosts: &[String]) -> String
         Some(at) => t!(
             "Do this only if no host that has it is coming back. Waking {host}, last online {ago}, opens the vault here with nothing lost.",
             host = host,
-            ago = ago(*at)
+            ago = when(*at)
         ),
         None => t!(
             "Do this only if no host that has it is coming back. Waking {host} opens the vault here with nothing lost.",
             host = host
         ),
     });
-    let gone = match hosts.is_empty() {
-        true => t!("Every host loses its copy if one comes back.").to_owned(),
-        false => t!(
+    let gone = match hosts {
+        [] => t!("Every host loses its copy if one comes back.").to_owned(),
+        [host] => t!(
+            "Every host loses its copy, {host} too if it comes back.",
+            host = host
+        ),
+        _ => t!(
             "Every host loses its copy, {hosts} too if they come back.",
             hosts = hosts.join(", ")
         ),
