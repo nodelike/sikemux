@@ -35,6 +35,7 @@ const ROOT_FIELDS: &[&str] = &[
     "heavy",
     "ports",
     "env",
+    "hookEnv",
     "resources",
 ];
 const ACTION_FIELDS: &[&str] = &[
@@ -72,6 +73,9 @@ const MAX_HOOKS: usize = 20;
 const MAX_TASK_ENV_ENTRIES: usize = 128;
 const MAX_TASK_ENV_VALUE_LENGTH: usize = 8_192;
 const MAX_TASK_ENV_TOTAL_LENGTH: usize = 65_536;
+/// What `hookEnv` may set: the switches hook runners read to skip or narrow their hooks.
+const HOOK_ENV_PREFIXES: &[&str] = &["LEFTHOOK", "HUSKY"];
+const HOOK_ENV_KEYS: &[&str] = &["SKIP"];
 const UNSAFE_ENVIRONMENT_KEYS: &[&str] = &["__proto__", "constructor", "prototype"];
 const KEYBINDING_MODIFIERS: &[&str] = &["Meta", "Ctrl", "Alt", "Shift"];
 const KEYBINDING_PRIMARY_MODIFIERS: &[&str] = &["Meta", "Ctrl", "Alt"];
@@ -340,6 +344,9 @@ pub struct ProjectConfig {
     /// `{root}` filled in.
     #[serde(default, skip_serializing_if = "Vec::is_empty", with = "env_map")]
     pub env: Vec<(String, String)>,
+    /// What git_commit's commits and pushes run the repository's git hooks with.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", with = "env_map")]
+    pub hook_env: Vec<(String, String)>,
     /// What only so many agents use at once, by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub resources: Vec<super::resources::Resource>,
@@ -611,6 +618,7 @@ pub fn validate(value: &Value) -> Result<(ProjectConfig, Vec<ConfigError>), Vec<
         .map(|value| parse_heavy(value, &resources, &mut errors));
     let ports = checkout::parse_ports(root.get("ports"), &mut errors);
     let env = parse_task_env(root.get("env"), "$.env", &mut errors);
+    let hook_env = parse_hook_env(root.get("hookEnv"), &mut errors);
     let (warnings, mut errors): (Vec<_>, Vec<_>) =
         (errors.into_iter()).partition(|error| error.code == ConfigErrorCode::UnknownField);
     if !errors.is_empty() {
@@ -635,6 +643,7 @@ pub fn validate(value: &Value) -> Result<(ProjectConfig, Vec<ConfigError>), Vec<
         heavy,
         ports,
         env,
+        hook_env,
         resources,
     };
     checkout::check_names(root, &config, &mut errors);
@@ -675,6 +684,41 @@ pub fn heavy_near(dir: &Path) -> Option<Vec<HeavyCommand>> {
     let resources = super::resources::parse(value.get("resources"), &mut errors);
     let heavy = parse_heavy(value.get("heavy")?, &resources, &mut errors);
     errors.is_empty().then_some(heavy)
+}
+
+/// The `hookEnv` of the nearest `sikemux.json` at or above `dir`; none when it is not valid.
+pub fn hook_env_near(dir: &Path) -> Vec<(String, String)> {
+    let Some(source) = dir
+        .ancestors()
+        .find_map(|dir| std::fs::read(dir.join(CONFIG_FILE)).ok())
+    else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_slice::<Value>(&source) else {
+        return Vec::new();
+    };
+    let mut errors = Vec::new();
+    let env = parse_hook_env(value.get("hookEnv"), &mut errors);
+    match errors.is_empty() {
+        true => env,
+        false => Vec::new(),
+    }
+}
+
+fn parse_hook_env(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<(String, String)> {
+    let env = parse_task_env(value, "$.hookEnv", errors);
+    let allowed = |key: &str| {
+        HOOK_ENV_KEYS.contains(&key)
+            || (HOOK_ENV_PREFIXES.iter()).any(|prefix| key.starts_with(prefix))
+    };
+    for (key, _) in env.iter().filter(|(key, _)| !allowed(key)) {
+        errors.push(issue(
+            format!("$.hookEnv.{key}"),
+            ConfigErrorCode::InvalidValue,
+            "hookEnv may set only LEFTHOOK*, HUSKY* and SKIP.",
+        ));
+    }
+    env.into_iter().filter(|(key, _)| allowed(key)).collect()
 }
 
 pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {

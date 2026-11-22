@@ -149,7 +149,10 @@ struct Change {
 pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent_id = crate::server::caller::agent_of(request, "git_commit")?;
     let flag = |name: &str| request.params.get(name).and_then(Value::as_bool) == Some(true);
-    let (sync, land, push) = (flag("sync"), flag("land"), flag("push"));
+    let (sync, land, push, force) = (flag("sync"), flag("land"), flag("push"), flag("force"));
+    if force && (land || !push) {
+        return Err("force goes with push and without land".into());
+    }
     let message = match request.params.get("message") {
         Some(Value::String(message)) => Some(message.clone()),
         None | Some(Value::Null) if sync || land || push => None,
@@ -248,7 +251,7 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
                 };
                 not_pushed = super::super::ship::check(&core, &agent_id, ship(), &from).err();
                 match not_pushed {
-                    None => push_or_tell(&core, from, &agent_id)?,
+                    None => push_or_tell(&core, from, &agent_id, force)?,
                     Some(_) => None,
                 }
             }
@@ -279,15 +282,21 @@ fn push_or_tell(
     core: &Arc<Core>,
     from: PathBuf,
     agent: &str,
+    force: bool,
 ) -> Result<Option<super::push::Pushed>, String> {
     let (answer, answered) = std::sync::mpsc::channel();
     let runtime = tokio::runtime::Handle::try_current().ok();
     let (owner, agent) = (core.clone(), agent.to_owned());
     std::thread::spawn(move || {
         let _entered = runtime.as_ref().map(tokio::runtime::Handle::enter);
-        let pushed = checked_before_push(&owner, runtime.as_ref(), &from, &agent).and_then(|()| {
-            super::push::push(&owner, &from, std::slice::from_ref(&agent), "origin")
-        });
+        let agents = std::slice::from_ref(&agent);
+        let pushed =
+            checked_before_push(&owner, runtime.as_ref(), &from, &agent).and_then(
+                |()| match force {
+                    true => super::push::force_push(&owner, &from, agents, "origin"),
+                    false => super::push::push(&owner, &from, agents, "origin"),
+                },
+            );
         let Err(std::sync::mpsc::SendError(pushed)) = answer.send(pushed) else {
             return;
         };
