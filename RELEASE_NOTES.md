@@ -1,29 +1,22 @@
-# Sikemux v0.6.1-nightly.22
+# Sikemux v0.6.3
 
-Nightlies are signed and delivered exactly like stable releases, but they carry unreleased work and can break. Switch back to stable in Settings → About whenever you want; you keep the build you are on until a stable release passes it.
+About 260 changes after 0.6.2. Google's Antigravity joins the agents, Settings is one sheet, a chat can hand its context to another model, and Sikemux keeps files it can't read instead of writing over them.
 
-## Before you update
+## What's new
 
-- **Your phone needs 0.2.0-nightly.13 or later**, from TestFlight on iPhone or the Google Play testing track on Android.
-- **This nightly links only with hosts on the 0.6.1 nightlies.** Hosts on stable 0.6.0 can't reach it.
+- **Antigravity.** Google's Antigravity runs as a chat agent, signed in with your Google account, with its own mark and its own usage limits under LIMITS.
+- **One-sheet Settings.** Eleven entries on one sheet. One Agents roster holds installs, hosts and accounts, Appearance shows pictures first with finer controls folded away, and Language moves to General.
+- **Switch models mid-chat.** An agent can move a chat to another model or CLI, and a divider marks where the context was handed over. Each model in the picker shows its maker's mark.
+- **Share links.** A shared link opens for anyone, no sign-in needed, and the Usage page has a card to share your week with its split by model.
+- **Mods from GitHub.** Install a mod with a `sikemux://install-mod` link.
+- **Calls.** ⌘⏎ keeps a call open and ⇧⏎ adds a line. A long choice stays inside its button.
+- **Lead chats.** A lead's chat no longer shows a row for every finished worker, and a subagent shows as one row with its model in both the transcript and the dock.
+- **The notch.** The island opens on your agents, with calls folded to one line.
+- **Org vaults.** An org owner or admin can make a shut vault again from Settings, which names who holds its key.
+- **Updates.** An update no longer waits for agents to finish their turn. A Mac app run from its disk image says to move it to Applications first.
+- **Teams.** An organisation's key and models are offered only in projects shared with it.
+- **Leaner top bar.** The usage chip and its popover are gone from the top bar.
 
-## New since nightly.20
+Also fixed: a file Sikemux can't read is set aside and named, never written over; a closed agent keeps its name; coming back to a project opens the copy you had in front; a new Google account no longer hangs on Signing you in; Antigravity's limits wait until it is signed in; an ACP agent that isn't signed in offers a sign-in and a way back; Grok picks up its sign-in wherever it runs; OMP starts routed models on their own provider; a font change inside a CJK character no longer crashes; the notch island's chime no longer stalls the app; an agent's browser call with no tab open leaves your desk shut; and a production push you turned down can go ahead once its tag moves or you approve the place.
 
-- **Agents show as chips in the chief's turn line and in an agent's header.** "Waiting on @Mujika" and the lead crumbs open the agent you click.
-- **A chief's agents are root rows in the rail**, under the chief's own row, with no indent.
-- **A chat coming to the front puts the keys in its composer**, so you can type straight away after opening, resuming or picking a chat.
-- **A project with nothing open opens on a new chat** instead of an empty stage.
-- **Agents can start teammates without limits** on how deep or how many, and the agent guide is half as long.
-
-## Fixes
-
-- A project's chief can close any finished agent in its project, not only the ones it started.
-- Browser tabs an agent opens lay out at desktop size from their first frame, not at the width of the narrow desk pane.
-- A push from another repository no longer asks to change this project's Stable releases, and each GitHub write's call says what it writes.
-- Landing an agent's work runs Clippy only on the crates it changes and leaves the tests to CI, so lands go through much faster.
-- Only places known to be production hold an agent's action for you; a name that says nothing no longer does.
-- An agent's desk shuts when its last tab closes, even while its tab is out of sight.
-- `git_commit` no longer refuses a commit over a missing import or a line crediting the model; it warns or drops the line instead.
-- The daily usage ping counts each agent's chats, terminals, turns and time.
-
-For the complete patch history, compare [`v0.6.1-nightly.20...v0.6.1-nightly.22`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.20...v0.6.1-nightly.22).
+For the complete patch history, compare [`v0.6.2...v0.6.3`](https://github.com/nodelike/sikemux/compare/v0.6.2...v0.6.3).
