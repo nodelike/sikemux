@@ -220,10 +220,10 @@ pub(super) fn acting_remote(folder: &Path, urls: impl FnOnce() -> Vec<String>) -
 }
 
 fn read(folder: &Path) -> Option<List> {
-    let text = std::fs::read(folder.join(LIST)).ok()?;
-    serde_json::from_slice::<List>(&text)
-        .ok()
-        .filter(|list| !list.remotes.is_empty())
+    sikemux_process::files::read_or_set_aside(&folder.join(LIST), |bytes| {
+        serde_json::from_slice::<List>(bytes)
+    })
+    .filter(|list| !list.remotes.is_empty())
 }
 
 fn change(edit: impl FnOnce(&mut Vec<Acting>)) {
