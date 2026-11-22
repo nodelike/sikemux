@@ -662,9 +662,19 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
     for gone in vault.ended.iter().filter(|_| partial) {
         entries.remove(&gone.id);
     }
+    let mut ended = held.ended.clone();
+    let listed = (vault.ended.iter()).map(|gone| {
+        let above_held = (held.entries.get(&gone.id)).map_or(0, |entry| entry.revision + 1);
+        (&gone.id, gone.revision.max(above_held))
+    });
+    floor::end(&mut ended, listed);
     for entry in &vault.entries {
         let opened = (entry.generation == vault.generation
-            && held.takes_entry(&entry.id, entry.revision))
+            && floor::takes_entry(
+                held.entries.get(&entry.id).map(|held| held.revision),
+                ended.get(&entry.id).copied(),
+                entry.revision,
+            ))
         .then(|| open_entry(&key, &org.id, entry))
         .flatten();
         match opened {
@@ -689,12 +699,10 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
             }
         }
     }
-    let mut ended = held.ended;
     let unlisted = (held.entries.iter())
         .filter(|(id, _)| !partial && !entries.contains_key(*id))
         .map(|(id, entry)| (id, entry.revision + 1));
-    let listed = (vault.ended.iter()).map(|gone| (&gone.id, gone.revision));
-    floor::end(&mut ended, unlisted.chain(listed));
+    floor::end(&mut ended, unlisted);
     ended.retain(|id, _| !entries.contains_key(id));
     set(
         core,
