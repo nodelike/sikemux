@@ -12,6 +12,7 @@ import {
   readBody,
 } from "../http.ts";
 import { perUser } from "../limits.ts";
+import { peopleNamer } from "../orgs/shared.ts";
 import {
   addOrgKeys,
   createOrgVault,
@@ -63,12 +64,14 @@ export function orgVaultRoutes({
   verifier,
   limiter,
   presence,
+  clerk,
   billing: { live },
 }: Pick<
   Services,
-  "database" | "verifier" | "limiter" | "presence" | "billing"
+  "database" | "verifier" | "limiter" | "presence" | "clerk" | "billing"
 >) {
   const asHost = requireIdentity(verifier, db, { accept: ["host"] });
+  const people = peopleNamer(clerk);
 
   const asker = (c: Context<AuthEnv>): Asker => {
     const orgId = c.req.param("orgId") ?? "";
@@ -116,6 +119,7 @@ export function orgVaultRoutes({
       orgId,
       { hostKey, userId, role: member.role },
       presence,
+      (ids) => people(c, ids),
     );
   };
 
@@ -132,6 +136,7 @@ export function orgVaultRoutes({
           orgId,
           { hostKey, userId, role },
           presence,
+          (ids) => people(c, ids),
           after === undefined ? undefined : Number(after),
         ),
       );

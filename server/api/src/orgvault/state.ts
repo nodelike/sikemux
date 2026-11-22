@@ -11,6 +11,11 @@ import type { Tables } from "../db.ts";
 import { notFound } from "../http.ts";
 import type { Presence } from "../live/hub.ts";
 
+/** Names members by their user ids, leaving out whoever cannot be named. */
+export type Namer = (
+  userIds: string[],
+) => Promise<Map<string, { name: string | null }>>;
+
 /** A shared project's store of rules and knowledge, which agents read. */
 export const PROJECT_MEMORY = "project-memory";
 /** One member's rules for a shared project, waiting for an owner or admin to keep or drop them. */
@@ -126,6 +131,7 @@ export async function orgVaultState(
   orgId: string,
   { hostKey, userId, role }: Viewer,
   presence: Presence,
+  people: Namer,
   after?: number,
 ): Promise<OrgVaultState> {
   const vault = await db
@@ -134,6 +140,14 @@ export async function orgVaultState(
     .where("org_id", "=", orgId)
     .executeTakeFirst();
   if (!vault) return { vault: null };
+  const remade = await db
+    .selectFrom("audit")
+    .select("at")
+    .where("subject", "=", orgId)
+    .where("action", "=", "org_vault.remade")
+    .orderBy("id", "desc")
+    .limit(1)
+    .executeTakeFirst();
   const changes = Number(vault.changes);
   const since = after !== undefined && after <= changes ? after : null;
   const [keys, hosts, entries, ended] = await Promise.all([
@@ -169,25 +183,37 @@ export async function orgVaultState(
     (key) => key.generation === vault.generation && members.has(key.host_key),
   );
   const holders = new Set(current.map((key) => key.host_key));
+  const key = current.find((key) => key.host_key === hostKey)?.wrapped ?? null;
+  const holding =
+    role === "user"
+      ? []
+      : hosts.filter(
+          (host) =>
+            holders.has(host.key) &&
+            (host.user_id === userId || host.role !== "user"),
+        );
+  const named =
+    key === null && holding.length > 0
+      ? await people([...new Set(holding.map((host) => host.user_id))])
+      : new Map<string, { name: string | null }>();
   const state: OrgVault = {
     generation: vault.generation,
-    key: current.find((key) => key.host_key === hostKey)?.wrapped ?? null,
+    key,
     holders: [...holders],
     waiting: [...members].filter((key) => !holders.has(key)),
     rotate: keys.some((key) => !members.has(key.host_key)),
-    holding:
-      role === "user"
-        ? []
-        : hosts
-            .filter((host) => holders.has(host.key))
-            .map((host) => ({
-              hostKey: host.key,
-              computer: host.name,
-              role: host.role,
-              yours: host.user_id === userId,
-              online: presence.online(host.key),
-              lastSeenAt: host.last_seen_at?.toISOString() ?? null,
-            })),
+    ...(role !== "user" && {
+      holding: holding.map((host) => ({
+        hostKey: host.key,
+        computer: host.name,
+        member: named.get(host.user_id)?.name ?? null,
+        role: host.role,
+        yours: host.user_id === userId,
+        online: presence.online(host.key),
+        lastSeenAt: host.last_seen_at?.toISOString() ?? null,
+      })),
+    }),
+    remadeAt: remade?.at.toISOString() ?? null,
     entries: entries.map(toEntry),
     ended,
     changes,

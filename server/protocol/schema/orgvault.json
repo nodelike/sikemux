@@ -90,7 +90,7 @@
       "additionalProperties": false
     },
     "OrgVaultHolder": {
-      "description": "A member's computer that holds the org's key.",
+      "description": "A member's computer that holds the org's key and would seal it for the asking host.",
       "type": "object",
       "properties": {
         "hostKey": {
@@ -99,6 +99,10 @@
         "computer": {
           "description": "The computer's name, as its account named it.",
           "type": "string"
+        },
+        "member": {
+          "description": "The name of the member it is on, as their sign-in names them. Null when the asking host has the key sealed for it already, or the name cannot be told. Never an email address.",
+          "type": ["string", "null"]
         },
         "role": {
           "description": "The role in the org of the account it is on.",
@@ -121,6 +125,7 @@
       "required": [
         "hostKey",
         "computer",
+        "member",
         "role",
         "yours",
         "online",
@@ -165,11 +170,16 @@
           "type": "boolean"
         },
         "holding": {
-          "description": "For an owner's or admin's host, each member's computer that holds the key at the current generation and when it was last online, so they can tell one that is asleep from one that is gone before making the vault again. Empty for any other member's host.",
+          "description": "For an owner's or admin's host, each computer that holds the key at the current generation and would seal it for that host (its own account's, and owners' and admins'), and when each was last online, so they can tell one that is asleep from one that is gone before making the vault again. Absent for any other member's host.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/OrgVaultHolder"
           }
+        },
+        "remadeAt": {
+          "description": "When an owner's or admin's host last made the vault again, or null if none has.",
+          "type": ["string", "null"],
+          "format": "date-time"
         },
         "entries": {
           "type": "array",
@@ -206,7 +216,7 @@
         "holders",
         "waiting",
         "rotate",
-        "holding",
+        "remadeAt",
         "entries",
         "ended",
         "changes",

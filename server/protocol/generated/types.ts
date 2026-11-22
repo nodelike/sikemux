@@ -1422,8 +1422,10 @@ export interface OrgVault {
   waiting: DeviceKey[];
   /** A host that held the key is no longer a member's host, so an owner's or admin's host should replace it. */
   rotate: boolean;
-  /** For an owner's or admin's host, each member's computer that holds the key at the current generation and when it was last online, so they can tell one that is asleep from one that is gone before making the vault again. Empty for any other member's host. */
-  holding: OrgVaultHolder[];
+  /** For an owner's or admin's host, each computer that holds the key at the current generation and would seal it for that host (its own account's, and owners' and admins'), and when each was last online, so they can tell one that is asleep from one that is gone before making the vault again. Absent for any other member's host. */
+  holding?: OrgVaultHolder[];
+  /** When an owner's or admin's host last made the vault again, or null if none has. */
+  remadeAt: string | null;
   entries: OrgVaultEntry[];
   /** Entries removed from the vault, each at its last revision. The next entry under one of these ids starts above it. */
   ended: OrgVaultEnded[];
@@ -1483,11 +1485,13 @@ export interface OrgVaultEntryRead {
   revision: number;
 }
 
-/** A member's computer that holds the org's key. */
+/** A member's computer that holds the org's key and would seal it for the asking host. */
 export interface OrgVaultHolder {
   hostKey: DeviceKey;
   /** The computer's name, as its account named it. */
   computer: string;
+  /** The name of the member it is on, as their sign-in names them. Null when the asking host has the key sealed for it already, or the name cannot be told. Never an email address. */
+  member: string | null;
   /** The role in the org of the account it is on. */
   role: OrgRole;
   /** It is on the asking host's own account. */
