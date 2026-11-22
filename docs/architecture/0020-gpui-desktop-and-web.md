@@ -1,6 +1,7 @@
 # ADR 0020: The desktop and the web are one GPUI app that only draws what the core sends
 
-- Status: Accepted
+- Status: Accepted for the desktop. The web half was not built: app.sikemux.com stays the
+  React app in `server/app`.
 - Decision date: 2026-10-21
 
 ## Context

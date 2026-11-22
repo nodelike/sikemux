@@ -71,9 +71,9 @@ The app is a client of the core. [ADR 0006](./0006-background-core.md) records w
   payload: requests, answers and events are JSON, terminal input and output are bytes. Every
   connection starts with a versioned handshake. What crosses is defined once, in
   `crates/sikemux-wire` and, for what clients only read as JSON and draw, `crates/sikemux-view`.
-- **What it owns.** Terminals and terminal agents (`server/session.rs`, on `sikemux-pty`),
-  which it emulates and sends as screens of cells; chat agents (`server/chat/`), whose output
-  it folds into rows (`crates/sikemux-fold`); tasks and their logs; Git, search, project files
+- **What it owns.** Terminals and terminal agents (`sikemux-serve`'s `server/session.rs`, on
+  `sikemux-pty`), which it emulates and sends as screens of cells; chat agents (`sikemux-chat`
+  and `sikemux-drivers`), whose output it folds into rows (`crates/sikemux-fold`); tasks and their logs; Git, search, project files
   and language servers; the layout of every client's tabs (`server/layout.rs`) and the
   person's preferences; themes (`server/themes.rs`); the board, questions, the inbox and the
   agents' catalog; the harness, idempotency keys and the per-project event journal
@@ -89,9 +89,9 @@ The app is a client of the core. [ADR 0006](./0006-background-core.md) records w
   descriptors open across `exec`, and becomes the new binary in the same process, so every
   shell stays its child.
 - **Paired devices.** With remote access on, the core also listens on an iroh endpoint, and
-  phones signed in to the same account join it from anywhere (`server/remote/`,
-  `server/join.rs`). Each request is checked against what the device may do
-  (`server/access.rs`). [ADR 0007](./0007-remote-access-over-iroh.md) records the design.
+  phones signed in to the same account join it from anywhere (`sikemux-remote`). Each request
+  is checked against what the device may do (`sikemux-serve`'s `server/access.rs`).
+  [ADR 0007](./0007-remote-access-over-iroh.md) records the design.
 - **Linked hosts.** Hosts on one account link with each other and ask each other things over
   their own ALPN (`server/hosts/`): an agent here starts workers there, messages and questions
   cross the link, and a worker's commits come back to its lead's checkout.
@@ -103,7 +103,7 @@ The core listens on a local TCP port guarded by a random token, and writes the p
 to `~/.config/sikemux/cli.json` (`cli.dev.json` in dev builds). The `sikemux` launcher and the
 tools MCP server find it through that file, or through `SIKEMUX_CLI_ENDPOINT`, which every
 terminal Sikemux starts receives. A window registers with the core as the window
-(`server/window.rs`), again whenever the person brings it forward; calls that need a window,
+(`sikemux-serve`'s `server/window.rs`), again whenever the person brings it forward; calls that need a window,
 such as a file open or an agent's browser, go to the one that registered last.
 
 ## The desktop app
@@ -123,21 +123,21 @@ said, and the little the window decides itself, such as focus, open menus, scrol
 core's events go into the store, the store notifies views, and views draw; what the person does
 goes out as `Call`s. No view keeps a copy of the core's data.
 
-| Module                                                             | Owns                                                                                       |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| `workbench.rs`, `core.rs`                                          | The store and the link to the core                                                         |
-| `rail.rs`, `tabs.rs`, `panes.rs`, `track.rs`                       | The rails, the tab strip, a tab's views split as the core's layout says, and their motion  |
-| `chat/`                                                            | A chat: its rows in a transcript, the composer, attachments, mentions, edits, inline pages |
-| `terminal.rs`                                                      | A terminal pane: the screen the core sends, drawn by `gpui-terminal-grid`                  |
-| `editor/`, `syntax.rs`                                             | The editor tab on Kit's editor, highlighted by `textmate-highlight`                        |
-| `git/`, `codehost/`, `search.rs`                                   | The Git tab, the project's code host in its place, and the Search pane                     |
-| `desk.rs`, `sim/`                                                  | An agent's desk: its browser tabs, files, terminals and iOS Simulator                      |
-| `board/`                                                           | The agent board and its card panels                                                        |
-| `settings/`, `experience.rs`, `welcome.rs`, `whats_new.rs`         | Settings, and the screens over the whole window                                            |
-| `palette.rs`, `commands.rs`, `finder.rs`, `picker.rs`, `keymap.rs` | The pickers over the stage and the shortcuts                                               |
-| `ui/`, `theme.rs`, `motion.rs`, `toast.rs`                         | The shared component set, the theme's tokens, motion and toasts                            |
-| `notifications.rs`, `voice.rs`, `handoff.rs`                       | System notifications and the badge, dictation, and links opened from outside               |
-| `drive.rs`                                                         | The in-app driver for the real-window checks (see [Tests](#tests))                         |
+| Module                                               | Owns                                                                                       |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `workbench.rs`, `core.rs`                            | The store and the link to the core                                                         |
+| `rail.rs`, `tabs.rs`, `panes.rs`, `track.rs`         | The rails, the tab strip, a tab's views split as the core's layout says, and their motion  |
+| `chat/`                                              | A chat: its rows in a transcript, the composer, attachments, mentions, edits, inline pages |
+| `terminal.rs`                                        | A terminal pane: the screen the core sends, drawn by `gpui-terminal-grid`                  |
+| `editor/`, `syntax.rs`                               | The editor tab on Kit's editor, highlighted by `textmate-highlight`                        |
+| `git/`, `search.rs`                                  | The Git tab, its review, and the Search pane                                               |
+| `desk.rs`, `sim/`                                    | An agent's desk: its browser tabs, files, terminals and iOS Simulator                      |
+| `task_list.rs`, `task_sheet.rs`, `tasks/`            | The desk's Tasks view, one task's sheet, and the project's runnable tasks                  |
+| `settings/`, `screens/`                              | Settings, and the screens over the whole window: welcome, release notes, diagnostics       |
+| `palette.rs`, `commands.rs`, `pickers/`, `keymap.rs` | The pickers over the stage and the shortcuts                                               |
+| `ui/`, `theme.rs`, `motion.rs`, `toast.rs`           | The shared component set, the theme's tokens, motion and toasts                            |
+| `notifications.rs`, `voice.rs`, `links.rs`           | System notifications and the badge, dictation, and Sikemux links opened from outside       |
+| `drive.rs`                                           | The in-app driver for the real-window checks (see [Tests](#tests))                         |
 
 Its own crates are in `app/crates/`:
 
@@ -151,7 +151,7 @@ Its own crates are in `app/crates/`:
 
 ### GPUI, Kit and themes
 
-GPUI is our fork, `sikemux/gpui` (its `sikemux` branch), patched in under the `gpui-pre` names
+GPUI is our fork, `sikemux/gpui`, patched in under the `gpui-pre` names
 [GPUI Kit](https://crates.io/crates/gpui-kit) pins; the rev is in the workspace's
 `[patch.crates-io]` and its lockfile. Screens are built from `ui/`, which wraps Kit's
 components; a screen that needs something new adds it to `ui/`. The core resolves the person's
@@ -202,6 +202,7 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 | `sikemux-repo`       | A project's repository: who wrote which lines, committing, landing and pushing, collisions, the check, the code host and CI, places and deploys, the person's calls, language servers, skills. It asks above through `RepoAbove`     |
 | `sikemux-board`      | The board: cards and goals, their decisions and rules, hand-offs, and the agent a trigger's card starts. What it asks of the features above it goes through `BoardAbove`                                                             |
 | `sikemux-hostkit`    | What an app and the `sikemux` command do around the core without linking it: starting it and keeping it on their build, the login item, the CLI's paths, and crash, panic and hang reports                                           |
+| `sikemux-trust`      | On Windows, the tokens and process starts that keep the person's other programs out of a High core                                                                                                                                   |
 | `sikemux-buildinfo`  | Which build this is: the commit, the time and a fingerprint of the core's sources, for the `sikemux` command and the app's program                                                                                                   |
 | `sikemux-drivers`    | The agents a chat runs on, each driven over its own protocol (Claude Code, Codex, Pi, Muse, ACP), and what a driver and its chat say to each other                                                                                   |
 | `sikemux-host`       | The `sikemux` executable: the launcher, the tools MCP server and the core with the built-in plugins                                                                                                                                  |
@@ -211,9 +212,11 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 | `sikemux-client`     | Talking to a core: on this host, from a paired device, and joining a host. The phone links it                                                                                                                                        |
 | `sikemux-fold`       | A chat folded from what its agent says into the rows clients draw                                                                                                                                                                    |
 | `sikemux-pty`        | The terminal engine: each PTY's screen, shell integration, the login-shell environment, task checks and `agent_detection/`, which reads an agent's screen to tell working, blocked or idle                                           |
+| `sikemux-grid`       | A terminal's cells as the core sends them: only what changed since a client's last frame, and scrollback in pages when asked                                                                                                         |
 | `sikemux-browser`    | The browser engine (see [The browser engine](#the-browser-engine))                                                                                                                                                                   |
 | `sikemux-simulator`  | The iOS Simulator for agents and the desk: the device helper and the agents' tools                                                                                                                                                   |
 | `sikemux-linked`     | Reaching the account's other hosts as a device of the person's own                                                                                                                                                                   |
+| `sikemux-web-device` | The web app as a device on the account, reading a host's look over iroh with the look-only ticket                                                                                                                                    |
 | `sikemux-markdown`   | Parses markdown into the block tree the transcript draws; `sikemux-markdown-wasm` builds it for the web                                                                                                                              |
 | `sikemux-plugin-api` | The contract between the core and a plugin: a method name and JSON in, JSON or a stream out                                                                                                                                          |
 | `sikemux-keychain`   | Secrets in the system keychain, for the plugins that sign in                                                                                                                                                                         |
@@ -226,8 +229,9 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 ## Plugins
 
 Plugins are compiled in; there is no marketplace and no runtime loading
-([ADR 0022](./0022-plugins-are-connectors-and-mods-are-their-panels.md)). The eleven built-ins are
-AWS, Bitbucket, Database, Forgejo, GitHub, GitLab, Jira, Linear, Rundeck, SigNoz, Slack and Vercel.
+([ADR 0022](./0022-plugins-are-connectors-and-mods-are-their-panels.md)). The thirteen built-ins are
+AWS, Bitbucket, Database, Forgejo, GitHub, GitLab, Google Play, Jira, Linear, Rundeck, SigNoz,
+Slack and Vercel.
 
 - **In the core:** a crate in `plugins/<name>/` implements the `Plugin` trait from
   `sikemux-plugin-api`. `sikemux-host` gives each one a Cargo feature of the same name, all on
@@ -311,15 +315,15 @@ choices.
 `pnpm check` runs, among others, these checks that fail when generated output is stale. Run the
 matching `:generate` script and commit what it writes:
 
-| Check                            | What it compares                                                                                                                        |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent-tools:check`              | `crates/sikemux-base/src/cli/methods.rs` against `tools/tools.json`                                                                     |
-| `agent-catalog:check`            | The core's Rust copy of the agents' catalog against `sikemux-core/src/assets/agent-catalog.json`                                        |
-| `docs:reference:check`           | The docs site's reference pages against the shortcuts, CLI help and tools                                                               |
-| `grammars:check`, `syntax:check` | The grammar list and the GPUI app's highlighting bundle                                                                                 |
-| `faces:check`                    | The agents' faces, from the art in `shared/buddies`                                                                                     |
-| `file-icons:check`               | The file icons the app and the web app draw                                                                                             |
-| `notch-sources:check`            | The core's Rust copy of the notch helper's settings against `helpers/notch/settings.json`                                               |
+| Check                            | What it compares                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `agent-tools:check`              | `crates/sikemux-base/src/cli/methods.rs` against `tools/tools.json`                              |
+| `agent-catalog:check`            | The core's Rust copy of the agents' catalog against `sikemux-core/src/assets/agent-catalog.json` |
+| `docs:reference:check`           | The docs site's reference pages against the shortcuts, CLI help and tools                        |
+| `grammars:check`, `syntax:check` | The grammar list and the GPUI app's highlighting bundle                                          |
+| `faces:check`                    | The agents' faces, from the art in `shared/buddies`                                              |
+| `file-icons:check`               | The file icons the app and the web app draw                                                      |
+| `notch-sources:check`            | The core's Rust copy of the notch helper's settings against `helpers/notch/settings.json`        |
 
 `release:check` runs offline checks of the release configuration, which reads the app's name,
 identifiers and version from the GPUI crate's `Cargo.toml`. `pnpm check:rust` covers the Rust,

@@ -25,7 +25,7 @@ workspace's one target folder.
 
 GPUI comes from sikemux/gpui, our fork of sonorahq/gpui, pinned by commit in
 the root `Cargo.toml`'s `[patch.crates-io]` (today the head of its
-`sikemux-zed-08cbb88` branch). That branch is upstream plus our commits and a
+`sikemux-zed-08cbb88-2026-11-10` branch). That branch is upstream plus our commits and a
 last commit that renames the crates to the gpui-pre names and version GPUI Kit
 pins. To move onto a newer upstream, replay our commits, drop the rename commit
 and run the fork's `node tooling/gpui-pre-names.mjs <version>` again.

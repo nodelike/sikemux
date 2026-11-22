@@ -39,8 +39,9 @@ for the person in its own app, so the route takes the signature as the person's 
 
 The API signs the UTF-8 text
 `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>` with Ed25519,
-followed by `|<via>|<viaName>` for an app a host added. A
-ticket lasts ten minutes. Each phone gets 10 a minute, and each one writes `join.issued` to
+followed by `|<via>|<viaName>` for an app a host added, then `|hands-only` for an app that drives the
+host but never signs for the person there, and `|look-only` for a browser that only reads the
+host's look. A ticket lasts ten minutes. Each phone gets 10 a minute, and each one writes `join.issued` to
 the audit table.
 
 ## Settings
