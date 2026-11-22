@@ -25,7 +25,7 @@ use crate::accounts::vault::{
 
 use super::super::account::api::{as_host, host_request};
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
-use super::floor::Floor;
+use super::floor::{self, Floor};
 use super::local::{self, Applied, Local, Mark, Marks};
 use super::seal::{self, Key};
 use super::{announce, Body, Entry, State, Status, Tally};
@@ -818,9 +818,11 @@ async fn reconcile(
     let mut entries = BTreeMap::new();
     let mut opened = Vec::new();
     let mut left_out = BTreeMap::new();
-    let mut gone: BTreeMap<String, i64> = (vault.ended.iter().flatten())
-        .map(|ended| (ended.id.clone(), ended.revision))
-        .collect();
+    let mut gone = local.floor.ended.clone();
+    floor::end(
+        &mut gone,
+        (vault.ended.iter().flatten()).map(|ended| (&ended.id, ended.revision)),
+    );
     for entry in &vault.entries {
         if entry.generation != vault.generation {
             left_out.insert(
