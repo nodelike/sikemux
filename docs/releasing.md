@@ -135,9 +135,12 @@ export GIT_INDEX_FILE=$(mktemp -u); git read-tree "${merge}"
 from=$(git show "${merge}:package.json" | sed -n 's/.*"version": "\(.*\)".*/\1/p')
 put() { git update-index --cacheinfo "100644,$(git hash-object -w --stdin),$1"; }
 git show "${merge}:package.json" | sed "s/\"version\": \"${from}\"/\"version\": \"${version}\"/" | put package.json
-for file in Cargo.toml Cargo.lock; do
-  git show "${merge}:${file}" | sed "s/^version = \"${from}\"$/version = \"${version}\"/" | put "${file}"
-done
+git show "${merge}:Cargo.toml" | sed "s/^version = \"${from}\"$/version = \"${version}\"/" | put Cargo.toml
+# Only the workspace's crates: a crates.io package can share the old version, and it has a source line.
+git show "${merge}:Cargo.lock" | awk -v from="${from}" -v to="${version}" '
+  held != "" { if ($0 !~ /^source = /) sub("\"" from "\"", "\"" to "\"", held); print held; held = "" }
+  $0 == "version = \"" from "\"" { held = $0; next }
+  { print }' | put Cargo.lock
 put RELEASE_NOTES.md < /path/to/notes.md
 bump=$(git commit-tree "$(git write-tree)" -p "${merge}" -m "chore(release): prepare v${version}")
 rm -f "${GIT_INDEX_FILE}"; unset GIT_INDEX_FILE
