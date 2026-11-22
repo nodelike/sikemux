@@ -93,6 +93,25 @@ pub fn run_in(what: &str, cwd: &Path) -> PathBuf {
     }
 }
 
+/// The commits the tags `names` name in the checkout at `cwd`, so that moving a tag onto other
+/// work makes its push new work. None when any of them can't be read.
+pub fn tag_commits(names: &[String], cwd: &Path) -> Option<String> {
+    let commits: Option<Vec<String>> = (names.iter())
+        .map(|name| {
+            Git::quick(cwd)
+                .trimmed(&[
+                    "rev-parse",
+                    "--verify",
+                    &format!("refs/tags/{name}^{{commit}}"),
+                ])
+                .ok()
+        })
+        .collect();
+    commits
+        .filter(|commits| !commits.is_empty())
+        .map(|commits| commits.join(" "))
+}
+
 fn is_git(program: &str) -> bool {
     program.rsplit('/').next() == Some("git")
 }

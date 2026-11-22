@@ -878,6 +878,20 @@ pub fn find_key(core: &Core, project: &str, key: &str) -> Option<PersonCall> {
         .map(|kept| kept.call.clone())
 }
 
+/// Every call of `project` whose key `matches`, with that key.
+pub fn find_keys(
+    core: &Core,
+    project: &str,
+    matches: impl Fn(&str) -> bool,
+) -> Vec<(String, PersonCall)> {
+    (core.person_calls().book.locked().iter())
+        .filter(|kept| kept.call.project == project)
+        .filter_map(|kept| Some((kept.key.clone()?, kept)))
+        .filter(|(key, _)| matches(key))
+        .map(|(key, kept)| (key, kept.call.clone()))
+        .collect()
+}
+
 /// Says what came of an answered call, such as that it shipped and its place stayed healthy.
 pub fn set_outcome(core: &Core, id: &str, outcome: CallOutcome) {
     let mut book = core.person_calls().book.locked();
