@@ -179,11 +179,8 @@ async fn open(
     check_recovery_key(core, account, &vault.recovery_key).await?;
     let floor = check_floor(core, account, &vault).await?;
     let listed: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
-    let context = seal::wrap_context(account, vault.generation, me);
-    let key = vault
-        .key
-        .as_deref()
-        .and_then(|wrapped| seal::unwrap(wrapped, secret, &context));
+    let key =
+        (vault.key.as_deref()).and_then(|wrapped| open_wrap(wrapped, secret, account, &vault, me));
     let changed = {
         let mut state = core.vault().state.locked();
         let before = (
@@ -278,6 +275,21 @@ async fn check_floor(core: &Core, account: &str, vault: &Remote) -> CoreResult<F
         .into());
     }
     Ok(floor)
+}
+
+/// Opens the key wrapped for this host. A wrap that names who sealed it is taken only from this
+/// host or one the vault lists as holding the key. Hosts still write the form that names no
+/// sealer, which this host also reads, until every host in use reads the other.
+fn open_wrap(wrapped: &str, secret: &Key, account: &str, vault: &Remote, me: &str) -> Option<Key> {
+    let context = seal::host_wrap_context(account, vault.generation, me);
+    let holders = std::iter::once(me).chain(vault.holders.iter().map(String::as_str));
+    seal::unwrap_from_holder(wrapped, secret, &context, holders).or_else(|| {
+        seal::unwrap(
+            wrapped,
+            secret,
+            &seal::wrap_context(account, vault.generation, me),
+        )
+    })
 }
 
 /// Saves `floor` at once, for when it moves in a round that may not reach its end.

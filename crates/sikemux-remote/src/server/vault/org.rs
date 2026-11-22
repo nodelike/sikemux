@@ -744,12 +744,8 @@ fn held(core: &Core, org: &str) -> Held {
 /// holding it, so the server cannot hand over a key of its own making.
 fn open_wrap(wrapped: &str, secret: &Key, org: &str, vault: &Remote, me: &str) -> Option<Key> {
     let context = wrap_context(org, vault.generation, me);
-    let (key, sender) = seal::unwrap_from(wrapped, secret, &context)?;
-    std::iter::once(me)
-        .chain(vault.holders.iter().map(String::as_str))
-        .filter_map(seal::host_public)
-        .any(|holder| holder == sender)
-        .then_some(key)
+    let holders = std::iter::once(me).chain(vault.holders.iter().map(String::as_str));
+    seal::unwrap_from_holder(wrapped, secret, &context, holders)
 }
 
 fn set(core: &Core, org: &str, value: Org) {
