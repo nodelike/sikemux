@@ -84,12 +84,14 @@ keeps only sealed entries and wrapped keys. Against a server that lies in what i
   from an owner's or admin's host, so a member's host can neither overwrite another's wrap nor
   write the first one. A wrap stays with its host key, so a host key that moves to another
   member's account before the next new key keeps the wrap its old account's member sealed.
-- **Nothing older than a host holds now is taken in.** A host refuses a generation of the key
-  older than the one it holds, an entry sealed under another generation than the vault's, and a
-  revision older than the copy of that entry it holds, and keeps what it held; it does not
-  replace the key while the server lists such an entry. It keeps no record of entries it no
-  longer holds, so the server can hold an entry back, which hosts take for its removal, and
-  later list it again, at that revision or an older one, which they take back. A host replacing
+- **Nothing older than a host holds now is taken in.** A host refuses a generation of the key older
+  than the one it holds, an entry sealed under another generation than the vault's, and a revision
+  older than the copy of that entry it holds, and keeps what it held; it does not replace the key
+  while the server lists such an entry. For each entry it saw go, whether the server listed it as
+  removed or a full read left it out, it keeps a mark one revision above the last it held and
+  refuses the entry at or below it. The server can still keep a removal from a host, and then hand
+  it a write the removal made it refuse, as the entry's next revision. A host that neither held an
+  entry nor was told it went has no mark for it, so the server can list it again. A host replacing
   the key seals again what the server lists, so an entry taken back this way crosses into the new
   generation as a valid entry of it.
 - **A failed answer at the generation a host holds does not erase its copy.** A missing or
