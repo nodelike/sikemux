@@ -112,6 +112,8 @@ pub struct State {
     marks: local::Marks,
     /// The sign-ins this host's plugins held when it last compared them with the vault.
     here: Vec<local::Mark>,
+    /// Entries the vault lists that this host leaves out, so each is logged once.
+    left_out: BTreeSet<String>,
 }
 
 impl State {
