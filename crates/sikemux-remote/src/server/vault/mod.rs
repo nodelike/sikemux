@@ -18,6 +18,7 @@ use tokio::sync::Notify;
 use super::changed::{Topic, What};
 use super::Core;
 
+mod floor;
 mod local;
 pub mod org;
 mod seal;

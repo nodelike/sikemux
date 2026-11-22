@@ -31,6 +31,7 @@ use crate::accounts::vault::VaultEntryReseal;
 
 use super::super::account::api::{host_request, host_send_any};
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
+use super::floor;
 use super::seal::{self, Key};
 
 const TICK: Duration = Duration::from_secs(60);
@@ -85,10 +86,11 @@ impl Held {
     }
 
     fn takes_entry(&self, id: &str, revision: i64) -> bool {
-        self.entries
-            .get(id)
-            .is_none_or(|held| revision >= held.revision)
-            && self.ended.get(id).is_none_or(|&ended| revision > ended)
+        floor::takes_entry(
+            self.entries.get(id).map(|held| held.revision),
+            self.ended.get(id).copied(),
+            revision,
+        )
     }
 }
 
@@ -623,10 +625,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
         .filter(|(id, _)| !partial && !entries.contains_key(*id))
         .map(|(id, entry)| (id, entry.revision));
     let listed = (vault.ended.iter()).map(|gone| (&gone.id, gone.revision));
-    for (id, revision) in unlisted.chain(listed) {
-        let floor = ended.entry(id.clone()).or_default();
-        *floor = revision.max(*floor);
-    }
+    floor::end(&mut ended, unlisted.chain(listed));
     ended.retain(|id, _| !entries.contains_key(id));
     set(
         core,
