@@ -344,7 +344,7 @@ pub struct ProjectConfig {
     /// `{root}` filled in.
     #[serde(default, skip_serializing_if = "Vec::is_empty", with = "env_map")]
     pub env: Vec<(String, String)>,
-    /// What git_commit's commits and pushes run the repository's git hooks with.
+    /// What git_commit's pushes run the repository's pre-push hook with.
     #[serde(default, skip_serializing_if = "Vec::is_empty", with = "env_map")]
     pub hook_env: Vec<(String, String)>,
     /// What only so many agents use at once, by name.
