@@ -692,7 +692,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
     let mut ended = held.ended;
     let unlisted = (held.entries.iter())
         .filter(|(id, _)| !partial && !entries.contains_key(*id))
-        .map(|(id, entry)| (id, entry.revision));
+        .map(|(id, entry)| (id, entry.revision + 1));
     let listed = (vault.ended.iter()).map(|gone| (&gone.id, gone.revision));
     floor::end(&mut ended, unlisted.chain(listed));
     ended.retain(|id, _| !entries.contains_key(id));
