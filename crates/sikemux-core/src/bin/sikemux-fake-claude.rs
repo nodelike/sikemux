@@ -31,7 +31,8 @@
 //! `{ "send": {...}, "ms": 0 }`, a message sent as it is, such as a task starting or ending, or
 //! `{ "ask": {...} }`, which asks the AskUserQuestion input given and waits for the answer. A tool step
 //! with `"call": "browser.navigate"` makes that call to Sikemux's own tools with
-//! its input, as the agent's tools server would, and answers with what they said. While
+//! its input, as the agent's tools server would, and answers with what they said; a relative
+//! `path` in it is the project's, and `"$page"` is the id of the page the reply last showed. While
 //! `FAKE_CLAUDE_CLOCK` names a file holding a time in milliseconds, those
 //! pauses follow that time rather than the real one, so a recording that
 //! draws slower than real time still sees the reply arrive at a steady pace.
@@ -62,7 +63,7 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
@@ -561,6 +562,7 @@ impl Claude {
     /// Plays a reply from `FAKE_CLAUDE_SCRIPT`, each step its own message.
     fn play(&self, uuid: &str, message_id: &str, steps: &[Value]) {
         let mut clock = Clock::start();
+        let mut shown = String::new();
         for (at, step) in steps.iter().enumerate() {
             let id = format!("{message_id}-{at}");
             let per_second = step["perSecond"].as_f64().unwrap_or(30.).max(1.);
@@ -577,15 +579,22 @@ impl Claude {
                 let tool_id = step["id"]
                     .as_str()
                     .map_or_else(|| format!("toolu-{uuid}-{at}"), str::to_owned);
+                let input = with_page(&step["input"], &shown);
                 self.send(json!({
                     "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
                     "message": { "id": id, "model": model(), "role": "assistant",
-                        "content": [{ "type": "tool_use", "id": tool_id, "name": name, "input": step["input"] }] },
+                        "content": [{ "type": "tool_use", "id": tool_id, "name": name, "input": input }] },
                 }));
                 let result = match step["call"].as_str() {
-                    Some(method) => sikemux_tool(method, &step["input"]),
+                    Some(method) => sikemux_tool(method, &input),
                     None => step["result"].as_str().unwrap_or_default().to_owned(),
                 };
+                if step["call"] == "page.show" {
+                    let answer = serde_json::from_str::<Value>(&result).unwrap_or_default();
+                    shown = (answer.pointer("/page/id").and_then(Value::as_str))
+                        .unwrap_or_default()
+                        .to_owned();
+                }
                 clock.wait(step["ms"].as_f64().unwrap_or(600.));
                 self.send(json!({
                     "type": "user", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
@@ -747,13 +756,20 @@ fn sikemux_tool(method: &str, params: &Value) -> String {
     let project = std::env::current_dir()
         .map(|cwd| cwd.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let mut params = params.clone();
+    if let Some(path) = params
+        .get_mut("path")
+        .filter(|path| (path.as_str()).is_some_and(|path| Path::new(path).is_relative()))
+    {
+        *path = json!(Path::new(&project).join(path.as_str().unwrap_or_default()));
+    }
     let agent = std::env::var(vars::TOOLS_AGENT_ID).ok();
     match sikemux_core::cli::client::attempt(
-        std::path::Path::new(&endpoint),
+        Path::new(&endpoint),
         &project,
         agent.as_deref(),
         method,
-        params,
+        &params,
         std::time::Duration::from_secs(60),
     ) {
         Ok(answer) => answer.to_string(),
@@ -761,6 +777,18 @@ fn sikemux_tool(method: &str, params: &Value) -> String {
             sikemux_core::cli::client::Failure::NotSent(error)
             | sikemux_core::cli::client::Failure::Sent(error),
         ) => error,
+    }
+}
+
+/// `input` with every `"$page"` in it made `page`.
+fn with_page(input: &Value, page: &str) -> Value {
+    match input {
+        Value::String(text) if text == "$page" => json!(page),
+        Value::Array(items) => items.iter().map(|item| with_page(item, page)).collect(),
+        Value::Object(fields) => (fields.iter())
+            .map(|(key, value)| (key.clone(), with_page(value, page)))
+            .collect(),
+        other => other.clone(),
     }
 }
 

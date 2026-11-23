@@ -1,0 +1,13 @@
+[
+  {
+    "when": "product page cache",
+    "steps": [
+      { "say": "The checkout latency chart from yesterday's fix is worth keeping, so I kept it. Here are the empty-state mockups too, and the cache numbers from staging." },
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/latency.html", "title": "Checkout p95 latency", "keep": true }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/mockups.html", "title": "Empty projects page, three ways" }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/cache-plan.html", "title": "Product page cache" }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__ask", "call": "agent.ask", "input": { "question": "Which store should the product page cache use?", "title": "Cache store", "kind": "taste", "page": "$page", "choices": [{ "label": "Redis" }, { "label": "SQLite" }], "pick": "Redis" }, "ms": 400 },
+      { "say": "I asked which store to use; the page has the numbers." }
+    ]
+  }
+]

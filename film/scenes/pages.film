@@ -1,0 +1,26 @@
+# A project's Pages: the library from the project tree, then a call's page read in place on the
+# Calls page.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies pages.json
+project storefront shop
+patch pages-notes.diff
+chat Wren
+title "Cache the product pages"
+say "Plan the product page cache and show me the numbers."
+settle 10
+front Wren
+settle 2
+key cmd-alt-8
+settle 3
+snap pages-library
+front Wren
+settle 2
+click "Which store should the product page cache use?"
+settle 2
+snap pages-call
+click "Product page cache"
+settle 3
+snap pages-call-open
