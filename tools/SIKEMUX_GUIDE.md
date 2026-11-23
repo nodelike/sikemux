@@ -790,7 +790,8 @@ person or the task asks for one.
 A turn of its that fails, stops or asks something, and a land of its sent back,
 reach you at once, its final answer cut to about 6 KB, and so does a turn that
 changed nothing. A turn that finished calmly with its work landed, or a land that went in, is one line that comes with your next turn, and
-wakes you only once no other worker of yours is at work;
+wakes you at once when it is on work the person asked for, else only once no other
+worker of yours is at work;
 `agent_read` has the rest. A turn it ends on
 something set to wake it, such as a trigger, a run or a land in line, sends you
 nothing; `agent_list` says what it waits on. `report: false` turns reports off.

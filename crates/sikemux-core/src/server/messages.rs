@@ -2238,10 +2238,32 @@ async fn report_noted(
     }
 }
 
-/// A calm report is due at once when no other worker of its lead is still at work, and
-/// otherwise waits for the lead's next turn, which that worker's own report starts.
+/// A calm report is due at once when the person waits on the worker's work or no other worker
+/// of its lead is still at work, and otherwise waits for the lead's next turn, which that
+/// worker's own report starts.
 fn calm_due(core: &Core, agents: &[Listed], worker: &str, lead: &str, at: u64) -> u64 {
-    let turns = super::turn_state::all(core);
+    calm_due_in(
+        core,
+        &super::turn_state::all(core),
+        agents,
+        worker,
+        lead,
+        at,
+    )
+}
+
+/// [`calm_due`] with each agent's turn standing as `turns` says.
+fn calm_due_in(
+    core: &Core,
+    turns: &HashMap<String, sikemux_view::turn::TurnState>,
+    agents: &[Listed],
+    worker: &str,
+    lead: &str,
+    at: u64,
+) -> u64 {
+    if super::now::asks::person_waits_on(core, worker) {
+        return at;
+    }
     let at_work = agents.iter().any(|agent| {
         agent.agent_id != worker
             && agent.parent.as_deref() == Some(lead)
@@ -3072,10 +3094,63 @@ mod tests {
     use serde_json::json;
     use sikemux_fold::{ChatEventKind, Fold};
     use sikemux_view::chat::LetterKind;
+    use sikemux_view::turn::{TurnPhase, TurnState};
     use sikemux_wire::protocol::PermissionMode;
 
     use super::*;
     use crate::server::ServerCore;
+
+    /// The person asked Chief for a redone design, which Chief handed @Okkoto. Its calm report
+    /// waited as one line while @Shun was at work, and Chief only read it when the person asked
+    /// where @Okkoto had gone.
+    #[test]
+    fn a_calm_report_on_the_persons_work_wakes_its_lead_while_another_worker_works() {
+        use crate::server::board::asked::{Asked, Holder};
+        use crate::server::board_state::BoardParts;
+        let core = Core::new(Default::default(), None).unwrap();
+        (core.boards().state.locked().made("/shop")).ask(
+            "Redo the pages and calls design".to_owned(),
+            1,
+            Asked {
+                to: "chief".to_owned(),
+                owners: vec![Holder {
+                    agent: "okkoto".to_owned(),
+                    before: None,
+                }],
+                ..Asked::default()
+            },
+        );
+        let worker = |id: &str| Listed {
+            name: Some(id.to_owned()),
+            project: "/shop".to_owned(),
+            cli: "claude".to_owned(),
+            title: None,
+            status: sikemux_wire::protocol::AgentStatus::Idle,
+            parent: Some("chief".to_owned()),
+            active_at: None,
+            rank: 0,
+            reach: Reach::Chat,
+            agent_id: id.to_owned(),
+        };
+        let agents = [worker("okkoto"), worker("shun"), worker("kiki")];
+        let shun_works = TurnState {
+            state: TurnPhase::Working,
+            since: 1,
+            on: None,
+            wait: None,
+            call: None,
+            done: None,
+            stopped: None,
+            failed: None,
+            seen: false,
+        };
+        let turns = HashMap::from([("shun".to_owned(), shun_works)]);
+        assert_eq!(calm_due_in(&core, &turns, &agents, "okkoto", "chief", 7), 7);
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "kiki", "chief", 7),
+            u64::MAX
+        );
+    }
 
     /// A lead's chat drew a worker's report as the person's own message, raw tags and all,
     /// while the lead had a call about that worker open.

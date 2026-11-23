@@ -36,6 +36,9 @@ pub struct Asked {
     /// The commit its holder made for it, on the project's branch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
+    /// The holder that let go of it once its own commit for it landed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub landed_by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub landed_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

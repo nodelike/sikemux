@@ -430,9 +430,22 @@ pub(crate) fn work_read(core: &Core, agent: &str) {
                 return false;
             }
             asked.owners.retain(|holder| holder.agent != agent);
+            asked.landed_by = Some(agent.to_owned());
             true
         })
     });
+}
+
+/// Whether the person waits on `agent`'s work: it holds an ask of theirs, or landed one that is
+/// not yet in the build they run.
+pub(crate) fn person_waits_on(core: &Core, agent: &str) -> bool {
+    let state = core.boards().state.locked();
+    state.boards.values().any(|board| {
+        asks(board).any(|(_, asked)| {
+            asked.owners.iter().any(|holder| holder.agent == agent)
+                || asked.in_build_at.is_none() && asked.landed_by.as_deref() == Some(agent)
+        })
+    })
 }
 
 /// Takes `fix` as how far `asked` has gone, when it is a commit of the holder's own; whether that
