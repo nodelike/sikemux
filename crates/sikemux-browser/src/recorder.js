@@ -88,26 +88,51 @@
       .split("\n")
       .slice(ownFrames + 2)
       .some((frame) => frame.endsWith("@"));
-  const held = (method, target, ownFrames = 1) => {
-    if (!watch) return false;
+  const siteWrite = (method, target) => {
     const verb = String(method || "GET").toUpperCase();
-    if (verb === "GET" || verb === "HEAD" || verb === "OPTIONS") return false;
-    if (!fromAgent(ownFrames)) return false;
+    if (verb === "GET" || verb === "HEAD" || verb === "OPTIONS") return null;
     let url;
     try {
       url = new URL(String(target), document.baseURI);
     } catch {
-      return false;
+      return null;
     }
-    if (
-      !/^https?:$/.test(url.protocol) ||
-      localHost(url.hostname) ||
-      watch.allowed.includes(url.origin)
-    )
-      return false;
-    if (!watch.write)
-      watch.write = { method: verb, origin: url.origin, path: url.pathname };
+    if (!/^https?:$/.test(url.protocol) || localHost(url.hostname)) return null;
+    return { method: verb, origin: url.origin, path: url.pathname };
+  };
+  const held = (method, target, ownFrames = 1) => {
+    if (!watch || !fromAgent(ownFrames)) return false;
+    const write = siteWrite(method, target);
+    if (!write || watch.allowed.includes(write.origin)) return false;
+    if (!watch.write) watch.write = write;
     return true;
+  };
+
+  // While an agent's click or key plays out, a write the page's own scripts
+  // send waits here until the person's gate answers it.
+  const HOLD_MS = 60000;
+  let holding = null;
+  let holdEnds = null;
+  let lastWait = 0;
+  const waits = new Map();
+  const answer = (id, go) => {
+    const resolve = waits.get(id);
+    waits.delete(id);
+    if (resolve) resolve(go);
+  };
+  const stopHolding = () => {
+    clearTimeout(holdEnds);
+    const writes = holding || [];
+    holding = null;
+    return writes;
+  };
+  const waitForPerson = (method, target) => {
+    if (!holding) return null;
+    const write = siteWrite(method, target);
+    if (!write) return null;
+    const id = ++lastWait;
+    holding.push({ id, ...write });
+    return new Promise((resolve) => waits.set(id, resolve));
   };
   const formHeld = (form, submitter) => {
     const method =
@@ -135,10 +160,20 @@
         (init && init.method) || (request && request.method) || "GET";
       const address = (request && request.url) || input;
       if (held(method, address)) return Promise.reject(new TypeError(HELD));
+      const waiting = waitForPerson(method, address);
+      if (!waiting)
+        return recordedFetch(this, arguments, method, address, request, init);
+      return waiting.then((go) =>
+        go
+          ? recordedFetch(this, arguments, method, address, request, init)
+          : Promise.reject(new TypeError(HELD)),
+      );
+    };
+    const recordedFetch = (self, args, method, address, request, init) => {
       const entry = begin("fetch", method, address);
       entry.requestBody = describeRequest(init && init.body);
       label(entry, (init && init.headers) || (request && request.headers));
-      return nativeFetch.apply(this, arguments).then(
+      return nativeFetch.apply(self, args).then(
         (response) => {
           finish(entry);
           entry.status = response.status;
@@ -170,17 +205,38 @@
   const open = XMLHttpRequest.prototype.open;
   const send = XMLHttpRequest.prototype.send;
   const setRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
-  XMLHttpRequest.prototype.open = function (method, url) {
-    this.__sikemuxCall = { method, url, headers: {} };
+  XMLHttpRequest.prototype.open = function (method, url, async) {
+    this.__sikemuxCall = {
+      method,
+      url,
+      headers: {},
+      sync: arguments.length > 2 && !async,
+    };
     return open.apply(this, arguments);
   };
   XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
     if (this.__sikemuxCall) this.__sikemuxCall.headers[name] = value;
     return setRequestHeader.apply(this, arguments);
   };
-  XMLHttpRequest.prototype.send = function (body) {
+  XMLHttpRequest.prototype.send = function () {
     const call = this.__sikemuxCall;
     if (call && held(call.method, call.url)) throw new TypeError(HELD);
+    const waiting = call && !call.sync && waitForPerson(call.method, call.url);
+    if (!waiting) return recordedSend.apply(this, arguments);
+    const args = arguments;
+    waiting.then((go) => {
+      if (go) {
+        try {
+          recordedSend.apply(this, args);
+          return;
+        } catch {}
+      }
+      for (const type of ["error", "loadend"])
+        this.dispatchEvent(new ProgressEvent(type));
+    });
+  };
+  const recordedSend = function (body) {
+    const call = this.__sikemuxCall;
     if (call) {
       const entry = begin("xhr", call.method, call.url);
       entry.requestBody = describeRequest(body);
@@ -258,6 +314,15 @@
       watch = null;
       return write;
     },
+    hold: () => {
+      for (const write of stopHolding()) answer(write.id, false);
+      holding = [];
+      holdEnds = setTimeout(() => {
+        for (const write of stopHolding()) answer(write.id, false);
+      }, HOLD_MS);
+    },
+    held: stopHolding,
+    answer,
   };
 })();
 
