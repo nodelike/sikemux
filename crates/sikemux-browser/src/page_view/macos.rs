@@ -216,6 +216,7 @@ impl PageView {
                     NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()))
                 }),
             ),
+            Room::Served(url) => (true, false, NSURL::URLWithString(&NSString::from_str(url))),
         };
         let loaded = base
             .as_ref()

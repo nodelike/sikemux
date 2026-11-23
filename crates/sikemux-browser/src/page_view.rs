@@ -45,6 +45,9 @@ pub enum Room<'a> {
     /// Filling a file's pane on a page's usual white and scrolling itself. With the file's
     /// path on this disk, what it links to beside it, such as its styles and pictures, loads too.
     Fills(Option<&'a Path>),
+    /// Filling a pane on a page's usual white and scrolling itself, read as if loaded from the
+    /// loopback address given, which serves what it links to.
+    Served(&'a str),
     /// Filling a pane on the app's own ground and scrolling itself, as a mod does. Only a link
     /// the person clicks leaves it.
     Panel,

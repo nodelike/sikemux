@@ -706,6 +706,16 @@ impl PageFiles {
         self.page_url(id, &page.html, media, page.written_in.as_deref())
     }
 
+    /// A page the core keeps as the window draws it, themed, with the address it is read from.
+    pub(crate) fn served(
+        &self,
+        id: &str,
+        page: &sikemux_calls::harness::PageHtml,
+    ) -> Result<(String, String), String> {
+        let media = (page.media.as_deref()).filter(|media| media.is_dir());
+        self.themed_page(id, &page.html, media, page.written_in.as_deref())
+    }
+
     fn page_url(
         &self,
         name: &str,
@@ -713,6 +723,16 @@ impl PageFiles {
         media: Option<&Path>,
         written_in: Option<&Path>,
     ) -> Result<String, String> {
+        Ok(self.themed_page(name, html, media, written_in)?.0)
+    }
+
+    fn themed_page(
+        &self,
+        name: &str,
+        html: &str,
+        media: Option<&Path>,
+        written_in: Option<&Path>,
+    ) -> Result<(String, String), String> {
         let folder = self
             .folder
             .as_ref()
@@ -720,8 +740,9 @@ impl PageFiles {
         std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
         let path = folder.join(format!("{name}.html"));
         let themed = sikemux_base::pages::themed(html, &self.theme.locked(), None);
-        std::fs::write(&path, themed).map_err(|error| error.to_string())?;
-        self.engine()?.local_page_url(&path, media, written_in)
+        std::fs::write(&path, &themed).map_err(|error| error.to_string())?;
+        let url = self.engine()?.local_page_url(&path, media, written_in)?;
+        Ok((url, themed))
     }
 
     pub(crate) fn engine(&self) -> Result<Arc<BrowserManager>, String> {
@@ -2859,17 +2880,24 @@ fn kinds(
     row
 }
 
+/// The Calls page of `agent`'s desk, made the first time it is wanted.
+pub(crate) fn call_page(
+    bench: &Workbench,
+    agent: &str,
+    cx: &mut Context<Workbench>,
+) -> Entity<crate::calls::Page> {
+    if let Some(page) = bench.desks.read(cx).call_pages.get(agent) {
+        return page.clone();
+    }
+    let page = crate::calls::Page::new(bench, agent, cx);
+    bench.desks.update(cx, |desks, _| {
+        desks.call_pages.insert(agent.to_owned(), page.clone());
+    });
+    page
+}
+
 fn calls_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElement {
-    let page = match bench.desks.read(cx).call_pages.get(agent) {
-        Some(page) => page.clone(),
-        None => {
-            let page = crate::calls::Page::new(bench, agent, cx);
-            bench.desks.update(cx, |desks, _| {
-                desks.call_pages.insert(agent.to_owned(), page.clone());
-            });
-            page
-        }
-    };
+    let page = call_page(bench, agent, cx);
     let mut tabs = tab_row(bench, agent, cx);
     let calls = crate::calls::on_desk(bench, agent);
     let opened = page.read(cx).shown(&calls, cx).map(|call| call.id.clone());

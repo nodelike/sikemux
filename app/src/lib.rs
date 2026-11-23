@@ -50,6 +50,7 @@ mod opening;
 mod overlays;
 mod overload;
 mod page_view;
+mod pages;
 mod pairing;
 mod palette;
 mod pane_kind;

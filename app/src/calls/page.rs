@@ -50,6 +50,9 @@ pub struct Page {
     agent: String,
     /// The call shown last, so the one after it opens once it is answered.
     last: Option<(String, u64)>,
+    reader: Entity<crate::pages::Reader>,
+    /// The call whose page shows in place of its card.
+    reading: Option<String>,
     _cards: Subscription,
 }
 
@@ -61,13 +64,39 @@ impl Page {
         cx.new(|cx| {
             let observed = cx.observe(&cards, |_, _, cx| cx.notify());
             Self {
+                reader: crate::pages::Reader::new(weak.clone(), cx),
                 bench: weak,
                 cards,
                 agent,
                 last: None,
+                reading: None,
                 _cards: observed,
             }
         })
+    }
+
+    /// Shows page `page` of call `id` in place of its card, until Back.
+    pub(crate) fn read(
+        &mut self,
+        id: &str,
+        page: &str,
+        title: String,
+        target: Target,
+        files: std::sync::Arc<crate::desk::PageFiles>,
+        cx: &mut Context<Self>,
+    ) {
+        self.reading = Some(id.to_owned());
+        let this = cx.entity().downgrade();
+        let back: crate::pages::reader::Back = Rc::new(move |_, cx| {
+            let _ = this.update(cx, |calls, cx| {
+                calls.reading = None;
+                cx.notify();
+            });
+        });
+        self.reader.update(cx, |reader, cx| {
+            reader.open(page.to_owned(), title, target, files, Some(back), cx)
+        });
+        cx.notify();
     }
 }
 
@@ -96,6 +125,18 @@ impl Render for Page {
         let Some(bench) = self.bench.upgrade() else {
             return div().into_any_element();
         };
+        if let Some(reading) = &self.reading {
+            let opened = self.cards.read(cx).opened.clone();
+            match opened.is_some_and(|opened| &opened != reading) {
+                true => self.reading = None,
+                false => {
+                    return div()
+                        .size_full()
+                        .child(self.reader.clone())
+                        .into_any_element()
+                }
+            }
+        }
         let (calls, target) = {
             let read = bench.read(cx);
             (on_desk(read, &self.agent), read.target())

@@ -477,14 +477,32 @@ impl Workbench {
 
     /// Opens the page look call `id` shows, which clears it.
     pub(crate) fn open_look(&mut self, id: &str, cx: &mut Context<Self>) {
-        let shown = self.call_at(id).and_then(|(_, call)| {
-            let owner = call.about.as_ref().unwrap_or(&call.asker);
-            Some((owner.agent_id.clone(), call.page.as_ref()?.id.clone()))
-        });
+        let shown = (self.call_at(id)).and_then(|(_, call)| Some(call.page.as_ref()?.id.clone()));
         match shown {
-            Some((owner, page)) => self.open_page_in_tab(&owner, &page, cx),
+            Some(page) => self.read_call_page(id, &page, cx),
             None => self.seen_look(id, cx),
         }
+    }
+
+    /// Shows page `page` of call `id` on its asker's Calls page, in place of the call's card.
+    pub(crate) fn read_call_page(&mut self, id: &str, page: &str, cx: &mut Context<Self>) {
+        let Some((place, call)) = self.call_at(id) else {
+            return;
+        };
+        let agent = call.asker.agent_id.clone();
+        let title = (call.pages())
+            .find(|shown| shown.id == page)
+            .map_or_else(String::new, |shown| shown.title.clone());
+        let target = Target::new(&self.asks, place);
+        let files = self.desks.read(cx).page_files.clone();
+        if let Some(folder) = project_of(self, &agent) {
+            self.want_pages(&folder, cx);
+        }
+        let desk = crate::desk::call_page(self, &agent, cx);
+        self.calls.update(cx, |cards, cx| cards.open(id, cx));
+        desk.update(cx, |desk, cx| desk.read(id, page, title, target, files, cx));
+        self.show_calls(&agent, cx);
+        self.saw_page(page, cx);
     }
 
     /// Sends the answer `params` holds, once, its card sending until the core replies.
@@ -573,11 +591,16 @@ fn linked_page(call: &PersonCall, through: Through, cx: &mut App) -> Option<AnyE
         .map(|(at, page)| {
             let picture = cards.update(cx, |cards, cx| cards.page_picture(&page.id, target, cx));
             let place = t!("@{name}'s page", name = owner.name).into();
+            let open: std::rc::Rc<dyn Fn(&mut App)> = {
+                let (bench, call, page) = (bench.clone(), call.id.clone(), page.id.clone());
+                std::rc::Rc::new(move |cx| {
+                    let _ = bench.update(cx, |bench, cx| bench.read_call_page(&call, &page, cx));
+                })
+            };
             let page = sikemux_view::chat::PageRef {
                 id: page.id.clone(),
                 title: page.title.clone(),
             };
-            let open = crate::chat::page::opens_tab(&page.id, &owner.agent_id, bench);
             crate::chat::page::tab_row(&page, picture, place, at > 0, open, cx)
         })
         .collect();

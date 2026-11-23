@@ -99,6 +99,8 @@ pub enum PaneKind {
     Desk,
     /// A project's own settings; `target` is its folder.
     ProjectSettings,
+    /// The pages agents showed in a project; `target` is its folder.
+    Pages,
     /// What setting Sikemux up adds on an SSH host, and the one action that does it; `target`
     /// is the host's alias.
     InstallSikemux,

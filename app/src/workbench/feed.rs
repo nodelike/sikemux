@@ -317,6 +317,9 @@ impl Workbench {
         if topic == Topic::Playbook {
             self.playbooks_moved(cx);
         }
+        if topic == Topic::Pages {
+            self.pages_moved(cx);
+        }
         if topic == Topic::Lsp {
             crate::editor::diagnostics_changed(self, paths.as_deref().unwrap_or_default(), cx);
         }

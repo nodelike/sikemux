@@ -1299,8 +1299,8 @@ fn rollup(bench: &Workbench, folded: &Folded, cx: &App) -> Option<gpui_kit::AnyE
     ui::status_mark(&key, status, cx)
 }
 
-/// The project's surfaces and its Playbook, hung off a spine with a tick to each, the one in
-/// front lit.
+/// The project's surfaces, its pages and its Playbook, hung off a spine with a tick to each, the
+/// one in front lit.
 fn surfaces(
     workbench: &Workbench,
     front: Option<PaneKind>,
@@ -1340,6 +1340,18 @@ fn surfaces(
                 cx,
             )
         });
+    let pages = crate::workbench::actions::FocusPages::ID;
+    let pages = tree_row(
+        "surface-pages".into(),
+        Icon::Tabs,
+        n!("Pages"),
+        front == Some(PaneKind::Pages),
+        false,
+        keymap::hint(pages, cx),
+        cx,
+    )
+    .clicks(move |_, window, cx| keymap::dispatch(pages, window, cx));
+    let pages = keyed.row("surface-pages", t!("Pages"), pages, cx);
     let playbook = crate::workbench::actions::FocusPlaybook::ID;
     let playbook = tree_row(
         "surface-playbook".into(),
@@ -1359,6 +1371,7 @@ fn surfaces(
         .py(SPACE_0)
         .pr(SPACE_1H)
         .children(surfaces)
+        .child(pages)
         .child(playbook)
 }
 

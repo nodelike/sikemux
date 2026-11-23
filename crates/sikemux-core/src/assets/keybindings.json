@@ -516,6 +516,14 @@
         "other": "Ctrl+Alt+Digit6"
     },
     {
+        "id": "window.pages",
+        "label": "Pages",
+        "detail": "Open the pages agents showed in the project, to find one, read it again or keep it",
+        "category": "Navigation",
+        "mac": "Meta+Alt+Digit8",
+        "other": "Ctrl+Alt+Digit8"
+    },
+    {
         "id": "window.tasks",
         "label": "Tasks",
         "detail": "Open the project's tasks on the nearest agent's desk: what waits on you, what finished and what is moving",

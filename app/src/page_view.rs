@@ -80,7 +80,7 @@ pub(crate) fn open(
     let parent = gpui_native_view::window_x11(window)?;
     let ground = match room {
         Room::App | Room::Panel => crate::theme::page_ground_rgb(crate::theme::Tokens::get(cx)),
-        Room::Fills(_) => [255; 3],
+        Room::Fills(_) | Room::Served(_) => [255; 3],
     };
     let page =
         sikemux_browser::page_view::PageView::new(parent, html, room, ground, move |event| {
