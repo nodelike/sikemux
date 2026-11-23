@@ -1590,7 +1590,7 @@
       "name": "page_show",
       "row": {"verb": "show", "kind": "read", "icon": "image", "target": ["{title}"]},
       "method": "page.show",
-      "description": "Open a page in a desk tab; <pre class=\"mermaid\"> blocks draw as diagrams.",
+      "description": "Open a page in a desk tab.",
       "properties": {
         "path": {
           "description": "Absolute path of your HTML; with title",
