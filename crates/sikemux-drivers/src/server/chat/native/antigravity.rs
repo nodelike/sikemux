@@ -22,6 +22,7 @@ use super::super::states::{self, Subagent, UNNAMED_TASK};
 use super::mcp_calls::split;
 use super::session::Sink;
 use crate::acp::failure::{Failure, FailureKind};
+use crate::launch::PermissionMode;
 use crate::sessions::antigravity::{subagent_log, subagent_run, subagent_started, SubagentRun};
 
 const PRINTED: &str = "Command output:\n";
@@ -367,6 +368,15 @@ pub(super) fn turn_failure(line: String) -> Failure {
         },
         details: (message != line).then_some(line),
         ..Failure::other(message)
+    }
+}
+
+/// What agy is started with in `mode`. Its subagents never ask the chat before acting, so
+/// only this lets them act in bypass.
+pub(super) fn launch_args(mode: PermissionMode) -> Vec<String> {
+    match mode {
+        PermissionMode::Bypass => vec!["--dangerously-skip-permissions".to_owned()],
+        _ => Vec::new(),
     }
 }
 

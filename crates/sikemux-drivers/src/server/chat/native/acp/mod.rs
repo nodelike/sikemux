@@ -539,11 +539,140 @@ pub struct Acp {
     process: Process,
     driver: Driver,
     reading: Reading<Driver>,
-    provider: String,
+    launch: ChatLaunch,
     kept: Kept,
 }
 
 impl Acp {
+    async fn begin(launch: &ChatLaunch, sink: Sink) -> Result<(Self, Opened), String> {
+        let args = if is_antigravity(launch) {
+            antigravity::launch_args(launch.permission_mode)
+        } else {
+            Vec::new()
+        };
+        let (process, writer, lines) =
+            Process::spawn(launch, args, Vec::<(String, String)>::new())?;
+        let driver = Driver {
+            rpc: Rpc::new(writer, true),
+            sink,
+            turns: Arc::default(),
+            servers: server_names(launch),
+            compact: compact_word(launch),
+            free_models: on_free_models(launch),
+            antigravity: is_antigravity(launch),
+            subagents: Default::default(),
+        };
+        let (reading, _) = Reading::start(driver.clone(), lines);
+        let failed = |error: String| process.start_error(error);
+
+        let initialize = InitializeRequest::new(ProtocolVersion::V1)
+            .client_capabilities(air::client_capabilities())
+            .client_info(Implementation::new("sikemux", env!("CARGO_PKG_VERSION")));
+        let initialized = driver
+            .call(AGENT_METHOD_NAMES.initialize, initialize, None)
+            .await
+            .map_err(failed)?;
+        let command =
+            crate::agent_catalog::agent(&launch.provider).map_or("", |entry| entry.command);
+        let sign_in = crate::acp::sign_in::methods(&initialized, command);
+        let key_sign_in = crate::agent_catalog::AgentKind::from_name(&launch.provider)
+            .and_then(|agent| agent.ops().key_sign_in(&launch.env));
+        let signs_in = !sign_in.is_empty();
+        let initialized: InitializeResponse =
+            serde_json::from_value(initialized).map_err(|error| failed(error.to_string()))?;
+        if let Some(agent) = &initialized.agent_info {
+            driver.sink.cli_version(&agent.version);
+        }
+        let mut capabilities = params(&initialized.agent_capabilities)?;
+        let steering = driver.antigravity || air::steering_supported(&params(&initialized.meta)?);
+        set(&mut capabilities, "steering", json!(steering));
+        set(&mut capabilities, "signInMethods", json!(sign_in));
+        let reopens = if initialized.agent_capabilities.load_session {
+            Reopens::Load
+        } else if initialized
+            .agent_capabilities
+            .session_capabilities
+            .resume
+            .is_some()
+        {
+            Reopens::Resume
+        } else {
+            Reopens::No
+        };
+
+        let opened = match Self::open(&driver, launch, reopens).await {
+            Err(Refused::SignIn(_)) if key_sign_in.is_some() => {
+                let method = json!({ "methodId": key_sign_in });
+                (driver
+                    .call(AGENT_METHOD_NAMES.authenticate, method, None)
+                    .await)
+                    .map_err(failed)?;
+                Self::open(&driver, launch, reopens).await
+            }
+            opened => opened,
+        };
+        let (session_id, setup) = match opened {
+            Ok(opened) => opened,
+            Err(Refused::SignIn(said)) if signs_in => {
+                driver.sink.needs_sign_in();
+                return Err(said);
+            }
+            Err(Refused::SignIn(error) | Refused::Other(error)) => return Err(failed(error)),
+        };
+        driver.sink.loaded();
+
+        let mut acp = Self {
+            process,
+            driver,
+            reading,
+            launch: launch.clone(),
+            kept: Kept {
+                session_id,
+                model_outside_config: native::models_outside_config(&setup),
+                setup: native::with_model_config(setup),
+                steering,
+                embedded_context: initialized
+                    .agent_capabilities
+                    .prompt_capabilities
+                    .embedded_context,
+                images: initialized.agent_capabilities.prompt_capabilities.image,
+                can_load: !matches!(reopens, Reopens::No),
+            },
+        };
+
+        if let Some(mode_id) = permission_mode_id(
+            &acp.launch.provider,
+            launch.permission_mode,
+            &acp.kept.setup,
+        )? {
+            acp.set_mode(mode_id).await?;
+        }
+        acp.apply_saved_choices(launch.model.as_deref(), launch.effort.as_deref())
+            .await;
+
+        let opened = Opened {
+            session_id: acp.kept.session_id.clone(),
+            capabilities,
+            setup: acp.kept.setup.clone(),
+        };
+        Ok((acp, opened))
+    }
+
+    /// Starts agy again on the session, since whether it asks before acting is set as it starts.
+    async fn relaunch(&mut self, mode: PermissionMode) -> Result<(), String> {
+        let mut launch = self.launch.clone();
+        launch.resume_id = Some(self.kept.session_id.clone());
+        launch.permission_mode = mode;
+        launch.model = pickers::current_choice(&self.kept.setup, "model").or(launch.model);
+        launch.effort = pickers::effort_config_id(&self.kept.setup)
+            .and_then(|id| pickers::current_choice(&self.kept.setup, id))
+            .or(launch.effort);
+        self.process.stop().await;
+        self.driver.sink.hush();
+        *self = Self::begin(&launch, self.driver.sink.clone()).await?.0;
+        Ok(())
+    }
+
     async fn open_new(
         driver: &Driver,
         launch: &ChatLaunch,
@@ -754,110 +883,7 @@ impl Backend for Acp {
         _brief: Option<&str>,
         sink: Sink,
     ) -> Result<(Self, Opened), String> {
-        let (process, writer, lines) =
-            Process::spawn(launch, Vec::<String>::new(), Vec::<(String, String)>::new())?;
-        let driver = Driver {
-            rpc: Rpc::new(writer, true),
-            sink,
-            turns: Arc::default(),
-            servers: server_names(launch),
-            compact: compact_word(launch),
-            free_models: on_free_models(launch),
-            antigravity: is_antigravity(launch),
-            subagents: Default::default(),
-        };
-        let (reading, _) = Reading::start(driver.clone(), lines);
-        let failed = |error: String| process.start_error(error);
-
-        let initialize = InitializeRequest::new(ProtocolVersion::V1)
-            .client_capabilities(air::client_capabilities())
-            .client_info(Implementation::new("sikemux", env!("CARGO_PKG_VERSION")));
-        let initialized = driver
-            .call(AGENT_METHOD_NAMES.initialize, initialize, None)
-            .await
-            .map_err(failed)?;
-        let command =
-            crate::agent_catalog::agent(&launch.provider).map_or("", |entry| entry.command);
-        let sign_in = crate::acp::sign_in::methods(&initialized, command);
-        let key_sign_in = crate::agent_catalog::AgentKind::from_name(&launch.provider)
-            .and_then(|agent| agent.ops().key_sign_in(&launch.env));
-        let signs_in = !sign_in.is_empty();
-        let initialized: InitializeResponse =
-            serde_json::from_value(initialized).map_err(|error| failed(error.to_string()))?;
-        if let Some(agent) = &initialized.agent_info {
-            driver.sink.cli_version(&agent.version);
-        }
-        let mut capabilities = params(&initialized.agent_capabilities)?;
-        let steering = driver.antigravity || air::steering_supported(&params(&initialized.meta)?);
-        set(&mut capabilities, "steering", json!(steering));
-        set(&mut capabilities, "signInMethods", json!(sign_in));
-        let reopens = if initialized.agent_capabilities.load_session {
-            Reopens::Load
-        } else if initialized
-            .agent_capabilities
-            .session_capabilities
-            .resume
-            .is_some()
-        {
-            Reopens::Resume
-        } else {
-            Reopens::No
-        };
-
-        let opened = match Self::open(&driver, launch, reopens).await {
-            Err(Refused::SignIn(_)) if key_sign_in.is_some() => {
-                let method = json!({ "methodId": key_sign_in });
-                (driver
-                    .call(AGENT_METHOD_NAMES.authenticate, method, None)
-                    .await)
-                    .map_err(failed)?;
-                Self::open(&driver, launch, reopens).await
-            }
-            opened => opened,
-        };
-        let (session_id, setup) = match opened {
-            Ok(opened) => opened,
-            Err(Refused::SignIn(said)) if signs_in => {
-                driver.sink.needs_sign_in();
-                return Err(said);
-            }
-            Err(Refused::SignIn(error) | Refused::Other(error)) => return Err(failed(error)),
-        };
-        driver.sink.loaded();
-
-        let mut acp = Self {
-            process,
-            driver,
-            reading,
-            provider: launch.provider.clone(),
-            kept: Kept {
-                session_id,
-                model_outside_config: native::models_outside_config(&setup),
-                setup: native::with_model_config(setup),
-                steering,
-                embedded_context: initialized
-                    .agent_capabilities
-                    .prompt_capabilities
-                    .embedded_context,
-                images: initialized.agent_capabilities.prompt_capabilities.image,
-                can_load: !matches!(reopens, Reopens::No),
-            },
-        };
-
-        if let Some(mode_id) =
-            permission_mode_id(&acp.provider, launch.permission_mode, &acp.kept.setup)?
-        {
-            acp.set_mode(mode_id).await?;
-        }
-        acp.apply_saved_choices(launch.model.as_deref(), launch.effort.as_deref())
-            .await;
-
-        let opened = Opened {
-            session_id: acp.kept.session_id.clone(),
-            capabilities,
-            setup: acp.kept.setup.clone(),
-        };
-        Ok((acp, opened))
+        Self::begin(launch, sink).await
     }
 
     async fn prompt(&mut self, turn: u64, prompt: Prompt) -> Result<(), String> {
@@ -926,10 +952,17 @@ impl Backend for Acp {
     }
 
     async fn set_permission_mode(&mut self, mode: PermissionMode) -> Result<(), String> {
-        match permission_mode_id(&self.provider, mode, &self.kept.setup)? {
-            Some(mode_id) => self.set_mode(mode_id).await,
-            None => Ok(()),
+        if self.driver.antigravity
+            && antigravity::launch_args(mode)
+                != antigravity::launch_args(self.launch.permission_mode)
+        {
+            return self.relaunch(mode).await;
         }
+        if let Some(mode_id) = permission_mode_id(&self.launch.provider, mode, &self.kept.setup)? {
+            self.set_mode(mode_id).await?;
+        }
+        self.launch.permission_mode = mode;
+        Ok(())
     }
 
     async fn set_config(&mut self, config_id: &str, value: &str) -> Result<Value, String> {
@@ -992,7 +1025,7 @@ impl Backend for Acp {
             process,
             driver,
             reading,
-            provider: _,
+            launch: _,
             kept,
         } = self;
         process::hand_over(process, reading, "The agent", |_| AcpState {
@@ -1025,7 +1058,7 @@ impl Backend for Acp {
             process,
             driver,
             reading,
-            provider: launch.provider.clone(),
+            launch: launch.clone(),
             kept: state.kept,
         })
     }
