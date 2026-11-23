@@ -38,7 +38,8 @@ struct LiveWork: Equatable {
     /// Some step of the plan is still to do.
     var planOpen: Bool { plan.contains { $0.status != .completed } }
     var any: Bool {
-        handoff != nil || !guests.isEmpty || !subagents.isEmpty || !tasks.isEmpty || !queued.isEmpty || !mail.isEmpty || planOpen
+        handoff != nil || !guests.isEmpty || !subagents.isEmpty || !tasks.isEmpty || !queued.isEmpty || !mail.isEmpty
+            || planOpen
     }
 
     struct Piece: Equatable {
