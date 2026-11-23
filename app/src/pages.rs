@@ -190,20 +190,11 @@ pub(crate) fn pane(
     let row = |page: &&ListedPage| {
         let (this, folder, picked) = (this.clone(), folder.to_owned(), (*page).clone());
         let chosen = reading.as_deref() == Some(page.id.as_str());
-        let by = match page.versions {
-            0 | 1 => t!("@{agent}", agent = page.agent),
-            versions => t!(
-                "@{agent} · {count} versions",
-                agent = page.agent,
-                count = versions
-            ),
-        };
         ui::Row::new(
             SharedString::from(format!("page-{}", page.id)),
             page.title.clone(),
         )
-        .mark(22., ui::icon(Icon::Tabs, 13.).text_color(t.text_tertiary))
-        .subtitle(ui::meta(by, cx))
+        .mark(22., ui::icon(Icon::Tabs, 15.).text_color(t.text_tertiary))
         .detail(match &page.shared {
             Some(share) => t!("{left} left", left = left(share.expires_at)),
             None => life_words(page.life, page.shown_at),
