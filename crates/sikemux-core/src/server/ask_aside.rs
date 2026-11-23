@@ -180,13 +180,14 @@ pub(super) fn askable(target: &Listed) -> bool {
     target.reach != Reach::Terminal && AgentKind::from_name(&target.cli) == Some(AgentKind::Claude)
 }
 
-/// The agent's own side of its newest exchanges, newest last, within the digest's length.
-/// What the person typed is left out, and so is any answer that may hold a secret.
+/// The agent's own side of its newest exchanges, newest last, within the digest's length:
+/// what it wrote back to the person, to its lead and to any other agent. What it was sent is
+/// left out, and so is any answer that may hold a secret.
 pub(super) fn said(core: &Core, agent_id: &str) -> Result<Vec<String>, String> {
     let feed = (core.chats().readable(agent_id)).map_err(|error| error.to_string())?;
     let mut kept = Vec::new();
     let mut room = DIGEST_CHARS;
-    for (_, answered) in feed.exchanges(EXCHANGES, LONGEST_SAID).into_iter().rev() {
+    for answered in feed.answers(EXCHANGES, LONGEST_SAID).into_iter().rev() {
         if answered.is_empty() || may_hold_secret(&answered) {
             continue;
         }
@@ -202,9 +203,8 @@ pub(super) fn said(core: &Core, agent_id: &str) -> Result<Vec<String>, String> {
 
 /// The agent's words and the question, each between the tags the prompt calls quoted data.
 pub(super) fn quoted(said: &[String], question: &str) -> String {
-    let mut quoted = String::from(
-        "\n\nWhat it said to the person in its newest exchanges, oldest first:\n<said>\n",
-    );
+    let mut quoted =
+        String::from("\n\nWhat it said in its newest exchanges, oldest first:\n<said>\n");
     quoted.push_str(&said.join("\n\n---\n\n").replace("</said", "&lt;/said"));
     quoted.push_str("\n</said>\n\n<question>\n");
     quoted.push_str(&question.replace("</question", "&lt;/question"));
