@@ -2338,7 +2338,7 @@ fn lifts_hold(core: &Core, letter: &Letter) -> bool {
 /// When the agent will have rested `settle_ms` since its last turn, unless it has.
 fn rests_until(core: &Core, agent_id: &str, settle_ms: u64) -> Option<u64> {
     core.seen()
-        .active_at(agent_id)
+        .rested_at(agent_id)
         .map(|at| at + settle_ms)
         .filter(|until| *until > epoch_ms())
 }

@@ -11,7 +11,8 @@
 //! a rebase by hand, a landing and a push, a footer copied onto another commit
 //! still counts for nothing, an agent can wake one held by a stop, and a file a shell command
 //! wrote reads as the turn's uncommitted work, and a worker that ends waiting with nothing set to
-//! wake it is sent back rather than reported as done, and a land drops the merge queue's old builds.
+//! wake it is sent back rather than reported as done, and a land drops the merge queue's old builds,
+//! and a message to a closed worker starts its turn at once.
 
 mod folded;
 
@@ -710,4 +711,87 @@ async fn a_land_trims_the_merge_queues_old_builds_and_keeps_the_newest() {
         ]
     );
     assert_eq!(left(".fingerprint"), ["widget-a", "widget-b", "widget-c"]);
+}
+
+/// A lead's message to its closed worker reopens it and starts its turn at once: the reopen is no
+/// turn the worker needs to rest after.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_to_a_closed_agent_starts_its_turn_at_once() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    let socket: PathBuf = root.join("core.sock");
+    let mut stopping = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({
+        "profiles": [{
+            "id": "fake",
+            "name": "Fake",
+            "provider": "omp",
+            "accent": "#a277ff",
+            "executablePath": FAKE_AGENT,
+        }],
+    });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    let added = json!({ "id": "widget", "name": "widget", "path": project });
+    app.call("addProject", added).await.expect("the project");
+    let (lead_id, _) = app
+        .start_chat("omp:fake".into(), "widget".into(), None)
+        .await
+        .expect("the lead starts");
+    let mut lead = Agent::open(&socket, &lead_id).await;
+    let spawned = lead
+        .tool(
+            "agent.spawn",
+            json!({ "cli": "omp", "title": "Say hello", "prompt": "hello" }),
+        )
+        .await
+        .expect("a worker");
+    let closed = spawned["agentId"].as_str().expect("its id").to_owned();
+    let mut worker = Agent::open(&socket, &closed).await;
+    worker.chat.until_said("hello").await;
+    worker.chat.until(|chat| !chat.view.head.running).await;
+    app.call("closeChat", json!({ "agentId": closed }))
+        .await
+        .expect("close");
+    let workspace = root.join("data").join("workspace.json");
+    let deadline = Instant::now() + WAIT;
+    let open = |saved: String| {
+        let saved: Value = serde_json::from_str(&saved).unwrap_or_default();
+        (saved["agents"].as_array().into_iter().flatten()).any(|agent| agent["id"] == closed)
+    };
+    while std::fs::read_to_string(&workspace).is_ok_and(open) {
+        assert!(Instant::now() < deadline, "the close was never saved");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    drop((lead, worker));
+    let _ = app.ask(ask::Shutdown { stop_all: true }).await;
+    stopping.0.wait().expect("the core stops");
+    drop(app);
+
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    app.ask(ask::RegisterWindow).await.expect("the window");
+    let mut lead = Agent::open(&socket, &lead_id).await;
+    let sent = Instant::now();
+    let answer = lead
+        .tool(
+            "agent.send",
+            json!({ "to": closed, "text": "pick this up" }),
+        )
+        .await
+        .expect("the message");
+    assert_eq!(answer["delivery"], "reopened", "{answer}");
+    let mut reopened = Agent::open(&socket, &closed).await;
+    reopened.chat.until_said("pick this up").await;
+    let took = sent.elapsed();
+    assert!(
+        took < Duration::from_secs(10),
+        "its turn started {took:?} after the send"
+    );
 }

@@ -27,6 +27,7 @@ struct View {
 struct State {
     unread: HashSet<String>,
     active_at: HashMap<String, u64>,
+    rested_at: HashMap<String, u64>,
     started_at: HashMap<String, u64>,
     views: HashMap<ClientId, View>,
     /// When each agent was last on some client's screen.
@@ -107,6 +108,13 @@ impl Seen {
             .insert(agent_id.to_owned(), epoch_ms());
     }
 
+    pub fn turn_ended(&self, agent_id: &str) {
+        self.state
+            .locked()
+            .rested_at
+            .insert(agent_id.to_owned(), epoch_ms());
+    }
+
     /// The agent finished a turn or is waiting on the person.
     pub fn wants_a_look(&self, agent_id: &str) {
         let mut state = self.state.locked();
@@ -176,6 +184,10 @@ impl Seen {
 
     pub fn active_at(&self, agent_id: &str) -> Option<u64> {
         self.state.locked().active_at.get(agent_id).copied()
+    }
+
+    pub fn rested_at(&self, agent_id: &str) -> Option<u64> {
+        self.state.locked().rested_at.get(agent_id).copied()
     }
 
     /// The agent was named with `@` or sent a message by another agent.

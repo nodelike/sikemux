@@ -62,6 +62,24 @@ struct Session {
     endpoint: Option<PathBuf>,
 }
 
+impl From<&Value> for Session {
+    /// The session a `session/new` or `session/load` with these params starts.
+    fn from(params: &Value) -> Self {
+        let endpoint = params
+            .get("mcpServers")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .flat_map(|server| server["env"].as_array().cloned().unwrap_or_default())
+            .find(|variable| variable["name"] == "SIKEMUX_CLI_ENDPOINT")
+            .and_then(|variable| variable.get("value")?.as_str().map(PathBuf::from));
+        Self {
+            cwd: params.get("cwd").and_then(Value::as_str).map(PathBuf::from),
+            endpoint,
+        }
+    }
+}
+
 struct Agent {
     out: Mutex<std::io::Stdout>,
     sessions: Mutex<HashMap<String, Session>>,
@@ -651,21 +669,10 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
                 std::process::id(),
                 sessions.fetch_add(1, Ordering::Relaxed)
             );
-            let endpoint = params
-                .get("mcpServers")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .flat_map(|server| server["env"].as_array().cloned().unwrap_or_default())
-                .find(|variable| variable["name"] == "SIKEMUX_CLI_ENDPOINT")
-                .and_then(|variable| variable.get("value")?.as_str().map(PathBuf::from));
-            agent.sessions.locked().insert(
-                session_id.clone(),
-                Session {
-                    cwd: params.get("cwd").and_then(Value::as_str).map(PathBuf::from),
-                    endpoint,
-                },
-            );
+            agent
+                .sessions
+                .locked()
+                .insert(session_id.clone(), Session::from(&params));
             agent.reply(
                 &id,
                 json!({ "sessionId": session_id, "configOptions": agent.config() }),
@@ -693,6 +700,10 @@ fn handle(agent: &Arc<Agent>, message: Value, sessions: &AtomicU64) {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned();
+            agent
+                .sessions
+                .locked()
+                .insert(session_id.clone(), Session::from(&params));
             replay_history(agent, &session_id);
             agent.reply(&id, json!({ "configOptions": agent.config() }));
         }
