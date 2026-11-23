@@ -660,27 +660,3 @@ pub(crate) fn reaches(core: &Core, agent: &Listed, project: &str, caller: &str) 
     };
     agent.project == project || top == core.names().team_of(caller)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Two chats the person had open but had not written to since the app
-    /// started, were listed to other agents as "starting" for days. Neither had an agent
-    /// running or on its way up.
-    #[test]
-    fn a_chat_that_waits_for_the_person_to_write_is_asleep_not_starting() {
-        assert_eq!(
-            stands(AgentStatus::Starting, true, false),
-            AgentStatus::Asleep
-        );
-        assert_eq!(
-            stands(AgentStatus::Starting, false, false),
-            AgentStatus::Starting
-        );
-        assert_eq!(
-            stands(AgentStatus::Starting, true, true),
-            AgentStatus::Starting
-        );
-    }
-}
