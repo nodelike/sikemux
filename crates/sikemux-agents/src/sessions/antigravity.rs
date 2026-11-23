@@ -19,17 +19,101 @@ fn antigravity_root() -> Option<PathBuf> {
 
 fn summaries_db() -> Option<Connection> {
     let db = antigravity_root()?.join("conversation_summaries.db");
-    Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
+    let conn = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    conn.busy_timeout(std::time::Duration::from_millis(100))
+        .ok()?;
+    Some(conn)
+}
+
+fn is_conversation_id(id: &str) -> bool {
+    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// Where Antigravity writes subagent conversation `child`'s steps as they happen, one JSON
+/// object a line.
+pub fn subagent_log(child: &str) -> Option<PathBuf> {
+    is_conversation_id(child).then_some(())?;
+    Some(antigravity_root()?.join(format!(
+        "brain/{child}/.system_generated/logs/transcript.jsonl"
+    )))
+}
+
+/// The subagent conversation `parent` started with `prompt`, other than those in `taken`.
+/// Its log opens with a system message that carries the prompt it was given.
+pub fn subagent_started(parent: &str, prompt: &str, taken: &[String]) -> Option<String> {
+    let conn = summaries_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT conversation_id FROM conversation_summaries \
+             WHERE parent_conversation_id = ?1 ORDER BY last_modified_time DESC",
+        )
+        .ok()?;
+    let children: Vec<String> = stmt
+        .query_map([parent], |row| row.get(0))
+        .ok()?
+        .filter_map(Result::ok)
+        .filter(|child| !taken.contains(child))
+        .collect();
+    let prompt = prompt.trim();
+    children.into_iter().find(|child| {
+        let opening = subagent_log(child)
+            .and_then(|log| std::fs::File::open(log).ok())
+            .and_then(|file| {
+                std::io::BufRead::lines(std::io::BufReader::new(file))
+                    .next()?
+                    .ok()
+            });
+        opening.is_some_and(|line| {
+            serde_json::from_str::<serde_json::Value>(&line)
+                .ok()
+                .and_then(|step| {
+                    step.get("content")?
+                        .as_str()
+                        .map(|said| said.contains(prompt))
+                })
+                .unwrap_or(false)
+        })
+    })
+}
+
+/// How far a subagent conversation has got, as Antigravity's summary of it says.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SubagentRun {
+    Working,
+    Idle,
+    Killed,
+    Gone,
+}
+
+pub fn subagent_run(child: &str) -> SubagentRun {
+    let row = summaries_db().and_then(|conn| {
+        conn.query_row(
+            "SELECT status, killed, not_fully_idle FROM conversation_summaries \
+             WHERE conversation_id = ?1",
+            [child],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, bool>(1)?,
+                    row.get::<_, bool>(2)?,
+                ))
+            },
+        )
+        .ok()
+    });
+    match row {
+        None => SubagentRun::Gone,
+        Some((_, true, _)) => SubagentRun::Killed,
+        Some((status, _, false)) if status == "CASCADE_RUN_STATUS_IDLE" => SubagentRun::Idle,
+        Some(_) => SubagentRun::Working,
+    }
 }
 
 /// The step Antigravity records when an error ends a turn.
 const ERROR_STEP: i64 = 17;
 
 fn steps_db(session: &str) -> Option<Connection> {
-    if !session
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-')
-    {
+    if !is_conversation_id(session) {
         return None;
     }
     let db = antigravity_root()?.join(format!("conversations/{session}.db"));

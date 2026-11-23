@@ -259,6 +259,8 @@ struct Driver {
     compact: &'static str,
     free_models: bool,
     antigravity: bool,
+    /// Antigravity's subagent conversations whose cards the chat shows.
+    subagents: antigravity::Taken,
 }
 
 impl Driver {
@@ -419,6 +421,23 @@ impl Driver {
     }
 }
 
+impl Driver {
+    fn follow_subagent(&self, parent: &str, card: &Value, prompt: String) {
+        let Some(card) = card["subagentSessionId"].as_str() else {
+            return;
+        };
+        let turns = self.turns.clone();
+        tokio::spawn(antigravity::follow(
+            self.sink.clone(),
+            parent.to_owned(),
+            card.to_owned(),
+            prompt,
+            self.subagents.clone(),
+            move || turns.locked().gone,
+        ));
+    }
+}
+
 impl Reads for Driver {
     type Nudge = ();
     type Message = Value;
@@ -435,16 +454,25 @@ impl Reads for Driver {
                 if !crate::server::chat::prompt::drop_for_agent(&mut update) {
                     return;
                 }
+                let session_id = params
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
                 if self.antigravity {
+                    if let Some((card, prompt)) = antigravity::spawn(&update) {
+                        if card.is_null() {
+                            return;
+                        }
+                        if let Some(prompt) = prompt.filter(|_| !self.sink.reloading()) {
+                            self.follow_subagent(session_id, &card, prompt);
+                        }
+                        return self.sink.update(session_id, card);
+                    }
                     antigravity::as_common_call(&mut update, &self.servers);
                 }
                 mcp_calls::as_mcp_call(&mut update, &self.servers);
                 offer_compact(&mut update, self.compact);
                 self.follow_unprompted(&update);
-                let session_id = params
-                    .get("sessionId")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
                 self.sink.update(session_id, update);
             }
             Some(Incoming::Request { id, method, params })
@@ -736,6 +764,7 @@ impl Backend for Acp {
             compact: compact_word(launch),
             free_models: on_free_models(launch),
             antigravity: is_antigravity(launch),
+            subagents: Default::default(),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
         let failed = |error: String| process.start_error(error);
@@ -989,6 +1018,7 @@ impl Backend for Acp {
             compact: compact_word(launch),
             free_models: on_free_models(launch),
             antigravity: is_antigravity(launch),
+            subagents: Default::default(),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
         Ok(Self {
