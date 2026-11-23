@@ -115,6 +115,8 @@ pub struct ChatAbove {
     /// Closes the question on `agent_id`'s dialog `only`, or on all its dialogs,
     /// when they no longer wait.
     pub questions_withdraw_dialogs: fn(&Core, &str, Option<&str>),
+    /// Puts the messages waiting for the chat in its feed, as it starts or wakes.
+    pub messages_seed: fn(&Core, &Feed, &str),
     /// Puts the chat's triggers in its feed, as it starts or wakes.
     pub triggers_seed: fn(&Core, &Feed, &str),
     /// How old a reading may grow before it says so: three of the app's reads missed.

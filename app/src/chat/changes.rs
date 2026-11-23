@@ -187,6 +187,7 @@ named_fields!(head_field, ChatHead {
     "tasks" => tasks,
     "runningSubagents" => running_subagents,
     "queued" => queued,
+    "mail" => mail,
     "guests" => guests,
     "triggers" => triggers,
     "earlierLost" => earlier_lost,

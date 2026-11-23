@@ -14,8 +14,8 @@ use sikemux_calls::chat::QueuedParams;
 use sikemux_calls::share::GuestMessageParams;
 use sikemux_calls::triggers::TriggerParams;
 use sikemux_view::chat::{
-    AsyncTask, ChatTrigger, QueuedMessage, SubagentCard, SubagentState, TaskState, TriggerWhen,
-    WorkflowAgent, WorkflowAgentState,
+    AgentLetter, AsyncTask, ChatTrigger, QueuedMessage, SubagentCard, SubagentState, TaskState,
+    TriggerWhen, WorkflowAgent, WorkflowAgentState,
 };
 
 use super::tools::word;
@@ -950,11 +950,12 @@ fn handoff(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
 }
 
 /// Messages the person sent while a turn runs, waiting for it to end; while it
-/// takes words mid-turn, each can go into it now, or all at once.
+/// takes words mid-turn, each can go into it now, or all at once. Under them, what other agents
+/// sent that waits for the agent's next turn.
 fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
     let head = chat.state.as_ref()?;
     let waiting = &head.queued;
-    if waiting.is_empty() {
+    if waiting.is_empty() && head.mail.is_empty() {
         return None;
     }
     let t = Tokens::get(cx).clone();
@@ -990,10 +991,10 @@ fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
         .into_any_element();
     let words = vec![counted(
         arrow,
-        t!("{count} queued", count = waiting.len()),
+        t!("{count} queued", count = waiting.len() + head.mail.len()),
         &t,
     )];
-    let rows: Vec<AnyElement> = waiting
+    let mut rows: Vec<AnyElement> = waiting
         .iter()
         .map(|message| {
             let steer_one = steerable.then(|| {
@@ -1045,12 +1046,31 @@ fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
             .into_any_element()
         })
         .collect();
+    rows.extend(head.mail.iter().map(|letter| mail_row(letter, &t)));
     Some(Group {
         key: QUEUED,
         words,
         action,
         rows,
     })
+}
+
+/// A message another agent sent, or a trigger's prompt, waiting for the agent's next turn.
+fn mail_row(letter: &AgentLetter, t: &Tokens) -> AnyElement {
+    let (mark, sender) = match &letter.trigger {
+        Some(trigger) => (
+            ui::icon(Icon::Timer, 12.)
+                .text_color(t.text_tertiary)
+                .into_any_element(),
+            trigger.title.clone(),
+        ),
+        None => (
+            ui::mark(&letter.cli, 13.).into_any_element(),
+            format!("@{}", letter.name.trim_start_matches('@')),
+        ),
+    };
+    let said = div().child(one_line(&letter.text)).into_any_element();
+    work_row(t, mark, sender, Some((said, false)), None, None).into_any_element()
 }
 
 /// A small button of the dock, washed in `tint`.

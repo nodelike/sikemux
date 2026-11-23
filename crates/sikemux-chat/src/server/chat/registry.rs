@@ -543,6 +543,7 @@ impl Chats {
         }));
         feed.set_handoff(self.handoffs.shown(&launch.agent_id));
         (core.chat_above().triggers_seed)(core, &feed, &launch.agent_id);
+        (core.chat_above().messages_seed)(core, &feed, &launch.agent_id);
         let chief = core.workspaces().is_chief(&launch.agent_id);
         if chief {
             feed.seat_chief();

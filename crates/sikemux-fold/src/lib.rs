@@ -862,6 +862,19 @@ impl Fold {
         self.set_head("queued");
     }
 
+    /// The letters among `waiting`, the messages the mailbox holds for the agent.
+    pub fn set_mail(&mut self, waiting: &[String]) {
+        let mail: Vec<AgentLetter> = waiting
+            .iter()
+            .filter_map(|text| prompt::agent_letters(text))
+            .flatten()
+            .collect();
+        if self.head.mail != mail {
+            self.head.mail = mail;
+            self.set_head("mail");
+        }
+    }
+
     pub fn set_guests(&mut self, guests: Vec<GuestMessage>) {
         if self.head.guests != guests {
             self.head.guests = guests;

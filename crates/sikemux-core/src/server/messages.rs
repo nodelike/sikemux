@@ -404,6 +404,8 @@ struct State {
     capped: HashMap<String, Vec<Queued>>,
     /// When each agent last reported, and to whom.
     reported: HashMap<String, (String, u64)>,
+    /// The agents whose chats show messages waiting for them.
+    shown: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -2634,6 +2636,7 @@ pub(crate) fn prompt_settled(core: &Core, agent_id: &str, last_output_ms: u64) {
 /// and again when an agent still resting from a turn is due.
 pub(crate) fn settle(core: &Arc<Core>) {
     let mailbox = &core.harness().mailbox;
+    show(core);
     let capped: Vec<String> = mailbox.state.locked().capped.keys().cloned().collect();
     for agent_id in capped
         .into_iter()
@@ -2729,6 +2732,34 @@ pub(crate) fn settle(core: &Arc<Core>) {
     }
     if let Some(next) = next {
         mailbox.wake.at(next);
+    }
+}
+
+/// Puts the messages waiting for the chat in its feed, as it starts or wakes.
+pub(crate) fn seed(core: &Core, feed: &super::chat::feed::Feed, agent_id: &str) {
+    feed.set_mail(waiting_texts(core, agent_id));
+}
+
+fn waiting_texts(core: &Core, agent_id: &str) -> Vec<String> {
+    let state = core.harness().mailbox.state.locked();
+    (state.waiting.get(agent_id).into_iter().flatten())
+        .map(|queued| queued.text.clone())
+        .collect()
+}
+
+/// Tells each chat whose waiting messages changed what waits for it now.
+fn show(core: &Core) {
+    let agents: Vec<String> = {
+        let mut state = core.harness().mailbox.state.locked();
+        let now: HashSet<String> = state.waiting.keys().cloned().collect();
+        let agents = now.union(&state.shown).cloned().collect();
+        state.shown = now;
+        agents
+    };
+    for agent_id in agents {
+        if let Some(chat) = core.chats().get(&agent_id) {
+            chat.feed.set_mail(waiting_texts(core, &agent_id));
+        }
     }
 }
 

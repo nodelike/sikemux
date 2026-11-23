@@ -301,6 +301,9 @@ pub struct ChatHead {
     pub running_subagents: Vec<SubagentCard>,
     /// What the person sent mid-turn, waiting to go out once the turn ends.
     pub queued: Vec<QueuedMessage>,
+    /// What other agents sent, waiting for the agent to start a turn on it.
+    #[serde(default)]
+    pub mail: Vec<AgentLetter>,
     /// What viewers of the chat's share link wrote, waiting for the person to send or dismiss.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub guests: Vec<GuestMessage>,

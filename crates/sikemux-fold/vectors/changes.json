@@ -304,6 +304,7 @@
       "tasks": [],
       "runningSubagents": [],
       "queued": [],
+      "mail": [],
       "triggers": [],
       "earlierLost": false
     },

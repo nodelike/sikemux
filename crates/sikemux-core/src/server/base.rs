@@ -322,6 +322,7 @@ pub(super) fn chat_above() -> ChatAbove {
         hosts_rows_moved: hosts::route::rows_moved,
         launching_own_tools: launching::own_tools,
         messages_from_person: messages::from_person,
+        messages_seed: messages::seed,
         messages_person_wrote: messages::person_wrote,
         now_person_asked: super::now::asks::asked,
         messages_used_tool: messages::used_tool,

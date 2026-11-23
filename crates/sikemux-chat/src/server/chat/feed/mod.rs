@@ -85,6 +85,8 @@ pub struct Inner {
     /// What viewers of the chat's share link wrote, oldest first.
     guests: Vec<GuestMessage>,
     triggers: Vec<ChatTrigger>,
+    /// What the core's mailbox holds for the agent, as the agent will read it.
+    mail: Vec<String>,
     goal: Option<ChatGoal>,
     /// What the chat's next message hands over, as the core keeps it.
     handoff: Option<sikemux_view::chat::Handoff>,
@@ -293,6 +295,7 @@ impl Feed {
                 queued: Vec::new(),
                 guests: Vec::new(),
                 triggers: Vec::new(),
+                mail: Vec::new(),
                 goal: None,
                 handoff: None,
                 expired_cache: None,
@@ -387,6 +390,7 @@ impl Feed {
                 queued: Vec::new(),
                 guests: Vec::new(),
                 triggers: Vec::new(),
+                mail: Vec::new(),
                 goal: None,
                 handoff: None,
                 expired_cache: None,
@@ -479,6 +483,7 @@ impl Feed {
                 fold.set_queued(queued_view(&inner.queued));
                 fold.set_guests(inner.guests.clone());
                 fold.set_triggers(inner.triggers.clone());
+                fold.set_mail(&inner.mail);
                 fold.set_goal(inner.goal.clone());
                 fold.set_handoff(inner.handoff.clone());
                 fold.set_expired_cache(inner.expired_cache.clone());
@@ -759,6 +764,21 @@ impl Feed {
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_triggers(triggers);
             self.flush_locked(&mut inner);
+        }
+    }
+
+    /// What the mailbox holds for the agent changed; clients already hearing the chat are told.
+    pub fn set_mail(&self, mail: Vec<String>) {
+        let mut inner = self.inner.locked();
+        if inner.mail == mail {
+            return;
+        }
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_mail(&mail);
+            inner.mail = mail;
+            self.flush_locked(&mut inner);
+        } else {
+            inner.mail = mail;
         }
     }
 
