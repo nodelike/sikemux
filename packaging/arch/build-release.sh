@@ -2,7 +2,8 @@
 # Build a release's Arch package from its tarball and prove it installs: run as root
 # in an Arch container. It lints the package, installs it, upgrades it to a rebuild,
 # and after each checks the core is still setgid to its secret store's group.
-# Leaves the package and the AUR's files in <dir>.
+# Leaves the package in <dir> with sikemux.db, the unsigned index of the pacman
+# repository each stable release serves.
 set -euo pipefail
 
 VERSION="${1:-}"
@@ -17,7 +18,7 @@ fail() {
 
 [[ -n "$VERSION" && -n "$TARBALL" && -n "$OUT" ]] || { echo "Usage: $0 <version> <tarball> <dir>" >&2; exit 2; }
 [[ "$(id -u)" -eq 0 ]] || fail "run as root in a throwaway Arch container; it installs the package"
-for command in makepkg namcap pacman runuser; do
+for command in makepkg namcap pacman repo-add runuser; do
   command -v "$command" >/dev/null || fail "missing required command: $command"
 done
 
@@ -63,6 +64,22 @@ if grep -q ' E: ' <<<"$lint"; then fail "namcap found errors"; fi
 pacman -U --noconfirm "$UPGRADE"
 check "upgrade"
 
+REPO="$WORK/repo"
+mkdir -p "$REPO" "$WORK/sync"
+cp "$FIRST" "$REPO/"
+repo-add --quiet "$REPO/sikemux.db.tar.gz" "$REPO/$(basename "$FIRST")"
+cat >"$WORK/pacman.conf" <<EOF
+[options]
+Architecture = auto
+[sikemux]
+SigLevel = Never
+Server = file://$REPO
+EOF
+pacman --config "$WORK/pacman.conf" --dbpath "$WORK/sync" -Sy >/dev/null
+listed="$(pacman --config "$WORK/pacman.conf" --dbpath "$WORK/sync" -Sl sikemux)"
+[[ "$listed" == "sikemux $(pacman -Qp "$FIRST")" ]] || fail "the repository lists \"$listed\", not the package"
+
 mkdir -p "$OUT"
 cp "$FIRST" "$OUT/"
-echo "✓ $(basename "$FIRST")"
+cp -L "$REPO/sikemux.db" "$OUT/sikemux.db"
+echo "✓ $(basename "$FIRST") and its repository's index"

@@ -2,10 +2,10 @@ name: Ship
 run-name: Ship ${{ inputs.version && format('v{0}', inputs.version) || 'the waiting candidate' }}
 
 # Makes a stable candidate that soaked on the staff feed the latest release, which is the stable
-# feed and the site's download, then moves the package suites, Homebrew and the AUR to it. Release
-# starts it when it publishes a candidate; it waits out the soak, and while the candidate is still
-# short of its Macs it starts itself again 10 minutes later, so it ships as soon as the gate passes,
-# with nobody asked. It publishes the candidate's own files and builds nothing.
+# feed, the site's download and the pacman repository, then moves the apt suites and Homebrew to
+# it. Release starts it when it publishes a candidate; it waits out the soak, and while the
+# candidate is still short of its Macs it starts itself again 10 minutes later, so it ships as soon
+# as the gate passes, with nobody asked. It publishes the candidate's own files and builds nothing.
 on:
   workflow_dispatch:
     inputs:

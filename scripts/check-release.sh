@@ -100,7 +100,8 @@ if (!linuxBuild.includes('"$BUNDLE/tar/Sikemux_${VERSION}_${DEB_ARCH}.tar.gz"'))
 if (!pkgbuild.includes("/Sikemux_${_version}_amd64.tar.gz")) fail("the PKGBUILD does not download the tarball the Linux build makes");
 if (!installer.includes("pacman -U --noconfirm") || !installer.includes("-1-x86_64.pkg.tar.zst")) fail("the installer does not install the Arch package with pacman");
 if (!releaseWorkflow.includes("packaging/arch/build-release.sh")) fail("the Release workflow does not build and install the Arch package");
-if (!publish.includes('"${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")')) fail("releases do not publish the Linux tarball and the Arch package");
+if (!publish.includes('"${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE" "${PACMAN_REPOSITORY[@]}")')) fail("releases do not publish the Linux tarball, the Arch package and its repository");
+if (!installer.includes("[sikemux]") || !installer.includes("Server = %s/releases/latest/download")) fail("the installer does not point pacman at the latest stable release");
 if (/TAURI_SIGNING|signer sign/.test(linuxBuild)) fail("Linux builds must not require updater credentials");
 if (!releaseWorkflow.includes("run: pnpm build:linux")) fail("the Release workflow does not build the Linux packages");
 if (!publish.includes('"${DEBS[@]}" "${APPIMAGES[@]}"')) fail("releases do not publish the Linux packages");

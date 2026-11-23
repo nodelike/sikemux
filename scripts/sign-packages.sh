@@ -6,6 +6,8 @@
 #                    for a stable version, since apt refuses a Release of another suite
 #   apt/<suite>/gz/  the same index as Packages.gz, so a suite can move with no moment
 #                    where its index and the signed file naming it disagree
+# and, beside it in pacman/, the Arch package's signature and the signed sikemux.db
+# of the pacman repository that the latest stable release serves.
 # The key comes in PACKAGES_SIGNING_KEY (an armored signing subkey) and
 # PACKAGES_SIGNING_KEY_PASSWORD; it never reaches a job that builds.
 #   scripts/sign-packages.sh <version> <bundle dir>
@@ -30,6 +32,9 @@ done
 shopt -s nullglob
 DEBS=("$BUNDLE"/deb/*.deb)
 [[ ${#DEBS[@]} -gt 0 ]] || fail "no .deb in $BUNDLE/deb"
+PACMAN_PACKAGES=("$BUNDLE"/arch/*.pkg.tar.zst)
+[[ ${#PACMAN_PACKAGES[@]} -eq 1 ]] || fail "expected one Arch package in $BUNDLE/arch, found ${#PACMAN_PACKAGES[@]}"
+[[ -s "$BUNDLE/arch/sikemux.db" ]] || fail "no sikemux.db in $BUNDLE/arch"
 
 WORK="$(mktemp -d)"
 export GNUPGHOME="$WORK/gnupg"
@@ -86,3 +91,16 @@ done
 
 tar --owner=0 --group=0 --numeric-owner --sort=name -cf "$INDEX" -C "$TREE" apt
 echo "✓ wrote $INDEX"
+
+echo "→ Signing the pacman repository"
+PACMAN="$OUT/pacman"
+mkdir -p "$PACMAN"
+cp "$BUNDLE/arch/sikemux.db" "$PACMAN/sikemux.db"
+PACKAGE_SIG="$PACMAN/$(basename "${PACMAN_PACKAGES[0]}").sig"
+sign --detach-sign --output "$PACMAN/sikemux.db.sig" "$PACMAN/sikemux.db"
+sign --detach-sign --output "$PACKAGE_SIG" "${PACMAN_PACKAGES[0]}"
+gpgv --quiet --keyring "$WORK/public.gpg" "$PACMAN/sikemux.db.sig" "$PACMAN/sikemux.db" 2>/dev/null ||
+  fail "sikemux.db's signature does not check against the key"
+gpgv --quiet --keyring "$WORK/public.gpg" "$PACKAGE_SIG" "${PACMAN_PACKAGES[0]}" 2>/dev/null ||
+  fail "the Arch package's signature does not check against the key"
+echo "✓ wrote $PACMAN"

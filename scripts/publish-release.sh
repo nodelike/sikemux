@@ -49,9 +49,12 @@ DMG="${DMGS[0]}"
 HELPERS=("${PUBLISHED_HELPER_FILES[@]/#/$ROOT/packaging/binaries/}")
 APPIMAGE_SIGS=("${APPIMAGES[@]/%/.sig}")
 PACMAN_PACKAGE="${PACMAN_PACKAGES[0]}"
+# The latest stable release is the pacman repository: its index, signed by the same
+# key as the apt one, which the release carries for the installer to trust.
+PACMAN_REPOSITORY=("$ROOT/target/packages/pacman/sikemux.db" "$ROOT/target/packages/pacman/sikemux.db.sig" "$ROOT/target/packages/pacman/$(basename "$PACMAN_PACKAGE").sig" "$ROOT/packaging/linux/sikemux-archive.asc")
 INSTALLER="$ROOT/scripts/install.sh"
 PACKAGES_INDEX="$ROOT/target/packages/packages-index-$VERSION.tar"
-for file in "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE" "$MANIFEST"; do
+for file in "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE" "${PACMAN_REPOSITORY[@]}" "$MANIFEST"; do
   [[ -s "$file" ]] || fail "$file is missing or empty"
 done
 [[ "$(node -p "require('$MANIFEST').version")" == "$VERSION" ]] || fail "$MANIFEST is not for v$VERSION"
@@ -83,7 +86,7 @@ for file in sys.argv[1:]:
 path.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 
-RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")
+RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE" "${PACMAN_REPOSITORY[@]}")
 # The staff feed takes a nightly unless it serves a newer build, or a stable candidate that
 # has not shipped yet or is still building: staff machines must update to the candidate, and
 # never would from a nightly of the release after it.

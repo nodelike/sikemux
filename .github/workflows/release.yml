@@ -864,9 +864,9 @@ jobs:
           path: target/host/*.tar.gz
 
   sign-host:
-    name: Sign the Linux host cores and the AppImages
-    needs: [plan, build-host, build-linux]
-    if: ${{ !cancelled() && needs.build-host.result == 'success' && needs.build-linux.result == 'success' }}
+    name: Sign the Linux host cores, the AppImages and the package repositories
+    needs: [plan, build-host, build-linux, build-arch]
+    if: ${{ !cancelled() && needs.build-host.result == 'success' && needs.build-linux.result == 'success' && needs.build-arch.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: release
@@ -918,21 +918,29 @@ jobs:
           if-no-files-found: error
           path: target/release/bundle/appimage/*.AppImage.sig
 
+      - name: Fetch the Arch package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sikemux-arch-${{ github.ref_name }}
+          path: target/release/bundle/arch
+
       - name: Install the package signing tools
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends apt-utils >/dev/null
 
-      - name: Write the signed apt indexes
+      - name: Write the signed apt and pacman indexes
         env:
           PACKAGES_SIGNING_KEY: ${{ secrets.PACKAGES_SIGNING_KEY }}
           PACKAGES_SIGNING_KEY_PASSWORD: ${{ secrets.PACKAGES_SIGNING_KEY_PASSWORD }}
         run: ./scripts/sign-packages.sh "${{ needs.plan.outputs.version }}" target/release/bundle
 
-      - name: Keep the apt indexes on the run
+      - name: Keep the signed indexes on the run
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-packages-index-${{ github.ref_name }}
           if-no-files-found: error
-          path: target/packages/packages-index-*.tar
+          path: |
+            target/packages/packages-index-*.tar
+            target/packages/pacman
 
   # Holds the Sentry token, so it runs nothing a build does. Sentry names the frames of a
   # release's crashes from these files, so they go before the release does.

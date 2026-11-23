@@ -11,6 +11,7 @@ set -eu
 REPO="https://github.com/nodelike/sikemux"
 OLDEST_GLIBC=2.34
 OLDEST_APP_GLIBC=2.35
+PACKAGES_KEY=31BAE8B4812C3D8B528BFB673438AB05E922705C
 CHANNEL="${SIKEMUX_CHANNEL:-stable}"
 SIGN_IN="${SIKEMUX_SIGN_IN:-now}"
 MODE=ask
@@ -268,6 +269,7 @@ install_linux() {
       fi
       step "Installing with pacman" as_root pacman -U --noconfirm "$TMP/$file"
       done_step "Installed Sikemux" "with pacman"
+      add_pacman_repository
       ;;
     *)
       # Without apt, and on arm64 Arch, which has no pacman package, the app is the AppImage.
@@ -326,6 +328,19 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now sikemux-update.socket >/dev/null 2>&1
 '
+
+# Points pacman at the latest stable release, so pacman -Syu brings every stable after this one.
+add_pacman_repository() {
+  [ "$CHANNEL" = stable ] || return 0
+  grep -q '^\[sikemux\]' /etc/pacman.conf && return 0
+  curl -fsSLI -o /dev/null "$REPO/releases/download/v$VERSION/sikemux.db" 2>/dev/null || return 0
+  curl -fsSL -o "$TMP/sikemux-archive.asc" "$REPO/releases/download/v$VERSION/sikemux-archive.asc" || return 0
+  step "Trusting Sikemux's package key" as_root sh -c \
+    "pacman-key --add '$TMP/sikemux-archive.asc' && pacman-key --lsign-key $PACKAGES_KEY"
+  printf '\n[sikemux]\nSigLevel = Required DatabaseRequired\nServer = %s/releases/latest/download\n' "$REPO" |
+    as_root tee -a /etc/pacman.conf >/dev/null
+  done_step "Added Sikemux's repository" "pacman -Syu updates it"
+}
 
 # The core keeps its secrets in a folder only the group sikemux may enter,
 # and runs setgid to it; you stay out of the group, so your agents do too.
