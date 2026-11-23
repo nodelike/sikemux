@@ -173,7 +173,8 @@ fn bring_up_to_date(
         "{GENERATED_SUBJECT}{} brought up to date",
         generate.outputs.join(", ")
     );
-    let footer = trailers::footer(
+    let footer = super::footer::of_core_commit(
+        checkout,
         signers,
         &Commit {
             tree: &made,
@@ -191,6 +192,9 @@ fn bring_up_to_date(
         )?)
         .into_owned(),
     );
+    if let (true, Some(signer), Some(key)) = (footer.is_empty(), signers.first(), key) {
+        super::committer::record_with(checkout, &new, signer, key);
+    }
     let branch = line(git(project, &["symbolic-ref", "-q", "HEAD"])?);
     let base = branch.strip_prefix("refs/heads/").unwrap_or(&branch);
     let ready = steps(project, base, commit, &new)?;

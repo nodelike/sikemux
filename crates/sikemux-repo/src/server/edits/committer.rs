@@ -22,15 +22,19 @@ pub struct Committer {
 }
 
 pub fn record(core: &Core, dir: &Path, commit: &str, agent: &Agent) {
-    let Some(key) = core.remote().host_key() else {
-        return;
-    };
+    if let Some(key) = core.remote().host_key() {
+        record_with(dir, commit, agent, &key);
+    }
+}
+
+/// Keeps `agent` as who made `commit`, signed with the host's `key`.
+pub fn record_with(dir: &Path, commit: &str, agent: &Agent, key: &iroh::SecretKey) {
     let committer = Committer {
         name: agent.name.clone(),
         session: agent.session.clone(),
         chat: agent.chat.clone(),
     };
-    put(dir, commit, &committer, &key);
+    put(dir, commit, &committer, key);
 }
 
 pub fn of(core: &Core, dir: &Path, commit: &str) -> Option<Committer> {
