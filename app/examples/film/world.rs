@@ -1011,6 +1011,8 @@ fn stand_in(bin: &Path, name: &str, script: &str) -> anyhow::Result<()> {
 }
 
 /// The command that starts one of the world's cores, which finds the stand-ins in `bin` first.
+/// Folders in the person's own home leave its PATH, so the agents they installed for
+/// themselves do not show up in the world as installed.
 pub(super) fn core_command(program: &Path, bin: &Path) -> sikemux_process::command::Command {
     let mut command = sikemux_process::user_environment::command(program);
     let path = command
@@ -1020,7 +1022,12 @@ pub(super) fn core_command(program: &Path, bin: &Path) -> sikemux_process::comma
         .map(|value| value.to_string_lossy().into_owned())
         .or_else(|| std::env::var("PATH").ok())
         .unwrap_or_default();
-    command.env("PATH", format!("{}:{path}", bin.display()));
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let shared = std::env::split_paths(&path)
+        .filter(|folder| !home.as_ref().is_some_and(|home| folder.starts_with(home)));
+    if let Ok(path) = std::env::join_paths(std::iter::once(bin.to_path_buf()).chain(shared)) {
+        command.env("PATH", path);
+    }
     command
 }
 

@@ -1092,9 +1092,10 @@ impl Menu {
                 .justify_center()
                 .rounded(theme::radius_2())
                 .cursor_pointer()
-                .text_color(t.text_tertiary)
+                .aria_label(t!("Add provider"))
+                .test_support()
                 .hover(|style| style.bg(t.surface_hover))
-                .child(ui::icon(Icon::Plus, 14.))
+                .child(ui::icon(Icon::Plus, 14.).text_color(t.text_tertiary))
                 .tooltip(ui::tooltip(t!("Add provider")))
                 .clicks(move |_, window, cx| {
                     menu.update(cx, |menu, cx| menu.pick(Act::AddProvider, window, cx))
