@@ -119,6 +119,9 @@ pub(crate) struct TabFacts {
     pub(crate) dialog: Option<PageDialog>,
     /// Files offered to the tab's file choosers, and whether one took them yet.
     pub(crate) upload: Option<(Vec<PathBuf>, bool)>,
+    /// The form write the person was put before a dialog froze the page, which the page may
+    /// still send once the dialog is answered.
+    pub(crate) form_write: Option<String>,
     pub(crate) documents: documents::DocumentLog,
     pub(crate) stall: Option<TabStall>,
 }
@@ -601,6 +604,17 @@ impl BrowserManager {
 
     pub fn dialog(&self, tab_id: &str) -> Option<PageDialog> {
         self.tabs.locked().get(tab_id)?.dialog.clone()
+    }
+
+    /// Keeps the form write the person was put until the tab's dialog is answered.
+    pub(crate) fn keep_form_write(&self, tab_id: &str, write: Option<&str>) {
+        let mut tabs = self.tabs.locked();
+        let facts = tabs.entry(tab_id.to_owned()).or_default();
+        facts.form_write = write.map(str::to_owned).or(facts.form_write.take());
+    }
+
+    pub(crate) fn take_form_write(&self, tab_id: &str) -> Option<String> {
+        self.tabs.locked().get_mut(tab_id)?.form_write.take()
     }
 
     /// Files for the tab's file choosers, answered in place of the person
