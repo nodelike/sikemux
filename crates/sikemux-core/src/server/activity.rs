@@ -105,6 +105,10 @@ impl ActivityCore for Core {
                         self.inbox().asked(agent_id);
                     }
                     super::turn_state::read_work(self, agent_id);
+                    if self.names().reports_to(agent_id).is_some() {
+                        let until = self.harness().mailbox.report_due(agent_id);
+                        self.finishing().wake.at(until);
+                    }
                 }
                 super::finished::moved(self);
                 self.notify().send(Signal::TurnCompleted {

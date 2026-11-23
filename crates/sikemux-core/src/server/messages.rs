@@ -66,6 +66,9 @@ const SETTLE_MS: u64 = 1500;
 /// How long an agent rests after a turn before messages nobody waits on, such as a trigger's or a
 /// teammate's report, start another, so those that come close together are read in one turn.
 const AUTO_SETTLE_MS: u64 = 30_000;
+/// How long after a worker's turn ends its report to its lead is taken to be on its way,
+/// before the report has begun.
+const REPORT_DUE_MS: u64 = 10_000;
 /// How long Sikemux remembers that an agent reported, so the chief's digest does not repeat it.
 const REPORTED_MS: u64 = 24 * 60 * 60_000;
 /// Turns in a row an agent may start on messages nobody waits on before the rest wait for the
@@ -413,6 +416,8 @@ struct State {
     /// What each agent's turn at work was handed and is not yet known to have read, a batch
     /// for each message it went as.
     offered: HashMap<String, Vec<Vec<Queued>>>,
+    /// Until when each worker's report of the turn it just ended may still be on its way.
+    reporting: HashMap<String, u64>,
 }
 
 #[derive(Default)]
@@ -671,6 +676,10 @@ impl Mailbox {
     /// only with the lead's next turn, does not count.
     pub(crate) fn report_unread(&self, worker: &str) -> bool {
         let state = self.state.locked();
+        let on_its_way = state.reporting.get(worker);
+        if on_its_way.is_some_and(|until| *until > epoch_ms()) {
+            return true;
+        }
         let offered = state.offered.values().flatten().flatten();
         state
             .waiting
@@ -683,6 +692,35 @@ impl Mailbox {
                         origin.kind == MessageKind::Report && origin.from == worker
                     })
             })
+    }
+
+    /// The worker's turn just ended, and its report may follow. Answers until when it is
+    /// taken to be on its way.
+    pub(crate) fn report_due(&self, worker: &str) -> u64 {
+        let now = epoch_ms();
+        let until = now.saturating_add(REPORT_DUE_MS);
+        let mut state = self.state.locked();
+        state.reporting.retain(|_, until| *until > now);
+        state.reporting.insert(worker.to_owned(), until);
+        until
+    }
+
+    /// The worker's report is being written, until [`Self::report_over`].
+    pub(crate) fn report_begins(&self, worker: &str) {
+        let mut state = self.state.locked();
+        state.reporting.insert(worker.to_owned(), u64::MAX);
+    }
+
+    /// The worker's report waits for its lead, or none is coming.
+    pub(crate) fn report_over(&self, worker: &str) {
+        self.state.locked().reporting.remove(worker);
+    }
+
+    /// Counts `queued` as handed to the agent's turn at work and not yet read.
+    fn offer(&self, agent_id: &str, queued: &[Queued]) {
+        let mut state = self.state.locked();
+        let offered = state.offered.entry(agent_id.to_owned()).or_default();
+        offered.push(queued.to_vec());
     }
 
     /// Leaves a report from `worker` waiting for `lead`, as one sent while the lead is mid-turn.
@@ -821,9 +859,11 @@ impl Mailbox {
     }
 
     /// A message the agent was handed but dropped unread waits for its next
-    /// turn, ahead of the rest, as what it was when it is known.
+    /// turn, ahead of the rest, as what it was when it is known. The turn that dropped it is
+    /// not offered it again.
     pub(crate) fn returned(&self, agent_id: &str, text: String) {
         self.change(|state| {
+            state.unsteered.insert(agent_id.to_owned());
             let unread = state.take_offered(agent_id, &text).unwrap_or_else(|| {
                 vec![Queued {
                     text,
@@ -2360,12 +2400,19 @@ async fn handed(
                     MessageOutcome::Typed
                 })
             }
-            _ => hand(core, &target.agent_id, std::slice::from_ref(queued))
-                .await
-                .map(|delivered| match delivered {
+            _ => {
+                let one = std::slice::from_ref(queued);
+                mailbox.offer(&target.agent_id, one);
+                let handed = hand(core, &target.agent_id, one).await;
+                if !matches!(handed, Ok(Delivery::Steered)) {
+                    let mut state = mailbox.state.locked();
+                    state.take_offered(&target.agent_id, &joined(one));
+                }
+                handed.map(|delivered| match delivered {
                     Delivery::Steered => MessageOutcome::Steered,
                     _ => MessageOutcome::NewTurn,
-                }),
+                })
+            }
         };
         match delivered {
             Ok(MessageOutcome::Steered) => {
@@ -2772,6 +2819,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         let at_work = (core.chats().get(&agent_id)).is_some_and(|chat| chat.turn_running());
         if !at_work {
             mailbox.state.locked().offered.remove(&agent_id);
+            super::finished::moved(core);
         }
     }
     let mut next = None;

@@ -1142,8 +1142,10 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
     let wrote_nothing = matches!((&ending, &chat_answer), (Ending::Finished, Some(None)));
     let sent_back = super::questions::sent_back_unwoken(core, agent_id);
     let unwoken = super::questions::waits_unwoken(core, agent_id);
+    core.harness().mailbox.report_begins(agent_id);
     let (core, worker) = (core.clone(), agent_id.to_owned());
     tokio::spawn(async move {
+        let _over = ReportOver(core.clone(), worker.clone());
         let answer = match chat_answer {
             Some(answer) => answer,
             None => {
@@ -1192,6 +1194,16 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
         elsewhere::send_commits(&core, &worker).await;
         messages::report(&core, worker, lead, text).await;
     });
+}
+
+/// Lets the worker close once its report waits for its lead, or none was sent.
+struct ReportOver(Arc<Core>, String);
+
+impl Drop for ReportOver {
+    fn drop(&mut self) {
+        self.0.harness().mailbox.report_over(&self.1);
+        super::finished::moved(&self.0);
+    }
 }
 
 /// What of a worker's report quotes its final answer, for a calm one.
