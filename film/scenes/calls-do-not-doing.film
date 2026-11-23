@@ -1,0 +1,18 @@
+# A do call on the desk's Calls page with Not doing chosen: the note asking why sits in its tile.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies calls-do.json
+project storefront shop
+chat Wren
+title "Take card payments"
+say "Wire card payments into checkout"
+settle 8
+front Wren
+settle 2
+click "Open the Stripe dashboard in test mode and copy the publishable and secret keys."
+settle 2
+click "Not doing"
+settle 1
+snap calls-do-not-doing
