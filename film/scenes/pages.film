@@ -21,6 +21,6 @@ settle 2
 click "Which store should the product page cache use?"
 settle 2
 snap pages-call
-click "Product page cache"
+click 1036,245
 settle 3
 snap pages-call-open

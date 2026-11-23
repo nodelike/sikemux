@@ -5,7 +5,7 @@ index 0000000..76787ca
 +++ b/notes/cache-plan.html
 @@ -0,0 +1,28 @@
 +<!doctype html><html><head><title>Product page cache</title><style>
-+body{margin:0;padding:2px 0 0}
++body{margin:0;padding:24px 28px}
 +h1{font-size:15px;font-weight:600;margin:0 0 4px} .sub{color:var(--muted-foreground);font-size:12.5px;margin-bottom:14px}
 +.opts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 +.opt{border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;background:var(--card)}
@@ -39,7 +39,7 @@ index 0000000..8eff9a3
 +++ b/notes/latency.html
 @@ -0,0 +1,30 @@
 +<!doctype html><html><head><title>Checkout p95 latency</title><style>
-+body{margin:0;padding:2px 0 0}
++body{margin:0;padding:24px 28px}
 +.head{display:flex;align-items:baseline;justify-content:space-between;margin:0 0 12px}
 +h1{font-size:15px;font-weight:600;margin:0} .sub{color:var(--muted-foreground);font-size:12.5px}
 +.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
@@ -76,7 +76,7 @@ index 0000000..b44c0a9
 +++ b/notes/mockups.html
 @@ -0,0 +1,26 @@
 +<!doctype html><html><head><title>Empty projects page, three ways</title><style>
-+body{margin:0;padding:2px 0 0}
++body{margin:0;padding:24px 28px}
 +h1{font-size:15px;font-weight:600;margin:0 0 2px} .sub{color:var(--muted-foreground);font-size:12.5px;margin:0 0 12px}
 +.row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 +.opt{border:1px solid var(--border);border-radius:var(--radius);background:var(--card);padding:10px;display:flex;flex-direction:column;gap:8px}
