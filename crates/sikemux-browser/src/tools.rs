@@ -329,10 +329,15 @@ async fn run(
                 );
             }
             if !hover {
-                for count in 1..=clicks {
-                    native::mouse(&view, Mouse::Down, x, y, count).await?;
-                    native::mouse(&view, Mouse::Up, x, y, count).await?;
-                }
+                holding_page_writes(manager, &tab_id, &view, check, async {
+                    for count in 1..=clicks {
+                        native::mouse(&view, Mouse::Down, x, y, count).await?;
+                        native::mouse(&view, Mouse::Up, x, y, count).await?;
+                    }
+                    settle(manager, agent_id, &tab_id).await;
+                    Ok::<(), String>(())
+                })
+                .await?;
             }
             put(
                 &mut result,
@@ -345,7 +350,9 @@ async fn run(
                     "clicked"
                 }),
             );
-            settle(manager, agent_id, &tab_id).await;
+            if hover {
+                settle(manager, agent_id, &tab_id).await;
+            }
             merge(result, report(manager, agent_id, params).await?)
         }
         "browser.upload" => {
@@ -519,8 +526,12 @@ async fn run(
                 put(&mut typed, "warning", json!(warning));
             }
             if submit {
-                native::key(&view, "Enter").await?;
-                settle(manager, agent_id, &tab_id).await;
+                holding_page_writes(manager, &tab_id, &view, check, async {
+                    native::key(&view, "Enter").await?;
+                    settle(manager, agent_id, &tab_id).await;
+                    Ok::<(), String>(())
+                })
+                .await?;
                 return merge(typed, report(manager, agent_id, params).await?);
             }
             Ok(typed)
@@ -532,8 +543,12 @@ async fn run(
                 let write = call(&view, "writeOfField", &[Value::Null]).await?;
                 put_to_person(write, check).await?;
             }
-            native::key(&view, &key).await?;
-            settle(manager, agent_id, &tab_id).await;
+            holding_page_writes(manager, &tab_id, &view, check, async {
+                native::key(&view, &key).await?;
+                settle(manager, agent_id, &tab_id).await;
+                Ok::<(), String>(())
+            })
+            .await?;
             merge(
                 json!({ "pressed": key }),
                 report(manager, agent_id, params).await?,
@@ -551,6 +566,7 @@ async fn run(
             }
             native::answer_dialog(&view, &tab_id, accept, text("text")).await?;
             settle(manager, agent_id, &tab_id).await;
+            put_page_writes(manager, &tab_id, &view, check).await?;
             report(manager, agent_id, params).await
         }
         "browser.scroll" => {
@@ -1326,6 +1342,68 @@ async fn put_to_person(write: Value, check: &CheckWrite) -> Result<(), String> {
     let origin = field("origin").to_owned();
     let path = field("path");
     check(format!("{method} {origin}{path}"), origin).await
+}
+
+/// Plays `action` while the writes to sites the page's own scripts send wait, then puts each
+/// to the person, as a form's is.
+async fn holding_page_writes(
+    manager: &BrowserManager,
+    tab_id: &str,
+    view: &Tab,
+    check: &CheckWrite,
+    action: impl Future<Output = Result<(), String>>,
+) -> Result<(), String> {
+    let _ = eval(view, "JSON.stringify(window.__sikemuxNet?.hold() ?? null)").await;
+    let acted = action.await;
+    let put = put_page_writes(manager, tab_id, view, check).await;
+    acted.and(put)
+}
+
+/// Puts each write the page holds to the person. Once one is held, it and the rest are never
+/// sent. A page frozen by a dialog keeps holding them until the dialog is answered.
+async fn put_page_writes(
+    manager: &BrowserManager,
+    tab_id: &str,
+    view: &Tab,
+    check: &CheckWrite,
+) -> Result<(), String> {
+    if manager.dialog(tab_id).is_some() {
+        return Ok(());
+    }
+    let raw = eval(view, "JSON.stringify(window.__sikemuxNet?.held() ?? [])")
+        .await
+        .unwrap_or_default();
+    let mut refused = None;
+    for write in page_writes(&raw) {
+        let id = write.get("id").cloned().unwrap_or(Value::Null);
+        let go = refused.is_none()
+            && match put_to_person(write, check).await {
+                Ok(()) => true,
+                Err(said) => {
+                    refused = Some(said);
+                    false
+                }
+            };
+        let _ = eval(
+            view,
+            &format!("JSON.stringify(window.__sikemuxNet?.answer({id}, {go}) ?? null)"),
+        )
+        .await;
+    }
+    refused.map_or(Ok(()), Err)
+}
+
+/// The writes the recorder held, from what the page answered.
+fn page_writes(raw: &str) -> Vec<Value> {
+    let answer = match serde_json::from_str::<Value>(raw) {
+        Ok(Value::String(text)) => serde_json::from_str(&text).unwrap_or_default(),
+        Ok(other) => other,
+        Err(_) => Value::Null,
+    };
+    match answer {
+        Value::Array(writes) => writes,
+        _ => Vec::new(),
+    }
 }
 
 /// Whether `key` is Enter with nothing else held, which sends the form a field is in.

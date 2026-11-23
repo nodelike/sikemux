@@ -545,6 +545,23 @@ mod tests {
         assert_eq!(judged_on(&chat), Goes::Unplaced);
     }
 
+    /// Cloudflare's dashboard saves a DNS record from its own script, which the browser holds
+    /// and puts to the gate as the request it would have sent.
+    #[test]
+    fn a_script_save_on_a_registrar_panel_holds() {
+        let save = Ship {
+            kind: ShipKind::Publish,
+            what: "PUT https://dash.cloudflare.com/api/v4/zones/023e105f/dns_records/372e6795"
+                .to_owned(),
+            target: Some(Target::Site {
+                origin: "https://dash.cloudflare.com".into(),
+            }),
+        };
+        let judged = judged(&[], true, &save, "Otter");
+        assert_eq!(judged.goes, Goes::Asks);
+        assert!(judged.keep);
+    }
+
     fn judged_on(ship: &Ship) -> Goes {
         judged(&[], true, ship, "Otter").goes
     }
