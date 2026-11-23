@@ -6,7 +6,8 @@ The root `AGENTS.md` applies here too.
   pushing a `v*` tag; never run `scripts/release.sh --publish` yourself. A stable candidate
   ships by itself: Release starts Ship, which waits out the soak and looks again every
   10 minutes until its gate passes on staff.
-- About once an hour, the newest commit of `main` that passed CI becomes a nightly, tagged on that commit. Stable releases and hotfixes are tagged on
+- About once an hour, the newest commit of `main` that passed CI becomes a nightly, tagged on that commit.
+  The Nightly workflow starts it: never start Release by hand. Stable releases and hotfixes are tagged on
   `release/<major.minor>`, and their version bump and notes go only there.
 - Never check out `release/*` in this shared checkout. Commit to it from objects with a
   temporary index, as `docs/releasing.md` shows.

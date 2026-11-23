@@ -480,6 +480,68 @@ async fn a_nightly_asks_once_and_the_person_can_stop_it_asking() {
         .any(|option| option.id == ship::FROM_NOW_ON));
 }
 
+/// Agents started nightlies by hand that the Nightly workflow starts hourly, and each one asked
+/// the person as a release.
+#[test]
+fn a_release_the_projects_schedule_starts_is_refused_by_hand_without_asking() {
+    let release = r#"name: Release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      sha:
+        required: true
+jobs:
+  publish:
+    environment: release
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release create "$version"
+"#;
+    let nightly = r#"name: Nightly
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh workflow run release.yml --ref main -f "sha=$newest"
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    let workflows = dir.path().join(".github/workflows");
+    std::fs::create_dir_all(&workflows).unwrap();
+    std::fs::write(workflows.join("release.yml"), release).unwrap();
+    std::fs::write(workflows.join("nightly.yml"), nightly).unwrap();
+    let project = dir.path().to_string_lossy().into_owned();
+    let core = core_at(None, &project, found::in_files(dir.path()));
+    let by_hand = Ship {
+        kind: ShipKind::Deploy,
+        what: "gh workflow run release.yml -f sha=14ef39ced".into(),
+        target: Some(Target::Workflow {
+            file: "release.yml".into(),
+            environments: vec!["release".into()],
+            inputs: vec!["sha=14ef39ced".into()],
+        }),
+    };
+    let refused = run(&core, by_hand, dir.path()).err().unwrap_or_default();
+    assert!(refused.contains("nightly.yml"), "{refused}");
+    assert!(open_calls(&core).is_empty());
+    let stable = Ship {
+        kind: ShipKind::Publish,
+        what: "git push origin v0.6.4".into(),
+        target: Some(Target::Package {
+            registry: GITHUB_RELEASES.into(),
+        }),
+    };
+    assert!(run(&core, stable, dir.path()).is_err());
+    assert_eq!(open_calls(&core).len(), 1);
+}
+
 /// A clean, pushed default branch fingerprinted the same at every commit.
 #[test]
 fn each_commit_of_a_clean_default_branch_is_new_work() {

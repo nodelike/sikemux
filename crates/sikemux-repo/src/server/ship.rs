@@ -369,6 +369,13 @@ fn check_call(
             }
         }
     }
+    if let Some(Target::Workflow { file, .. }) = ship.target.as_ref().map(Target::bare) {
+        if let Some(starter) = places::found::starter_of(Path::new(&project), file) {
+            return Err(format!(
+                "Not run: the {starter} workflow starts {file} by itself, so nobody starts it by hand. If it hasn't, read {starter}'s latest run for why."
+            ));
+        }
+    }
     let cwd = pushed_in.as_path();
     if matches!(ship.kind, ShipKind::Push | ShipKind::Merge) {
         if (core.repo_above().board_landing)(core, &project) == Landing::Core {

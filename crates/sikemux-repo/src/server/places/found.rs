@@ -89,6 +89,23 @@ fn vercel(root: &Path, found: &mut Vec<Place>) {
     ));
 }
 
+/// The workflow of the project at `root` that starts the workflow `file` by itself, on a
+/// schedule or when another run ends.
+pub fn starter_of(root: &Path, file: &str) -> Option<String> {
+    let starts = format!("gh workflow run {file}");
+    let entries = std::fs::read_dir(root.join(".github/workflows")).ok()?;
+    entries.flatten().find_map(|entry| {
+        let text = std::fs::read_to_string(entry.path()).ok()?;
+        let lines = || text.lines().map(str::trim);
+        let unattended = lines().any(|line| matches!(line, "schedule:" | "workflow_run:"));
+        let starts_it = lines().any(|line| {
+            (line.split(starts.as_str()).skip(1))
+                .any(|after| after.is_empty() || after.starts_with(char::is_whitespace))
+        });
+        (unattended && starts_it).then(|| entry.file_name().to_string_lossy().into_owned())
+    })
+}
+
 /// Whether a push to the branch of the project at `root` deploys it to production on Vercel:
 /// the project is a Vercel one and its config doesn't turn off deploys from Git.
 pub fn vercel_deploys_pushes(root: &Path) -> bool {
