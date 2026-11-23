@@ -2416,13 +2416,17 @@ async fn handed(
                 let guarded = (mailbox.state.locked().delivering).insert(target.agent_id.clone());
                 mailbox.offer(&target.agent_id, one);
                 let handed = hand(core, &target.agent_id, one).await;
-                if guarded {
-                    mailbox.state.locked().delivering.remove(&target.agent_id);
-                    mailbox.wake.now();
-                }
-                if !matches!(handed, Ok(Delivery::Steered)) {
+                {
                     let mut state = mailbox.state.locked();
-                    state.take_offered(&target.agent_id, &joined(one));
+                    if !matches!(handed, Ok(Delivery::Steered)) {
+                        state.take_offered(&target.agent_id, &joined(one));
+                    }
+                    if guarded {
+                        state.delivering.remove(&target.agent_id);
+                    }
+                }
+                if guarded {
+                    mailbox.wake.now();
                 }
                 handed.map(|delivered| match delivered {
                     Delivery::Steered => MessageOutcome::Steered,
