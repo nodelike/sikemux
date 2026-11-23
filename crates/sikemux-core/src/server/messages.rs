@@ -468,7 +468,11 @@ impl State {
             .find_map(|offered| {
                 let batches = offered.get_mut(agent_id)?;
                 let at = batches.iter().position(|batch| joined(batch) == text)?;
-                Some(batches.remove(at))
+                let batch = batches.remove(at);
+                if batches.is_empty() {
+                    offered.remove(agent_id);
+                }
+                Some(batch)
             })
     }
 
@@ -2821,7 +2825,26 @@ pub(crate) fn settle(core: &Arc<Core>) {
             .cloned()
             .collect()
     };
-    let offered: Vec<String> = mailbox.state.locked().offered.keys().cloned().collect();
+    let last: Vec<String> = mailbox
+        .state
+        .locked()
+        .offered_last
+        .keys()
+        .cloned()
+        .collect();
+    for agent_id in last
+        .into_iter()
+        .filter(|agent_id| core.workspaces().closed(agent_id))
+    {
+        mailbox.state.locked().offered_last.remove(&agent_id);
+    }
+    let offered: Vec<String> = {
+        let state = mailbox.state.locked();
+        (state.offered.keys())
+            .filter(|agent_id| !state.delivering.contains(*agent_id))
+            .cloned()
+            .collect()
+    };
     for agent_id in offered {
         let at_work = (core.chats().get(&agent_id)).is_some_and(|chat| chat.turn_running());
         if !at_work {
