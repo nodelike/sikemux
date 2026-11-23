@@ -1065,12 +1065,7 @@ impl Menu {
             agent_button(&agent, pressed, t, move |window, cx| {
                 let provider = going.provider.clone();
                 match (installed, installing) {
-                    (true, _) if !pressed => {
-                        if menu.read(cx).picked.locked {
-                            close(window, cx);
-                        }
-                        moving(going.clone(), window, cx);
-                    }
+                    (true, _) if !pressed => moving(going.clone(), window, cx),
                     (true, _) => {}
                     (false, Some(Installing::Failed)) => {
                         close(window, cx);
