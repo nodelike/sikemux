@@ -93,10 +93,12 @@ fn start_core(dir: &Path, socket: &Path) -> KilledOnDrop {
 }
 
 /// What the agent said to each message that reads `prompt`, in order. A lead's chat also holds
-/// what it says to its worker's reports, which quote the worker's own answers.
+/// what it says to its worker's reports, which quote the worker's own answers. A turn starts only
+/// at what the person sent, so a worker's message shown in it stays inside.
 fn answers<'a>(rows: &'a [ChatMessage], prompt: &'a str) -> impl Iterator<Item = String> + 'a {
-    rows.chunk_by(|_, next| next.role != ChatRole::User)
-        .filter(move |turn| folded::prompts(turn) == [prompt])
+    let sent = |row: &ChatMessage| row.role == ChatRole::User && row.letters.is_empty();
+    rows.chunk_by(move |_, next| !sent(next))
+        .filter(move |turn| folded::prompts(&turn[..1]) == [prompt])
         .map(folded::said)
 }
 
