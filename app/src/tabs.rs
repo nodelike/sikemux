@@ -165,7 +165,6 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
     #[cfg(target_os = "macos")]
     keep_window_buttons_level(window);
     let roomy = window.viewport_size().width >= px(ROOMY_BAR);
-    let t = Tokens::get(cx).clone();
     let tabs = strip_with_tabs(bench).map(|strip| strip_area(bench, &strip, cx));
     div()
         .id("top-bar")
@@ -175,7 +174,6 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
         .items_center()
         .h(px(bar_height()))
         .pt(px(tabs_top()))
-        .when(!crate::see_through::clear(cx), |bar| bar.bg(t.surface))
         .window_control_area(WindowControlArea::Drag)
         .when(cfg!(target_os = "macos"), |bar| {
             bar.child(div().w(px(80.)).flex_none())
@@ -279,7 +277,7 @@ fn strip_area(bench: &Workbench, strip: &Strip, cx: &mut Context<Workbench>) -> 
         }
     };
     let faded = !crate::see_through::clear(cx);
-    let surface = Tokens::get(cx).surface;
+    let surface = Tokens::get(cx).surface_sunken;
     let fade = |angle: f32| {
         div()
             .absolute()
