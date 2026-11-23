@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::client;
+use crate::counts::{self, Count};
 use crate::error::{SignozError, SignozResult};
 use crate::filter::Narrows;
 use crate::filter::Scope;
@@ -49,6 +50,8 @@ pub struct LogSearch {
     pub limit: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub count_by: Vec<String>,
 }
 
 const DEFAULT_LIMIT: u32 = 30;
@@ -208,8 +211,27 @@ pub async fn search(data_dir: &Path, search: LogSearch) -> SignozResult<LogDiges
         return one_line(data_dir, &search, id).await;
     }
     let found = page(data_dir, &search).await?;
-    let digest = digest(found.lines, found.next_offset, Some(BODY_CHARS));
+    let mut digest = digest(found.lines, found.next_offset, Some(BODY_CHARS));
+    if digest.lines.is_empty() && present(&search.text).is_some() {
+        digest.note = Some(
+            "text searches the body only; filter attributes with expression, e.g. reason = '…'"
+                .into(),
+        );
+    }
     Ok(within_budget(digest, search.offset.unwrap_or(0)))
+}
+
+/// Lines per group of `count_by` values, busiest first.
+pub async fn count(data_dir: &Path, search: LogSearch) -> SignozResult<Vec<Count>> {
+    counts::count(
+        data_dir,
+        "logs",
+        search.scope.window()?,
+        expression(&search)?,
+        &search.count_by,
+        search.limit,
+    )
+    .await
 }
 
 fn chars_of(value: &impl Serialize) -> usize {

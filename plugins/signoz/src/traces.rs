@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::client;
+use crate::counts::{self, Count};
 use crate::error::{SignozError, SignozResult};
 use crate::filter::Narrows;
 use crate::filter::Scope;
@@ -27,6 +28,9 @@ pub struct TraceSummary {
 pub struct TracePage {
     pub traces: Vec<TraceSummary>,
     pub next_offset: Option<u32>,
+    /// Why nothing came back, when a filter names keys the service never sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -80,6 +84,8 @@ pub struct TraceSearch {
     pub limit: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub count_by: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -137,13 +143,7 @@ fn summary_of(row: &Value) -> Option<TraceSummary> {
     })
 }
 
-/// A trace per row, read from its root span: where it started and how long the whole of it took.
-pub async fn search(data_dir: &Path, search: TraceSearch) -> SignozResult<TracePage> {
-    let limit = search
-        .limit
-        .unwrap_or(DEFAULT_TRACE_LIMIT)
-        .clamp(1, MAX_TRACE_LIMIT);
-    let offset = search.offset.unwrap_or(0);
+fn list_request(search: &TraceSearch, limit: u32, offset: u32) -> SignozResult<Value> {
     let fields: Vec<Value> = [
         "trace_id",
         "name",
@@ -169,22 +169,174 @@ pub async fn search(data_dir: &Path, search: TraceSearch) -> SignozResult<TraceP
         "limit": limit,
         "offset": offset,
     });
-    let request = query::builder(
+    Ok(query::builder(
         "raw",
         search.scope.window()?,
-        query::with_filter(spec, search_expression(&search)?),
-    );
-    let result = client::query_range(data_dir, &request).await?;
-    let traces: Vec<TraceSummary> = result
+        query::with_filter(spec, search_expression(search)?),
+    ))
+}
+
+async fn summaries(data_dir: &Path, request: &Value) -> SignozResult<Vec<TraceSummary>> {
+    let result = client::query_range(data_dir, request).await?;
+    Ok(result
         .get("rows")
         .and_then(Value::as_array)
         .map(|rows| rows.iter().filter_map(summary_of).collect())
-        .unwrap_or_default();
+        .unwrap_or_default())
+}
+
+/// A trace per row, read from its root span: where it started and how long the whole of it took.
+pub async fn search(data_dir: &Path, search: TraceSearch) -> SignozResult<TracePage> {
+    let limit = search
+        .limit
+        .unwrap_or(DEFAULT_TRACE_LIMIT)
+        .clamp(1, MAX_TRACE_LIMIT);
+    let offset = search.offset.unwrap_or(0);
+    let traces = summaries(data_dir, &list_request(&search, limit, offset)?).await?;
     let next_offset = (traces.len() as u32 == limit).then(|| offset.saturating_add(limit));
+    let note = match traces.is_empty() && offset == 0 {
+        true => why_none(data_dir, &search).await?,
+        false => None,
+    };
     Ok(TracePage {
         traces,
         next_offset,
+        note,
     })
+}
+
+/// Root spans per group of `count_by` values, busiest first.
+pub async fn count(data_dir: &Path, search: TraceSearch) -> SignozResult<Vec<Count>> {
+    counts::count(
+        data_dir,
+        "traces",
+        search.scope.window()?,
+        search_expression(&search)?,
+        &search.count_by,
+        search.limit,
+    )
+    .await
+}
+
+const KEYS_CHECKED: usize = 5;
+
+/// `fields` lists keys from every service, so a filter can name one this
+/// service never sends. Says which, or that the service sent nothing at all.
+async fn why_none(data_dir: &Path, search: &TraceSearch) -> SignozResult<Option<String>> {
+    let Some(service) = search.scope.service.as_deref().map(str::trim) else {
+        return Ok(None);
+    };
+    let mut keys: Vec<String> = search
+        .scope
+        .filters
+        .iter()
+        .map(|filter| filter.key.trim().to_string())
+        .chain(
+            search
+                .scope
+                .expression
+                .as_deref()
+                .map(keys_in)
+                .unwrap_or_default(),
+        )
+        .collect();
+    keys.sort();
+    keys.dedup();
+    keys.truncate(KEYS_CHECKED);
+    if service.is_empty() || keys.is_empty() {
+        return Ok(None);
+    }
+    let probe = |key: Option<&String>| TraceSearch {
+        scope: Scope {
+            service: Some(service.to_string()),
+            environment: search.scope.environment.clone(),
+            expression: key.map(|key| format!("{key} EXISTS")),
+            start: search.scope.start,
+            end: search.scope.end,
+            minutes: search.scope.minutes,
+            ..Scope::default()
+        },
+        ..TraceSearch::default()
+    };
+    let mut probes = tokio::task::JoinSet::new();
+    for key in std::iter::once(None).chain(keys.into_iter().map(Some)) {
+        let request = list_request(&probe(key.as_ref()), 1, 0)?;
+        let data_dir = data_dir.to_path_buf();
+        probes.spawn(async move {
+            let found = summaries(&data_dir, &request).await;
+            (key, found.map(|rows| !rows.is_empty()))
+        });
+    }
+    let mut service_sent = false;
+    let mut never = Vec::new();
+    while let Some(joined) = probes.join_next().await {
+        let (key, found) = joined.map_err(|error| SignozError::Response(error.to_string()))?;
+        match (key, found?) {
+            (None, sent) => service_sent = sent,
+            (Some(key), false) => never.push(key),
+            (Some(_), true) => {}
+        }
+    }
+    if !service_sent {
+        return Ok(Some(format!(
+            "{service} sent no traces in this window and environment"
+        )));
+    }
+    never.sort();
+    Ok((!never.is_empty()).then(|| {
+        format!(
+            "{service}'s root spans in this window never carry {}; fields lists keys from every service",
+            never.join(", ")
+        )
+    }))
+}
+
+/// The attribute names an expression compares, leaving out quoted values,
+/// numbers, keywords and function names.
+fn keys_in(expression: &str) -> Vec<String> {
+    const KEYWORDS: [&str; 16] = [
+        "and", "or", "not", "in", "exists", "contains", "like", "ilike", "regexp", "between",
+        "has", "hasany", "hasall", "true", "false", "null",
+    ];
+    let mut unquoted = String::with_capacity(expression.len());
+    let mut quote = None;
+    let mut escaped = false;
+    for c in expression.chars() {
+        match quote {
+            Some(open) => {
+                if escaped {
+                    escaped = false;
+                } else if c == '\\' {
+                    escaped = true;
+                } else if c == open {
+                    quote = None;
+                }
+                unquoted.push(' ');
+            }
+            None if c == '\'' || c == '"' => {
+                quote = Some(c);
+                unquoted.push(' ');
+            }
+            None => unquoted.push(c),
+        }
+    }
+    let is_key_char =
+        |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '@' | ':' | '/' | '-');
+    let mut keys: Vec<String> = Vec::new();
+    let mut rest = unquoted.as_str();
+    while let Some(start) = rest.find(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '@') {
+        let word_on = rest.split_at(start).1;
+        let (word, after) =
+            word_on.split_at(word_on.find(|c| !is_key_char(c)).unwrap_or(word_on.len()));
+        rest = after;
+        let number = word.starts_with(|c: char| c.is_ascii_digit());
+        let calls = after.trim_start().starts_with('(');
+        let keyword = KEYWORDS.contains(&word.to_lowercase().as_str());
+        if !number && !calls && !keyword && !keys.iter().any(|key| key == word) {
+            keys.push(word.to_string());
+        }
+    }
+    keys
 }
 
 #[derive(Clone, Debug)]

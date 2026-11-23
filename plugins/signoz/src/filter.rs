@@ -53,12 +53,67 @@ pub struct Scope {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expression: Option<String>,
     /// A fixed range in Unix milliseconds. Without one, the last `minutes`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "moment"
+    )]
     pub start: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "moment"
+    )]
     pub end: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub minutes: Option<u32>,
+}
+
+/// Unix milliseconds, or an ISO time such as `2026-11-23T11:00Z`; a bare
+/// `11:00Z` is that time today.
+fn moment<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<u64>, D::Error> {
+    let now = time::OffsetDateTime::now_utc();
+    match Option::<Value>::deserialize(deserializer)? {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(number)) => number.as_u64().map(Some).ok_or_else(|| {
+            serde::de::Error::custom("a time in Unix milliseconds is a whole positive number")
+        }),
+        Some(Value::String(text)) => moment_ms(&text, now).map(Some).ok_or_else(|| {
+            serde::de::Error::custom(format!(
+                "`{text}` is not a time: give Unix ms or ISO with a zone, e.g. 2026-11-23T11:00Z or 11:00Z for today"
+            ))
+        }),
+        Some(other) => Err(serde::de::Error::custom(format!("{other} is not a time"))),
+    }
+}
+
+fn moment_ms(text: &str, now: time::OffsetDateTime) -> Option<u64> {
+    use time::format_description::well_known::Rfc3339;
+    let text = text.trim();
+    if let Ok(ms) = text.parse::<u64>() {
+        return Some(ms);
+    }
+    let (date, rest) = match text.split_once(['T', 't']) {
+        Some((date, rest)) => (Some(date), rest),
+        None => (None, text),
+    };
+    let (clock, zone) = rest.split_at(rest.find(['Z', 'z', '+', '-'])?);
+    let seconds = if clock.matches(':').count() == 1 {
+        ":00"
+    } else {
+        ""
+    };
+    let at = |date: &str| {
+        time::OffsetDateTime::parse(&format!("{date}T{clock}{seconds}{zone}"), &Rfc3339).ok()
+    };
+    let parsed = match date {
+        Some(date) => at(date)?,
+        None => {
+            let guess = at(&now.date().to_string())?;
+            guess.replace_date(now.to_offset(guess.offset()).date())
+        }
+    };
+    u64::try_from(parsed.unix_timestamp_nanos() / 1_000_000).ok()
 }
 
 const MAX_WINDOW_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
@@ -102,7 +157,7 @@ fn balanced(expression: &str) -> SignozResult<&str> {
 
 /// Attribute names are written into the expression as they are, so only
 /// characters a name can have get through.
-fn checked_key(key: &str) -> SignozResult<&str> {
+pub(crate) fn checked_key(key: &str) -> SignozResult<&str> {
     let key = key.trim();
     let mut chars = key.chars();
     let starts_well = chars

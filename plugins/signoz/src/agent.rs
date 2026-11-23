@@ -13,7 +13,9 @@ pub fn route(method: &str, mut input: Value) -> Result<(&str, Value), PluginErro
             Some("errors") => "errorGroups",
             _ => "serviceOverview",
         },
+        "searchLogs" if given("countBy") => "countLogs",
         "agentTraces" if given("traceId") => "trace",
+        "agentTraces" if given("countBy") => "countTraces",
         "agentTraces" => "searchTraces",
         "agentDashboards" if given("panelId") => {
             let Some(id) = input.get("id").filter(|id| !id.is_null()).cloned() else {

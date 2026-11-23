@@ -50,7 +50,7 @@
       "name": "signoz_services",
       "row": {"verb": "service", "kind": "read", "icon": "activity", "target": ["{service}", "all services"], "detail": ["{show}"]},
       "method": "agentServices",
-      "description": "Traced services with calls, errors and p99. Name a service for its overview, its endpoints or its errors grouped by message.",
+      "description": "Traced services with calls, errors, 4xx client errors and p99. Name a service for its overview, its endpoints or its errors grouped by message.",
       "properties": {
         "service": {
           "type": "string"
@@ -74,12 +74,12 @@
           "description": "Default 30."
         },
         "start": {
-          "type": "integer",
-          "description": "Unix ms; with end, replaces minutes."
+          "type": ["integer", "string"],
+          "description": "Unix ms or ISO, e.g. 2026-11-23T11:00Z, or 11:00Z for today; with end, replaces minutes."
         },
         "end": {
-          "description": "Unix ms, with start.",
-          "type": "integer"
+          "description": "Like start.",
+          "type": ["integer", "string"]
         },
         "filters": {
           "type": "array",
@@ -129,12 +129,17 @@
       "method": "searchLogs",
       "description": "Search logs, newest first, up to 30,000 characters; nextOffset reads on. Fields every line shares come once in `shared`. None for a service? Try aws_logs.",
       "properties": {
+        "countBy": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Attribute names; returns line counts per group of their values in place of lines, e.g. [\"http.route\", \"reason\"]."
+        },
         "service": {
           "type": "string"
         },
         "text": {
           "type": "string",
-          "description": "Text the body contains."
+          "description": "Text the body contains; attributes need expression."
         },
         "severities": {
           "type": "array",
@@ -170,12 +175,12 @@
           "description": "Default 30."
         },
         "start": {
-          "type": "integer",
-          "description": "Unix ms; with end, replaces minutes."
+          "type": ["integer", "string"],
+          "description": "Unix ms or ISO, e.g. 2026-11-23T11:00Z, or 11:00Z for today; with end, replaces minutes."
         },
         "end": {
-          "description": "Unix ms, with start.",
-          "type": "integer"
+          "description": "Like start.",
+          "type": ["integer", "string"]
         },
         "filters": {
           "type": "array",
@@ -225,6 +230,11 @@
       "method": "agentTraces",
       "description": "Find traces by their root spans. Pass traceId for one trace as an outline of its root, failing spans and slowest spans; spanId opens one span.",
       "properties": {
+        "countBy": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Attribute names; returns root-span counts per group of their values in place of traces, e.g. [\"http.route\", \"reason\"]."
+        },
         "service": {
           "type": "string"
         },
@@ -274,12 +284,12 @@
           "description": "Default 30, or 1440 to find a traceId."
         },
         "start": {
-          "type": "integer",
-          "description": "Unix ms; with end, replaces minutes."
+          "type": ["integer", "string"],
+          "description": "Unix ms or ISO, e.g. 2026-11-23T11:00Z, or 11:00Z for today; with end, replaces minutes."
         },
         "end": {
-          "description": "Unix ms, with start.",
-          "type": "integer"
+          "description": "Like start.",
+          "type": ["integer", "string"]
         },
         "filters": {
           "type": "array",
@@ -352,12 +362,12 @@
           "description": "Default 30."
         },
         "start": {
-          "type": "integer",
-          "description": "Unix ms; with end, replaces minutes."
+          "type": ["integer", "string"],
+          "description": "Unix ms or ISO, e.g. 2026-11-23T11:00Z, or 11:00Z for today; with end, replaces minutes."
         },
         "end": {
-          "description": "Unix ms, with start.",
-          "type": "integer"
+          "description": "Like start.",
+          "type": ["integer", "string"]
         }
       },
       "required": []

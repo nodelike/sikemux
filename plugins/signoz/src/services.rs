@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,8 @@ pub struct ServiceHealth {
     pub calls: u64,
     pub errors: u64,
     pub error_rate: f64,
+    /// Answered with a 4xx status, which SigNoz does not count as an error.
+    pub client_errors: u64,
     pub p99_ms: f64,
 }
 
@@ -84,45 +87,58 @@ pub async fn health(data_dir: &Path, request: ServiceQuery) -> SignozResult<Vec<
         environment: request.scope.environment.clone(),
         ..Scope::default()
     };
-    let expression =
-        query::all_of(std::iter::once(ENTRY_SPANS.to_string()).chain(scope.clauses()?));
-    let spec = json!({
-        "signal": "traces",
-        "aggregations": [
+    let window = request.scope.window()?;
+    let per_service = |aggregations: Value, extra: Option<&str>| -> SignozResult<Value> {
+        let expression = query::all_of(
+            std::iter::once(ENTRY_SPANS.to_string())
+                .chain(extra.map(str::to_string))
+                .chain(scope.clauses()?),
+        );
+        let spec = json!({
+            "signal": "traces",
+            "aggregations": aggregations,
+            "groupBy": [
+                { "name": "service.name", "fieldContext": "resource" },
+                { "name": "deployment.environment", "fieldContext": "resource" },
+            ],
+            "order": [{ "key": { "name": "count()" }, "direction": "desc" }],
+            "limit": MAX_ROWS,
+        });
+        Ok(query::builder(
+            "scalar",
+            window,
+            query::with_filter(spec, expression),
+        ))
+    };
+    let health = per_service(
+        json!([
             { "expression": "count()" },
             { "expression": "countIf(hasError = true)" },
             { "expression": "p99(duration_nano)" },
-        ],
-        "groupBy": [
-            { "name": "service.name", "fieldContext": "resource" },
-            { "name": "deployment.environment", "fieldContext": "resource" },
-        ],
-        "order": [{ "key": { "name": "count()" }, "direction": "desc" }],
-        "limit": MAX_ROWS,
-    });
-    let result = client::query_range(
-        data_dir,
-        &query::builder(
-            "scalar",
-            request.scope.window()?,
-            query::with_filter(spec, expression),
-        ),
-    )
-    .await?;
-    Ok(parse(&result))
+        ]),
+        None,
+    )?;
+    let client_errors = per_service(
+        json!([{ "expression": "count()" }]),
+        Some("response_status_code LIKE '4__'"),
+    )?;
+    let (health, client_errors) = tokio::try_join!(
+        client::query_range(data_dir, &health),
+        client::query_range(data_dir, &client_errors),
+    )?;
+    Ok(parse(&health, &client_errors))
 }
 
 fn number(value: Option<&Value>) -> f64 {
     value.and_then(Value::as_f64).unwrap_or(0.0)
 }
 
-fn parse(result: &Value) -> Vec<ServiceHealth> {
-    let rows = result
+fn rows(result: &Value) -> impl Iterator<Item = (String, Option<String>, &[Value])> {
+    result
         .get("data")
         .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    rows.iter()
+        .into_iter()
+        .flatten()
         .filter_map(|row| {
             let row = row.as_array()?;
             let service = row.first()?.as_str()?.to_string();
@@ -132,9 +148,25 @@ fn parse(result: &Value) -> Vec<ServiceHealth> {
                 .map(str::trim)
                 .filter(|environment| !environment.is_empty())
                 .map(str::to_string);
+            Some((service, environment, row.as_slice()))
+        })
+}
+
+fn parse(health: &Value, client_errors: &Value) -> Vec<ServiceHealth> {
+    let client_errors: HashMap<(String, Option<String>), u64> = rows(client_errors)
+        .map(|(service, environment, row)| {
+            ((service, environment), number(row.get(2)).max(0.0) as u64)
+        })
+        .collect();
+    rows(health)
+        .map(|(service, environment, row)| {
             let calls = number(row.get(2)).max(0.0) as u64;
             let errors = number(row.get(3)).max(0.0) as u64;
-            Some(ServiceHealth {
+            ServiceHealth {
+                client_errors: client_errors
+                    .get(&(service.clone(), environment.clone()))
+                    .copied()
+                    .unwrap_or(0),
                 service,
                 environment,
                 calls,
@@ -145,7 +177,7 @@ fn parse(result: &Value) -> Vec<ServiceHealth> {
                     errors as f64 / calls as f64
                 },
                 p99_ms: number(row.get(4)) / 1_000_000.0,
-            })
+            }
         })
         .collect()
 }
@@ -429,7 +461,7 @@ mod tests {
             ["no-env", "", 3, 0, 1000000],
             ["bad"],
         ] });
-        let health = parse(&result);
+        let health = parse(&result, &json!({}));
         assert_eq!(health.len(), 4);
         assert_eq!(health[0].environment.as_deref(), Some("production"));
         assert!((health[0].p99_ms - 1.567_176_99).abs() < 1e-9);

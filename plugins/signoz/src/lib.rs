@@ -4,6 +4,7 @@ mod agent;
 mod auth;
 mod client;
 mod config;
+mod counts;
 mod dashboards;
 mod error;
 mod fields;
@@ -123,6 +124,7 @@ impl Plugin for Signoz {
                 }
                 "signOut" => answer(auth::sign_out(data_dir)).await,
                 "searchLogs" => answer(logs::search(data_dir, params(input)?)).await,
+                "countLogs" => answer(logs::count(data_dir, params(input)?)).await,
                 "dashboards" => answer(dashboards::list(data_dir)).await,
                 "dashboard" => answer(dashboards::get(data_dir, params(input)?)).await,
                 "dashboardPanel" => answer(dashboards::saved_panel(data_dir, params(input)?)).await,
@@ -132,6 +134,7 @@ impl Plugin for Signoz {
                 "errorGroups" => answer(services::errors(data_dir, params(input)?)).await,
                 "trace" => answer(traces::trace(data_dir, params(input)?)).await,
                 "searchTraces" => answer(traces::search(data_dir, params(input)?)).await,
+                "countTraces" => answer(traces::count(data_dir, params(input)?)).await,
                 "fieldKeys" => answer(fields::keys(data_dir, params(input)?)).await,
                 "fieldValues" => answer(fields::values(data_dir, params(input)?)).await,
                 _ => Err(PluginError::unknown_method(method)),
