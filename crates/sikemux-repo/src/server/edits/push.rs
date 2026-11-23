@@ -235,14 +235,6 @@ fn push_from(
                 || of.is_some_and(|of| sessions.iter().any(|session| session == of))
         };
         let agents = verified(core, dir, commit)?;
-        if agents.is_empty() {
-            if let Some(made_by) = committer::of(core, dir, commit) {
-                return Ok((
-                    whole_branch || is_me(&made_by.chat, made_by.session.as_deref()),
-                    crate::server::names::called(&made_by.name, &made_by.chat),
-                ));
-            }
-        }
         let mine = whole_branch
             || agents
                 .iter()
@@ -257,14 +249,11 @@ fn push_from(
     let signing = Signing::of(core);
     let mut pushed = push_holding(dir, remote, whose, judge, whole_branch, &signing, landing)?;
     for blocked in &mut pushed.blocked {
-        blocked.owners = match verified(core, dir, &blocked.id) {
-            Ok(agents) if !agents.is_empty() => {
-                agents.into_iter().map(|agent| agent.chat).collect()
-            }
-            _ => committer::of(core, dir, &blocked.id)
-                .map(|made_by| vec![made_by.chat])
-                .unwrap_or_default(),
-        };
+        blocked.owners = (verified(core, dir, &blocked.id)
+            .unwrap_or_default()
+            .into_iter())
+        .map(|agent| agent.chat)
+        .collect();
     }
     (core.repo_above().pushed)(core);
     if let Some(tip) = &pushed.tip {
