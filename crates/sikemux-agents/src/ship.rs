@@ -1559,27 +1559,43 @@ fn only_queries(args: &[String]) -> bool {
     let given: Vec<&str> = (args.iter().enumerate())
         .filter_map(|(at, arg)| {
             let next = || args.get(at + 1).map(String::as_str);
-            if let Some((flag, statement)) = arg.split_once('=') {
-                return matches!(flag, "--command" | "--execute").then_some(statement);
-            }
-            if matches!(arg.as_str(), "--command" | "--execute") {
-                return next();
-            }
-            let short = arg
-                .strip_prefix('-')
-                .filter(|short| !short.starts_with('-'))?;
-            if let Some(attached) = short.strip_prefix(['c', 'e']) {
-                return if attached.is_empty() {
-                    next()
-                } else {
-                    Some(attached)
+            if arg.starts_with("--") {
+                return match arg.split_once('=') {
+                    Some((flag, statement)) => {
+                        matches!(flag, "--command" | "--execute").then_some(statement)
+                    }
+                    None => matches!(arg.as_str(), "--command" | "--execute")
+                        .then(next)
+                        .flatten(),
                 };
             }
-            let packed = short.len() <= 4 && short.ends_with(['c', 'e']);
-            packed.then(next).flatten()
+            let short = arg.strip_prefix('-')?;
+            match packed_value(short, &['c', 'e'], DB_SWITCHES)? {
+                "" => next(),
+                attached => Some(attached),
+            }
         })
         .collect();
     !given.is_empty() && given.iter().all(|text| statements_read(text))
+}
+
+/// psql's and mysql's short flags that take no value.
+const DB_SWITCHES: &str = "aAbBEHlLnNqrsStvwWxXz01";
+/// curl's short flags that take no value.
+const CURL_SWITCHES: &str = "sSvikLfgGIjJlnNOpqRZM0123456#";
+
+/// What follows one of `flags` in a packed short flag such as `-tc"…"`, when every letter
+/// before it is one of `switches`; empty when the value is the next word.
+fn packed_value<'a>(short: &'a str, flags: &[char], switches: &str) -> Option<&'a str> {
+    for (at, letter) in short.char_indices() {
+        if flags.contains(&letter) {
+            return short.get(at + letter.len_utf8()..);
+        }
+        if !switches.contains(letter) {
+            return None;
+        }
+    }
+    None
 }
 
 /// Whether every statement of `text` only reads.
@@ -1627,11 +1643,9 @@ fn sends_only_reads(program: &str, args: &[String]) -> bool {
             return data_flags.contains(&arg.as_str()).then(next).flatten();
         }
         let short = arg.strip_prefix('-')?;
-        let (_, attached) = short.split_once(['d', 'F', 'T'])?;
-        if attached.is_empty() {
-            next()
-        } else {
-            Some(attached)
+        match packed_value(short, &['d', 'F', 'T'], CURL_SWITCHES)? {
+            "" => next(),
+            attached => Some(attached),
         }
     });
     let mut bodies = given.peekable();
