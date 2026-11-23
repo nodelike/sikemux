@@ -63,7 +63,7 @@ impl Page {
         });
         Self {
             chosen: None,
-            table: false,
+            table: true,
             needs_you: false,
             span: StatsSpan::Hour,
             search,
