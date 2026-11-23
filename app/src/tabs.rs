@@ -174,11 +174,15 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
         .items_center()
         .h(px(bar_height()))
         .pt(px(tabs_top()))
-        .window_control_area(WindowControlArea::Drag)
+        .child(window_grip())
         .when(cfg!(target_os = "macos"), |bar| {
             bar.child(div().w(px(80.)).flex_none())
         })
-        .child(crate::visits::arrows(bench, cx))
+        .child(
+            div()
+                .block_mouse_except_scroll()
+                .child(crate::visits::arrows(bench, cx)),
+        )
         .child(div().flex_1().min_w_0().h_full().ml(SPACE_2).children(tabs))
         .child(
             div()
@@ -186,6 +190,7 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
                 .flex()
                 .flex_none()
                 .items_center()
+                .block_mouse_except_scroll()
                 .gap(SPACE_1)
                 .ml(SPACE_4)
                 .pr(SPACE_2H)
@@ -215,6 +220,23 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
                         crate::keymap::dispatch(actions::FocusMode::ID, window, cx)
                     }),
                 ),
+        )
+}
+
+/// The bar's empty room, under everything it holds: a press there moves the window and a
+/// double-click zooms it. What the bar holds blocks the mouse from it, so a tab only drags.
+fn window_grip() -> impl IntoElement {
+    div()
+        .id("window-grip")
+        .absolute()
+        .inset_0()
+        .window_control_area(WindowControlArea::Drag)
+        .on_mouse_down(
+            gpui_kit::MouseButton::Left,
+            |event, window, _| match event.click_count {
+                2 => window.titlebar_double_click(),
+                _ => window.start_window_move(),
+            },
         )
 }
 
@@ -311,6 +333,7 @@ fn strip_area(bench: &Workbench, strip: &Strip, cx: &mut Context<Workbench>) -> 
                     crate::settings::leaves(div(), cx)
                         .on_children_prepainted(measured)
                         .id("tab-strip")
+                        .block_mouse_except_scroll()
                         .h_full()
                         .min_w_0()
                         .flex()
@@ -324,9 +347,13 @@ fn strip_area(bench: &Workbench, strip: &Strip, cx: &mut Context<Workbench>) -> 
                 .when(faded && edges.1, |strip| strip.child(fade(270.).right_0())),
         )
         .child(
-            IconButton::new("new-tab", Icon::Plus, t!("New tab"))
-                .glyph(13.)
-                .on_click(|_, window, cx| crate::keymap::dispatch(actions::NewTab::ID, window, cx)),
+            div().block_mouse_except_scroll().child(
+                IconButton::new("new-tab", Icon::Plus, t!("New tab"))
+                    .glyph(13.)
+                    .on_click(|_, window, cx| {
+                        crate::keymap::dispatch(actions::NewTab::ID, window, cx)
+                    }),
+            ),
         )
         .child(
             canvas(

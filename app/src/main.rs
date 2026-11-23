@@ -57,6 +57,7 @@ fn main() {
                 traffic_light_position: cfg!(target_os = "macos").then(window_buttons_at),
             }),
             window_decorations: Some(WindowDecorations::Server),
+            app_owns_titlebar_drag: true,
             app_id: Some(core::IDENTIFIER.into()),
             focus: !behind,
             ..Default::default()
