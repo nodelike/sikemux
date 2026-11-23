@@ -2413,8 +2413,13 @@ async fn handed(
             }
             _ => {
                 let one = std::slice::from_ref(queued);
+                let guarded = (mailbox.state.locked().delivering).insert(target.agent_id.clone());
                 mailbox.offer(&target.agent_id, one);
                 let handed = hand(core, &target.agent_id, one).await;
+                if guarded {
+                    mailbox.state.locked().delivering.remove(&target.agent_id);
+                    mailbox.wake.now();
+                }
                 if !matches!(handed, Ok(Delivery::Steered)) {
                     let mut state = mailbox.state.locked();
                     state.take_offered(&target.agent_id, &joined(one));
