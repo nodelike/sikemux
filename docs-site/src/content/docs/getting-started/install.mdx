@@ -9,7 +9,7 @@ description: "Install Sikemux on a Mac, Linux or Windows, or just its core on a 
 curl -fsSL https://sikemux.com/install | sh
 ```
 
-On a Mac this puts Sikemux in `/Applications`. On Linux it asks whether you want the desktop app or just the core, and suggests the core on a machine with no desktop. The app comes as the `.deb` where there is apt, as a pacman package on x86_64 Arch and Omarchy, or else as the AppImage, unpacked in `/usr/local/lib/sikemux/app` and added to your app launcher, on x86_64 and arm64. The app needs Ubuntu 24.04, Debian 13 or another system as new. Where a machine cannot take the app, the installer says why and installs the core instead.
+On a Mac this puts Sikemux in `/Applications`. On Linux it asks whether you want the desktop app or just the core, and suggests the core on a machine with no desktop. The app comes as the `.deb` where there is apt, as a pacman package on x86_64 Arch and Omarchy, where the stable installer also adds Sikemux's signed pacman repository so `sudo pacman -Syu` updates it like any other package, or else as the AppImage, unpacked in `/usr/local/lib/sikemux/app` and added to your app launcher, on x86_64 and arm64. The app needs Ubuntu 22.04, Debian 12 or another system as new. Where a machine cannot take the app, the installer says why and installs the core instead.
 
 For the nightly build, set the channel before `sh`:
 
@@ -60,7 +60,7 @@ Later:
 
 The latest `.dmg` is on [sikemux.com](https://sikemux.com) and on [GitHub Releases](https://github.com/nodelike/sikemux/releases/latest). It is about 30 MB and needs macOS 11 or later on Apple Silicon.
 
-On Linux the same release has a `.deb`, an Arch package and an `.AppImage`, for Ubuntu 24.04, Debian 13 or another system as new. These are the x86_64 names; arm64 has `_arm64` in place of `_amd64`, and no Arch package, so Arch on arm64 takes the AppImage:
+On Linux the same release has a `.deb`, an Arch package and an `.AppImage`, for Ubuntu 22.04, Debian 12 or another system as new. These are the x86_64 names; arm64 has `_arm64` in place of `_amd64`, and no Arch package, so Arch on arm64 takes the AppImage:
 
 ```bash
 sudo apt install ./Sikemux_<version>_amd64.deb                 # Debian, Ubuntu
@@ -70,12 +70,20 @@ chmod +x Sikemux_<version>_amd64.AppImage                      # any other distr
 
 A nightly's Arch package is `sikemux-nightly-bin`, with the version's hyphen left out, such as `sikemux-nightly-bin-0.6.1nightly.7-1-x86_64.pkg.tar.zst`.
 
+To have `pacman -Syu` update a stable package you installed by hand, trust the key each stable release carries and add its repository to `/etc/pacman.conf`:
+
+```bash
+curl -fsSLO https://github.com/nodelike/sikemux/releases/latest/download/sikemux-archive.asc
+sudo pacman-key --add sikemux-archive.asc && sudo pacman-key --lsign-key 31BAE8B4812C3D8B528BFB673438AB05E922705C
+printf '\n[sikemux]\nSigLevel = Required DatabaseRequired\nServer = https://github.com/nodelike/sikemux/releases/latest/download\n' | sudo tee -a /etc/pacman.conf
+```
+
 ### Adding the repository by hand
 
 The `.deb` adds Sikemux's apt repository itself. To add it before installing, so apt installs Sikemux as well as updating it, fetch the key that signs it and point apt at the stable suite, or `packages-nightly` for nightly:
 
 ```bash
-# Ubuntu 24.04, Debian 13 and newer
+# Ubuntu 22.04, Debian 12 and newer
 sudo curl -fsSLo /usr/share/keyrings/sikemux-archive.asc https://raw.githubusercontent.com/nodelike/sikemux/main/packaging/linux/sikemux-archive.asc
 printf 'Types: deb\nURIs: https://github.com/nodelike/sikemux/releases/download\nSuites: packages-stable/\nSigned-By: /usr/share/keyrings/sikemux-archive.asc\n' | sudo tee /etc/apt/sources.list.d/sikemux.sources
 sudo apt update && sudo apt install sikemux

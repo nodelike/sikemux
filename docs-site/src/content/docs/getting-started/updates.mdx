@@ -52,7 +52,7 @@ curl -fsSL https://sikemux.com/install | sh -s -- --app
 
 On the nightly channel, the line sets `SIKEMUX_CHANNEL=nightly` before `sh`.
 
-On Arch Linux, pacman owns the app and Sikemux never replaces its files. When a repository pacman syncs from carries the package, the copied line is `sudo pacman -Syu`. Otherwise it is the installer line above, which updates `sikemux-bin` or `sikemux-nightly-bin` with `pacman -U`; the nightly package's line always sets `SIKEMUX_CHANNEL=nightly`.
+On Arch Linux, pacman owns the app and Sikemux never replaces its files. On x86_64 the stable installer adds Sikemux's signed repository to `/etc/pacman.conf`, so `sudo pacman -Syu` brings each new stable release like any other package. When a repository pacman syncs from carries the package, the copied line is `sudo pacman -Syu`. Otherwise it is the installer line above, which updates `sikemux-bin` or `sikemux-nightly-bin` with `pacman -U`; the nightly package's line always sets `SIKEMUX_CHANNEL=nightly`.
 
 ## On a server
 

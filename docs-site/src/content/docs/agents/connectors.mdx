@@ -15,6 +15,8 @@ Connectors give your agents tools for the services you work with: GitHub, GitLab
 
 Rundeck and SigNoz sign in with a token or a key, or switch the form to a password: a username and password for Rundeck, an email and password for SigNoz. Rundeck's **Allow plain HTTP on a private network** lets it reach a server without HTTPS, and only while every address that server resolves to is private or loopback.
 
+An agent's SigNoz tools list each service's server errors and its 4xx client errors, count logs and traces per group, take times such as `11:00Z` for today, and say why a search of logs or traces found nothing.
+
 A few connectors keep settings that only you change, never an agent:
 
 - **AWS** has no token form. Pick the profile from `~/.aws/config` to sign in with, and Sikemux opens its single sign-on in your default browser. **Profile agents start on** sets `AWS_PROFILE` for every agent, unless your own shell sets one.
