@@ -73,9 +73,10 @@ pub struct Accounts {
     asking: HashSet<(String, Option<String>)>,
     pub signing: HashMap<String, SignIn>,
     pub dialog: Option<Dialog>,
-    /// What the core says each chat may move to, by the chat, the account it is on and its model.
+    /// What the core says each chat may move to, by the chat, its agent, its account and its model.
     takers: HashMap<TakersKey, ChatAccounts>,
     asking_takers: HashSet<TakersKey>,
+    takers_generation: u64,
     /// What the Limits panel is holding open.
     pub limits: crate::agents::limits::Reveal,
     /// When coming back to the app last had the core check every agent's sign-in.
@@ -84,7 +85,7 @@ pub struct Accounts {
 
 /// Coming back to the app often comes in bursts, and each check starts the agents' CLIs, so it
 /// happens at most this often, as on the Mac.
-type TakersKey = (String, String, Option<String>);
+type TakersKey = (String, String, String, Option<String>);
 
 const CHECK_ON_RETURN_AT_MOST_EVERY: Duration = Duration::from_secs(30);
 
@@ -230,6 +231,8 @@ impl Accounts {
     /// Drops what the core said each chat may move to and would pick, so the next look asks again.
     pub fn forget_takers(&mut self) {
         self.takers.clear();
+        self.asking_takers.clear();
+        self.takers_generation = self.takers_generation.wrapping_add(1);
     }
 
     /// Whether new chats go to the account whose week ends soonest, as they do unless the person
@@ -274,11 +277,14 @@ pub fn takers<'a>(
     on: &str,
     cx: &mut Context<Workbench>,
 ) -> Option<&'a ChatAccounts> {
-    let model = (bench.shown().into_iter())
+    let saved = (bench.shown().into_iter())
         .flat_map(|view| &view.workspace.agents)
-        .find(|saved| saved.id == agent)
-        .and_then(|saved| saved.model.clone());
-    let key = (agent.to_owned(), on.to_owned(), model);
+        .find(|saved| saved.id == agent);
+    let provider = saved
+        .map(|saved| saved.provider.clone())
+        .unwrap_or_default();
+    let model = saved.and_then(|saved| saved.model.clone());
+    let key = (agent.to_owned(), provider, on.to_owned(), model);
     let known = bench.accounts.takers.get(&key);
     if known.is_none() && !bench.accounts.asking_takers.contains(&key) {
         let this = cx.entity();
@@ -292,6 +298,7 @@ fn ask_takers(bench: &mut Workbench, key: TakersKey, cx: &mut Context<Workbench>
     {
         return;
     }
+    let generation = bench.accounts.takers_generation;
     let params = ChatAccountsParams {
         agent_id: key.0.clone(),
     };
@@ -299,11 +306,26 @@ fn ask_takers(bench: &mut Workbench, key: TakersKey, cx: &mut Context<Workbench>
     cx.spawn(async move |bench, cx| {
         let answer = asked.await;
         let _ = bench.update(cx, |bench, cx| {
+            if bench.accounts.takers_generation != generation {
+                return;
+            }
             bench.accounts.asking_takers.remove(&key);
-            let answer = answer.unwrap_or_else(|why| ChatAccounts {
-                none_because: Some(why),
-                ..ChatAccounts::default()
-            });
+            let answer = match answer {
+                Ok(answer) => {
+                    if answer
+                        .account
+                        .as_ref()
+                        .is_some_and(|account| account.id != key.2)
+                    {
+                        return;
+                    }
+                    answer
+                }
+                Err(why) => ChatAccounts {
+                    none_because: Some(why),
+                    ..ChatAccounts::default()
+                },
+            };
             bench.accounts.takers.insert(key, answer);
             redraw(bench, cx);
         });
@@ -323,7 +345,7 @@ pub fn move_chat(bench: &Workbench, agent: &str, profile: &Profile, cx: &mut Con
     cx.spawn(async move |bench, cx| {
         let answer = asked.await;
         let _ = bench.update(cx, |bench, cx| {
-            bench.accounts.takers.clear();
+            bench.accounts.forget_takers();
             if let Err(why) = answer {
                 let note = crate::toast::error(t!(
                     "The chat stayed off {name}: {why}",
@@ -364,7 +386,7 @@ pub fn sign_in_then_move(
 
 /// Keeps the accounts as the core answered them after a change.
 fn adopt(bench: &mut Workbench, book: Book, cx: &mut Context<Workbench>) {
-    bench.accounts.takers.clear();
+    bench.accounts.forget_takers();
     bench.accounts.book = Some(book);
     ask_statuses(bench, cx);
     redraw(bench, cx);
@@ -564,7 +586,7 @@ fn ask(
             let _ = bench.update(cx, |bench, cx| {
                 bench.accounts.asking.remove(&asked);
                 bench.accounts.status.insert(asked, status);
-                bench.accounts.takers.clear();
+                bench.accounts.forget_takers();
                 redraw(bench, cx);
             });
         })

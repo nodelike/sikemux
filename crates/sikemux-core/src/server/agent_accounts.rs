@@ -29,7 +29,6 @@ use crate::agent_accounts::{
 };
 use crate::agent_catalog::{AgentEntry, AGENTS};
 use crate::flights::{shared, Flights};
-use crate::launch::account_environment;
 use crate::launch::discovery;
 use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ChatAccount;
@@ -268,15 +267,61 @@ fn signed_in(book: &Book, provider: &str) -> Vec<Profile> {
     (book.clone().with_built_ins().profiles.into_iter())
         .filter(|profile| profile.provider == provider)
         .filter(|profile| {
-            let env = account_environment(provider, profile.config_path.as_deref())
-                .into_iter()
-                .collect();
-            matches!(
-                crate::agent_accounts::sign_in::signed_in(provider, &env),
-                Some(crate::agent_accounts::sign_in::SignIn::Account(_))
-            ) && !unpaid::is_unpaid(provider, profile.config_path.as_deref())
+            Book::profile_signed_in(provider, profile)
+                && !unpaid::is_unpaid(provider, profile.config_path.as_deref())
         })
         .collect()
+}
+
+/// Whether `id`'s last reading is at 100% for `model`.
+pub(crate) fn is_full(book: &Book, provider: &str, id: &str, model: Option<&str>) -> bool {
+    let book = book.clone().with_built_ins();
+    let Some(profile) = book
+        .profile(id)
+        .filter(|profile| profile.provider == provider)
+    else {
+        return false;
+    };
+    let Some(reading) = usage::last_reading(provider, profile.config_path.as_deref()) else {
+        return false;
+    };
+    let placing = allocate::Chat {
+        model,
+        person: true,
+    };
+    allocate::full(&reading.usage, placing, sikemux_process::clock::epoch_ms())
+}
+
+/// An account of `provider` that still has quota for `chat`, preferring the one with the best
+/// room, else any signed-in account whose reading is not at 100%.
+pub(crate) fn with_quota(book: &Book, provider: &str, chat: &Placing) -> Option<Placement> {
+    let allowed = |profile: &Profile| {
+        (chat.cwd.as_deref()).is_none_or(|cwd| book.allowed_in(cwd, &profile.id))
+    };
+    let readings: Vec<(Profile, Option<usage::Reading>)> = (signed_in(book, provider).into_iter())
+        .filter(allowed)
+        .map(|profile| {
+            let reading = usage::last_reading(provider, profile.config_path.as_deref());
+            (profile, reading)
+        })
+        .collect();
+    let now = sikemux_process::clock::epoch_ms();
+    let placing = allocate::Chat {
+        model: chat.model.as_deref(),
+        person: true,
+    };
+    let offered = offered(provider, &readings);
+    allocate::place(&offered, placing, now).or_else(|| {
+        let open = readings.iter().find(|(_, reading)| {
+            !reading
+                .as_ref()
+                .is_some_and(|reading| allocate::full(&reading.usage, placing, now))
+        })?;
+        Some(Placement {
+            id: open.0.id.clone(),
+            why: "It still has quota left".into(),
+        })
+    })
 }
 
 /// Another chat agent the person is signed in to with room for a chat in `cwd`, for a chat

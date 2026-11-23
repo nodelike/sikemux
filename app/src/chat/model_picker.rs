@@ -188,7 +188,6 @@ struct Row {
 /// An agent in the rail, and how its install is going.
 struct Agent {
     provider: String,
-    profile: Option<String>,
     label: String,
     installing: Option<Installing>,
 }
@@ -744,10 +743,6 @@ impl Menu {
                     return None;
                 }
                 Some(Agent {
-                    profile: bench
-                        .accounts
-                        .current(&provider)
-                        .map(|profile| profile.id.clone()),
                     label: kind.label.clone(),
                     installing: bench.agent_setup.installing(&provider),
                     provider,
@@ -1077,7 +1072,7 @@ impl Menu {
             let menu = this.clone();
             let going = Moving {
                 provider: agent.provider.clone(),
-                profile: agent.profile.clone(),
+                profile: None,
                 model: None,
                 model_provider: None,
             };
@@ -1192,11 +1187,25 @@ impl Menu {
                 broken: matches!(status, Some(AgentStatus::Broken { .. })),
             };
         }
+        let profiles = bench.accounts.of(provider);
         let profile = bench.accounts.current(provider);
-        let signed_out = profile
-            .and_then(|profile| accounts::status(bench, profile))
-            .and_then(|status| status.as_ref().ok())
-            .map(|status| !status.signed_in);
+        let signed_out = if profiles.is_empty() {
+            None
+        } else if profiles.iter().any(|profile| {
+            accounts::status(bench, profile)
+                .and_then(|status| status.as_ref().ok())
+                .is_some_and(|status| status.signed_in)
+        }) {
+            Some(false)
+        } else if profiles.iter().all(|profile| {
+            accounts::status(bench, profile)
+                .and_then(|status| status.as_ref().ok())
+                .is_some_and(|status| !status.signed_in)
+        }) {
+            Some(true)
+        } else {
+            None
+        };
         match (signed_out, status) {
             (Some(true), _) | (None, Some(AgentStatus::SignedOut)) => {
                 Need::SignIn(profile.map(|profile| profile.id.clone()))
@@ -1264,16 +1273,11 @@ impl Menu {
             Settled::Ready(provider) => {
                 self.viewing = None;
                 self.installed = None;
-                let (label, profile) = {
-                    let bench = bench.read(cx);
-                    let profile =
-                        (bench.accounts.current(&provider)).map(|profile| profile.id.clone());
-                    (bench.agent_name(&provider).to_owned(), profile)
-                };
+                let label = bench.read(cx).agent_name(&provider).to_owned();
                 if provider != self.picked.provider {
                     let going = Moving {
                         provider,
-                        profile,
+                        profile: None,
                         model: None,
                         model_provider: None,
                     };

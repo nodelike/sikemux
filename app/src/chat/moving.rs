@@ -16,6 +16,7 @@ impl Workbench {
         if let Some(chat) = self.chats.open.get_mut(agent) {
             chat.forget_choices();
         }
+        self.accounts.forget_takers();
         let account = to
             .profile
             .as_deref()
@@ -45,6 +46,7 @@ impl Workbench {
             if let Some(chat) = self.chats.open.get_mut(agent) {
                 chat.forget_choices();
             }
+            self.accounts.forget_takers();
         }
         let asked = (self.chat_target(agent)).request_typed::<call::HandOff>(HandOffParams {
             agent_id: agent.to_owned(),
@@ -60,6 +62,7 @@ impl Workbench {
             bench
                 .update(cx, |bench, cx| match handed {
                     Ok(handed) if handed.agent_id == agent => {
+                        bench.accounts.forget_takers();
                         bench.ask_chat(ChatAsk::Attach { agent, since: None });
                     }
                     Ok(handed) => bench.open_in_front(OpenTab::new(
@@ -151,10 +154,7 @@ impl Workbench {
         };
         let to = crate::chat::model_picker::Moving {
             provider: provider.to_owned(),
-            profile: self
-                .accounts
-                .current(provider)
-                .map(|profile| profile.id.clone()),
+            profile: None,
             model: model.map(str::to_owned),
             model_provider: model_provider.map(str::to_owned),
         };

@@ -298,6 +298,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 fallbacks: stopped
                     .map(|stopped| stopped.fallbacks.clone())
                     .unwrap_or_default(),
+                accounts: std::collections::BTreeMap::new(),
                 program: None,
                 held: false,
                 place: ListPlace::default(),

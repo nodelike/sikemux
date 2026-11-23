@@ -463,20 +463,33 @@ async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
     let accounts = (book.clone().with_built_ins().profiles.iter())
         .filter(|profile| profile.provider == kind)
         .count();
-    if !book.smart || accounts < 2 {
+    if accounts < 2 {
         return None;
     }
-    let freshening = super::agent_accounts::freshen(core.clone(), book.clone(), kind.clone());
-    match chosen.waits_for_person {
-        true => drop(tokio::spawn(freshening)),
-        false => freshening.await,
-    }
+    let model = model_of(core, &book, &kind, chosen.model.clone());
     let chat = super::agent_accounts::Placing {
-        model: model_of(core, &book, &kind, chosen.model.clone()),
+        model: model.clone(),
         person: false,
         cwd: Some(chosen.cwd.clone()),
     };
-    let placed = super::agent_accounts::placement(&book, &kind, &chat, |_| true)?;
+    let placed = if book.smart {
+        let freshening = super::agent_accounts::freshen(core.clone(), book.clone(), kind.clone());
+        match chosen.waits_for_person {
+            true => drop(tokio::spawn(freshening)),
+            false => freshening.await,
+        }
+        super::agent_accounts::placement(&book, &kind, &chat, |_| true).or_else(|| {
+            let chosen_id = book.chosen(&kind);
+            super::agent_accounts::is_full(&book, &kind, &chosen_id, model.as_deref())
+                .then(|| super::agent_accounts::with_quota(&book, &kind, &chat))
+                .flatten()
+        })
+    } else {
+        let chosen_id = book.chosen(&kind);
+        super::agent_accounts::is_full(&book, &kind, &chosen_id, model.as_deref())
+            .then(|| super::agent_accounts::with_quota(&book, &kind, &chat))
+            .flatten()
+    }?;
     let id = LauncherId::on(&kind, &placed.id).to_string();
     let launcher = core
         .workspaces()

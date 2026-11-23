@@ -439,8 +439,21 @@ async fn send_switch(core: &Core, agent_id: &str, account: ChatAccount) -> CoreR
 pub fn accounts(core: &Core, agent_id: &str) -> CoreResult<Takers> {
     let agent = core.workspaces().agent_or_gone(agent_id)?;
     let book = core.workspaces().accounts().unwrap_or_default();
+    let current = agent
+        .profile_id
+        .clone()
+        .or_else(|| {
+            core.chats()
+                .get(agent_id)
+                .and_then(|chat| chat.current_launch().account.map(|account| account.id))
+        })
+        .or_else(|| {
+            crate::agent_catalog::agent(&agent.provider)
+                .filter(|entry| entry.accounts)
+                .map(|_| book.chosen(&agent.provider))
+        });
     if agent.pty_id.is_some() || agent.terminal {
-        let takers = book.takers(&agent.provider, agent.profile_id.as_deref(), true);
+        let takers = book.takers(&agent.provider, current.as_deref(), true);
         return Ok(Takers {
             others: Vec::new(),
             none_because: Some("A chat in its own terminal stays on its account".into()),
@@ -451,7 +464,7 @@ pub fn accounts(core: &Core, agent_id: &str) -> CoreResult<Takers> {
         .chats()
         .get(agent_id)
         .is_none_or(|chat| !chat.unstarted());
-    Ok(book.takers(&agent.provider, agent.profile_id.as_deref(), started))
+    Ok(book.takers(&agent.provider, current.as_deref(), started))
 }
 
 pub async fn move_to_account(core: &Arc<Core>, agent_id: &str, account_id: &str) -> CoreResult<()> {

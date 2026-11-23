@@ -249,6 +249,58 @@ impl Book {
             })
     }
 
+    /// Whether `profile` is signed in as `provider`: reads its account file, falling back to
+    /// the last status check when the file cannot be read (e.g. caught mid-write).
+    pub fn profile_signed_in(provider: &str, profile: &Profile) -> bool {
+        let env = account_environment(provider, profile.config_path.as_deref())
+            .into_iter()
+            .collect();
+        match sign_in::signed_in(provider, &env) {
+            Some(sign_in::SignIn::Account(_)) => true,
+            Some(sign_in::SignIn::SignedOut) => false,
+            None => matches!(
+                status::cached(provider, profile.config_path.as_deref()),
+                Some(status::AgentStatus::Ready { .. })
+            ),
+        }
+    }
+
+    /// Whether `id` is still a usable account of `provider` in `cwd`.
+    pub fn can_keep(&self, provider: &str, id: &str, cwd: &Path) -> bool {
+        let book = self.clone().with_built_ins();
+        let Some(profile) = book
+            .profile(id)
+            .filter(|profile| profile.provider == provider)
+        else {
+            return false;
+        };
+        if unpaid::is_unpaid(provider, profile.config_path.as_deref())
+            || !book.allowed_in(cwd, &profile.id)
+        {
+            return false;
+        }
+        let cached = status::cached(provider, profile.config_path.as_deref());
+        if matches!(cached, Some(status::AgentStatus::SignedOut)) {
+            return false;
+        }
+        if matches!(cached, Some(status::AgentStatus::Ready { .. })) {
+            return true;
+        }
+        let env = account_environment(provider, profile.config_path.as_deref())
+            .into_iter()
+            .collect();
+        match sign_in::signed_in(provider, &env) {
+            Some(sign_in::SignIn::SignedOut) => {
+                // Only drop on a missing account file when another account is confirmed signed in,
+                // so test stand-ins that omit `.claude.json` still keep their only account.
+                !book.profiles.iter().any(|other| {
+                    other.provider == provider && Self::profile_signed_in(provider, other)
+                })
+            }
+            _ => true,
+        }
+    }
+
     /// The accounts a chat of `provider` on the account `current` may carry on in: those signed
     /// in, and once it has started, only those that keep its chats where `current` does.
     pub fn takers(&self, provider: &str, current: Option<&str>, started: bool) -> Takers {
@@ -264,12 +316,7 @@ impl Book {
             .filter(|other| current.is_none_or(|current| current.id != other.id))
             .collect();
         let signed_in: Vec<&&Profile> = (others.iter().copied())
-            .filter(|other| {
-                matches!(
-                    sign_in::signed_in(provider, &named(other).env),
-                    Some(sign_in::SignIn::Account(_))
-                )
-            })
+            .filter(|other| Self::profile_signed_in(provider, other))
             .collect();
         let paid: Vec<&&Profile> = (signed_in.iter().copied())
             .filter(|other| !unpaid::is_unpaid(provider, other.config_path.as_deref()))
@@ -430,5 +477,58 @@ mod tests {
         assert_eq!(in_use(&book).as_deref(), Some("work"));
         book.selected.insert("claude".into(), "removed".into());
         assert_eq!(in_use(&book).as_deref(), Some("builtin-claude"));
+    }
+
+    #[test]
+    fn takers_keeps_signed_in_account_when_config_is_mid_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a");
+        let b = dir.path().join("b");
+        std::fs::create_dir_all(a.join("projects")).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        crate::os::symlink(&a.join("projects"), &b.join("projects")).unwrap();
+        std::fs::write(
+            a.join(".claude.json"),
+            r#"{"oauthAccount":{"accountUuid":"a-uuid"}}"#,
+        )
+        .unwrap();
+        std::fs::write(b.join(".claude.json"), r#"{"oauthAcc"#).unwrap();
+        let a_path = a.to_string_lossy().into_owned();
+        let b_path = b.to_string_lossy().into_owned();
+        status::remember(
+            "claude",
+            Some(&b_path),
+            status::AgentStatus::Ready {
+                account: Some("subscription".into()),
+            },
+        );
+        let book = Book {
+            profiles: vec![
+                Profile {
+                    id: "kishore-pers".into(),
+                    name: "Kishore Pers".into(),
+                    provider: "claude".into(),
+                    accent: "#d97757".into(),
+                    executable_path: None,
+                    config_path: Some(a_path),
+                    environment_keys: Vec::new(),
+                },
+                Profile {
+                    id: "kishore".into(),
+                    name: "Kishore".into(),
+                    provider: "claude".into(),
+                    accent: "#e0a030".into(),
+                    executable_path: None,
+                    config_path: Some(b_path),
+                    environment_keys: Vec::new(),
+                },
+            ],
+            ..Book::default()
+        };
+        let takers = book.takers("claude", Some("kishore-pers"), true);
+        assert!(
+            takers.others.iter().any(|other| other.id == "kishore"),
+            "half-written .claude.json must not drop a signed-in account from takers"
+        );
     }
 }

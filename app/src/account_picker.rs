@@ -13,6 +13,7 @@ use gpui_kit::{
 };
 use sikemux_agents::agent_accounts::status::AccountStatus;
 use sikemux_agents::agent_accounts::Profile;
+use sikemux_calls::agent_accounts::ChatAccounts;
 use std::rc::Rc;
 
 use crate::accounts;
@@ -55,39 +56,25 @@ pub fn picker(
     if bench.accounts.of(provider).len() < 2 {
         return None;
     }
-    let signed_in = |profile: &Profile| {
-        accounts::status(bench, profile)
-            .and_then(|status| status.as_ref().ok())
-            .filter(|status| status.signed_in)
-            .cloned()
-    };
     let takers = accounts::takers(bench, key, on, cx).cloned();
     let smart = takers.as_ref().and_then(|takers| takers.smart.clone());
-    let (movable, none_because): (Vec<(Profile, AccountStatus)>, Option<String>) = match started {
-        Some(_) => {
-            let others = takers.as_ref().map(|takers| &takers.others);
-            let movable = (bench.accounts.of(provider).into_iter())
-                .filter(|profile| {
-                    profile.id == current.id
-                        || others.is_some_and(|others| others.iter().any(|o| o.id == profile.id))
-                })
-                .filter_map(|profile| Some((profile.clone(), signed_in(profile)?)))
-                .collect();
-            (movable, takers.and_then(|takers| takers.none_because))
-        }
-        None => {
-            let movable: Vec<_> = (bench.accounts.of(provider).into_iter())
-                .filter_map(|profile| Some((profile.clone(), signed_in(profile)?)))
-                .collect();
-            let alone = !movable.iter().any(|(profile, _)| profile.id != current.id);
-            (
-                movable,
-                alone.then(|| t!("No other account is signed in").to_owned()),
-            )
-        }
-    };
+    let profiles = bench.accounts.of(provider);
+    let (movable, none_because) = listed(
+        &profiles,
+        &current,
+        started.is_some(),
+        takers.as_ref(),
+        |profile| {
+            accounts::status(bench, profile)
+                .and_then(|status| status.as_ref().ok())
+                .cloned()
+        },
+    );
     let name = |profile: &Profile, status: Option<&AccountStatus>| profile.shown_name(status);
-    let label = name(&current, signed_in(&current).as_ref());
+    let label = name(
+        &current,
+        accounts::status(bench, &current).and_then(|status| status.as_ref().ok()),
+    );
     let about = match (&none_because, running) {
         (Some(why), _) => why.clone(),
         (None, true) => {
@@ -129,7 +116,7 @@ pub fn picker(
         .iter()
         .map(|(profile, status)| Row {
             profile: profile.clone(),
-            name: name(profile, Some(status)),
+            name: name(profile, status.as_ref()),
             picture: bench.accounts.avatar(profile),
             used: accounts::used(bench, profile),
         })
@@ -180,4 +167,138 @@ struct Row {
     name: String,
     picture: Arc<Image>,
     used: Option<f64>,
+}
+
+fn listed(
+    profiles: &[&Profile],
+    current: &Profile,
+    started: bool,
+    takers: Option<&ChatAccounts>,
+    status_of: impl Fn(&Profile) -> Option<AccountStatus>,
+) -> (Vec<(Profile, Option<AccountStatus>)>, Option<String>) {
+    let signed_out = |profile: &Profile| status_of(profile).is_some_and(|status| !status.signed_in);
+    let matching = takers.filter(|takers| {
+        takers
+            .account
+            .as_ref()
+            .is_none_or(|account| account.id == current.id)
+    });
+    match started {
+        true => match matching {
+            Some(takers) => {
+                let movable = profiles
+                    .iter()
+                    .copied()
+                    .filter(|profile| {
+                        profile.id == current.id
+                            || takers.others.iter().any(|other| other.id == profile.id)
+                    })
+                    .map(|profile| (profile.clone(), status_of(profile)))
+                    .collect();
+                (movable, takers.none_because.clone())
+            }
+            None => {
+                let movable = profiles
+                    .iter()
+                    .copied()
+                    .filter(|profile| profile.id == current.id || !signed_out(profile))
+                    .map(|profile| (profile.clone(), status_of(profile)))
+                    .collect();
+                (movable, None)
+            }
+        },
+        false => {
+            let movable: Vec<_> = profiles
+                .iter()
+                .copied()
+                .filter(|profile| profile.id == current.id || !signed_out(profile))
+                .map(|profile| (profile.clone(), status_of(profile)))
+                .collect();
+            let alone = !movable.iter().any(|(profile, _)| profile.id != current.id);
+            (
+                movable,
+                alone.then(|| t!("No other account is signed in").to_owned()),
+            )
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sikemux_calls::agent_accounts::NamedAccount;
+
+    fn profile(id: &str, name: &str) -> Profile {
+        Profile {
+            id: id.into(),
+            name: name.into(),
+            provider: "claude".into(),
+            accent: "#d97757".into(),
+            executable_path: None,
+            config_path: None,
+            environment_keys: Vec::new(),
+        }
+    }
+
+    fn signed_in_status() -> AccountStatus {
+        AccountStatus {
+            signed_in: true,
+            ..AccountStatus::default()
+        }
+    }
+
+    #[test]
+    fn picker_lists_every_signed_in_account_while_takers_loads_or_is_stale() {
+        let kishore = profile("kishore", "Kishore");
+        let pers = profile("kishore-pers", "Kishore Pers");
+        let all = [&kishore, &pers];
+
+        // 1. While ChatAccounts RPC is still in flight (takers == None), both signed-in accounts must show.
+        let (rows, _) = listed(&all, &pers, true, None, |_| Some(signed_in_status()));
+        let ids: Vec<&str> = rows.iter().map(|(p, _)| p.id.as_str()).collect();
+        assert_eq!(ids, vec!["kishore", "kishore-pers"]);
+
+        // 2. When a stale ChatAccounts answer for the other account (account == kishore,
+        //    others == [kishore-pers]) is present while current == kishore-pers, Kishore must not vanish.
+        let stale = ChatAccounts {
+            account: Some(NamedAccount {
+                id: "kishore".into(),
+                label: "Kishore".into(),
+            }),
+            others: vec![NamedAccount {
+                id: "kishore-pers".into(),
+                label: "Kishore Pers".into(),
+            }],
+            none_because: None,
+            smart: Some("kishore".into()),
+        };
+        let (rows, _) = listed(
+            &all,
+            &pers,
+            true,
+            Some(&stale),
+            |_| Some(signed_in_status()),
+        );
+        let ids: Vec<&str> = rows.iter().map(|(p, _)| p.id.as_str()).collect();
+        assert_eq!(ids, vec!["kishore", "kishore-pers"]);
+
+        // 3. When takers confirms Kishore can take the chat, missing/errored status must not drop it.
+        let fresh = ChatAccounts {
+            account: Some(NamedAccount {
+                id: "kishore-pers".into(),
+                label: "Kishore Pers".into(),
+            }),
+            others: vec![NamedAccount {
+                id: "kishore".into(),
+                label: "Kishore".into(),
+            }],
+            none_because: None,
+            smart: Some("kishore".into()),
+        };
+        let (rows, _) = listed(&all, &pers, true, Some(&fresh), |p| {
+            (p.id == "kishore-pers").then(signed_in_status)
+        });
+        let ids: Vec<&str> = rows.iter().map(|(p, _)| p.id.as_str()).collect();
+        assert_eq!(ids, vec!["kishore", "kishore-pers"]);
+    }
 }

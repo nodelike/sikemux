@@ -121,6 +121,8 @@ pub struct Kept {
     pub account: Option<ChatAccount>,
     #[serde(default)]
     pub fallbacks: Vec<ChatAccount>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub accounts: BTreeMap<String, String>,
     /// The program a client started the chat with itself, rather than one of the launchers,
     /// which it wakes with again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -868,6 +870,7 @@ impl Workspaces {
                     agent: agent.clone(),
                     account: None,
                     fallbacks: Vec::new(),
+                    accounts: BTreeMap::new(),
                     program: None,
                     held: false,
                     place: ListPlace::default(),
@@ -886,15 +889,41 @@ impl Workspaces {
         edit: impl FnOnce(&mut WorkspaceAgent),
     ) -> CoreResult<WorkspaceAgent> {
         self.change(|saved| {
-            let mut agent = saved
+            let previous = saved
                 .kept(agent_id)
-                .ok_or_else(|| CoreError::from("that agent is not on this host"))?
+                .ok_or_else(|| CoreError::from("that agent is not on this host"))?;
+            let mut agent = previous.agent.clone();
+            let previous_provider = previous.agent.provider.clone();
+            let previous_profile = previous
                 .agent
-                .clone();
+                .profile_id
+                .clone()
+                .or_else(|| previous.account.as_ref().map(|account| account.id.clone()));
+            let remembered = previous.accounts.clone();
             edit(&mut agent);
+            let provider_changed = agent.provider != previous_provider;
+            let profile_changed = agent.profile_id != previous.agent.profile_id;
+            if provider_changed && agent.profile_id.is_none() {
+                if let Some(id) = remembered.get(&agent.provider) {
+                    let book = saved.accounts.clone().unwrap_or_default();
+                    if book.can_keep(&agent.provider, id, &agent.cwd) {
+                        agent.profile_id = Some(id.clone());
+                    }
+                }
+            }
             dress(&mut agent, &saved.agents);
             check_agent(&agent, saved)?;
             if let Some(kept) = saved.kept_mut(agent_id) {
+                if provider_changed {
+                    if let Some(profile) = previous_profile {
+                        kept.accounts.insert(previous_provider, profile);
+                    }
+                    kept.program = None;
+                }
+                if provider_changed || profile_changed {
+                    kept.account = None;
+                    kept.fallbacks.clear();
+                }
                 kept.agent = agent.clone();
             }
             Ok(agent)

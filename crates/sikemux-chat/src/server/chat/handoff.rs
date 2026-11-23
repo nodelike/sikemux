@@ -440,9 +440,13 @@ async fn go_back(
     back: RanOn,
     params: HandOffParams,
 ) -> CoreResult<ChatHandedOff> {
+    let book = core.workspaces().accounts().unwrap_or_default();
+    let profile_id = back
+        .profile_id
+        .filter(|id| book.can_keep(&back.provider, id, &source.cwd));
     let patch = AgentPatch {
         provider: Some(back.provider),
-        profile_id: Some(back.profile_id),
+        profile_id: Some(profile_id),
         model: Some(params.model.or(back.model)),
         model_provider: Some(params.model_provider.or(back.model_provider)),
         effort: Some(back.effort),
