@@ -281,6 +281,7 @@ fn body(
     let note =
         (call.kind == CallKind::Do && chosen.iter().any(|id| id == DO_NOT_DOING)).then(|| {
             div()
+                .w_full()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(note_row(
                     field,
