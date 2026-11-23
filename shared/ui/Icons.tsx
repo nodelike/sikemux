@@ -1167,6 +1167,14 @@ export const IconExpandAll = makeSvgIcon(
         <path d="m7 9 5-5 5 5" />
     </>,
 );
+export const IconMaximize = makeSvgIcon(
+    <>
+        <path d="M15 3h6v6" />
+        <path d="m21 3-7 7" />
+        <path d="m3 21 7-7" />
+        <path d="M9 21H3v-6" />
+    </>,
+);
 export const IconTag = makeSvgIcon(
     <>
         <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" />

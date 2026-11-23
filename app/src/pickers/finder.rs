@@ -118,6 +118,8 @@ pub struct Finder {
     stop_ranking: Arc<AtomicBool>,
     /// What had focus before the finder took it, to hand it back.
     before: Option<FocusHandle>,
+    /// The agent whose desk the chosen file opens on, when a desk's + opened the finder.
+    desk: Option<String>,
     _typing: Subscription,
 }
 
@@ -145,6 +147,7 @@ impl Finder {
             ranking: None,
             stop_ranking: Arc::default(),
             before,
+            desk: None,
             _typing: typing,
         }
     }
@@ -188,6 +191,20 @@ impl Workbench {
             .map(|project| project.path.to_string_lossy().into_owned());
         self.project_files.read(project.as_deref(), &self.target());
         self.rank(cx);
+    }
+
+    /// Opens the finder to put the file chosen on `agent`'s desk.
+    pub(crate) fn find_for_desk(
+        &mut self,
+        agent: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_finder(window, cx);
+        self.toggle_finder(window, cx);
+        if let Some(finder) = self.overlays.finder.as_mut() {
+            finder.desk = Some(agent.to_owned());
+        }
     }
 
     /// Ranks the project's files for what the finder holds, off the main thread, and keeps
@@ -237,7 +254,11 @@ impl Workbench {
             return;
         };
         if let Some(path) = finder.chosen(place) {
-            self.open_file(&project.path.join(path), cx);
+            let path = project.path.join(path);
+            match finder.desk.clone() {
+                Some(agent) => self.open_file_on_desk(&agent, path, None, None, cx),
+                None => self.open_file(&path, cx),
+            }
             self.close_finder(window, cx);
         }
     }

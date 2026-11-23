@@ -155,6 +155,7 @@ const DRAWN = {
   "circle-dashed": [ICONS, "IconCircleDashed"],
   "circle-slash": [ICONS, "IconCircleSlash"],
   "expand-all": [ICONS, "IconExpandAll"],
+  maximize: [ICONS, "IconMaximize"],
   fetch: [ICONS, "IconFetch"],
   image: [ICONS, "IconImage"],
   issues: [ICONS, "IconIssue"],
