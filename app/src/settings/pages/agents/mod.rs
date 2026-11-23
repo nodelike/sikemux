@@ -94,6 +94,7 @@ pub(super) fn stale(fields: &Fields, page: Page) -> bool {
     matches!(page, Page::Agents | Page::Models) && providers::stale(&fields.providers)
 }
 
+pub(crate) use accounts::screen as account_screen;
 pub(super) use providers::rebuild_choices;
 
 /// The add-account dialog and the install or sign-in sheet, over whichever page is open.

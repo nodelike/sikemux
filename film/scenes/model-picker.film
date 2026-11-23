@@ -1,4 +1,5 @@
-# A started Claude chat's model menu, then the same menu after picking Antigravity in its agent column.
+# A started Claude chat's model menu with its accounts, the same menu after picking Antigravity in its
+# agent column, then the welcome card of OpenCode, which is not installed.
 stage 1440 900
 window 1440 900
 signed-in
@@ -11,6 +12,9 @@ settle 3
 click "Model"
 settle 3
 snap model-picker-claude
-click 552,697
+click "Antigravity"
 settle 8
 snap model-picker-antigravity
+click "OpenCode"
+settle 4
+snap model-picker-welcome

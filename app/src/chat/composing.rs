@@ -738,6 +738,11 @@ pub(super) fn composer(
                 .map(|failure| models_unread(bench, agent, saved, failure)),
             set: pick.clone(),
             moving,
+            account: matches!(
+                bench.chat_target(&agent.id).place(),
+                crate::hosts::Place::This
+            )
+            .then(|| account_pick(cx.entity(), agent.id.clone(), !fresh)),
             target: bench.chat_target(&agent.id),
         };
         let open = chat
@@ -814,6 +819,27 @@ fn settable(agent: &AgentRow, head: Option<&ChatHead>) -> bool {
 /// Where the chat runs, for the strip docked on its composer: its project, which names a
 /// worktree agent's project rather than its worktree's folder, the branch or worktree it works
 /// on, and the account it runs on.
+/// Moves the chat onto the account picked: a started chat hands over, a fresh one starts again.
+fn account_pick(
+    this: Entity<Workbench>,
+    agent: String,
+    started: bool,
+) -> crate::account_picker::Pick {
+    Rc::new(move |chosen, cx| {
+        this.update(cx, |bench, cx| match started {
+            true => crate::accounts::move_chat(bench, &agent, chosen, cx),
+            false => bench.start_as(
+                &agent,
+                AgentPatch {
+                    profile_id: Some(Some(chosen.id.clone())),
+                    ..AgentPatch::default()
+                },
+                &chosen.name,
+            ),
+        })
+    })
+}
+
 pub(super) fn strip(
     bench: &Workbench,
     agent: &AgentRow,
@@ -850,22 +876,7 @@ pub(super) fn strip(
     let here = host.is_none();
     let account = on.filter(|_| here).and_then(|on| {
         let started = !fresh;
-        let pick: crate::account_picker::Pick = {
-            let (this, agent) = (cx.entity(), agent.id.clone());
-            Rc::new(move |chosen, cx| {
-                this.update(cx, |bench, cx| match started {
-                    true => crate::accounts::move_chat(bench, &agent, chosen, cx),
-                    false => bench.start_as(
-                        &agent,
-                        AgentPatch {
-                            profile_id: Some(Some(chosen.id.clone())),
-                            ..AgentPatch::default()
-                        },
-                        &chosen.name,
-                    ),
-                })
-            })
-        };
+        let pick = account_pick(cx.entity(), agent.id.clone(), started);
         let chat = crate::account_picker::Chat {
             key: &agent.id,
             provider: &agent.provider,

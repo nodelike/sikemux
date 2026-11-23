@@ -570,6 +570,18 @@ pub fn install_behind(bench: &mut Workbench, kind: &str, cx: &mut Context<Workbe
     start(bench, sheet, cx);
 }
 
+/// Stops the install of `kind` that runs with no sheet, and forgets it.
+pub fn cancel_behind(bench: &mut Workbench, kind: &str, cx: &mut Context<Workbench>) {
+    let Some(at) = (bench.agent_setup.behind.iter()).position(|each| each.kind == kind) else {
+        return;
+    };
+    let sheet = bench.agent_setup.behind.remove(at);
+    if let (Some(session), Phase::Running) = (sheet.session, &sheet.phase) {
+        let _ = bench.asks.send(Ask::Terminal(session, TerminalAsk::Kill));
+    }
+    redraw(bench, cx);
+}
+
 /// Shows the install of `kind` that ran with no sheet in Settings › Agents, where its output
 /// says why it stopped.
 pub fn show_install(

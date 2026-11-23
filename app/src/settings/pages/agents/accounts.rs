@@ -355,13 +355,55 @@ pub fn list(bench: &Workbench, provider: &str, this: &Entity<Workbench>, cx: &Ap
         .into_any_element()
 }
 
-/// The add-account dialog while it is open: a name, then the agent's own login in the
-/// browser, then who it signed in as.
+/// The add-account dialog while it is open, floating over Settings.
 pub fn dialog(
     bench: &Workbench,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
+    let screen = screen(bench, this, cx)?;
+    let open = bench.accounts.dialog.as_ref()?;
+    let account = open.account.as_deref();
+    let brand = brand(bench, &open.provider);
+    let close: dialog::Answer = {
+        let this = this.clone();
+        Rc::new(move |_, cx| this.update(cx, accounts::close_dialog))
+    };
+    let go: dialog::Answer = {
+        let this = this.clone();
+        let naming = account.is_none();
+        let done = account.is_some_and(|id| !bench.accounts.signing.contains_key(id));
+        Rc::new(move |_, cx| {
+            let brand = brand.clone();
+            this.update(cx, |bench, cx| {
+                if naming {
+                    accounts::add(bench, brand, cx);
+                } else if done {
+                    accounts::close_dialog(bench, cx);
+                }
+            })
+        })
+    };
+    let body = div().px(SPACE_1).pt(SPACE_1).child(screen);
+    Some(dialog::floating(px(440.), body, go, close, cx).into_any_element())
+}
+
+fn brand(bench: &Workbench, provider: &str) -> String {
+    bench
+        .reads
+        .catalog
+        .kind(provider)
+        .map_or("#8b8898", |kind| kind.brand.as_str())
+        .to_owned()
+}
+
+/// What the add-account dialog shows, wherever it is drawn: a name, then the agent's own login
+/// in the browser, then who it signed in as.
+pub(crate) fn screen(
+    bench: &Workbench,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> Option<sign_in::Screen> {
     let open = bench.accounts.dialog.as_ref()?;
     let label = bench.agent_name(&open.provider).to_owned();
     let account = open
@@ -372,16 +414,7 @@ pub fn dialog(
         .account
         .as_deref()
         .and_then(|id| bench.accounts.signing.get(id));
-    let brand = bench
-        .reads
-        .catalog
-        .kind(&open.provider)
-        .map_or("#8b8898", |kind| kind.brand.as_str())
-        .to_owned();
-    let close: dialog::Answer = {
-        let this = this.clone();
-        Rc::new(move |_, cx| this.update(cx, accounts::close_dialog))
-    };
+    let brand = brand(bench, &open.provider);
     let cancel = || {
         sign_in::links().child(
             sign_in::link("account-dialog-cancel", t!("Cancel"), cx)
@@ -550,23 +583,7 @@ pub fn dialog(
         }
         (Some(profile), None) => signed_in(bench, profile, mark, this),
     };
-    let go: dialog::Answer = {
-        let this = this.clone();
-        let naming = account.is_none();
-        let done = account.is_some() && signing.is_none();
-        Rc::new(move |_, cx| {
-            let brand = brand.clone();
-            this.update(cx, |bench, cx| {
-                if naming {
-                    accounts::add(bench, brand, cx);
-                } else if done {
-                    accounts::close_dialog(bench, cx);
-                }
-            })
-        })
-    };
-    let body = div().px(SPACE_1).pt(SPACE_1).child(screen);
-    Some(dialog::floating(px(440.), body, go, close, cx).into_any_element())
+    Some(screen)
 }
 
 const FOOT: &str =

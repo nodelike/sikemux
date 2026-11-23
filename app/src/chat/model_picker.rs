@@ -5,25 +5,32 @@
 
 use crate::ui::Clicks;
 use std::rc::Rc;
+use std::time::Duration;
 
 use gpui_kit::base::{Popover, Selectable};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::TestSupportExt as _;
 use gpui_kit::{
     actions, div, px, Anchor, AnyElement, App, AppContext, Context, Entity, InteractiveElement,
     IntoElement, KeyBinding, ParentElement, Render, ScrollHandle, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
+    StatefulInteractiveElement, Styled, Subscription, Task, WeakEntity, Window,
 };
+use sikemux_agents::agent_accounts::status::AgentStatus;
+use sikemux_agents::agent_accounts::Profile;
 use sikemux_view::workspace::{ConfigChoice, ConfigPicker, RecentModel};
 
-use crate::agents::setup::Installing;
+use crate::accounts;
+use crate::agents::setup::{self, Installing};
 use crate::core;
+use crate::hosts::Place;
 use crate::icons::{self, Icon};
 use crate::theme::{
     self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS_H, TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
+use crate::ui::sign_in;
 use crate::workbench::Workbench;
 use sikemux_agents::launch::providers::ProviderOrg;
 use sikemux_calls::call;
@@ -114,6 +121,8 @@ pub struct Picked {
     pub unread: Option<Unread>,
     pub set: Set,
     pub moving: Move,
+    /// Moves the chat onto another of its agent's accounts, while it runs on this host.
+    pub account: Option<crate::account_picker::Pick>,
     /// The core of the host the chat runs on, whose providers it can pay with.
     pub target: core::Target,
 }
@@ -176,13 +185,35 @@ struct Row {
     act: Act,
 }
 
-/// An agent in the chip row: whether this host has it, and how its install is going.
+/// An agent in the rail, and how its install is going.
 struct Agent {
     provider: String,
     profile: Option<String>,
     label: String,
-    installed: bool,
     installing: Option<Installing>,
+}
+
+/// What an agent needs before a chat can run on it.
+#[derive(Clone, PartialEq)]
+enum Need {
+    Install {
+        broken: bool,
+    },
+    Installing,
+    InstallFailed,
+    /// Signing in, to the account when it has one.
+    SignIn(Option<String>),
+    Ready,
+}
+
+/// Something the welcome card was waiting on that has now happened.
+enum Settled {
+    /// The account the card was signing in to is signed in.
+    SignedIn(Profile),
+    /// The add-account dialog closed some other way.
+    Closed,
+    /// The agent the card showed can run chats now.
+    Ready(String),
 }
 
 /// The open menu: its search, the row the keys are on, and the connected providers.
@@ -204,6 +235,15 @@ pub struct Menu {
     asked_effort: Option<String>,
     /// The agent the search field names.
     named: Option<String>,
+    /// The agent picked in the rail while it is not ready, whose welcome card shows.
+    viewing: Option<String>,
+    /// The agent whose install this menu started, so its card says it installed.
+    installed: Option<String>,
+    /// The add-account dialog was opened from this menu, so the card draws it.
+    adding: bool,
+    /// What just finished, said in the search bar for a moment.
+    said: Option<SharedString>,
+    _saying: Option<Task<()>>,
     _typing: Subscription,
     _bench: Subscription,
 }
@@ -282,6 +322,11 @@ impl Menu {
             older: false,
             asked_effort: None,
             named: None,
+            viewing: None,
+            installed: None,
+            adding: false,
+            said: None,
+            _saying: None,
             _typing: typing,
             _bench: cx.observe(bench, |_, _, cx| cx.notify()),
         }
@@ -422,8 +467,9 @@ impl Menu {
         if let Some(update) = self.update_row(bench) {
             options.push(update);
         }
-        if let Some(account) =
-            (self.picked.unread.as_ref()).and_then(|unread| unread.sign_in.clone())
+        if let Some(account) = (self.picked.unread.as_ref())
+            .and_then(|unread| unread.sign_in.clone())
+            .filter(|_| !self.here())
         {
             options.push(Row {
                 group: OWN,
@@ -487,15 +533,6 @@ impl Menu {
                     }
                 }));
             }
-            groups.push((String::new(), None));
-            options.push(Row {
-                group: groups.len() - 1,
-                mark: None,
-                label: t!("Add provider").into(),
-                meta: None,
-                current: false,
-                act: Act::AddProvider,
-            });
         }
         options.retain(|option| {
             matches!(
@@ -706,7 +743,6 @@ impl Menu {
                         .map(|profile| profile.id.clone()),
                     label: kind.label.clone(),
                     installing: bench.agent_setup.installing(&provider),
-                    installed,
                     provider,
                 })
             })
@@ -714,15 +750,7 @@ impl Menu {
     }
 }
 
-fn install_agent(bench: &WeakEntity<Workbench>, provider: &str, cx: &mut App) {
-    if let Some(bench) = bench.upgrade() {
-        bench.update(cx, |bench, cx| {
-            crate::agents::setup::install_behind(bench, provider, cx)
-        });
-    }
-}
-
-/// An agent in the rail down the menu's left: its mark, lit while the chat runs on it, and its
+/// An agent in the rail down the menu's left: its mark, lit while it is the one shown, and its
 /// name and how its install goes on hover.
 fn agent_button(
     agent: &Agent,
@@ -740,6 +768,8 @@ fn agent_button(
             "model-agent-{}",
             agent.provider
         )))
+        .aria_label(agent.label.clone())
+        .test_support()
         .relative()
         .flex_none()
         .size(px(30.))
@@ -752,25 +782,7 @@ fn agent_button(
             true => button.bg(t.surface_chosen),
             false => button.hover(|style| style.bg(t.surface_hover)),
         })
-        .child(
-            div()
-                .when(!agent.installed, |mark| mark.opacity(0.55))
-                .when(agent.installing == Some(Installing::Running), |mark| {
-                    mark.opacity(0.3)
-                })
-                .child(ui::mark(&agent.provider, 16.)),
-        )
-        .when(agent.installing == Some(Installing::Failed), |button| {
-            button.child(
-                div()
-                    .absolute()
-                    .top(px(4.))
-                    .right(px(4.))
-                    .size(px(6.))
-                    .rounded_full()
-                    .bg(t.danger),
-            )
-        })
+        .child(ui::mark(&agent.provider, 16.))
         .tooltip(ui::tooltip(tip))
         .clicks(move |_, window, cx| on(window, cx))
         .into_any_element()
@@ -1045,59 +1057,512 @@ impl Menu {
             .into_any_element()
     }
 
-    /// The rail of agents down the left, each the chat can move to.
+    /// The rail of agents down the left, each the chat can move to, and the tile that adds a
+    /// model provider under them.
     fn rail(&self, this: &Entity<Self>, t: &Tokens, cx: &App) -> Option<AnyElement> {
         let agents = self.agents(cx);
         if agents.is_empty() {
             return None;
         }
+        let shown = self.shown().to_owned();
         let buttons = agents.into_iter().map(|agent| {
-            let pressed = agent.provider == self.picked.provider;
-            let (moving, close, menu) =
-                (self.picked.moving.clone(), self.close.clone(), this.clone());
+            let pressed = agent.provider == shown;
+            let menu = this.clone();
             let going = Moving {
                 provider: agent.provider.clone(),
                 profile: agent.profile.clone(),
                 model: None,
                 model_provider: None,
             };
-            let (installed, installing) = (agent.installed, agent.installing);
             agent_button(&agent, pressed, t, move |window, cx| {
-                let provider = going.provider.clone();
-                match (installed, installing) {
-                    (true, _) if !pressed => moving(going.clone(), window, cx),
-                    (true, _) => {}
-                    (false, Some(Installing::Failed)) => {
-                        close(window, cx);
-                        let bench = menu.read(cx).bench.upgrade();
-                        if let Some(bench) = bench {
-                            bench.update(cx, |bench, cx| {
-                                crate::agents::setup::show_install(bench, &provider, window, cx)
-                            });
-                        }
-                    }
-                    (false, _) if menu.read(cx).here() => {
-                        let bench = menu.read(cx).bench.clone();
-                        install_agent(&bench, &provider, cx)
-                    }
-                    (false, _) => {}
+                if !pressed {
+                    let going = going.clone();
+                    menu.update(cx, |menu, cx| menu.show_agent(going, window, cx));
                 }
             })
         });
+        let add = {
+            let menu = this.clone();
+            div()
+                .id("model-add-provider")
+                .flex_none()
+                .size(px(30.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(theme::radius_2())
+                .cursor_pointer()
+                .text_color(t.text_tertiary)
+                .hover(|style| style.bg(t.surface_hover))
+                .child(ui::icon(Icon::Plus, 14.))
+                .tooltip(ui::tooltip(t!("Add provider")))
+                .clicks(move |_, window, cx| {
+                    menu.update(cx, |menu, cx| menu.pick(Act::AddProvider, window, cx))
+                })
+        };
         Some(
             div()
-                .id("model-agents")
                 .flex_none()
                 .w(px(46.))
                 .flex()
                 .flex_col()
                 .items_center()
-                .gap(px(3.))
-                .py(px(ui::PANEL_INSET + 2.))
                 .border_r(crate::theme::border())
                 .border_color(t.line)
-                .overflow_y_scroll()
-                .children(buttons)
+                .child(
+                    div()
+                        .id("model-agents")
+                        .flex_1()
+                        .min_h_0()
+                        .w_full()
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap(px(3.))
+                        .py(px(ui::PANEL_INSET + 2.))
+                        .overflow_y_scroll()
+                        .children(buttons),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .w_full()
+                        .flex()
+                        .justify_center()
+                        .py(px(ui::PANEL_INSET + 2.))
+                        .border_t(crate::theme::border())
+                        .border_color(t.line)
+                        .child(add),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// The agent the menu shows: the one picked in the rail while it is not ready, else the
+    /// chat's own.
+    fn shown(&self) -> &str {
+        self.viewing.as_deref().unwrap_or(&self.picked.provider)
+    }
+
+    /// Moves the chat to the agent picked in the rail when it can run chats, else shows the
+    /// card that gets it ready.
+    fn show_agent(&mut self, going: Moving, window: &mut Window, cx: &mut Context<Self>) {
+        self.stop_adding(cx);
+        let own = going.provider == self.picked.provider;
+        let need = match (self.here(), self.bench.upgrade()) {
+            (true, Some(bench)) => self.need(bench.read(cx), &going.provider),
+            _ => Need::Ready,
+        };
+        self.viewing = (need != Need::Ready && !own).then(|| going.provider.clone());
+        if need == Need::Ready && !own {
+            (self.picked.moving)(going, window, cx);
+        }
+        cx.notify();
+    }
+
+    /// What `provider` needs before a chat runs on it on this host.
+    fn need(&self, bench: &Workbench, provider: &str) -> Need {
+        match bench.agent_setup.installing(provider) {
+            Some(Installing::Running) => return Need::Installing,
+            Some(Installing::Failed) => return Need::InstallFailed,
+            None => {}
+        }
+        if provider == self.picked.provider {
+            return (self.picked.unread.as_ref())
+                .and_then(|unread| unread.sign_in.clone())
+                .map_or(Need::Ready, |account| Need::SignIn(Some(account)));
+        }
+        let status = (bench.agent_setup.on(&Place::This))
+            .and_then(|found| found.iter().find(|agent| agent.kind == provider))
+            .map(|agent| &agent.status);
+        let missing = match status {
+            Some(status) => matches!(status, AgentStatus::Missing | AgentStatus::Broken { .. }),
+            None => !bench.has_agent(provider),
+        };
+        if missing {
+            return Need::Install {
+                broken: matches!(status, Some(AgentStatus::Broken { .. })),
+            };
+        }
+        let profile = bench.accounts.current(provider);
+        let signed_out = profile
+            .and_then(|profile| accounts::status(bench, profile))
+            .and_then(|status| status.as_ref().ok())
+            .map(|status| !status.signed_in);
+        match (signed_out, status) {
+            (Some(true), _) | (None, Some(AgentStatus::SignedOut)) => {
+                Need::SignIn(profile.map(|profile| profile.id.clone()))
+            }
+            _ => Need::Ready,
+        }
+    }
+
+    /// The agent whose welcome card shows instead of the models, and what it needs.
+    fn card(&self, cx: &App) -> Option<(String, Need)> {
+        if !self.here() {
+            return None;
+        }
+        let bench = self.bench.upgrade()?;
+        let bench = bench.read(cx);
+        if self.adding && bench.accounts.dialog.is_some() {
+            return Some((self.shown().to_owned(), Need::Ready));
+        }
+        let need = self.need(bench, self.shown());
+        (need != Need::Ready).then(|| (self.shown().to_owned(), need))
+    }
+
+    /// What the card was waiting on that has happened since it last drew.
+    fn settled(&self, cx: &App) -> Option<Settled> {
+        let bench = self.bench.upgrade()?;
+        let bench = bench.read(cx);
+        if self.adding {
+            let Some(dialog) = &bench.accounts.dialog else {
+                return Some(Settled::Closed);
+            };
+            let profile = dialog
+                .account
+                .as_deref()
+                .filter(|id| !bench.accounts.signing.contains_key(*id))
+                .and_then(|id| bench.accounts.profile(id))?;
+            let signed_in = accounts::status(bench, profile)
+                .and_then(|status| status.as_ref().ok())
+                .is_some_and(|status| status.signed_in);
+            return signed_in.then(|| Settled::SignedIn(profile.clone()));
+        }
+        let viewing = self.viewing.as_deref()?;
+        (self.need(bench, viewing) == Need::Ready).then(|| Settled::Ready(viewing.to_owned()))
+    }
+
+    /// Hands the chat on once what the card waited on has happened.
+    fn hand_back(&mut self, settled: Settled, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(bench) = self.bench.upgrade() else {
+            return;
+        };
+        match settled {
+            Settled::Closed => self.adding = false,
+            Settled::SignedIn(profile) => {
+                self.adding = false;
+                bench.update(cx, accounts::close_dialog);
+                let name = profile.shown_name(None);
+                if profile.provider == self.picked.provider
+                    && self.picked.profile.as_deref() != Some(profile.id.as_str())
+                {
+                    if let Some(pick) = self.picked.account.clone() {
+                        pick(&profile, cx);
+                    }
+                }
+                self.say(t!("{name} is signed in", name = name).into(), cx);
+            }
+            Settled::Ready(provider) => {
+                self.viewing = None;
+                self.installed = None;
+                let (label, profile) = {
+                    let bench = bench.read(cx);
+                    let profile =
+                        (bench.accounts.current(&provider)).map(|profile| profile.id.clone());
+                    (bench.agent_name(&provider).to_owned(), profile)
+                };
+                if provider != self.picked.provider {
+                    let going = Moving {
+                        provider,
+                        profile,
+                        model: None,
+                        model_provider: None,
+                    };
+                    (self.picked.moving)(going, window, cx);
+                }
+                self.say(t!("{agent} is ready", agent = label).into(), cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Says `words` in the search bar for a few seconds.
+    fn say(&mut self, words: SharedString, cx: &mut Context<Self>) {
+        self.said = Some(words);
+        self._saying = Some(cx.spawn(async move |menu, cx| {
+            cx.background_executor().timer(Duration::from_secs(4)).await;
+            let _ = menu.update(cx, |menu, cx| {
+                menu.said = None;
+                cx.notify();
+            });
+        }));
+    }
+
+    /// Closes the add-account dialog this menu opened.
+    fn stop_adding(&mut self, cx: &mut Context<Self>) {
+        if std::mem::take(&mut self.adding) {
+            if let Some(bench) = self.bench.upgrade() {
+                bench.update(cx, accounts::close_dialog);
+            }
+        }
+    }
+
+    /// Opens the add-account dialog for `provider` in the card, signing `account` in again
+    /// when there is one.
+    fn add_account(
+        &mut self,
+        provider: &str,
+        account: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(bench) = self.bench.upgrade() else {
+            return;
+        };
+        bench.update(cx, |bench, cx| {
+            accounts::open_dialog(bench, provider, window, cx);
+            if let Some(account) = account {
+                accounts::sign_in_again(bench, account, cx);
+            }
+        });
+        self.adding = true;
+        cx.notify();
+    }
+
+    /// The card that installs the agent and signs it in, where its models would be.
+    fn welcome(&self, provider: &str, need: Need, this: &Entity<Self>, cx: &App) -> AnyElement {
+        let Some(bench) = self.bench.upgrade() else {
+            return div().into_any_element();
+        };
+        let t = Tokens::get(cx);
+        let shown = bench.read(cx);
+        if self.adding {
+            if let Some(screen) = crate::settings::account_screen(shown, &bench, cx) {
+                return screen.into_any_element();
+            }
+        }
+        let label = shown.agent_name(provider).to_owned();
+        let about = (shown.reads.catalog.kind(provider)).map(|kind| kind.about.clone());
+        let on = |run: fn(&mut Menu, &str, &mut Window, &mut Context<Menu>)| {
+            let (menu, provider) = (this.clone(), provider.to_owned());
+            move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
+                menu.update(cx, |menu, cx| run(menu, &provider, window, cx))
+            }
+        };
+        let install = |menu: &mut Menu, provider: &str, _: &mut Window, cx: &mut Context<Menu>| {
+            menu.installed = Some(provider.to_owned());
+            if let Some(bench) = menu.bench.upgrade() {
+                bench.update(cx, |bench, cx| setup::install_behind(bench, provider, cx));
+            }
+        };
+        let title = match &need {
+            Need::Install { .. } => t!("Get {agent}", agent = label),
+            Need::Installing => t!("Installing {agent}", agent = label),
+            Need::InstallFailed => t!("{agent} did not install", agent = label),
+            Need::SignIn(_) | Need::Ready => t!("Sign in to {agent}", agent = label),
+        };
+        let screen = sign_in::Screen::new("model-welcome", ui::mark(provider, 34.), title)
+            .when_some(about, |screen, about| screen.lede(about));
+        let screen = match need {
+            Need::Install { broken } => screen
+                .child(
+                    ui::Button::new(
+                        "model-welcome-install",
+                        if broken {
+                            t!("Reinstall")
+                        } else {
+                            t!("Install")
+                        },
+                        ui::Variant::Primary,
+                    )
+                    .wide()
+                    .on_click(on(install)),
+                )
+                .child(sign_in::note(
+                    t!(
+                        "Runs {agent}'s own installer on this computer.",
+                        agent = label
+                    ),
+                    cx,
+                )),
+            Need::Installing => screen.child(sign_in::waiting(
+                "model-welcome-installing",
+                t!("Installing…"),
+                on(|menu, provider, _, cx| {
+                    menu.installed = None;
+                    if let Some(bench) = menu.bench.upgrade() {
+                        bench.update(cx, |bench, cx| setup::cancel_behind(bench, provider, cx));
+                    }
+                }),
+                cx,
+            )),
+            Need::InstallFailed => screen
+                .child(sign_in::error(
+                    t!("The installer stopped before it finished."),
+                    cx,
+                ))
+                .child(
+                    ui::Button::new("model-welcome-retry", t!("Try again"), ui::Variant::Primary)
+                        .wide()
+                        .on_click(on(install)),
+                )
+                .child(sign_in::links().child(
+                    sign_in::link("model-welcome-output", t!("See what it printed"), cx).clicks(
+                        on(|menu, provider, window, cx| {
+                            (menu.close)(window, cx);
+                            if let Some(bench) = menu.bench.upgrade() {
+                                bench.update(cx, |bench, cx| {
+                                    setup::show_install(bench, provider, window, cx)
+                                });
+                            }
+                        }),
+                    ),
+                )),
+            Need::SignIn(account) => {
+                let installed = self.installed.as_deref() == Some(provider);
+                let go = match account {
+                    Some(account) => {
+                        let (menu, provider) = (this.clone(), provider.to_owned());
+                        ui::Button::new(
+                            "model-welcome-sign-in",
+                            t!("Continue with {agent}", agent = label),
+                            ui::Variant::Primary,
+                        )
+                        .wide()
+                        .on_click(move |_, window, cx| {
+                            menu.update(cx, |menu, cx| {
+                                menu.add_account(&provider, Some(&account), window, cx)
+                            })
+                        })
+                    }
+                    None => ui::Button::new(
+                        "model-welcome-sign-in",
+                        t!("Sign in"),
+                        ui::Variant::Primary,
+                    )
+                    .wide()
+                    .on_click(on(|menu, provider, window, cx| {
+                        (menu.close)(window, cx);
+                        if let Some(bench) = menu.bench.upgrade() {
+                            bench.update(cx, |bench, cx| {
+                                sign_in_in_settings(bench, provider, window, cx)
+                            });
+                        }
+                    })),
+                };
+                screen
+                    .when(installed, |screen| {
+                        screen.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(SPACE_1H)
+                                .text_size(crate::theme::ui_text(TEXT_XS_H))
+                                .text_color(t.live)
+                                .child(ui::icon(Icon::Check, 13.))
+                                .child(t!("Installed")),
+                        )
+                    })
+                    .child(go)
+            }
+            Need::Ready => screen,
+        };
+        screen.into_any_element()
+    }
+
+    /// The accounts the chat's agent has, the chat's own lit, and the chip that adds one.
+    fn accounts_row(&self, this: &Entity<Self>, cx: &App) -> Option<AnyElement> {
+        let pick = self.picked.account.clone()?;
+        let bench = self.bench.upgrade()?;
+        let bench = bench.read(cx);
+        let own = self.picked.provider.as_str();
+        let profiles = bench.accounts.of(own);
+        if profiles.is_empty() {
+            return None;
+        }
+        let t = Tokens::get(cx);
+        let on = (self.picked.profile.clone()).or_else(|| {
+            bench
+                .accounts
+                .current(own)
+                .map(|profile| profile.id.clone())
+        });
+        let chip = |id: SharedString| {
+            div()
+                .id(id)
+                .flex_none()
+                .h(px(24.))
+                .px(SPACE_2)
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .rounded(theme::radius_2())
+                .border(crate::theme::border())
+                .border_color(t.line)
+                .cursor_pointer()
+                .text_size(crate::theme::ui_text(TEXT_2XS_H))
+        };
+        let chips = profiles.into_iter().map(|profile| {
+            let status = accounts::status(bench, profile).and_then(|status| status.as_ref().ok());
+            let signed_out = status.is_some_and(|status| !status.signed_in);
+            let chosen = on.as_deref() == Some(profile.id.as_str());
+            let meta = match signed_out {
+                true => Some(t!("Signed out").to_owned()),
+                false => accounts::used(bench, profile).map(|used| format!("{}%", used.round())),
+            };
+            let (menu, pick, chosen_profile) = (this.clone(), pick.clone(), profile.clone());
+            chip(SharedString::from(format!("model-account-{}", profile.id)))
+                .map(|chip| match chosen {
+                    true => chip.bg(t.surface_chosen),
+                    false => chip.hover(|style| style.bg(t.surface_hover)),
+                })
+                .text_color(if signed_out {
+                    t.text_tertiary
+                } else {
+                    t.text_primary
+                })
+                .child(accounts::avatar(bench.accounts.avatar(profile), 14.))
+                .child(profile.shown_name(status))
+                .children(meta.map(|meta| div().text_color(t.text_tertiary).child(meta)))
+                .clicks(move |_, window, cx| {
+                    if chosen {
+                        return;
+                    }
+                    let profile = chosen_profile.clone();
+                    match signed_out {
+                        true => menu.update(cx, |menu, cx| {
+                            let provider = menu.picked.provider.clone();
+                            menu.add_account(&provider, Some(&profile.id), window, cx)
+                        }),
+                        false => {
+                            pick(&profile, cx);
+                            let name = profile.shown_name(None);
+                            menu.update(cx, |menu, cx| {
+                                menu.say(t!("On {name}", name = name).into(), cx)
+                            });
+                        }
+                    }
+                })
+        });
+        let add = {
+            let menu = this.clone();
+            chip("model-account-add".into())
+                .text_color(t.text_secondary)
+                .hover(|style| style.bg(t.surface_hover))
+                .child(ui::icon(Icon::Plus, 12.).text_color(t.text_tertiary))
+                .child(t!("Add account"))
+                .clicks(move |_, window, cx| {
+                    menu.update(cx, |menu, cx| {
+                        let provider = menu.picked.provider.clone();
+                        menu.add_account(&provider, None, window, cx)
+                    })
+                })
+        };
+        Some(
+            div()
+                .id("model-accounts")
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .px(px(ui::PANEL_INSET + 2.))
+                .py(px(7.))
+                .border_b(crate::theme::border())
+                .border_color(t.line)
+                .overflow_x_scroll()
+                .children(chips)
+                .child(add)
                 .into_any_element(),
         )
     }
@@ -1118,7 +1583,12 @@ impl Menu {
 const EFFORT_WIDTH: f32 = 184.;
 
 impl Render for Menu {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(settled) = self.settled(cx) {
+            cx.defer_in(window, move |menu, window, cx| {
+                menu.hand_back(settled, window, cx)
+            });
+        }
         let t = Tokens::get(cx).clone();
         let (groups, options) = self.options(cx);
         let numbers = models(&options);
@@ -1134,9 +1604,9 @@ impl Render for Menu {
         let note = match (typed.is_empty(), self.picked.pending) {
             _ if unread.is_some() => unread,
             (false, _)
-                if options
+                if !options
                     .iter()
-                    .all(|row| matches!(row.act, Act::AddProvider)) =>
+                    .any(|row| matches!(row.act, Act::Set { .. } | Act::Move { .. })) =>
             {
                 Some(t!("No matches").into())
             }
@@ -1145,12 +1615,6 @@ impl Render for Menu {
             (true, None) => Some(t!("This agent offers no models to pick").into()),
             (false, _) => None,
         };
-        let add = options
-            .iter()
-            .cloned()
-            .enumerate()
-            .find(|(_, row)| matches!(row.act, Act::AddProvider))
-            .map(|(at, row)| self.row(at, row, None, &typed, found, &this, cx));
         let speed = self.speed(&t);
         let mut list: Vec<AnyElement> = Vec::new();
         let mut chosen_at = None;
@@ -1159,7 +1623,7 @@ impl Render for Menu {
                 .iter()
                 .cloned()
                 .enumerate()
-                .filter(|(_, row)| row.group == group && !matches!(row.act, Act::AddProvider))
+                .filter(|(_, row)| row.group == group)
                 .collect();
             let noted = group == OWN && note.is_some();
             if rows.is_empty() && !noted {
@@ -1206,45 +1670,85 @@ impl Render for Menu {
         if let Some(at) = chosen_at.filter(|_| std::mem::take(&mut self.follow)) {
             self.scroll.scroll_to_item(at);
         }
-        let middle = div()
-            .flex_1()
-            .min_w_0()
+        let card = self.card(cx);
+        let said = self.said.clone().map(|said| {
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap(SPACE_1H)
+                .text_color(t.live)
+                .child(ui::icon(Icon::Check, 12.))
+                .child(said)
+        });
+        let header = div()
+            .flex_none()
+            .h(px(38.))
+            .px(px(ROW_INSET))
             .flex()
-            .flex_col()
+            .items_center()
+            .gap(SPACE_2)
+            .border_b(crate::theme::border())
+            .border_color(t.line)
+            .text_size(crate::theme::ui_text(TEXT_XS_H))
+            .text_color(t.text_primary)
+            .child(ui::icon(Icon::Search, 13.).text_color(t.text_tertiary))
             .child(
                 div()
-                    .flex_none()
-                    .h(px(38.))
-                    .px(px(ROW_INSET))
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_2)
-                    .border_b(crate::theme::border())
-                    .border_color(t.line)
-                    .text_size(crate::theme::ui_text(TEXT_XS_H))
-                    .text_color(t.text_primary)
-                    .child(ui::icon(Icon::Search, 13.).text_color(t.text_tertiary))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(Input::new(&self.query).appearance(false).bordered(false)),
-                    ),
+                    .flex_1()
+                    .min_w_0()
+                    .child(Input::new(&self.query).appearance(false).bordered(false)),
             )
-            .child(
-                div()
-                    .id("model-options")
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .p(px(ui::PANEL_INSET))
-                    .min_h(px(300.))
-                    .max_h(px(360.))
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scroll)
-                    .children(list),
-            );
-        let footer = (add.is_some() || speed.is_some()).then(|| {
+            .children(said);
+        let accounts = card
+            .is_none()
+            .then(|| self.accounts_row(&this, cx))
+            .flatten();
+        let showing_card = card.is_some();
+        let body = match card {
+            Some((provider, need)) => div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(header)
+                .child(
+                    div()
+                        .id("model-welcome-card")
+                        .h(px(398.))
+                        .child(self.welcome(&provider, need, &this, cx)),
+                )
+                .into_any_element(),
+            None => div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(header)
+                        .children(accounts)
+                        .child(
+                            div()
+                                .id("model-options")
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.))
+                                .p(px(ui::PANEL_INSET))
+                                .min_h(px(300.))
+                                .max_h(px(360.))
+                                .overflow_y_scroll()
+                                .track_scroll(&self.scroll)
+                                .children(list),
+                        ),
+                )
+                .child(self.effort(&this, cx))
+                .into_any_element(),
+        };
+        let footer = (speed.is_some() && !showing_card).then(|| {
             div()
                 .flex()
                 .items_center()
@@ -1255,7 +1759,7 @@ impl Render for Menu {
                 .pr(SPACE_2)
                 .border_t(crate::theme::border())
                 .border_color(t.line)
-                .child(div().children(add))
+                .child(div())
                 .children(speed)
         });
         div()
@@ -1269,12 +1773,18 @@ impl Render for Menu {
                 cx.listener(|menu, _: &MoreEffort, window, cx| menu.step_effort(1, window, cx)),
             )
             .on_action(cx.listener(|menu, PickNth(nth): &PickNth, window, cx| {
+                if menu.card(cx).is_some() {
+                    return;
+                }
                 let options = menu.options(cx).1;
                 if let Some(option) = models(&options).get(*nth).and_then(|at| options.get(*at)) {
                     menu.pick(option.act.clone(), window, cx);
                 }
             }))
             .on_action(cx.listener(|menu, _: &Choose, window, cx| {
+                if menu.card(cx).is_some() {
+                    return;
+                }
                 if let Some(option) = menu.options(cx).1.get(menu.chosen).cloned() {
                     menu.pick(option.act, window, cx);
                 }
@@ -1289,13 +1799,7 @@ impl Render for Menu {
             .border_color(t.border)
             .rounded(theme::radius_3())
             .shadow(t.shadow_float())
-            .child(
-                div()
-                    .flex()
-                    .children(self.rail(&this, &t, cx))
-                    .child(middle)
-                    .child(self.effort(&this, cx)),
-            )
+            .child(div().flex().children(self.rail(&this, &t, cx)).child(body))
             .children(footer)
     }
 }
@@ -1329,4 +1833,21 @@ pub fn around(
             });
             menu
         })
+}
+
+/// Signs `provider` in the way Settings does when it has no account to sign in again.
+fn sign_in_in_settings(
+    bench: &mut Workbench,
+    provider: &str,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    let sheet = (bench.agent_setup.on(&Place::This))
+        .and_then(|found| found.iter().find(|agent| agent.kind == provider))
+        .and_then(|agent| setup::next_step(bench, agent))
+        .map(|(_, sheet)| sheet);
+    match sheet {
+        Some(sheet) => setup::run(bench, sheet, cx),
+        None => bench.open_settings(crate::settings::Page::Agents, window, cx),
+    }
 }
