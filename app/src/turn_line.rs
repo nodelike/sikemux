@@ -165,7 +165,7 @@ fn filling(wait: &TurnWait, now: u64) -> Option<f32> {
 }
 
 /// The time a row shows beside its mark: the minutes a filling wait has left ("4m"), when a
-/// timer goes off, or how long a call has waited on the person ("12m").
+/// timer goes off, or how long a call has waited on the person ("12m", "3h", "5d").
 pub fn short(turn: &TurnState, now: u64) -> Option<String> {
     match turn.state {
         TurnPhase::Waiting => {
@@ -181,10 +181,7 @@ pub fn short(turn: &TurnState, now: u64) -> Option<String> {
         }
         TurnPhase::NeedsYou => {
             let call = turn.call.as_ref()?;
-            Some(t!(
-                "{minutes}m",
-                minutes = (now.saturating_sub(call.waiting_since) / 60_000).max(1)
-            ))
+            Some(ui::time::age(call.waiting_since))
         }
         _ => None,
     }

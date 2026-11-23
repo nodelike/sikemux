@@ -73,7 +73,7 @@ struct TurnMark: View {
         return min(1, (now - Double(wait.startedAt)) / Double(expected))
     }
 
-    /// The minutes a known wait has left ("4m"), how long a call has waited ("12m"), or when a timer goes off.
+    /// The minutes a known wait has left ("4m"), how long a call has waited ("12m", "3h", "5d"), or when a timer goes off.
     static func short(_ turn: TurnState, now: Double) -> String? {
         switch turn.state {
         case .waiting:
@@ -85,7 +85,7 @@ struct TurnMark: View {
             return wait.until.map { TriggerTime.format(Date(timeIntervalSince1970: Double($0) / 1000), Date(timeIntervalSince1970: now / 1000)) }
         case .needsYou:
             guard let call = turn.call else { return nil }
-            return "\(max(1, Int((now - Double(call.waitingSince)) / 60_000)))m"
+            return CallCard.age(call.waitingSince, now: Date(timeIntervalSince1970: now / 1000))
         default:
             return nil
         }
