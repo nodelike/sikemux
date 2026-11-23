@@ -291,6 +291,32 @@ fn a_workflow_is_read_as_github_will_run_it() {
     );
 }
 
+/// mobile-release.yml and release.yml both made "Releases on GitHub", and only mobile's was
+/// kept, so a dispatched workflow attaching files to a stable release ran with nobody asked.
+#[test]
+fn a_workflow_publishing_releases_is_held_when_two_workflows_release_on_tags() {
+    let project = tempfile::tempdir().unwrap();
+    let folder = project.path().join(".github/workflows");
+    std::fs::create_dir_all(&folder).unwrap();
+    let tagged = |pattern: &str| {
+        format!("name: Release\non:\n  push:\n    tags: [\"{pattern}\"]\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - run: gh release create \"$GITHUB_REF_NAME\"\n")
+    };
+    std::fs::write(folder.join("mobile-release.yml"), tagged("mobile-v*")).unwrap();
+    std::fs::write(folder.join("release.yml"), tagged("v*")).unwrap();
+    let backfill = "name: Backfill\non: workflow_dispatch\njobs:\n  attach:\n    environment: release\n    runs-on: ubuntu-latest\n    steps:\n      - run: gh release upload v0.6.3 sikemux.db\n";
+    std::fs::write(folder.join("pacman-backfill.yml"), backfill).unwrap();
+    let places = found::in_files(project.path());
+    assert_eq!(
+        judge_line(
+            &places,
+            "gh workflow run pacman-backfill.yml",
+            project.path(),
+            &[]
+        ),
+        Goes::Asks
+    );
+}
+
 #[test]
 fn reading_the_places_writes_nothing() {
     let project = tempfile::tempdir().unwrap();

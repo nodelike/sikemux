@@ -39,9 +39,11 @@ pub fn in_files(root: &Path) -> Vec<Place> {
             Some(crate::tasks::config::CONFIG_FILE.to_owned()),
         ));
     }
-    let mut seen = std::collections::HashSet::new();
-    found.retain(|place| seen.insert(place.shown.id.clone()));
-    found
+    let mut places = Vec::new();
+    for place in found {
+        super::keep(&mut places, place);
+    }
+    places
 }
 
 fn read(root: &Path, file: &str) -> Option<String> {
