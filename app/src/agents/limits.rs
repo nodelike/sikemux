@@ -56,12 +56,12 @@ const ACCOUNT_LINE: f32 = 24.;
 const NAME_LINE: f32 = 20.;
 const NAME_GAP: f32 = 5.;
 const WINDOW_LINE: f32 = 17.;
+const LABEL_WIDTH: f32 = 44.;
 const ACCOUNT_PAD: f32 = 8.;
 const RESETS_HEAD: f32 = 22.;
 const RESET_ROW: f32 = 24.;
 const RESET_ASKING: f32 = 84.;
 const KEPT_LINE: f32 = 16.;
-const LABEL_WIDTH: f32 = 44.;
 const AVATAR: f32 = 18.;
 const FLOAT_GAP: f32 = 6.;
 /// The smallest float worth scrolling, and what it leaves of the rail above it.
@@ -135,8 +135,15 @@ impl Shown<'_> {
         let plan = [(t!("Session"), usage.session()), (t!("Week"), usage.week())]
             .into_iter()
             .filter_map(|(label, window)| Some((label.to_owned(), window?)));
-        let models =
-            (usage.windows.iter()).filter_map(|window| Some((window.scope.clone()?, window)));
+        let models = (usage.windows.iter()).filter_map(|window| {
+            let scope = window.scope.as_deref()?;
+            let label = match window.window_minutes {
+                Some(300) => t!("{scope} · 5h", scope = scope),
+                Some(10_080) => t!("{scope} · week", scope = scope),
+                _ => scope.to_owned(),
+            };
+            Some((label, window))
+        });
         plan.chain(models).collect()
     }
 
@@ -707,10 +714,9 @@ fn row_height(view: &View) -> f32 {
 }
 
 /// A window's short name, such as Week, at the start of its line.
-fn window_label(label: impl Into<SharedString>, width: f32, cx: &App) -> Div {
+fn window_label(label: impl Into<SharedString>, cx: &App) -> Div {
     ui::text(label.into(), TEXT_3XS, FontWeight::MEDIUM)
         .flex_none()
-        .w(px(width))
         .text_color(Tokens::get(cx).text_tertiary)
 }
 
@@ -932,38 +938,55 @@ fn account_line(
     }
     let windows = shown.windows();
     let age = shown.age(view.now);
-    let window_line = |label: Option<&str>, window: Option<&UsageWindow>| {
-        line(WINDOW_LINE)
+    let column = |cells: Vec<Div>| div().flex_none().flex().flex_col().children(cells);
+    let cell = |inner: Div| line(WINDOW_LINE).justify_end().child(inner);
+    let lines = match windows.is_empty() {
+        true => line(WINDOW_LINE)
+            .child(ruler(None, t).flex_1().min_w_0().h(px(8.)))
+            .child(note(shown.nothing(), cx)),
+        false => div()
+            .flex()
+            .gap(SPACE_2)
             .font_features(theme::tabular())
-            .when_some(label, |line, label| {
-                line.child(window_label(label.to_owned(), LABEL_WIDTH, cx))
-            })
             .child(
-                ruler(window.map(|window| window.used_at(view.now)), t)
+                column(
+                    (windows.iter())
+                        .map(|(label, _)| line(WINDOW_LINE).child(window_label(label.clone(), cx)))
+                        .collect(),
+                )
+                .min_w(px(LABEL_WIDTH)),
+            )
+            .child(
+                div()
                     .flex_1()
                     .min_w_0()
-                    .h(px(8.)),
+                    .flex()
+                    .flex_col()
+                    .children((windows.iter()).map(|(_, window)| {
+                        line(WINDOW_LINE).child(
+                            ruler(Some(window.used_at(view.now)), t)
+                                .flex_1()
+                                .min_w_0()
+                                .h(px(8.)),
+                        )
+                    })),
             )
-            .map(|line| match window {
-                Some(window) => line
-                    .child(
-                        percent_cell(window, view.now, cx)
-                            .min_w(px(50.))
-                            .text_right(),
-                    )
-                    .child(
-                        when_cell(window, view.now, age.as_deref(), cx)
-                            .min_w(px(40.))
-                            .text_right(),
-                    ),
-                None => line.child(note(shown.nothing(), cx)),
-            })
-    };
-    let lines: Vec<Div> = match windows.is_empty() {
-        true => vec![window_line(None, None)],
-        false => (windows.iter())
-            .map(|(label, window)| window_line(Some(label.as_str()), Some(*window)))
-            .collect(),
+            .child(
+                column(
+                    (windows.iter())
+                        .map(|(_, window)| cell(percent_cell(window, view.now, cx)))
+                        .collect(),
+                )
+                .min_w(px(50.)),
+            )
+            .child(
+                column(
+                    (windows.iter())
+                        .map(|(_, window)| cell(when_cell(window, view.now, age.as_deref(), cx)))
+                        .collect(),
+                )
+                .min_w(px(40.)),
+            ),
     };
     let smart = view.smart && agent.accounts.len() > 1;
     let target = shown.profile.filter(|_| !smart && !in_use).cloned();
@@ -998,7 +1021,7 @@ fn account_line(
                 .clicks(view.on(move |bench, _, cx| pick(bench, &target, cx)))
         })
         .child(names)
-        .children(lines)
+        .child(lines)
         .children(resets_list(view, shown, &windows, cx))
         .into_any_element()
 }
@@ -1179,7 +1202,12 @@ fn reset_says(
         left => t!("{count} will be left.", count = left - 1),
     };
     let (does, button) = match refilled {
-        Some((name, window)) if window.scope.is_some() => (
+        Some((
+            _,
+            UsageWindow {
+                scope: Some(name), ..
+            },
+        )) => (
             t!(
                 "Refills your {name} allowance and gives back what {name} used of your week.",
                 name = name
