@@ -1,0 +1,15 @@
+name: Install what the Linux packages build with
+description: Installs, on the ubuntu:22.04 container the Linux packages build in, the packages they build and pack with, gh, and rustup, which the runner image would otherwise have.
+runs:
+  using: composite
+  steps:
+    - name: Install the packages and rustup
+      shell: bash
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        apt-get update
+        cat packaging/linux/build-packages.txt packaging/linux/pack-packages.txt - <<<"curl gh unzip xz-utils" |
+          xargs apt-get install -y -o Acquire::Retries=3
+        curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal --no-modify-path
+        echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"

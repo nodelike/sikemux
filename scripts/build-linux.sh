@@ -58,7 +58,8 @@ DEB_PLUGINS="gstreamer1.0-plugins-base, gstreamer1.0-plugins-good"
 DEB_H264=gstreamer1.0-plugins-ugly
 # Without a CJK font, Chinese, Japanese and Korean text draws as empty boxes.
 DEB_CJK_FONT=fonts-noto-cjk
-RECORDING_PLUGINS=(coreelements app videoconvertscale vpx matroska isomp4)
+# GStreamer 1.22 merged the videoconvert plugin into videoconvertscale.
+RECORDING_PLUGINS=(coreelements app "videoconvert*" vpx matroska isomp4)
 GSTREAMER_SETS=(gstreamer1.0-plugins-base gstreamer1.0-plugins-good)
 GSTREAMER_DIR=/usr/lib/$ARCH-linux-gnu/gstreamer-1.0
 
@@ -160,9 +161,6 @@ mkdir -p "$DEB_ROOT/DEBIAN" "$WORK/shlibs/debian"
 touch "$WORK/shlibs/debian/control"
 LINKED="$(cd "$WORK/shlibs" && dpkg-shlibdeps -O "$DEB_ROOT/usr/lib/sikemux/sikemux" "$DEB_ROOT/usr/lib/sikemux/sikemux-host" | sed -n 's/^shlibs:Depends=//p')"
 [[ -n "$LINKED" ]] || fail "dpkg-shlibdeps found no libraries"
-# Ubuntu 24.04 renamed libraries such as libgtk-3-0 to libgtk-3-0t64 and still answers
-# to the old names, which are the only ones older Debian and Ubuntu know.
-LINKED="$(sed -E 's/([a-z0-9.+-]+)t64( |,|$)/\1\2/g' <<<"$LINKED")"
 cat >"$DEB_ROOT/DEBIAN/control" <<CONTROL
 Package: sikemux
 Version: $PACKAGE_VERSION
@@ -212,7 +210,7 @@ mkdir -p "$WORK/gstreamer"
 cp "$GSTREAMER_DIR/libgstcoreelements.so" "$WORK/gstreamer/"
 dpkg -L "${GSTREAMER_SETS[@]}" | grep -x "$GSTREAMER_DIR/libgst[^/]*\.so" | xargs -I{} cp {} "$WORK/gstreamer/"
 for plugin in "${RECORDING_PLUGINS[@]}"; do
-  [[ -f "$WORK/gstreamer/libgst$plugin.so" ]] || fail "GStreamer's $plugin plugin, which recording needs, is not installed"
+  compgen -G "$WORK/gstreamer/libgst$plugin.so" >/dev/null || fail "GStreamer's $plugin plugin, which recording needs, is not installed"
 done
 (
   cd "$TOOLS"

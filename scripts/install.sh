@@ -10,7 +10,7 @@ set -eu
 
 REPO="https://github.com/nodelike/sikemux"
 OLDEST_GLIBC=2.34
-OLDEST_APP_GLIBC=2.39
+OLDEST_APP_GLIBC=2.35
 CHANNEL="${SIKEMUX_CHANNEL:-stable}"
 SIGN_IN="${SIKEMUX_SIGN_IN:-now}"
 MODE=ask
@@ -411,7 +411,7 @@ app_unavailable() {
   case "$have" in
     "") ;;
     musl) echo "it needs glibc $OLDEST_APP_GLIBC or later, and this system uses musl"; return 0 ;;
-    *) echo "it needs glibc $OLDEST_APP_GLIBC or later (Ubuntu 24.04, Debian 13 or newer), and this system has $have"; return 0 ;;
+    *) echo "it needs glibc $OLDEST_APP_GLIBC or later (Ubuntu 22.04, Debian 12 or newer), and this system has $have"; return 0 ;;
   esac
   file=$(app_file)
   found=0

@@ -622,13 +622,19 @@ jobs:
             runner: ubuntu-24.04
           - arch: aarch64
             runner: ubuntu-24.04-arm
-    # The oldest runners GitHub still supports; their glibc decides the oldest distribution the packages run on.
     runs-on: ${{ matrix.runner }}
+    # The packages run on the glibc they were built against and newer, so they build on Ubuntu 22.04,
+    # whose 2.35 is the installer's OLDEST_APP_GLIBC.
+    container: ubuntu:22.04
     timeout-minutes: 60
     permissions:
       contents: read
     env: *compiled_into_core
     steps:
+      - &container_git
+        name: Install Git, without which the checkout has no history
+        run: apt-get update && apt-get install -y ca-certificates git
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -637,13 +643,12 @@ jobs:
 
       - *plan_files
 
+      - &package_tools
+        name: Install what the app builds and packs with
+        uses: ./.github/actions/linux-package-tools
+
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Install what the app builds with
-        run: |
-          sudo apt-get update
-          xargs sudo apt-get install -y <packaging/linux/build-packages.txt
 
       - *keep_symbols
 
@@ -676,6 +681,7 @@ jobs:
       matrix:
         include: *linux_machines
     runs-on: ${{ matrix.runner }}
+    container: ubuntu:22.04
     env:
       CARGO_PROFILE_RELEASE_LTO: *lto
     timeout-minutes: 90
@@ -683,6 +689,8 @@ jobs:
       actions: read
       contents: read
     steps:
+      - *container_git
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -701,13 +709,10 @@ jobs:
         with:
           node-version: 22
 
+      - *package_tools
+
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Install what the app builds and packs with
-        run: |
-          sudo apt-get update
-          cat packaging/linux/build-packages.txt packaging/linux/pack-packages.txt | xargs sudo apt-get install -y
 
       - *keep_symbols
 
@@ -737,6 +742,9 @@ jobs:
           PREBUILT_CORE: ${{ runner.temp }}/core/sikemux-host
           BUILD_STEP: package
         run: pnpm build:linux
+
+      - name: Check the packages run on the oldest glibc the installer offers them to
+        run: scripts/check-glibc.sh app target/release/linux/package target/release/linux/Sikemux.AppDir
 
       - name: Keep the built packages on the run
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

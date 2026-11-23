@@ -222,8 +222,8 @@ if ! grep -Fxq "OLDEST_GLIBC=2.34" scripts/install.sh || ! grep -Fq "container: 
   exit 1
 fi
 
-if ! grep -Fxq "OLDEST_APP_GLIBC=2.39" scripts/install.sh || ! grep -Fxq "            runner: ubuntu-24.04" .github/workflows/release.yml; then
-  echo "the Linux packages are built on Ubuntu 24.04 for glibc 2.39; change the installer's OLDEST_APP_GLIBC and the linux machines' runners together" >&2
+if ! grep -Fxq "OLDEST_APP_GLIBC=2.35" scripts/install.sh || ! grep -Fq "container: ubuntu:22.04" .github/workflows/release.yml; then
+  echo "the Linux packages are built on Ubuntu 22.04 for glibc 2.35; change the installer's OLDEST_APP_GLIBC and the packages' container together" >&2
   exit 1
 fi
 
