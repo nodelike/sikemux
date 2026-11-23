@@ -81,7 +81,8 @@ fn is_claude_credit(line: &str) -> bool {
 /// that was worked out before. Lines several agents at work together may have
 /// written name none of them but the committer. An `amend` keeps the agents of
 /// the commit it replaces. Also answers with the note for the commit's hooks to
-/// put on it, when it holds lines of several writers.
+/// put on it, when it holds lines of several writers. Where commits name no agent
+/// that is no footer, and the notes alone say who made it.
 fn footer(
     core: &Core,
     dir: &Path,
@@ -89,6 +90,7 @@ fn footer(
     fallback: Option<&str>,
     index: Option<&Path>,
     amend: bool,
+    attributed: bool,
 ) -> Result<(Vec<String>, Option<PendingNote>), String> {
     let (staged, (tree, parents)) = std::thread::scope(|scope| {
         let made_of = scope.spawn(|| made_of(dir, index, amend));
@@ -140,6 +142,10 @@ fn footer(
         .and_then(|(owners, diff)| note::of(&owners, &diff, &keys, fallback.is_none()))
         .zip(key.as_ref())
         .map(|(note, key)| trailers::signed_note(&note, &commit, key));
+    if !attributed {
+        let pending = unattributed(&agents, note, tree, parents, key.as_ref());
+        return Ok((Vec::new(), pending));
+    }
     let footer = trailers::footer(&agents, &commit, key.as_ref());
     let pending = (!footer.is_empty() && (amend || note.is_some())).then_some(PendingNote {
         tree,
@@ -148,6 +154,30 @@ fn footer(
         committer: None,
     });
     Ok((footer, pending))
+}
+
+/// What a commit naming no agent carries for its hooks to put on it: the note of who made it,
+/// the first of `agents`, and whose lines it holds, with the note of which lines each wrote.
+fn unattributed(
+    agents: &[Agent],
+    note: Option<String>,
+    tree: String,
+    parents: Vec<String>,
+    key: Option<&iroh::SecretKey>,
+) -> Option<PendingNote> {
+    let made_of = Commit {
+        tree: &tree,
+        parents: &parents,
+    };
+    let committer = key
+        .zip(Committer::of_agents(agents))
+        .and_then(|(key, committer)| committer.signed(&made_of, key));
+    (note.is_some() || committer.is_some()).then_some(PendingNote {
+        tree,
+        parents,
+        note,
+        committer,
+    })
 }
 
 /// The commit a rebase or cherry-pick is making again, which still carries a
@@ -340,11 +370,18 @@ pub fn known(core: &Core, dir: &Path, agent_id: &str) -> Option<Agent> {
 
 /// The agents `commit`'s footer names that this host knows: a session one of its CLIs keeps, or
 /// a chat it recorded. The footer's signature is not asked for, so a commit keeps its agents
-/// through a rebase, a reword or an amend.
+/// through a rebase, a reword or an amend. A commit without a footer has the agents its
+/// signed note of who made it names.
 pub fn verified(core: &Core, dir: &Path, commit: &str) -> Result<Vec<Agent>, String> {
     let (_, _, message) = read_commit(dir, commit)?;
     let project = core.workspaces().project_of(dir);
-    Ok(trailers::agents(&message)
+    let named = trailers::agents(&message);
+    if named.is_empty() {
+        return Ok(super::committer::of(core, dir, commit)
+            .map(Committer::agents)
+            .unwrap_or_default());
+    }
+    Ok(named
         .into_iter()
         .filter(|agent| recorded(core, &project, agent))
         .collect())
@@ -417,9 +454,6 @@ pub async fn call(
         if let Some(remaking) = (!pending.amend).then(|| remaking(&dir)).flatten() {
             return Ok(remade(&core, &dir, pending.index.as_deref(), &remaking)?);
         }
-        if !attributed(&dir) {
-            return Ok((Vec::new(), None));
-        }
         Ok(footer(
             &core,
             &dir,
@@ -427,6 +461,7 @@ pub async fn call(
             fallback.as_deref(),
             pending.index.as_deref(),
             pending.amend,
+            attributed(&dir),
         )?)
     })
     .await
@@ -461,7 +496,7 @@ pub fn commit(
                 .collect()
         })
         .unwrap_or_default();
-    let signed = (!staged.is_empty() || fallback.is_some()) && attributed(dir);
+    let signed = !staged.is_empty() || fallback.is_some();
     let mut command = crate::git::git_command(dir);
     command.args(["commit", "-F", "-"]).args(args);
     if signed {
@@ -563,5 +598,79 @@ mod tests {
 
         git_in(&dir, &["config", "sikemux.attribution", "false"]);
         assert_eq!(footer(), Vec::<String>::new());
+    }
+
+    /// With attribution off, an agent's own `git commit` got no footer and no notes, so who
+    /// wrote which of its lines was lost.
+    #[test]
+    fn a_commit_naming_no_agent_keeps_who_made_it_and_whose_lines_it_holds() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = sikemux_process::files::real_path(root.path()).unwrap();
+        git_in(&dir, &["init", "-q", "-b", "main"]);
+        git_in(&dir, &["config", "user.name", "t"]);
+        git_in(&dir, &["config", "user.email", "t@t"]);
+        git_in(&dir, &["config", "sikemux.attribution", "false"]);
+        std::fs::write(dir.join("both.txt"), "otter\nheron\n").unwrap();
+        git_in(&dir, &["add", "both.txt"]);
+        git_in(&dir, &["commit", "-qm", "both"]);
+        let sha = git_in(&dir, &["rev-parse", "HEAD"]);
+        let (tree, parents, _) = read_commit(&dir, &sha).unwrap();
+        let agent = |name: &str| Agent {
+            name: name.to_owned(),
+            cli: "claude".to_owned(),
+            cli_version: None,
+            model: None,
+            sikemux: None,
+            session: Some(format!("{name}-session")),
+            chat: format!("{name}-chat"),
+        };
+        let agents = [agent("Otter"), agent("Heron")];
+        let lines =
+            r#"{"Heron-session":{"both.txt":[[2,2]]},"Otter-session":{"both.txt":[[1,1]]}}"#;
+        let key = iroh::SecretKey::generate();
+        let made_of = Commit {
+            tree: &tree,
+            parents: &parents,
+        };
+        let note = trailers::signed_note(lines, &made_of, &key);
+        let pending = unattributed(
+            &agents,
+            Some(note),
+            tree.clone(),
+            parents.clone(),
+            Some(&key),
+        )
+        .expect("notes to put on the commit");
+        let put = |notes: &str, text: &str| {
+            let notes = format!("--ref={notes}");
+            run(
+                &dir,
+                &["notes", &notes, "add", "-f", "-F", "-", &sha],
+                None,
+                Some(text.as_bytes()),
+            )
+            .unwrap();
+        };
+        put(trailers::NOTES_REF, pending.note.as_deref().unwrap());
+        put(
+            trailers::COMMITTERS_REF,
+            pending.committer.as_deref().unwrap(),
+        );
+
+        let hosts = [key.public()];
+        let read = |notes: &str| {
+            let blob = git(&dir, &["notes", &format!("--ref={notes}"), "show", &sha]).unwrap();
+            trailers::verify_note(&blob, &made_of, &hosts)
+                .unwrap()
+                .to_owned()
+        };
+        let named = serde_json::from_str::<Committer>(&read(trailers::COMMITTERS_REF)).unwrap();
+        let keys: Vec<String> = (named.agents().iter())
+            .map(|agent| agent.key().to_owned())
+            .collect();
+        assert_eq!(keys, ["Otter-session", "Heron-session"]);
+        let wrote = note::read(&dir, &[sha.as_str()], &hosts);
+        let wrote = &wrote[&sha];
+        assert!(keys.iter().all(|key| wrote.contains_key(key)));
     }
 }

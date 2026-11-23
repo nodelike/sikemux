@@ -5,6 +5,7 @@
 //! model sees it. Another vendor's transcript never goes to the one asked.
 
 use crate::server::chat_state::ChatParts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
@@ -15,8 +16,8 @@ use sikemux_view::slice::{LeftOut, LeftOutWhy, SourceKind, SourceLink, SummarySo
 
 use crate::agent_catalog::AgentKind;
 use crate::server::board::{self, BoardCard, ProjectBoard};
-use crate::server::edits::footer;
 use crate::server::edits::git;
+use crate::server::edits::{committer, footer};
 use crate::server::{saved, Core};
 use crate::sessions::asked::{may_hold_secret, person_prose, prose_of};
 use crate::sessions::transcript::{self, Said};
@@ -436,8 +437,19 @@ fn place_moments(core: &Core, agent: &str, moments: &mut [Moment]) {
     }
 }
 
-/// The commits the goal's agents made since `since`, as signed footers name them: each once,
-/// and saying whether it reached the project's branch.
+/// A commit one of the goal's agents made.
+struct Made {
+    sha: String,
+    /// Seconds since 1970.
+    at: u64,
+    subject: String,
+    /// Who made it, when a note of who made it says so rather than its footer.
+    noted: Option<String>,
+}
+
+/// The commits the goal's agents made since `since`, as signed footers name them, or the
+/// signed notes of who made a commit where commits name no agent: each once, and saying
+/// whether it reached the project's branch.
 fn commits(core: &Core, project: &str, workers: &[Worker], since: u64) -> Vec<Moment> {
     let dir = Path::new(project);
     let since_arg = format!("--since={}", since / 1000);
@@ -465,43 +477,69 @@ fn commits(core: &Core, project: &str, workers: &[Worker], since: u64) -> Vec<Mo
         .chain(sessions)
         .collect();
     let holds = |agent: &trailers::Agent| keys.contains(&agent.chat) || keys.contains(agent.key());
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut found = Vec::new();
-    for commit in log.split('\x1e') {
+    let signed = log.split('\x1e').filter_map(|commit| {
         let parts: Vec<&str> = commit.trim().splitn(4, '\x1f').collect();
         let [sha, at, subject, message] = parts[..] else {
-            continue;
+            return None;
         };
-        let named = trailers::agents(message);
-        if !named.iter().any(holds) {
+        trailers::agents(message).iter().any(holds).then(|| Made {
+            sha: sha.to_owned(),
+            at: at.parse().unwrap_or(0),
+            subject: subject.to_owned(),
+            noted: None,
+        })
+    });
+    let hosts = core.remote().host_keys();
+    let noted = committer::made_since(dir, since / 1000, &hosts)
+        .into_iter()
+        .filter_map(|made| {
+            let by = made.by.agents().into_iter().find(holds)?;
+            Some(Made {
+                sha: made.sha,
+                at: made.at,
+                subject: made.subject,
+                noted: Some(by.name),
+            })
+        });
+    let mut made: Vec<Made> = signed.chain(noted).collect();
+    made.sort_by_key(|made| std::cmp::Reverse(made.at));
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut shas: HashSet<String> = HashSet::new();
+    let mut found = Vec::new();
+    for made in made {
+        if !shas.insert(made.sha.clone()) {
             continue;
         }
-        let landed = here.contains(sha);
-        if !seen.insert(subject.to_owned()) && !landed {
+        let landed = here.contains(&made.sha);
+        if !seen.insert(made.subject.clone()) && !landed {
             continue;
         }
         if found.len() >= MAX_COMMITS {
             break;
         }
-        let verified = footer::verified(core, dir, sha).unwrap_or_default();
-        let Some(agent) = verified.iter().find(|agent| holds(agent)) else {
-            continue;
+        let name = match made.noted {
+            Some(name) => name,
+            None => {
+                let verified = footer::verified(core, dir, &made.sha).unwrap_or_default();
+                let Some(agent) = verified.into_iter().find(|agent| holds(agent)) else {
+                    continue;
+                };
+                agent.name
+            }
         };
-        let at = at.parse::<u64>().unwrap_or(0) * 1000;
-        let short: String = sha.chars().take(9).collect();
+        let at = made.at * 1000;
+        let short: String = made.sha.chars().take(9).collect();
         let place = match landed {
             true => "on the project's branch",
             false => "not on the project's branch",
         };
-        let subject = crate::text::one_line(&prose_of(subject));
+        let subject = crate::text::one_line(&prose_of(&made.subject));
         found.push(fact(
             SourceKind::Commit,
             at,
-            Some(agent.name.clone()),
+            Some(name),
             &format!("{short} ({place}): {subject}"),
-            SourceLink::Commit {
-                sha: sha.to_owned(),
-            },
+            SourceLink::Commit { sha: made.sha },
         ));
     }
     found
