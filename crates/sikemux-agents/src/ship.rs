@@ -1580,7 +1580,7 @@ fn only_queries(args: &[String]) -> bool {
 }
 
 /// psql's and mysql's short flags that take no value.
-const DB_SWITCHES: &str = "aAbBEHlLnNqrsStvwWxXz01";
+const DB_SWITCHES: &str = "aAbBEHlnNqrstwWxXz01";
 /// curl's short flags that take no value.
 const CURL_SWITCHES: &str = "sSvikLfgGIjJlnNOpqRZM0123456#";
 
