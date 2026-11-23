@@ -1593,7 +1593,7 @@
       "description": "Open a page in a desk tab.",
       "properties": {
         "path": {
-          "description": "Absolute path of your HTML; with title",
+          "description": "Absolute HTML path; with title",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
@@ -1604,13 +1604,13 @@
           "maxLength": 120
         },
         "id": {
-          "description": "A page's id from page_list, instead of path and title",
+          "description": "page_list id, not path+title",
           "type": "string",
           "minLength": 32,
           "maxLength": 32
         },
         "keep": {
-          "description": "Keep it past its week, for a spec, report or dashboard the person comes back to",
+          "description": "Keep past 7 days",
           "type": "boolean"
         }
       },
