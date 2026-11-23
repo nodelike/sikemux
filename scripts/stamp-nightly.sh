@@ -9,10 +9,10 @@ REPO=nodelike/sikemux
 
 from="$(node -p 'require("./package.json").version')"
 core="${from%%-*}"
-if git rev-parse -q --verify "refs/tags/v$core" >/dev/null; then
+while git rev-parse -q --verify "refs/tags/v$core" >/dev/null; do
   IFS=. read -r major minor patch <<<"$core"
   core="$major.$minor.$((patch + 1))"
-fi
+done
 stable="$(git tag -l 'v[0-9]*' --sort=-v:refname | grep -v -- - | head -1)"
 version="$core-nightly.$(git rev-list --count "$(git merge-base HEAD "$stable")..HEAD")"
 last="$(git tag -l 'v*-nightly.*' --merged HEAD --sort=-v:refname | head -1)"
