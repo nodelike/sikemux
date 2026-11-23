@@ -240,7 +240,7 @@ final class ComposerDraft {
     /// Saves the draft as the chat's own on the host, naming the revision last taken in, so the host keeps whatever it
     /// put in the draft since. A save that fails waits for the next change or attach.
     func save() async {
-        guard edits > 0, let connection = live() else { return }
+        guard edits > 0, !uploading, let connection = live() else { return }
         let edits = self.edits
         let paths = Uploads.paths(attachments)
         let extra = DraftExtra(

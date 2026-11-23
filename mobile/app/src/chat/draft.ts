@@ -218,7 +218,8 @@ export class Draft {
    */
   async save() {
     const connection = this.host.live();
-    if (!this.edits || !connection) return;
+    // A picture still going up would reach the host as a tag naming no file; the save after it lands carries both.
+    if (!this.edits || !connection || this.uploading()) return;
     const edits = this.edits;
     const paths = pathsOf(this.attachments);
     const { attachments: _files, context: _chips, ...rest } = this.extra;
@@ -229,7 +230,7 @@ export class Draft {
         ...rest,
         ...(paths.length ? { attachments: paths } : {}),
         ...(this.chips.length ? { context: this.chips } : {}),
-        ...this.namedExtra(),
+        ...this.namedExtra(this.hostTokens()),
       },
       ...(this.rev === undefined ? {} : { rev: this.rev }),
     };
@@ -245,12 +246,22 @@ export class Draft {
   }
 
   /** The draft's chips as every app keeps them beside its text. */
-  private namedExtra() {
+  private namedExtra(tokens: readonly DraftToken[] = this.tokens) {
     const tracked = Object.entries(this.tracked).filter(([id]) => this.tokens.some((token) => token.id === id));
     return {
-      ...(this.tokens.length ? { tokens: keptTokens(this.text, this.tokens) } : {}),
+      ...(tokens.length ? { tokens: keptTokens(this.text, tokens) } : {}),
       ...(tracked.length ? { tracked: Object.fromEntries(tracked) } : {}),
     };
+  }
+
+  /** The tags as the host names them, a picture by where the host keeps it; one not there yet stays plain words. */
+  private hostTokens(): DraftToken[] {
+    return this.tokens.flatMap((token) => {
+      if (!token.id.startsWith(IMAGE)) return [token];
+      const id = token.id.slice(IMAGE.length);
+      const path = this.attachments.find((attachment) => attachment.id === id)?.path;
+      return path ? [{ ...token, id: `${IMAGE}${path}` }] : [];
+    });
   }
 
   /** Takes in the host's draft, unless changes made here are still to be saved over it. */
@@ -264,13 +275,17 @@ export class Draft {
     this.rev = host?.rev;
     this.extra = rest;
     this.text = host?.text ?? '';
-    this.tokens = tokensOf(this.text, tokens);
     this.tracked = trackedOf(tracked);
     this.chips = contextChipsOf(context);
     this.attachments = [
       ...paths.map((path) => kept.get(path) ?? hostFile(path)),
       ...this.attachments.filter((attachment) => !attachment.path),
     ];
+    const byPath = new Map(this.attachments.flatMap((attachment) => (attachment.path ? [[attachment.path, attachment.id] as const] : [])));
+    this.tokens = tokensOf(this.text, tokens).map((token) => {
+      const id = token.id.startsWith(IMAGE) ? byPath.get(token.id.slice(IMAGE.length)) : undefined;
+      return id ? { ...token, id: `${IMAGE}${id}` } : token;
+    });
     this.host.emit();
   }
 }

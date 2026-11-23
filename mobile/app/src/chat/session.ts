@@ -239,7 +239,19 @@ export class ChatSession {
   attach = (picked: Attachment[], caret?: number) => {
     this.notice = this.draft.attach(picked, caret);
     this.emit();
+    this.putPicked();
   };
+
+  /** Puts newly picked files on the host at once, so the draft the Mac and other phones read holds them too. */
+  private putPicked() {
+    const waiting = this.draft.attachments.filter((attachment) => !attachment.path && !attachment.upload);
+    const connection = this.connection;
+    if (!connection?.isOpen() || this.attached !== 'live' || !waiting.length) return;
+    void this.outbox
+      .put(connection, waiting, (id, change) => this.draft.patch(id, change))
+      .catch(() => null)
+      .then(() => this.draft.edited());
+  }
 
   /** Has the host put stash items in this chat's draft: files beside it, links and text as chips, notes in its words. */
   attachStash = async (items: readonly StashItem[]) => {

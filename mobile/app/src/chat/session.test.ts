@@ -329,10 +329,10 @@ describe('a chat session', () => {
 
   it('shows the message with its files at once and sends their host paths once they are there', async () => {
     const { session } = harness();
+    session.attach([picked('shot.jpg', 'image'), picked('notes.txt', 'file')]);
     const connection = fakeConnection(live([], 0));
     session.hold(connection as unknown as ConnectionLike);
     await settle();
-    session.attach([picked('shot.jpg', 'image'), picked('notes.txt', 'file')]);
 
     expect(await session.send('look')).toBe(true);
     const shown = session.snapshot();
@@ -351,13 +351,42 @@ describe('a chat session', () => {
     expect(sentFiles.get('/host/pasted/shot.jpg')?.uri).toBe('file:///picked/shot.jpg');
   });
 
+  // Reported 2026-11-24: a picture attached on the phone, sent from the Mac, went out without it.
+  it('puts a picture attached here in the shared draft, so another app sending the draft sends the picture', async () => {
+    const phone = harness();
+    const phoneLink = fakeConnection(live([], 0));
+    phone.session.hold(phoneLink as unknown as ConnectionLike);
+    await settle();
+    phone.session.attach([picked('shot.jpg', 'image')]);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const saves = phoneLink.call.mock.calls.filter(([method]) => method === 'setDraft');
+    const saved = JSON.parse(saves.at(-1)?.[1] ?? '{}');
+    expect(saved.extra.attachments).toEqual(['/host/pasted/shot.jpg']);
+    expect(saved.extra.tokens).toMatchObject([{ id: 'image:/host/pasted/shot.jpg', label: 'Image 1' }]);
+
+    const other = harness();
+    const otherLink = fakeConnection(live([], 0));
+    other.session.hold(otherLink as unknown as ConnectionLike);
+    await settle();
+    other.startAt(0);
+    other.deliver(headSet({ draft: { text: `${saved.text}look`, extra: saved.extra, rev: 2 } }));
+    other.drawFrame();
+    expect(await other.session.send(`${saved.text}look`)).toBe(true);
+    await settle();
+    expect(prompts(otherLink)).toMatchObject([{ paths: ['/host/pasted/shot.jpg'] }]);
+
+    phone.deliver(headSet({ draft: null }));
+    phone.drawFrame();
+    expect(phone.session.snapshot().attachments).toHaveLength(0);
+  });
+
   it('marks the message not sent while a file did not reach the host, and sends only the rest again', async () => {
     const { session } = harness();
     const connection = fakeConnection(live([], 0));
     connection.attachFile.mockRejectedValueOnce(MobileError.Connection.new({ message: 'the connection dropped' }));
+    session.attach([picked('a.jpg', 'image'), picked('b.pdf', 'file')]);
     session.hold(connection as unknown as ConnectionLike);
     await settle();
-    session.attach([picked('a.jpg', 'image'), picked('b.pdf', 'file')]);
 
     await session.send('both');
     await settle();
@@ -385,6 +414,7 @@ describe('a chat session', () => {
     session.hold(connection as unknown as ConnectionLike);
     await settle();
     session.attach([picked('shot.jpg', 'image')]);
+    await settle();
     await session.send('next');
     expect(session.snapshot().view.queued.map((held) => held.text)).toEqual(['next']);
     await settle();
