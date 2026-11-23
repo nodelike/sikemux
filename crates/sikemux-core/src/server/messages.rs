@@ -657,6 +657,37 @@ impl Mailbox {
         self.state.locked().waiting.contains_key(agent_id)
     }
 
+    /// Whether a report from `worker` still waits for its lead to read. A calm one, read
+    /// only with the lead's next turn, does not count.
+    pub(crate) fn report_unread(&self, worker: &str) -> bool {
+        let state = self.state.locked();
+        state.waiting.values().flatten().any(|queued| {
+            !queued.is_calm()
+                && queued.origin.as_ref().is_some_and(|origin| {
+                    origin.kind == MessageKind::Report && origin.from == worker
+                })
+        })
+    }
+
+    /// Leaves a report from `worker` waiting for `lead`, as one sent while the lead is mid-turn.
+    #[cfg(test)]
+    pub(crate) fn hold_report(&self, worker: &str, lead: &str, text: &str) {
+        self.wait(
+            lead,
+            Queued {
+                text: text.to_owned(),
+                origin: Some(Origin {
+                    from: worker.to_owned(),
+                    kind: MessageKind::Report,
+                    awaited: false,
+                    calm: None,
+                }),
+                mark: None,
+                paths: Vec::new(),
+            },
+        );
+    }
+
     /// Whether something besides calm reports waits for the agent.
     fn has_urgent_waiting(&self, agent_id: &str) -> bool {
         let state = self.state.locked();
