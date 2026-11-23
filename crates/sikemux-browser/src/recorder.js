@@ -98,7 +98,7 @@
       return null;
     }
     if (!/^https?:$/.test(url.protocol) || localHost(url.hostname)) return null;
-    return { method: verb, origin: url.origin, path: url.pathname };
+    return { method: verb, origin: url.origin, path: url.pathname, query: url.search };
   };
   const held = (method, target, ownFrames = 1) => {
     if (!watch || !fromAgent(ownFrames)) return false;

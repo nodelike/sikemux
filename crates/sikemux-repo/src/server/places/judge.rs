@@ -35,6 +35,18 @@ pub struct Judged {
 /// Where `ship` lands among `places`, as the person `confirmed` the list or not. `agent` is
 /// whose action it is, by name, for a place the core finds in it.
 pub fn judged(places: &[Place], confirmed: bool, ship: &Ship, agent: &str) -> Judged {
+    judged_reading(places, confirmed, ship, agent, &ship.what)
+}
+
+/// [`judged`] with `addresses`, what `ship` writes to with each address in full. A browser's
+/// write is shown and allowed without its address's query, which can still say what it changes.
+pub fn judged_reading(
+    places: &[Place],
+    confirmed: bool,
+    ship: &Ship,
+    agent: &str,
+    addresses: &str,
+) -> Judged {
     let recognising: Vec<&Place> = places
         .iter()
         .filter(|place| place.recognises(ship))
@@ -51,7 +63,7 @@ pub fn judged(places: &[Place], confirmed: bool, ship: &Ship, agent: &str) -> Ju
         })
     };
     let read_at = ship.target.as_ref().and_then(Target::read_at);
-    let fact = production_fact(ship, found_in.clone())
+    let fact = production_fact(ship, addresses, found_in.clone())
         .map(|found| match read_at {
             Some(at) if !found.recognise.is_empty() => read_from(found, at),
             _ => found,
@@ -232,7 +244,7 @@ pub fn workflow_asks(target: &Target) -> bool {
 /// person to a GitHub repository, a workflow that reaches production, or a stack, stage, app,
 /// profile, context or workspace whose name says production. The gate lets a write to the
 /// project's own repositories through before it asks here.
-fn production_fact(ship: &Ship, found_in: Option<String>) -> Option<Place> {
+fn production_fact(ship: &Ship, addresses: &str, found_in: Option<String>) -> Option<Place> {
     let place =
         |name: String, fact: Recognise| new_place(&name, true, vec![fact], found_in.clone());
     let target = ship.target.as_ref().map(Target::bare)?;
@@ -282,7 +294,7 @@ fn production_fact(ship: &Ship, found_in: Option<String>) -> Option<Place> {
             format!("The {name} database"),
             Recognise::Database { name: name.clone() },
         )),
-        Target::Site { origin } if manages_domains(origin, &ship.what) => Some(place(
+        Target::Site { origin } if manages_domains(origin, addresses) => Some(place(
             format!("Domains at {}", origin.trim_start_matches("https://")),
             Recognise::Site {
                 origin: origin.clone(),
@@ -304,10 +316,10 @@ fn production_fact(ship: &Ship, found_in: Option<String>) -> Option<Place> {
     }
 }
 
-/// Whether a write to the site at `origin`, as `what`, changes where a domain points: one to a
-/// registrar's or a DNS host's panel, or one whose address, past its host, has a word that
-/// starts with nameserver, DNS or domain. What the request sends is not read.
-fn manages_domains(origin: &str, what: &str) -> bool {
+/// Whether a write to the site at `origin` changes where a domain points: one to a registrar's
+/// or a DNS host's panel, or one of whose `addresses` has, past its host, a word that starts
+/// with nameserver, DNS or domain. What the request sends is not read.
+fn manages_domains(origin: &str, addresses: &str) -> bool {
     const PANELS: &[&str] = &[
         "godaddy.com",
         "namecheap.com",
@@ -336,8 +348,8 @@ fn manages_domains(origin: &str, what: &str) -> bool {
     let at_panel = PANELS
         .iter()
         .any(|panel| host == *panel || host.ends_with(&format!(".{panel}")));
-    let what = what.to_ascii_lowercase();
-    let named = (what.split_whitespace())
+    let addresses = addresses.to_ascii_lowercase();
+    let named = (addresses.split_whitespace())
         .filter_map(|word| word.trim_matches(['\'', '"']).split_once("://"))
         .filter_map(|(_, address)| address.strip_prefix(host.as_str()))
         .flat_map(|past_host| past_host.split(|letter: char| !letter.is_ascii_alphanumeric()))
@@ -522,17 +534,30 @@ mod tests {
             }),
         };
         let nameservers = submit(
-            "POST https://my.registrar.example/clientarea.php?action=domaindetails",
+            "POST https://my.registrar.example/clientarea.php",
             "https://my.registrar.example",
         );
-        let judged = judged(&[], true, &nameservers, "Otter");
+        let judged = judged_reading(
+            &[],
+            true,
+            &nameservers,
+            "Otter",
+            "POST https://my.registrar.example/clientarea.php?action=domaindetails",
+        );
         assert_eq!(judged.goes, Goes::Asks);
         assert!(judged.keep);
         let own_panel = submit(
-            "POST https://hosting.example.com/clientarea.php?action=domaindns",
+            "POST https://hosting.example.com/clientarea.php",
             "https://hosting.example.com",
         );
-        assert_eq!(judged_on(&own_panel), Goes::Asks);
+        let judged = judged_reading(
+            &[],
+            true,
+            &own_panel,
+            "Otter",
+            "POST https://hosting.example.com/clientarea.php?action=domaindns",
+        );
+        assert_eq!(judged.goes, Goes::Asks);
         let search = submit(
             "GET https://www.google.com/search",
             "https://www.google.com",

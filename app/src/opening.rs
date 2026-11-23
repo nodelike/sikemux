@@ -482,12 +482,13 @@ impl Workbench {
                 Box::new(move || {
                     let agent = request.agent_id.clone().unwrap_or_default();
                     let project = request.project.clone();
-                    let check = move |what: String, origin: String| {
+                    let check = move |what: String, origin: String, with_queries: String| {
                         let asked = core.request_typed::<call::CheckWebWrite>(WebWriteParams {
                             agent: agent.clone(),
                             project: project.clone(),
                             what,
                             origin,
+                            with_queries,
                         });
                         Box::pin(async move { asked.await?.map_or(Ok(()), Err) })
                             as Pin<Box<dyn Future<Output = Result<(), String>>>>

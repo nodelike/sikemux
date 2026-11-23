@@ -58,9 +58,11 @@ const NARROW_VIEWPORT: u64 = 700;
 const PAGE_VIEWPORT_HEIGHT: u64 = 600;
 const PAGE_SCRIPT_LIMIT: Duration = Duration::from_secs(20);
 
-/// A write a page is about to make to a site, put to the core before it goes:
-/// what it does and the site's origin. Its error is what the agent is told.
-pub type CheckWrite = dyn Fn(String, String) -> Pin<Box<dyn Future<Output = Result<(), String>>>>;
+/// A write a page is about to make to a site, put to the core before it goes: what it does,
+/// the site's origin, and what it does with each address's query, which only the check of
+/// where it lands reads. Its error is what the agent is told.
+pub type CheckWrite =
+    dyn Fn(String, String, String) -> Pin<Box<dyn Future<Output = Result<(), String>>>>;
 
 /// Runs on a CLI broker thread, so blocking on the async runtime is safe.
 pub fn execute(
@@ -1337,11 +1339,23 @@ async fn put_to_person(write: Value, check: &CheckWrite) -> Result<(), String> {
     if write.is_null() {
         return Ok(());
     }
+    let origin = (write.get("origin").and_then(Value::as_str))
+        .unwrap_or_default()
+        .to_owned();
+    check(shown(&write), origin, with_query(&write)).await
+}
+
+/// `write` as the person reads it and as a yes to it is kept: its method and address, without
+/// the address's query.
+fn shown(write: &Value) -> String {
     let field = |key: &str| write.get(key).and_then(Value::as_str).unwrap_or_default();
-    let method = field("method");
-    let origin = field("origin").to_owned();
-    let path = field("path");
-    check(format!("{method} {origin}{path}"), origin).await
+    format!("{} {}{}", field("method"), field("origin"), field("path"))
+}
+
+/// `write` with its address's query, which only the check of where it lands reads.
+fn with_query(write: &Value) -> String {
+    let query = write.get("query").and_then(Value::as_str);
+    format!("{}{}", shown(write), query.unwrap_or_default())
 }
 
 /// Plays `action` while the writes to sites the page's own scripts send wait, then puts each
@@ -1376,8 +1390,8 @@ async fn put_page_writes(
         .unwrap_or_default();
     let writes = page_writes(&raw);
     let mut refused = None;
-    for (origin, what) in writes_by_site(&writes) {
-        if let Err(said) = check(what, origin).await {
+    for site in writes_by_site(&writes) {
+        if let Err(said) = check(site.what, site.origin, site.with_queries).await {
             refused = refused.or(Some(said));
         }
     }
@@ -1393,24 +1407,37 @@ async fn put_page_writes(
     refused.map_or(Ok(()), Err)
 }
 
+/// What a click's held writes do at one site.
+struct SiteWrites {
+    origin: String,
+    what: String,
+    with_queries: String,
+}
+
 /// Each site the held `writes` go to with what they do there, each different write named
 /// once, in an order that is the same when the click is tried again.
-fn writes_by_site(writes: &[Value]) -> Vec<(String, String)> {
-    let mut sites: Vec<(String, Vec<String>)> = Vec::new();
+fn writes_by_site(writes: &[Value]) -> Vec<SiteWrites> {
+    let mut sites: Vec<(String, Vec<(String, String)>)> = Vec::new();
     for write in writes {
-        let field = |key: &str| write.get(key).and_then(Value::as_str).unwrap_or_default();
-        let origin = field("origin");
-        let what = format!("{} {origin}{}", field("method"), field("path"));
+        let origin = (write.get("origin").and_then(Value::as_str)).unwrap_or_default();
+        let named = (shown(write), with_query(write));
         match sites.iter_mut().find(|(site, _)| site == origin) {
-            Some((_, sent)) if sent.contains(&what) => {}
-            Some((_, sent)) => sent.push(what),
-            None => sites.push((origin.to_owned(), vec![what])),
+            Some((_, sent)) if sent.contains(&named) => {}
+            Some((_, sent)) => sent.push(named),
+            None => sites.push((origin.to_owned(), vec![named])),
         }
     }
     (sites.into_iter())
-        .map(|(origin, mut sent)| {
-            sent.sort();
-            (origin, sent.join(", "))
+        .map(|(origin, sent)| {
+            let (mut what, mut with_queries): (Vec<String>, Vec<String>) = sent.into_iter().unzip();
+            what.sort();
+            what.dedup();
+            with_queries.sort();
+            SiteWrites {
+                origin,
+                what: what.join(", "),
+                with_queries: with_queries.join(" "),
+            }
         })
         .collect()
 }
