@@ -44,6 +44,33 @@ pub struct Pending {
     /// The model and agent the chat is handed over from.
     #[serde(default)]
     from: Option<HandoffSide>,
+    /// What the chat ran on before it was handed over, which switching back to resumes.
+    #[serde(default)]
+    back: Option<RanOn>,
+}
+
+/// The agent, account, model and session a chat ran on.
+#[derive(Clone, Serialize, Deserialize)]
+struct RanOn {
+    provider: String,
+    profile_id: Option<String>,
+    model: Option<String>,
+    model_provider: Option<String>,
+    effort: Option<String>,
+    resume_id: Option<String>,
+}
+
+impl RanOn {
+    fn of(agent: &WorkspaceAgent) -> Self {
+        Self {
+            provider: agent.provider.clone(),
+            profile_id: agent.profile_id.clone(),
+            model: agent.model.clone(),
+            model_provider: agent.model_provider.clone(),
+            effort: agent.effort.clone(),
+            resume_id: agent.resume_id.clone(),
+        }
+    }
 }
 
 /// The handoffs waiting, by the agent whose next message carries each, each also on disk so a
@@ -97,6 +124,7 @@ impl Handoffs {
             shown: None,
             session: Some(session.to_owned()),
             from: None,
+            back: None,
         };
         self.set(agent_id, pending);
     }
@@ -113,6 +141,12 @@ impl Handoffs {
         (pending.session.as_deref())
             .is_none_or(|built_for| built_for == session)
             .then_some((pending.context, pending.from))
+    }
+
+    fn back(&self, agent_id: &str) -> Option<(RanOn, Option<HandoffSide>)> {
+        let pending = self.pending.locked();
+        let pending = pending.get(agent_id)?;
+        Some((pending.back.clone()?, pending.from.clone()))
     }
 
     pub fn shown(&self, agent_id: &str) -> Option<Handoff> {
@@ -292,6 +326,7 @@ fn build(said: HandedOver, from: &str, source: &str, forked: bool) -> Option<Pen
         shown: Some(shown),
         session: None,
         from: None,
+        back: None,
     })
 }
 
@@ -329,9 +364,19 @@ pub async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<Cha
     if !params.fork && core.chats().at_work(&params.agent_id) {
         return Err("Stop the chat's turn before handing it to another agent".into());
     }
+    let earlier = (!params.fork)
+        .then(|| core.chats().handoffs.back(&params.agent_id))
+        .flatten();
+    if let Some((back, _)) = earlier
+        .as_ref()
+        .filter(|(back, _)| back.provider == params.provider)
+    {
+        return go_back(core, source, back.clone(), params).await;
+    }
     let said = said(core, &source)
         .ok_or_else(|| CoreError::from("Sikemux no longer has what this chat said"))?;
-    let pending = build(said, &source.provider, &source.id, params.fork);
+    let ran_on = (earlier.as_ref()).map_or(source.provider.as_str(), |(back, _)| &back.provider);
+    let pending = build(said, ran_on, &source.id, params.fork);
     if params.fork {
         let pending =
             pending.ok_or_else(|| CoreError::from("This chat has nothing to hand over yet"))?;
@@ -359,17 +404,17 @@ pub async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<Cha
         });
     }
     let agent_id = params.agent_id;
-    let from = side(
-        core.chats().readable(&agent_id).ok().as_deref(),
-        &source.provider,
-        source.model.as_deref(),
-    );
-    core.chats().resets.cancel(&agent_id);
-    if let Some(chat) = core.chats().get(&agent_id) {
-        core.workspaces()
-            .note_stopping(chat.agent_id(), chat.current_now());
-        core.chats().stop(&agent_id);
-    }
+    let (back, from) = match earlier {
+        Some((back, from)) => (back, from),
+        None => (
+            RanOn::of(&source),
+            Some(side(
+                core.chats().readable(&agent_id).ok().as_deref(),
+                &source.provider,
+                source.model.as_deref(),
+            )),
+        ),
+    };
     let patch = AgentPatch {
         provider: Some(params.provider),
         profile_id: Some(params.profile_id),
@@ -379,6 +424,49 @@ pub async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<Cha
         resume_id: Some(None),
         ..AgentPatch::default()
     };
+    let pending = pending.map(|pending| Pending {
+        from,
+        back: Some(back),
+        ..pending
+    });
+    restart(core, agent_id, patch, pending, source.project).await
+}
+
+/// Puts a chat handed over but not yet written to back on the agent and session it ran on, with
+/// nothing left to hand over.
+async fn go_back(
+    core: &Arc<Core>,
+    source: WorkspaceAgent,
+    back: RanOn,
+    params: HandOffParams,
+) -> CoreResult<ChatHandedOff> {
+    let patch = AgentPatch {
+        provider: Some(back.provider),
+        profile_id: Some(back.profile_id),
+        model: Some(params.model.or(back.model)),
+        model_provider: Some(params.model_provider.or(back.model_provider)),
+        effort: Some(back.effort),
+        resume_id: Some(back.resume_id),
+        ..AgentPatch::default()
+    };
+    restart(core, params.agent_id, patch, None, source.project).await
+}
+
+/// Stops the chat, moves it onto what `patch` says with `pending` waiting for its next message,
+/// and starts it again.
+async fn restart(
+    core: &Arc<Core>,
+    agent_id: String,
+    patch: AgentPatch,
+    pending: Option<Pending>,
+    project: String,
+) -> CoreResult<ChatHandedOff> {
+    core.chats().resets.cancel(&agent_id);
+    if let Some(chat) = core.chats().get(&agent_id) {
+        core.workspaces()
+            .note_stopping(chat.agent_id(), chat.current_now());
+        core.chats().stop(&agent_id);
+    }
     crate::server::workspace::update_agent(
         core,
         UpdateAgentParams {
@@ -386,18 +474,15 @@ pub async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<Cha
             patch,
         },
     )?;
-    if let Some(pending) = pending {
-        let from = Some(from);
-        core.chats()
-            .handoffs
-            .set(&agent_id, Pending { from, ..pending });
+    match pending {
+        Some(pending) => core.chats().handoffs.set(&agent_id, pending),
+        None => {
+            core.chats().handoffs.forget(&agent_id);
+        }
     }
     (core.chat_above().start_saved)(core, &agent_id, true).await?;
     tell(core, &agent_id);
-    Ok(ChatHandedOff {
-        agent_id,
-        project: source.project,
-    })
+    Ok(ChatHandedOff { agent_id, project })
 }
 
 /// The chat's next message goes without the handoff waiting for it.
