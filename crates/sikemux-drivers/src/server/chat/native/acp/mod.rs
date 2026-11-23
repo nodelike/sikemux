@@ -16,7 +16,9 @@ use agent_client_protocol::schema::v1::{
 use agent_client_protocol::schema::ProtocolVersion;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_fold::UpdateKind;
 use sikemux_process::sync::Locked;
+use sikemux_view::chat::StopReason;
 
 use crate::acp::failure::{sounds_offline, Failure};
 use crate::acp::pickers;
@@ -42,6 +44,9 @@ pub struct Asked {
 }
 
 const COMPACT: &str = "compact";
+
+/// How long a reply the agent began on its own stays quiet after its usage before it counts as over.
+const UNPROMPTED_QUIET: Duration = Duration::from_secs(3);
 
 /// The error code an agent turns a prompt, or a new session, down with when it needs a sign-in.
 const AUTH_REQUIRED: i64 = -32000;
@@ -217,6 +222,12 @@ struct Turns {
     unanswered: u32,
     cancelled: u64,
     gone: bool,
+    /// Whether the agent is replying with no prompt open, as Antigravity does once a command
+    /// it left running in the background finishes.
+    unprompted: bool,
+    /// Counts the unprompted reply's output, so an end waiting on quiet sees more come.
+    #[serde(skip)]
+    said: u64,
 }
 
 impl Turns {
@@ -339,6 +350,61 @@ impl Driver {
     }
 }
 
+impl Driver {
+    /// Opens the chat's work when the agent speaks with no prompt open, and closes it once
+    /// the usage that ends each of its replies has stood a while with nothing after it.
+    fn follow_unprompted(&self, update: &Value) {
+        if self.sink.reloading() {
+            return;
+        }
+        let kind = UpdateKind::of(update);
+        let said = {
+            let mut turns = self.turns.locked();
+            if kind == Some(UpdateKind::UsageUpdate) {
+                if !turns.unprompted {
+                    return;
+                }
+                turns.said
+            } else {
+                let output = matches!(
+                    kind,
+                    Some(
+                        UpdateKind::AgentMessageChunk
+                            | UpdateKind::AgentThoughtChunk
+                            | UpdateKind::ToolCall
+                    )
+                );
+                if !output || turns.unanswered > 0 {
+                    return;
+                }
+                turns.said += 1;
+                if turns.unprompted {
+                    return;
+                }
+                turns.unprompted = true;
+                drop(turns);
+                self.sink.work_started();
+                return;
+            }
+        };
+        let driver = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(UNPROMPTED_QUIET).await;
+            let ended = {
+                let mut turns = driver.turns.locked();
+                let ended = turns.unprompted && turns.said == said;
+                if ended {
+                    turns.unprompted = false;
+                }
+                ended
+            };
+            if ended {
+                driver.sink.work_ended(StopReason::EndTurn);
+            }
+        });
+    }
+}
+
 impl Reads for Driver {
     type Nudge = ();
     type Message = Value;
@@ -360,6 +426,7 @@ impl Reads for Driver {
                 }
                 mcp_calls::as_mcp_call(&mut update, &self.servers);
                 offer_compact(&mut update, self.compact);
+                self.follow_unprompted(&update);
                 let session_id = params
                     .get("sessionId")
                     .and_then(Value::as_str)
@@ -763,6 +830,7 @@ impl Backend for Acp {
             let mut turns = self.driver.turns.locked();
             turns.prompted = turn;
             turns.unanswered = 1;
+            turns.unprompted = false;
         }
         self.driver.rpc.send_for(
             AGENT_METHOD_NAMES.session_prompt,
@@ -802,6 +870,9 @@ impl Backend for Acp {
         if self.driver.sink.running() {
             let mut turns = self.driver.turns.locked();
             turns.cancelled = turns.prompted;
+        }
+        if std::mem::take(&mut self.driver.turns.locked().unprompted) {
+            self.driver.sink.work_ended(StopReason::Cancelled);
         }
         sent
     }
