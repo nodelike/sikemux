@@ -1359,8 +1359,9 @@ async fn holding_page_writes(
     acted.and(put)
 }
 
-/// Puts each write the page holds to the person. Once one is held, it and the rest are never
-/// sent. A page frozen by a dialog keeps holding them until the dialog is answered.
+/// Puts the writes the page holds to the person, those to one site together, so one yes
+/// covers all a click sends there. They are sent only when every one may go. A page frozen
+/// by a dialog keeps holding them until the dialog is answered.
 async fn put_page_writes(
     manager: &BrowserManager,
     tab_id: &str,
@@ -1373,17 +1374,16 @@ async fn put_page_writes(
     let raw = eval(view, "JSON.stringify(window.__sikemuxNet?.held() ?? [])")
         .await
         .unwrap_or_default();
+    let writes = page_writes(&raw);
     let mut refused = None;
-    for write in page_writes(&raw) {
+    for (origin, what) in writes_by_site(&writes) {
+        if let Err(said) = check(what, origin).await {
+            refused = refused.or(Some(said));
+        }
+    }
+    let go = refused.is_none();
+    for write in &writes {
         let id = write.get("id").cloned().unwrap_or(Value::Null);
-        let go = refused.is_none()
-            && match put_to_person(write, check).await {
-                Ok(()) => true,
-                Err(said) => {
-                    refused = Some(said);
-                    false
-                }
-            };
         let _ = eval(
             view,
             &format!("JSON.stringify(window.__sikemuxNet?.answer({id}, {go}) ?? null)"),
@@ -1391,6 +1391,28 @@ async fn put_page_writes(
         .await;
     }
     refused.map_or(Ok(()), Err)
+}
+
+/// Each site the held `writes` go to with what they do there, each different write named
+/// once, in an order that is the same when the click is tried again.
+fn writes_by_site(writes: &[Value]) -> Vec<(String, String)> {
+    let mut sites: Vec<(String, Vec<String>)> = Vec::new();
+    for write in writes {
+        let field = |key: &str| write.get(key).and_then(Value::as_str).unwrap_or_default();
+        let origin = field("origin");
+        let what = format!("{} {origin}{}", field("method"), field("path"));
+        match sites.iter_mut().find(|(site, _)| site == origin) {
+            Some((_, sent)) if sent.contains(&what) => {}
+            Some((_, sent)) => sent.push(what),
+            None => sites.push((origin.to_owned(), vec![what])),
+        }
+    }
+    (sites.into_iter())
+        .map(|(origin, mut sent)| {
+            sent.sort();
+            (origin, sent.join(", "))
+        })
+        .collect()
 }
 
 /// The writes the recorder held, from what the page answered.
