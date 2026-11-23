@@ -1,4 +1,5 @@
-# A lead writes to a worker it reopened mid-turn: the message waits in the worker's queued list.
+# A worker reopened after its chat was closed: a message another agent sends it while it rests
+# after a turn waits in its queued list.
 stage 1440 900
 window 1440 900
 replies reopened-mail.json
@@ -13,11 +14,14 @@ say "Round the cart totals once, at the end."
 settle 3
 core closeChat {"agentId":"$chat"}
 settle 2
-say "hold 600000"
+core reopenAgent {"agentId":"$chat"}
 settle 3
-front Chief
-say "Tell Mira the receipts round the same way."
-settle 6
+say "Check the receipts round the same way."
+settle 3
+chat Otter
+title "Check the refund totals"
+say "Tell Mira refunds round per line."
+settle 4
 front Mira
-settle 2
+settle 1.5
 snap reopened-mail
