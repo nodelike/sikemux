@@ -721,7 +721,7 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         ),
     });
     let answer = match (&saved, &request.agent_id) {
-        (None, Some(lead)) => with_overlap(core, lead, &prompt, answer).await,
+        (None, Some(lead)) => with_overlap(core, lead, &started.agent_id, &prompt, answer).await,
         _ => answer,
     };
     let core = core.clone();
@@ -846,10 +846,21 @@ async fn reopen_own_lead(
 }
 
 /// Adds to the answer the other agents already changing files the brief names.
-async fn with_overlap(core: &Arc<Core>, lead: &str, prompt: &str, mut answer: Value) -> Value {
-    let (owner, lead, prompt) = (core.clone(), lead.to_owned(), prompt.to_owned());
-    if let Ok(Some(overlap)) = blocking(move || Ok(overlap::of_brief(&owner, &lead, &prompt))).await
-    {
+async fn with_overlap(
+    core: &Arc<Core>,
+    lead: &str,
+    started: &str,
+    prompt: &str,
+    mut answer: Value,
+) -> Value {
+    let (owner, lead, started, prompt) = (
+        core.clone(),
+        lead.to_owned(),
+        started.to_owned(),
+        prompt.to_owned(),
+    );
+    let found = blocking(move || Ok(overlap::of_brief(&owner, &lead, &started, &prompt))).await;
+    if let Ok(Some(overlap)) = found {
         if let Some(object) = answer.as_object_mut() {
             object.insert("overlap".to_owned(), overlap);
         }
