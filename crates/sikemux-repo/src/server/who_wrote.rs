@@ -22,7 +22,7 @@ use super::connection::blocking;
 use super::edits::commit::repo_below;
 use super::edits::note::{self, Note, Wrote};
 use super::edits::{commit_lines, owners_at};
-use super::edits::{footer, git};
+use super::edits::{committer, footer, git};
 use super::listed::{Listed, Reach};
 use super::{Core, CoreResult};
 
@@ -846,10 +846,11 @@ pub async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
             describe(&top, &hashes)?
         };
         let listed = (core.repo_above().roster_listed)(&core);
+        let noted_who = committer::noted(&top);
         let agents: Vec<(Described, Vec<Agent>)> = described
             .into_iter()
             .map(|commit| {
-                let agents = match commit.footer {
+                let agents = match commit.footer || noted_who.contains(&commit.hash) {
                     true => verified(&core, &top, &commit.hash),
                     false => Vec::new(),
                 };
