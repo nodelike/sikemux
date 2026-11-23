@@ -9,7 +9,7 @@ wait 1
 chat Vega antigravity gemini-4-neon-high
 title "Move checkout onto payment intents"
 say "hold 600000"
-settle 6
+settle 15
 # Antigravity's row under LIMITS at the rail's foot.
 move 1187,827
 settle 4
