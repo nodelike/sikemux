@@ -28,6 +28,8 @@ const LOOK_AGAIN_MS: u64 = 5 * 60 * 1000;
 const FED_LOOK_AGAIN_MS: u64 = 30 * 60 * 1000;
 /// How many looks in a row may fail to read the CI before its wait ends as unread.
 const MAX_UNREAD: u32 = 12;
+/// How long a CI trigger waits on CI that never ends, such as a run left queued, before it stops.
+const MAX_WAIT_MS: u64 = 12 * 60 * 60 * 1000;
 const SHORT_SHA: usize = 9;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -390,6 +392,14 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
     crate::server::codehost::ci::start(&core);
     let (said, how) = match ended(&core, &watch).await {
         Ok(Ci::Ended(said, how)) => (said, how),
+        Ok(Ci::Going { .. }) if epoch_ms().saturating_sub(watch.since) >= MAX_WAIT_MS => (
+            format!(
+                "CI on {} had not ended {} hours after this trigger was set, so this stopped waiting.",
+                watch.shown(),
+                MAX_WAIT_MS / 3_600_000
+            ),
+            CiEnded::Stopped,
+        ),
         Ok(Ci::Going { running }) => {
             let now = epoch_ms();
             let fed = crate::server::codehost::ci::is_fed(&core, &watch.repo.id);

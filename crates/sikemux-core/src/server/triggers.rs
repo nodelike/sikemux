@@ -2,8 +2,9 @@
 //! agent's own chat a prompt, or adds a card to its project's board, which Auto carries when it
 //! is on, and stays until it is removed. A webhook trigger fires on each request to its address
 //! instead of at a time, and one on a mod's collection when a document there is added or changed.
-//! A chat's triggers pause while it is closed and go on when it is taken up
-//! again. The core also watches CI after each push an agent makes, with no trigger_add.
+//! A closed chat's timed and webhook triggers wait for it, and a time of theirs takes it up
+//! again; its waits on CI, runs and polls end with it. The core also watches CI after each push
+//! an agent makes, with no trigger_add.
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
@@ -150,6 +151,27 @@ impl Trigger {
 
     fn ends_with_chat(&self) -> bool {
         self.board.is_none() && self.paused.is_none() && !self.after_push()
+    }
+
+    /// Whether it outlives its chat's closing: a set time or a request from outside. A wait on
+    /// CI, a run, a check or a repeating poll was for work the chat had going, so it ends with it.
+    fn outlives_chat(&self) -> bool {
+        let waits_on_work = self.ci.is_some()
+            || self.park.is_some()
+            || self.rundeck.is_some()
+            || self.check.is_some();
+        !waits_on_work && !matches!(self.when, TriggerWhen::Every { .. })
+    }
+
+    /// Whether its time coming takes its closed chat up again, to fire there. A time that came
+    /// while the host was off passes without it.
+    fn reopens_chat(&self) -> bool {
+        self.paused.is_some()
+            && self.stopped.is_none()
+            && matches!(
+                self.when,
+                TriggerWhen::Once { .. } | TriggerWhen::Daily { .. }
+            )
     }
 
     fn shown(&self) -> ChatTrigger {
@@ -445,7 +467,7 @@ impl Triggers {
             let Some(due) = trigger.next_at.filter(|due| *due <= now) else {
                 return true;
             };
-            if trigger.rests() {
+            if trigger.rests() && !trigger.reopens_chat() {
                 return true;
             }
             changed = true;
@@ -487,7 +509,7 @@ impl Triggers {
             if trigger.check.is_some() {
                 looking.push(trigger.id);
                 moved.push(trigger.clone());
-            } else if !late || last {
+            } else if !late || (last && trigger.paused.is_none()) {
                 firing.push(Firing {
                     trigger: trigger.clone(),
                     late: late.then_some(Late::HostOff(due)),
@@ -506,7 +528,7 @@ impl Triggers {
         let next = state
             .triggers
             .iter()
-            .filter(|trigger| !trigger.rests())
+            .filter(|trigger| !trigger.rests() || trigger.reopens_chat())
             .filter_map(|trigger| trigger.next_at)
             .min();
         Due {
@@ -515,6 +537,43 @@ impl Triggers {
             moved,
             next,
         }
+    }
+
+    /// Pauses the triggers of the closing chat `agent_id` for `chat`, or takes them out when it
+    /// has no session to take up again.
+    fn close(&self, agent_id: &str, chat: Option<HeldChat>) -> Vec<Trigger> {
+        self.change(|state| {
+            let mine = |trigger: &Trigger| trigger.prompts(agent_id);
+            if let Some(chat) = &chat {
+                for trigger in state.triggers.iter_mut().filter(|trigger| mine(trigger)) {
+                    trigger.paused = Some(chat.clone());
+                }
+                return Vec::new();
+            }
+            let (gone, kept) = std::mem::take(&mut state.triggers)
+                .into_iter()
+                .partition(|trigger| mine(trigger));
+            state.triggers = kept;
+            gone
+        })
+    }
+
+    /// Takes out the triggers of the closed chats `gone`, and those a closed chat does not keep.
+    fn end(&self, gone: &[String]) -> Vec<Trigger> {
+        let ends = |trigger: &Trigger| {
+            (trigger.ends_with_chat() && gone.contains(&trigger.agent_id))
+                || (trigger.paused.is_some() && !trigger.outlives_chat())
+        };
+        if !self.state.locked().triggers.iter().any(ends) {
+            return Vec::new();
+        }
+        self.change(|state| {
+            let (ended, kept) = std::mem::take(&mut state.triggers)
+                .into_iter()
+                .partition(ends);
+            state.triggers = kept;
+            ended
+        })
     }
 
     fn agents(&self) -> Vec<String> {
@@ -568,26 +627,14 @@ fn next_daily(minute: u32, weekdays: &[u8], now: u64) -> Option<u64> {
         })
 }
 
-/// Pauses the triggers of a chat that is closing, until it is taken up again. A chat with no
-/// session to take up never comes back, so its triggers go.
+/// Pauses the triggers of a chat that is closing, until it is taken up again or a time of theirs
+/// comes; `settle` ends those that do not outlive it. A chat with no session to take up never
+/// comes back, so its triggers go.
 pub(crate) fn pause(core: &Core, agent_id: &str, chat: Option<HeldChat>) {
     if core.triggers().count(agent_id) == 0 {
         return;
     }
-    let gone = core.triggers().change(|state| {
-        let mine = |trigger: &Trigger| trigger.prompts(agent_id);
-        if let Some(chat) = &chat {
-            for trigger in state.triggers.iter_mut().filter(|trigger| mine(trigger)) {
-                trigger.paused = Some(chat.clone());
-            }
-            return Vec::new();
-        }
-        let (gone, kept) = std::mem::take(&mut state.triggers)
-            .into_iter()
-            .partition(|trigger| mine(trigger));
-        state.triggers = kept;
-        gone
-    });
+    let gone = core.triggers().close(agent_id, chat);
     gone.iter().for_each(|trigger| unhook(core, trigger));
     core.changed(What::View);
 }
@@ -683,15 +730,10 @@ pub(crate) fn settle(core: &Arc<Core>) {
         .into_iter()
         .filter(|agent_id| core.workspaces().closed(agent_id))
         .collect();
-    if !gone.is_empty() {
-        let closed = core.triggers().change(|state| {
-            let (closed, kept) = std::mem::take(&mut state.triggers)
-                .into_iter()
-                .partition(|trigger| trigger.ends_with_chat() && gone.contains(&trigger.agent_id));
-            state.triggers = kept;
-            closed
-        });
-        closed.iter().for_each(|trigger| unhook(core, trigger));
+    let ended = core.triggers().end(&gone);
+    for trigger in &ended {
+        unhook(core, trigger);
+        show(core, trigger);
     }
     let Due {
         firing,
@@ -738,7 +780,20 @@ async fn on_board(
     }
 }
 
-async fn fire(core: Arc<Core>, firing: Firing) {
+async fn fire(core: Arc<Core>, mut firing: Firing) {
+    if firing.trigger.paused.is_some() {
+        let closed = firing.trigger.agent_id.clone();
+        match super::launching::reopen_agent(&core, closed.clone()).await {
+            Ok(taken) => firing.trigger.agent_id = taken.agent_id,
+            Err(error) => {
+                eprintln!(
+                    "sikemux core: trigger {} could not take up its closed chat {closed}: {error}",
+                    firing.trigger.id
+                );
+                return;
+            }
+        }
+    }
     let trigger = &firing.trigger;
     if let Some(project) = &trigger.board {
         on_board(
@@ -1867,5 +1922,84 @@ impl super::part::Part for Triggers {
             super::part::on_wake(core, |core| &core.triggers().wake, settle),
             tokio::spawn(park::serve(core.clone())),
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const AGENT: &str = "agent-closing";
+
+    fn trigger(id: u64, when: Value, extra: Value) -> Trigger {
+        let mut trigger = json!({
+            "id": id,
+            "agentId": AGENT,
+            "title": format!("trigger {id}"),
+            "prompt": "",
+            "when": when,
+            "nextAt": 1_000,
+        });
+        if let (Some(trigger), Some(extra)) = (trigger.as_object_mut(), extra.as_object()) {
+            trigger.extend(extra.clone());
+        }
+        serde_json::from_value(trigger).expect("a saved trigger")
+    }
+
+    fn chat() -> HeldChat {
+        HeldChat {
+            provider: "claude".to_owned(),
+            session_id: "session".to_owned(),
+            title: "Closed chat".to_owned(),
+            project: "/project".into(),
+            cwd: "/project".into(),
+            closed_at: 500,
+        }
+    }
+
+    /// The person saw ⏱ counts on closed chats: CI triggers whose runs were cancelled after the
+    /// chat closed, and polls on finished work, kept for chats nobody took up again.
+    #[test]
+    fn a_closed_chat_keeps_only_its_timed_triggers() {
+        let triggers = Triggers::new(None);
+        let ci = json!({
+            "ci": {
+                "dir": "/project",
+                "repo": { "provider": "github", "owner": "o", "name": "r", "account": "a", "host": null },
+                "on": { "commit": "67ec94a19f604fc7882a0f8f1654a49f73337fd8" },
+                "since": 400,
+            }
+        });
+        let now = 2 * LATE_GRACE_MS;
+        triggers.state.locked().triggers = vec![
+            trigger(1, json!({ "kind": "ci", "on": "67ec94a19" }), ci),
+            trigger(2, json!({ "kind": "every", "seconds": 60 }), json!({})),
+            trigger(
+                3,
+                json!({ "kind": "once", "at": now - 1 }),
+                json!({ "nextAt": now - 1 }),
+            ),
+            trigger(
+                4,
+                json!({ "kind": "daily", "minute": 600, "weekdays": [] }),
+                json!({}),
+            ),
+            trigger(5, json!({ "kind": "once", "at": 1_000 }), json!({})),
+        ];
+
+        assert!(triggers.close(AGENT, Some(chat())).is_empty());
+        let ended: Vec<u64> = (triggers.end(&[]).iter())
+            .map(|trigger| trigger.id)
+            .collect();
+        assert_eq!(ended, [1, 2]);
+
+        let due = triggers.take_due(now);
+        let fired: Vec<u64> = due.firing.iter().map(|firing| firing.trigger.id).collect();
+        assert_eq!(fired, [3]);
+        assert!(due.firing[0].trigger.paused.is_some());
+        let left: Vec<u64> = (triggers.state.locked().triggers.iter())
+            .map(|trigger| trigger.id)
+            .collect();
+        assert_eq!(left, [4]);
     }
 }
