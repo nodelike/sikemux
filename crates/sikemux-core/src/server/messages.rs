@@ -410,6 +410,9 @@ struct State {
     /// The agents whose turn at work would not take what waits for them, so it is not
     /// offered to that turn again.
     unsteered: HashSet<String>,
+    /// What each agent's turn at work was handed and is not yet known to have read, a batch
+    /// for each message it went as.
+    offered: HashMap<String, Vec<Vec<Queued>>>,
 }
 
 #[derive(Default)]
@@ -450,6 +453,13 @@ impl State {
 }
 
 impl State {
+    /// Takes back the batch the agent's turn was handed as `text`, when it was one.
+    fn take_offered(&mut self, agent_id: &str, text: &str) -> Option<Vec<Queued>> {
+        let batches = self.offered.get_mut(agent_id)?;
+        let at = batches.iter().position(|batch| joined(batch) == text)?;
+        Some(batches.remove(at))
+    }
+
     /// What is kept: a paste not yet taken waits ahead of the rest.
     fn record(&self) -> MailboxRecord {
         let mut waiting = self.waiting.clone();
@@ -661,12 +671,18 @@ impl Mailbox {
     /// only with the lead's next turn, does not count.
     pub(crate) fn report_unread(&self, worker: &str) -> bool {
         let state = self.state.locked();
-        state.waiting.values().flatten().any(|queued| {
-            !queued.is_calm()
-                && queued.origin.as_ref().is_some_and(|origin| {
-                    origin.kind == MessageKind::Report && origin.from == worker
-                })
-        })
+        let offered = state.offered.values().flatten().flatten();
+        state
+            .waiting
+            .values()
+            .flatten()
+            .chain(offered)
+            .any(|queued| {
+                !queued.is_calm()
+                    && queued.origin.as_ref().is_some_and(|origin| {
+                        origin.kind == MessageKind::Report && origin.from == worker
+                    })
+            })
     }
 
     /// Leaves a report from `worker` waiting for `lead`, as one sent while the lead is mid-turn.
@@ -724,8 +740,9 @@ impl Mailbox {
         })
     }
 
-    /// Takes what waits for the agent besides calm reports, which ride on its next turn.
-    fn take_urgent(&self, agent_id: &str) -> Vec<Queued> {
+    /// Takes what waits for the agent besides calm reports, which ride on its next turn, to
+    /// hand to its turn at work. It counts as unread until that turn is over.
+    fn take_for_turn(&self, agent_id: &str) -> Vec<Queued> {
         if !self.has_urgent_waiting(agent_id) {
             return Vec::new();
         }
@@ -733,10 +750,12 @@ impl Mailbox {
             let Some(waiting) = state.waiting.get_mut(agent_id) else {
                 return Vec::new();
             };
-            let (calm, urgent) = std::mem::take(waiting)
+            let (calm, urgent): (Vec<Queued>, Vec<Queued>) = std::mem::take(waiting)
                 .into_iter()
                 .partition(Queued::is_calm);
             *waiting = calm;
+            let offered = state.offered.entry(agent_id.to_owned()).or_default();
+            offered.push(urgent.clone());
             urgent
         })
     }
@@ -802,17 +821,19 @@ impl Mailbox {
     }
 
     /// A message the agent was handed but dropped unread waits for its next
-    /// turn, ahead of the rest.
+    /// turn, ahead of the rest, as what it was when it is known.
     pub(crate) fn returned(&self, agent_id: &str, text: String) {
-        self.put_back(
-            agent_id,
-            vec![Queued {
-                text,
-                origin: None,
-                mark: None,
-                paths: Vec::new(),
-            }],
-        );
+        self.change(|state| {
+            let unread = state.take_offered(agent_id, &text).unwrap_or_else(|| {
+                vec![Queued {
+                    text,
+                    origin: None,
+                    mark: None,
+                    paths: Vec::new(),
+                }]
+            });
+            put_back(state, agent_id, unread);
+        });
     }
 
     /// The task an agent in a terminal starts on waits for its CLI to take a prompt.
@@ -2746,6 +2767,13 @@ pub(crate) fn settle(core: &Arc<Core>) {
             .cloned()
             .collect()
     };
+    let offered: Vec<String> = mailbox.state.locked().offered.keys().cloned().collect();
+    for agent_id in offered {
+        let at_work = (core.chats().get(&agent_id)).is_some_and(|chat| chat.turn_running());
+        if !at_work {
+            mailbox.state.locked().offered.remove(&agent_id);
+        }
+    }
     let mut next = None;
     for agent_id in due {
         if let Some(until) = mailbox
@@ -2872,9 +2900,14 @@ fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
                 }
             }
             Pending::Turn => {
-                let texts = mailbox.take_urgent(&agent_id);
+                let texts = mailbox.take_for_turn(&agent_id);
                 if !texts.is_empty() {
-                    match hand(&core, &agent_id, &texts).await {
+                    let handed = hand(&core, &agent_id, &texts).await;
+                    if !matches!(handed, Ok(Delivery::Steered)) {
+                        let mut state = mailbox.state.locked();
+                        state.take_offered(&agent_id, &joined(&texts));
+                    }
+                    match handed {
                         Ok(_) => log(&core, &agent_id, &texts, MessageOutcome::Delivered),
                         Err(_) => {
                             mailbox.state.locked().unsteered.insert(agent_id.clone());
