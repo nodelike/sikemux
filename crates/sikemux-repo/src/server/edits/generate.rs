@@ -192,8 +192,8 @@ fn bring_up_to_date(
         )?)
         .into_owned(),
     );
-    if let (true, Some(signer), Some(key)) = (footer.is_empty(), signers.first(), key) {
-        super::committer::record_with(checkout, &new, signer, key);
+    if let (true, Some(key)) = (footer.is_empty(), key) {
+        super::committer::record_with(checkout, &new, signers, key);
     }
     let branch = line(git(project, &["symbolic-ref", "-q", "HEAD"])?);
     let base = branch.strip_prefix("refs/heads/").unwrap_or(&branch);

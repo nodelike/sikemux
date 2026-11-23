@@ -258,11 +258,12 @@ fn remade(
             agents.push(agent);
         }
     }
-    let footer = match attributed(dir) {
+    let attributed = attributed(dir);
+    let footer = match attributed {
         true => trailers::footer(&agents, &made, Some(key)),
         false => Vec::new(),
     };
-    let note = (!footer.is_empty())
+    let note = (!footer.is_empty() || !attributed)
         .then(|| {
             note_again::<Note>(
                 dir,
