@@ -1604,10 +1604,14 @@
           "maxLength": 120
         },
         "id": {
-          "description": "A kept page's id from page_list, instead of path and title",
+          "description": "A page's id from page_list, instead of path and title",
           "type": "string",
           "minLength": 32,
           "maxLength": 32
+        },
+        "keep": {
+          "description": "Keep it past its week, for a spec, report or dashboard the person comes back to",
+          "type": "boolean"
         }
       },
       "required": []

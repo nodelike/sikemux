@@ -52,6 +52,8 @@ pub enum Topic {
     Memory,
     /// What a project's Playbook lists: its rules, places, landing or automation.
     Playbook,
+    /// The pages agents showed, or how long each is kept.
+    Pages,
     /// A goal's summary, or how writing the next one goes.
     GoalSummary,
     /// What the `goals` call answers: its agents, their desks or what waits on the person.

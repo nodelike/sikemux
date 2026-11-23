@@ -2,10 +2,11 @@
 
 use super::page_index;
 use super::*;
+use crate::server::changed::{ChangedCore, Topic, What};
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeParts;
-pub use sikemux_calls::harness::{PageHtml, PageParams};
+pub use sikemux_calls::harness::{KeepPageParams, ListedPage, PageHtml, PageParams, PagesParams};
 
 pub(super) const PAGE_IN_TAB: &str = "The page is open in a tab on your desk, and your reply shows a card that brings it forward. Do not describe or restate it; write only what it does not already say.";
 pub(super) const PAGE_ON_DESK: &str =
@@ -29,6 +30,7 @@ pub(super) async fn show_page(
     let (data_dir, dir) = pages_dir(core)?;
     let asker = request.agent_id.clone();
     let ask = (asker.as_deref()).and_then(|agent_id| core.chats().get(agent_id)?.answering());
+    let keep = request.params.get("keep").and_then(Value::as_bool) == Some(true);
     let page = match request.params.get("id").and_then(Value::as_str) {
         Some(id) => {
             let id = id.trim().to_owned();
@@ -47,6 +49,9 @@ pub(super) async fn show_page(
                     .or_else(|| crate::pages::title(&dir, &id))
                     .unwrap_or_else(|| "Page".to_owned());
                 let _ = page_index::shown_again(&data_dir, &id, ask);
+                if keep {
+                    let _ = page_index::keep(&data_dir, &id, true);
+                }
                 Ok(Ok(crate::pages::PageRef { id, title }))
             })
             .await
@@ -75,6 +80,8 @@ pub(super) async fn show_page(
                     shown.title = page.title.clone();
                     if let Err(error) = page_index::add(&data_dir, &shown) {
                         eprintln!("sikemux core: page {} was not indexed: {error}", page.id);
+                    } else if keep {
+                        let _ = page_index::keep(&data_dir, &page.id, true);
                     }
                 }
                 Ok(page)
@@ -83,6 +90,7 @@ pub(super) async fn show_page(
             .map_err(|error| error.to_string())??
         }
     };
+    core.changed(What::Read(Topic::Pages));
     let (_, kept) = pages_dir(core)?;
     let in_chat = (asker.as_deref()).is_none_or(|agent_id| core.chats().get(agent_id).is_some());
     let quiet = in_chat
@@ -113,10 +121,17 @@ pub(super) async fn show_page(
         (true, false) => PAGE_ON_DESK,
         (false, _) => PAGE_NO_WINDOW,
     };
-    let kept = format!(
-        "Sikemux keeps it as page {}: page_list finds it and page_show with that id opens it again.",
-        page.id
-    );
+    let kept = if keep {
+        format!(
+            "Sikemux keeps it as page {} until the person lets it go: page_list finds it and page_show with that id opens it again.",
+            page.id
+        )
+    } else {
+        format!(
+            "Sikemux keeps it as page {} for a week, or a day after the call it goes with settles, unless it is kept: page_list finds it and page_show with that id opens it again.",
+            page.id
+        )
+    };
     Ok(json!({ "page": page, "note": format!("{note} {kept}") }))
 }
 
@@ -130,9 +145,18 @@ pub(super) async fn list_pages(core: &Core, request: &HarnessRequest) -> Result<
         .collect();
     let every = request.params.get("allProjects").and_then(Value::as_bool) == Some(true);
     let project = (!every).then(|| crate::server::caller::project_of(core, request));
-    let pages = blocking(move || Ok(page_index::list(&data_dir, &words, project.as_deref())))
-        .await
-        .map_err(|error| error.to_string())??;
+    let open_calls = core.harness().questions.open_ids();
+    let pages = blocking(move || {
+        Ok(page_index::list(
+            &data_dir,
+            &words,
+            project.as_deref(),
+            &open_calls,
+            page_index::MOST_LISTED,
+        ))
+    })
+    .await
+    .map_err(|error| error.to_string())??;
     if every {
         return Ok(json!({ "pages": pages }));
     }
@@ -140,6 +164,36 @@ pub(super) async fn list_pages(core: &Core, request: &HarnessRequest) -> Result<
         "pages": pages,
         "note": "Only this project's. allProjects: true lists every project's too, and the pages shown before Sikemux kept a list of them.",
     }))
+}
+
+/// Every page agents showed in a project, for its library.
+pub(crate) async fn library(core: &Core, params: PagesParams) -> CoreResult<Vec<ListedPage>> {
+    let (data_dir, _) = pages_dir(core)?;
+    let words: Vec<String> = (params.words.split_whitespace())
+        .take(8)
+        .map(str::to_owned)
+        .collect();
+    let open_calls = core.harness().questions.open_ids();
+    blocking(move || {
+        page_index::list(
+            &data_dir,
+            &words,
+            Some(&params.project),
+            &open_calls,
+            page_index::LIBRARY_HOLDS,
+        )
+        .map_err(CoreError::from)
+    })
+    .await
+}
+
+/// Keeps a page, or lets it go again.
+pub(crate) async fn keep_page(core: &Core, params: KeepPageParams) -> CoreResult<()> {
+    let (data_dir, _) = pages_dir(core)?;
+    blocking(move || page_index::keep(&data_dir, &params.id, params.keep).map_err(CoreError::from))
+        .await?;
+    core.changed(What::Read(Topic::Pages));
+    Ok(())
 }
 
 /// Whoever started `agent_id` sees the page as a row in their chat, and a call about its work

@@ -279,17 +279,6 @@ pub(crate) fn said(core: &Core, folder: &str, id: u64) -> Vec<AskSaid> {
         .unwrap_or_default()
 }
 
-/// The asks still kept, and the address of every page opened under them.
-pub(crate) fn kept(core: &Core) -> (BTreeSet<u64>, Vec<String>) {
-    let state = core.boards().state.locked();
-    let all = || state.boards.values().flat_map(asks);
-    let ids = all().map(|(card, _)| card.id).collect();
-    let opened = all()
-        .flat_map(|(_, asked)| asked.pages.iter().map(|page| page.url.clone()))
-        .collect();
-    (ids, opened)
-}
-
 /// The window's desks moved from `before` to `after`. What opened on an agent's desk goes under
 /// the ask the person has open there, else the ask the agent is answering; pages already kept
 /// take their latest title and address.

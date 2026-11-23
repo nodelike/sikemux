@@ -588,6 +588,12 @@ impl Questions {
         (self.state.locked().open.iter()).any(|question| question.id == id)
     }
 
+    pub(crate) fn open_ids(&self) -> HashSet<String> {
+        (self.state.locked().open.iter())
+            .map(|question| question.id.clone())
+            .collect()
+    }
+
     pub(crate) fn blocks_on_person(&self, agent_id: &str) -> bool {
         self.state.locked().open.iter().any(|question| {
             question.agent_id == agent_id && question.blocked && question.asks_person()
