@@ -416,6 +416,9 @@ struct State {
     /// What each agent's turn at work was handed and is not yet known to have read, a batch
     /// for each message it went as.
     offered: HashMap<String, Vec<Vec<Queued>>>,
+    /// What each agent's last turn was handed, once that turn stopped. A stopped turn can say
+    /// what it left unread only after it is seen to have stopped.
+    offered_last: HashMap<String, Vec<Vec<Queued>>>,
     /// Until when each worker's report of the turn it just ended may still be on its way.
     reporting: HashMap<String, u64>,
 }
@@ -460,9 +463,13 @@ impl State {
 impl State {
     /// Takes back the batch the agent's turn was handed as `text`, when it was one.
     fn take_offered(&mut self, agent_id: &str, text: &str) -> Option<Vec<Queued>> {
-        let batches = self.offered.get_mut(agent_id)?;
-        let at = batches.iter().position(|batch| joined(batch) == text)?;
-        Some(batches.remove(at))
+        [&mut self.offered, &mut self.offered_last]
+            .into_iter()
+            .find_map(|offered| {
+                let batches = offered.get_mut(agent_id)?;
+                let at = batches.iter().position(|batch| joined(batch) == text)?;
+                Some(batches.remove(at))
+            })
     }
 
     /// What is kept: a paste not yet taken waits ahead of the rest.
@@ -2818,7 +2825,11 @@ pub(crate) fn settle(core: &Arc<Core>) {
     for agent_id in offered {
         let at_work = (core.chats().get(&agent_id)).is_some_and(|chat| chat.turn_running());
         if !at_work {
-            mailbox.state.locked().offered.remove(&agent_id);
+            let mut state = mailbox.state.locked();
+            if let Some(batches) = state.offered.remove(&agent_id) {
+                state.offered_last.insert(agent_id, batches);
+            }
+            drop(state);
             super::finished::moved(core);
         }
     }
