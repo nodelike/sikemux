@@ -86,6 +86,16 @@ pub fn of(core: &Core, dir: &Path, commit: &str) -> Option<Committer> {
     read(dir, commit, &core.remote().host_keys())
 }
 
+/// The commits that have a note of who made them, whoever signed it.
+pub fn noted(dir: &Path) -> std::collections::HashSet<String> {
+    let notes = format!("--ref={NOTES_REF}");
+    let listed = git(dir, &["notes", &notes, "list"]).unwrap_or_default();
+    (listed.lines())
+        .filter_map(|line| line.split_whitespace().nth(1))
+        .map(str::to_owned)
+        .collect()
+}
+
 /// A commit a note says an agent made.
 pub struct Made {
     pub sha: String,
@@ -98,14 +108,8 @@ pub struct Made {
 /// The commits on any branch made since `since`, in seconds, that a note one of `hosts`
 /// signed says an agent made, newest first.
 pub fn made_since(dir: &Path, since: u64, hosts: &[iroh::PublicKey]) -> Vec<Made> {
-    let notes = format!("--ref={NOTES_REF}");
-    let Ok(listed) = git(dir, &["notes", &notes, "list"]) else {
-        return Vec::new();
-    };
-    let noted: std::collections::HashSet<&str> = (listed.lines())
-        .filter_map(|line| line.split_whitespace().nth(1))
-        .collect();
-    if noted.is_empty() {
+    let has_note = noted(dir);
+    if has_note.is_empty() {
         return Vec::new();
     }
     let since = format!("--since={since}");
@@ -121,7 +125,7 @@ pub fn made_since(dir: &Path, since: u64, hosts: &[iroh::PublicKey]) -> Vec<Made
         .filter_map(|line| {
             let mut parts = line.splitn(3, '\x1f');
             let (sha, at, subject) = (parts.next()?, parts.next()?, parts.next()?);
-            if !noted.contains(sha) {
+            if !has_note.contains(sha) {
                 return None;
             }
             Some(Made {
