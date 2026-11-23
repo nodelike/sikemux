@@ -44,6 +44,19 @@ pub struct ListedPage {
     pub versions: u64,
     #[serde(flatten)]
     pub life: PageLife,
+    /// The link it is shared through, while it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared: Option<PageShare>,
+}
+
+/// A page's link, which shows its latest version until it ends or sharing stops.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageShare {
+    pub url: String,
+    pub expires_at: u64,
+    /// Whether anyone with the link may read it, or only people signed in to Sikemux.
+    pub anyone: bool,
 }
 
 /// How long Sikemux keeps a page.
@@ -57,6 +70,17 @@ pub enum PageLife {
     },
     /// It stays while the call it went with is open, and goes a day after that call settles.
     WithCall,
+}
+
+/// Shares page `id` through a link. A page already shared keeps its link and when it ends.
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharePageParams {
+    pub id: String,
+    pub lifetime_ms: u64,
+    pub anyone: bool,
+    /// The `:root` rule of the theme the page is read in.
+    pub theme: String,
 }
 
 #[derive(Deserialize, Serialize)]

@@ -57,7 +57,7 @@ mod waits;
 use inspect::*;
 use methods::tool_word;
 use pages::*;
-pub(crate) use pages::{keep_page, library, read_page};
+pub(crate) use pages::{keep_page, library, read_page, share_page, stop_page_share};
 pub use processes::RunSelector;
 use processes::*;
 pub(crate) use processes::{

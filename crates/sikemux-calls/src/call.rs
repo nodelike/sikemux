@@ -106,6 +106,8 @@ crate::calls! {
     "page" ReadPage (crate::harness::PageParams) -> crate::harness::PageHtml;
     "pages" ListPages (crate::harness::PagesParams) -> Vec<crate::harness::ListedPage>;
     "keepPage" KeepPage (crate::harness::KeepPageParams) -> ();
+    "sharePage" SharePage (crate::harness::SharePageParams) -> crate::harness::PageShare;
+    "stopPageShare" StopPageShare (crate::harness::PageParams) -> ();
     "renameAgent" RenameAgent (crate::names::RenameAgentParams) -> crate::names::AgentName;
     "hireAgent" HireAgent (crate::names::HireAgentParams) -> crate::names::AgentName;
     "startSideChat" StartSideChat (crate::chat::SideChatParams) -> crate::chat::SideChat;

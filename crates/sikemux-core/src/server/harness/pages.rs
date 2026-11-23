@@ -7,10 +7,14 @@ use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeParts;
 pub use sikemux_calls::harness::{KeepPageParams, ListedPage, PageHtml, PageParams, PagesParams};
+use sikemux_calls::harness::{PageShare, SharePageParams};
+use sikemux_process::clock::epoch_ms;
 
 pub(super) const PAGE_IN_TAB: &str = "The page is open in a tab on your desk, and your reply shows a card that brings it forward. Do not describe or restate it; write only what it does not already say.";
 pub(super) const PAGE_ON_DESK: &str =
     "The page is open on your desk, beside your terminal, where the person can see it.";
+const HOUR_MS: u64 = 60 * 60 * 1000;
+const SHARED_AT_MOST_MS: u64 = 30 * 24 * HOUR_MS;
 const PAGE_ON_SHUT_DESK: &str = "The person did not start this turn, so the page waits in a tab on your desk, which stays shut. To have them look, raise a call with ask and this page's id in page.";
 pub(super) const PAGE_NO_WINDOW: &str = "No Sikemux window is open to show it on your desk.";
 
@@ -91,6 +95,7 @@ pub(super) async fn show_page(
         }
     };
     core.changed(What::Read(Topic::Pages));
+    tokio::spawn(share_again(core.clone(), page.id.clone()));
     let (_, kept) = pages_dir(core)?;
     let in_chat = (asker.as_deref()).is_none_or(|agent_id| core.chats().get(agent_id).is_some());
     let quiet = in_chat
@@ -194,6 +199,104 @@ pub(crate) async fn keep_page(core: &Core, params: KeepPageParams) -> CoreResult
         .await?;
     core.changed(What::Read(Topic::Pages));
     Ok(())
+}
+
+/// Shares a page through a link of its own, which keeps it. A page already shared keeps its link
+/// and when it ends.
+pub(crate) async fn share_page(core: &Core, params: SharePageParams) -> CoreResult<PageShare> {
+    let (data_dir, dir) = pages_dir(core)?;
+    let read = read_shared(data_dir.clone(), dir, params.id.clone()).await?;
+    let link = match read.link {
+        Some(link) => page_index::Link {
+            anyone: params.anyone,
+            theme: params.theme,
+            ..link
+        },
+        None => {
+            let (id, key) = crate::server::share::page::new_link()?;
+            let lifetime = params.lifetime_ms.clamp(HOUR_MS, SHARED_AT_MOST_MS);
+            page_index::Link {
+                id,
+                key,
+                anyone: params.anyone,
+                expires: epoch_ms() + lifetime,
+                theme: params.theme,
+            }
+        }
+    };
+    upload(core, &link, &read.title, &read.html).await?;
+    let (id, stored) = (params.id, link.clone());
+    blocking(move || page_index::shared(&data_dir, &id, &stored).map_err(CoreError::from)).await?;
+    core.changed(What::Read(Topic::Pages));
+    Ok(PageShare {
+        url: crate::server::share::page::url(&link.id, &link.key),
+        expires_at: link.expires,
+        anyone: link.anyone,
+    })
+}
+
+/// Ends a page's link. The page stays kept.
+pub(crate) async fn stop_page_share(core: &Core, params: PageParams) -> CoreResult<()> {
+    let (data_dir, _) = pages_dir(core)?;
+    let (from, id) = (data_dir.clone(), params.id.clone());
+    let link = blocking(move || page_index::share_of(&from, &id).map_err(CoreError::from)).await?;
+    if let Some(link) = link {
+        crate::server::share::page::delete(core, &link.id).await?;
+    }
+    blocking(move || {
+        page_index::unshared(&data_dir, &params.id)
+            .map(drop)
+            .map_err(CoreError::from)
+    })
+    .await?;
+    core.changed(What::Read(Topic::Pages));
+    Ok(())
+}
+
+struct ToShare {
+    title: String,
+    html: String,
+    link: Option<page_index::Link>,
+}
+
+async fn read_shared(data_dir: PathBuf, dir: PathBuf, id: String) -> CoreResult<ToShare> {
+    if !crate::pages::is_page_id(&id) {
+        return Err("that is not a page's id".into());
+    }
+    blocking(move || {
+        let html = std::fs::read_to_string(dir.join(format!("{id}.html")))
+            .map_err(|_| CoreError::from("that page is gone"))?;
+        let title = (page_index::title_of(&data_dir, &id))
+            .or_else(|| crate::pages::title(&dir, &id))
+            .unwrap_or_else(|| "Page".to_owned());
+        let link = page_index::share_of(&data_dir, &id)?;
+        Ok(ToShare { title, html, link })
+    })
+    .await
+}
+
+/// Puts a page's latest version behind its link, in the theme it was shared in, with nothing it
+/// may fetch from the network.
+async fn upload(core: &Core, link: &page_index::Link, title: &str, html: &str) -> CoreResult<()> {
+    let html = crate::pages::network_closed(&crate::pages::themed(html, &link.theme, None), &[]);
+    let at = (link.id.as_str(), link.key.as_str());
+    crate::server::share::page::put(core, at, title, &html, link.anyone, link.expires).await
+}
+
+/// A new version of a shared page shows behind its link.
+async fn share_again(core: Arc<Core>, id: String) {
+    let Ok((data_dir, dir)) = pages_dir(&core) else {
+        return;
+    };
+    let Ok(read) = read_shared(data_dir, dir, id.clone()).await else {
+        return;
+    };
+    let Some(link) = read.link else {
+        return;
+    };
+    if let Err(error) = upload(&core, &link, &read.title, &read.html).await {
+        eprintln!("sikemux core: shared page {id} was not updated: {error}");
+    }
 }
 
 /// Whoever started `agent_id` sees the page as a row in their chat, and a call about its work

@@ -1,14 +1,15 @@
 //! Every page an agent showed, findable again: one row per page, saying who showed it, in which
 //! project, when, and the ask or call it went with. The same agent showing the same title again
 //! makes a new version of that page. Pages are thrown away unless kept: a call's a day after the
-//! call settles, any other a week after it was last shown.
+//! call settles, any other a week after it was last shown. A page shared through a link is kept,
+//! and its link shows its latest version.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
-use sikemux_calls::harness::{ListedPage, PageLife};
+use sikemux_calls::harness::{ListedPage, PageLife, PageShare};
 use sikemux_process::clock::epoch_ms;
 
 use crate::server::changed::{ChangedCore, Topic, What};
@@ -55,7 +56,17 @@ fn open(data_dir: &Path) -> Result<Connection, String> {
                 settled INTEGER,
                 seen INTEGER NOT NULL DEFAULT 0
             );
-            CREATE INDEX IF NOT EXISTS pages_version ON pages(agent, title, at);",
+            CREATE INDEX IF NOT EXISTS pages_version ON pages(agent, title, at);
+            CREATE TABLE IF NOT EXISTS page_shares (
+                agent TEXT NOT NULL,
+                title TEXT NOT NULL,
+                id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                anyone INTEGER NOT NULL,
+                expires INTEGER NOT NULL,
+                theme TEXT NOT NULL,
+                PRIMARY KEY (agent, title)
+            );",
         )
         .map_err(failed)?;
     add_lifetimes(&mut connection).map_err(failed)?;
@@ -121,9 +132,14 @@ pub(crate) fn shown_again(data_dir: &Path, id: &str, ask: Option<u64>) -> Result
         .map_err(|error| error.to_string())
 }
 
-/// Keeps every version of page `id`, or lets them go again, each starting its time over.
+/// Keeps every version of page `id`, or lets them go again, each starting its time over. A
+/// shared page stays kept until sharing stops.
 pub(crate) fn keep(data_dir: &Path, id: &str, keep: bool) -> Result<(), String> {
-    let changed = open(data_dir)?
+    let connection = open(data_dir)?;
+    if !keep && share_of_with(&connection, id)?.is_some() {
+        return Err("the page is shared; stop sharing it first".into());
+    }
+    let changed = connection
         .execute(
             "UPDATE pages SET kept = ?2,
                 seen = ?3,
@@ -170,16 +186,19 @@ pub(crate) fn list(
     let connection = open(data_dir)?;
     settle(&connection, open_calls).map_err(|error| error.to_string())?;
     let mut sql = String::from(
-        "SELECT id, title, project, name, at, versions, kept, call, settled, seen FROM (
+        "SELECT p.id, p.title, p.project, p.name, p.at, p.versions, p.kept, p.call, p.settled,
+            p.seen, s.id, s.key, s.anyone, s.expires FROM (
             SELECT *, COUNT(*) OVER version AS versions,
                 ROW_NUMBER() OVER (version ORDER BY at DESC) AS newest
             FROM pages WINDOW version AS (PARTITION BY agent, title)
-        ) WHERE newest = 1",
+        ) AS p LEFT JOIN page_shares AS s
+            ON (s.agent, s.title) = (p.agent, p.title) AND s.expires > ?1
+        WHERE p.newest = 1",
     );
-    let mut values: Vec<String> = Vec::new();
+    let mut values: Vec<String> = vec![epoch_ms().to_string()];
     if let Some(project) = project {
         values.push(project.to_owned());
-        sql.push_str(&format!(" AND project = ?{}", values.len()));
+        sql.push_str(&format!(" AND p.project = ?{}", values.len()));
     }
     for word in words {
         let escaped = word
@@ -187,9 +206,9 @@ pub(crate) fn list(
             .replace('%', "\\%")
             .replace('_', "\\_");
         values.push(format!("%{escaped}%"));
-        sql.push_str(&format!(" AND title LIKE ?{} ESCAPE '\\'", values.len()));
+        sql.push_str(&format!(" AND p.title LIKE ?{} ESCAPE '\\'", values.len()));
     }
-    sql.push_str(&format!(" ORDER BY at DESC LIMIT {most}"));
+    sql.push_str(&format!(" ORDER BY p.at DESC LIMIT {most}"));
     let mut statement = connection
         .prepare(&sql)
         .map_err(|error| error.to_string())?;
@@ -203,11 +222,89 @@ pub(crate) fn list(
                 shown_at: row.get::<_, i64>(4)? as u64,
                 versions: row.get::<_, i64>(5)? as u64,
                 life: life_of(row, 6)?,
+                shared: match row.get::<_, Option<String>>(10)? {
+                    Some(link) => Some(PageShare {
+                        url: crate::server::share::page::url(&link, &row.get::<_, String>(11)?),
+                        anyone: row.get(12)?,
+                        expires_at: row.get::<_, i64>(13)? as u64,
+                    }),
+                    None => None,
+                },
             })
         })
         .map_err(|error| error.to_string())?;
     rows.collect::<rusqlite::Result<_>>()
         .map_err(|error| error.to_string())
+}
+
+/// The link page `id` is shared through, while it works.
+#[derive(Clone, Debug)]
+pub(crate) struct Link {
+    pub id: String,
+    pub key: String,
+    pub anyone: bool,
+    pub expires: u64,
+    /// The `:root` rule of the theme the page was shared in, which each new version is sealed in.
+    pub theme: String,
+}
+
+pub(crate) fn share_of(data_dir: &Path, id: &str) -> Result<Option<Link>, String> {
+    share_of_with(&open(data_dir)?, id)
+}
+
+fn share_of_with(connection: &Connection, id: &str) -> Result<Option<Link>, String> {
+    connection
+        .query_row(
+            "SELECT s.id, s.key, s.anyone, s.expires, s.theme FROM page_shares AS s
+             JOIN pages AS p ON (s.agent, s.title) = (p.agent, p.title)
+             WHERE p.id = ?1 AND s.expires > ?2",
+            params![id, epoch_ms() as i64],
+            |row| {
+                Ok(Link {
+                    id: row.get(0)?,
+                    key: row.get(1)?,
+                    anyone: row.get(2)?,
+                    expires: row.get::<_, i64>(3)? as u64,
+                    theme: row.get(4)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| error.to_string())
+}
+
+/// Page `id` is shared through `link` now, which keeps it.
+pub(crate) fn shared(data_dir: &Path, id: &str, link: &Link) -> Result<(), String> {
+    keep(data_dir, id, true)?;
+    open(data_dir)?
+        .execute(
+            "INSERT OR REPLACE INTO page_shares (agent, title, id, key, anyone, expires, theme)
+             SELECT agent, title, ?2, ?3, ?4, ?5, ?6 FROM pages WHERE id = ?1",
+            params![
+                id,
+                link.id,
+                link.key,
+                link.anyone,
+                link.expires as i64,
+                link.theme
+            ],
+        )
+        .map(drop)
+        .map_err(|error| error.to_string())
+}
+
+/// Page `id` is no longer shared. The link it was shared through, if it was.
+pub(crate) fn unshared(data_dir: &Path, id: &str) -> Result<Option<String>, String> {
+    let connection = open(data_dir)?;
+    let link = share_of_with(&connection, id)?;
+    connection
+        .execute(
+            "DELETE FROM page_shares
+             WHERE (agent, title) = (SELECT agent, title FROM pages WHERE id = ?1)",
+            [id],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(link.map(|link| link.id))
 }
 
 /// Indexes the pages kept before there was an index, by their title and when they were written.
@@ -314,7 +411,10 @@ fn sweep(connection: &Connection, pages: &Path) -> Result<usize, String> {
     for id in &gone {
         let _ = remove.execute([id]);
     }
-    Ok(gone.len())
+    let ended = connection
+        .execute("DELETE FROM page_shares WHERE expires <= ?1", [now as i64])
+        .map_err(|error| error.to_string())?;
+    Ok(gone.len() + ended)
 }
 
 /// Indexes the pages kept before the index, then each hour marks the pages whose call settled

@@ -169,6 +169,8 @@ calls! { core, client, method, params;
     "page" = ReadPage: Watch, any_program => super::harness::read_page(&core, params).await?,
     "pages" = ListPages: Watch => super::harness::library(&core, params).await?,
     "keepPage" = KeepPage: Owner => super::harness::keep_page(&core, params).await?,
+    "sharePage" = SharePage: Owner, signs("Share a page through a link."), counted => super::harness::share_page(&core, params).await?,
+    "stopPageShare" = StopPageShare: Owner => super::harness::stop_page_share(&core, params).await?,
     "mcpApp" = ReadMcpApp: Watch, any_program => super::mcp_apps::read(&core, params).await?,
     "mcpAppRequest" = McpAppRequest: Full => super::mcp_apps::request(&core, params).await?,
     "nameAgent": NoDevice => answer(names::name_agent(&core, parse(params)?).await?),

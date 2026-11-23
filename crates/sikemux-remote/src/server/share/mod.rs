@@ -9,6 +9,7 @@
 //! link, who read it without signing in and may not write in it.
 
 mod link;
+pub mod page;
 mod seal;
 
 use crate::server::changed::ChangedCore;
