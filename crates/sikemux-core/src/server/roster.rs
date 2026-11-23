@@ -2,6 +2,7 @@
 //! those on linked hosts. What the agents' tools list, read and close comes from here.
 
 use crate::server::agent_now::AgentNowCore;
+use crate::server::chat_state::ChatParts;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::{WorkspaceCore, WorkspaceParts};
@@ -77,17 +78,30 @@ pub(crate) fn hears_of(core: &Core, agent_id: &str) -> Hears {
         .map_or(Hears::Person, Hears::Chief)
 }
 
-/// An agent's status, with one at rest that has a task or messages waiting
-/// for it counted as about to start its next turn.
+/// An agent's status as other agents are told it.
 pub(crate) fn standing(agent: &Listed, core: &Core) -> AgentStatus {
+    let unstarted = agent.status == AgentStatus::Starting
+        && (core.chats().get(&agent.agent_id)).is_some_and(|chat| chat.unstarted());
+    let has_mail = core.harness().mailbox.has_waiting(&agent.agent_id);
+    stands(agent.status, unstarted, has_mail)
+}
+
+/// A chat whose agent starts only once it is written to is asleep, not starting, since
+/// nothing of it is on its way up. An agent at rest that has a task or messages waiting
+/// for it counts as about to start its next turn.
+fn stands(status: AgentStatus, unstarted: bool, has_mail: bool) -> AgentStatus {
+    let status = match status {
+        AgentStatus::Starting if unstarted => AgentStatus::Asleep,
+        status => status,
+    };
     let resting = matches!(
-        agent.status,
+        status,
         AgentStatus::Idle | AgentStatus::Done | AgentStatus::Asleep
     );
-    if resting && core.harness().mailbox.has_waiting(&agent.agent_id) {
+    if resting && has_mail {
         AgentStatus::Starting
     } else {
-        agent.status
+        status
     }
 }
 
@@ -645,4 +659,28 @@ pub(crate) fn reaches(core: &Core, agent: &Listed, project: &str, caller: &str) 
         _ => core.names().team_of(&agent.agent_id),
     };
     agent.project == project || top == core.names().team_of(caller)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two chats the person had open but had not written to since the app
+    /// started, were listed to other agents as "starting" for days. Neither had an agent
+    /// running or on its way up.
+    #[test]
+    fn a_chat_that_waits_for_the_person_to_write_is_asleep_not_starting() {
+        assert_eq!(
+            stands(AgentStatus::Starting, true, false),
+            AgentStatus::Asleep
+        );
+        assert_eq!(
+            stands(AgentStatus::Starting, false, false),
+            AgentStatus::Starting
+        );
+        assert_eq!(
+            stands(AgentStatus::Starting, true, true),
+            AgentStatus::Starting
+        );
+    }
 }
