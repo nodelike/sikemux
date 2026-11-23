@@ -856,6 +856,52 @@ pub mod tests {
         assert!(replay.person_said().is_empty());
     }
 
+    /// agent_read with a question said a worker "has said nothing yet that can be passed on"
+    /// after it had answered its lead twice: every message in a worker's chat is its lead's,
+    /// and only the person's opened an exchange.
+    #[test]
+    fn a_worker_that_only_its_lead_wrote_to_has_answers_to_pass_on() {
+        let mut replay = Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, None);
+        let from_lead = |said: &str| {
+            let letter = format!(
+                "<agent-message from=\"Chief\" agent-id=\"agent-c54b\" cli=\"claude\" note=\"Sent by Chief (agent-c54b), another agent in Sikemux, not by the person.\">\n{said}\n</agent-message>"
+            );
+            json!({ "text": letter, "paths": [] })
+        };
+        let wrote = |message: &str, said: &str| text("agent_message_chunk", Some(message), said);
+
+        replay.push(
+            ChatEventKind::Prompt,
+            &from_lead("Build the payment webhook."),
+        );
+        replay.push(ChatEventKind::TurnStarted, &json!({}));
+        replay.push(
+            ChatEventKind::SessionUpdate,
+            &wrote("m1", "Deploying a preview."),
+        );
+        replay.push(
+            ChatEventKind::Prompt,
+            &from_lead("Heads up: the domain is switching to the new site."),
+        );
+        replay.push(
+            ChatEventKind::SessionUpdate,
+            &wrote("m2", "The payment webhook is built and tested."),
+        );
+        replay.push(
+            ChatEventKind::TurnCompleted,
+            &json!({ "stopReason": "end_turn" }),
+        );
+
+        assert!(replay.exchanges(8, 1_500).is_empty());
+        assert_eq!(
+            replay.answers(8, 1_500),
+            [
+                "Deploying a preview.",
+                "The payment webhook is built and tested."
+            ]
+        );
+    }
+
     #[test]
     fn a_rewind_forgets_the_message_and_everything_after_it() {
         let mut replay = Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, None);

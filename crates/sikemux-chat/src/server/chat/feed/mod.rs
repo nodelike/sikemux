@@ -1173,6 +1173,14 @@ impl Feed {
         inner.replay.exchanges(count, longest)
     }
 
+    /// What the agent wrote back to its newest messages, as [`Replay::answers`] picks it.
+    pub fn answers(&self, count: usize, longest: usize) -> Vec<String> {
+        let mut inner = self.inner.locked();
+        inner.replay.reload();
+        self.account(&inner);
+        inner.replay.answers(count, longest)
+    }
+
     /// Every exchange with the person, whole, and the commands the agent ran with their
     /// outcomes, for another agent taking the chat over.
     pub fn handed_over(&self) -> HandedOver {

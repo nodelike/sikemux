@@ -105,13 +105,29 @@ impl Replay {
         count: usize,
         longest: usize,
     ) -> Vec<(String, String)> {
+        self.answered(count, longest, false)
+    }
+
+    /// What the agent wrote back to its newest `count` messages, oldest first, whoever sent
+    /// them: the person, another agent or Sikemux. A worker's chat holds only its lead's
+    /// messages, so its words are found here and not in [`Self::exchanges`]. Each past
+    /// `longest` characters keeps its end, marked `[cut]`.
+    pub(in super::super) fn answers(&self, count: usize, longest: usize) -> Vec<String> {
+        (self.answered(count, longest, true).into_iter())
+            .map(|(_, answered)| answered)
+            .collect()
+    }
+
+    /// Each message and what the agent wrote back to it: the person's alone, or with
+    /// `anyone` every message it wrote something back to.
+    fn answered(&self, count: usize, longest: usize, anyone: bool) -> Vec<(String, String)> {
         let mut exchanges: Vec<(String, String)> = Vec::new();
         let mut open = false;
         for entry in &self.entries {
             let payload = &entry.event.payload;
             match entry.event.kind {
                 ChatEventKind::Prompt => {
-                    open = payload.get("person") == Some(&Value::Bool(true));
+                    open = anyone || payload.get("person") == Some(&Value::Bool(true));
                     if open {
                         let text = payload.get("text").and_then(Value::as_str);
                         exchanges.push((text.unwrap_or_default().trim().to_owned(), String::new()));
@@ -130,6 +146,9 @@ impl Replay {
                 }
                 _ => {}
             }
+        }
+        if anyone {
+            exchanges.retain(|(_, answered)| !answered.trim().is_empty());
         }
         let first = exchanges.len().saturating_sub(count);
         let start = |text: &str| {
