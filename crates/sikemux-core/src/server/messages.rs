@@ -407,6 +407,9 @@ struct State {
     reported: HashMap<String, (String, u64)>,
     /// The agents whose chats show messages waiting for them.
     shown: HashSet<String>,
+    /// The agents whose turn at work would not take what waits for them, so it is not
+    /// offered to that turn again.
+    unsteered: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -690,6 +693,23 @@ impl Mailbox {
         })
     }
 
+    /// Takes what waits for the agent besides calm reports, which ride on its next turn.
+    fn take_urgent(&self, agent_id: &str) -> Vec<Queued> {
+        if !self.has_urgent_waiting(agent_id) {
+            return Vec::new();
+        }
+        self.change(|state| {
+            let Some(waiting) = state.waiting.get_mut(agent_id) else {
+                return Vec::new();
+            };
+            let (calm, urgent) = std::mem::take(waiting)
+                .into_iter()
+                .partition(Queued::is_calm);
+            *waiting = calm;
+            urgent
+        })
+    }
+
     fn note_reported(&self, worker: &str, to: &str) {
         let now = epoch_ms();
         let mut state = self.state.locked();
@@ -710,9 +730,10 @@ impl Mailbox {
             .unwrap_or_default()
     }
 
-    /// Answers how many wait now, and the earlier reports from the same
-    /// worker this one replaces, so a lead holds only each worker's newest. A calm
-    /// report never replaces one that is not.
+    /// Answers how many wait now, and the earlier calm reports from the same
+    /// worker this one replaces, so a lead holds only each worker's newest calm line.
+    /// A report of how a turn ended is never replaced: each is that turn's only word
+    /// to the lead.
     fn wait(&self, agent_id: &str, queued: Queued) -> (usize, Vec<Queued>) {
         self.change(|state| {
             let waiting = state.waiting.entry(agent_id.to_owned()).or_default();
@@ -723,13 +744,11 @@ impl Mailbox {
                 ..
             }) = &queued.origin
             {
-                let calm = queued.is_calm();
                 let (older, kept) = std::mem::take(waiting).into_iter().partition(|waiting| {
-                    waiting.origin.as_ref().is_some_and(|origin| {
-                        origin.kind == MessageKind::Report
-                            && &origin.from == from
-                            && (!calm || waiting.is_calm())
-                    })
+                    waiting.is_calm()
+                        && waiting.origin.as_ref().is_some_and(|origin| {
+                            origin.kind == MessageKind::Report && &origin.from == from
+                        })
                 });
                 *waiting = kept;
                 superseded = older;
@@ -2684,8 +2703,10 @@ pub(crate) fn settle(core: &Arc<Core>) {
             wake_failed,
             missed_pastes,
             delivering,
+            unsteered,
             ..
         } = &mut *state;
+        unsteered.retain(|agent_id| waiting.contains_key(agent_id));
         wake_failed.retain(|agent_id, _| waiting.contains_key(agent_id));
         missed_pastes.retain(|agent_id, _| waiting.contains_key(agent_id));
         waiting
@@ -2710,8 +2731,16 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 continue;
             }
             if chat.turn_running() {
+                // A turn someone else started reads what waits at its next step, as it
+                // would a message sent now, rather than only once it has ended and rested.
+                let offer = mailbox.has_urgent_waiting(&agent_id)
+                    && !mailbox.state.locked().unsteered.contains(&agent_id);
+                if offer {
+                    deliver_later(core, agent_id, Pending::Turn);
+                }
                 continue;
             }
+            mailbox.state.locked().unsteered.remove(&agent_id);
             match rests_until(core, &agent_id, rest) {
                 Some(until) => next = sooner(next, Some(until)),
                 None => deliver_later(core, agent_id, Pending::Chat),
@@ -2788,6 +2817,8 @@ fn show(core: &Core) {
 
 enum Pending {
     Chat,
+    /// The chat is at work on a turn, which may take what waits.
+    Turn,
     Asleep,
 }
 
@@ -2806,6 +2837,18 @@ fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
                     match hand(&core, &agent_id, &texts).await {
                         Ok(_) => log(&core, &agent_id, &texts, MessageOutcome::Delivered),
                         Err(_) => mailbox.put_back(&agent_id, texts),
+                    }
+                }
+            }
+            Pending::Turn => {
+                let texts = mailbox.take_urgent(&agent_id);
+                if !texts.is_empty() {
+                    match hand(&core, &agent_id, &texts).await {
+                        Ok(_) => log(&core, &agent_id, &texts, MessageOutcome::Delivered),
+                        Err(_) => {
+                            mailbox.state.locked().unsteered.insert(agent_id.clone());
+                            mailbox.put_back(&agent_id, texts);
+                        }
                     }
                 }
             }
@@ -2931,6 +2974,35 @@ mod tests {
         assert_eq!(letters[0].kind, LetterKind::Message);
         assert_eq!(letters[0].name, "Masayuki");
         assert_eq!(letters[0].text, "PR 3 is up.");
+    }
+
+    /// A worker's turn ended while its lead rested from its own, so the report waited. The
+    /// lead wrote to the worker again, that turn ended too, and its report took the place of
+    /// the first, which the lead never read.
+    #[tokio::test]
+    async fn a_report_still_waiting_is_kept_when_the_workers_next_turn_ends() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let mailbox = &core.harness().mailbox;
+        let report = |text: &str| Queued {
+            text: text.to_owned(),
+            origin: Some(Origin {
+                from: "agent-otter".to_owned(),
+                kind: MessageKind::Report,
+                awaited: false,
+                calm: None,
+            }),
+            mark: None,
+            paths: Vec::new(),
+        };
+
+        let first = "The payment webhook is built and tested, and a preview deploy is up.";
+        let second = "Both pieces are finished. The details are in my message to Chief.";
+        mailbox.wait("agent-chief", report(first));
+        let (waiting, dropped) = mailbox.wait("agent-chief", report(second));
+
+        assert!(dropped.is_empty(), "the first turn's report was dropped");
+        assert_eq!(waiting, 2);
+        assert_eq!(waiting_texts(&core, "agent-chief"), [first, second]);
     }
 
     /// CI failed after a closed worker's push, and the note Sikemux sent its lead in the
