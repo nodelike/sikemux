@@ -27,6 +27,6 @@ snap pages-call-open
 front Wren
 settle 10
 snap pages-chat
-click "Warm-up after a deploy"
+click 526,410
 settle 3
 snap pages-chat-open
