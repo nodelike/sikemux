@@ -22,6 +22,7 @@ import type {
 } from '@shared/wire.generated';
 import ADAPTER_HUNT from './recorded/adapter-hunt.json';
 import LOGIN_FIX from './recorded/login-fix.json';
+import PAGE_SHOWN from './recorded/page-shown.json';
 import SIGNUP_CHECK from './recorded/signup-check.json';
 
 export const CORE = 'showcase0000000000000000000000000000000000000000000000000000core';
@@ -176,6 +177,7 @@ export const RECORDED: DemoChat[] = [
   recorded('chat-login-fix', 'Sango', 'p-shop', LOGIN_FIX),
   recorded('chat-signup-check', 'Kuro', 'p-shop', SIGNUP_CHECK),
   recorded('chat-adapter-hunt', 'Ivy', 'p-shop', ADAPTER_HUNT),
+  recorded('chat-page-shown', 'Mira', 'p-shop', PAGE_SHOWN),
 ];
 
 export const CHATS: DemoChat[] = [

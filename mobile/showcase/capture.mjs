@@ -104,6 +104,7 @@ const SCENES = [
   },
   { name: 'live', route: `/device/${CORE}/chat/chat-signup-check` },
   { name: 'subagent', route: `/device/${CORE}/chat/chat-adapter-hunt`, taps: [/^Subagent/] },
+  { name: 'page-shown', route: `/device/${CORE}/chat/chat-page-shown` },
   { name: 'prompt-strip', route: `/device/${CORE}/chat/chat-notes`, tapPart: 'Keep them short, and link each one.' },
   {
     name: 'prompt-edit',

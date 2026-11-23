@@ -1,0 +1,319 @@
+{
+ "head": {
+  "sessionId": "session-page-shown",
+  "connection": "ready",
+  "running": false,
+  "turned": true,
+  "permissionMode": "bypass",
+  "stopReason": "end_turn",
+  "commands": [
+   {
+    "name": "review",
+    "description": "Review the change"
+   }
+  ],
+  "capabilities": {
+   "steering": true,
+   "editing": true
+  },
+  "setup": {
+   "configOptions": [
+    {
+     "id": "model",
+     "name": "Model",
+     "category": "model",
+     "type": "select",
+     "currentValue": "default",
+     "options": [
+      {
+       "value": "default",
+       "name": "Default",
+       "description": "Fake",
+       "efforts": [
+        "default",
+        "low",
+        "high"
+       ],
+       "defaultEffort": "default",
+       "isDefault": true
+      },
+      {
+       "value": "small",
+       "name": "Small",
+       "description": "Smaller",
+       "efforts": []
+      }
+     ],
+     "description": "AI model to use",
+     "effortRow": {
+      "id": "effort",
+      "name": "Effort",
+      "description": "Available effort levels for this model"
+     }
+    },
+    {
+     "id": "effort",
+     "name": "Effort",
+     "description": "Available effort levels for this model",
+     "category": "thought_level",
+     "type": "select",
+     "currentValue": "high",
+     "options": [
+      {
+       "value": "default",
+       "name": "Auto",
+       "isDefault": true
+      },
+      {
+       "value": "low",
+       "name": "Low"
+      },
+      {
+       "value": "high",
+       "name": "High"
+      }
+     ]
+    }
+   ]
+  },
+  "model": {
+   "id": "model",
+   "current": "default",
+   "choices": [
+    {
+     "value": "default",
+     "label": "Default",
+     "description": "Fake",
+     "isDefault": true
+    },
+    {
+     "value": "small",
+     "label": "Small",
+     "description": "Smaller"
+    }
+   ]
+  },
+  "effort": {
+   "id": "effort",
+   "current": "high",
+   "choices": [
+    {
+     "value": "default",
+     "label": "Auto",
+     "isDefault": true
+    },
+    {
+     "value": "low",
+     "label": "Low"
+    },
+    {
+     "value": "high",
+     "label": "High"
+    }
+   ]
+  },
+  "permissions": [],
+  "tasks": [],
+  "runningSubagents": [],
+  "queued": [],
+  "mail": [],
+  "triggers": [],
+  "earlierLost": false
+ },
+ "rows": [
+  {
+   "id": "m2",
+   "role": "user",
+   "promptId": "ed1f80be-f622-49af-ad1d-1f216ca94fd2",
+   "parts": [
+    {
+     "kind": "text",
+     "id": "m2.0",
+     "text": "Draw me three takes on the empty projects page and show them.",
+     "md": {
+      "blocks": [
+       {
+        "t": "p",
+        "c": [
+         "Draw me three takes on the empty projects page and show them."
+        ]
+       }
+      ],
+      "n": 61
+     }
+    }
+   ],
+   "sentAt": 1795475545533,
+   "fromEvent": 2,
+   "ask": 1
+  },
+  {
+   "id": "m4",
+   "role": "assistant",
+   "parts": [
+    {
+     "kind": "thought",
+     "id": "m4.0",
+     "text": "Three layouts, each in the dashboard's own colours, so the choice is about the layout.",
+     "md": {
+      "blocks": [
+       {
+        "t": "p",
+        "c": [
+         "Three layouts, each in the dashboard's own colours, so the choice is about the layout."
+        ]
+       }
+      ],
+      "n": 86
+     }
+    },
+    {
+     "kind": "tool",
+     "id": "m4.1",
+     "tool": {
+      "toolCallId": "toolu-ed1f80be-f622-49af-ad1d-1f216ca94fd2-1",
+      "title": "Read src/projects/EmptyProjects.tsx",
+      "kind": "read",
+      "status": "completed",
+      "rawInput": {
+       "file_path": "src/projects/EmptyProjects.tsx"
+      },
+      "path": "/Users/edon/code/acme-shop/src/projects/EmptyProjects.tsx:1",
+      "row": {
+       "action": "read",
+       "target": "EmptyProjects.tsx",
+       "path": "/Users/edon/code/acme-shop/src/projects/EmptyProjects.tsx:1",
+       "family": "files",
+       "intent": "read"
+      }
+     },
+     "startedAt": 1795475546033,
+     "endedAt": 1795475546307
+    }
+   ],
+   "sentAt": 1795475545542,
+   "opensTurn": {
+    "at": 1795475545541
+   },
+   "fold": {
+    "id": "m4",
+    "last": "m11",
+    "from": 2,
+    "shown": [],
+    "calls": 2,
+    "took": 2144,
+    "thought": false
+   },
+   "fromEvent": 4,
+   "ask": 1
+  },
+  {
+   "id": "m7",
+   "role": "assistant",
+   "parts": [
+    {
+     "kind": "text",
+     "id": "m7.0",
+     "text": "Here are three, drawn with the dashboard's own colours. I'd go with B.",
+     "md": {
+      "blocks": [
+       {
+        "t": "p",
+        "c": [
+         "Here are three, drawn with the dashboard's own colours. I'd go with B."
+        ]
+       }
+      ],
+      "n": 70
+     }
+    },
+    {
+     "kind": "tool",
+     "id": "m7.1",
+     "tool": {
+      "toolCallId": "toolu-ed1f80be-f622-49af-ad1d-1f216ca94fd2-3",
+      "title": "mcp__sikemux-tools__page_show",
+      "kind": "other",
+      "status": "completed",
+      "rawInput": {
+       "title": "Empty projects page, three ways"
+      },
+      "row": {
+       "action": "read",
+       "target": "Empty projects page, three ways",
+       "verb": "show",
+       "icon": "image",
+       "activity": "show Empty projects page, three ways",
+       "family": "housekeeping"
+      }
+     },
+     "page": {
+      "id": "c4a7f00d000000000000000000000002",
+      "title": "Empty projects page, three ways"
+     },
+     "startedAt": 1795475546820,
+     "endedAt": 1795475547087
+    }
+   ],
+   "sentAt": 1795475546307,
+   "fold": {
+    "id": "m4",
+    "last": "m11",
+    "from": 2,
+    "shown": [
+     1
+    ],
+    "calls": 2,
+    "took": 2144,
+    "thought": false
+   },
+   "fromEvent": 7,
+   "ask": 1
+  },
+  {
+   "id": "m11",
+   "role": "assistant",
+   "parts": [
+    {
+     "kind": "text",
+     "id": "m11.0",
+     "text": "B gets someone to a first deploy in two clicks and still works for people who know the shortcut.",
+     "md": {
+      "blocks": [
+       {
+        "t": "p",
+        "c": [
+         "B gets someone to a first deploy in two clicks and still works for people who know the shortcut."
+        ]
+       }
+      ],
+      "n": 96
+     }
+    }
+   ],
+   "sentAt": 1795475547089,
+   "endedAt": 1795475547677,
+   "meta": {
+    "from": "m4",
+    "rate": 68.55277475516866,
+    "at": 1795475547677,
+    "took": 2144
+   },
+   "fold": {
+    "id": "m4",
+    "last": "m11",
+    "from": 0,
+    "shown": [
+     0
+    ],
+    "calls": 2,
+    "took": 2144,
+    "thought": false
+   },
+   "fromEvent": 11,
+   "ask": 1
+  }
+ ],
+ "subagents": {},
+ "details": {}
+}

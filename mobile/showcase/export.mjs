@@ -60,7 +60,7 @@ try {
     closed() {},
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
-  const agents = view.workspace.agents.map((agent) => agent.id);
+  const agents = [...view.workspace.agents.map((agent) => agent.id), ...RECORDED.map((chat) => chat.agentId)];
   const chats = {};
   for (const agentId of agents) {
     const attached = await connection.attachChat(agentId);
