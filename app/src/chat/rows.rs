@@ -155,6 +155,7 @@ pub(super) fn row(
                 Shown::Part(part) => self::part(row, part, user, pen, looks, window, cx),
                 Shown::Run(calls) => tools::run(&calls, live && at + 1 == count, looks, window, cx),
                 Shown::Tabs(pages) => self::page::tabs(&pages, looks, window, cx),
+                Shown::WorkerPages(pages) => worker_pages(&pages, looks, window, cx),
             });
         }
         if !tucked_away || whole_row_tucked {
@@ -718,10 +719,11 @@ pub(super) enum Shown<'a> {
     Part(&'a ChatPart),
     Run(Vec<&'a ChatPart>),
     Tabs(Vec<&'a PageRef>),
+    WorkerPages(Vec<&'a WorkerPage>),
 }
 
-/// A message's parts with each run of tool calls together, and pages shown one after another in
-/// one frame.
+/// A message's parts with each run of tool calls together, and pages shown one after another,
+/// the agent's or one worker's, in one frame.
 pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'a>> {
     let mut shown = Vec::new();
     for part in parts {
@@ -756,6 +758,33 @@ pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'
                 },
                 _,
             ) => shown.push(Shown::Run(vec![part])),
+            (
+                ChatPart::AgentNotice {
+                    notice:
+                        AgentNotice {
+                            worker_page: Some(page),
+                            ..
+                        },
+                    ..
+                },
+                Some(Shown::WorkerPages(pages)),
+            ) if pages
+                .first()
+                .is_some_and(|first| first.agent_id == page.agent_id) =>
+            {
+                pages.push(page)
+            }
+            (
+                ChatPart::AgentNotice {
+                    notice:
+                        AgentNotice {
+                            worker_page: Some(page),
+                            ..
+                        },
+                    ..
+                },
+                _,
+            ) => shown.push(Shown::WorkerPages(vec![page])),
             _ => shown.push(Shown::Part(part)),
         }
     }
@@ -1047,22 +1076,28 @@ fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
         .into_any_element()
 }
 
-/// A page one of the agent's workers showed: a line naming the worker over the page's row.
-fn worker_page(page: &WorkerPage, looks: &Drawn, window: &mut Window, cx: &mut App) -> AnyElement {
+/// Pages one of the agent's workers showed one after another: a line naming the worker over
+/// their rows.
+fn worker_pages(
+    pages: &[&WorkerPage],
+    looks: &Drawn,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let name = pages.first().map_or("", |page| page.name.as_str());
+    let said = match pages.len() {
+        1 => t!("@{name} showed a page", name = name),
+        count => t!("@{name} showed {count} pages", name = name, count = count),
+    };
     div()
         .flex()
         .flex_col()
-        .gap(SPACE_1H)
         .child(
             notice_box(looks)
                 .child(ui::icon(Icon::Tabs, 12.).text_color(looks.quiet))
-                .child(notice_name(
-                    t!("@{name} showed a page", name = page.name).to_string(),
-                    false,
-                    looks,
-                )),
+                .child(notice_name(said.to_string(), false, looks)),
         )
-        .child(self::page::worker_page(page, looks.looks, window, cx))
+        .child(self::page::worker_pages(pages, looks.looks, window, cx))
         .into_any_element()
 }
 
@@ -1453,6 +1488,7 @@ pub(super) fn subagent(
                 drawn.push(match group {
                     Shown::Part(part) => self::part(row, part, false, pen, looks, window, cx),
                     Shown::Tabs(pages) => self::page::tabs(&pages, looks, window, cx),
+                    Shown::WorkerPages(pages) => worker_pages(&pages, looks, window, cx),
                     Shown::Run(calls) => tools::run(
                         &calls,
                         live && ix + 1 == rows.len() && at + 1 == count,
@@ -1735,14 +1771,6 @@ pub(super) fn part(
             },
             ..
         } => week_count(week, looks),
-        ChatPart::AgentNotice {
-            notice:
-                AgentNotice {
-                    worker_page: Some(page),
-                    ..
-                },
-            ..
-        } => worker_page(page, looks, window, cx),
         ChatPart::AgentNotice { notice, .. } => {
             let t = Tokens::get(cx);
             let (icon, tint, state) = match notice.severity {

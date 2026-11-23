@@ -2809,6 +2809,17 @@ impl Fold {
             || notice.worker_page.is_some()
             || notice.closed_card.is_some();
         if own_line && !self.head.running {
+            if let Some(page) = notice.worker_page.as_ref() {
+                if self.worker_page_joins(page) {
+                    self.append_part(
+                        index,
+                        &None,
+                        |id| ChatPart::AgentNotice { id, notice },
+                        false,
+                    );
+                    return;
+                }
+            }
             let at = stamped_at(update);
             self.push_between(index, at, |id| ChatPart::AgentNotice { id, notice });
             return;
@@ -2829,6 +2840,20 @@ impl Fold {
         row.msg.letters = vec![letter];
         let position = self.main.push(row);
         self.note_main_change(&None, position);
+    }
+
+    /// Whether the chat's last row holds only pages `page`'s worker showed between turns, so
+    /// `page` joins them there rather than opening a row of its own.
+    fn worker_page_joins(&self, page: &WorkerPage) -> bool {
+        let Some(last) = self.main.rows.last() else {
+            return false;
+        };
+        last.msg.role == ChatRole::Assistant
+            && last.msg.opens_turn.is_some()
+            && (last.msg.parts.iter()).all(|part| {
+                matches!(part, ChatPart::AgentNotice { notice, .. }
+                if notice.worker_page.as_ref().is_some_and(|shown| shown.agent_id == page.agent_id))
+            })
     }
 
     /// A worker showed a page again under a title it showed before: the row for that one shows

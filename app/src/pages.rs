@@ -28,6 +28,8 @@ use crate::workbench::Workbench;
 pub(crate) struct Pages {
     listed: HashMap<String, Option<Vec<ListedPage>>>,
     tabs: HashMap<String, Library>,
+    /// The page each project's tab opens at next, by id and title, as a chat's card asked.
+    opening: HashMap<String, (String, String)>,
 }
 
 struct Library {
@@ -75,6 +77,22 @@ impl Workbench {
             PaneKind::Pages,
             project.path.to_string_lossy(),
         ));
+    }
+
+    /// Opens the Pages of the project in front at page `id`.
+    pub(crate) fn open_page(&mut self, id: &str, title: &str, cx: &mut Context<Self>) {
+        let Some(folder) = self.project().map(|project| project.path.to_string_lossy()) else {
+            return;
+        };
+        let folder = folder.into_owned();
+        self.open_pages();
+        match self.pages.tabs.contains_key(&folder) {
+            true => self.read_in_library(&folder, id, title, cx),
+            false => {
+                (self.pages.opening).insert(folder, (id.to_owned(), title.to_owned()));
+            }
+        }
+        self.parts.redraw_stage(cx);
     }
 
     /// Reads every project's pages held again, as after the core says one moved.
@@ -126,16 +144,16 @@ impl Workbench {
         self.report(keeping, what, |_, _, _| {}, cx);
     }
 
-    fn read_in_library(&mut self, folder: &str, page: &ListedPage, cx: &mut Context<Self>) {
+    fn read_in_library(&mut self, folder: &str, id: &str, title: &str, cx: &mut Context<Self>) {
         let Some(library) = self.pages.tabs.get(folder) else {
             return;
         };
         let (target, files) = (self.target(), self.desks.read(cx).page_files.clone());
-        let (id, title) = (page.id.clone(), page.title.clone());
+        let (id, title) = (id.to_owned(), title.to_owned());
         library.reader.update(cx, |reader, cx| {
-            reader.open(id, title, target, files, None, cx)
+            reader.open(id.clone(), title, target, files, None, cx)
         });
-        self.saw_page(&page.id, cx);
+        self.saw_page(&id, cx);
     }
 }
 
@@ -180,10 +198,20 @@ pub(crate) fn pane(
         .filter(|page| matches(page, &words))
         .collect();
     let reading = library.reader.read(cx).shows().map(str::to_owned);
-    if let (None, Some(first)) = (&reading, found.first()) {
-        let (folder, first) = (folder.to_owned(), (*first).clone());
+    let first = || {
+        found
+            .first()
+            .map(|page| (page.id.clone(), page.title.clone()))
+    };
+    let next = match &reading {
+        None => bench.pages.opening.get(folder).cloned().or_else(first),
+        Some(_) => None,
+    };
+    if let Some((id, title)) = next {
+        let folder = folder.to_owned();
         cx.defer_in(window, move |bench, _, cx| {
-            bench.read_in_library(&folder, &first, cx)
+            bench.pages.opening.remove(&folder);
+            bench.read_in_library(&folder, &id, &title, cx)
         });
     }
     let this = cx.entity();
@@ -202,7 +230,7 @@ pub(crate) fn pane(
         .chosen(chosen)
         .on_click(move |_, _, cx| {
             this.update(cx, |bench, cx| {
-                bench.read_in_library(&folder, &picked, cx);
+                bench.read_in_library(&folder, &picked.id, &picked.title, cx);
                 bench.parts.redraw_stage(cx);
             })
         })

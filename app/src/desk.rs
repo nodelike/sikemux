@@ -1777,23 +1777,6 @@ impl Workbench {
         });
     }
 
-    /// Brings forward the tab on `agent`'s desk that shows the page it showed with `page_show`,
-    /// or opens one, as the person's, clearing the look calls that show it.
-    pub(crate) fn open_page_in_tab(&mut self, agent: &str, id: &str, cx: &mut Context<Self>) {
-        self.saw_page(id, cx);
-        let page = self
-            .chat_target(agent)
-            .request_typed::<sikemux_calls::call::ReadPage>(sikemux_calls::harness::PageParams {
-                id: id.to_owned(),
-            });
-        let (files, id) = (self.desks.read(cx).page_files.clone(), id.to_owned());
-        self.bring_page_forward(
-            agent,
-            cx,
-            |_| async move { files.kept_url(&id, &page.await?) },
-        );
-    }
-
     /// Brings forward the tab on `agent`'s desk that shows the HTML file at `path` as a page,
     /// or opens one, as the person's.
     pub(crate) fn open_html_in_tab(&mut self, agent: &str, path: PathBuf, cx: &mut Context<Self>) {

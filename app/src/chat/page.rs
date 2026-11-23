@@ -1,5 +1,5 @@
-//! A page an agent showed with `page_show`, as a card in its reply for the tab it opened on the
-//! agent's desk. The core keeps the page and a picture of the tab; a click brings the tab forward.
+//! A page an agent showed with `page_show`, as a card in its reply. The core keeps the page and a
+//! picture of it; a click opens it in the project's Pages.
 
 use crate::ui::Clicks;
 use std::collections::HashMap;
@@ -58,8 +58,8 @@ fn shown<'a>(page: &PageRef, looks: &Looks, window: &mut Window, cx: &'a mut App
     cx.global::<Pages>().shown.get(&page.id).unwrap_or(NOT_YET)
 }
 
-/// Pages shown in tabs on the desk, one row each in a shared frame: the top of the page, its
-/// title, and Open, which brings its tab forward, as a click anywhere on the row does.
+/// Pages the agent showed, one row each in a shared frame: the top of the page, its title, and
+/// Open, which opens it in Pages, as a click anywhere on the row does.
 pub(super) fn tabs(
     pages: &[&PageRef],
     looks: &Looks,
@@ -74,32 +74,36 @@ pub(super) fn tabs(
             let (picture, failed) = (shown.picture.clone(), shown.failed.clone());
             let place: SharedString = match failed {
                 Some(failed) => t!("Could not show it: {failed}", failed = failed).into(),
-                None => t!("In a tab on the desk").into(),
+                None => t!("In Pages").into(),
             };
-            let open = opens_tab(&page.id, &looks.agent, &looks.bench);
+            let open = opens_page(page, &looks.bench);
             tab_row(page, picture, place, at > 0, open, cx)
         })
         .collect();
     tab_frame(rows, cx)
 }
 
-/// A page one of the agent's workers showed, as the row a page in a tab gets, named as the
-/// worker's; Open shows it on this chat's desk, so reading it never takes the person away.
-pub(super) fn worker_page(
-    page: &WorkerPage,
+/// Pages one of the agent's workers showed, as rows like the agent's own pages, named as the
+/// worker's.
+pub(super) fn worker_pages(
+    pages: &[&WorkerPage],
     looks: &Looks,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let page_ref = PageRef {
-        id: page.id.clone(),
-        title: page.title.clone(),
-    };
-    let picture = shown(&page_ref, looks, window, cx).picture.clone();
-    let place = t!("@{name}'s page", name = page.name).into();
-    let open = opens_tab(&page.id, &looks.agent, &looks.bench);
-    let row = tab_row(&page_ref, picture, place, false, open, cx);
-    tab_frame(vec![row], cx)
+    let rows: Vec<AnyElement> = (pages.iter().enumerate())
+        .map(|(at, page)| {
+            let page_ref = PageRef {
+                id: page.id.clone(),
+                title: page.title.clone(),
+            };
+            let picture = shown(&page_ref, looks, window, cx).picture.clone();
+            let place = t!("@{name}'s page", name = page.name).into();
+            let open = opens_page(&page_ref, &looks.bench);
+            tab_row(&page_ref, picture, place, at > 0, open, cx)
+        })
+        .collect();
+    tab_frame(rows, cx)
 }
 
 /// The shared frame page rows sit in.
@@ -201,15 +205,14 @@ pub(crate) fn tab_row(
         .into_any_element()
 }
 
-/// Shows page `id` in its tab on `agent`'s desk.
-pub(crate) fn opens_tab(
-    id: &str,
-    agent: &str,
+/// Opens `page` in the Pages of the project in front.
+fn opens_page(
+    page: &PageRef,
     bench: &gpui_kit::WeakEntity<crate::workbench::Workbench>,
 ) -> Rc<dyn Fn(&mut App)> {
-    let (id, agent, bench) = (id.to_owned(), agent.to_owned(), bench.clone());
+    let (id, title, bench) = (page.id.clone(), page.title.clone(), bench.clone());
     Rc::new(move |cx| {
-        let _ = bench.update(cx, |bench, cx| bench.open_page_in_tab(&agent, &id, cx));
+        let _ = bench.update(cx, |bench, cx| bench.open_page(&id, &title, cx));
     })
 }
 

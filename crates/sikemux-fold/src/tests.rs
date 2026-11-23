@@ -2979,6 +2979,47 @@ fn an_answer_followed_by_a_wait_and_a_short_message_stays_out_of_the_fold() {
 }
 
 #[test]
+fn pages_a_worker_shows_between_turns_share_one_row() {
+    let page = |id: &str, title: &str, agent: &str| {
+        crate::update::worker_page_notice(WorkerPage {
+            id: id.into(),
+            title: title.into(),
+            agent_id: agent.into(),
+            name: agent.into(),
+        })
+    };
+    let mut chat = Chat::new();
+    chat.prompt(json!({ "text": "show me the limits float", "paths": [] }))
+        .turn_started()
+        .update(chunk("Asked @Draken.", "m1"))
+        .turn_completed(Some("end_turn"))
+        .update(page("a", "Limits float A", "draken"))
+        .update(page("b", "Limits float B", "draken"))
+        .update(page("c", "Limits float C", "draken"))
+        .update(page("d", "Bar", "ogami"));
+    let shown: Vec<Vec<String>> = (chat.rows().iter())
+        .map(|row| {
+            (row.parts.iter())
+                .filter_map(|part| match part {
+                    ChatPart::AgentNotice { notice, .. } => {
+                        notice.worker_page.as_ref().map(|page| page.title.clone())
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+        .filter(|pages: &Vec<String>| !pages.is_empty())
+        .collect();
+    assert_eq!(
+        shown,
+        vec![
+            vec!["Limits float A", "Limits float B", "Limits float C"],
+            vec!["Bar"],
+        ]
+    );
+}
+
+#[test]
 fn pages_shown_during_a_turn_stay_out_of_its_fold() {
     let page = json!({ "id": "0123456789abcdef0123456789abcdef", "title": "Revenue" });
     let mut chat = Chat::new();
