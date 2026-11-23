@@ -115,10 +115,12 @@
   let holdEnds = null;
   let lastWait = 0;
   const waits = new Map();
-  const answer = (id, go) => {
-    const resolve = waits.get(id);
-    waits.delete(id);
-    if (resolve) resolve(go);
+  const answer = (ids, go) => {
+    for (const id of ids) {
+      const resolve = waits.get(id);
+      waits.delete(id);
+      if (resolve) resolve(go);
+    }
   };
   const stopHolding = () => {
     clearTimeout(holdEnds);
@@ -205,7 +207,9 @@
   const open = XMLHttpRequest.prototype.open;
   const send = XMLHttpRequest.prototype.send;
   const setRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+  const abort = XMLHttpRequest.prototype.abort;
   XMLHttpRequest.prototype.open = function (method, url, async) {
+    delete this.readyState;
     this.__sikemuxCall = {
       method,
       url,
@@ -218,6 +222,10 @@
     if (this.__sikemuxCall) this.__sikemuxCall.headers[name] = value;
     return setRequestHeader.apply(this, arguments);
   };
+  XMLHttpRequest.prototype.abort = function () {
+    this.__sikemuxCall = null;
+    return abort.apply(this, arguments);
+  };
   XMLHttpRequest.prototype.send = function () {
     const call = this.__sikemuxCall;
     if (call && held(call.method, call.url)) throw new TypeError(HELD);
@@ -225,12 +233,20 @@
     if (!waiting) return recordedSend.apply(this, arguments);
     const args = arguments;
     waiting.then((go) => {
+      // The page let this request go, or opened another, while it waited.
+      if (this.__sikemuxCall !== call) return;
       if (go) {
         try {
           recordedSend.apply(this, args);
           return;
         } catch {}
       }
+      // A request that failed on the network reads as done with no status.
+      Object.defineProperty(this, "readyState", {
+        value: 4,
+        configurable: true,
+      });
+      this.dispatchEvent(new Event("readystatechange"));
       for (const type of ["error", "loadend"])
         this.dispatchEvent(new ProgressEvent(type));
     });
@@ -315,11 +331,14 @@
       return write;
     },
     hold: () => {
-      for (const write of stopHolding()) answer(write.id, false);
+      const refuse = () =>
+        answer(
+          stopHolding().map((write) => write.id),
+          false,
+        );
+      refuse();
       holding = [];
-      holdEnds = setTimeout(() => {
-        for (const write of stopHolding()) answer(write.id, false);
-      }, HOLD_MS);
+      holdEnds = setTimeout(refuse, HOLD_MS);
     },
     held: stopHolding,
     answer,

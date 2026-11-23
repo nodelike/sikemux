@@ -333,7 +333,7 @@ async fn run(
             }
             if !hover {
                 let sent = form_write.as_deref();
-                holding_page_writes(manager, &tab_id, &view, check, sent, async {
+                holding_page_writes(manager, agent_id, &tab_id, &view, check, sent, async {
                     for count in 1..=clicks {
                         native::mouse(&view, Mouse::Down, x, y, count).await?;
                         native::mouse(&view, Mouse::Up, x, y, count).await?;
@@ -532,7 +532,7 @@ async fn run(
             }
             if submit {
                 let sent = form_write.as_deref();
-                holding_page_writes(manager, &tab_id, &view, check, sent, async {
+                holding_page_writes(manager, agent_id, &tab_id, &view, check, sent, async {
                     native::key(&view, "Enter").await?;
                     settle(manager, agent_id, &tab_id).await;
                     Ok::<(), String>(())
@@ -551,7 +551,7 @@ async fn run(
                 form_write = put_to_person(write, check).await?;
             }
             let sent = form_write.as_deref();
-            holding_page_writes(manager, &tab_id, &view, check, sent, async {
+            holding_page_writes(manager, agent_id, &tab_id, &view, check, sent, async {
                 native::key(&view, &key).await?;
                 settle(manager, agent_id, &tab_id).await;
                 Ok::<(), String>(())
@@ -574,7 +574,9 @@ async fn run(
             }
             native::answer_dialog(&view, &tab_id, accept, text("text")).await?;
             settle(manager, agent_id, &tab_id).await;
-            put_page_writes(manager, &tab_id, &view, check, None).await?;
+            if put_page_writes(manager, &tab_id, &view, check, None).await? {
+                settle(manager, agent_id, &tab_id).await;
+            }
             report(manager, agent_id, params).await
         }
         "browser.scroll" => {
@@ -1341,7 +1343,7 @@ try {{
 
 /// Puts `write`, what the page script found, to the core, and fails with what the agent is
 /// told when it is held. A null `write` is one the page does not make; otherwise the write
-/// that may go comes back, as the person reads it.
+/// that may go comes back, with its address's query.
 async fn put_to_person(write: Value, check: &CheckWrite) -> Result<Option<String>, String> {
     if write.is_null() {
         return Ok(None);
@@ -1349,9 +1351,9 @@ async fn put_to_person(write: Value, check: &CheckWrite) -> Result<Option<String
     let origin = (write.get("origin").and_then(Value::as_str))
         .unwrap_or_default()
         .to_owned();
-    let what = shown(&write);
-    check(what.clone(), origin, with_query(&write)).await?;
-    Ok(Some(what))
+    let full = with_query(&write);
+    check(shown(&write), origin, full.clone()).await?;
+    Ok(Some(full))
 }
 
 /// `write` as the person reads it and as a yes to it is kept: its method and address, without
@@ -1369,9 +1371,11 @@ fn with_query(write: &Value) -> String {
 
 /// Plays `action` while the writes to sites the page's own scripts send wait, then puts each
 /// to the person, as a form's is. `sent` is the form's write the person was just put, which a
-/// page that sends its forms from a script makes as one of those.
+/// page that sends its forms from a script makes as one of those. Writes that go once the
+/// person allows them are waited on, so the page is read as they left it.
 async fn holding_page_writes(
     manager: &BrowserManager,
+    agent_id: &str,
     tab_id: &str,
     view: &Tab,
     check: &CheckWrite,
@@ -1381,31 +1385,37 @@ async fn holding_page_writes(
     let _ = eval(view, "JSON.stringify(window.__sikemuxNet?.hold() ?? null)").await;
     let acted = action.await;
     let put = put_page_writes(manager, tab_id, view, check, sent).await;
-    acted.and(put)
+    if put == Ok(true) {
+        settle(manager, agent_id, tab_id).await;
+    }
+    acted.and(put.map(drop))
 }
 
 /// Puts the writes the page holds to the person, those to one site together, so one yes
 /// covers all a click sends there. One equal to `sent`, the form's write that may already go,
-/// is not put again. They are sent only when every one may go. A page frozen by a dialog
-/// keeps holding them until the dialog is answered.
+/// is not put again. They are sent only when every one may go, and the answer is whether any
+/// was. A page frozen by a dialog keeps holding them until the dialog is answered.
 async fn put_page_writes(
     manager: &BrowserManager,
     tab_id: &str,
     view: &Tab,
     check: &CheckWrite,
     sent: Option<&str>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     if manager.dialog(tab_id).is_some() {
-        return Ok(());
+        return Ok(false);
     }
     let raw = eval(view, "JSON.stringify(window.__sikemuxNet?.held() ?? [])")
         .await
         .unwrap_or_default();
     let writes = page_writes(&raw);
-    let unasked: Vec<Value> = (writes.iter())
-        .filter(|write| sent != Some(shown(write).as_str()))
-        .cloned()
-        .collect();
+    let mut unasked = writes.clone();
+    if let Some(at) = unasked
+        .iter()
+        .position(|write| sent == Some(&with_query(write)))
+    {
+        unasked.remove(at);
+    }
     let mut refused = None;
     for site in writes_by_site(&unasked) {
         if let Err(said) = check(site.what, site.origin, site.with_queries).await {
@@ -1413,15 +1423,18 @@ async fn put_page_writes(
         }
     }
     let go = refused.is_none();
-    for write in &writes {
-        let id = write.get("id").cloned().unwrap_or(Value::Null);
+    if !writes.is_empty() {
+        let ids: Vec<Value> = (writes.iter())
+            .map(|write| write.get("id").cloned().unwrap_or(Value::Null))
+            .collect();
+        let ids = Value::Array(ids);
         let _ = eval(
             view,
-            &format!("JSON.stringify(window.__sikemuxNet?.answer({id}, {go}) ?? null)"),
+            &format!("JSON.stringify(window.__sikemuxNet?.answer({ids}, {go}) ?? null)"),
         )
         .await;
     }
-    refused.map_or(Ok(()), Err)
+    refused.map_or(Ok(go && !writes.is_empty()), Err)
 }
 
 /// What a click's held writes do at one site.
