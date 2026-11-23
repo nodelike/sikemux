@@ -167,6 +167,32 @@
       }
     }
   },
+  "antigravity": {
+    "usage": {
+      "status": "SUCCESS",
+      "command": {
+        "name": "usage",
+        "data": {
+          "groups": [
+            {
+              "name": "Gemini Models",
+              "buckets": [
+                { "id": "gemini-weekly", "window": "weekly", "remaining_fraction": 0.86, "resetsInMinutes": 7920 },
+                { "id": "gemini-5h", "window": "5h", "remaining_fraction": 0.95, "resetsInMinutes": 165 }
+              ]
+            },
+            {
+              "name": "Claude and GPT models",
+              "buckets": [
+                { "id": "3p-weekly", "window": "weekly", "remaining_fraction": 0.72, "resetsInMinutes": 8700 },
+                { "id": "3p-5h", "window": "5h", "remaining_fraction": 1, "resetsInMinutes": 300 }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
   "agents": [
     {
       "name": "Rohan",

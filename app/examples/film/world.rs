@@ -72,10 +72,21 @@ impl World {
             .iter()
             .map(|(id, name)| json!({ "value": id, "name": name }))
             .collect::<Vec<_>>());
+        let agy_usage = bin.join("agy-usage.json");
+        std::fs::write(
+            &agy_usage,
+            antigravity_usage(
+                args.world
+                    .pointer("/antigravity/usage")
+                    .unwrap_or(&Value::Null),
+            )
+            .to_string(),
+        )?;
         stand_in(
             "agy",
             format!(
-                "#!/bin/sh\n[ \"$1\" = models ] && exec printf '{listed}'\nFAKE_ACP_MODELS='{offered}' exec '{}' \"$@\"\n",
+                "#!/bin/sh\n[ \"$1\" = models ] && exec printf '{listed}'\n[ \"$2\" = /usage ] && exec cat '{}'\nFAKE_ACP_MODELS='{offered}' exec '{}' \"$@\"\n",
+                agy_usage.display(),
                 fake("sikemux-fake-acp-agent")
             ),
         )?;
@@ -891,6 +902,50 @@ pub(super) fn usage(world: &Value) -> Value {
         }
     }
     usage
+}
+
+/// What `agy -p /usage` prints, with each bucket's `resetsInMinutes` turned into when it resets.
+fn antigravity_usage(world: &Value) -> Value {
+    let mut usage = world.clone();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    let groups = usage
+        .pointer_mut("/command/data/groups")
+        .and_then(Value::as_array_mut);
+    for group in groups.into_iter().flatten() {
+        let buckets = group.get_mut("buckets").and_then(Value::as_array_mut);
+        for bucket in buckets.into_iter().flatten() {
+            if let Some(minutes) = bucket["resetsInMinutes"].as_u64() {
+                bucket["reset_time"] = json!(utc(now + minutes * 60));
+            }
+        }
+    }
+    usage
+}
+
+/// `seconds` since 1970 as an RFC 3339 time in UTC, by Howard Hinnant's days-to-civil.
+fn utc(seconds: u64) -> String {
+    let (days, of_day) = (seconds / 86_400, seconds % 86_400);
+    let shifted = days + 719_468;
+    let era = shifted / 146_097;
+    let of_era = shifted % 146_097;
+    let year_of_era = (of_era - of_era / 1460 + of_era / 36_524 - of_era / 146_096) / 365;
+    let of_year = of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * of_year + 2) / 153;
+    let day = of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + u64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        of_day / 3600,
+        of_day % 3600 / 60,
+        of_day % 60
+    )
 }
 
 /// `value` with a leading `~/` in a string taken as the home folder. A world names files in

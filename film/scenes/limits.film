@@ -1,0 +1,11 @@
+# The Limits float over the rail, with Antigravity's Gemini and Claude-and-GPT limits beside Claude's.
+stage 1440 900
+window 1440 900
+project storefront line-shop
+core setFaceStyle {"on":false,"pack":"glow","shape":"mixed","motion":false}
+settle 6
+key cmd-w
+wait 1
+move "LIMITS"
+settle 4
+snap limits
