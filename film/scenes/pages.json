@@ -6,8 +6,19 @@
       { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/latency.html", "title": "Checkout p95 latency", "keep": true }, "ms": 400 },
       { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/mockups.html", "title": "Empty projects page, three ways" }, "ms": 400 },
       { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/cache-plan.html", "title": "Product page cache" }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__agent_spawn", "call": "agent.spawn", "input": { "cli": "claude", "title": "Cache store pages", "prompt": "You are the owner and long-term maintainer of this codebase, and its design is up to you.\n\nDraw the cache store comparison pages for the person." }, "ms": 800 },
       { "tool": "mcp__sikemux-tools__ask", "call": "agent.ask", "input": { "question": "Which store should the product page cache use?", "title": "Cache store", "kind": "taste", "page": "$page", "choices": [{ "label": "Redis" }, { "label": "SQLite" }], "pick": "Redis" }, "ms": 400 },
       { "say": "I asked which store to use; the page has the numbers." }
+    ]
+  },
+  {
+    "when": "cache store comparison",
+    "steps": [
+      { "tool": "Bash", "input": { "command": "node scripts/bench-cache.mjs", "description": "Measure both stores" }, "result": "redis p95 4ms, sqlite p95 9ms", "ms": 6000 },
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/cache-plan.html", "title": "Cache hit rate by store" }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/latency.html", "title": "Warm-up after a deploy" }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/mockups.html", "title": "Memory per store" }, "ms": 400 },
+      { "say": "Three pages on the stores are up." }
     ]
   }
 ]

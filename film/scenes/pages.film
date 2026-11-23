@@ -1,5 +1,5 @@
-# A project's Pages: the library from the project tree, then a call's page read in place on the
-# Calls page.
+# A project's Pages: the library from the project tree, a call's page read in place on the
+# Calls page, then a worker's pages in its lead's chat, one opened in Pages.
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir
@@ -24,3 +24,9 @@ snap pages-call
 click 1036,284
 settle 3
 snap pages-call-open
+front Wren
+settle 10
+snap pages-chat
+click "Warm-up after a deploy"
+settle 3
+snap pages-chat-open
