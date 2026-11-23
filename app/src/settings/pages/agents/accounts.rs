@@ -362,30 +362,32 @@ pub fn dialog(
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
     let screen = screen(bench, this, cx)?;
-    let open = bench.accounts.dialog.as_ref()?;
-    let account = open.account.as_deref();
-    let brand = brand(bench, &open.provider);
     let close: dialog::Answer = {
         let this = this.clone();
         Rc::new(move |_, cx| this.update(cx, accounts::close_dialog))
     };
     let go: dialog::Answer = {
         let this = this.clone();
-        let naming = account.is_none();
-        let done = account.is_some_and(|id| !bench.accounts.signing.contains_key(id));
-        Rc::new(move |_, cx| {
-            let brand = brand.clone();
-            this.update(cx, |bench, cx| {
-                if naming {
-                    accounts::add(bench, brand, cx);
-                } else if done {
-                    accounts::close_dialog(bench, cx);
-                }
-            })
-        })
+        Rc::new(move |_, cx| this.update(cx, submit))
     };
     let body = div().px(SPACE_1).pt(SPACE_1).child(screen);
     Some(dialog::floating(px(440.), body, go, close, cx).into_any_element())
+}
+
+/// Answers the add-account dialog as its main button does: adds the named account, or
+/// closes the dialog once the account has signed in.
+pub(crate) fn submit(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let Some(open) = &bench.accounts.dialog else {
+        return;
+    };
+    match open.account.as_deref() {
+        None => {
+            let brand = brand(bench, &open.provider);
+            accounts::add(bench, brand, cx);
+        }
+        Some(id) if !bench.accounts.signing.contains_key(id) => accounts::close_dialog(bench, cx),
+        Some(_) => {}
+    }
 }
 
 fn brand(bench: &Workbench, provider: &str) -> String {

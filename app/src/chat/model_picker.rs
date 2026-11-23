@@ -246,6 +246,8 @@ pub struct Menu {
     _saying: Option<Task<()>>,
     _typing: Subscription,
     _bench: Subscription,
+    /// Drops the add-account dialog this menu opened when the menu closes.
+    _closing: Subscription,
 }
 
 /// Context, price per million tokens and tool calls, in a few words, as Settings words them.
@@ -329,6 +331,11 @@ impl Menu {
             _saying: None,
             _typing: typing,
             _bench: cx.observe(bench, |_, _, cx| cx.notify()),
+            _closing: cx.on_release(|menu, cx| {
+                if let Some(bench) = menu.bench.upgrade().filter(|_| menu.adding) {
+                    bench.update(cx, accounts::close_dialog);
+                }
+            }),
         }
     }
 
@@ -1783,6 +1790,12 @@ impl Render for Menu {
                 }
             }))
             .on_action(cx.listener(|menu, _: &Choose, window, cx| {
+                if menu.adding {
+                    if let Some(bench) = menu.bench.upgrade() {
+                        bench.update(cx, crate::settings::account_submit);
+                    }
+                    return;
+                }
                 if menu.card(cx).is_some() {
                     return;
                 }
@@ -1823,13 +1836,13 @@ pub fn around(
             let popover = cx.entity();
             let close = list_picker::dismiss(popover);
             let shown = picked.clone();
-            let agent = this.read(cx).agent_name(&shown.provider).to_owned();
             let menu = window.use_keyed_state(key, cx, |window, cx| {
                 Menu::new(&this, picked, close, window, cx)
             });
             menu.update(cx, |menu, cx| {
                 menu.picked = shown;
                 menu.read_routes(cx);
+                let agent = this.read(cx).agent_name(menu.shown()).to_owned();
                 menu.name_search(&agent, window, cx);
             });
             menu

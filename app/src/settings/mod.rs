@@ -29,7 +29,7 @@ use crate::workbench::{Strip, Workbench};
 
 mod index;
 mod pages;
-pub(crate) use pages::{account_screen, session_sent};
+pub(crate) use pages::{account_screen, account_submit, session_sent};
 pub(crate) mod rows;
 
 pub use index::Page;
