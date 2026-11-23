@@ -1,6 +1,7 @@
 //! An agent's desk, beside it in its tab: the pages its browser holds, one in front.
 
 mod address;
+mod diagrams;
 mod downloads;
 mod pins;
 mod snip;
@@ -719,7 +720,11 @@ impl PageFiles {
             .ok_or("Sikemux has no folder to keep pages in")?;
         std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
         let path = folder.join(format!("{name}.html"));
-        let themed = sikemux_base::pages::themed(html, &self.theme.locked(), None);
+        let themed = diagrams::with_diagrams(sikemux_base::pages::themed(
+            html,
+            &self.theme.locked(),
+            None,
+        ));
         std::fs::write(&path, themed).map_err(|error| error.to_string())?;
         self.engine()?.local_page_url(&path, media, written_in)
     }

@@ -331,6 +331,13 @@ Theme variables on `:root`, live with the person's theme, for your own answers:
 - `--chart-1` to `--chart-6`
 - `--radius`, `--font-sans`, `--font-mono`
 
+Diagrams: write Mermaid in `<pre class="mermaid">` (or a
+`<code class="language-mermaid">` block) and it draws offline in the page's
+theme, with pinch or ⌘-scroll to zoom and drag to pan. Load no Mermaid of your
+own. A flowchart or state diagram can start with
+`%%{init: {"look": "handDrawn"}}%%` for a sketched look. Mindmap and
+architecture diagrams are not included.
+
 A mockup of something else, such as the app being built, uses that design's own
 colours, fonts and radius as fixed values and paints its own background.
 
