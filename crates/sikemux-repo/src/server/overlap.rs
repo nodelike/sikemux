@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use super::edits::{git, owners_at};
-use super::listed::Reach;
+use super::listed::{Listed, Reach};
 use super::Core;
 
 /// Names too common to say which file a brief means without its folder.
@@ -26,7 +26,8 @@ const SHARED_NAMES: [&str; 8] = [
 
 /// Each other open agent of the caller's project with changes not yet on the branch it
 /// lands on in a file `brief` names, with those files, as `agent_spawn` answers it.
-pub fn of_brief(core: &Core, caller: &str, brief: &str) -> Option<Value> {
+/// `started` is the agent the brief just went to.
+pub fn of_brief(core: &Core, caller: &str, started: &str, brief: &str) -> Option<Value> {
     let named = paths_in(brief);
     if named.is_empty() {
         return None;
@@ -40,10 +41,7 @@ pub fn of_brief(core: &Core, caller: &str, brief: &str) -> Option<Value> {
     let mut shared_checkouts: HashMap<PathBuf, BTreeMap<String, BTreeSet<String>>> = HashMap::new();
     let mut found = Vec::new();
     for agent in agents {
-        if agent.agent_id == caller
-            || agent.project != project
-            || matches!(agent.reach, Reach::Stopped | Reach::Remote)
-        {
+        if !is_other(&agent, &project, caller, started) {
             continue;
         }
         let Some(placed) = core.workspaces().agent(&agent.agent_id) else {
@@ -88,6 +86,15 @@ pub fn of_brief(core: &Core, caller: &str, brief: &str) -> Option<Value> {
             said.join("; ")
         ),
     }))
+}
+
+/// Whether `agent` is an open agent of `project` other than the two the brief passes
+/// between: `caller`, who wrote it, and `started`, who was just opened to do it.
+fn is_other(agent: &Listed, project: &str, caller: &str, started: &str) -> bool {
+    agent.agent_id != caller
+        && agent.agent_id != started
+        && agent.project == project
+        && !matches!(agent.reach, Reach::Stopped | Reach::Remote)
 }
 
 /// The files the brief names: words with a folder in them or a file's extension.
@@ -172,4 +179,34 @@ fn changed_by_agent(core: &Core, top: &Path) -> BTreeMap<String, BTreeSet<String
         }
     }
     by_agent
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open_agent(agent_id: &str) -> Listed {
+        Listed {
+            agent_id: agent_id.to_owned(),
+            name: None,
+            project: "/shop".to_owned(),
+            cli: "claude".to_owned(),
+            title: None,
+            status: Default::default(),
+            parent: None,
+            active_at: None,
+            rank: 0,
+            reach: Reach::Chat,
+        }
+    }
+
+    /// `agent_spawn` answered that the brief's files were being changed by another agent,
+    /// which was the agent it had just started on that brief.
+    #[test]
+    fn the_agent_a_brief_just_started_is_not_another_agent_changing_its_files() {
+        let (lead, started, other) = ("agent-chief", "agent-otter", "agent-heron");
+        assert!(!is_other(&open_agent(started), "/shop", lead, started));
+        assert!(!is_other(&open_agent(lead), "/shop", lead, started));
+        assert!(is_other(&open_agent(other), "/shop", lead, started));
+    }
 }
