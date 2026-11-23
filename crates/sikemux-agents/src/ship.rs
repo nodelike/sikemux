@@ -1602,8 +1602,12 @@ fn supabase_sql(args: &[String]) -> Option<String> {
 /// `{"query": "select …"}`; not when any body is read from a file or standard input.
 fn sends_only_reads(args: &[String]) -> bool {
     fn attached(arg: &str) -> Option<&str> {
+        if !arg.starts_with("--") {
+            return (CURL_DATA.iter())
+                .find_map(|flag| arg.strip_prefix(flag).filter(|value| !value.is_empty()));
+        }
         let (flag, value) = arg.split_once('=')?;
-        (flag.starts_with("--") && CURL_DATA.contains(&flag)).then_some(value)
+        CURL_DATA.contains(&flag).then_some(value)
     }
     let given = (args.windows(2))
         .filter_map(|pair| match pair {

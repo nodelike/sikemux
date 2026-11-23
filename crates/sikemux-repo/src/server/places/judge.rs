@@ -294,12 +294,17 @@ fn production_fact(ship: &Ship, addresses: &str, found_in: Option<String>) -> Op
             format!("The {name} database"),
             Recognise::Database { name: name.clone() },
         )),
-        Target::Site { origin } if manages_domains(origin, addresses) => Some(place(
-            format!("Domains at {}", origin.trim_start_matches("https://")),
-            Recognise::Site {
-                origin: origin.clone(),
-            },
-        )),
+        Target::Site { origin } if manages_domains(origin, addresses) => {
+            let host = origin
+                .split_once("://")
+                .map_or(origin.as_str(), |(_, host)| host);
+            Some(place(
+                format!("Domains at {host}"),
+                Recognise::Site {
+                    origin: origin.clone(),
+                },
+            ))
+        }
         Target::Workflow {
             file, environments, ..
         } if workflow_asks(target) => {
@@ -350,8 +355,13 @@ fn manages_domains(origin: &str, addresses: &str) -> bool {
         .any(|panel| host == *panel || host.ends_with(&format!(".{panel}")));
     let addresses = addresses.to_ascii_lowercase();
     let named = (addresses.split_whitespace())
-        .filter_map(|word| word.trim_matches(['\'', '"']).split_once("://"))
-        .filter_map(|(_, address)| address.strip_prefix(host.as_str()))
+        .map(|word| word.trim_matches(['\'', '"']))
+        .filter_map(|word| {
+            ["https://", "http://"]
+                .iter()
+                .find_map(|at| word.strip_prefix(at))
+        })
+        .filter_map(|address| address.strip_prefix(host.as_str()))
         .flat_map(|past_host| past_host.split(|letter: char| !letter.is_ascii_alphanumeric()))
         .any(|part| WORDS.iter().any(|word| part.starts_with(word)));
     at_panel || named
