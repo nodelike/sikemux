@@ -322,6 +322,8 @@ pub const OUTSIDE_CALL_METHOD: &str = "outside.call";
 
 /// What the core asks the window for: a page taken at a width off screen, not a tool.
 pub const BROWSER_PICTURE_METHOD: &str = "browser.picture";
+/// The core asks the window for the whole of a page shown on a desk, drawn for phones.
+pub const PAGE_RENDER_METHOD: &str = "page.render";
 
 pub fn is_browser_method(method: &str) -> bool {
     BROWSER_METHODS.contains(&method) || method == BROWSER_PICTURE_METHOD

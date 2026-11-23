@@ -31,6 +31,7 @@ use sikemux_corekit::cli::protocol::CliOpenTarget;
 use sikemux_corekit::cli::protocol::CliTargetKind;
 use sikemux_corekit::cli::protocol::HarnessRequest;
 use sikemux_corekit::cli::protocol::MAX_CLI_TARGETS;
+use sikemux_corekit::cli::protocol::PAGE_RENDER_METHOD;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_view::prefs::PreferenceChange;
 use sikemux_wire::protocol::{CallId, WindowAnswer, WindowCall};
@@ -463,6 +464,7 @@ impl Workbench {
         match request.method.as_str() {
             "app.console" => return answer(crate::console::read(&request.params)),
             "page.show" => return self.show_page(request, answer, cx),
+            PAGE_RENDER_METHOD => return self.render_page(request, answer, cx),
             "ui.open" => return self.ui_open(request, answer, cx),
             "theme.set" => return self.theme_set(request, answer, cx),
             _ => {}
@@ -546,6 +548,40 @@ impl Workbench {
                 Ok(json!({ "picture": picture, "shut": shut }))
             };
             answer(shown.await);
+        });
+    }
+
+    /// Draws the whole of a kept page off screen at a tablet's width, for a phone to read.
+    fn render_page(
+        &self,
+        request: HarnessRequest,
+        answer: impl FnOnce(Result<Value, String>) + Send + 'static,
+        cx: &App,
+    ) {
+        use base64::Engine as _;
+        let agent = request.agent_id.unwrap_or_default();
+        let id = (request.params.get("id").and_then(Value::as_str))
+            .unwrap_or_default()
+            .to_owned();
+        if !sikemux_base::pages::is_page_id(&id) {
+            return answer(Err("that is not a page the core keeps".into()));
+        }
+        let page =
+            Target::here(&self.asks).request_typed::<call::ReadPage>(PageParams { id: id.clone() });
+        let files = self.desks.read(cx).page_files.clone();
+        crate::desk::spawn(async move {
+            let drawn = async {
+                let page = page.await?;
+                let url = files.kept_url(&id, &page)?;
+                let fixed = sikemux_browser::viewport::Viewport::preset("tablet")
+                    .ok_or("there is no tablet width")?;
+                let jpeg = files
+                    .engine()?
+                    .private_page_render(&agent, &url, fixed)
+                    .await?;
+                Ok(json!({ "render": base64::engine::general_purpose::STANDARD.encode(jpeg) }))
+            };
+            answer(drawn.await);
         });
     }
 }

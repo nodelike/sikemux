@@ -5,7 +5,9 @@ use super::*;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeParts;
+use sikemux_base::cli::protocol::PAGE_RENDER_METHOD;
 pub use sikemux_calls::harness::{PageHtml, PageParams};
+use sikemux_calls::pictures::TurnPictureData;
 
 pub(super) const PAGE_IN_TAB: &str = "The page is open in a tab on your desk, and your reply shows a card that brings it forward. Do not describe or restate it; write only what it does not already say.";
 pub(super) const PAGE_ON_DESK: &str =
@@ -93,6 +95,13 @@ pub(super) async fn show_page(
     let mut shut = false;
     if core.window().is_open() {
         request.params = json!({ "id": page.id, "picture": in_chat, "quiet": quiet });
+        let render = HarnessRequest {
+            id: format!("{}-render", request.id),
+            project: request.project.clone(),
+            agent_id: request.agent_id.clone(),
+            method: PAGE_RENDER_METHOD.to_owned(),
+            params: json!({ "id": page.id }),
+        };
         let shown = forward(core, request).await;
         on_desk = shown.is_ok();
         shut = (shown.as_ref().ok()).is_some_and(|shown| shown["shut"] == true);
@@ -102,6 +111,9 @@ pub(super) async fn show_page(
             .and_then(|shown| shown["picture"].as_str())
         {
             keep_picture(&kept, &page.id, picture).await;
+        }
+        if on_desk && in_chat {
+            keep_render(core, render, kept, page.id.clone());
         }
     }
     if let Some(agent_id) = asker.as_deref() {
@@ -167,6 +179,50 @@ async fn keep_picture(dir: &Path, id: &str, picture: &str) {
     };
     let path = picture_path(dir, id);
     let _ = blocking(move || Ok(std::fs::write(path, bytes))).await;
+}
+
+/// Has the window draw the whole page and keeps it, after the agent has its answer, as drawing
+/// a long page takes seconds.
+fn keep_render(core: &Arc<Core>, request: HarnessRequest, dir: PathBuf, id: String) {
+    let core = core.clone();
+    tokio::spawn(async move {
+        use base64::Engine as _;
+        let drawn = forward(&core, request).await.and_then(|drawn| {
+            (drawn.get("render").and_then(Value::as_str))
+                .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok())
+                .ok_or_else(|| "the window sent no render".to_owned())
+        });
+        let kept = match drawn {
+            Ok(bytes) => blocking(move || {
+                let path = crate::pages::render_file(&dir, &id);
+                Ok(sikemux_process::files::write_atomic(&path, &bytes, true)?)
+            })
+            .await
+            .map_err(|error| error.to_string()),
+            Err(error) => Err(error),
+        };
+        if let Err(error) = kept {
+            eprintln!("sikemux core: a page was not rendered for phones: {error}");
+        }
+    });
+}
+
+/// The whole of a page an agent showed, as a JPEG its desk tab drew.
+pub(crate) async fn page_render(core: &Core, params: PageParams) -> CoreResult<TurnPictureData> {
+    if !crate::pages::is_page_id(&params.id) {
+        return Err("that is not a page's id".into());
+    }
+    let (_, dir) = pages_dir(core)?;
+    blocking(move || {
+        use base64::Engine as _;
+        let bytes = std::fs::read(crate::pages::render_file(&dir, &params.id))
+            .map_err(|_| CoreError::from("that page has no render yet"))?;
+        Ok(TurnPictureData {
+            mime_type: "image/jpeg".to_owned(),
+            data: base64::engine::general_purpose::STANDARD.encode(bytes),
+        })
+    })
+    .await
 }
 
 /// A page an agent showed with `page_show`, with the picture its card in the reply shows.
