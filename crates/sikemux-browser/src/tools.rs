@@ -317,9 +317,10 @@ async fn run(
             } else {
                 1
             };
+            let mut form_write = None;
             if !hover {
                 let write = call(&view, "writeAt", &[json!(x), json!(y)]).await?;
-                put_to_person(write, check).await?;
+                form_write = put_to_person(write, check).await?;
             }
             show_pointer(&view, x, y, !hover).await;
             native::mouse(&view, Mouse::Move, x, y, 0).await?;
@@ -331,7 +332,8 @@ async fn run(
                 );
             }
             if !hover {
-                holding_page_writes(manager, &tab_id, &view, check, async {
+                let sent = form_write.as_deref();
+                holding_page_writes(manager, &tab_id, &view, check, sent, async {
                     for count in 1..=clicks {
                         native::mouse(&view, Mouse::Down, x, y, count).await?;
                         native::mouse(&view, Mouse::Up, x, y, count).await?;
@@ -499,9 +501,10 @@ async fn run(
             if prepared.get("selected").is_some() {
                 return Ok(prepared);
             }
+            let mut form_write = None;
             if submit {
                 let write = call(&view, "writeOfField", std::slice::from_ref(&at)).await?;
-                put_to_person(write, check).await?;
+                form_write = put_to_person(write, check).await?;
             }
             let replacing = prepared.get("replacing").and_then(Value::as_bool) == Some(true);
             if let Some(point) = prepared.get("clickFirst") {
@@ -528,7 +531,8 @@ async fn run(
                 put(&mut typed, "warning", json!(warning));
             }
             if submit {
-                holding_page_writes(manager, &tab_id, &view, check, async {
+                let sent = form_write.as_deref();
+                holding_page_writes(manager, &tab_id, &view, check, sent, async {
                     native::key(&view, "Enter").await?;
                     settle(manager, agent_id, &tab_id).await;
                     Ok::<(), String>(())
@@ -541,11 +545,13 @@ async fn run(
         "browser.press" => {
             let key = text("key").ok_or("key is required")?;
             let (tab_id, view) = active(manager, agent_id)?;
+            let mut form_write = None;
             if plain_enter(&key) {
                 let write = call(&view, "writeOfField", &[Value::Null]).await?;
-                put_to_person(write, check).await?;
+                form_write = put_to_person(write, check).await?;
             }
-            holding_page_writes(manager, &tab_id, &view, check, async {
+            let sent = form_write.as_deref();
+            holding_page_writes(manager, &tab_id, &view, check, sent, async {
                 native::key(&view, &key).await?;
                 settle(manager, agent_id, &tab_id).await;
                 Ok::<(), String>(())
@@ -568,7 +574,7 @@ async fn run(
             }
             native::answer_dialog(&view, &tab_id, accept, text("text")).await?;
             settle(manager, agent_id, &tab_id).await;
-            put_page_writes(manager, &tab_id, &view, check).await?;
+            put_page_writes(manager, &tab_id, &view, check, None).await?;
             report(manager, agent_id, params).await
         }
         "browser.scroll" => {
@@ -1334,15 +1340,18 @@ try {{
 }
 
 /// Puts `write`, what the page script found, to the core, and fails with what the agent is
-/// told when it is held. A null `write` is one the page does not make.
-async fn put_to_person(write: Value, check: &CheckWrite) -> Result<(), String> {
+/// told when it is held. A null `write` is one the page does not make; otherwise the write
+/// that may go comes back, as the person reads it.
+async fn put_to_person(write: Value, check: &CheckWrite) -> Result<Option<String>, String> {
     if write.is_null() {
-        return Ok(());
+        return Ok(None);
     }
     let origin = (write.get("origin").and_then(Value::as_str))
         .unwrap_or_default()
         .to_owned();
-    check(shown(&write), origin, with_query(&write)).await
+    let what = shown(&write);
+    check(what.clone(), origin, with_query(&write)).await?;
+    Ok(Some(what))
 }
 
 /// `write` as the person reads it and as a yes to it is kept: its method and address, without
@@ -1359,28 +1368,32 @@ fn with_query(write: &Value) -> String {
 }
 
 /// Plays `action` while the writes to sites the page's own scripts send wait, then puts each
-/// to the person, as a form's is.
+/// to the person, as a form's is. `sent` is the form's write the person was just put, which a
+/// page that sends its forms from a script makes as one of those.
 async fn holding_page_writes(
     manager: &BrowserManager,
     tab_id: &str,
     view: &Tab,
     check: &CheckWrite,
+    sent: Option<&str>,
     action: impl Future<Output = Result<(), String>>,
 ) -> Result<(), String> {
     let _ = eval(view, "JSON.stringify(window.__sikemuxNet?.hold() ?? null)").await;
     let acted = action.await;
-    let put = put_page_writes(manager, tab_id, view, check).await;
+    let put = put_page_writes(manager, tab_id, view, check, sent).await;
     acted.and(put)
 }
 
 /// Puts the writes the page holds to the person, those to one site together, so one yes
-/// covers all a click sends there. They are sent only when every one may go. A page frozen
-/// by a dialog keeps holding them until the dialog is answered.
+/// covers all a click sends there. One equal to `sent`, the form's write that may already go,
+/// is not put again. They are sent only when every one may go. A page frozen by a dialog
+/// keeps holding them until the dialog is answered.
 async fn put_page_writes(
     manager: &BrowserManager,
     tab_id: &str,
     view: &Tab,
     check: &CheckWrite,
+    sent: Option<&str>,
 ) -> Result<(), String> {
     if manager.dialog(tab_id).is_some() {
         return Ok(());
@@ -1389,8 +1402,12 @@ async fn put_page_writes(
         .await
         .unwrap_or_default();
     let writes = page_writes(&raw);
+    let unasked: Vec<Value> = (writes.iter())
+        .filter(|write| sent != Some(shown(write).as_str()))
+        .cloned()
+        .collect();
     let mut refused = None;
-    for site in writes_by_site(&writes) {
+    for site in writes_by_site(&unasked) {
         if let Err(said) = check(site.what, site.origin, site.with_queries).await {
             refused = refused.or(Some(said));
         }
