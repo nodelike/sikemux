@@ -85,6 +85,8 @@ pub(crate) struct AgentBrowser {
     /// frame does not also re-place every tab parked behind it.
     pub(crate) applied: HashMap<String, (viewport::Layout, bool)>,
     pub(crate) downloads: downloads::DownloadLog,
+    /// The tab whose page was last told it has focus.
+    pub(crate) focus_lent: Option<String>,
 }
 
 impl AgentBrowser {
@@ -824,6 +826,10 @@ impl BrowserManager {
     /// address in `called`, which the agent's open calls send the person to. The one in front
     /// stays the agent's, so a later turn that moves on from it closes it too.
     pub fn end_turn(&self, agent_id: &str, called: &[String]) {
+        if let Some(agent) = self.agents.locked().get_mut(agent_id) {
+            agent.strip.driven = None;
+        }
+        self.steer_page_focus(agent_id);
         let spare: Vec<String> = {
             let agents = self.agents.locked();
             let Some(agent) = agents.get(agent_id) else {
@@ -1196,6 +1202,33 @@ impl BrowserManager {
                 view.hide();
             }
         }
+        self.steer_page_focus(agent_id);
+    }
+
+    /// WebKit gives a page focus only by taking the person's keyboard and only while the
+    /// window is in front, so the page an agent works in is told it has focus by script.
+    pub(crate) fn steer_page_focus(&self, agent_id: &str) {
+        let (left, taken) = {
+            let mut agents = self.agents.locked();
+            let Some(agent) = agents.get_mut(agent_id) else {
+                return;
+            };
+            let wanted = (agent.strip.page_focus())
+                .filter(|id| agent.views.contains_key(*id))
+                .cloned();
+            if agent.focus_lent == wanted {
+                return;
+            }
+            let left = std::mem::replace(&mut agent.focus_lent, wanted.clone());
+            let view_of = |id: Option<String>| id.and_then(|id| agent.views.get(&id).cloned());
+            (view_of(left), view_of(wanted))
+        };
+        if let Some(view) = left {
+            lend_page_focus(view, false);
+        }
+        if let Some(view) = taken {
+            lend_page_focus(view, true);
+        }
     }
 
     /// Tells the app which agent took the wheel, so its browser can come on
@@ -1221,6 +1254,8 @@ impl BrowserManager {
         self.announce();
         if woke {
             self.relayout(agent_id);
+        } else {
+            self.steer_page_focus(agent_id);
         }
         Some((tab, mark))
     }
@@ -1405,6 +1440,13 @@ pub(crate) fn place(view: &Tab, layout: viewport::Layout, _awake: bool) {
     };
     view.set_zoom(zoom);
     view.set_bounds(frame, sides);
+}
+
+pub(crate) fn lend_page_focus(view: Tab, lend: bool) {
+    let script = format!("{}({lend})", crate::PAGE_FOCUS_SCRIPT);
+    crate::spawn(async move {
+        let _ = view.eval(&script).await;
+    });
 }
 
 const MAX_HOLES: usize = 32;

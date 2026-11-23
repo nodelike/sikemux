@@ -42,6 +42,8 @@ pub struct TabStrip {
     /// The person's tabs besides those they clicked or typed in: ones they opened. Tidying up
     /// leaves these open.
     pub kept: HashSet<String>,
+    /// The tab the agent last worked in during its turn.
+    pub driven: Option<String>,
 }
 
 impl TabStrip {
@@ -65,6 +67,9 @@ impl TabStrip {
         self.revealing.remove(id);
         self.hidden_since.remove(id);
         self.kept.remove(id);
+        if self.driven.as_deref() == Some(id) {
+            self.driven = None;
+        }
         if self.active.as_deref() == Some(id) {
             self.active = self
                 .order
@@ -86,7 +91,15 @@ impl TabStrip {
     pub fn mark_acting(&mut self, mark: u64) -> Option<String> {
         let tab = self.active.clone()?;
         self.acting.insert(tab.clone(), mark);
+        self.driven = Some(tab.clone());
         Some(tab)
+    }
+
+    /// The tab whose page is told it has focus: the one in front, while the agent works in it.
+    pub fn page_focus(&self) -> Option<&String> {
+        self.driven
+            .as_ref()
+            .filter(|id| self.active.as_ref() == Some(*id))
     }
 
     pub fn release_acting(&mut self, tab: &str, mark: u64) -> bool {
