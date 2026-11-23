@@ -51,6 +51,7 @@ import { stashRoutes } from "./stash/routes.ts";
 import { updateRoutes } from "./updates/routes.ts";
 import { vaultRoutes } from "./vault/routes.ts";
 import { modRoutes } from "./mods/routes.ts";
+import { pageRoutes } from "./pages/routes.ts";
 import { clerkWebhookRoutes } from "./webhooks/clerk.ts";
 
 export interface Services {
@@ -130,6 +131,7 @@ export function createApp(services: Services) {
         "content-type",
         "sentry-trace",
         "baggage",
+        "x-page-proof",
       ],
       exposeHeaders: ["x-request-id"],
       maxAge: 600,
@@ -142,6 +144,8 @@ export function createApp(services: Services) {
   app.route("/v1/orgs/:orgId/vault", orgVaultRoutes(services));
   // A push carries many sealed documents and a mod's files are uploaded, so mods limit their own bodies too.
   app.route("/v1/mods", modRoutes(services));
+  // A shared page is uploaded whole, so pages limit their own bodies too.
+  app.route("/v1/pages", pageRoutes(services));
   app.use(limitBody());
 
   app.route("/v1/health", healthRoutes(database));

@@ -2835,6 +2835,54 @@ export const schema = {
       additionalProperties: false,
     },
     PaddleEnvironment: { type: "string", enum: ["sandbox", "production"] },
+    PageId: {
+      description:
+        "A shared page's id: 16 random bytes the host picks, in unpadded base64url.",
+      type: "string",
+      pattern: "^[A-Za-z0-9_-]{22}$",
+    },
+    PageShare: {
+      description:
+        "A page the host shared. Its HTML is sealed with the key in the link, so the server cannot read it.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/PageId" },
+        expiresAt: {
+          description: "When the link stops working, in Unix milliseconds.",
+          type: "integer",
+          minimum: 0,
+        },
+        views: {
+          description: "How many times a viewer has opened the page.",
+          type: "integer",
+          minimum: 0,
+        },
+      },
+      required: ["id", "expiresAt", "views"],
+      additionalProperties: false,
+    },
+    PageShareState: {
+      description:
+        "A shared page as it stands, and whether the host stopped it.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/PageId" },
+        expiresAt: {
+          description:
+            "When the link stops or stopped working, in Unix milliseconds.",
+          type: "integer",
+          minimum: 0,
+        },
+        views: { type: "integer", minimum: 0 },
+        ended: {
+          description:
+            "The host stopped sharing it. An expired page is not ended; its expiresAt is past.",
+          type: "boolean",
+        },
+      },
+      required: ["id", "expiresAt", "views", "ended"],
+      additionalProperties: false,
+    },
     PaymentCard: {
       description:
         "The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.",

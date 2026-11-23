@@ -1568,6 +1568,99 @@
       }
     },
     {
+      "method": "put",
+      "path": "/v1/pages/{id}",
+      "operationId": "putPage",
+      "summary": "Share a page, or replace a shared page's HTML and settings. The body is the page sealed with the key in its link, as unpadded base64url text. X-Page-Viewer-Check holds the hex SHA-256 of the proof a viewer's link makes, X-Page-Anyone says whether a viewer need not sign in, and X-Page-Expires when the link stops working, in Unix milliseconds, at most 30 days ahead.",
+      "auth": "host",
+      "bytes": "request",
+      "responses": {
+        "200": {
+          "description": "Shared.",
+          "body": "PageShare"
+        },
+        "400": {
+          "description": "The id, a header or the body is not valid, or the expiry is past or more than 30 days ahead.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "Another account shares a page under that id, or this account already shares 50 pages.",
+          "body": "ApiError"
+        },
+        "413": {
+          "description": "The sealed page is over 25 MiB.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "This host shared more than 60 pages in the last minute.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "The server keeps no files.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/pages/{id}",
+      "operationId": "stopPage",
+      "summary": "Stop sharing a page; its sealed HTML is deleted at once",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "Stopped, or stopped already.",
+          "body": "PageShareState"
+        },
+        "404": {
+          "description": "The account shares no page with that id.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/pages/{id}/state",
+      "operationId": "getPageState",
+      "summary": "How a page the account shared stands: its views, expiry and whether it was stopped",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "The page's share.",
+          "body": "PageShareState"
+        },
+        "404": {
+          "description": "The account shares no page with that id.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/pages/{id}",
+      "operationId": "viewPage",
+      "summary": "A shared page, sealed, for a viewer holding its link. X-Page-Proof holds the hex HMAC-SHA256 of `sikemux-share-viewer|v1|<id>` under the link's key. A page not open to anyone also needs a sign-in. Each answer counts a view.",
+      "auth": "none",
+      "bytes": "response",
+      "responses": {
+        "200": {
+          "description": "The sealed page, as unpadded base64url text."
+        },
+        "401": {
+          "description": "The page is only for people signed in to Sikemux.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No page is shared under that id with that proof, or its share ended or expired.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "This address opened more than 120 pages in the last minute.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
       "method": "post",
       "path": "/v1/stash",
       "operationId": "addStash",

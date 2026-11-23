@@ -3616,6 +3616,225 @@
         }
       }
     },
+    "/v1/pages/{id}": {
+      "put": {
+        "operationId": "putPage",
+        "summary": "Share a page, or replace a shared page's HTML and settings. The body is the page sealed with the key in its link, as unpadded base64url text. X-Page-Viewer-Check holds the hex SHA-256 of the proof a viewer's link makes, X-Page-Anyone says whether a viewer need not sign in, and X-Page-Expires when the link stops working, in Unix milliseconds, at most 30 days ahead.",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": { "type": "string", "format": "binary" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Shared.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PageShare" }
+              }
+            }
+          },
+          "400": {
+            "description": "The id, a header or the body is not valid, or the expiry is past or more than 30 days ahead.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "Another account shares a page under that id, or this account already shares 50 pages.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "413": {
+            "description": "The sealed page is over 25 MiB.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "This host shared more than 60 pages in the last minute.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "The server keeps no files.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "stopPage",
+        "summary": "Stop sharing a page; its sealed HTML is deleted at once",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stopped, or stopped already.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PageShareState" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account shares no page with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "viewPage",
+        "summary": "A shared page, sealed, for a viewer holding its link. X-Page-Proof holds the hex HMAC-SHA256 of `sikemux-share-viewer|v1|<id>` under the link's key. A page not open to anyone also needs a sign-in. Each answer counts a view.",
+        "security": [],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sealed page, as unpadded base64url text.",
+            "content": {
+              "application/octet-stream": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "401": {
+            "description": "The page is only for people signed in to Sikemux.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No page is shared under that id with that proof, or its share ended or expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "This address opened more than 120 pages in the last minute.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pages/{id}/state": {
+      "get": {
+        "operationId": "getPageState",
+        "summary": "How a page the account shared stands: its views, expiry and whether it was stopped",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The page's share.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PageShareState" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account shares no page with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/stash": {
       "post": {
         "operationId": "addStash",
@@ -9053,6 +9272,49 @@
       "PaddleEnvironment": {
         "type": "string",
         "enum": ["sandbox", "production"]
+      },
+      "PageId": {
+        "description": "A shared page's id: 16 random bytes the host picks, in unpadded base64url.",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{22}$"
+      },
+      "PageShare": {
+        "description": "A page the host shared. Its HTML is sealed with the key in the link, so the server cannot read it.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/PageId" },
+          "expiresAt": {
+            "description": "When the link stops working, in Unix milliseconds.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "views": {
+            "description": "How many times a viewer has opened the page.",
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": ["id", "expiresAt", "views"],
+        "additionalProperties": false
+      },
+      "PageShareState": {
+        "description": "A shared page as it stands, and whether the host stopped it.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/PageId" },
+          "expiresAt": {
+            "description": "When the link stops or stopped working, in Unix milliseconds.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "views": { "type": "integer", "minimum": 0 },
+          "ended": {
+            "description": "The host stopped sharing it. An expired page is not ended; its expiresAt is past.",
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "expiresAt", "views", "ended"],
+        "additionalProperties": false
       },
       "PaymentCard": {
         "description": "The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.",

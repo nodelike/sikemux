@@ -827,6 +827,26 @@ Table vault_ended {
   }
 }
 
+Table pages {
+  id text [pk, note: 'id ~ \'^[A-Za-z0-9_-]{22}$\'']
+  user_id text [not null]
+  stored_as text [unique, note: 'stored_as ~ \'^[A-Za-z0-9_-]{22}$\'']
+  size bigint [not null, note: 'size >= 0']
+  viewer_check text [not null, note: 'viewer_check ~ \'^[0-9a-f]{64}$\'']
+  anyone boolean [not null]
+  views integer [not null, default: 0]
+  expires_at timestamptz [not null]
+  ended_at timestamptz
+  stored_by text [not null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    expires_at [name: 'pages_expiry']
+    user_id [name: 'pages_live', note: 'where (ended_at IS NULL)']
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -882,3 +902,4 @@ Ref: addresses_seen.user_id > users.id [delete: cascade]
 Ref: ended_sessions.user_id > users.id [delete: cascade]
 Ref: invoice_refunds.invoice_id > invoices.id [delete: cascade]
 Ref: vault_ended.user_id > vaults.user_id [delete: cascade]
+Ref: pages.user_id > users.id [delete: cascade]

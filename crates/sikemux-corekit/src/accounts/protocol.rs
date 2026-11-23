@@ -1533,6 +1533,32 @@ pub enum PaddleEnvironment {
     Unknown,
 }
 
+/// A shared page's id: 16 random bytes the host picks, in unpadded base64url.
+pub type PageId = String;
+
+/// A page the host shared. Its HTML is sealed with the key in the link, so the server cannot read it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageShare {
+    pub id: PageId,
+    /// When the link stops working, in Unix milliseconds.
+    pub expires_at: i64,
+    /// How many times a viewer has opened the page.
+    pub views: i64,
+}
+
+/// A shared page as it stands, and whether the host stopped it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageShareState {
+    pub id: PageId,
+    /// When the link stops or stopped working, in Unix milliseconds.
+    pub expires_at: i64,
+    pub views: i64,
+    /// The host stopped sharing it. An expired page is not ended; its expiresAt is past.
+    pub ended: bool,
+}
+
 /// The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2331,6 +2357,9 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgTeamRename" => through::<OrgTeamRename>(json),
         "PaddleCheckout" => through::<PaddleCheckout>(json),
         "PaddleEnvironment" => through::<PaddleEnvironment>(json),
+        "PageId" => through::<PageId>(json),
+        "PageShare" => through::<PageShare>(json),
+        "PageShareState" => through::<PageShareState>(json),
         "PaymentCard" => through::<PaymentCard>(json),
         "PeerTicket" => through::<PeerTicket>(json),
         "PeerTicketRequest" => through::<PeerTicketRequest>(json),

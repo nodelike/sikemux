@@ -20,6 +20,7 @@ import { flushSentry, startSentry } from "./sentry.ts";
 import { startServer } from "./server.ts";
 import { checkStashFiles, StashFiles } from "./stash/files.ts";
 import { purgeHookDeliveries } from "./hooks/purge.ts";
+import { purgePages } from "./pages/store.ts";
 import { purgeStash } from "./stash/purge.ts";
 import { purgeVaultUses } from "./vault/purge.ts";
 import { purgeModRemovals } from "./mods/purge.ts";
@@ -130,6 +131,7 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
     return withDatabase(config, "purging failed", async (database, log) => {
       await purgeAccounts(database.db, log);
       await pruneHistory(database.db, log);
+      await purgePages(database.db, config.stashDir, log);
       await purgeStash(database.db, config.stashDir, log);
       await purgeHookDeliveries(database.db, log);
       await purgeVaultUses(database.db, log);

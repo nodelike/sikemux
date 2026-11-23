@@ -415,6 +415,20 @@ export interface Tables {
     stored_by: string;
     stored_at: CreatedAt;
   };
+  pages: {
+    id: string;
+    user_id: string;
+    stored_as: string | null;
+    size: ColumnType<string, number, number>;
+    viewer_check: string;
+    anyone: boolean;
+    views: ColumnType<number, never, number>;
+    expires_at: ColumnType<Date, Date, Date>;
+    ended_at: ColumnType<Date | null, never, Date | null>;
+    stored_by: string;
+    created_at: CreatedAt;
+    updated_at: ColumnType<Date, never, Date>;
+  };
   mod_documents: {
     user_id: string;
     mod_id: string;

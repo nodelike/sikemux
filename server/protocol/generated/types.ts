@@ -1552,6 +1552,28 @@ export const paddleEnvironmentValues: readonly PaddleEnvironment[] = [
   "production",
 ];
 
+/** A shared page's id: 16 random bytes the host picks, in unpadded base64url. */
+export type PageId = string;
+
+/** A page the host shared. Its HTML is sealed with the key in the link, so the server cannot read it. */
+export interface PageShare {
+  id: PageId;
+  /** When the link stops working, in Unix milliseconds. */
+  expiresAt: number;
+  /** How many times a viewer has opened the page. */
+  views: number;
+}
+
+/** A shared page as it stands, and whether the host stopped it. */
+export interface PageShareState {
+  id: PageId;
+  /** When the link stops or stopped working, in Unix milliseconds. */
+  expiresAt: number;
+  views: number;
+  /** The host stopped sharing it. An expired page is not ended; its expiresAt is past. */
+  ended: boolean;
+}
+
 /** The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept. */
 export interface PaymentCard {
   /** The provider's name for the card's network, such as visa. */
@@ -2636,6 +2658,9 @@ export interface Definitions {
   OrgWrappedKey: OrgWrappedKey;
   PaddleCheckout: PaddleCheckout;
   PaddleEnvironment: PaddleEnvironment;
+  PageId: PageId;
+  PageShare: PageShare;
+  PageShareState: PageShareState;
   PaymentCard: PaymentCard;
   PeerTicket: PeerTicket;
   PeerTicketRequest: PeerTicketRequest;

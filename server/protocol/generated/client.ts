@@ -84,6 +84,7 @@ import type {
   OrgVaultRotate,
   OrgVaultState,
   PaddleCheckout,
+  PageShareState,
   PeerTicket,
   PeerTicketRequest,
   PendingHost,
@@ -454,6 +455,12 @@ export function apiClient(send: Send) {
         `/v1/orgs/${encodeURIComponent(orgId)}/policy`,
         body,
       ),
+    /** Stop sharing a page; its sealed HTML is deleted at once. */
+    stopPage: (id: string) =>
+      send<PageShareState>("DELETE", `/v1/pages/${encodeURIComponent(id)}`),
+    /** How a page the account shared stands: its views, expiry and whether it was stopped. */
+    getPageState: (id: string) =>
+      send<PageShareState>("GET", `/v1/pages/${encodeURIComponent(id)}/state`),
     /** Stash a link, text or file on your account. */
     addStash: (body: StashAdd) => send<StashItem>("POST", `/v1/stash`, body),
     /** Your stash, newest first. */
