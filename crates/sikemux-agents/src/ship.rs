@@ -1313,7 +1313,7 @@ pub(crate) fn of_program(
     }
     if matches!(program, "curl" | "wget") {
         if supabase_sql(args).is_some() {
-            return (!sends_only_reads(args)).then_some(ShipKind::ProductionWrite);
+            return (!sends_only_reads(program, args)).then_some(ShipKind::ProductionWrite);
         }
         return web_write(program, args).then_some(ShipKind::Publish);
     }
@@ -1553,17 +1553,30 @@ fn dry_run(args: &[String]) -> bool {
 }
 
 /// Whether a database client is given only statements that read: each passed with `-c`,
-/// `--command`, `-e` or `--execute` starts with SELECT, SHOW, EXPLAIN or DESCRIBE, or is one of
-/// psql's listing commands.
+/// `--command`, `-e` or `--execute`, attached or not, starts with SELECT, SHOW, EXPLAIN or
+/// DESCRIBE, or is one of psql's listing commands.
 fn only_queries(args: &[String]) -> bool {
-    let given: Vec<&String> = (args.windows(2))
-        .filter_map(|pair| match pair {
-            [flag, statement]
-                if matches!(flag.as_str(), "-c" | "--command" | "-e" | "--execute") =>
-            {
-                Some(statement)
+    let given: Vec<&str> = (args.iter().enumerate())
+        .filter_map(|(at, arg)| {
+            let next = || args.get(at + 1).map(String::as_str);
+            if let Some((flag, statement)) = arg.split_once('=') {
+                return matches!(flag, "--command" | "--execute").then_some(statement);
             }
-            _ => None,
+            if matches!(arg.as_str(), "--command" | "--execute") {
+                return next();
+            }
+            let short = arg
+                .strip_prefix('-')
+                .filter(|short| !short.starts_with('-'))?;
+            if let Some(attached) = short.strip_prefix(['c', 'e']) {
+                return if attached.is_empty() {
+                    next()
+                } else {
+                    Some(attached)
+                };
+            }
+            let packed = short.len() <= 4 && short.ends_with(['c', 'e']);
+            packed.then(next).flatten()
         })
         .collect();
     !given.is_empty() && given.iter().all(|text| statements_read(text))
@@ -1598,23 +1611,29 @@ fn supabase_sql(args: &[String]) -> Option<String> {
     })
 }
 
-/// Whether every body a web request sends is a SQL query that only reads, as
+/// Whether every body `program`, curl or wget, sends is a SQL query that only reads, as
 /// `{"query": "select …"}`; not when any body is read from a file or standard input.
-fn sends_only_reads(args: &[String]) -> bool {
-    fn attached(arg: &str) -> Option<&str> {
-        if !arg.starts_with("--") {
-            return (CURL_DATA.iter())
-                .find_map(|flag| arg.strip_prefix(flag).filter(|value| !value.is_empty()));
+fn sends_only_reads(program: &str, args: &[String]) -> bool {
+    let data_flags = match program {
+        "wget" => WGET_DATA,
+        _ => CURL_DATA,
+    };
+    let given = (args.iter().enumerate()).filter_map(|(at, arg)| {
+        let next = || args.get(at + 1).map(String::as_str);
+        if let Some((flag, body)) = arg.split_once('=').filter(|_| arg.starts_with("--")) {
+            return data_flags.contains(&flag).then_some(body);
         }
-        let (flag, value) = arg.split_once('=')?;
-        CURL_DATA.contains(&flag).then_some(value)
-    }
-    let given = (args.windows(2))
-        .filter_map(|pair| match pair {
-            [flag, body] if CURL_DATA.contains(&flag.as_str()) => Some(body.as_str()),
-            _ => None,
-        })
-        .chain(args.iter().map(String::as_str).filter_map(attached));
+        if arg.starts_with("--") || program != "curl" {
+            return data_flags.contains(&arg.as_str()).then(next).flatten();
+        }
+        let short = arg.strip_prefix('-')?;
+        let (_, attached) = short.split_once(['d', 'F', 'T'])?;
+        if attached.is_empty() {
+            next()
+        } else {
+            Some(attached)
+        }
+    });
     let mut bodies = given.peekable();
     bodies.peek().is_some()
         && bodies.all(|body| {
