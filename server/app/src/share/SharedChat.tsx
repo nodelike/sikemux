@@ -37,8 +37,8 @@ import {
   type ShareSnapshot,
 } from "@shared/share/session";
 import { appShareLink, type ShareLink } from "@shared/share/link";
+import { GET_SIKEMUX, ReaderBar } from "./ReaderBar.tsx";
 import { agentLabel } from "@shared/agents/catalog";
-import sikemuxLockup from "../../../../brand/wordmark/lockup-white.svg";
 import sikemuxMark from "../../../../brand/mark/mark-purple.svg";
 import "../chat/styles/chat.css";
 import "../chat/styles/share.css";
@@ -52,9 +52,6 @@ const PROBLEMS: Partial<Record<ShareSnapshot["status"], string>> = {
   unreadable:
     "This link does not open the chat it points at. Check that the whole link was copied.",
 };
-
-const GET_SIKEMUX =
-  "https://sikemux.com/?utm_source=share&utm_medium=share&utm_campaign=public-link";
 
 function endedText(snapshot: ShareSnapshot): string {
   return snapshot.endedBecause === "expired"
@@ -175,7 +172,12 @@ export function SharedChat({
                 className={`agent-surface shared-chat${reader ? " shared-reader" : ""}`}
               >
                 {reader ? (
-                  <ReaderBar />
+                  <ReaderBar>
+                    <span className="shared-chat-badge">
+                      <IconEye size={13} />
+                      <span>Read-only</span>
+                    </span>
+                  </ReaderBar>
                 ) : (
                   <header className="agent-surface-header">
                     <div className="agent-surface-name">
@@ -261,24 +263,6 @@ export function SharedChat({
         </ChatAgentContext.Provider>
       </PathRootsProvider>
     </RemoteOriginContext>
-  );
-}
-
-/** The bar over a chat read without signing in: whose app it is, that it is read-only, and where to get it. */
-function ReaderBar() {
-  return (
-    <header className="shared-reader-top">
-      <a href={GET_SIKEMUX} aria-label="Sikemux">
-        <img src={sikemuxLockup} alt="Sikemux" />
-      </a>
-      <span className="shared-chat-badge">
-        <IconEye size={13} />
-        <span>Read-only</span>
-      </span>
-      <a className="shared-reader-get" href={GET_SIKEMUX}>
-        Get Sikemux
-      </a>
-    </header>
   );
 }
 

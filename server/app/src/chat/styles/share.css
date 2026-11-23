@@ -255,3 +255,29 @@
     display: none;
   }
 }
+
+/* A shared page: someone's HTML filling the window under the reader's bar. */
+.shared-page {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+.shared-page-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-dim);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shared-page-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+}
+
+.shared-page .chat-connection-state {
+  margin: auto;
+}

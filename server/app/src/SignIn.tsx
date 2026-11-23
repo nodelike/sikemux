@@ -18,6 +18,7 @@ import { AppleMark, GitHubMark, GoogleMark, Logo } from "./icons.tsx";
 import { useInviteOrg } from "./invite.ts";
 import {
   HOST,
+  isPagePath,
   isSharePath,
   JOIN,
   noteSignUpReason,
@@ -40,9 +41,10 @@ const CODE_DETAIL: Record<CodePurpose, string> = {
   reset: "so you can choose a new password",
 };
 
-/** On a shared chat's page or an invite a finished sign-in stays there, where the chat or the invite then opens, instead of going to the account pages. */
+/** On a shared chat's or page's page or an invite a finished sign-in stays there, where what was shared or the invite then opens, instead of going to the account pages. */
 function staying() {
   return isSharePath(location.pathname) ||
+    isPagePath(location.pathname) ||
     location.pathname === HOST ||
     location.pathname === JOIN
     ? { navigate: () => undefined }

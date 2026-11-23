@@ -73,11 +73,12 @@ export function rememberReturn() {
 
 /** Notes, before a sign-in, what the person came to the page for, so a new account can be asked whether it is their first. */
 export function noteSignUpReason(path = location.pathname) {
-  const hint: "share" | "invite" | null = isSharePath(path)
-    ? "share"
-    : path === JOIN && location.hash.length > 1
-      ? "invite"
-      : null;
+  const hint: "share" | "invite" | null =
+    isSharePath(path) || isPagePath(path)
+      ? "share"
+      : path === JOIN && location.hash.length > 1
+        ? "invite"
+        : null;
   if (hint) sessionStorage.setItem(SIGNED_UP_FOR_KEY, hint);
 }
 
@@ -86,12 +87,17 @@ export function isSharePath(path: string): boolean {
   return path.startsWith("/s/");
 }
 
+/** A shared page's page, which loads on its own too. */
+export function isPagePath(path: string): boolean {
+  return path.startsWith("/p/");
+}
+
 /** Where a sign-in that left the page should go back to, taken once, or null when none is under way. */
 export function takeReturn(): string | null {
   const saved = sessionStorage.getItem(RETURN_KEY);
   if (saved === null) return null;
   sessionStorage.removeItem(RETURN_KEY);
-  if (isSharePath(saved)) return saved;
+  if (isSharePath(saved) || isPagePath(saved)) return saved;
   const [path = "/", query = ""] = saved.split("?", 2);
   if (path === "/" && appReturn(`?${query}`)) return saved;
   if (path === CONSENT || path === HOST || saved.startsWith(`${JOIN}#`))

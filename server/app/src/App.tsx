@@ -64,6 +64,7 @@ import {
   DOMAINS,
   HOST,
   HOSTS,
+  isPagePath,
   isSharePath,
   JOIN,
   PAY,
@@ -141,7 +142,7 @@ export function App() {
   }, [path, showDeleted, shellShown]);
 
   const returnTo = (to: string) => {
-    if (isSharePath(to)) location.replace(to);
+    if (isSharePath(to) || isPagePath(to)) location.replace(to);
     else go(to, { replace: true });
   };
   const afterSignIn = () => returnTo(takeReturn() ?? "/");
