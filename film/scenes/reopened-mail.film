@@ -1,0 +1,23 @@
+# A lead writes to a worker it reopened mid-turn: the message waits in the worker's queued list.
+stage 1440 900
+window 1440 900
+replies reopened-mail.json
+prefer themeId aura-noir
+prefer uiTextScale 1.25
+project storefront line-shop
+core openChief {"project":"storefront"}
+chat Mira
+title "Fix the rounding in cart totals"
+lead Chief
+say "Round the cart totals once, at the end."
+settle 3
+core closeChat {"agentId":"$chat"}
+settle 2
+say "hold 600000"
+settle 3
+front Chief
+say "Tell Mira the receipts round the same way."
+settle 6
+front Mira
+settle 2
+snap reopened-mail

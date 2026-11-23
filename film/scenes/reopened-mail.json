@@ -1,0 +1,15 @@
+[
+  {
+    "when": "Round the cart totals",
+    "steps": [
+      { "say": "Totals now round once, after the discount.", "perSecond": 60 }
+    ]
+  },
+  {
+    "when": "Tell Mira",
+    "steps": [
+      { "tool": "mcp__sikemux-tools__agent_send", "call": "agent.send", "input": { "to": "Mira", "text": "Receipts round the same way: once, after the discount. Match the cart." }, "ms": 800 },
+      { "say": "Told Mira; it reaches Mira when the turn ends.", "perSecond": 60 }
+    ]
+  }
+]
