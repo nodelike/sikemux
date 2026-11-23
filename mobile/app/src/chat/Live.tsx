@@ -18,6 +18,7 @@ import { SectionLabel } from '@/ui/list';
 import { useStill } from '@/ui/motion';
 import { Sheet } from '@/ui/Sheet';
 import { Shimmer } from '@/ui/Shimmer';
+import { AgentFace } from '@/devices/Buddy';
 import { Dot, Working } from '@/devices/AgentMarks';
 import { fonts, mixed, type Palette, useColors, useStyles } from '@/ui/theme';
 import { counted } from '@/devices/words';
@@ -349,10 +350,10 @@ export function LiveSheet({
             ))}
           </>
         ) : null}
-        {work.queued.length ? (
+        {work.queued.length || work.mail.length ? (
           <>
             <SectionLabel
-              count={work.queued.length}
+              count={work.queued.length + work.mail.length}
               action={
                 steerable && work.queued.length > 1 ? (
                   <SmallButton
@@ -395,6 +396,20 @@ export function LiveSheet({
                 />
               );
             })}
+            {work.mail.map((letter, index) => (
+              <Line
+                key={`mail-${index}`}
+                mark={
+                  letter.trigger ? (
+                    <Icon name="IconTimer" size={15} color={colors.inkDim} />
+                  ) : (
+                    <AgentFace agentId={letter.agentId} provider={letter.cli} size={16} />
+                  )
+                }
+                title={letter.trigger ? letter.trigger.title : `@${letter.name.replace(/^@/, '')}`}
+                detail={letter.text}
+              />
+            ))}
           </>
         ) : null}
         {work.plan.length ? (

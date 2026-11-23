@@ -136,10 +136,10 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing],
   );
   const subagents = useMemo(() => subagentsOf(state.messages, state.subagentRows), [state.messages, state.subagentRows]);
-  const { handoff, guests, plan, runningSubagents, tasks, queued } = state;
+  const { handoff, guests, plan, runningSubagents, tasks, queued, mail } = state;
   const fresh = useMemo(
-    () => liveWork({ handoff, guests, plan, runningSubagents, tasks, queued }),
-    [handoff, guests, plan, runningSubagents, tasks, queued],
+    () => liveWork({ handoff, guests, plan, runningSubagents, tasks, queued, mail }),
+    [handoff, guests, plan, runningSubagents, tasks, queued, mail],
   );
   // The strip redraws, and with it the composer, only when what it counts changes, not on every word streamed.
   const [work, setWork] = useState(fresh);

@@ -7,6 +7,8 @@ struct LiveWork: Equatable {
     var subagents: [SubagentCard]
     var tasks: [(kind: String, tasks: [AsyncTask])]
     var queued: [QueuedMessage]
+    /// What other agents sent, or triggers fired, waiting for the agent's next turn.
+    var mail: [AgentLetter]
     var plan: [PlanEntry]
 
     init(_ rows: ChatRows) {
@@ -22,11 +24,13 @@ struct LiveWork: Equatable {
         }
         tasks = kinds.map { ($0, byKind[$0]!) }
         queued = rows.queued
+        mail = rows.head.mail ?? []
         plan = rows.head.plan ?? []
     }
 
     static func == (a: LiveWork, b: LiveWork) -> Bool {
         a.handoff == b.handoff && a.guests == b.guests && a.subagents == b.subagents && a.queued == b.queued
+            && a.mail == b.mail
             && a.plan == b.plan
             && a.tasks.map(\.kind) == b.tasks.map(\.kind) && a.tasks.map(\.tasks) == b.tasks.map(\.tasks)
     }
@@ -34,7 +38,7 @@ struct LiveWork: Equatable {
     /// Some step of the plan is still to do.
     var planOpen: Bool { plan.contains { $0.status != .completed } }
     var any: Bool {
-        handoff != nil || !guests.isEmpty || !subagents.isEmpty || !tasks.isEmpty || !queued.isEmpty || planOpen
+        handoff != nil || !guests.isEmpty || !subagents.isEmpty || !tasks.isEmpty || !queued.isEmpty || !mail.isEmpty || planOpen
     }
 
     struct Piece: Equatable {
@@ -72,8 +76,9 @@ struct LiveWork: Equatable {
                 Piece(kind: .task(kind), count: "\(tasks.count)", word: Self.kindWord(kind, tasks.count))
             )
         }
-        if !queued.isEmpty {
-            pieces.append(Piece(kind: .queued, count: "\(queued.count)", word: String(localized: "queued")))
+        if !queued.isEmpty || !mail.isEmpty {
+            pieces.append(
+                Piece(kind: .queued, count: "\(queued.count + mail.count)", word: String(localized: "queued")))
         }
         if planOpen {
             let done = plan.filter { $0.status == .completed }.count
@@ -371,8 +376,8 @@ struct LiveSheet: View {
                     }
                 }
             }
-            if !work.queued.isEmpty {
-                SectionLabel(text: "queued", count: work.queued.count) {
+            if !work.queued.isEmpty || !work.mail.isEmpty {
+                SectionLabel(text: "queued", count: work.queued.count + work.mail.count) {
                     if steerable && work.queued.count > 1 {
                         SmallButton(label: "Steer all") { steer(work.queued.map(\.id)) }
                             .accessibilityLabel("Steer the running turn with every queued message")
@@ -400,6 +405,17 @@ struct LiveSheet: View {
                         }
                         .buttonStyle(ActiveFill(radius: 8))
                         .accessibilityLabel("Drop \(label) from the queue")
+                    }
+                }
+                ForEach(Array(work.mail.enumerated()), id: \.offset) { _, letter in
+                    Line(title: letter.trigger?.title ?? "@\(letter.name)", detail: letter.text) {
+                        if letter.trigger != nil {
+                            IconView(icon: Icons.timer, size: 15).foregroundStyle(palette.inkDim)
+                        } else {
+                            AgentFaceView(agentId: letter.agentId, provider: letter.cli, size: 16)
+                        }
+                    } end: {
+                        EmptyView()
                     }
                 }
             }

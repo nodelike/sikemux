@@ -1,5 +1,5 @@
 import type { ChatRows } from '@shared/chat/rows';
-import type { PlanEntry, AsyncTask, GuestMessage, Handoff, SubagentCard } from '@shared/wire.generated';
+import type { AgentLetter, PlanEntry, AsyncTask, GuestMessage, Handoff, SubagentCard } from '@shared/wire.generated';
 import { agentLabel } from '@shared/agents/catalog';
 import { english, type Say } from '@shared/lib/say';
 import { groupTasks, subagentActivity, taskDetail, workflowAgentDetail } from '@shared/chat/transcript';
@@ -16,12 +16,14 @@ export type LiveWork = {
   subagents: SubagentCard[];
   tasks: [string, AsyncTask[]][];
   queued: readonly Held[];
+  /** What other agents sent, or triggers fired, waiting for the agent's next turn. */
+  mail: AgentLetter[];
   plan: PlanEntry[];
   /** Some step of the plan is still to do. */
   planOpen: boolean;
 };
 
-export function liveWork(chat: Pick<ChatRows, 'handoff' | 'guests' | 'plan' | 'runningSubagents' | 'tasks' | 'queued'>): LiveWork {
+export function liveWork(chat: Pick<ChatRows, 'handoff' | 'guests' | 'plan' | 'runningSubagents' | 'tasks' | 'queued' | 'mail'>): LiveWork {
   const plan = chat.plan ?? [];
   return {
     handoff: chat.handoff,
@@ -29,6 +31,7 @@ export function liveWork(chat: Pick<ChatRows, 'handoff' | 'guests' | 'plan' | 'r
     subagents: chat.runningSubagents,
     tasks: groupTasks(chat.tasks),
     queued: chat.queued,
+    mail: chat.mail ?? [],
     plan,
     planOpen: plan.some((entry) => entry.status !== 'completed'),
   };
@@ -64,6 +67,7 @@ type LiveStripView = { pieces: StripPiece[]; lines: string[]; working: boolean }
 
 export function liveStrip(work: LiveWork, say: Say = english): LiveStripView {
   const done = work.plan.filter((entry) => entry.status === 'completed').length;
+  const waiting = work.queued.length + work.mail.length;
   const pieces: StripPiece[] = [
     ...(work.handoff
       ? [{ key: 'handoff', agent: work.handoff.from, count: `~${thousands(work.handoff.tokens)}k`, word: say('handoff') }]
@@ -78,7 +82,7 @@ export function liveStrip(work: LiveWork, say: Say = english): LiveStripView {
       count: String(tasks.length),
       word: counted(kind, tasks.length),
     })),
-    ...(work.queued.length ? [{ key: 'queued', count: String(work.queued.length), word: say('queued') }] : []),
+    ...(waiting ? [{ key: 'queued', count: String(waiting), word: say('queued') }] : []),
     ...(work.planOpen ? [{ key: 'plan', count: `${done}/${work.plan.length}`, word: say('plan') }] : []),
   ];
   const running = work.tasks.flatMap(([, tasks]) => tasks.filter((task) => task.state === 'running'));
@@ -106,6 +110,7 @@ export function hasLiveWork(work: LiveWork): boolean {
     work.subagents.length > 0 ||
     work.tasks.length > 0 ||
     work.queued.length > 0 ||
+    work.mail.length > 0 ||
     work.planOpen
   );
 }
