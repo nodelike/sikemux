@@ -1,8 +1,11 @@
-//! Sharing a chat read-only: a link its holders read it from as it happens, with or
+//! Sharing a chat read-only, or a page an agent showed: a link its holders read it from, with or
 //! without signing in to Sikemux. The core opens and keeps the share; the window lists them and asks.
 
 use crate::ui::Clicks;
+use sikemux_calls::harness::{PageParams, PageShare, SharePageParams};
 use sikemux_calls::share::StopShareParams;
+use std::future::Future;
+use std::pin::Pin;
 use std::rc::Rc;
 
 use gpui_kit::component::WindowExt;
@@ -26,6 +29,12 @@ const LIFETIMES: [(&str, u64); 3] = [
     (n!("1 hour"), HOUR_MS),
     (n!("24 hours"), 24 * HOUR_MS),
     (n!("7 days"), 7 * 24 * HOUR_MS),
+];
+const PAGE_LIFETIMES: [(&str, u64); 4] = [
+    LIFETIMES[0],
+    LIFETIMES[1],
+    LIFETIMES[2],
+    (n!("30 days"), 30 * 24 * HOUR_MS),
 ];
 const READERS: [(&str, bool); 2] = [
     (n!("Anyone with the link"), true),
@@ -60,13 +69,49 @@ impl Workbench {
     pub fn open_share(&mut self, agent: &str, _: &mut Window, cx: &mut Context<Self>) {
         let anyone = self.share_of(agent).is_none_or(|share| share.anyone);
         self.overlays.sharing = Some(Sharing {
-            agent: agent.to_owned(),
+            shared: Shared::Chat(agent.to_owned()),
             lifetime: 1,
             anyone,
             working: false,
             problem: None,
         });
         cx.notify();
+    }
+
+    /// Opens the dialog that shares page `id`, or shows the link it has.
+    pub(crate) fn open_page_share(&mut self, id: &str, title: &str, cx: &mut Context<Self>) {
+        let anyone = (self.pages.share_of(id)).is_none_or(|share| share.anyone);
+        self.overlays.sharing = Some(Sharing {
+            shared: Shared::Page {
+                id: id.to_owned(),
+                title: title.to_owned(),
+            },
+            lifetime: 2,
+            anyone,
+            working: false,
+            problem: None,
+        });
+        cx.notify();
+    }
+
+    fn link_of(&self, shared: &Shared) -> Option<Link> {
+        match shared {
+            Shared::Chat(agent) => self.share_of(agent).map(|share| Link {
+                url: share.url.clone(),
+                expires_at: share.expires_at,
+                watching: Some(watching(share)),
+                stop: Shared::Chat(share.id.clone()),
+            }),
+            Shared::Page { id, title } => self.pages.share_of(id).map(|share| Link {
+                url: share.url.clone(),
+                expires_at: share.expires_at,
+                watching: None,
+                stop: Shared::Page {
+                    id: id.clone(),
+                    title: title.clone(),
+                },
+            }),
+        }
     }
 
     fn agent_title(&self, agent: &str) -> String {
@@ -83,36 +128,60 @@ impl Workbench {
     /// Asks the core to share the chat as the dialog has it: a new link, which is copied, or
     /// who may read the one it has.
     fn start_share(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(agent) = (self.overlays.sharing.as_ref())
+        let Some(shared) = (self.overlays.sharing.as_ref())
             .filter(|sharing| !sharing.working)
-            .map(|sharing| sharing.agent.clone())
+            .map(|sharing| sharing.shared.clone())
         else {
             return;
         };
-        let title = self.agent_title(&agent);
-        let fresh = self.share_of(&agent).is_none();
-        let Some(sharing) = self.overlays.sharing.as_mut() else {
+        let fresh = self.link_of(&shared).is_none();
+        let Some(sharing) = self.overlays.sharing.as_ref() else {
             return;
         };
-        let Some(&(_, lifetime_ms)) = LIFETIMES.get(sharing.lifetime) else {
+        let Some(&(_, lifetime_ms)) = sharing.lifetimes().get(sharing.lifetime) else {
             return;
         };
         let anyone = sharing.anyone;
-        let started = crate::core::Target::here(&self.asks).request_typed::<call::ShareChat>(
-            ShareChatParams {
-                agent_id: sharing.agent.clone(),
-                lifetime_ms,
-                title: Some(title),
-                anyone: sharing.anyone,
-            },
-        );
+        type Started = Pin<Box<dyn Future<Output = Result<(String, Option<PageShare>), String>>>>;
+        let started: Started = match &shared {
+            Shared::Chat(agent) => {
+                let asked = crate::core::Target::here(&self.asks).request_typed::<call::ShareChat>(
+                    ShareChatParams {
+                        agent_id: agent.clone(),
+                        lifetime_ms,
+                        title: Some(self.agent_title(agent)),
+                        anyone,
+                    },
+                );
+                Box::pin(async move { asked.await.map(|share| (share.url, None)) })
+            }
+            Shared::Page { id, .. } => {
+                let asked = self
+                    .target()
+                    .request_typed::<call::SharePage>(SharePageParams {
+                        id: id.clone(),
+                        lifetime_ms,
+                        anyone,
+                        theme: self.desks.read(cx).page_files.theme(),
+                    });
+                Box::pin(async move { asked.await.map(|share| (share.url.clone(), Some(share))) })
+            }
+        };
+        let Some(sharing) = self.overlays.sharing.as_mut() else {
+            return;
+        };
         (sharing.working, sharing.problem) = (true, None);
         cx.notify();
         cx.spawn_in(window, async move |bench, cx| {
             let answer = started.await;
             bench
                 .update_in(cx, |bench, window, cx| {
-                    let url = answer.map(|share| share.url);
+                    let url = answer.map(|(url, page)| {
+                        if let (Shared::Page { id, .. }, Some(page)) = (&shared, page) {
+                            bench.pages.shared_now(id, Some(page));
+                        }
+                        url
+                    });
                     match &url {
                         Ok(url) if fresh => {
                             cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
@@ -138,9 +207,18 @@ impl Workbench {
         .detach();
     }
 
-    fn stop_share(&mut self, share: String, window: &mut Window, cx: &mut Context<Self>) {
-        let stopped = crate::core::Target::here(&self.asks)
-            .request_typed::<call::StopShare>(StopShareParams { id: share });
+    fn stop_share(&mut self, share: Shared, window: &mut Window, cx: &mut Context<Self>) {
+        let stopped: Pin<Box<dyn Future<Output = Result<(), String>>>> = match &share {
+            Shared::Chat(id) => {
+                let asked = crate::core::Target::here(&self.asks)
+                    .request_typed::<call::StopShare>(StopShareParams { id: id.clone() });
+                Box::pin(async move { asked.await.map(drop) })
+            }
+            Shared::Page { id, .. } => Box::pin(
+                self.target()
+                    .request_typed::<call::StopPageShare>(PageParams { id: id.clone() }),
+            ),
+        };
         if let Some(sharing) = self.overlays.sharing.as_mut() {
             sharing.working = true;
         }
@@ -150,7 +228,12 @@ impl Workbench {
             bench
                 .update(cx, |bench, cx| {
                     match answer {
-                        Ok(_) => bench.overlays.sharing = None,
+                        Ok(()) => {
+                            if let Shared::Page { id, .. } = &share {
+                                bench.pages.shared_now(id, None);
+                            }
+                            bench.overlays.sharing = None;
+                        }
                         Err(error) => {
                             if let Some(sharing) = bench.overlays.sharing.as_mut() {
                                 (sharing.working, sharing.problem) = (false, Some(error));
@@ -165,14 +248,39 @@ impl Workbench {
     }
 }
 
-/// The share dialog while it is open: whose chat, the lifetime picked from `LIFETIMES` by
+/// What the share dialog shares: an agent's chat, or a page an agent showed. As a link to stop,
+/// the chat's share by its id.
+#[derive(Clone)]
+pub enum Shared {
+    Chat(String),
+    Page { id: String, title: String },
+}
+
+/// A link the dialog shows, and what stopping it ends.
+struct Link {
+    url: String,
+    expires_at: u64,
+    watching: Option<String>,
+    stop: Shared,
+}
+
+/// The share dialog while it is open: what it shares, the lifetime picked from its lifetimes by
 /// place, who may read it, and how the last ask went.
 pub struct Sharing {
-    agent: String,
+    shared: Shared,
     lifetime: usize,
     anyone: bool,
     working: bool,
     problem: Option<String>,
+}
+
+impl Sharing {
+    fn lifetimes(&self) -> &'static [(&'static str, u64)] {
+        match self.shared {
+            Shared::Chat(_) => &LIFETIMES,
+            Shared::Page { .. } => &PAGE_LIFETIMES,
+        }
+    }
 }
 
 /// The share dialog, as the Mac's sheet draws it: what sharing shows, then how long the link
@@ -180,11 +288,12 @@ pub struct Sharing {
 pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
     let sharing = bench.overlays.sharing.as_ref()?;
     let t = Tokens::get(cx).clone();
-    let share = bench.share_of(&sharing.agent);
-    let problem = sharing
-        .problem
-        .clone()
-        .or_else(|| bench.refusal_of(&sharing.agent));
+    let share = bench.link_of(&sharing.shared);
+    let page = matches!(sharing.shared, Shared::Page { .. });
+    let problem = sharing.problem.clone().or_else(|| match &sharing.shared {
+        Shared::Chat(agent) => bench.refusal_of(agent),
+        Shared::Page { .. } => None,
+    });
     let label = |words: &'static str| {
         ui::text(words, TEXT_XS, FontWeight::MEDIUM).text_color(t.text_tertiary)
     };
@@ -228,43 +337,56 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 )
                 .child(
                     ui::text(
-                        t!(
-                            "{watching} · ends in {left}",
-                            watching = watching(share),
-                            left = crate::ui::time::left(share.expires_at)
-                        ),
+                        match &share.watching {
+                            Some(watching) => t!(
+                                "{watching} · ends in {left}",
+                                watching = watching,
+                                left = crate::ui::time::left(share.expires_at)
+                            ),
+                            None => t!(
+                                "Ends in {left}",
+                                left = crate::ui::time::left(share.expires_at)
+                            ),
+                        },
                         TEXT_XS,
                         FontWeight::NORMAL,
                     )
                     .text_color(t.text_tertiary),
                 )
         }
-        None => div()
-            .flex()
-            .flex_col()
-            .gap(SPACE_2)
-            .child(label(t!("Link works for")))
-            .child(
-                div()
-                    .flex()
-                    .gap(SPACE_1H)
-                    .children(LIFETIMES.iter().enumerate().map(|(at, (words, _))| {
-                        pill(("share-lifetime", at), words, at == sharing.lifetime, &t).clicks(
-                            cx.listener(move |bench, _, _, cx| {
-                                if let Some(sharing) = bench.overlays.sharing.as_mut() {
-                                    sharing.lifetime = at;
-                                }
-                                cx.notify();
+        None => {
+            div()
+                .flex()
+                .flex_col()
+                .gap(SPACE_2)
+                .child(label(t!("Link works for")))
+                .child(
+                    div().flex().gap(SPACE_1H).children(
+                        sharing
+                            .lifetimes()
+                            .iter()
+                            .enumerate()
+                            .map(|(at, (words, _))| {
+                                pill(("share-lifetime", at), words, at == sharing.lifetime, &t)
+                                    .clicks(cx.listener(move |bench, _, _, cx| {
+                                        if let Some(sharing) = bench.overlays.sharing.as_mut() {
+                                            sharing.lifetime = at;
+                                        }
+                                        cx.notify();
+                                    }))
                             }),
-                        )
-                    })),
-            ),
+                    ),
+                )
+        }
     };
     let readers = div()
         .flex()
         .flex_col()
         .gap(SPACE_2)
-        .child(label(t!("Who can read")))
+        .child(label(match page {
+            true => t!("Who can view"),
+            false => t!("Who can read"),
+        }))
         .child(
             div()
                 .flex()
@@ -279,8 +401,8 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                                 return;
                             }
                             sharing.anyone = anyone;
-                            let agent = sharing.agent.clone();
-                            if bench.share_of(&agent).is_some() {
+                            let shared = sharing.shared.clone();
+                            if bench.link_of(&shared).is_some() {
                                 bench.start_share(window, cx);
                             }
                             cx.notify();
@@ -288,10 +410,23 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     )
                 })),
         );
-    let who = if sharing.anyone {
-        t!("Anyone who has the link can read this chat as it happens, from its start, without signing in. They cannot type in it or answer its requests.")
-    } else {
-        t!("Anyone signed in to Sikemux who has the link can read this chat as it happens, from its start. They cannot type in it or answer its requests.")
+    let (who, what) = match (page, sharing.anyone) {
+        (false, true) => (
+            t!("Anyone who has the link can read this chat as it happens, from its start, without signing in. They cannot type in it or answer its requests."),
+            t!("It shows everything the agent read and ran, including the contents of files and any secrets in them. The key stays in the link, so our server cannot read it."),
+        ),
+        (false, false) => (
+            t!("Anyone signed in to Sikemux who has the link can read this chat as it happens, from its start. They cannot type in it or answer its requests."),
+            t!("It shows everything the agent read and ran, including the contents of files and any secrets in them. The key stays in the link, so our server cannot read it."),
+        ),
+        (true, true) => (
+            t!("Anyone who has the link can view this page, without signing in."),
+            t!("The link shows the page's latest version, and Sikemux keeps the page while it is shared. It is sealed on this Mac with the key in the link, so our server cannot read it."),
+        ),
+        (true, false) => (
+            t!("Anyone signed in to Sikemux who has the link can view this page."),
+            t!("The link shows the page's latest version, and Sikemux keeps the page while it is shared. It is sealed on this Mac with the key in the link, so our server cannot read it."),
+        ),
     };
     let body = dialog::marked_body()
         .child(
@@ -300,7 +435,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 .flex_col()
                 .gap(SPACE_2)
                 .child(dialog::prose(who, &t))
-                .child(dialog::prose(t!("It shows everything the agent read and ran, including the contents of files and any secrets in them. The key stays in the link, so our server cannot read it."), &t)),
+                .child(dialog::prose(what, &t)),
         )
         .child(div().pt(SPACE_3).child(readers))
         .child(div().pt(SPACE_3).child(field))
@@ -321,10 +456,10 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     let (title, foot, yes): (&str, Div, dialog::Answer) = match share {
         Some(share) => {
             let stop: dialog::Answer = {
-                let (this, id) = (this.clone(), share.id.clone());
+                let (this, stop) = (this.clone(), share.stop);
                 Rc::new(move |window, cx| {
-                    let id = id.clone();
-                    this.update(cx, |bench, cx| bench.stop_share(id, window, cx))
+                    let stop = stop.clone();
+                    this.update(cx, |bench, cx| bench.stop_share(stop, window, cx))
                 })
             };
             let foot = dialog::hinted_foot(dialog::escape(t!("close"), cx), cx)
@@ -342,7 +477,11 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     close.clone(),
                     cx,
                 ));
-            (t!("Shared read-only"), foot, close.clone())
+            let title = match page {
+                true => t!("Shared"),
+                false => t!("Shared read-only"),
+            };
+            (title, foot, close.clone())
         }
         None => {
             let create: dialog::Answer = Rc::new(move |window, cx| {
@@ -368,7 +507,11 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     create.clone(),
                     cx,
                 ));
-            (t!("Share this chat read-only"), foot, create)
+            let title = match page {
+                true => t!("Share this page"),
+                false => t!("Share this chat read-only"),
+            };
+            (title, foot, create)
         }
     };
     Some(

@@ -14,7 +14,7 @@ use gpui_kit::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
 use sikemux_calls::call;
-use sikemux_calls::harness::{KeepPageParams, ListedPage, PageLife, PagesParams};
+use sikemux_calls::harness::{KeepPageParams, ListedPage, PageLife, PageShare, PagesParams};
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 
 use crate::icons::Icon;
@@ -42,6 +42,25 @@ impl Pages {
         (self.listed.values().flatten().flatten())
             .find(|page| page.id == id)
             .map(|page| page.life)
+    }
+
+    /// The link page `id` is shared through, as its project's list last said.
+    pub(crate) fn share_of(&self, id: &str) -> Option<&PageShare> {
+        (self.listed.values().flatten().flatten())
+            .find(|page| page.id == id)
+            .and_then(|page| page.shared.as_ref())
+    }
+
+    /// Page `id` is shared through `share` now, or no longer, as the core answered, until its
+    /// list is read again.
+    pub(crate) fn shared_now(&mut self, id: &str, share: Option<PageShare>) {
+        let page = (self.listed.values_mut().flatten().flatten()).find(|page| page.id == id);
+        if let Some(page) = page {
+            if share.is_some() {
+                page.life = PageLife::Kept;
+            }
+            page.shared = share;
+        }
     }
 }
 
@@ -185,7 +204,10 @@ pub(crate) fn pane(
         )
         .mark(22., ui::icon(Icon::Tabs, 13.).text_color(t.text_tertiary))
         .subtitle(ui::meta(by, cx))
-        .detail(life_words(page.life, page.shown_at))
+        .detail(match &page.shared {
+            Some(share) => t!("{left} left", left = left(share.expires_at)),
+            None => life_words(page.life, page.shown_at),
+        })
         .chosen(chosen)
         .on_click(move |_, _, cx| {
             this.update(cx, |bench, cx| {
@@ -195,16 +217,21 @@ pub(crate) fn pane(
         })
         .into_any_element()
     };
+    let (shared, rest): (Vec<&ListedPage>, Vec<&ListedPage>) =
+        (found.iter()).partition(|page| page.shared.is_some());
     let (kept, going): (Vec<&ListedPage>, Vec<&ListedPage>) =
-        (found.iter()).partition(|page| page.life == PageLife::Kept);
+        (rest.into_iter()).partition(|page| page.life == PageLife::Kept);
     let mut sections: Vec<AnyElement> = Vec::new();
-    if !going.is_empty() {
-        let group = ui::Group::new(t!("Expiring"), "").first();
-        sections.push(group.children(going.iter().map(row)).into_any_element());
-    }
-    if !kept.is_empty() {
-        let group = ui::Group::new(t!("Kept"), "").when(going.is_empty(), ui::Group::first);
-        sections.push(group.children(kept.iter().map(row)).into_any_element());
+    for (name, pages) in [
+        (t!("Shared"), shared),
+        (t!("Expiring"), going),
+        (t!("Kept"), kept),
+    ] {
+        if pages.is_empty() {
+            continue;
+        }
+        let group = ui::Group::new(name, "").when(sections.is_empty(), ui::Group::first);
+        sections.push(group.children(pages.iter().map(row)).into_any_element());
     }
     let none = match (&listed, words.trim().is_empty()) {
         (None, _) => None,

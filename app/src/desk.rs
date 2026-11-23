@@ -787,6 +787,11 @@ impl PageFiles {
         Ok((url, themed))
     }
 
+    /// The `:root` rule of the theme pages are drawn in.
+    pub(crate) fn theme(&self) -> String {
+        self.theme.locked().clone()
+    }
+
     pub(crate) fn engine(&self) -> Result<Arc<BrowserManager>, String> {
         self.engine
             .get()

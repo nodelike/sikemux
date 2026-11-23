@@ -1,5 +1,5 @@
-//! The one view a page is read in, inside the window: its title, how long Sikemux keeps it and
-//! Keep over it, and the page under them, its links opening in the person's browser.
+//! The one view a page is read in, inside the window: its title, how long Sikemux keeps it, Keep
+//! and Share over it, and the page under them, its links opening in the person's browser.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -132,8 +132,11 @@ impl Render for Reader {
                 .child(ui::meta(t!("No page open"), cx))
                 .into_any_element();
         };
-        let life = (self.bench.upgrade()).and_then(|bench| bench.read(cx).pages.life_of(&shown.id));
-        let keep = life.map(|life| {
+        let bench = self.bench.upgrade();
+        let pages = bench.as_ref().map(|bench| &bench.read(cx).pages);
+        let life = pages.and_then(|pages| pages.life_of(&shown.id));
+        let shared = pages.is_some_and(|pages| pages.share_of(&shown.id).is_some());
+        let keep = life.filter(|_| !shared).map(|life| {
             let (id, bench, kept) = (shown.id.clone(), self.bench.clone(), life == PageLife::Kept);
             let (label, variant) = match kept {
                 true => (t!("Kept"), Variant::Ghost),
@@ -145,7 +148,22 @@ impl Render for Reader {
                     let _ = bench.update(cx, |bench, cx| bench.keep_page(&id, !kept, cx));
                 })
         });
-        let fact = life.map(|life| ui::meta(stays(life), cx));
+        let share = life.map(|_| {
+            let (id, title, bench) = (shown.id.clone(), shown.title.clone(), self.bench.clone());
+            let (label, variant) = match shared {
+                true => (t!("Shared"), Variant::Ghost),
+                false => (t!("Share"), Variant::Outline),
+            };
+            Button::new("page-share", label, variant)
+                .icon(Icon::Share)
+                .on_click(move |_, _, cx| {
+                    let _ = bench.update(cx, |bench, cx| bench.open_page_share(&id, &title, cx));
+                })
+        });
+        let fact = life.map(|life| match shared {
+            true => ui::meta(t!("Kept while it is shared"), cx),
+            false => ui::meta(stays(life), cx),
+        });
         let back = self.back.clone().map(|back| {
             Button::new("page-back", t!("Back to call"), Variant::Ghost)
                 .icon(Icon::ArrowLeft)
@@ -175,7 +193,8 @@ impl Render for Reader {
                 ui::PaneHeader::new(shown.title.clone())
                     .when_some(back, |header, back| header.back(back))
                     .when_some(fact, |header, fact| header.fact(fact))
-                    .when_some(keep, |header, keep| header.action(keep)),
+                    .when_some(keep, |header, keep| header.action(keep))
+                    .when_some(share, |header, share| header.action(share)),
             )
             .child(
                 div()
