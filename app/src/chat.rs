@@ -1790,7 +1790,7 @@ pub fn pane(
     }
     drop(seen);
     let asks: Vec<AnyElement> = asking.into_iter().chain(sending).collect();
-    let dock = live::dock(agent, chat, asks, cx);
+    let dock = live::dock(bench, agent, chat, asks, cx);
     let notice = composing::notice(bench, &agent.id, cx).map(|notice| {
         div()
             .w_full()

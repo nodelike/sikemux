@@ -235,6 +235,7 @@ struct Group {
 /// turn, what is running for it, and its triggers. Each group folds on its own; once all are
 /// folded they share one line.
 pub fn dock(
+    bench: &Workbench,
     agent: &AgentRow,
     chat: &Chat,
     asks: Vec<AnyElement>,
@@ -242,7 +243,7 @@ pub fn dock(
 ) -> Option<AnyElement> {
     let handoff = handoff(agent, chat, cx);
     let guests = guests(&agent.id, chat, cx);
-    let queued = queued(&agent.id, chat, cx);
+    let queued = queued(bench, &agent.id, chat, cx);
     let running = running(agent, chat, cx);
     let triggers = triggers(&agent.id, chat, cx);
     let groups: Vec<Group> = [handoff, guests, queued, running, triggers]
@@ -952,7 +953,12 @@ fn handoff(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
 /// Messages the person sent while a turn runs, waiting for it to end; while it
 /// takes words mid-turn, each can go into it now, or all at once. Under them, what other agents
 /// sent that waits for the agent's next turn.
-fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
+fn queued(
+    bench: &Workbench,
+    agent: &str,
+    chat: &Chat,
+    cx: &mut Context<Workbench>,
+) -> Option<Group> {
     let head = chat.state.as_ref()?;
     let waiting = &head.queued;
     if waiting.is_empty() && head.mail.is_empty() {
@@ -1046,7 +1052,11 @@ fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
             .into_any_element()
         })
         .collect();
-    rows.extend(head.mail.iter().map(|letter| mail_row(letter, &t)));
+    rows.extend(
+        head.mail
+            .iter()
+            .map(|letter| mail_row(bench, letter, &t, cx)),
+    );
     Some(Group {
         key: QUEUED,
         words,
@@ -1056,7 +1066,7 @@ fn queued(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group
 }
 
 /// A message another agent sent, or a trigger's prompt, waiting for the agent's next turn.
-fn mail_row(letter: &AgentLetter, t: &Tokens) -> AnyElement {
+fn mail_row(bench: &Workbench, letter: &AgentLetter, t: &Tokens, cx: &gpui_kit::App) -> AnyElement {
     let (mark, sender) = match &letter.trigger {
         Some(trigger) => (
             ui::icon(Icon::Timer, 12.)
@@ -1065,7 +1075,7 @@ fn mail_row(letter: &AgentLetter, t: &Tokens) -> AnyElement {
             trigger.title.clone(),
         ),
         None => (
-            ui::mark(&letter.cli, 13.).into_any_element(),
+            bench.agent_mark(&letter.agent_id, &letter.cli, 13., cx),
             format!("@{}", letter.name.trim_start_matches('@')),
         ),
     };

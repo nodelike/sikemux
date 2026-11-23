@@ -131,6 +131,14 @@ impl Workbench {
         })
     }
 
+    /// Agent `id`'s mark as the rail draws it, else the mark of its CLI `cli`.
+    pub fn agent_mark(&self, id: &str, cli: &str, size: f32, cx: &App) -> AnyElement {
+        match self.agent_by_id(id) {
+            Some(row) => row.mark(size, cx),
+            None => crate::ui::mark(cli, size),
+        }
+    }
+
     /// The project's agents on the host in front, in the order the core lists them.
     pub fn agents_of(&self, project: &str) -> Vec<AgentRow> {
         self.agents_at(&self.place(), project)

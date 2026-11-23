@@ -42,9 +42,8 @@ pub(super) struct Styles {
 impl Looks {
     /// The agent's mark as the rail draws it, its face when it wears one, else its CLI's.
     pub(super) fn mark_of(&self, agent: &str, cli: &str, size: f32, cx: &App) -> AnyElement {
-        let row = (self.bench.upgrade()).and_then(|bench| bench.read(cx).agent_by_id(agent));
-        match row {
-            Some(row) => row.mark(size, cx),
+        match self.bench.upgrade() {
+            Some(bench) => bench.read(cx).agent_mark(agent, cli, size, cx),
             None => ui::mark(cli, size),
         }
     }
