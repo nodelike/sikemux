@@ -203,7 +203,7 @@ input,button{font:inherit;padding:8px 12px}button{position:absolute;left:40px;to
                 method: method.into(),
                 params,
             };
-            let answer = tools::execute(manager, &request, &|_, _| Box::pin(async { Ok(()) }));
+            let answer = tools::execute(manager, &request, &|_, _, _| Box::pin(async { Ok(()) }));
             let name = method.trim_start_matches("browser.");
             match answer {
                 Ok(mut answer) => {

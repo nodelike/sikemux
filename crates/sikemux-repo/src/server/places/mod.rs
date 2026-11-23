@@ -104,9 +104,17 @@ pub fn keep(places: &mut Vec<Place>, place: Place) {
 
 /// Where `ship`, an action of the agent called `agent`, lands in `project`. The places its
 /// files name and a production place the action itself names are kept from then on.
-pub fn judge(core: &Core, project: &str, ship: &Ship, agent: &str) -> Judged {
+/// `addresses` is what the action writes to, in full; none reads them from the action.
+pub fn judge(
+    core: &Core,
+    project: &str,
+    ship: &Ship,
+    agent: &str,
+    addresses: Option<&str>,
+) -> Judged {
     let (places, confirmed) = current(core, project);
-    let judged = judge::judged(&places, confirmed, ship, agent);
+    let addresses = addresses.unwrap_or(&ship.what);
+    let judged = judge::judged_reading(&places, confirmed, ship, agent, addresses);
     let kept = core.places().of(project).places;
     let found = places.len() != kept.len();
     if found || judged.keep {

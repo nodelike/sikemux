@@ -40,7 +40,7 @@
             return null;
         }
         if (!/^https?:$/.test(url.protocol) || localHost(url.hostname)) return null;
-        return { method, origin: url.origin, path: url.pathname };
+        return { method, origin: url.origin, path: url.pathname, query: url.search };
     };
     const shown = (element) => {
         const rect = element.getBoundingClientRect();

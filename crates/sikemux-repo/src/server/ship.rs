@@ -296,7 +296,7 @@ pub fn check(
     ship: Ship,
     cwd: &Path,
 ) -> Result<Option<Deploy>, String> {
-    check_call(core, agent_id, ship, cwd, None, false)
+    check_call(core, agent_id, ship, cwd, None, false, None)
 }
 
 /// [`check`] for a Sikemux tool call, which a hold keeps to run once the person allows it.
@@ -307,6 +307,7 @@ fn check_call(
     cwd: &Path,
     call: Option<ToolCall>,
     follows: bool,
+    addresses: Option<&str>,
 ) -> Result<Option<Deploy>, String> {
     let mut project = (core.names().get(agent_id).map(|named| named.project))
         .filter(|project| !project.is_empty())
@@ -384,7 +385,7 @@ fn check_call(
         return hold(core, agent_id, &project, ship, cwd, call, None);
     }
     let name = core.names().name_or_id(agent_id);
-    let judged = places::judge(core, &project, &ship, &name);
+    let judged = places::judge(core, &project, &ship, &name, addresses);
     let place = judged.place.as_ref().map(|place| place.name().to_owned());
     let deploy = |call: Option<String>, telling: Option<Telling>| {
         let followed = ship.kind == ShipKind::Deploy || call.is_some() || telling.is_some();
@@ -1103,7 +1104,7 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
     };
     let checking = core.clone();
     let checked = tokio::task::spawn_blocking(move || {
-        check_call(&checking, &agent_id, ship, &cwd, None, follows)
+        check_call(&checking, &agent_id, ship, &cwd, None, follows, None)
     })
     .await
     .map_err(|error| error.to_string())?;
@@ -1370,6 +1371,7 @@ pub async fn check_tool(
             Path::new(&cwd),
             Some(call),
             true,
+            None,
         )
     })
     .await
@@ -1391,7 +1393,9 @@ pub async fn check_web_write(
     };
     let checking = core.clone();
     let checked = tokio::task::spawn_blocking(move || {
-        check(&checking, &params.agent, ship, Path::new(&params.project))
+        let cwd = Path::new(&params.project);
+        let addresses = Some(params.with_queries.as_str());
+        check_call(&checking, &params.agent, ship, cwd, None, false, addresses)
     })
     .await
     .map_err(|error| error.to_string())?;
