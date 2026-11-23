@@ -13,6 +13,6 @@ front Wren
 settle 2
 click "Open the Stripe dashboard in test mode and copy the publishable and secret keys."
 settle 2
-click "Not doing"
+click 806,420
 settle 1
 snap calls-do-not-doing
