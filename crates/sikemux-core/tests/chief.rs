@@ -858,6 +858,110 @@ async fn a_kept_rule_the_person_removes_reads_undone_in_its_chat_and_its_agent_h
     assert!(shown.is_ok(), "{:?}", lines(&worker.chat));
 }
 
+/// The person, 2026-11-23: an effort picked in an idle chief's chat went back to high once
+/// another agent's message woke it, as the chat slept on the effort its session opened with.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_effort_picked_in_an_idle_chat_holds_when_an_agents_message_wakes_it() {
+    let picked = picked_then_woken("effort", "low").await;
+    let effort = picked
+        .chat
+        .head()
+        .effort
+        .as_ref()
+        .map(|row| row.current.clone());
+    assert_eq!(effort.as_deref(), Some("low"));
+    assert!(picked.said.contains("at effort low"), "{}", picked.said);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_model_picked_in_an_idle_chat_holds_when_an_agents_message_wakes_it() {
+    let picked = picked_then_woken("model", "small").await;
+    let model = picked
+        .chat
+        .head()
+        .model
+        .as_ref()
+        .map(|row| row.current.clone());
+    assert_eq!(model.as_deref(), Some("small"));
+}
+
+/// A Claude chat that took a turn, had `config_id` set to `value` while idle, slept, and was
+/// woken by another agent asking which effort it runs at.
+struct Woken {
+    chat: Chat,
+    said: String,
+}
+
+async fn picked_then_woken(config_id: &str, value: &str) -> Woken {
+    let root = tempfile::Builder::new()
+        .prefix("chief")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
+    let (project, claude) = (root.join("project"), root.join("claude"));
+    for dir in [root.join("home"), project.clone(), claude.clone()] {
+        std::fs::create_dir_all(dir).expect("dir");
+    }
+    std::fs::write(
+        claude.join("fake-account.json"),
+        json!({ "loggedIn": true, "authMethod": "claude.ai", "email": "qa@example.com", "subscriptionType": "max" }).to_string(),
+    )
+    .expect("an account");
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    app.ask(ask::RegisterWindow).await.expect("the window");
+    let accounts = json!({ "profiles": [
+        { "id": "builtin-claude", "name": "Claude", "provider": "claude", "accent": "#d97757", "executablePath": FAKE_CLAUDE, "configPath": claude },
+        { "id": "fake", "name": "Fake", "provider": "omp", "accent": "#a277ff", "executablePath": FAKE_AGENT },
+    ] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let (picker_id, _) = app
+        .start_chat("claude:builtin-claude".into(), "widget".into(), None)
+        .await
+        .expect("a claude chat starts");
+    let mut picker = Agent::open(&socket, &picker_id).await;
+    picker.says("Sort the inbox", "Sort the inbox").await;
+    picker.chat.until_turns_ended(1).await;
+    picker
+        .client
+        .ask(ask::AcpSetConfig {
+            agent_id: picker_id.clone(),
+            config_id: config_id.to_owned(),
+            value: value.to_owned(),
+        })
+        .await
+        .expect("the person picks");
+    let slept = app
+        .call("stopChatIfIdle", json!({ "agentId": picker_id }))
+        .await
+        .expect("it sleeps");
+    assert_eq!(slept["stopped"], true);
+
+    let (sender_id, _) = app
+        .start_chat("omp:fake".into(), "widget".into(), None)
+        .await
+        .expect("another agent starts");
+    let mut sender = Agent::open(&socket, &sender_id).await;
+    let letter = json!({ "to": picker_id, "text": "which effort do you run at?" });
+    let sent = sender.tool("agent.send", letter).await;
+    assert!(sent.contains("woke it"), "{sent}");
+    let mut woken = Agent::open(&socket, &picker_id).await;
+    let said = woken.chat.until_said("at effort").await;
+    Woken {
+        chat: woken.chat,
+        said,
+    }
+}
+
 const UNWRAP: &str = "Never call unwrap outside tests";
 const PUSH: &str = "Never push to main without a review";
 

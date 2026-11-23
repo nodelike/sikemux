@@ -1457,6 +1457,7 @@ impl<B: Backend> Running<'_, B> {
             if let Some(setup) = self.state.setup.as_object_mut() {
                 setup.insert("configOptions".to_owned(), options.clone());
             }
+            self.chat.feed.set_start(self.state.start());
             self.chat.tell_options(&self.state.session_id, options);
         }
         let _ = reply.send(result.map(|options| json!({ "configOptions": options })));

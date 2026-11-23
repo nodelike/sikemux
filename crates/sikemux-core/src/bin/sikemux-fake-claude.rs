@@ -19,6 +19,7 @@
 //!   Code 2.1.301 does; `tools N` does the same with `count`, a tool with no page, for a chat
 //!   as long with no apps. With `FAKE_CLAUDE_APP_CALLS` set, each tool an app calls is
 //!   written to that file, a line each;
+//! - a prompt holding `which effort`, wherever it is, says the effort it was last set to;
 //! - anything else is echoed back.
 //!
 //! `FAKE_CLAUDE_SCRIPT` names a JSON file of replies for recorded demos, each
@@ -109,6 +110,8 @@ struct Claude {
     transcript: PathBuf,
     /// The newest record of the conversation, which the next one follows.
     leaf: Mutex<Option<String>>,
+    /// The effort level the core last set through its flag settings.
+    effort: Mutex<Option<String>>,
 }
 
 fn context() -> u64 {
@@ -276,6 +279,13 @@ impl Claude {
         let message_id = format!("msg-{uuid}");
         if let Some(steps) = scripted_reply(text) {
             self.play(uuid, &message_id, &steps);
+            return;
+        }
+        if text.contains("which effort") {
+            let effort = self.effort.locked().clone();
+            let effort = effort.as_deref().unwrap_or("default");
+            self.say(&message_id, &format!("at effort {effort}"));
+            self.finish(uuid, None);
             return;
         }
         let mut words = text.split_whitespace();
@@ -664,6 +674,12 @@ impl Claude {
                 }));
                 json!({})
             }
+            Some("apply_flag_settings") => {
+                if let Some(effort) = request.pointer("/settings/effortLevel") {
+                    *self.effort.locked() = effort.as_str().map(str::to_owned);
+                }
+                json!({})
+            }
             Some("get_settings") => json!({
                 "effective": { "model": std::env::var("FAKE_CLAUDE_SETTINGS_MODEL").ok() },
             }),
@@ -879,6 +895,7 @@ fn main() {
         session_id,
         transcript,
         leaf: Mutex::new(None),
+        effort: Mutex::new(None),
     });
     if resume.is_some() {
         let records = claude.records();
