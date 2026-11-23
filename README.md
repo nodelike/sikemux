@@ -20,6 +20,8 @@ A native app, not Electron, about 30 MB. Claude Code, Codex and more on the plan
 [![Website](https://img.shields.io/badge/website-sikemux.com-a277ff)](https://sikemux.com/?utm_source=github&utm_medium=readme)
 [![Docs](https://img.shields.io/badge/docs-docs.sikemux.com-a277ff)](https://docs.sikemux.com)
 
+[sikemux.com](https://sikemux.com/?utm_source=github&utm_medium=readme) · [Docs](https://docs.sikemux.com) · [Discord](https://discord.gg/UKfmHpF9kX) · [X (@sikemux)](https://x.com/sikemux) · [App Store](https://apps.apple.com/app/sikemux/id6819588876)
+
 </div>
 
 ## Install

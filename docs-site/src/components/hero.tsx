@@ -23,7 +23,7 @@ export function Hero({ title, description }: { title: string; description: strin
       <h1>{title}</h1>
       <p className="hero-lede">{description}</p>
       <div className="hero-actions">
-        <a className="hero-btn hero-btn-primary" href="/getting-started/install/">
+        <a className="hero-btn hero-btn-primary" href="/getting-started/install">
           Get started
         </a>
         <button
@@ -46,7 +46,7 @@ export function Hero({ title, description }: { title: string; description: strin
       </div>
       <nav className="hero-agents" aria-label="Agents">
         {AGENTS.map(([agent, name, slug]) => (
-          <a key={agent} href={`/each-agent/${slug}/`}>
+          <a key={agent} href={`/each-agent/${slug}`}>
             <AgentMark agent={agent} />
             {name}
           </a>

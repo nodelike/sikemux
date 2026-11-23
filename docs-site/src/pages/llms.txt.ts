@@ -13,6 +13,6 @@ export const GET: APIRoute = ({ site }) => {
     .getPageTree()
     .children.filter((node) => node.type === "folder")
     .map((folder) => `## ${folder.name}\n\n${folder.children.flatMap(line).join("\n")}`);
-  const body = `# Sikemux\n\n> Projects, terminals and coding agents in one keyboard-first window.\n\n${sections.join("\n\n")}\n`;
+  const body = `# Sikemux\n\n> A whole team of AI coders, in one window. Official Sikemux documentation (https://sikemux.com · https://github.com/nodelike/sikemux).\n\n${sections.join("\n\n")}\n`;
   return new Response(body, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
 };

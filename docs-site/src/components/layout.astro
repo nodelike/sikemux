@@ -5,11 +5,12 @@ import "@/styles/global.css";
 interface Props {
   title: string;
   description: string;
+  structuredData?: Record<string, unknown>[];
   noindex?: boolean;
 }
 
-const { title, description, noindex = false } = Astro.props;
-const canonical = new URL(Astro.url.pathname.replace(/(.)\/$/, "$1"), Astro.site);
+const { title, description, structuredData = [], noindex = false } = Astro.props;
+const canonical = new URL(Astro.url.pathname.replace(/(index)?\.html$/, "").replace(/(.)\/$/, "$1"), Astro.site);
 const card = "https://sikemux.com/og/docs.jpg";
 const cardAlt = "Sikemux docs. Install Sikemux, run your coding agents in it, and drive it from the keyboard, the CLI or an agent.";
 ---
@@ -41,6 +42,7 @@ const cardAlt = "Sikemux docs. Install Sikemux, run your coding agents in it, an
     <meta name="twitter:site" content="@sikemux" />
     <meta name="twitter:creator" content="@nodelike" />
     <link rel="preload" href="/fonts/Figtree-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+    {structuredData.map((data) => <script type="application/ld+json" set:html={JSON.stringify(data)} />)}
     <ClientRouter />
   </head>
   <body class="flex min-h-screen flex-col" transition:persist transition:animate="none" transition:name="page-layout">

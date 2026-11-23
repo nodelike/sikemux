@@ -20,6 +20,8 @@ Claude 额度用完了？这段对话可以接着在 Codex 里继续。
 [![Website](https://img.shields.io/badge/website-sikemux.com%2Fzh-a277ff)](https://sikemux.com/zh?utm_source=github&utm_medium=readme&utm_content=zh-CN)
 [![Docs](https://img.shields.io/badge/docs-docs.sikemux.com-a277ff)](https://docs.sikemux.com)
 
+[sikemux.com](https://sikemux.com/zh?utm_source=github&utm_medium=readme&utm_content=zh-CN) · [文档](https://docs.sikemux.com) · [Discord](https://discord.gg/UKfmHpF9kX) · [X (@sikemux)](https://x.com/sikemux) · [App Store](https://apps.apple.com/app/sikemux/id6819588876)
+
 </div>
 
 ## 安装

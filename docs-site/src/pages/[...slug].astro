@@ -21,9 +21,65 @@ const toc: TOCItemType[] = headings.map((heading) => ({
   title: heading.text,
   url: `#${heading.slug}`,
 }));
+
+const isLanding = page.slugs.length === 0;
+const pageUrl = new URL(page.url, Astro.site).href;
+const orgId = "https://sikemux.com/#organization";
+const organization = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "@id": orgId,
+  name: "Sikemux",
+  alternateName: "sikemux",
+  url: "https://sikemux.com/",
+  logo: "https://sikemux.com/apple-touch-icon.png",
+  sameAs: [
+    "https://github.com/nodelike/sikemux",
+    "https://x.com/sikemux",
+    "https://discord.gg/UKfmHpF9kX",
+    "https://apps.apple.com/app/sikemux/id6819588876",
+  ],
+};
+const structuredData: Record<string, unknown>[] = isLanding
+  ? [
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "@id": "https://docs.sikemux.com/#website",
+        name: "Sikemux docs",
+        alternateName: ["Sikemux", "sikemux docs"],
+        url: "https://docs.sikemux.com/",
+        publisher: { "@id": orgId },
+      },
+      organization,
+    ]
+  : [
+      {
+        "@context": "https://schema.org",
+        "@type": "TechArticle",
+        headline: title,
+        description,
+        url: pageUrl,
+        isPartOf: { "@type": "WebSite", name: "Sikemux docs", url: "https://docs.sikemux.com/" },
+        publisher: organization,
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Sikemux", item: "https://sikemux.com/" },
+          { "@type": "ListItem", position: 2, name: "Docs", item: "https://docs.sikemux.com/" },
+          { "@type": "ListItem", position: 3, name: title, item: pageUrl },
+        ],
+      },
+    ];
 ---
 
-<Layout title={page.slugs.length > 0 ? `${title} · Sikemux` : title} description={description}>
+<Layout
+  title={isLanding ? "Sikemux docs · a whole team of AI coders, in one window" : `${title} · Sikemux`}
+  description={description}
+  structuredData={structuredData}
+>
   <Docs
     client:load
     tree={source.getPageTree()}

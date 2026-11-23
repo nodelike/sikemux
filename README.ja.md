@@ -20,6 +20,8 @@ Electron ではないネイティブアプリで、サイズは約 30 MB。Claud
 [![Website](https://img.shields.io/badge/website-sikemux.com%2Fja-a277ff)](https://sikemux.com/ja?utm_source=github&utm_medium=readme&utm_content=ja)
 [![Docs](https://img.shields.io/badge/docs-docs.sikemux.com-a277ff)](https://docs.sikemux.com)
 
+[sikemux.com](https://sikemux.com/ja?utm_source=github&utm_medium=readme&utm_content=ja) · [ドキュメント](https://docs.sikemux.com) · [Discord](https://discord.gg/UKfmHpF9kX) · [X (@sikemux)](https://x.com/sikemux) · [App Store](https://apps.apple.com/app/sikemux/id6819588876)
+
 </div>
 
 ## インストール

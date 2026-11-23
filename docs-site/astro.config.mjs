@@ -9,6 +9,8 @@ import { rehypeCode, remarkHeading, remarkStructure } from "fumadocs-core/mdx-pl
 
 export default defineConfig({
   site: "https://docs.sikemux.com",
+  trailingSlash: "never",
+  build: { format: "file" },
   markdown: {
     processor: unified({
       syntaxHighlight: false,

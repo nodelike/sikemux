@@ -76,7 +76,7 @@ export function Docs(props: {
               <a className="hero-btn hero-btn-primary" href="/">
                 Docs home
               </a>
-              <a className="hero-btn hero-btn-quiet" href="/getting-started/install/">
+              <a className="hero-btn hero-btn-quiet" href="/getting-started/install">
                 Install
               </a>
             </div>
