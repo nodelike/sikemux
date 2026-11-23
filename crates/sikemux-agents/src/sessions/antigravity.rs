@@ -22,6 +22,70 @@ fn summaries_db() -> Option<Connection> {
     Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
 }
 
+/// The step Antigravity records when an error ends a turn.
+const ERROR_STEP: i64 = 17;
+
+fn steps_db(session: &str) -> Option<Connection> {
+    if !session
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return None;
+    }
+    let db = antigravity_root()?.join(format!("conversations/{session}.db"));
+    let conn = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    conn.busy_timeout(std::time::Duration::from_millis(100))
+        .ok()?;
+    Some(conn)
+}
+
+/// The index of the last step conversation `session` recorded, or -1 before its first.
+pub fn last_step(session: &str) -> i64 {
+    steps_db(session)
+        .and_then(|conn| {
+            conn.query_row("SELECT max(idx) FROM steps", [], |row| {
+                row.get::<_, Option<i64>>(0)
+            })
+            .ok()
+            .flatten()
+        })
+        .unwrap_or(-1)
+}
+
+/// The error that ended conversation `session`'s turn, when its last step after step `after`
+/// is one. Antigravity answers such a turn as ended normally, its error said only as text.
+pub fn turn_error(session: &str, after: i64) -> Option<String> {
+    let conn = steps_db(session)?;
+    let (kind, payload) = conn
+        .query_row(
+            "SELECT step_type, substr(step_payload, 1, 16384) FROM steps \
+             WHERE idx > ?1 ORDER BY idx DESC LIMIT 1",
+            [after],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?)),
+        )
+        .ok()?;
+    (kind == ERROR_STEP).then(|| error_line(&String::from_utf8_lossy(&payload)))
+}
+
+/// The line of an error step's record that names the error, such as
+/// `RESOURCE_EXHAUSTED (code 429): …`, among the binary fields around it.
+fn error_line(payload: &str) -> String {
+    let lines: Vec<&str> = payload
+        .split(|c: char| c.is_control() || c == char::REPLACEMENT_CHARACTER)
+        .map(str::trim)
+        .filter(|line| line.len() > 8)
+        .collect();
+    let names_error = |line: &&&str| {
+        line.contains(" (code ") || (line.contains("Error ") && line.contains(", Message: "))
+    };
+    lines
+        .iter()
+        .find(names_error)
+        .or_else(|| lines.iter().find(|line| line.contains("error")))
+        .map(|line| (*line).to_owned())
+        .unwrap_or_else(|| "Antigravity stopped this turn because of an error.".to_owned())
+}
+
 /// The folder a conversation ran in: the first of its workspaces, given as `file://` addresses.
 fn workspace_folder(uris: &str) -> Option<String> {
     let uris: Vec<String> = serde_json::from_str(uris).ok()?;

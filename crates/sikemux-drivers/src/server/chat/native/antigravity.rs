@@ -1,12 +1,13 @@
-//! Antigravity's tool calls under the names the chat reads. It titles a tool
-//! server's tool `Run mcp_<server>_<tool>`, calls a command `CommandLine` and its
-//! label `toolSummary`, and heads what a command printed with when it ran.
+//! Antigravity's tool calls under the names the chat reads, and the errors it ends turns on.
+//! It titles a tool server's tool `Run mcp_<server>_<tool>`, calls a command `CommandLine`
+//! and its label `toolSummary`, and heads what a command printed with when it ran.
 
 use serde_json::{json, Map, Value};
 use sikemux_fold::update::mcp_title;
 use sikemux_fold::UpdateKind;
 
 use super::mcp_calls::split;
+use crate::acp::failure::{Failure, FailureKind};
 
 const PRINTED: &str = "Command output:\n";
 
@@ -61,6 +62,36 @@ fn trim_head(text: &mut Value) {
         .split_once(PRINTED)
         .map_or(said, |(_, printed)| printed);
     *text = json!(printed.replace("\r\n", "\n"));
+}
+
+/// The failure an error step names, such as `RESOURCE_EXHAUSTED (code 429): …` or
+/// `Error 502, Message: …, Status: …`, titled by its message and kept whole in the details.
+pub(super) fn turn_failure(line: String) -> Failure {
+    let limited = [
+        "(code 429)",
+        "Error 429,",
+        "RESOURCE_EXHAUSTED",
+        "QUOTA_EXHAUSTED",
+    ]
+    .iter()
+    .any(|sign| line.contains(sign));
+    let message = line
+        .split_once("): ")
+        .or_else(|| line.split_once(", Message: "))
+        .map(|(_, message)| message.split(", Status: ").next().unwrap_or(message))
+        .map(|message| message.trim_start_matches("* ").trim())
+        .filter(|message| !message.is_empty())
+        .unwrap_or(&line)
+        .to_owned();
+    Failure {
+        kind: if limited {
+            FailureKind::Limit
+        } else {
+            FailureKind::Other
+        },
+        details: (message != line).then_some(line),
+        ..Failure::other(message)
+    }
 }
 
 #[cfg(test)]

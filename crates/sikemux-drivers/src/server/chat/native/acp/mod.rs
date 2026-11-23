@@ -26,6 +26,7 @@ use crate::acp::{air, native, permission_mode_id};
 use crate::agent_catalog::ChatDriver;
 use crate::launch::PermissionMode;
 use crate::server::chat::prompt::{command_parts, prompt_blocks};
+use crate::sessions;
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::super::Respond;
@@ -228,6 +229,10 @@ struct Turns {
     /// Counts the unprompted reply's output, so an end waiting on quiet sees more come.
     #[serde(skip)]
     said: u64,
+    /// Antigravity's session and the last step its log held when the running turn was
+    /// prompted, so its end can tell an error it recorded since.
+    #[serde(skip)]
+    log: Option<(String, i64)>,
 }
 
 impl Turns {
@@ -276,7 +281,11 @@ impl Driver {
             return;
         }
         let end = match answer {
-            Ok(response) => match response.get("_meta").and_then(air::failure) {
+            Ok(response) => match response
+                .get("_meta")
+                .and_then(air::failure)
+                .or_else(|| self.logged_error())
+            {
                 Some(failure) => TurnEnd::Failed {
                     failure,
                     response: Some(response),
@@ -301,6 +310,11 @@ impl Driver {
             Err(error) => TurnEnd::Refused(describe(&error)),
         };
         self.sink.end_turn(turn, end);
+    }
+
+    fn logged_error(&self) -> Option<Failure> {
+        let (session, before) = self.turns.locked().log.take()?;
+        sessions::antigravity::turn_error(&session, before).map(antigravity::turn_failure)
     }
 
     fn ask(&self, id: Value, request: Value) {
@@ -831,6 +845,11 @@ impl Backend for Acp {
             turns.prompted = turn;
             turns.unanswered = 1;
             turns.unprompted = false;
+            turns.log = self.driver.antigravity.then(|| {
+                let session = self.kept.session_id.to_string();
+                let last = sessions::antigravity::last_step(&session);
+                (session, last)
+            });
         }
         self.driver.rpc.send_for(
             AGENT_METHOD_NAMES.session_prompt,
