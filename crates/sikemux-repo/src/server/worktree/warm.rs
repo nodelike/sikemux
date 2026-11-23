@@ -41,18 +41,33 @@ pub fn seed_in_background(main: &Path, tree: &Path) {
 /// can build from: Cargo's output, installed packages `tree` has the same
 /// lockfile for, and the folders `.worktreeinclude` lists.
 pub fn seed(main: &Path, tree: &Path) {
-    let Some(ignored) = ignored_folders(main) else {
+    let (Some(ignored), Some(staging)) = (ignored_folders(main), staging_of(tree)) else {
         return;
     };
     match_times(main, tree);
     for folder in chosen(main, tree, &ignored, &included(main)) {
-        if let Err(error) = bring(&main.join(&folder), &tree.join(&folder)) {
+        let staged = staged_at(&staging, &folder);
+        if let Err(error) = bring(&main.join(&folder), &tree.join(&folder), &staged) {
             eprintln!(
                 "sikemux core: {} was not brought into the worktree: {error}",
                 folder.display()
             );
         }
     }
+}
+
+/// Where a checkout's folders are cloned before each is moved into place: in its own Git
+/// folder, which goes when the checkout does. Inside the checkout, Git would list every
+/// file of a clone still being made as new.
+fn staging_of(tree: &Path) -> Option<PathBuf> {
+    let git_dir = Git::quick(tree)
+        .trimmed(&["rev-parse", "--absolute-git-dir"])
+        .ok()?;
+    Some(PathBuf::from(git_dir).join("sikemux-cloning"))
+}
+
+fn staged_at(staging: &Path, folder: &Path) -> PathBuf {
+    staging.join(folder.to_string_lossy().replace(['/', '\\'], "+"))
 }
 
 /// Gives each file `tree` holds unchanged from `main` the time `main`'s copy last
@@ -202,7 +217,7 @@ fn subfolders(folder: &Path) -> impl Iterator<Item = PathBuf> {
 /// Links installed packages to the main checkout's, since copying them would
 /// be slow and fill the disk.
 #[cfg(not(target_os = "macos"))]
-fn bring(from: &Path, to: &Path) -> std::io::Result<()> {
+fn bring(from: &Path, to: &Path, _staged: &Path) -> std::io::Result<()> {
     if to.file_name() != Some(NODE_MODULES.as_ref())
         || to.symlink_metadata().is_ok()
         || !to.parent().is_some_and(Path::is_dir)
@@ -227,10 +242,10 @@ mod clone {
     /// From `sys/clonefile.h`: a symbolic link is cloned as a link. `libc` does not name it.
     const CLONE_NOFOLLOW: u32 = 0x0001;
 
-    /// Clones the folder `from` to `to` under a name of its own first, so a build
+    /// Clones the folder `from` at `staged` first and then moves it to `to`, so a build
     /// that starts in the new checkout before the clone is done keeps its folder.
-    pub fn bring(from: &Path, to: &Path) -> io::Result<()> {
-        let (Some(parent), Some(name)) = (to.parent(), to.file_name()) else {
+    pub fn bring(from: &Path, to: &Path, staged: &Path) -> io::Result<()> {
+        let (Some(parent), Some(staging)) = (to.parent(), staged.parent()) else {
             return Ok(());
         };
         let source = from.symlink_metadata()?;
@@ -242,16 +257,16 @@ mod clone {
         {
             return Ok(());
         }
-        let staged = parent.join(format!(".{}.cloning", name.to_string_lossy()));
+        std::fs::create_dir_all(staging)?;
         let cloned = {
             let Some(_held) = hold_builds(from) else {
                 return Ok(());
             };
-            clone_folder(from, &staged, CLONE_LEVELS)
+            clone_folder(from, staged, CLONE_LEVELS)
         };
-        let placed = cloned.and_then(|()| rename_new(&staged, to));
+        let placed = cloned.and_then(|()| rename_new(staged, to));
         if placed.is_err() {
-            let _ = std::fs::remove_dir_all(&staged);
+            let _ = std::fs::remove_dir_all(staged);
         }
         match placed {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
@@ -326,5 +341,50 @@ mod tests {
             ignored.to_vec()
         );
         assert!(chosen(main.path(), moved.path(), &ignored, &[]).is_empty());
+    }
+
+    /// A new agent's checkout listed every file of its packages as new while they were
+    /// cloned beside it, so `agent_spawn` said the agent was changing
+    /// `.node_modules.cloning/.pnpm/…/AGENTS.md`.
+    #[test]
+    fn packages_still_being_cloned_are_not_new_files_of_the_checkout() {
+        use crate::server::edits::tests_git::git_in;
+
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("main");
+        let tree = dir.path().join("tree");
+        std::fs::create_dir_all(main.join("node_modules/pkg")).unwrap();
+        std::fs::write(main.join("node_modules/pkg/AGENTS.md"), "").unwrap();
+        std::fs::write(main.join(".gitignore"), "node_modules\n").unwrap();
+        std::fs::write(main.join("package.json"), "{}").unwrap();
+        git_in(&main, &["init", "-q", "-b", "main"]);
+        git_in(&main, &["add", "."]);
+        git_in(&main, &["commit", "-q", "-m", "first"]);
+        git_in(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "work",
+                tree.to_str().unwrap(),
+            ],
+        );
+        let new_files = || git_in(&tree, &["ls-files", "--others", "--exclude-standard"]);
+
+        let staged = staged_at(&staging_of(&tree).unwrap(), Path::new("node_modules"));
+        std::fs::create_dir_all(staged.join("pkg")).unwrap();
+        std::fs::write(staged.join("pkg/AGENTS.md"), "").unwrap();
+        assert_eq!(new_files(), "");
+        std::fs::remove_dir_all(&staged).unwrap();
+
+        seed(&main, &tree);
+        assert_eq!(new_files(), "");
+        #[cfg(target_os = "macos")]
+        {
+            assert!(tree.join("node_modules/pkg/AGENTS.md").is_file());
+            assert!(!staged.exists());
+        }
     }
 }
