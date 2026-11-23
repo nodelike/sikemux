@@ -54,7 +54,8 @@ pub enum Target {
     Site {
         origin: String,
     },
-    /// A database the database connector marks as production, by its connection's name.
+    /// A database the database connector marks as production, by its connection's name, or a
+    /// hosted one SQL is sent to through its provider's API, such as a Supabase project's.
     Database {
         name: String,
     },
@@ -368,6 +369,12 @@ pub(crate) fn target_of(
                 &read,
                 Target::KubeContext { name },
             ))
+        }
+        "curl" | "wget" if supabase_sql(args).is_some() => {
+            let project = supabase_sql(args).unwrap_or_default();
+            Some(Target::Database {
+                name: format!("Supabase project {project}"),
+            })
         }
         "curl" | "wget" => (web_addresses(args).into_iter())
             .find(|address| !address.host_str().is_some_and(local_host))
@@ -1305,6 +1312,9 @@ pub(crate) fn of_program(
         };
     }
     if matches!(program, "curl" | "wget") {
+        if supabase_sql(args).is_some() {
+            return (!sends_only_reads(args)).then_some(ShipKind::ProductionWrite);
+        }
         return web_write(program, args).then_some(ShipKind::Publish);
     }
     if let Some((program, args)) = wrapped(program, args) {
@@ -1556,6 +1566,11 @@ fn only_queries(args: &[String]) -> bool {
             _ => None,
         })
         .collect();
+    !given.is_empty() && given.iter().all(|text| statements_read(text))
+}
+
+/// Whether every statement of `text` only reads.
+fn statements_read(text: &str) -> bool {
     let reads = |statement: &str| {
         let first = statement.split_whitespace().next().unwrap_or_default();
         ["select", "show", "explain", "describe", "desc"]
@@ -1563,12 +1578,46 @@ fn only_queries(args: &[String]) -> bool {
             .any(|read| first.eq_ignore_ascii_case(read))
             || (first.starts_with("\\d") || first == "\\l")
     };
-    !given.is_empty()
-        && given.iter().all(|text| {
-            (text.split(';'))
-                .map(|statement| statement.trim().trim_matches(['\'', '"']).trim())
-                .filter(|statement| !statement.is_empty())
-                .all(reads)
+    (text.split(';'))
+        .map(|statement| statement.trim().trim_matches(['\'', '"']).trim())
+        .filter(|statement| !statement.is_empty())
+        .all(reads)
+}
+
+/// The Supabase project whose database a web request runs SQL on, by its ref: one sent to the
+/// Management API's query endpoint, which may write, unlike its `read-only` one.
+fn supabase_sql(args: &[String]) -> Option<String> {
+    web_addresses(args).into_iter().find_map(|address| {
+        let segments: Vec<&str> = address.path_segments()?.filter(|s| !s.is_empty()).collect();
+        match (address.host_str(), segments.as_slice()) {
+            (Some("api.supabase.com"), ["v1", "projects", project, "database", "query"]) => {
+                Some((*project).to_owned())
+            }
+            _ => None,
+        }
+    })
+}
+
+/// Whether every body a web request sends is a SQL query that only reads, as
+/// `{"query": "select …"}`; not when any body is read from a file or standard input.
+fn sends_only_reads(args: &[String]) -> bool {
+    fn attached(arg: &str) -> Option<&str> {
+        let (flag, value) = arg.split_once('=')?;
+        (flag.starts_with("--") && CURL_DATA.contains(&flag)).then_some(value)
+    }
+    let given = (args.windows(2))
+        .filter_map(|pair| match pair {
+            [flag, body] if CURL_DATA.contains(&flag.as_str()) => Some(body.as_str()),
+            _ => None,
+        })
+        .chain(args.iter().map(String::as_str).filter_map(attached));
+    let mut bodies = given.peekable();
+    bodies.peek().is_some()
+        && bodies.all(|body| {
+            let query = serde_json::from_str::<serde_json::Value>(body)
+                .ok()
+                .and_then(|sent| sent.get("query")?.as_str().map(str::to_owned));
+            query.is_some_and(|query| statements_read(&query))
         })
 }
 
@@ -2200,6 +2249,48 @@ mod environment_tests {
             assert_eq!(typed, started.into_iter().collect::<Vec<_>>(), "{line}");
             assert_eq!(typed.len(), 1, "{line}");
         }
+    }
+
+    /// A project's own script sent a DELETE and an UPDATE to its production Supabase this way
+    /// on 2026-11-23, its SQL piped in, and the gate let both through as a write to a website.
+    #[test]
+    fn sql_sent_to_a_supabase_project_is_a_production_database_write() {
+        let cwd = Path::new("/nowhere");
+        let query = "https://api.supabase.com/v1/projects/abcdefghijklmnopqrst/database/query";
+        let args = |rest: &[&str]| -> Vec<String> {
+            [
+                "-sS",
+                "-X",
+                "POST",
+                query,
+                "-H",
+                "Authorization: Bearer token",
+            ]
+            .iter()
+            .chain(rest)
+            .map(|arg| (*arg).to_owned())
+            .collect()
+        };
+        let piped =
+            of_invocation("curl", &args(&["--data-binary", "@-"]), &|_| None, cwd).expect("held");
+        assert_eq!(piped.kind, ShipKind::ProductionWrite);
+        assert_eq!(
+            piped.target,
+            Some(Target::Database {
+                name: "Supabase project abcdefghijklmnopqrst".into()
+            })
+        );
+        let update = args(&[
+            "--data",
+            r#"{"query":"select 1; update templates set x = 1"}"#,
+        ]);
+        assert!(of_invocation("curl", &update, &|_| None, cwd).is_some());
+        let select = args(&["--data", r#"{"query":"select * from templates"}"#]);
+        assert_eq!(of_invocation("curl", &select, &|_| None, cwd), None);
+        let read_only = format!("{query}/read-only");
+        let reads = ["-X", "POST", &read_only, "--data-binary", "@-"].map(str::to_owned);
+        let read = of_invocation("curl", &reads, &|_| None, cwd).expect("a web write");
+        assert_eq!(read.kind, ShipKind::Publish);
     }
 
     #[test]
