@@ -16,7 +16,6 @@ enum CallWords {
     /// it is on says nothing, so the chat shows its live activity instead.
     static func said(_ turn: TurnState, maker: String, now: Date = Date()) -> Said? {
         let nowMs = Int(now.timeIntervalSince1970 * 1000)
-        let minutes = { (from: Int) in max(1, (nowMs - from) / 60_000) }
         switch turn.state {
         case .working:
             guard let on = turn.on else { return nil }
@@ -31,7 +30,7 @@ enum CallWords {
             let more = call.count > 1 ? String(localized: " and \(call.count - 1) more") : ""
             return Said(
                 word: String(localized: "Needs you"), phase: .needsYou,
-                parts: ["\(call.question)\(more)", String(localized: "\(minutes(call.waitingSince)) min")])
+                parts: ["\(call.question)\(more)", Format.age(Format.date(millis: call.waitingSince), now: now)])
         case .done:
             guard let done = turn.done else { return Said(word: String(localized: "Done"), phase: .done, parts: []) }
             var parts = [changed(done.changes)]
@@ -203,7 +202,7 @@ enum CallWords {
         let nowMs = Int(now.timeIntervalSince1970 * 1000)
         switch turn.state {
         case .needsYou:
-            return turn.call.map { String(localized: "\(max(1, (nowMs - $0.waitingSince) / 60_000))m") }
+            return turn.call.map { Format.age(Format.date(millis: $0.waitingSince), now: now) }
         case .waiting:
             guard let wait = turn.wait else { return nil }
             if ringShare(wait, now: now) != nil, let expected = wait.expectedMs {

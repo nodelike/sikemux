@@ -30,7 +30,6 @@ pub struct Said {
 /// What `turn` says, for an agent of `maker` (the agent's own name, such as Claude). Working
 /// with nothing said about what it is on says nothing, so the caller draws the live activity.
 pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
-    let minutes = |from: u64| (now.saturating_sub(from) / 60_000).max(1);
     let (word, parts): (String, Vec<String>) = match turn.state {
         TurnPhase::Working => {
             let on = turn.on.clone()?;
@@ -61,7 +60,7 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
                 t!("Needs you").into(),
                 vec![
                     format!("{}{more}", call.question),
-                    t!("{minutes} min", minutes = minutes(call.waiting_since)),
+                    ui::time::age(call.waiting_since),
                 ],
             )
         }

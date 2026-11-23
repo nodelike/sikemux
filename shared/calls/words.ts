@@ -1,6 +1,7 @@
 import type { PersonCall, TurnPhase, TurnState, TurnStep, TurnWait, WorkAt } from "../wire.generated";
 import { clockLabel } from "../chat/messageMeta";
 import { elapsedLabel } from "../chat/durationLabel";
+import { formatAge } from "../lib/format";
 import { english, type Say } from "../lib/say";
 
 /**
@@ -20,7 +21,6 @@ export type Said = { word: string; phase: TurnPhase; parts: string[] };
  * on says nothing, so the chat shows its live activity instead.
  */
 export function said(turn: TurnState, maker: string, now = Date.now(), say: Say = english): Said | undefined {
-    const minutes = (from: number) => Math.max(1, Math.floor((now - from) / MINUTE));
     switch (turn.state) {
         case "working":
             if (!turn.on) return undefined;
@@ -33,7 +33,7 @@ export function said(turn: TurnState, maker: string, now = Date.now(), say: Say 
             const call = turn.call;
             if (!call) return undefined;
             const asked = call.count > 1 ? say("{question} and {more} more", { question: call.question, more: call.count - 1 }) : call.question;
-            return { word: say("Needs you"), phase: "needsYou", parts: [asked, say("{minutes} min", { minutes: minutes(call.waitingSince) })] };
+            return { word: say("Needs you"), phase: "needsYou", parts: [asked, formatAge(call.waitingSince, now, say)] };
         }
         case "done": {
             const done = turn.done;
@@ -229,7 +229,7 @@ export function ringShare(wait: TurnWait | undefined, now = Date.now()): number 
  */
 export function rowMinutes(turn: TurnState, now = Date.now(), say: Say = english): string | undefined {
     if (turn.state === "needsYou") {
-        return turn.call ? say("{count}m", { count: Math.max(1, Math.floor((now - turn.call.waitingSince) / MINUTE)) }) : undefined;
+        return turn.call ? formatAge(turn.call.waitingSince, now, say) : undefined;
     }
     if (turn.state !== "waiting" || !turn.wait) return undefined;
     const wait = turn.wait;
