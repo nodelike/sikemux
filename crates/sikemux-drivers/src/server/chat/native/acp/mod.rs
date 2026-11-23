@@ -213,8 +213,22 @@ fn set(value: &mut Value, key: &str, field: Value) {
 #[derive(Default, Serialize, Deserialize)]
 struct Turns {
     prompted: u64,
+    /// The running turn's prompts still unanswered: a steer sent as a prompt adds one.
+    unanswered: u32,
     cancelled: u64,
     gone: bool,
+}
+
+impl Turns {
+    /// Whether `turn` runs on after one of its prompts was answered, because a
+    /// later prompt carries it on.
+    fn carried_on(&mut self, turn: u64) -> bool {
+        if turn != self.prompted {
+            return false;
+        }
+        self.unanswered = self.unanswered.saturating_sub(1);
+        self.unanswered > 0
+    }
 }
 
 /// What the reader, the turns waiting on answers and the chat's loop share.
@@ -247,6 +261,9 @@ impl Driver {
     }
 
     fn answered(&self, turn: u64, answer: Result<Value, Value>) {
+        if self.turns.locked().carried_on(turn) {
+            return;
+        }
         let end = match answer {
             Ok(response) => match response.get("_meta").and_then(air::failure) {
                 Some(failure) => TurnEnd::Failed {
@@ -403,6 +420,12 @@ enum Reopens {
     No,
 }
 
+/// A steer the agent has taken, or one it will answer whether it took.
+enum Steering {
+    Done(Steered),
+    Answering(Sent),
+}
+
 pub struct Acp {
     process: Process,
     driver: Driver,
@@ -550,6 +573,33 @@ impl Acp {
         }
     }
 
+    /// Antigravity takes a prompt sent while a turn runs into that turn: it
+    /// answers the earlier prompt at once and carries the turn on under the new one.
+    fn prompt_into_turn(&self, prompt: Prompt) -> Result<Steered, String> {
+        if !self.driver.sink.running() {
+            return Ok(Steered::PromptRequired);
+        }
+        let blocks = prompt_blocks(
+            prompt.text,
+            prompt.paths,
+            prompt.context,
+            self.kept.embedded_context,
+        )?;
+        let blocks = with_pictures(blocks, self.kept.images);
+        let request = PromptRequest::new(self.kept.session_id.clone(), blocks);
+        let turn = {
+            let mut turns = self.driver.turns.locked();
+            turns.unanswered += 1;
+            turns.prompted
+        };
+        self.driver.rpc.send_for(
+            AGENT_METHOD_NAMES.session_prompt,
+            params(request)?,
+            Purpose::Prompt(turn),
+        )?;
+        Ok(Steered::Injected)
+    }
+
     /// Writes a steer to the agent now, so a stop sent after it reaches the
     /// agent after it too.
     fn send_steer(&self, prompt: Prompt) -> Result<Sent, String> {
@@ -628,7 +678,7 @@ impl Backend for Acp {
             driver.sink.cli_version(&agent.version);
         }
         let mut capabilities = params(&initialized.agent_capabilities)?;
-        let steering = air::steering_supported(&params(&initialized.meta)?);
+        let steering = driver.antigravity || air::steering_supported(&params(&initialized.meta)?);
         set(&mut capabilities, "steering", json!(steering));
         set(&mut capabilities, "signInMethods", json!(sign_in));
         let reopens = if initialized.agent_capabilities.load_session {
@@ -709,7 +759,11 @@ impl Backend for Acp {
         )?;
         let blocks = with_pictures(blocks, self.kept.images);
         let request = PromptRequest::new(self.kept.session_id.clone(), blocks);
-        self.driver.turns.locked().prompted = turn;
+        {
+            let mut turns = self.driver.turns.locked();
+            turns.prompted = turn;
+            turns.unanswered = 1;
+        }
         self.driver.rpc.send_for(
             AGENT_METHOD_NAMES.session_prompt,
             params(request)?,
@@ -721,9 +775,17 @@ impl Backend for Acp {
         &mut self,
         prompt: Prompt,
     ) -> impl std::future::Future<Output = Result<Steered, String>> + Send + 'static {
-        let sent = self.send_steer(prompt);
+        let steering = if self.driver.antigravity {
+            self.prompt_into_turn(prompt).map(Steering::Done)
+        } else {
+            self.send_steer(prompt).map(Steering::Answering)
+        };
         async move {
-            let answer = sent?.answer(None).await.map_err(|error| describe(&error))?;
+            let sent = match steering? {
+                Steering::Done(steered) => return Ok(steered),
+                Steering::Answering(sent) => sent,
+            };
+            let answer = sent.answer(None).await.map_err(|error| describe(&error))?;
             match answer.get("outcome").unwrap_or(&Value::Null) {
                 outcome if outcome == Steered::Injected.word() => Ok(Steered::Injected),
                 outcome if outcome == Steered::PromptRequired.word() => Ok(Steered::PromptRequired),
