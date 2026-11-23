@@ -1,6 +1,7 @@
 //! Closes an agent once its own facts say it is finished: its work is on the project's branch on
 //! its remote, or it changed nothing; its last turn since it opened asked nothing; no agent waits
-//! on it; and the person has not written to it in the last hour; and, for a chat the person
+//! on it; its lead has read how that turn ended; and the person has not written to it in the
+//! last hour; and, for a chat the person
 //! started, they have opened its last answer. It runs when one of those facts may have moved,
 //! never as a poll.
 
@@ -174,6 +175,9 @@ fn at_rest(
     ) {
         return false;
     }
+    if core.harness().mailbox.report_unread(&agent.id) {
+        return false;
+    }
     let now = core.agent_now(&agent.id);
     if now.at_work() || now.waits_on_something() {
         return false;
@@ -254,5 +258,56 @@ fn close(core: &Arc<Core>, finished: Vec<(WorkspaceAgent, Left)>) {
             lead: agent.lead,
         };
         super::now::closed(core, &agent.project, entry);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::server::ServerCore;
+
+    /// A worker's first turn changed nothing and ended on a finding its lead had to act on. The
+    /// lead was mid-turn, so the report waited for it, and 191 ms after the turn ended the worker
+    /// was closed as having changed nothing. The lead's list showed it closed 91 s before its
+    /// report came, and then had no open agent to answer.
+    #[test]
+    fn a_worker_stays_open_until_its_lead_has_read_its_report() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let worker: WorkspaceAgent = serde_json::from_value(json!({
+            "id": "agent-otter",
+            "provider": "claude",
+            "project": "shop",
+            "cwd": "/shop.worktrees/feat-mail-domain/",
+            "title": "Mail domain verification",
+            "lead": "agent-chief",
+            "permissionMode": "bypass",
+            "worktree": {
+                "repo": "/shop",
+                "path": "/shop.worktrees/feat-mail-domain",
+                "branch": "feat/mail-domain",
+                "base": "main",
+                "startSha": "1f0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e",
+            },
+            "createdAt": 1_795_454_491_472_u64,
+        }))
+        .unwrap();
+        let turn: TurnState = serde_json::from_value(json!({
+            "state": "done",
+            "since": 1_795_454_507_240_u64,
+            "done": { "changes": "none", "checks": "notChecked" },
+        }))
+        .unwrap();
+        let waited = HashSet::new();
+        assert!(at_rest(&core, &worker, &turn, &waited));
+
+        let mailbox = &core.harness().mailbox;
+        mailbox.hold_report(
+            "agent-otter",
+            "agent-chief",
+            "The DNS is not managed there.",
+        );
+        assert!(!at_rest(&core, &worker, &turn, &waited));
     }
 }
