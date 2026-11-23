@@ -1,0 +1,16 @@
+# A started Claude chat's model menu, then the same menu after picking Antigravity in its agent column.
+stage 1440 900
+window 1440 900
+signed-in
+project storefront shop
+chat Scout claude:builtin-claude
+say "hi"
+settle 14
+click 1169,480
+settle 3
+click "Model"
+settle 3
+snap model-picker-claude
+click 552,697
+settle 8
+snap model-picker-antigravity
