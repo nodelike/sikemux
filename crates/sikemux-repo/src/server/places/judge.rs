@@ -362,6 +362,7 @@ fn manages_domains(origin: &str, addresses: &str) -> bool {
                 .find_map(|at| word.strip_prefix(at))
         })
         .filter_map(|address| address.strip_prefix(host.as_str()))
+        .filter(|past_host| past_host.is_empty() || past_host.starts_with(['/', ':', '?', '#']))
         .flat_map(|past_host| past_host.split(|letter: char| !letter.is_ascii_alphanumeric()))
         .any(|part| WORDS.iter().any(|word| part.starts_with(word)));
     at_panel || named
