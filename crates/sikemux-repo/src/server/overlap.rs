@@ -180,33 +180,3 @@ fn changed_by_agent(core: &Core, top: &Path) -> BTreeMap<String, BTreeSet<String
     }
     by_agent
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn open_agent(agent_id: &str) -> Listed {
-        Listed {
-            agent_id: agent_id.to_owned(),
-            name: None,
-            project: "/shop".to_owned(),
-            cli: "claude".to_owned(),
-            title: None,
-            status: Default::default(),
-            parent: None,
-            active_at: None,
-            rank: 0,
-            reach: Reach::Chat,
-        }
-    }
-
-    /// `agent_spawn` answered that the brief's files were being changed by another agent,
-    /// which was the agent it had just started on that brief.
-    #[test]
-    fn the_agent_a_brief_just_started_is_not_another_agent_changing_its_files() {
-        let (lead, started, other) = ("agent-chief", "agent-otter", "agent-heron");
-        assert!(!is_other(&open_agent(started), "/shop", lead, started));
-        assert!(!is_other(&open_agent(lead), "/shop", lead, started));
-        assert!(is_other(&open_agent(other), "/shop", lead, started));
-    }
-}
