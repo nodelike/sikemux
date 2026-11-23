@@ -218,10 +218,15 @@ impl RenderOnce for PaneHeader {
                 })
             }))
             .children(self.name)
-            .children(
-                self.fact
-                    .map(|fact| div().min_w_0().ml(crate::theme::SPACE_1).child(fact)),
-            )
+            .children(self.fact.map(|fact| {
+                div()
+                    .min_w_0()
+                    .ml(crate::theme::SPACE_1)
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(fact)
+            }))
             .child(div().flex_1())
             .when_some(self.controls, |bar, controls| {
                 bar.child(div().flex_none().child(controls))
