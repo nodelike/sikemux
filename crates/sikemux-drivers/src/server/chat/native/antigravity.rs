@@ -1,5 +1,6 @@
 //! Antigravity's tool calls under the names the chat reads, and the errors it ends turns on.
-//! It titles a tool server's tool `Run mcp_<server>_<tool>`, calls a command `CommandLine`
+//! It titles a tool server's tool `Run mcp_<server>_<tool>`, or `MCP Tool <tool>` when it
+//! reaches the tool through `call_mcp_tool`, calls a command `CommandLine`
 //! and its label `toolSummary`, and heads what a command printed with when it ran.
 
 use serde_json::{json, Map, Value};
@@ -26,6 +27,12 @@ pub(super) fn as_common_call(update: &mut Value, servers: &[String]) {
         update["title"] = json!(mcp_title(&server, &tool));
         return;
     }
+    if let Some((server, tool, arguments)) = proxied(&update["rawInput"]) {
+        update["title"] = json!(mcp_title(&server, &tool));
+        update["kind"] = json!("other");
+        update["rawInput"] = arguments;
+        return;
+    }
     if update["kind"] != "execute" {
         return;
     }
@@ -45,6 +52,18 @@ pub(super) fn as_common_call(update: &mut Value, servers: &[String]) {
             }
         }
     }
+}
+
+/// The server, tool and arguments of a `call_mcp_tool` call, which reaches a tool of a
+/// server from Antigravity's own settings that it left out of the model's tool list.
+fn proxied(input: &Value) -> Option<(String, String, Value)> {
+    let server = input["ServerName"].as_str()?.trim();
+    let tool = input["ToolName"].as_str()?.trim();
+    if server.is_empty() || tool.is_empty() {
+        return None;
+    }
+    let arguments = input.get("Arguments").cloned().unwrap_or_else(|| json!({}));
+    Some((server.to_owned(), tool.to_owned(), arguments))
 }
 
 fn rename(input: &mut Map<String, Value>, from: &str, to: &str) {
