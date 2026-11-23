@@ -267,6 +267,7 @@ struct PageCard: View {
                 Text("In a tab on the desk").font(Theme.ui(12)).foregroundStyle(palette.inkFaint).lineLimit(1)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
         .padding(.horizontal, 10)
         .background(RoundedRectangle(cornerRadius: 8).fill(palette.raised))
