@@ -276,15 +276,29 @@ fn remade(
             )
         })
         .flatten();
-    let committer = note_again::<Committer>(
-        dir,
-        trailers::COMMITTERS_REF,
-        &remaking.from,
-        &was,
-        &made,
-        key,
-        &signing.hosts,
-    );
+    let committer = match remaking.into_head {
+        true => {
+            let mut made_by: Vec<Agent> = Vec::new();
+            let noted = ["HEAD", remaking.from.as_str()]
+                .into_iter()
+                .filter_map(|commit| super::committer::of(core, dir, commit));
+            for agent in noted.flat_map(Committer::agents) {
+                if !made_by.iter().any(|kept| kept.key() == agent.key()) {
+                    made_by.push(agent);
+                }
+            }
+            Committer::of_agents(&made_by).and_then(|committer| committer.signed(&made, key))
+        }
+        false => note_again::<Committer>(
+            dir,
+            trailers::COMMITTERS_REF,
+            &remaking.from,
+            &was,
+            &made,
+            key,
+            &signing.hosts,
+        ),
+    };
     let pending = (note.is_some() || committer.is_some()).then_some(PendingNote {
         tree,
         parents,
