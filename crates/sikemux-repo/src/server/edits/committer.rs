@@ -71,13 +71,14 @@ impl Committer {
 
 pub fn record(core: &Core, dir: &Path, commit: &str, agent: &Agent) {
     if let Some(key) = core.remote().host_key() {
-        record_with(dir, commit, agent, &key);
+        record_with(dir, commit, std::slice::from_ref(agent), &key);
     }
 }
 
-/// Keeps `agent` as who made `commit`, signed with the host's `key`.
-pub fn record_with(dir: &Path, commit: &str, agent: &Agent, key: &iroh::SecretKey) {
-    if let Some(committer) = Committer::of_agents(std::slice::from_ref(agent)) {
+/// Keeps the first of `agents` as who made `commit`, with the rest, signed with the host's
+/// `key`.
+pub fn record_with(dir: &Path, commit: &str, agents: &[Agent], key: &iroh::SecretKey) {
+    if let Some(committer) = Committer::of_agents(agents) {
         put(dir, commit, &committer, key);
     }
 }
@@ -88,11 +89,18 @@ pub fn of(core: &Core, dir: &Path, commit: &str) -> Option<Committer> {
 
 /// The commits that have a note of who made them, whoever signed it.
 pub fn noted(dir: &Path) -> std::collections::HashSet<String> {
+    notes_of(dir).into_keys().collect()
+}
+
+/// Each commit that has a note of who made it, with that note's blob.
+fn notes_of(dir: &Path) -> std::collections::HashMap<String, String> {
     let notes = format!("--ref={NOTES_REF}");
     let listed = git(dir, &["notes", &notes, "list"]).unwrap_or_default();
     (listed.lines())
-        .filter_map(|line| line.split_whitespace().nth(1))
-        .map(str::to_owned)
+        .filter_map(|line| {
+            let (blob, commit) = line.split_once(' ')?;
+            Some((commit.trim().to_owned(), blob.to_owned()))
+        })
         .collect()
 }
 
@@ -108,8 +116,8 @@ pub struct Made {
 /// The commits on any branch made since `since`, in seconds, that a note one of `hosts`
 /// signed says an agent made, newest first.
 pub fn made_since(dir: &Path, since: u64, hosts: &[iroh::PublicKey]) -> Vec<Made> {
-    let has_note = noted(dir);
-    if has_note.is_empty() {
+    let blobs = notes_of(dir);
+    if blobs.is_empty() {
         return Vec::new();
     }
     let since = format!("--since={since}");
@@ -118,21 +126,47 @@ pub fn made_since(dir: &Path, since: u64, hosts: &[iroh::PublicKey]) -> Vec<Made
         "--all",
         since.as_str(),
         "--max-count=400",
-        "--format=%H%x1f%ct%x1f%s",
+        "--format=%H%x1f%ct%x1f%T%x1f%P%x1f%s",
     ];
     let log = git(dir, &args).unwrap_or_default();
-    (log.lines())
+    let found: Vec<_> = (log.lines())
         .filter_map(|line| {
-            let mut parts = line.splitn(3, '\x1f');
-            let (sha, at, subject) = (parts.next()?, parts.next()?, parts.next()?);
-            if !has_note.contains(sha) {
-                return None;
-            }
+            let mut parts = line.splitn(5, '\x1f');
+            let (sha, at, tree, parents, subject) = (
+                parts.next()?,
+                parts.next()?,
+                parts.next()?,
+                parts.next()?,
+                parts.next()?,
+            );
+            let blob = blobs.get(sha)?;
+            let parents: Vec<String> = parents.split_whitespace().map(str::to_owned).collect();
+            Some((sha, at, tree, parents, subject, blob))
+        })
+        .collect();
+    if found.is_empty() {
+        return Vec::new();
+    }
+    let input: String = (found.iter())
+        .map(|(.., blob)| format!("{blob}\n"))
+        .collect();
+    let Ok(out) = run(dir, &["cat-file", "--batch"], None, Some(input.as_bytes())) else {
+        return Vec::new();
+    };
+    let mut answers = super::note::Answers(out.as_slice());
+    (found.into_iter())
+        .filter_map(|(sha, at, tree, parents, subject, _)| {
+            let (_, blob) = answers.next()?;
+            let made_of = Commit {
+                tree,
+                parents: &parents,
+            };
+            let text = trailers::verify_note(std::str::from_utf8(blob).ok()?, &made_of, hosts)?;
             Some(Made {
                 sha: sha.to_owned(),
                 at: at.parse().unwrap_or(0),
                 subject: subject.to_owned(),
-                by: read(dir, sha, hosts)?,
+                by: serde_json::from_str(text).ok()?,
             })
         })
         .collect()

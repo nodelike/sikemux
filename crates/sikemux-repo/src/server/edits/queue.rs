@@ -686,8 +686,8 @@ async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<S
             Some(message.as_bytes()),
         )?;
         let made = line(String::from_utf8_lossy(&made).into_owned());
-        if let (true, Some(signer), Some(key)) = (footer.is_empty(), signers.first(), &host_key) {
-            super::committer::record_with(&checkout, &made, signer, key);
+        if let (true, Some(key)) = (footer.is_empty(), &host_key) {
+            super::committer::record_with(&checkout, &made, &signers, key);
         }
         Ok(Some(made))
     })

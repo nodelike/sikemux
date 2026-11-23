@@ -145,10 +145,10 @@ pub fn read(dir: &Path, commits: &[&str], hosts: &[PublicKey]) -> HashMap<String
 
 /// What `git cat-file --batch` answered, one object at a time: its kind and
 /// content, or none when it found nothing.
-struct Answers<'a>(&'a [u8]);
+pub(super) struct Answers<'a>(pub(super) &'a [u8]);
 
 impl<'a> Answers<'a> {
-    fn next(&mut self) -> Option<(String, &'a [u8])> {
+    pub(super) fn next(&mut self) -> Option<(String, &'a [u8])> {
         let end = self.0.iter().position(|byte| *byte == b'\n')?;
         let header = String::from_utf8_lossy(self.0.get(..end)?).into_owned();
         self.0 = self.0.get(end + 1..)?;

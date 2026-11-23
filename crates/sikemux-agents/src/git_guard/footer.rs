@@ -242,7 +242,7 @@ pub(super) fn run(args: Vec<OsString>) -> i32 {
 /// Puts the footer in the message `file`, and keeps the note for the commit
 /// in `note_file`. A commit goes on without them when the core cannot be asked
 /// or the committer is no agent of its, and the core is asked once per commit
-/// when it gives none.
+/// when it gives no footer.
 fn sign(hook: &OsString, file: &OsString, note_file: Option<&Path>) {
     let mut unanswered = file.clone();
     unanswered.push(".sikemux-unanswered");
@@ -263,10 +263,14 @@ fn sign(hook: &OsString, file: &OsString, note_file: Option<&Path>) {
     if empty || (hook == "commit-msg" && trailers::is_signed(&text)) {
         return;
     }
-    let Some(Answer { footer, note }) = ask() else {
-        if hook == "prepare-commit-msg" {
-            let _ = std::fs::write(&unanswered, git);
-        }
+    let answer = ask();
+    let footer_given = answer
+        .as_ref()
+        .is_some_and(|answer| !answer.footer.is_empty());
+    if hook == "prepare-commit-msg" && !footer_given {
+        let _ = std::fs::write(&unanswered, git);
+    }
+    let Some(Answer { footer, note }) = answer else {
         return;
     };
     if !footer.is_empty() {
