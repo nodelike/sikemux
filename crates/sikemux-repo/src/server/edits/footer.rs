@@ -39,6 +39,20 @@ pub fn attributed(dir: &Path) -> bool {
     .map_or(true, |value| value.trim() != "false")
 }
 
+/// The footer of a commit the core makes by itself for `signers`, such as a land check's fix
+/// or brought-up-to-date generated files: none where commits name no agent.
+pub fn of_core_commit(
+    dir: &Path,
+    signers: &[Agent],
+    commit: &Commit,
+    key: Option<&iroh::SecretKey>,
+) -> Vec<String> {
+    match attributed(dir) {
+        true => trailers::footer(signers, commit, key),
+        false => Vec::new(),
+    }
+}
+
 /// Whether `text` credits Claude, as a Co-Authored-By trailer or a "Generated
 /// with Claude Code" line does. The person never wants that on anything an
 /// agent writes; Sikemux's footer credits the agent already.
@@ -514,4 +528,40 @@ pub async fn made(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
     })
     .await
     .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::edits::tests_git::git_in;
+
+    /// On 2026-11-23 a person whose commits must not credit an agent still got "Agent:" lines:
+    /// the commits the land queue makes by itself put the footer on whatever the setting said.
+    #[test]
+    fn a_commit_the_core_makes_names_no_agent_where_attribution_is_off() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = sikemux_process::files::real_path(root.path()).unwrap();
+        git_in(&dir, &["init", "-q", "-b", "main"]);
+        let agent = Agent {
+            name: "Otter".to_owned(),
+            cli: "claude".to_owned(),
+            cli_version: None,
+            model: None,
+            sikemux: None,
+            session: None,
+            chat: "chat".to_owned(),
+        };
+        let parents = vec!["0".repeat(40)];
+        let made_of = Commit {
+            tree: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+            parents: &parents,
+        };
+        let key = iroh::SecretKey::generate();
+        let footer = || of_core_commit(&dir, std::slice::from_ref(&agent), &made_of, Some(&key));
+        git_in(&dir, &["config", "sikemux.attribution", "true"]);
+        assert!(footer().iter().any(|line| line.starts_with("Agent: Otter")));
+
+        git_in(&dir, &["config", "sikemux.attribution", "false"]);
+        assert_eq!(footer(), Vec::<String>::new());
+    }
 }

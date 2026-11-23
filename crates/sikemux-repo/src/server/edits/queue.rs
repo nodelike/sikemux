@@ -668,7 +668,8 @@ async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<S
             return Ok(None);
         }
         let parents = vec![tip.clone()];
-        let footer = crate::trailers::footer(
+        let footer = super::footer::of_core_commit(
+            &checkout,
             &signers,
             &crate::trailers::Commit {
                 tree: &tree,
@@ -684,7 +685,11 @@ async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<S
             None,
             Some(message.as_bytes()),
         )?;
-        Ok(Some(line(String::from_utf8_lossy(&made).into_owned())))
+        let made = line(String::from_utf8_lossy(&made).into_owned());
+        if let (true, Some(signer), Some(key)) = (footer.is_empty(), signers.first(), &host_key) {
+            super::committer::record_with(&checkout, &made, signer, key);
+        }
+        Ok(Some(made))
     })
     .await
     .ok()
