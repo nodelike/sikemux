@@ -1,4 +1,4 @@
-# The Limits float over the rail, with Antigravity's Gemini and Claude-and-GPT limits beside Claude's.
+# The Limits float over the agent rail, open on Antigravity's Gemini and Claude-and-GPT limits.
 stage 1440 900
 window 1440 900
 project storefront line-shop
@@ -6,6 +6,11 @@ core setFaceStyle {"on":false,"pack":"glow","shape":"mixed","motion":false}
 settle 6
 key cmd-w
 wait 1
-move "LIMITS"
+chat Vega antigravity gemini-4-neon-high
+title "Move checkout onto payment intents"
+say "hold 600000"
+settle 6
+# Antigravity's row under LIMITS at the rail's foot.
+move 1187,827
 settle 4
 snap limits
