@@ -11,6 +11,7 @@
   "app/src/chat/files.rs": 1,
   "app/src/chat/mention.rs": 1,
   "app/src/chat/mermaid.rs": 1,
+  "app/src/chat/model_picker.rs": 1,
   "app/src/chat/schema.rs": 1,
   "app/src/core.rs": 4,
   "app/src/desk.rs": 3,
