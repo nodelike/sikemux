@@ -143,7 +143,7 @@ struct Row {
     v: u64,
     /// About what it holds, as of the last flush.
     bytes: usize,
-    /// A message a person sent, which the agent's echo never adds to.
+    /// A message the agent's echo never adds to: one the person sent, or a letter shown apart.
     local: bool,
     /// What a message to the agent held as it came, before its context and
     /// letters were read out of it.
@@ -2702,6 +2702,12 @@ impl Fold {
     }
 
     fn agent_notice(&mut self, index: u64, update: &Value) {
+        let letter =
+            (update.get("letter")).and_then(|letter| AgentLetter::deserialize(letter).ok());
+        if let Some(letter) = letter {
+            self.push_letter(index, stamped_at(update), letter);
+            return;
+        }
         let Some(title) = text_of(update.get("title")) else {
             return;
         };
@@ -2813,6 +2819,16 @@ impl Fold {
             |id| ChatPart::AgentNotice { id, notice },
             false,
         );
+    }
+
+    fn push_letter(&mut self, index: u64, at: Option<u64>, mut letter: AgentLetter) {
+        letter.tree = Some(send::read(&letter.text));
+        let mut row = Row::new(self.row_id(index, &None), ChatRole::User, index);
+        row.local = true;
+        row.msg.sent_at = at;
+        row.msg.letters = vec![letter];
+        let position = self.main.push(row);
+        self.note_main_change(&None, position);
     }
 
     /// A worker showed a page again under a title it showed before: the row for that one shows

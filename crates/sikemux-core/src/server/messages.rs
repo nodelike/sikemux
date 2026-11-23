@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
+use sikemux_view::chat::{AgentLetter, LetterKind};
 use sikemux_wire::protocol::ChatContext;
 
 use crate::cli::protocol::HarnessRequest;
@@ -1942,7 +1943,8 @@ pub(crate) async fn report_calm(core: &Arc<Core>, worker: String, lead: String, 
 }
 
 /// The calm reports waiting for `agent_id`, taken as what its turn starts with. Each also
-/// shows in its chat as a line, since what the turn starts with is the agent's alone.
+/// shows in its chat as a message from its worker, since what the turn starts with is the
+/// agent's alone.
 pub(crate) fn calm_reports(core: &Core, agent_id: &str) -> Option<ChatContext> {
     let calm = core.harness().mailbox.take_calm(agent_id);
     if calm.is_empty() {
@@ -1951,9 +1953,10 @@ pub(crate) fn calm_reports(core: &Core, agent_id: &str) -> Option<ChatContext> {
     log(core, agent_id, &calm, MessageOutcome::Delivered);
     let lines: Vec<&str> = calm.iter().map(|queued| queued.text.as_str()).collect();
     if let Some(chat) = core.chats().get(agent_id) {
-        for line in &lines {
-            let shown = line.strip_prefix("- ").unwrap_or(line);
-            super::chat::tell_update(&chat, sikemux_fold::update::notice("info", shown, None));
+        for queued in &calm {
+            if let Some(letter) = calm_letter(core, queued) {
+                super::chat::tell_update(&chat, sikemux_fold::update::letter(&letter));
+            }
         }
     }
     Some(crate::sessions::for_agent::sikemux_context(
@@ -1961,6 +1964,26 @@ pub(crate) fn calm_reports(core: &Core, agent_id: &str) -> Option<ChatContext> {
         CALM_HEADING,
         &lines.join("\n"),
     ))
+}
+
+/// A calm report as its worker's message, without the name and open calls its lead reads it with.
+fn calm_letter(core: &Core, queued: &Queued) -> Option<AgentLetter> {
+    let worker = &queued.origin.as_ref()?.from;
+    let line = queued.text.lines().next()?;
+    let (name, text) = line.strip_prefix("- @")?.split_once(": ")?;
+    Some(AgentLetter {
+        kind: LetterKind::Message,
+        name: name.to_owned(),
+        agent_id: worker.clone(),
+        cli: (core.chats().get(worker))
+            .map_or_else(|| "agent".to_owned(), |chat| chat.launch.provider.clone()),
+        question: String::new(),
+        text: text.to_owned(),
+        secret: false,
+        attachments: Vec::new(),
+        tree: None,
+        trigger: None,
+    })
 }
 
 /// When `agent_id` last reported to `to`, within the last day.

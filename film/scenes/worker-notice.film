@@ -1,4 +1,4 @@
-# A worker's calm report reaches its lead as one line, ending in an ellipsis inside the column.
+# A worker's calm report reaches its lead's chat as a message from that worker.
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir

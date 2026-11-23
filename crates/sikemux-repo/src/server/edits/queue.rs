@@ -91,6 +91,20 @@ fn shorts(commits: &[String]) -> String {
         .join(", ")
 }
 
+/// The subjects of `commits`, quoted, which tell a lead what landed without commit ids.
+fn titles(repo: &Path, commits: &[String]) -> String {
+    let mut args = vec!["log", "--no-walk=unsorted", "--format=%s"];
+    args.extend(commits.iter().map(String::as_str));
+    let subjects = git(repo, &args).unwrap_or_default();
+    let quoted: Vec<String> = (subjects.lines())
+        .map(|subject| format!("\"{}\"", subject.trim()))
+        .collect();
+    match quoted.is_empty() {
+        true => "its commits".to_owned(),
+        false => quoted.join(", "),
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Queued {
@@ -865,20 +879,28 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
             .as_deref()
             .map(|stays| format!(" {stays}"))
             .unwrap_or_default();
-        let on = format!("{} is on {} as {}", waiting.short(), key.1, shorts(commits));
         core.notify().send(Signal::Landed {
             agent_id: waiting.agent.clone(),
         });
         if !waiting.push {
-            let on = format!("{on}{}", local_only(&key.0, &key.1));
+            let local = local_only(&key.0, &key.1);
+            let on = format!(
+                "{} is on {} as {}{local}",
+                waiting.short(),
+                key.1,
+                shorts(commits)
+            );
             tell(core, &waiting.agent, format!("Your land of {on}.{stays}"));
-            tell_lead(core, &waiting.agent, format!("Its land of {on}."), true);
+            let landed = format!("Landed {} on {}{local}.", titles(&key.0, commits), key.1);
+            tell_lead(core, &waiting.agent, landed, true);
         } else if sent_back(&waiting.agent) {
             tell_lead(
                 core,
                 &waiting.agent,
                 format!(
-                    "Its land of {on}, but clashed with the remote's newest and came off it again. It has been told to settle it and land again."
+                    "Landed {} on {}, but it clashed with the remote's newest and came off it again. It has been told to settle it and land again.",
+                    titles(&key.0, commits),
+                    key.1
                 ),
                 false,
             );
@@ -894,7 +916,13 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
                 shorts(commits)
             );
             tell(core, &waiting.agent, format!("Your land of {on}{stays}"));
-            tell_lead(core, &waiting.agent, format!("Its land of {on}"), true);
+            let landed = format!(
+                "Landed {} on {} and origin/{}.{said}",
+                titles(&key.0, commits),
+                key.1,
+                key.1
+            );
+            tell_lead(core, &waiting.agent, landed, true);
         }
     }
 }

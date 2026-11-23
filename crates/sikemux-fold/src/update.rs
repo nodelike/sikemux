@@ -6,8 +6,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sikemux_view::chat::{
-    ChiefWeek, ClosedCard, DecidedLine, GoalMarker, KeptRule, OverruledDecision, RuleChange,
-    StopReason, WorkerPage,
+    AgentLetter, ChiefWeek, ClosedCard, DecidedLine, GoalMarker, KeptRule, OverruledDecision,
+    RuleChange, StopReason, WorkerPage,
 };
 
 use crate::ChatEventKind;
@@ -350,6 +350,12 @@ pub fn notice(severity: &str, title: &str, description: Option<&str>) -> Value {
         set(&mut update, "description", json!(description));
     }
     update
+}
+
+/// A message from another agent that the agent read along with another one, shown as a
+/// message of its own.
+pub fn letter(letter: &AgentLetter) -> Value {
+    json!({ "sessionUpdate": UpdateKind::Notice, "letter": letter })
 }
 
 /// The line in a chat where the goal `marker` began or ended.
