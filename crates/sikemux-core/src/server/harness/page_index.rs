@@ -240,7 +240,6 @@ fn sweep(
     for id in &stale {
         let _ = std::fs::remove_file(pages.join(format!("{id}.html")));
         let _ = std::fs::remove_file(pages.join(format!("{id}.jpg")));
-        let _ = std::fs::remove_file(crate::pages::render_file(pages, id));
         let _ = std::fs::remove_file(crate::pages::written_in_file(pages, id));
         let _ = std::fs::remove_dir_all(crate::pages::media_folder(pages, id));
     }

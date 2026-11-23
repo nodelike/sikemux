@@ -104,7 +104,6 @@ crate::calls! {
     "changeOutside" ChangeOutside (crate::outside::OutsideChange) -> crate::outside::OutsideView;
     "keepPasted" KeepPasted (crate::attachments::KeepPastedParams) -> crate::attachments::Kept;
     "page" ReadPage (crate::harness::PageParams) -> crate::harness::PageHtml;
-    "pageRender" PageRender (crate::harness::PageParams) -> crate::pictures::TurnPictureData;
     "renameAgent" RenameAgent (crate::names::RenameAgentParams) -> crate::names::AgentName;
     "hireAgent" HireAgent (crate::names::HireAgentParams) -> crate::names::AgentName;
     "startSideChat" StartSideChat (crate::chat::SideChatParams) -> crate::chat::SideChat;

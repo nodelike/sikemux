@@ -271,11 +271,6 @@ pub fn media_folder(dir: &Path, id: &str) -> PathBuf {
     dir.join(id)
 }
 
-/// The whole of page `id` drawn as its desk tab drew it, for a phone to read.
-pub fn render_file(dir: &Path, id: &str) -> PathBuf {
-    dir.join(format!("{id}.render.jpg"))
-}
-
 /// The file naming the folder page `id` was written in.
 pub fn written_in_file(dir: &Path, id: &str) -> PathBuf {
     dir.join(format!("{id}.written-in"))

@@ -1589,14 +1589,6 @@ fn area_rect(area: &Value) -> (f64, f64, f64, f64) {
     (side("left"), side("top"), side("width"), side("height"))
 }
 
-/// What of a page [`BrowserManager::picture_in`] takes.
-enum Framing<'a> {
-    Visible,
-    WholePage,
-    /// The element a selector finds.
-    Element(&'a str),
-}
-
 /// The visible part of the tab, only `area` of it, or with `height` the
 /// whole page down to it.
 pub(crate) async fn screenshot(
@@ -1657,15 +1649,8 @@ impl BrowserManager {
         url: &str,
         fixed: crate::viewport::Viewport,
     ) -> Result<Vec<u8>, String> {
-        self.picture_in(
-            &self.picturer,
-            false,
-            agent_id,
-            url,
-            fixed,
-            Framing::Visible,
-        )
-        .await
+        self.picture_in(&self.picturer, false, agent_id, url, fixed, None)
+            .await
     }
 
     /// [`Self::picture_at`] in a view of its own that keeps no cookies or storage and sees none
@@ -1676,34 +1661,8 @@ impl BrowserManager {
         url: &str,
         fixed: crate::viewport::Viewport,
     ) -> Result<Vec<u8>, String> {
-        self.picture_in(
-            &self.private_picturer,
-            true,
-            agent_id,
-            url,
-            fixed,
-            Framing::Visible,
-        )
-        .await
-    }
-
-    /// [`Self::private_picture_at`] of the whole page, down to its end, so a phone can read
-    /// a page shown on the desk.
-    pub async fn private_page_render(
-        &self,
-        agent_id: &str,
-        url: &str,
-        fixed: crate::viewport::Viewport,
-    ) -> Result<Vec<u8>, String> {
-        self.picture_in(
-            &self.private_picturer,
-            true,
-            agent_id,
-            url,
-            fixed,
-            Framing::WholePage,
-        )
-        .await
+        self.picture_in(&self.private_picturer, true, agent_id, url, fixed, None)
+            .await
     }
 
     /// [`Self::private_picture_at`] cropped to the element `selector` finds, for a pin's spot.
@@ -1722,7 +1681,7 @@ impl BrowserManager {
             agent_id,
             url,
             fixed,
-            Framing::Element(selector),
+            Some(selector),
         )
         .await
     }
@@ -1734,7 +1693,7 @@ impl BrowserManager {
         agent_id: &str,
         url: &str,
         fixed: crate::viewport::Viewport,
-        framing: Framing<'_>,
+        selector: Option<&str>,
     ) -> Result<Vec<u8>, String> {
         let user_agent = fixed.user_agent().unwrap_or_else(crate::user_agent);
         let size = (f64::from(fixed.width), f64::from(fixed.height));
@@ -1756,16 +1715,8 @@ impl BrowserManager {
         let taken = async {
             view.loaded(LOAD_TIMEOUT).await?;
             tokio::time::sleep(SETTLE).await;
-            let selector = match framing {
-                Framing::Visible => return screenshot(view.view(), None, None).await,
-                Framing::WholePage => {
-                    let height = call(view.view(), "pageHeight", &[])
-                        .await?
-                        .as_f64()
-                        .ok_or("the page did not report its height")?;
-                    return screenshot(view.view(), Some(height), None).await;
-                }
-                Framing::Element(selector) => selector,
+            let Some(selector) = selector else {
+                return screenshot(view.view(), None, None).await;
             };
             let landed = call(view.view(), "pageAt", &[]).await?;
             let page = |url: &str| url.split(['?', '#']).next().unwrap_or(url).to_owned();
