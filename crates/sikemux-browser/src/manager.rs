@@ -122,7 +122,7 @@ pub(crate) struct TabFacts {
     /// Files offered to the tab's file choosers, and whether one took them yet.
     pub(crate) upload: Option<(Vec<PathBuf>, bool)>,
     /// The form write the person was put before a dialog froze the page, which the page may
-    /// still send once the dialog is answered.
+    /// still send once the dialog is answered. It goes when the dialog closes.
     pub(crate) form_write: Option<String>,
     pub(crate) documents: documents::DocumentLog,
     pub(crate) stall: Option<TabStall>,

@@ -144,12 +144,12 @@ impl TabEvents for TabListener {
         let Some(manager) = self.manager.upgrade() else {
             return;
         };
-        manager
-            .tabs
-            .locked()
-            .entry(self.tab_id.clone())
-            .or_default()
-            .dialog = dialog;
+        let mut tabs = manager.tabs.locked();
+        let facts = tabs.entry(self.tab_id.clone()).or_default();
+        if dialog.is_none() {
+            facts.form_write = None;
+        }
+        facts.dialog = dialog;
     }
 
     fn upload(&self) -> Option<Vec<PathBuf>> {

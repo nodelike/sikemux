@@ -572,9 +572,9 @@ async fn run(
             if manager.dialog(&tab_id).is_none() {
                 return Err("no dialog is open in the current tab".into());
             }
+            let sent = manager.take_form_write(&tab_id);
             native::answer_dialog(&view, &tab_id, accept, text("text")).await?;
             settle(manager, agent_id, &tab_id).await;
-            let sent = manager.take_form_write(&tab_id);
             let (went, put) =
                 put_page_writes(manager, &tab_id, &view, check, sent.as_deref()).await;
             if went {
