@@ -4,6 +4,6 @@ window 1440 900
 prefer onboardingComplete false
 settle 8
 snap onboarding-agents
-click "Continue"
+key enter
 settle 3
 snap onboarding-projects
