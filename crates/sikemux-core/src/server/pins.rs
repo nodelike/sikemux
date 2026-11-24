@@ -201,16 +201,14 @@ fn over_bound(by_id: &mut HashMap<String, Pin>, project: &str) -> Vec<Pin> {
 
 fn write_lines(path: &Path, pins: &[&Pin], whole: bool) -> std::io::Result<()> {
     if let Some(folder) = path.parent() {
-        std::fs::create_dir_all(folder)?;
+        sikemux_process::files::private_folder(folder)?;
     }
-    let mut options = std::fs::OpenOptions::new();
+    let mut options = sikemux_process::files::private_options();
     options.create(true);
     match whole {
         true => options.write(true).truncate(true),
         false => options.append(true),
     };
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     let mut file = options.open(path)?;
     for pin in pins {
         let mut line = serde_json::to_vec(pin)?;

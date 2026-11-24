@@ -11,6 +11,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use sikemux_fold::{ChatEvent, ChatEventKind};
+use sikemux_process::files::{create_private, private_folder, private_options};
 
 /// Past this the oldest half of the file goes, so a chat that never ends
 /// cannot fill the disk. Its earliest turns are then out of reach.
@@ -226,9 +227,9 @@ pub fn clear(dir: &Path, keep: &[String]) {
 impl History {
     pub fn open(dir: &Path, name: &str, max_bytes: u64) -> Self {
         let path = dir.join(format!("{name}.jsonl"));
-        let file = fs::create_dir_all(dir)
+        let file = private_folder(dir)
             .and_then(|()| {
-                OpenOptions::new()
+                private_options()
                     .create(true)
                     .truncate(true)
                     .read(true)
@@ -477,7 +478,7 @@ impl History {
         {
             let mut from = File::open(&self.path)?;
             from.seek(SeekFrom::Start(cut.offset))?;
-            let mut to = File::create(&kept)?;
+            let mut to = create_private(&kept)?;
             io::copy(&mut from, &mut to)?;
         }
         fs::rename(&kept, &self.path)?;
@@ -549,7 +550,7 @@ impl History {
     fn rewrite_with(&mut self, head: &[u8]) -> io::Result<()> {
         let fresh = self.path.with_extension("jsonl.earlier");
         {
-            let mut to = File::create(&fresh)?;
+            let mut to = create_private(&fresh)?;
             to.write_all(head)?;
             io::copy(&mut File::open(&self.path)?, &mut to)?;
         }

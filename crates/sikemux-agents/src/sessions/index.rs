@@ -2,7 +2,6 @@
 //! since it was last read, and a core that starts again reads none it read before.
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -99,9 +98,7 @@ fn index() -> &'static Index {
 }
 
 fn connect(path: &Path) -> rusqlite::Result<Connection> {
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
+    let _ = sikemux_process::files::private_database(path);
     let connection = Connection::open(path)?;
     connection.busy_timeout(Duration::from_secs(3))?;
     connection.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
@@ -123,7 +120,6 @@ fn connect(path: &Path) -> rusqlite::Result<Connection> {
              PRIMARY KEY (agent, path)
          ) WITHOUT ROWID;",
     )?;
-    let _ = crate::os::make_private_file(path);
     Ok(connection)
 }
 

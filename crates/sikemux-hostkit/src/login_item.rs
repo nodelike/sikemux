@@ -76,17 +76,11 @@ pub fn core_args(data_dir: Option<PathBuf>) -> Vec<OsString> {
 /// How this binary starts the core on a host set up from a terminal, with the
 /// folders the app would give it.
 pub fn headless_launch() -> Option<CoreLaunch> {
-    let home = sikemux_process::paths::home()?;
     let data = data_dir()?;
-    let logs = if cfg!(target_os = "macos") {
-        home.join("Library/Logs").join(IDENTIFIER)
-    } else {
-        data.join("logs")
-    };
     Some(CoreLaunch {
         binary: real_exe()?,
         socket: sikemux_corekit::default_socket_path()?,
-        log: logs.join("core.log"),
+        log: sikemux_process::paths::logs_dir()?.join("core.log"),
         args: core_args(Some(data)),
     })
 }

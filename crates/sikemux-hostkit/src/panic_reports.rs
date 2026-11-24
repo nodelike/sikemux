@@ -78,7 +78,7 @@ fn write_report(
         "{FILE_PREFIX}{captured_at_ms}-{process}-{}.json",
         std::process::id()
     ));
-    fs::create_dir_all(&directory).ok()?;
+    sikemux_process::files::private_folder(&directory).ok()?;
     save(&file, &report);
     prune(&directory);
     Some((file, report))
@@ -86,7 +86,8 @@ fn write_report(
 
 pub fn save(file: &Path, report: &PanicReport) {
     if let Ok(json) = serde_json::to_vec_pretty(report) {
-        let _ = fs::write(file, json);
+        let _ = sikemux_process::files::create_private(file)
+            .and_then(|mut written| std::io::Write::write_all(&mut written, &json));
     }
 }
 

@@ -89,6 +89,19 @@ pub fn cache_dir() -> Option<PathBuf> {
     unix_folder("XDG_CACHE_HOME", "Library/Caches", ".cache")
 }
 
+/// Where the app and the core write their logs: `~/Library/Logs/<app id>` on macOS, and `logs`
+/// in the data folder elsewhere.
+pub fn logs_dir() -> Option<PathBuf> {
+    if cfg!(target_os = "macos") {
+        return Some(
+            home()?
+                .join("Library/Logs")
+                .join(crate::names::APP_IDENTIFIER),
+        );
+    }
+    Some(data_dir()?.join("logs"))
+}
+
 /// Where the core keeps the checked installer of a Windows update until the Sikemux service installs it.
 #[cfg(windows)]
 pub fn update_setup() -> Option<PathBuf> {

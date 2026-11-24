@@ -96,7 +96,7 @@ fn report(directory: &Path, silent: Duration) -> std::io::Result<()> {
         "{DIRECTORY_PREFIX}{}",
         captured.format("%Y%m%dT%H%M%S%.3fZ")
     ));
-    std::fs::create_dir_all(&folder)?;
+    sikemux_process::files::private_folder(&folder)?;
     let pid = std::process::id();
     let file = "app.sample.txt";
     let sampled = sikemux_process::user_environment::command("/usr/bin/sample")

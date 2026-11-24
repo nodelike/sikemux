@@ -382,9 +382,7 @@ impl ActivityLog {
 }
 
 fn open(path: &Path) -> rusqlite::Result<Connection> {
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
+    let _ = sikemux_process::files::private_database(path);
     let connection = Connection::open(path)?;
     connection.busy_timeout(Duration::from_secs(3))?;
     connection.execute_batch(
@@ -426,11 +424,6 @@ fn open(path: &Path) -> rusqlite::Result<Connection> {
          );",
     )?;
     migrate(&connection)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-    }
     Ok(connection)
 }
 

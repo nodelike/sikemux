@@ -3,10 +3,7 @@
 #[cfg(not(target_os = "macos"))]
 use sikemux_process::command::Stdio;
 use std::ffi::OsString;
-use std::fs::OpenOptions;
 use std::io::{self, Write};
-#[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -193,12 +190,10 @@ fn core_command(
     args: &[OsString],
 ) -> io::Result<(sikemux_process::command::Command, std::fs::File)> {
     if let Some(folder) = log.parent() {
-        std::fs::create_dir_all(folder)?;
+        sikemux_process::files::private_folder(folder)?;
     }
-    let mut options = OpenOptions::new();
+    let mut options = sikemux_process::files::private_options();
     options.create(true).append(true);
-    #[cfg(unix)]
-    options.mode(0o600);
     let log = options.open(log)?;
     let mut command = sikemux_process::user_environment::command(binary);
     command.arg("core").arg("--socket").arg(socket).args(args);

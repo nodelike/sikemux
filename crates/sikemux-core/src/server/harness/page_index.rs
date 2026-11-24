@@ -37,7 +37,9 @@ pub(crate) struct Shown {
 
 fn open(data_dir: &Path) -> Result<Connection, String> {
     let failed = |error: rusqlite::Error| format!("the pages index could not be read: {error}");
-    let mut connection = Connection::open(data_dir.join(DATABASE)).map_err(failed)?;
+    let path = data_dir.join(DATABASE);
+    let _ = sikemux_process::files::private_database(&path);
+    let mut connection = Connection::open(path).map_err(failed)?;
     connection
         .busy_timeout(Duration::from_secs(5))
         .map_err(failed)?;

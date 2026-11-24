@@ -13,13 +13,14 @@ const FILE: &str = "data-format.json";
 type Step = fn(&Path, &ServerConfig) -> std::io::Result<()>;
 
 /// Each step takes the folder from the format of its index to the next.
-const STEPS: [Step; 6] = [
+const STEPS: [Step; 7] = [
     prompts_say_whether_shown,
     host_key_named_by_socket_path,
     activity_database_in_the_data_folder,
     typed_answers_scrubbed,
     asks_titled_as_the_chat_reads_them,
     asks_keep_what_was_said,
+    kept_to_their_owner,
 ];
 
 pub(crate) fn upgrade(config: &ServerConfig) {
@@ -232,6 +233,31 @@ fn asks_keep_what_was_said(data_dir: &Path, _: &ServerConfig) -> std::io::Result
         }
         !asks.is_empty()
     })
+}
+
+/// Format 6 cores left some of the files in the data, logs and autopsy folders, and some of the
+/// folders, for every user of the machine to read, and took the socket's folder as it was.
+#[cfg(unix)]
+fn kept_to_their_owner(data_dir: &Path, config: &ServerConfig) -> std::io::Result<()> {
+    use sikemux_process::{files::make_private, paths};
+    make_private(data_dir);
+    if data_dir.file_name() == Some(sikemux_process::names::APP_IDENTIFIER.as_ref()) {
+        (paths::logs_dir().into_iter())
+            .chain(paths::config_file("autopsy", ""))
+            .for_each(|folder| make_private(&folder));
+    }
+    if let Some(folder) =
+        paths::config_dir().filter(|dir| config.socket.parent() == Some(dir.as_path()))
+    {
+        let owned = std::os::unix::fs::PermissionsExt::from_mode(0o700);
+        std::fs::set_permissions(folder, owned)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn kept_to_their_owner(_: &Path, _: &ServerConfig) -> std::io::Result<()> {
+    Ok(())
 }
 
 /// The files directly in `dir` with `extension`.

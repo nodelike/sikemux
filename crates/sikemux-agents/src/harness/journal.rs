@@ -3,7 +3,7 @@
 //! cursor still means the same place after the core restarts.
 
 use std::collections::{HashMap, VecDeque};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
@@ -118,14 +118,12 @@ impl ProjectJournal {
             return Ok(());
         };
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            sikemux_process::files::private_folder(parent)?;
         }
         let mut line = serde_json::to_vec(entry)?;
         line.push(b'\n');
-        let mut options = OpenOptions::new();
+        let mut options = sikemux_process::files::private_options();
         options.create(true).append(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
         options.open(path)?.write_all(&line)?;
         self.size += line.len() as u64;
         if self.size > MAX_JOURNAL_BYTES {

@@ -3,7 +3,7 @@
 //! read stopped, so a long chat costs only its new messages.
 
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -103,9 +103,7 @@ fn index() -> Option<&'static Mutex<Index>> {
 }
 
 fn connect(path: &Path) -> rusqlite::Result<Connection> {
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
+    let _ = sikemux_process::files::private_database(path);
     let connection = Connection::open(path)?;
     connection.busy_timeout(Duration::from_secs(3))?;
     connection.execute_batch(
@@ -133,7 +131,6 @@ fn connect(path: &Path) -> rusqlite::Result<Connection> {
              text, tokenize = 'unicode61 remove_diacritics 2', detail = none
          );",
     )?;
-    let _ = crate::os::make_private_file(path);
     Ok(connection)
 }
 

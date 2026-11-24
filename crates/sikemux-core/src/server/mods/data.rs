@@ -387,9 +387,7 @@ pub(super) fn failed(error: rusqlite::Error) -> CoreError {
 }
 
 fn open(path: &Path, account: Option<String>) -> rusqlite::Result<Open> {
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
+    let _ = sikemux_process::files::private_database(path);
     let connection = Connection::open(path)?;
     connection.busy_timeout(Duration::from_secs(3))?;
     connection.execute_batch(

@@ -127,12 +127,10 @@ impl CallLog {
             }
             lines.extend(line);
             if let Some(folder) = current.parent() {
-                std::fs::create_dir_all(folder)?;
+                sikemux_process::files::private_folder(folder)?;
             }
-            let mut options = std::fs::OpenOptions::new();
+            let mut options = sikemux_process::files::private_options();
             options.create(true).append(true);
-            #[cfg(unix)]
-            std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
             let mut file = options.open(&current)?;
             file.write_all(&lines)?;
             if sure {

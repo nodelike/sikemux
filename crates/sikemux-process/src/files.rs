@@ -16,28 +16,89 @@ pub fn write_atomic_unsynced(path: &Path, bytes: &[u8], private: bool) -> io::Re
     write_whole(path, bytes, private, false)
 }
 
-#[cfg_attr(not(unix), allow(unused_variables))]
+/// Options that make a new file only its owner can open. Windows keeps Sikemux's folders to
+/// their owner already.
+pub fn private_options() -> OpenOptions {
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut options = OpenOptions::new();
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options
+}
+
+/// Makes `path` empty, or empties it, for its owner alone to open.
+pub fn create_private(path: &Path) -> io::Result<fs::File> {
+    private_options()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
+}
+
+/// Makes `path` and the folders above it that are missing, each for its owner alone.
+pub fn private_folder(path: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(path)
+}
+
+/// Makes the SQLite database at `path` and its folder for their owner alone when they are
+/// missing. SQLite gives the files it keeps beside a database the database's own mode. One
+/// already there is not opened, since closing it here would drop the locks this process holds.
+pub fn private_database(path: &Path) -> io::Result<()> {
+    if let Some(folder) = path
+        .parent()
+        .filter(|folder| !folder.as_os_str().is_empty())
+    {
+        private_folder(folder)?;
+    }
+    match private_options().write(true).create_new(true).open(path) {
+        Err(error) if error.kind() != io::ErrorKind::AlreadyExists => Err(error),
+        _ => Ok(()),
+    }
+}
+
+/// Takes what is at and under `path` from every other user, following no link. What cannot be
+/// changed is left as it is.
+#[cfg(unix)]
+pub fn make_private(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return;
+    };
+    if meta.is_symlink() {
+        return;
+    }
+    let mode = meta.permissions().mode();
+    if mode & 0o077 != 0 {
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode & !0o077));
+    }
+    if meta.is_dir() {
+        for entry in fs::read_dir(path).into_iter().flatten().flatten() {
+            make_private(&entry.path());
+        }
+    }
+}
+
 fn write_whole(path: &Path, bytes: &[u8], private: bool, synced: bool) -> io::Result<()> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    if !parent.exists() {
-        let mut builder = fs::DirBuilder::new();
-        builder.recursive(true);
-        #[cfg(unix)]
-        if private {
-            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-        }
-        builder.create(parent)?;
+    if private {
+        private_folder(parent)?;
+    } else {
+        fs::create_dir_all(parent)?;
     }
     let staging = staging_path(parent, path);
-    let mut options = OpenOptions::new();
+    let mut options = if private {
+        private_options()
+    } else {
+        OpenOptions::new()
+    };
     options.write(true).create_new(true);
-    #[cfg(unix)]
-    if private {
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    }
     let written = options.open(&staging).and_then(|mut file| {
         file.write_all(bytes)?;
         if synced {

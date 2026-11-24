@@ -606,7 +606,7 @@ pub fn shell(
     };
     let mut printed = output.stdout;
     printed.extend(output.stderr);
-    if let Ok(mut file) = std::fs::File::create(log) {
+    if let Ok(mut file) = sikemux_process::files::create_private(log) {
         let _ = std::io::Write::write_all(&mut file, &printed);
     }
     match output.status.success() {

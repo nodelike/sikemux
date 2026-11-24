@@ -9,6 +9,7 @@ use std::sync::Mutex;
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::{json, Map, Value};
+use sikemux_process::files::create_private;
 use sikemux_process::sync::Locked;
 
 const MAX_ENTRIES: usize = 500;
@@ -76,12 +77,12 @@ struct Log {
 
 impl Log {
     fn start(dir: &Path) -> Option<Self> {
-        std::fs::create_dir_all(dir).ok()?;
+        sikemux_process::files::private_folder(dir).ok()?;
         let _ = std::fs::rename(dir.join(LOG), dir.join(PREVIOUS_LOG));
         let _ = std::fs::remove_file(dir.join(LOG_BEFORE));
         Some(Self {
             dir: dir.to_path_buf(),
-            file: File::create(dir.join(LOG)).ok()?,
+            file: create_private(&dir.join(LOG)).ok()?,
             size: 0,
         })
     }
@@ -89,7 +90,7 @@ impl Log {
     fn write(&mut self, entry: &Entry) {
         if self.size > LOG_CAP {
             let _ = std::fs::rename(self.dir.join(LOG), self.dir.join(LOG_BEFORE));
-            match File::create(self.dir.join(LOG)) {
+            match create_private(&self.dir.join(LOG)) {
                 Ok(file) => self.file = file,
                 Err(_) => return,
             }
