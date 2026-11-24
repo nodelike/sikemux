@@ -5,20 +5,24 @@
 //! landed lines merged in, and a clash refuses the landing before anything
 //! moves. Each agent's checkout then moves to its landed commits the same way,
 //! keeping what it has not committed. Syncing moves the agent's checkout to the
-//! branch's tip in that way too, its commits made again on it.
+//! branch's tip in that way too, its commits made again on it. A branch here
+//! that is only behind origin's is taken at origin's tip.
 
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::Serialize;
 
 use super::owners::{git, run};
 use super::push::{line, replay, Signing, Unpushed};
+use crate::git::Git;
 use crate::server::Core;
 use sikemux_view::workspace::AgentWorktree;
 
 const ATTEMPTS: usize = 4;
+const FETCH_WAIT: Duration = Duration::from_secs(10);
 const EXECUTABLE: &str = "100755";
 const LINK: &str = "120000";
 
@@ -41,6 +45,7 @@ pub enum NotPut {
 
 #[derive(Serialize)]
 pub struct Synced {
+    /// The branch it was brought up to: the base branch here, or origin's.
     branch: String,
     /// The branch's commit the checkout now stands on.
     onto: String,
@@ -50,6 +55,102 @@ pub struct Synced {
     /// Files with uncommitted changes, which took the branch's lines merged in.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     merged: Vec<String>,
+    /// What origin has, or may have, that the checkout still lacks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    note: Option<String>,
+}
+
+/// What a sync brings a checkout up to.
+struct Newest {
+    tip: String,
+    /// The branch `tip` is on.
+    name: String,
+    /// How many of origin's commits `tip` lacks, as the two went different ways.
+    lacks: usize,
+}
+
+/// The newest of `base` in the repository at `repo`: the branch here, or origin's as last
+/// fetched when that only adds to it.
+fn newest(repo: &Path, base: &str) -> Result<Newest, String> {
+    let here = line(git(repo, &["rev-parse", &format!("refs/heads/{base}")])?);
+    let of_here = |tip, lacks| Newest {
+        tip,
+        name: base.to_owned(),
+        lacks,
+    };
+    let Some(theirs) = on_origin(repo, base) else {
+        return Ok(of_here(here, 0));
+    };
+    let lacks = git(repo, &["rev-list", "--count", &format!("{here}..{theirs}")])?;
+    let lacks: usize = lacks.trim().parse().map_err(|_| "git counted no commits")?;
+    Ok(match lacks > 0 && contains(repo, &theirs, &here) {
+        true => Newest {
+            tip: theirs,
+            name: format!("origin/{base}"),
+            lacks: 0,
+        },
+        false => of_here(here, lacks),
+    })
+}
+
+/// The commit lands of `heads` are laid on: `here`, the tip of `base` in the repository at
+/// `repo`, or the newest of origin's commits past it that one of them was made on.
+pub fn laid_on(repo: &Path, base: &str, here: &str, heads: &[&str]) -> String {
+    let mut on = here.to_owned();
+    let Some(theirs) = on_origin(repo, base) else {
+        return on;
+    };
+    for head in heads {
+        let shared = git(repo, &["merge-base", head, &theirs]).map(line);
+        if let Some(shared) = shared.ok().filter(|shared| contains(repo, shared, &on)) {
+            on = shared;
+        }
+    }
+    on
+}
+
+fn on_origin(repo: &Path, base: &str) -> Option<String> {
+    let origin = format!("refs/remotes/origin/{base}");
+    git(repo, &["rev-parse", "--verify", "-q", &origin])
+        .ok()
+        .map(line)
+}
+
+fn contains(repo: &Path, commit: &str, earlier: &str) -> bool {
+    git(repo, &["merge-base", "--is-ancestor", earlier, commit]).is_ok()
+}
+
+/// Fetches `base` from origin, when there is an origin that has it. Why origin could not be
+/// read, when it could not.
+fn fetch_base(repo: &Path, base: &str) -> Option<String> {
+    crate::git::origin(repo)?;
+    let ssh = sikemux_process::user_environment::var("GIT_SSH_COMMAND")
+        .unwrap_or_else(|| "ssh -o BatchMode=yes -o ConnectTimeout=5".into());
+    Git::at(repo)
+        .timeout(FETCH_WAIT)
+        .env("GIT_SSH_COMMAND", &ssh)
+        .trimmed(&[
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--no-write-fetch-head",
+            "origin",
+            &format!("+refs/heads/{base}:refs/remotes/origin/{base}"),
+        ])
+        .err()
+        .filter(|why| !why.contains("couldn't find remote ref"))
+}
+
+fn sync_note(base: &str, at: &Newest, unread: Option<&str>) -> Option<String> {
+    let lacks = (at.lacks > 0).then(|| {
+        let commits = if at.lacks == 1 { "commit" } else { "commits" };
+        format!("origin/{base} has {} {commits} {base} here lacks, and {base} here has ones origin lacks. Your checkout stands on {base} here, without origin's.", at.lacks)
+    });
+    let unread = unread.map(|why| {
+        format!("origin could not be read, so {base} there may have newer commits your checkout lacks: {why}")
+    });
+    let said: Vec<String> = lacks.into_iter().chain(unread).collect();
+    (!said.is_empty()).then(|| said.join(" "))
 }
 
 /// What landing does to one file of the project's checkout.
@@ -95,7 +196,7 @@ pub fn own_checkout(core: &Core, agent_id: &str) -> Option<AgentWorktree> {
 }
 
 /// Brings the calling agent's own checkout up to the tip of the branch it was
-/// cut from, its commits made again on it.
+/// cut from, here or on origin, its commits made again on it.
 pub fn sync(core: &Core, agent_id: &str) -> Result<Synced, String> {
     let worktree = own_checkout(core, agent_id).ok_or("You work in the project's own checkout, which is on its branch already; there is nothing to sync")?;
     sync_from(&worktree, &Signing::of(core))
@@ -216,9 +317,11 @@ fn sync_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Synced, Stri
         .base
         .clone()
         .ok_or("Your checkout was cut from no branch, so there is nothing to sync with")?;
-    let target = format!("refs/heads/{base}");
+    let unread = fetch_base(&worktree.repo, &base);
     for _ in 0..ATTEMPTS {
-        let tip = line(git(&worktree.repo, &["rev-parse", &target])?);
+        let at = newest(&worktree.repo, &base)?;
+        let note = sync_note(&base, &at, unread.as_deref());
+        let (tip, name) = (at.tip, at.name);
         let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
         let commits = own_commits(&worktree.path, &base, &tip, &head, None)?;
         let synced = replay(
@@ -226,24 +329,25 @@ fn sync_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Synced, Stri
             &worktree.path,
             &tip,
             &commits.iter().collect::<Vec<_>>(),
-            &format!("onto {base}, which changed the same lines. Run git rebase {base} in your checkout and settle the clash"),
+            &format!("onto {name}, which changed the same lines. Run git rebase {name} in your checkout and settle the clash"),
         )?;
         if synced == head {
             return Ok(Synced {
-                branch: base,
+                branch: name,
                 onto: short(&tip),
                 kept: Vec::new(),
                 merged: Vec::new(),
+                note,
             });
         }
         let (steps, clashes) = plan(&worktree.path, &head, &synced)?;
         if !clashes.is_empty() {
             return Err(format!(
-                "Not synced: what you have not committed in {} clashes with {base}. Commit it, then sync again.",
+                "Not synced: what you have not committed in {} clashes with {name}. Commit it, then sync again.",
                 clashes.join(", ")
             ));
         }
-        let reflog = format!("sync: onto {base}");
+        let reflog = format!("sync: onto {name}");
         if run(
             &worktree.path,
             &["update-ref", "-m", &reflog, "HEAD", &synced, &head],
@@ -255,10 +359,11 @@ fn sync_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Synced, Stri
             continue;
         }
         return Ok(Synced {
-            branch: base,
+            branch: name,
             onto: short(&tip),
             kept: listed(&commits),
             merged: apply(&worktree.path, steps, &head, &synced),
+            note,
         });
     }
     Err("your checkout kept moving while syncing; call this again".into())
@@ -933,5 +1038,65 @@ mod tests {
             .unwrap();
         assert_eq!(laid.listed.len(), 3);
         assert!(laid.listed.iter().all(|commit| commit.contains("worker: ")));
+    }
+
+    #[test]
+    fn syncing_brings_what_origin_has_and_the_base_here_lacks() {
+        let root = tempfile::tempdir().unwrap();
+        let root = sikemux_process::files::real_path(root.path()).unwrap();
+        let remote = root.join("remote.git");
+        let remote_path = remote.to_string_lossy().into_owned();
+        git_in(&root, &["init", "-q", "--bare", "-b", "main", &remote_path]);
+        let main = root.join("project");
+        std::fs::create_dir(&main).unwrap();
+        git_in(&main, &["init", "-q", "-b", "main"]);
+        git_in(&main, &["commit", "-q", "--allow-empty", "-m", "base"]);
+        git_in(&main, &["remote", "add", "origin", &remote_path]);
+        git_in(&main, &["push", "-q", "-u", "origin", "main"]);
+        let start_sha = git_in(&main, &["rev-parse", "HEAD"]);
+        let tree = root.join("tree");
+        let tree_path = tree.to_string_lossy().into_owned();
+        git_in(&main, &["worktree", "add", "-q", "-b", "work", &tree_path]);
+        let other = root.join("other");
+        git_in(
+            &root,
+            &["clone", "-q", &remote_path, &other.to_string_lossy()],
+        );
+        let commit = |dir: &Path, file: &str| {
+            std::fs::write(dir.join(file), "x\n").unwrap();
+            git_in(dir, &["add", file]);
+            git_in(dir, &["commit", "-qm", file]);
+        };
+        commit(&other, "from-origin.txt");
+        git_in(&other, &["push", "-q", "origin", "main"]);
+        commit(&tree, "worker.txt");
+        let worktree = AgentWorktree {
+            repo: main.clone(),
+            path: tree.clone(),
+            branch: "work".into(),
+            base: Some("main".into()),
+            start_sha,
+            name: String::new(),
+            first_port: None,
+        };
+        let signing = Signing {
+            key: None,
+            hosts: Vec::new(),
+        };
+
+        let synced = sync_from(&worktree, &signing).unwrap();
+        assert!(tree.join("from-origin.txt").exists());
+        assert!(tree.join("worker.txt").exists());
+        assert_eq!(synced.branch, "origin/main");
+
+        commit(&main, "landed-unpushed.txt");
+        let synced = sync_from(&worktree, &signing).unwrap();
+        assert!(tree.join("landed-unpushed.txt").exists());
+        assert!(tree.join("worker.txt").exists());
+        assert!(synced.note.unwrap().contains("origin/main has 1 commit"));
+
+        std::fs::rename(&remote, root.join("gone.git")).unwrap();
+        let synced = sync_from(&worktree, &signing).unwrap();
+        assert!(synced.note.unwrap().contains("could not be read"));
     }
 }

@@ -173,7 +173,8 @@ fn put_in_line(
         head,
         since,
     } = sent;
-    let tip = line(git(&repo, &["rev-parse", &format!("refs/heads/{base}")])?);
+    let here = line(git(&repo, &["rev-parse", &format!("refs/heads/{base}")])?);
+    let tip = land::laid_on(&repo, &base, &here, &[&head]);
     let Some(laid) = land::lay(
         &Signing::of(core),
         &repo,
@@ -521,7 +522,10 @@ struct Laid {
 }
 
 struct Stack {
-    /// The branch's commit the lands were made again on.
+    /// The branch's commit here, which the lands move it from.
+    here: String,
+    /// The commit the lands were made again on: that one, or a later one of
+    /// origin's that one of them was made on.
     tip: String,
     laid: Vec<Laid>,
     /// Lands that clash with the branch itself, and why.
@@ -539,8 +543,11 @@ impl Stack {
 /// Lays each land of `batch` on the branch's tip and the ones before it. A land
 /// that only clashes with another queued land waits for that one to land.
 fn stack(signing: &Signing, (repo, base): &Key, batch: &[Waiting]) -> Result<Stack, String> {
-    let tip = line(git(repo, &["rev-parse", &format!("refs/heads/{base}")])?);
+    let here = line(git(repo, &["rev-parse", &format!("refs/heads/{base}")])?);
+    let heads: Vec<&str> = batch.iter().map(|waiting| &*waiting.head).collect();
+    let tip = land::laid_on(repo, base, &here, &heads);
     let mut stacked = Stack {
+        here,
         tip: tip.clone(),
         laid: Vec::new(),
         refused: Vec::new(),
@@ -586,6 +593,7 @@ fn lay(
 /// no longer lays cleanly.
 async fn tidy(core: &Arc<Core>, key: &Key, stacked: Stack) -> Stack {
     let Stack {
+        here,
         tip,
         laid,
         refused,
@@ -593,6 +601,7 @@ async fn tidy(core: &Arc<Core>, key: &Key, stacked: Stack) -> Stack {
     } = stacked;
     let mut was = tip.clone();
     let mut tidied = Stack {
+        here,
         tip,
         laid: Vec::new(),
         refused,
@@ -961,7 +970,7 @@ fn put_stack(core: &Core, key: &Key, stacked: Stack) -> Put {
             Ok(tip) => line(tip),
             Err(_) => break,
         };
-        if tip != stacked.tip {
+        if tip != stacked.here {
             if checked_below(repo, base, &tip) != tip {
                 return put;
             }
@@ -982,8 +991,8 @@ fn put_stack(core: &Core, key: &Key, stacked: Stack) -> Put {
             .map(|laid| laid.waiting.agent.clone())
             .collect();
         let moved = match pushers.is_empty() {
-            true => land::put(repo, base, &stacked.tip, &top).map(drop),
-            false => land::planned(repo, base, &stacked.tip, &top).map(drop),
+            true => land::put(repo, base, &stacked.here, &top).map(drop),
+            false => land::planned(repo, base, &stacked.here, &top).map(drop),
         };
         match moved {
             Ok(()) if pushers.is_empty() => {
@@ -993,7 +1002,7 @@ fn put_stack(core: &Core, key: &Key, stacked: Stack) -> Put {
             Ok(()) => {
                 let landing = super::push::Landing {
                     branch: base,
-                    from: &stacked.tip,
+                    from: &stacked.here,
                     to: &top,
                 };
                 match super::push::land_and_push(core, repo, &pushers, "origin", &landing) {
