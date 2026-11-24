@@ -1,0 +1,29 @@
+# A worker its lead stopped, beside one the person stopped: each chat's line and rail row.
+stage 1440 900
+window 1440 900
+replies agent-stopped.json
+prefer themeId aura-noir
+prefer uiTextScale 1.25
+project storefront line-shop
+core openChief {"project":"storefront"}
+chat Otter
+title "Check the refund totals"
+chat Maple
+title "Bundle the storefront"
+say "Bundle the storefront."
+settle 2
+front Maple
+settle 2
+key escape
+settle 14
+snap person-stopped
+front Otter
+say "Get a worker on the rounding."
+settle 18
+snap lead-stopped-it
+move 1254,510
+settle 3
+snap stopped-row
+click "Cart rounding"
+settle 3
+snap agent-stopped

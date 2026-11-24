@@ -1,0 +1,25 @@
+[
+  {
+    "when": "Bundle the storefront.",
+    "steps": [
+      { "say": "Bundling the storefront.", "perSecond": 60 },
+      { "tool": "Bash", "input": { "command": "pnpm build" }, "ms": 600000, "result": "" }
+    ]
+  },
+  {
+    "when": "worker on the rounding",
+    "steps": [
+      { "tool": "mcp__sikemux-tools__agent_spawn", "call": "agent.spawn", "input": { "cli": "claude", "model": "claude-opus-5-5", "title": "Cart rounding", "prompt": "Round the cart totals once, at the end." }, "ms": 800 },
+      { "say": "It's on it. The cart moves to whole cents first, so I'll stop it there.", "perSecond": 10 },
+      { "tool": "mcp__sikemux-tools__agent_stop", "call": "agent.stop", "input": { "agents": ["$worker"] }, "ms": 800 },
+      { "say": "It has stopped.", "perSecond": 60 }
+    ]
+  },
+  {
+    "when": "Round the cart totals",
+    "steps": [
+      { "say": "Looking at how the cart rounds its totals.", "perSecond": 60 },
+      { "tool": "Bash", "input": { "command": "pnpm test cart" }, "ms": 600000, "result": "" }
+    ]
+  }
+]

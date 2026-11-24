@@ -33,7 +33,8 @@
 //! `{ "ask": {...} }`, which asks the AskUserQuestion input given and waits for the answer. A tool step
 //! with `"call": "browser.navigate"` makes that call to Sikemux's own tools with
 //! its input, as the agent's tools server would, and answers with what they said; a relative
-//! `path` in it is the project's, and `"$page"` is the id of the page the reply last showed. While
+//! `path` in it is the project's, and `"$page"` is the id of the page the reply last showed,
+//! `"$worker"` of the agent it last started. While
 //! `FAKE_CLAUDE_CLOCK` names a file holding a time in milliseconds, those
 //! pauses follow that time rather than the real one, so a recording that
 //! draws slower than real time still sees the reply arrive at a steady pace.
@@ -559,7 +560,7 @@ impl Claude {
     /// Plays a reply from `FAKE_CLAUDE_SCRIPT`, each step its own message.
     fn play(&self, uuid: &str, message_id: &str, steps: &[Value]) {
         let mut clock = Clock::start();
-        let mut shown = String::new();
+        let (mut shown, mut started) = (String::new(), String::new());
         for (at, step) in steps.iter().enumerate() {
             let id = format!("{message_id}-{at}");
             let per_second = step["perSecond"].as_f64().unwrap_or(30.).max(1.);
@@ -576,7 +577,7 @@ impl Claude {
                 let tool_id = step["id"]
                     .as_str()
                     .map_or_else(|| format!("toolu-{uuid}-{at}"), str::to_owned);
-                let input = with_page(&step["input"], &shown);
+                let input = with_ids(&step["input"], &shown, &started);
                 self.send(json!({
                     "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
                     "message": { "id": id, "model": model(), "role": "assistant",
@@ -586,11 +587,16 @@ impl Claude {
                     Some(method) => sikemux_tool(method, &input),
                     None => step["result"].as_str().unwrap_or_default().to_owned(),
                 };
-                if step["call"] == "page.show" {
+                let made = |id: &str| {
                     let answer = serde_json::from_str::<Value>(&result).unwrap_or_default();
-                    shown = (answer.pointer("/page/id").and_then(Value::as_str))
+                    (answer.pointer(id).and_then(Value::as_str))
                         .unwrap_or_default()
-                        .to_owned();
+                        .to_owned()
+                };
+                match step["call"].as_str() {
+                    Some("page.show") => shown = made("/page/id"),
+                    Some("agent.spawn") => started = made("/agentId"),
+                    _ => {}
                 }
                 clock.wait(step["ms"].as_f64().unwrap_or(600.));
                 self.send(json!({
@@ -781,13 +787,15 @@ fn sikemux_tool(method: &str, params: &Value) -> String {
     }
 }
 
-/// `input` with every `"$page"` in it made `page`.
-fn with_page(input: &Value, page: &str) -> Value {
+/// `input` with every `"$page"` in it made `page`, and every `"$worker"` made `worker`.
+fn with_ids(input: &Value, page: &str, worker: &str) -> Value {
+    let within = |value: &Value| with_ids(value, page, worker);
     match input {
         Value::String(text) if text == "$page" => json!(page),
-        Value::Array(items) => items.iter().map(|item| with_page(item, page)).collect(),
+        Value::String(text) if text == "$worker" => json!(worker),
+        Value::Array(items) => items.iter().map(within).collect(),
         Value::Object(fields) => (fields.iter())
-            .map(|(key, value)| (key.clone(), with_page(value, page)))
+            .map(|(key, value)| (key.clone(), within(value)))
             .collect(),
         other => other.clone(),
     }
