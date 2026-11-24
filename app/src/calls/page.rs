@@ -1123,22 +1123,32 @@ pub(super) fn chat_row(
         agent.to_owned(),
     );
     let hover = t.surface_hover;
-    let open_in_calls = div()
+    let open_in_label = || {
+        div()
+            .flex()
+            .items_center()
+            .gap(SPACE_1)
+            .whitespace_nowrap()
+            .text_size(theme::ui_text(12.))
+            .child(t!("Open in Asks"))
+            .child(ui::icon(Icon::Chevron, 10.))
+    };
+    let room_for_label = open_in_label().invisible();
+    let open_in_calls = open_in_label()
+        .absolute()
+        .right_0()
+        .top_0()
+        .bottom_0()
+        .text_color(t.text_secondary)
+        .opacity(0.)
+        .group_hover(CHAT_ROW, |style| style.opacity(1.));
+    let age = div()
         .absolute()
         .right_0()
         .top_0()
         .bottom_0()
         .flex()
         .items_center()
-        .gap(SPACE_1)
-        .whitespace_nowrap()
-        .text_size(theme::ui_text(12.))
-        .text_color(t.text_secondary)
-        .opacity(0.)
-        .group_hover(CHAT_ROW, |style| style.opacity(1.))
-        .child(t!("Open in Asks"))
-        .child(ui::icon(Icon::Chevron, 10.).text_color(t.text_secondary));
-    let age = div()
         .text_size(theme::ui_text(11.5))
         .font_features(theme::tabular())
         .text_color(t.text_tertiary)
@@ -1196,11 +1206,12 @@ pub(super) fn chat_row(
             div()
                 .relative()
                 .flex_none()
-                .min_w(px(96.))
                 .h_full()
                 .flex()
                 .items_center()
                 .justify_end()
+                .min_w(px(48.))
+                .child(room_for_label)
                 .child(age)
                 .child(open_in_calls),
         )
