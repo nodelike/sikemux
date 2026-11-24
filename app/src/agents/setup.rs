@@ -3,10 +3,10 @@
 //! over the window.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use gpui_kit::{
-    anchored, deferred, div, point, px, AnchoredPositionMode, AnyElement, Context, Entity,
-    FocusHandle, Hsla, InteractiveElement, IntoElement, ParentElement, Styled, Window,
+    div, px, AnyElement, Context, Entity, FocusHandle, IntoElement, ParentElement, Styled, Window,
 };
 use sikemux_agents::agent_accounts::status::AgentStatus;
 use sikemux_agents::agent_accounts::status::FREE_MODELS;
@@ -25,6 +25,7 @@ use crate::core::{Ask, Target, TerminalAsk};
 use crate::hosts::Place;
 use crate::theme::{self, Tokens, SPACE_2};
 use crate::ui;
+use crate::ui::dialog;
 use crate::ui::sign_in;
 use crate::ui::Clicks;
 use crate::workbench::Workbench;
@@ -925,7 +926,7 @@ fn body(
             "agent-sheet-waiting",
             match sheet.install {
                 true => t!("Installing…"),
-                false => t!("Finish signing in in your browser"),
+                false => t!("Finish signing in above"),
             },
             on(close),
             cx,
@@ -962,54 +963,33 @@ fn terminal_focus(bench: &Workbench) -> Option<FocusHandle> {
     bench.terminals.focus_of(&Place::This, session)
 }
 
-/// The install or sign-in box over the window while one shows, its terminal taking the keys
-/// once it is drawn.
+/// The install or sign-in box over the window while one shows. Its terminal takes the keys
+/// once it is drawn, and Escape and Enter answer the box once the command has ended.
 pub fn sheet(
     bench: &Workbench,
     this: &Entity<Workbench>,
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
-    let t = Tokens::get(cx).clone();
-    let card = div()
-        .id("agent-sheet-box")
-        .w(px(BOX_WIDTH))
-        .bg(t.surface_overlay)
-        .border(crate::theme::border())
-        .border_color(t.border)
-        .rounded(theme::radius_4())
-        .shadow(t.shadow_float())
-        .occlude()
-        .child(body(bench, this, cx)?);
+    let screen = body(bench, this, cx)?;
+    let sheet = bench.agent_setup.sheet.as_ref()?;
     if let Some(focus) = terminal_focus(bench) {
-        let sheet = bench.agent_setup.sheet.as_ref()?;
         if !sheet.focused.replace(true) {
             focus.focus(window, cx);
         }
     }
-    let size = window.viewport_size();
+    let on = |run: fn(&mut Workbench, &mut Context<Workbench>)| -> dialog::Answer {
+        let this = this.clone();
+        Rc::new(move |_, cx| this.update(cx, run))
+    };
+    let yes = match &sheet.phase {
+        Phase::Running | Phase::Checking => Rc::new(|_: &mut Window, _: &mut gpui_kit::App| {}),
+        Phase::Failed(_) | Phase::Refused(_) => on(again),
+        Phase::Done(_) => on(close),
+    };
     Some(
-        deferred(
-            anchored()
-                .position_mode(AnchoredPositionMode::Window)
-                .position(point(px(0.), px(0.)))
-                .child(
-                    div()
-                        .w(size.width)
-                        .h(size.height)
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .bg(Hsla {
-                            h: 0.,
-                            s: 0.,
-                            l: 0.,
-                            a: 0.55,
-                        })
-                        .child(card),
-                ),
-        )
-        .with_priority(1)
-        .into_any_element(),
+        dialog::floating(px(BOX_WIDTH), screen, yes, on(close))
+            .answers_keys(!matches!(sheet.phase, Phase::Running))
+            .into_any_element(),
     )
 }

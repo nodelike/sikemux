@@ -249,10 +249,17 @@ pub(crate) struct Floating {
     content: AnyElement,
     yes: Answer,
     no: Answer,
+    answers_keys: bool,
     focus: Option<FocusHandle>,
 }
 
 impl Floating {
+    /// Whether Escape and Enter answer it; off while something inside it needs them.
+    pub(crate) fn answers_keys(mut self, answers: bool) -> Self {
+        self.answers_keys = answers;
+        self
+    }
+
     /// The box on a keyboard its caller already holds.
     fn focus_handle(mut self, focus: FocusHandle) -> Self {
         self.focus = Some(focus);
@@ -271,13 +278,15 @@ pub(crate) fn floating(
         content: content.into_any_element(),
         yes,
         no,
+        answers_keys: true,
         focus: None,
     }
 }
 
 impl RenderOnce for Floating {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let dialog = float(self.width, self.content, self.yes, self.no, cx);
+        let dialog = float(self.width, self.content, self.yes, self.no, cx)
+            .close_on_escape(self.answers_keys);
         if let Some(focus) = self.focus {
             return dialog.focus_handle(focus);
         }
@@ -314,7 +323,6 @@ fn float(
     let t = Tokens::get(cx).clone();
     AlertDialog::new(cx)
         .open(true)
-        .close_on_escape(true)
         .backdrop(div().size_full().bg(Hsla {
             h: 0.,
             s: 0.,
