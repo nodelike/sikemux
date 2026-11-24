@@ -475,8 +475,9 @@ mod run_entry {
     use std::time::{Duration, Instant};
 
     use serde::{Deserialize, Serialize};
-    use sikemux_corekit::client::{ensure_running, frozen_request, spawn_detached};
+    use sikemux_corekit::client::{ensure_running, frozen_request, spawn_detached, start_core};
     use sikemux_corekit::frozen::FrozenRequest;
+    use sikemux_corekit::lock::lock_holder;
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::Storage::FileSystem::{
         FILE_FLAG_DELETE_ON_CLOSE, FILE_SHARE_DELETE, FILE_SHARE_READ,
@@ -593,7 +594,9 @@ mod run_entry {
             .map_err(|error| error.to_string())?;
         let mut command = sikemux_process::user_environment::command(&saved.binary);
         command.arg(START_CORE_ARG).arg(path);
-        spawn_detached(command, log).map_err(|error| error.to_string())
+        spawn_detached(command, log)
+            .map(drop)
+            .map_err(|error| error.to_string())
     }
 
     /// Stops the core it started, with everything running in it, and leaves sign-in alone.
@@ -661,9 +664,7 @@ mod run_entry {
                 return 0;
             };
             let started = Instant::now();
-            let exit = ensure_running(&saved.socket, &saved.binary, &saved.log, &saved.args)
-                .map_err(|error| error.to_string())
-                .and_then(|hello| exit_code(hello.pid));
+            let exit = run_to_its_end(&saved);
             if exit == Ok(0) {
                 return 0;
             }
@@ -681,6 +682,23 @@ mod run_entry {
             }
             eprintln!("Sikemux's core {ended}; starting it again");
             std::thread::sleep(RETRY_WAIT * short_runs);
+        }
+    }
+
+    /// Waits for the core to end, starting it first when none runs, and answers with its exit
+    /// code. It never asks the core anything, so one stopped before it could answer still
+    /// counts as stopped.
+    fn run_to_its_end(saved: &Saved) -> Result<u32, String> {
+        if let Some(running) = lock_holder(&saved.socket) {
+            return exit_code(running);
+        }
+        let ended = start_core(&saved.socket, &saved.binary, &saved.log, &saved.args)
+            .and_then(|mut core| core.wait())
+            .map_err(|error| format!("could not be started: {error}"))?;
+        match lock_holder(&saved.socket) {
+            // One started at the same moment took the lock, and this one gave way to it.
+            Some(other) if ended.success() => exit_code(other),
+            _ => Ok(ended.code().map_or(1, |code| code as u32)),
         }
     }
 

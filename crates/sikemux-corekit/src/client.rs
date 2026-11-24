@@ -185,9 +185,13 @@ fn wait_for_new_build(
     })
 }
 
-/// Starts `<binary> core --socket <socket> <args>` in its own session,
-/// detached from the caller, with its output appended to `log`.
-fn start_detached(socket: &Path, binary: &Path, log: &Path, args: &[OsString]) -> io::Result<()> {
+/// `<binary> core --socket <socket> <args>`, and `log` open for its output to be added to.
+fn core_command(
+    socket: &Path,
+    binary: &Path,
+    log: &Path,
+    args: &[OsString],
+) -> io::Result<(sikemux_process::command::Command, std::fs::File)> {
     if let Some(folder) = log.parent() {
         std::fs::create_dir_all(folder)?;
     }
@@ -198,12 +202,30 @@ fn start_detached(socket: &Path, binary: &Path, log: &Path, args: &[OsString]) -
     let log = options.open(log)?;
     let mut command = sikemux_process::user_environment::command(binary);
     command.arg("core").arg("--socket").arg(socket).args(args);
+    Ok((command, log))
+}
+
+/// Starts the core in its own session, detached from the caller.
+fn start_detached(socket: &Path, binary: &Path, log: &Path, args: &[OsString]) -> io::Result<()> {
+    let (command, log) = core_command(socket, binary, log, args)?;
     #[cfg(target_os = "macos")]
     return spawn_responsible(&command, &log);
     #[cfg(all(unix, not(target_os = "macos")))]
     return spawn_double_forked(command, log);
     #[cfg(windows)]
-    return spawn_detached(command, log);
+    return spawn_detached(command, log).map(drop);
+}
+
+/// Starts the core detached, for a caller that follows its process rather than its answer.
+#[cfg(windows)]
+pub fn start_core(
+    socket: &Path,
+    binary: &Path,
+    log: &Path,
+    args: &[OsString],
+) -> io::Result<sikemux_process::command::Child> {
+    let (command, log) = core_command(socket, binary, log, args)?;
+    spawn_detached(command, log)
 }
 
 /// The core outlives the app, so it leaves any job the app runs in when the job lets it.
@@ -211,7 +233,7 @@ fn start_detached(socket: &Path, binary: &Path, log: &Path, args: &[OsString]) -
 pub fn spawn_detached(
     mut command: sikemux_process::command::Command,
     log: std::fs::File,
-) -> io::Result<()> {
+) -> io::Result<sikemux_process::command::Child> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
     use windows_sys::Win32::System::Threading::{
@@ -239,11 +261,10 @@ pub fn spawn_detached(
         .creation_flags(detached | CREATE_BREAKAWAY_FROM_JOB)
         .spawn()
     {
-        Ok(_) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
-            command.creation_flags(detached).spawn().map(drop)
+            command.creation_flags(detached).spawn()
         }
-        Err(error) => Err(error),
+        started => started,
     }
 }
 
