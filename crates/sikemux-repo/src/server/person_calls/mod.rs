@@ -870,6 +870,28 @@ pub fn told(core: &Core, raise: Raise, outcome: CallOutcome) -> String {
     id
 }
 
+/// Puts `reason`, why `agent_id` needs what the gate's open call `id` holds, on that call. False
+/// when that agent raised no such call.
+pub fn explain(core: &Core, agent_id: &str, id: &str, reason: &str) -> bool {
+    let mut book = core.person_calls().book.locked();
+    let held = (book.iter())
+        .find(|kept| kept.call.id == id && kept.call.state == CallState::Open)
+        .filter(|kept| kept.source == Source::Raised && kept.call.place.is_some())
+        .filter(|kept| kept.call.asker.agent_id == agent_id);
+    let Some(mut call) = held.map(|kept| kept.call.clone()) else {
+        return false;
+    };
+    call.question = super::ship::with_reason(&call.question, reason);
+    let edited = Entry::Edited {
+        id: id.to_owned(),
+        call: Box::new(call),
+    };
+    core.person_calls().write(&mut book, edited);
+    drop(book);
+    core.person_calls().changed(core);
+    true
+}
+
 /// The newest call of `project` raised with `key`, open or not.
 pub fn find_key(core: &Core, project: &str, key: &str) -> Option<PersonCall> {
     (core.person_calls().book.locked().iter())

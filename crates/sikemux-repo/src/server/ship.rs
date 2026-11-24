@@ -140,6 +140,8 @@ struct Hold {
     /// The environment it lands in and why it waits, in a project with environments.
     environment: Option<String>,
     why: Option<String>,
+    /// Why its agent needs it and what is lost, in the agent's words.
+    because: Option<String>,
     /// The Sikemux tool call held, which the core runs itself once the person allows it.
     call: Option<ToolCall>,
     /// The deploy it is, to follow once the person lets it go.
@@ -589,21 +591,35 @@ fn call_for(
         Some(format!("{owner}/{name}"))
     };
     let tag = match (&ship.target, push::deletes(&ship.what)) {
-        (Some(Target::Tag { .. }), Some(deleted)) => Some(format!(
-            "Delete {} on {}",
-            deleted.join(", "),
-            here().unwrap_or_else(|| "GitHub".to_owned())
-        )),
-        (Some(Target::Tag { name }), None) if !name.is_empty() => {
-            Some(format!("Publish {name} to {}", place.name()))
+        (Some(Target::Tag { .. }), Some(deleted)) => {
+            let repo = here().unwrap_or_else(|| "GitHub".to_owned());
+            let counted = counted(&deleted);
+            let named = match deleted.len() > NAMED_AT_MOST {
+                true => counted.clone(),
+                false => deleted.join(", "),
+            };
+            Some((
+                format!("Delete {named} on {repo}"),
+                format!("Delete {counted}"),
+            ))
         }
-        (Some(Target::Tag { .. }), None) => Some(format!(
-            "Run this push, which may send tags to {}",
-            place.name()
+        (Some(Target::Tag { name }), None) if !name.is_empty() => Some((
+            format!("Publish {name} to {}", place.name()),
+            "Publish the tag".to_owned(),
+        )),
+        (Some(Target::Tag { .. }), None) => Some((
+            match push::named_refs(&ship.what) {
+                refs if refs > 1 => format!(
+                    "Run this push of {refs} refs, which may send tags to {}",
+                    place.name()
+                ),
+                _ => format!("Run this push, which may send tags to {}", place.name()),
+            },
+            "Run this push".to_owned(),
         )),
         _ => None,
     };
-    let github = tag.or_else(|| github_write(&ship.what, here));
+    let write = tag.or_else(|| github_write(&ship.what, here).map(|said| (said.clone(), said)));
     let option = |id: &str, label: String| CallOption {
         id: id.to_owned(),
         label,
@@ -619,13 +635,13 @@ fn call_for(
             name,
             chief: false,
         },
-        question: (github.as_ref().map(|write| format!("{write}?")))
+        question: (write.as_ref().map(|(write, _)| format!("{write}?")))
             .unwrap_or_else(|| format!("Change {} with this work?", place.name())),
         context: subject.map(|subject| format!("The work's latest commit: {subject}")),
         options: [
             Some(option(
                 person_calls::HOLD_ALLOW,
-                github.unwrap_or_else(|| format!("Change {}", place.name())),
+                write.map_or_else(|| format!("Change {}", place.name()), |(_, button)| button),
             )),
             place.recurs.then(|| {
                 let label = format!("Change {}, and from now on just tell me", place.name());
@@ -647,6 +663,23 @@ fn call_for(
         }),
         key,
         yes: Some(person_calls::HOLD_ALLOW.to_owned()),
+    }
+}
+
+/// The most refs a call names; it counts any more.
+const NAMED_AT_MOST: usize = 3;
+
+/// The refs `deleted`, as [`push::deletes`] names them, in a few words: "the tag", "107 refs".
+fn counted(deleted: &[String]) -> String {
+    let all = |kind: &str| deleted.iter().all(|name| name.starts_with(kind));
+    let (one, many) = match (all("tag "), all("branch ")) {
+        (true, _) => ("tag", "tags"),
+        (_, true) => ("branch", "branches"),
+        _ => ("ref", "refs"),
+    };
+    match deleted.len() {
+        1 => format!("the {one}"),
+        count => format!("{count} {many}"),
     }
 }
 
@@ -815,13 +848,14 @@ fn gate(
             .any(|hold| hold.agent_id == agent_id && hold.key.as_deref() == Some(key.as_str()));
         if !waiting {
             state.holds.push(Hold {
-                token: id,
+                token: id.clone(),
                 agent_id: agent_id.to_owned(),
                 project: project.to_owned(),
                 cwd: cwd.to_owned(),
                 at: epoch_ms(),
                 environment: Some(place.name().to_owned()),
                 why: why.clone(),
+                because: None,
                 deploy: None,
                 call: None,
                 key: Some(key),
@@ -842,7 +876,44 @@ fn gate(
     if let Some(why) = why {
         said = format!("{said} {why}");
     }
+    let unexplained = person_calls::open_call(core, &id)
+        .is_some_and(|call| call.asker.agent_id == agent_id && !explained(&call.question));
+    if unexplained {
+        said = format!("{said} {}", explain(&id));
+    }
     Err(said)
+}
+
+/// What the agent waiting on the held call `id` is asked for, so the person reads its reason.
+fn explain(id: &str) -> String {
+    format!("Now call ask with edit: \"{id}\" and, as question, one or two plain sentences for the person: why this is needed and what is lost if they say yes.")
+}
+
+/// A held call's question with its agent's reason under it, in place of any before.
+pub(crate) fn with_reason(question: &str, reason: &str) -> String {
+    let asked = question.lines().next().unwrap_or_default();
+    format!("{asked}\n\n{reason}")
+}
+
+fn explained(question: &str) -> bool {
+    question.contains('\n')
+}
+
+/// Puts `reason`, why `agent_id` needs what the call `id` holds, on that call. False when it
+/// holds nothing of that agent's.
+pub fn explain_held(core: &Core, agent_id: &str, id: &str, reason: &str) -> bool {
+    let held = {
+        let mut state = core.ship().state.locked();
+        let hold = (state.holds.iter_mut())
+            .find(|hold| hold.token == id && hold.agent_id == agent_id && hold.key.is_none());
+        hold.map(|hold| hold.because = Some(reason.to_owned()))
+            .is_some()
+    };
+    if held {
+        tell_calls(core);
+        return true;
+    }
+    person_calls::explain(core, agent_id, id, reason)
 }
 
 /// Sends the agent `text` as from Sikemux, without waiting on it.
@@ -969,6 +1040,7 @@ fn hold(
             call: None,
             telling: None,
         });
+    let token = uuid::Uuid::new_v4().simple().to_string();
     {
         let mut state = core.ship().state.locked();
         let same =
@@ -987,7 +1059,11 @@ fn hold(
             }
             return Ok(allowed_deploy);
         }
-        if (state.holds.iter()).any(|hold| same(&hold.agent_id, &hold.ship, &hold.cwd)) {
+        let waiting = (state.holds.iter()).find(|hold| same(&hold.agent_id, &hold.ship, &hold.cwd));
+        if let Some(waiting) = waiting {
+            if waiting.because.is_none() {
+                said = format!("{said} {}", explain(&waiting.token));
+            }
             return Err(said);
         }
         let held = (state.holds.iter())
@@ -999,13 +1075,14 @@ fn hold(
             }
         }
         state.holds.push(Hold {
-            token: uuid::Uuid::new_v4().simple().to_string(),
+            token: token.clone(),
             agent_id: agent_id.to_owned(),
             project: project.to_owned(),
             cwd: cwd.to_owned(),
             at: epoch_ms(),
             environment: place,
             why,
+            because: None,
             deploy: call.as_ref().and(allowed_deploy),
             call,
             key: None,
@@ -1014,7 +1091,7 @@ fn hold(
     }
     core.changed(What::Agents);
     tell_calls(core);
-    Err(said)
+    Err(format!("{said} {}", explain(&token)))
 }
 
 fn leaves(ship: &Ship) -> String {
@@ -1630,24 +1707,25 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
             keep(place, true, Some(sikemux_view::places::Level::TellMe));
         }
     }
+    let asked = call.question.lines().next().unwrap_or_default();
     let place = (call.place.as_ref()).map_or("the place", |place| place.name.as_str());
     let action = call.action.as_deref().unwrap_or("it");
     let mut text = match option.as_deref() {
         Some(FROM_NOW_ON) => format!(
             "The person said yes on the call \"{}\", and to just tell them from now on. Run `{action}` again now.",
-            call.question
+            asked
         ),
         _ if said_yes(option.as_deref()) && once => format!(
             "The person said yes on the call \"{}\". Run exactly `{action}` again now. The yes lets it run once, and stands until it runs without failing.",
-            call.question
+            asked
         ),
         _ if said_yes(option.as_deref()) => format!(
             "The person said yes on the call \"{}\". Run `{action}` again now; the yes covers this work's deploy to {place} until the end of this turn.",
-            call.question
+            asked
         ),
         _ => format!(
             "The person said no on the call \"{}\": {place} stays as it is with this work.",
-            call.question
+            asked
         ),
     };
     if let Some(typed) = typed {
@@ -1850,6 +1928,10 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         (ShipKind::ProductionWrite, ..) => {
             format!("Let @{name} change the production database?")
         }
+    };
+    let question = match &hold.because {
+        Some(reason) => with_reason(&question, reason),
+        None => question,
     };
     let option = |id: &str, label: String, detail: Option<String>| CallOption {
         id: id.to_owned(),

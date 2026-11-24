@@ -332,6 +332,9 @@ fn refspec_reach(refspec: &str, remote: &str, cwd: &Path) -> Reach {
     let resolved = git()
         .trimmed(&["rev-parse", "--symbolic-full-name", &source])
         .unwrap_or_default();
+    if outside_branches_and_tags(destination.unwrap_or(&source)) {
+        return Reach::Branches;
+    }
     let tag_source = source.starts_with("refs/tags/")
         || resolved.starts_with("refs/tags/")
         || (!source.starts_with("refs/")
@@ -364,6 +367,18 @@ fn refspec_reach(refspec: &str, remote: &str, cwd: &Path) -> Reach {
     branch_reach(branch, remote, cwd)
 }
 
+/// Whether the full name of a ref puts it in a folder of its own, such as `refs/notes/x`, where
+/// no release or branch lives. A push to `refs/for/` is Gerrit's way to a branch.
+fn outside_branches_and_tags(name: &str) -> bool {
+    (name.strip_prefix("refs/"))
+        .and_then(|rest| rest.split_once('/'))
+        .is_some_and(|(folder, _)| {
+            !["", "heads", "tags", "for"]
+                .iter()
+                .any(|kept| folder.eq_ignore_ascii_case(kept))
+        })
+}
+
 /// Where deleting `destination` on `remote` reaches: a branch or a tag as its full name or
 /// what the checkout last saw of the remote says, else whatever it could be.
 fn deleted_reach(
@@ -382,6 +397,9 @@ fn deleted_reach(
     {
         return branch_reach(branch, remote, cwd);
     }
+    if outside_branches_and_tags(destination) {
+        return Reach::Branches;
+    }
     if destination.is_empty() || destination.starts_with("refs/") {
         return Reach::Tags(Vec::new());
     }
@@ -393,22 +411,34 @@ fn deleted_reach(
     }
 }
 
+/// How many refs the push `what` names.
+pub fn named_refs(what: &str) -> usize {
+    refspecs(what).map_or(0, |(_, refspecs)| refspecs.len())
+}
+
+/// The options and refspecs of the push `what`, after its remote.
+fn refspecs(what: &str) -> Option<(Vec<&str>, Vec<&str>)> {
+    let mut words = what.split_whitespace().skip_while(|word| *word != "push");
+    words.next()?;
+    let (mut options, mut positional) = (Vec::new(), Vec::new());
+    while let Some(word) = words.next() {
+        match word {
+            "-o" | "--push-option" | "--receive-pack" | "--exec" => {
+                words.next();
+            }
+            word if word.starts_with('-') => options.push(word),
+            word => positional.push(word),
+        }
+    }
+    Some((options, positional.into_iter().skip(1).collect()))
+}
+
 /// The refs the push `what` deletes, as the person names them, when deleting is all it does.
 pub fn deletes(what: &str) -> Option<Vec<String>> {
-    let words: Vec<&str> = what.split_whitespace().collect();
-    let at = words.iter().position(|word| *word == "push")?;
-    let args = words.get(at + 1..).unwrap_or_default();
-    let flagged = args.iter().any(|arg| {
-        *arg == "--delete" || (arg.starts_with('-') && !arg.starts_with("--") && arg.contains('d'))
-    });
-    let positional: Vec<&str> = args
+    let (options, refspecs) = refspecs(what).filter(|(_, refspecs)| !refspecs.is_empty())?;
+    let flagged = options
         .iter()
-        .copied()
-        .filter(|arg| !arg.starts_with('-'))
-        .collect();
-    let refspecs = positional
-        .get(1..)
-        .filter(|refspecs| !refspecs.is_empty())?;
+        .any(|arg| *arg == "--delete" || (!arg.starts_with("--") && arg.contains('d')));
     let named = |name: &str| match (name.strip_prefix("refs/tags/"))
         .or_else(|| name.strip_prefix("tags/"))
     {

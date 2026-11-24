@@ -1335,6 +1335,11 @@ async fn edit(
     let params = &request.params;
     let withdraw = matches!(params.get("withdraw"), Some(Value::Bool(true)));
     let text = text_param(params, "question", MAX_QUESTION_BYTES)?;
+    if let Some(reason) = text.as_deref().filter(|_| !withdraw) {
+        if super::ship::explain_held(core, agent_id, id, reason) {
+            return Ok(json!({ "edited": id }));
+        }
+    }
     let header = (text_param(params, "title", MAX_QUESTION_BYTES)?)
         .map(|header| clipped(&header, MAX_HEADER_CHARS));
     let mut choices = match params.get("choices") {
