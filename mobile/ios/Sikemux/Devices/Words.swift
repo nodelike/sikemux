@@ -58,6 +58,11 @@ final class Folded {
         if teams.contains(agentId) { teams.remove(agentId) } else { teams.insert(agentId) }
         UserDefaults.standard.set(Array(teams), forKey: Self.teamsKey)
     }
+
+    func unfoldTeam(_ agentId: String) {
+        guard teams.remove(agentId) != nil else { return }
+        UserDefaults.standard.set(Array(teams), forKey: Self.teamsKey)
+    }
 }
 
 extension PairedDevice.Kind {

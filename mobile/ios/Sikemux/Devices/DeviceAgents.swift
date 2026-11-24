@@ -22,6 +22,7 @@ struct DeviceAgents: View {
         let (open, snoozed) = items()
         let teams = keptStill(teams(open))
         let folded = Folded.shared.teams
+        let needingAbove = AgentTree.above(leadsOf(open), from: open.filter { $0.agent?.group == .blocked }.map(\.id))
         let away = AgentTree.tree(snoozed, id: \.id, lead: \.lead, root: 0, folded: [])
         let recent = view.recent.contains { scope == nil || $0.project == scope?.id }
 
@@ -32,16 +33,23 @@ struct DeviceAgents: View {
                     Rows {
                         ForEach(teams, id: \.id) { team in
                             let (led, own) = byStarter(team)
-                            let placed = AgentTree.tree(led, id: \.id, lead: \.lead, root: 1, folded: folded)
-                            if let project = team.project {
+                            let chiefFoldId = team.project.map { "chief:\($0.id)" }
+                            let chiefShut = chiefFoldId.map { !led.isEmpty && folded.contains($0) } == true
+                            let ledNeedsYou = led.contains { $0.agent?.group == .blocked }
+                            let placed = chiefShut ? [] : AgentTree.tree(led, id: \.id, lead: \.lead, root: 1, folded: folded)
+                            if let project = team.project, let chiefFoldId {
                                 let shown = view.inbox.agents.first { $0.chief == true && $0.project == project.id }
-                                ChiefRow(core: core, project: project, shown: shown, mixed: scope == nil, now: now)
-                                    .modifier(TreeLines(open: !placed.isEmpty))
-                                    .needsYou("chief:\(project.id)", shown?.group == .blocked)
+                                ChiefRow(
+                                    core: core, project: project, shown: shown, mixed: scope == nil, now: now,
+                                    foldId: led.isEmpty ? nil : chiefFoldId, foldCount: led.isEmpty ? nil : led.count,
+                                    teamNeedsYou: chiefShut && ledNeedsYou
+                                )
+                                .modifier(TreeLines(open: !placed.isEmpty))
+                                .needsYou(chiefFoldId, shown?.group == .blocked || (chiefShut && ledNeedsYou))
                             }
-                            ForEach(placed, id: \.item.id) { row($0, folds: true, now: now) }
+                            ForEach(placed, id: \.item.id) { row($0, folds: true, needingAbove: needingAbove, now: now) }
                             let apart = AgentTree.tree(own, id: \.id, lead: \.lead, root: 0, folded: folded)
-                            ForEach(apart, id: \.item.id) { row($0, folds: true, now: now) }
+                            ForEach(apart, id: \.item.id) { row($0, folds: true, needingAbove: needingAbove, now: now) }
                         }
                     }
                     .animation(still ? nil : .snappy(duration: 0.28), value: teams.map(\.id))
@@ -55,7 +63,7 @@ struct DeviceAgents: View {
                     .padding(.top, 10)
                 }
                 AwayGroup(label: String(localized: "Snoozed"), fold: .snoozed, count: away.count) {
-                    ForEach(away, id: \.item.id) { row($0, folds: false, now: now) }
+                    ForEach(away, id: \.item.id) { row($0, folds: false, needingAbove: [], now: now) }
                 }
                 Recent(
                     core: core, view: view, scope: scope, provider: provider, full: full, hostName: hostName, now: now)
@@ -191,25 +199,29 @@ struct DeviceAgents: View {
     }
 
     @ViewBuilder
-    private func row(_ placed: AgentTree.Placed<Item>, folds: Bool, now: Date) -> some View {
+    private func row(_ placed: AgentTree.Placed<Item>, folds: Bool, needingAbove: Set<String>, now: Date) -> some View {
         let item = placed.item
         let lead = name(placed.leadApart)
         let fold = folds && placed.below > 0 ? placed.below : nil
+        let shutNeedsYou = fold != nil && Folded.shared.teams.contains(item.id) && needingAbove.contains(item.id)
         Group {
             if let worker = item.worker {
                 WorkerRow(worker: worker, now: now, lead: lead, fold: fold)
             } else if let agent = item.agent {
                 let onHold = onHold.map { hold in { hold(agent.agentId) } }
                 if agent.session == nil {
-                    ChatRow(core: core, shown: agent, now: now, onHold: onHold, lead: lead, fold: fold)
+                    ChatRow(
+                        core: core, shown: agent, now: now, onHold: onHold, lead: lead, fold: fold,
+                        teamNeedsYou: shutNeedsYou)
                 } else {
                     TerminalAgentRow(
-                        shown: agent, now: now, onOpen: { onTab(.terminals) }, onHold: onHold, lead: lead, fold: fold)
+                        shown: agent, now: now, onOpen: { onTab(.terminals) }, onHold: onHold, lead: lead, fold: fold,
+                        teamNeedsYou: shutNeedsYou)
                 }
             }
         }
         .modifier(TreeLines(depth: placed.depth, lines: placed.lines, open: placed.open))
-        .needsYou(item.id, item.agent?.group == .blocked)
+        .needsYou(item.id, item.agent?.group == .blocked || shutNeedsYou)
     }
 }
 
@@ -222,6 +234,7 @@ private struct ChatRow: View {
     var lead: String?
     /// How many hang below it, when it has a team to fold.
     var fold: Int?
+    var teamNeedsYou = false
 
     var body: some View {
         if let fold {
@@ -251,6 +264,7 @@ private struct ChatRow: View {
                     if shown.subagents > 0 { SubagentCount(count: shown.subagents) }
                     if shown.tasks > 0 { ShellCount(count: shown.tasks) }
                     if let line = shown.line { LinePlace(line: line) }
+                    if teamNeedsYou && shown.turn?.state != .needsYou { NeedsYou() }
                     TurnMark(turn: shown.turn, now: now)
                 }
             },
@@ -266,6 +280,7 @@ private struct TerminalAgentRow: View {
     let onHold: (() -> Void)?
     var lead: String?
     var fold: Int?
+    var teamNeedsYou = false
 
     var body: some View {
         if let fold {
@@ -291,6 +306,7 @@ private struct TerminalAgentRow: View {
                 if let until = shown.snoozedUntil.map(Format.date(millis:)) {
                     WakeTime(at: until, now: now)
                 } else {
+                    if teamNeedsYou && shown.turn?.state != .needsYou { NeedsYou() }
                     TurnMark(turn: shown.turn, now: now)
                 }
             },

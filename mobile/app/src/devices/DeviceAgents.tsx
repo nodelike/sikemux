@@ -16,7 +16,7 @@ import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { Row, Rows, SectionLabel } from '@/ui/list';
 import { EmptyState } from '@/ui/prompt';
-import { LinePlace, ShellCount, SubagentCount, TurnMark, WakeTime } from '@/devices/AgentMarks';
+import { LinePlace, NeedsYou, ShellCount, SubagentCount, TurnMark, WakeTime } from '@/devices/AgentMarks';
 import { ChiefRow } from '@/calls/ChiefRow';
 import { useColors, useStyles } from '@/ui/theme';
 import { listed, Recent } from '@/devices/DeviceRecent';
@@ -162,6 +162,10 @@ export function Agents({
   const { main: open, snoozed } = itemsOf(snapshot, scope, provider);
   const foldedKeys = useFoldedKeys();
   const folded = new Set(foldedKeys.flatMap((key) => (key.startsWith(teamFold('')) ? [key.slice(teamFold('').length)] : [])));
+  const needingAbove = above(
+    open,
+    open.filter((item) => item.agent?.group === 'blocked').map((item) => item.id),
+  );
   const animating = useAnimating();
   // The projects' order while a finger is on the list, so a tap never lands on a row that moved under it.
   const [touchOrder, setTouchOrder] = useState<string[]>();
@@ -185,9 +189,10 @@ export function Agents({
   const row = (placed: Placed<Item>, folds: boolean) => {
     const { item } = placed;
     const fold = folds && placed.below > 0 ? { count: placed.below, open: !folded.has(item.id) } : undefined;
+    const teamNeedsYou = fold != null && !fold.open && needingAbove.has(item.id);
     const lead = nameOf(placed.leadApart);
     return (
-      <NeedsYouMark key={item.id} id={item.id} on={item.agent?.group === 'blocked'}>
+      <NeedsYouMark key={item.id} id={item.id} on={item.agent?.group === 'blocked' || teamNeedsYou}>
         <TreeLines depth={placed.depth} lines={placed.lines} open={placed.open}>
           {item.worker ? (
             <WorkerRow worker={item.worker} lead={lead} foldCount={fold?.count} foldOpen={fold?.open} />
@@ -200,6 +205,7 @@ export function Agents({
               lead={lead}
               foldCount={fold?.count}
               foldOpen={fold?.open}
+              teamNeedsYou={teamNeedsYou}
             />
           ) : (
             <TerminalAgentRow
@@ -210,6 +216,7 @@ export function Agents({
               lead={lead}
               foldCount={fold?.count}
               foldOpen={fold?.open}
+              teamNeedsYou={teamNeedsYou}
             />
           )}
         </TreeLines>
@@ -229,10 +236,13 @@ export function Agents({
           <Rows style={styles.open}>
             {teams.map((team) => {
               const { led, own } = team.project ? byStarter(team.items) : { led: [], own: team.items };
-              const placed = tree(led, leafOf, 1, folded);
+              const chiefFoldId = team.project ? `chief:${team.project.id}` : undefined;
+              const chiefShut = chiefFoldId != null && led.length > 0 && folded.has(chiefFoldId);
+              const ledNeedsYou = led.some((item) => item.agent?.group === 'blocked');
+              const placed = chiefShut ? [] : tree(led, leafOf, 1, folded);
               return (
                 <Fragment key={team.id}>
-                  {team.project ? (
+                  {team.project && chiefFoldId ? (
                     <ChiefTeamRow
                       core={core}
                       project={team.project}
@@ -240,6 +250,10 @@ export function Agents({
                       mixed={!scope}
                       minute={minute}
                       open={placed.length > 0}
+                      foldId={led.length > 0 ? chiefFoldId : undefined}
+                      foldCount={led.length > 0 ? led.length : undefined}
+                      foldOpen={!chiefShut}
+                      teamNeedsYou={chiefShut && ledNeedsYou}
                     />
                   ) : null}
                   {placed.map((placed) => row(placed, true))}
@@ -270,6 +284,10 @@ function ChiefTeamRow({
   mixed,
   minute,
   open,
+  foldId,
+  foldCount,
+  foldOpen = true,
+  teamNeedsYou = false,
 }: {
   core: string;
   project: ProjectInfo;
@@ -277,19 +295,33 @@ function ChiefTeamRow({
   mixed: boolean;
   minute: number;
   open: boolean;
+  foldId?: string;
+  foldCount?: number;
+  foldOpen?: boolean;
+  teamNeedsYou?: boolean;
 }) {
   const shown = snapshot.inbox.agents.find((agent) => agent.chief && agent.project === project.id);
   return (
-    <NeedsYouMark id={`chief:${project.id}`} on={shown?.group === 'blocked'}>
+    <NeedsYouMark id={`chief:${project.id}`} on={shown?.group === 'blocked' || teamNeedsYou}>
       <TreeLines open={open}>
-        <ChiefRow core={core} project={project} shown={shown} mixed={mixed} now={minute * 60_000} />
+        <ChiefRow
+          core={core}
+          project={project}
+          shown={shown}
+          mixed={mixed}
+          now={minute * 60_000}
+          foldId={foldId}
+          foldCount={foldCount}
+          foldOpen={foldOpen}
+          teamNeedsYou={teamNeedsYou}
+        />
       </TreeLines>
     </NeedsYouMark>
   );
 }
 
 /** What a row of the tree carries besides its agent: the lead it names, and the fold of the team under it. */
-type Hung = { lead?: string; foldCount?: number; foldOpen?: boolean };
+type Hung = { lead?: string; foldCount?: number; foldOpen?: boolean; teamNeedsYou?: boolean };
 
 /* A host sends its whole view several times a second while an agent works; each row redraws only when its own
    item changed, which the hub keeps as the same object otherwise. */
@@ -301,6 +333,7 @@ const ChatRow = memo(function ChatRow({
   lead,
   foldCount,
   foldOpen = true,
+  teamNeedsYou = false,
 }: Hung & {
   core: string;
   shown: AgentShown;
@@ -331,6 +364,7 @@ const ChatRow = memo(function ChatRow({
             {shown.subagents ? <SubagentCount count={shown.subagents} /> : null}
             {shown.tasks ? <ShellCount count={shown.tasks} /> : null}
             {shown.line ? <LinePlace line={shown.line} /> : null}
+            {teamNeedsYou && shown.turn?.state !== 'needsYou' ? <NeedsYou /> : null}
             <TurnMark turn={shown.turn} now={minute * 60_000} />
           </>
         )
@@ -382,6 +416,7 @@ const TerminalAgentRow = memo(function TerminalAgentRow({
   lead,
   foldCount,
   foldOpen = true,
+  teamNeedsYou = false,
 }: Hung & {
   shown: AgentShown;
   minute: number;
@@ -402,7 +437,16 @@ const TerminalAgentRow = memo(function TerminalAgentRow({
       title={shown.title}
       dim={away || settled}
       after={foldCount ? <TreeFold agentId={shown.agentId} count={foldCount} open={foldOpen} /> : undefined}
-      end={away ? <WakeTime at={Number(shown.snoozedUntil)} now={minute * 60_000} /> : <TurnMark turn={shown.turn} now={minute * 60_000} />}
+      end={
+        away ? (
+          <WakeTime at={Number(shown.snoozedUntil)} now={minute * 60_000} />
+        ) : (
+          <>
+            {teamNeedsYou && shown.turn?.state !== 'needsYou' ? <NeedsYou /> : null}
+            <TurnMark turn={shown.turn} now={minute * 60_000} />
+          </>
+        )
+      }
       onPress={onOpen}
       onLongPress={onHold && (() => onHold(shown))}
     />

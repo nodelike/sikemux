@@ -7,7 +7,8 @@ import { CHIEF, CHIEF_OFFLINE, CHIEF_ROLE, TAKE_OVER, chiefAway } from '@shared/
 import type { AgentShown, ProjectInfo } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
-import { TurnMark, Working } from '@/devices/AgentMarks';
+import { NeedsYou, TurnMark, Working } from '@/devices/AgentMarks';
+import { TreeFold } from '@/devices/AgentTree';
 import { ChiefMark } from '@/devices/Crew';
 import { connectionOf, liveOf, useDevices } from '@/devices/hub';
 import { useT } from '@/i18n';
@@ -27,6 +28,10 @@ export function ChiefRow({
   shown,
   mixed,
   now,
+  foldId,
+  foldCount,
+  foldOpen = true,
+  teamNeedsYou = false,
 }: {
   core: string;
   project: ProjectInfo;
@@ -35,6 +40,10 @@ export function ChiefRow({
   /** Agents of several projects share the list, so the row names its project at its end. */
   mixed: boolean;
   now: number;
+  foldId?: string;
+  foldCount?: number;
+  foldOpen?: boolean;
+  teamNeedsYou?: boolean;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -101,6 +110,7 @@ export function ChiefRow({
       host={homeTag}
       aside={t(CHIEF_ROLE)}
       detail={refused ?? (away != null ? chiefAway(away, now, t) : undefined)}
+      after={foldId && foldCount ? <TreeFold agentId={foldId} count={foldCount} open={foldOpen} /> : undefined}
       end={
         <View style={styles.end}>
           {mixed ? (
@@ -117,9 +127,12 @@ export function ChiefRow({
             <Pressable onPress={() => void ask('takeOverChief')} style={styles.takeOver} accessibilityRole="button">
               <Text style={styles.takeOverText}>{t(TAKE_OVER)}</Text>
             </Pressable>
-          ) : shown ? (
-            <TurnMark turn={shown.turn} now={now} />
-          ) : null}
+          ) : (
+            <>
+              {teamNeedsYou && shown?.turn?.state !== 'needsYou' ? <NeedsYou /> : null}
+              {shown ? <TurnMark turn={shown.turn} now={now} /> : null}
+            </>
+          )}
         </View>
       }
       onPress={open}

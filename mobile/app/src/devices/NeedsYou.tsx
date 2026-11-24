@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { teamFold } from '@/devices/AgentTree';
+import { unfold } from '@/devices/folded';
 import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
@@ -99,7 +101,8 @@ export function useNeedsYou(
 
   const bring = (id: string | undefined) => {
     const place = id ? places.current.get(id) : undefined;
-    if (!place) return;
+    if (!id || !place) return;
+    unfold(teamFold(id));
     const middle = (edges.current.top(offset.current) + edges.current.bottom) / 2;
     haptics.select();
     list.current?.scrollTo({ y: Math.max(0, place.y + place.height / 2 - middle), animated: true });

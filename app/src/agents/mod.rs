@@ -157,7 +157,7 @@ fn agents_page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .map(|placed| agent_row(bench, &placed.row, &placed.hang, None, false, cx))
             .collect()
     };
-    let unseen = out_of_sight(bench, &agents);
+    let unseen = out_of_sight(bench, &agents, &chief_led);
     let snoozed = away_rows(&snoozed, cx);
     let homes = home_projects(bench);
     let place = bench.place();
@@ -172,16 +172,14 @@ fn agents_page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     }
     let mut seen = HashSet::new();
     projects.retain(|project| seen.insert(project.id.clone()));
-    let heads: Vec<(String, AnyElement)> = (projects.iter())
+    let heads: Vec<(ProjectInfo, Option<AgentRow>)> = (projects.into_iter())
         .map(|project| {
-            let chief = chief_of(project, &agents);
-            let row = chief_row(bench, project, chief, bench.rails.all_projects, cx);
-            (project.id.clone(), row)
+            let chief = chief_of(&project, &agents).cloned();
+            (project, chief)
         })
         .collect();
-    let leading: Vec<String> = (projects.iter())
-        .filter_map(|project| chief_of(project, &agents))
-        .map(|chief| chief.id.clone())
+    let leading: Vec<String> = (heads.iter())
+        .filter_map(|(_, chief)| chief.as_ref().map(|chief| chief.id.clone()))
         .collect();
     let mut agents: Vec<AgentRow> = (agents.into_iter())
         .filter(|agent| {
@@ -189,7 +187,7 @@ fn agents_page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         })
         .collect();
     if bench.rails.all_projects {
-        let at = |project: &str| heads.iter().position(|(id, _)| id == project);
+        let at = |project: &str| heads.iter().position(|(known, _)| known.id == project);
         agents.sort_by_key(|agent| at(home_of(&homes, agent)).unwrap_or(usize::MAX));
     }
     let (copy, rows) = team_rows(bench, &agents, &homes, heads, (&chiefs, chief_led), cx);
@@ -934,7 +932,7 @@ fn team_rows(
     bench: &Workbench,
     agents: &[AgentRow],
     homes: &HashMap<(Place, String), String>,
-    heads: Vec<(String, AnyElement)>,
+    heads: Vec<(ProjectInfo, Option<AgentRow>)>,
     (chiefs, mut chief_led): (&HashSet<String>, HashSet<String>),
     cx: &mut Context<Workbench>,
 ) -> (Option<AnyElement>, Vec<AnyElement>) {
@@ -999,13 +997,33 @@ fn team_rows(
         }
     };
     let mut headed = HashSet::new();
-    for (project, head) in heads {
+    for (project, chief) in heads {
         let (team, own): (Vec<_>, Vec<_>) = (rows.iter().zip(&home))
-            .filter(|(_, (home, _))| *home == project)
+            .filter(|(_, (home, _))| *home == project.id)
             .partition(|(_, (_, chief_led))| *chief_led);
         let team: Vec<AgentRow> = team.into_iter().map(|(row, _)| row.clone()).collect();
         let own: Vec<AgentRow> = own.into_iter().map(|(row, _)| row.clone()).collect();
-        let placed = tree::tree(&team, 1, folded);
+        let fold_id = format!("chief:{}", project.id);
+        let shut = teams && !team.is_empty() && folded.contains(&fold_id);
+        let fold = (teams && !team.is_empty()).then(|| Fold {
+            open: !shut,
+            count: team.len(),
+        });
+        let team_needs_you = shut && team.iter().any(|agent| agent.group == AgentGroup::Blocked);
+        let placed = if shut {
+            Vec::new()
+        } else {
+            tree::tree(&team, 1, folded)
+        };
+        let head = chief_row(
+            bench,
+            &project,
+            chief.as_ref(),
+            bench.rails.all_projects,
+            fold.as_ref(),
+            team_needs_you,
+            cx,
+        );
         let head = match placed.is_empty() {
             true => head,
             false => div()
@@ -1020,10 +1038,10 @@ fn team_rows(
                 ))
                 .into_any_element(),
         };
-        drawn.push((format!("chief:{project}"), head));
+        drawn.push((fold_id, head));
         place(placed, &mut drawn, cx);
         place(tree::tree(&own, 0, folded), &mut drawn, cx);
-        headed.insert(project);
+        headed.insert(project.id);
     }
     let loose: Vec<AgentRow> = (rows.iter().zip(&home))
         .filter(|(_, (home, _))| !headed.contains(home))
@@ -1194,6 +1212,69 @@ struct Fold {
     count: usize,
 }
 
+/// A row's mark that swaps on hover for the chevron folding its team.
+fn fold_mark(
+    id: &str,
+    base: AnyElement,
+    fold: Option<&Fold>,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
+    let Some(fold) = fold else {
+        return base;
+    };
+    let t = Tokens::get(cx).clone();
+    let fold_id = id.to_owned();
+    div()
+        .relative()
+        .size(px(20.))
+        .child(
+            div()
+                .group_hover(ui::ROW, |mark| mark.opacity(0.))
+                .child(base),
+        )
+        .child(
+            div()
+                .id(SharedString::from(format!("team-fold:{id}")))
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .opacity(0.)
+                .group_hover(ui::ROW, |chevron| chevron.opacity(1.))
+                .clicks(cx.listener(move |bench, _, _, cx| {
+                    cx.stop_propagation();
+                    bench.fold_team(&fold_id, cx);
+                }))
+                .child(motion::turn(
+                    format!("team-chevron:{id}"),
+                    motion::fold_angle(fold.open),
+                    motion::LANE_FOLD,
+                    ui::icon(Icon::Chevron, 11.).text_color(t.text_secondary),
+                )),
+        )
+        .into_any_element()
+}
+
+/// The `+N` count shown on a row whose team is folded shut.
+fn fold_count_pill(fold: Option<&Fold>, cx: &App) -> Option<AnyElement> {
+    let fold = fold.filter(|fold| !fold.open)?;
+    let t = Tokens::get(cx);
+    Some(
+        div()
+            .flex_none()
+            .px(px(5.))
+            .rounded_full()
+            .bg(t.surface_hover)
+            .text_color(t.text_tertiary)
+            .text_size(crate::theme::ui_text(TEXT_3XS))
+            .line_height(crate::theme::ui_text(15.))
+            .font_features(crate::theme::tabular())
+            .child(format!("+{}", fold.count))
+            .into_any_element(),
+    )
+}
+
 fn agent_row(
     bench: &Workbench,
     agent: &AgentRow,
@@ -1202,7 +1283,6 @@ fn agent_row(
     glided: bool,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    let t = Tokens::get(cx).clone();
     let elsewhere = agent.place != bench.place();
     let project = bench
         .rails
@@ -1212,42 +1292,7 @@ fn agent_row(
         .map(|project| project.name.clone());
     let chosen = bench.agent().is_some_and(|front| front.id == agent.id);
     let id = agent.id.clone();
-    let mark = match &fold {
-        Some(fold) => div()
-            .relative()
-            .size(px(20.))
-            .child(
-                div()
-                    .group_hover(ui::ROW, |mark| mark.opacity(0.))
-                    .child(agent.mark(20., cx)),
-            )
-            .child(
-                div()
-                    .id(SharedString::from(format!("team-fold:{}", agent.id)))
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .opacity(0.)
-                    .group_hover(ui::ROW, |chevron| chevron.opacity(1.))
-                    .clicks(cx.listener({
-                        let id = agent.id.clone();
-                        move |bench, _, _, cx| {
-                            cx.stop_propagation();
-                            bench.fold_team(&id, cx);
-                        }
-                    }))
-                    .child(motion::turn(
-                        format!("team-chevron:{}", agent.id),
-                        motion::fold_angle(fold.open),
-                        motion::LANE_FOLD,
-                        ui::icon(Icon::Chevron, 11.).text_color(t.text_secondary),
-                    )),
-            )
-            .into_any_element(),
-        None => agent.mark(20., cx),
-    };
+    let mark = fold_mark(&agent.id, agent.mark(20., cx), fold.as_ref(), cx);
     let worker = !agent.chief
         && (bench.project_on(&agent.place, &agent.project))
             .is_some_and(|project| project.chief.is_some());
@@ -1360,18 +1405,7 @@ fn agent_row(
     .children(host)
     .children(lead_apart)
     .children(name)
-    .children(shut_fold.map(|fold| {
-        div()
-            .flex_none()
-            .px(px(5.))
-            .rounded_full()
-            .bg(t.surface_hover)
-            .text_color(t.text_tertiary)
-            .text_size(crate::theme::ui_text(TEXT_3XS))
-            .line_height(crate::theme::ui_text(15.))
-            .font_features(crate::theme::tabular())
-            .child(format!("+{}", fold.count))
-    }))
+    .children(fold_count_pill(fold.as_ref(), cx))
     .children(wake)
     .children(turn_time)
     .children(counts);
@@ -1525,10 +1559,25 @@ fn chief_row(
     project: &ProjectInfo,
     chief: Option<&AgentRow>,
     named: bool,
+    fold: Option<&Fold>,
+    team_needs_you: bool,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let chosen = chief.is_some_and(|chief| bench.agent().is_some_and(|front| front.id == chief.id));
+    let fold_id = format!("chief:{}", project.id);
+    let mark = fold_mark(&fold_id, ui::chief_mark(20.).into_any_element(), fold, cx);
+    let status = chief
+        .and_then(|chief| ui::turn_mark(&chief.id, chief.turn.as_ref()))
+        .or_else(|| {
+            team_needs_you.then(|| {
+                div()
+                    .size(px(7.))
+                    .rounded_full()
+                    .bg(t.warn)
+                    .into_any_element()
+            })
+        });
     let place = named.then(|| {
         div()
             .flex()
@@ -1584,11 +1633,12 @@ fn chief_row(
         SharedString::from(format!("chief-{}", project.id)),
         rows::CHIEF.to_owned(),
     )
-    .mark(22., ui::chief_mark(20.))
+    .mark(22., mark)
     .chosen(chosen)
     .compact(bench.rail_compact())
-    .status(chief.and_then(|chief| ui::turn_mark(&chief.id, chief.turn.as_ref())))
+    .status(status)
     .detail(rows::chief_role())
+    .children(fold_count_pill(fold, cx))
     .children(place)
     .children(home)
     .children(take_over)
@@ -1898,20 +1948,24 @@ pub(crate) fn rail_empty(
         .into_any_element()
 }
 
-/// The rows that need the person but are scrolled out of the rail, where each was drawn last.
+/// The rows that need the person but are scrolled out of the rail, where each was drawn last,
+/// with the fold key to open when the needing agent is hidden inside a folded team.
 #[derive(Default)]
 struct OutOfSight {
-    above: Vec<Bounds<Pixels>>,
-    below: Vec<Bounds<Pixels>>,
+    above: Vec<(Bounds<Pixels>, Option<String>)>,
+    below: Vec<(Bounds<Pixels>, Option<String>)>,
 }
 
 /// Reads where the rows were drawn last, so it comes before the rows are laid out again.
-fn out_of_sight(bench: &Workbench, agents: &[AgentRow]) -> OutOfSight {
+fn out_of_sight(bench: &Workbench, agents: &[AgentRow], chief_led: &HashSet<String>) -> OutOfSight {
     let view = bench.rails.scroll.bounds();
     let mut unseen = OutOfSight::default();
     if view.size.height <= px(0.) {
         return unseen;
     }
+    let lead_of: HashMap<&str, &str> = (agents.iter())
+        .filter_map(|agent| Some((agent.id.as_str(), agent.lead.as_deref()?)))
+        .collect();
     let glide = bench.rails.glide.borrow();
     for agent in agents
         .iter()
@@ -1921,13 +1975,37 @@ fn out_of_sight(bench: &Workbench, agents: &[AgentRow]) -> OutOfSight {
             true => format!("chief:{}", agent.project),
             false => agent.id.clone(),
         };
-        let Some(row) = glide.drawn_at(&id) else {
-            continue;
+        let (row, unfold) = match glide.drawn_at(&id) {
+            Some(row) => (row, None),
+            None => {
+                let mut at = agent.id.as_str();
+                let mut found = None;
+                for _ in 0..agents.len() {
+                    let Some(&lead) = lead_of.get(at) else {
+                        break;
+                    };
+                    if let Some(row) = glide.drawn_at(lead) {
+                        found = Some((row, Some(lead.to_owned())));
+                        break;
+                    }
+                    at = lead;
+                }
+                let found = found.or_else(|| {
+                    chief_led.contains(at).then(|| {
+                        let key = format!("chief:{}", agent.project);
+                        glide.drawn_at(&key).map(|row| (row, Some(key)))
+                    })?
+                });
+                let Some(found) = found else {
+                    continue;
+                };
+                found
+            }
         };
         if row.bottom() <= view.top() + px(EDGE_FADE) {
-            unseen.above.push(row);
+            unseen.above.push((row, unfold));
         } else if row.top() >= view.bottom() - px(EDGE_FADE) {
-            unseen.below.push(row);
+            unseen.below.push((row, unfold));
         }
     }
     unseen
@@ -1941,15 +2019,15 @@ impl OutOfSight {
             true => (&self.above, Icon::ArrowUp),
             false => (&self.below, Icon::ArrowDown),
         };
-        let nearest = match above {
+        let (nearest, unfold) = match above {
             true => rows
                 .iter()
-                .max_by(|a, b| f32::from(a.top()).total_cmp(&f32::from(b.top()))),
+                .max_by(|a, b| f32::from(a.0.top()).total_cmp(&f32::from(b.0.top()))),
             false => rows
                 .iter()
-                .min_by(|a, b| f32::from(a.top()).total_cmp(&f32::from(b.top()))),
+                .min_by(|a, b| f32::from(a.0.top()).total_cmp(&f32::from(b.0.top()))),
         }
-        .copied()?;
+        .cloned()?;
         let t = Tokens::get(cx).clone();
         let pill = div()
             .id(match above {
@@ -1979,6 +2057,9 @@ impl OutOfSight {
                     }),
             )
             .clicks(cx.listener(move |bench, _, _, cx| {
+                if let Some(key) = &unfold {
+                    bench.rails.folded_teams.remove(key);
+                }
                 let scroll = &bench.rails.scroll;
                 let view = scroll.bounds();
                 let by = match above {

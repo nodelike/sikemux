@@ -14,14 +14,31 @@ struct ChiefRow: View {
     /// Agents of several projects share the list, so the row names its project at its end.
     let mixed: Bool
     let now: Date
+    /// The fold key and team count, when agents hang under this chief.
+    var foldId: String?
+    var foldCount: Int?
+    /// A hidden agent inside this folded team needs the person.
+    var teamNeedsYou = false
     @State private var opening = false
     @State private var refused: String?
     /// The row is on screen, so the chat it asked for may open over it.
     @State private var here = false
 
     var body: some View {
+        Group {
+            if let foldId, let foldCount {
+                row { TreeFold(agentId: foldId, count: foldCount) }
+            } else {
+                row { EmptyView() }
+            }
+        }
+        .onAppear { here = true }
+        .onDisappear { here = false }
+    }
+
+    private func row<After: View>(@ViewBuilder after: () -> After) -> some View {
         let away = project.chiefHome?.awaySince
-        Row(
+        return Row(
             title: CallWords.chief, host: homeTag, aside: CallWords.chiefRole,
             detail: refused ?? away.map { CallWords.outOfReach(ChatWords.clock($0, now: now)) },
             onPress: open,
@@ -44,14 +61,18 @@ struct ChiefRow: View {
                             .padding(.horizontal, 10)
                             .frame(height: 28)
                             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.borderStrong))
-                    } else if let shown {
-                        TurnMark(turn: shown.turn, now: now)
+                    } else {
+                        if teamNeedsYou && shown?.turn?.state != .needsYou {
+                            NeedsYou()
+                        }
+                        if let shown {
+                            TurnMark(turn: shown.turn, now: now)
+                        }
                     }
                 }
-            }
+            },
+            after: after
         )
-        .onAppear { here = true }
-        .onDisappear { here = false }
     }
 
     private var homeTag: String? {

@@ -25,6 +25,16 @@ export function toggleFolded(key: string) {
   );
 }
 
+export function unfold(key: string) {
+  const now = folded.get();
+  if (!now.includes(key)) return;
+  const next = now.filter((shut) => shut !== key);
+  folded.set(next);
+  SecureStore.setItemAsync(ITEM, JSON.stringify(next)).catch((error: unknown) =>
+    console.warn('sikemux: could not keep the folded groups', error),
+  );
+}
+
 function useLoaded() {
   useEffect(() => {
     load().catch((error: unknown) => console.warn('sikemux: could not read the folded groups', error));

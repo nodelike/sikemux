@@ -194,6 +194,7 @@ private struct DeviceContent: View {
                 .overlay(alignment: .bottom) {
                     if tab == .agents, let nearest = unseen.below.first {
                         NeedsYouChip(count: unseen.below.count, up: false) {
+                            Folded.shared.unfoldTeam(nearest)
                             withAnimation(.snappy) { reader.scrollTo(nearest, anchor: .center) }
                         }
                         .padding(.bottom, bottomGap + 8)
@@ -202,6 +203,7 @@ private struct DeviceContent: View {
                 .overlay(alignment: .top) {
                     if tab == .agents, let nearest = unseen.above.first {
                         NeedsYouChip(count: unseen.above.count, up: true) {
+                            Folded.shared.unfoldTeam(nearest)
                             withAnimation(.snappy) { reader.scrollTo(nearest, anchor: .center) }
                         }
                         .padding(.top, barTop + barHeight + 6)
