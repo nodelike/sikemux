@@ -2748,7 +2748,15 @@ impl Fold {
             closed_card: update
                 .get("closedCard")
                 .and_then(|closed| serde_json::from_value(closed.clone()).ok()),
+            sign_in: update
+                .get("signIn")
+                .and_then(|card| serde_json::from_value(card.clone()).ok()),
         };
+        if let Some(card) = notice.sign_in.as_ref() {
+            if self.sign_in_again(card) {
+                return;
+            }
+        }
         if let Some(page) = notice.worker_page.as_ref() {
             if self.worker_page_again(page) {
                 return;
@@ -2807,7 +2815,8 @@ impl Fold {
             || notice.week.is_some()
             || notice.rule_change.is_some()
             || notice.worker_page.is_some()
-            || notice.closed_card.is_some();
+            || notice.closed_card.is_some()
+            || notice.sign_in.is_some();
         if own_line && !self.head.running {
             if let Some(page) = notice.worker_page.as_ref() {
                 if self.worker_page_joins(page) {
@@ -2876,6 +2885,31 @@ impl Fold {
         };
         if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
             notice.worker_page = Some(page.clone());
+        }
+        held.touch_part(part);
+        self.main.touch(position);
+        self.note_main_change(&None, position);
+        true
+    }
+
+    /// A sign-in card moved on: the row that holds it shows it as it is now. Answers whether the
+    /// chat held that row.
+    fn sign_in_again(&mut self, card: &SignInCard) -> bool {
+        let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
+            let part = held.msg.parts.iter().position(|part| {
+                matches!(part, ChatPart::AgentNotice { notice, .. }
+                if notice.sign_in.as_ref().is_some_and(|shown| shown.id == card.id))
+            })?;
+            Some((position, part))
+        });
+        let Some((position, part)) = found else {
+            return false;
+        };
+        let Some(held) = self.main.rows.get_mut(position) else {
+            return false;
+        };
+        if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
+            notice.sign_in = Some(Box::new(card.clone()));
         }
         held.touch_part(part);
         self.main.touch(position);
