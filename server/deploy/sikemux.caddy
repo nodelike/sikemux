@@ -10,18 +10,20 @@ api.sikemux.com {
 	import sikemux_headers
 	header Referrer-Policy "no-referrer"
 	encode zstd gzip
-	# A stashed file may be 25 MiB; every other body stays small.
-	@stash_upload {
-		method POST
-		path /v1/stash
-	}
-	request_body @stash_upload {
+	# A stashed file, a shared page and a mod's file may each be 25 MiB, and a push of mod documents
+	# 4 MiB; the API holds each to its own limit. Every other body stays small.
+	@upload `(method('POST') && path('/v1/stash')) || (method('PUT') && path('/v1/pages/*', '/v1/mods/*/files/*'))`
+	request_body @upload {
 		max_size 26MiB
 	}
-	@small_body not {
+	@mods_push {
 		method POST
-		path /v1/stash
+		path /v1/mods/documents
 	}
+	request_body @mods_push {
+		max_size 5MiB
+	}
+	@small_body `!(method('POST') && path('/v1/stash', '/v1/mods/documents')) && !(method('PUT') && path('/v1/pages/*', '/v1/mods/*/files/*'))`
 	request_body @small_body {
 		max_size 1MiB
 	}
