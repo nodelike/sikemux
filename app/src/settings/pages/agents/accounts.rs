@@ -489,7 +489,6 @@ pub(crate) fn screen(
                 "Sign in with {label}'s own login in your browser.",
                 label = label
             ))
-            .foot(crate::i18n::tr(FOOT))
             .child(sign_in::Field::new(t!("Name"), &open.name))
             .child(
                 ui::Button::new(
@@ -554,7 +553,6 @@ pub(crate) fn screen(
                 "Sign in with {label}'s own login in your browser.",
                 label = label
             ))
-            .foot(crate::i18n::tr(FOOT))
             .child(sign_in::waiting(
                 "account-dialog-waiting",
                 t!("Finish signing in in your browser"),
@@ -574,7 +572,6 @@ pub(crate) fn screen(
                 "Sign in with {label}'s own login in your browser.",
                 label = label
             ))
-            .foot(crate::i18n::tr(FOOT))
             .child(sign_in::error(message.clone(), cx))
             .child(
                 ui::Button::new("sign-in-retry", t!("Try again"), ui::Variant::Primary)
@@ -590,9 +587,6 @@ pub(crate) fn screen(
     };
     Some(screen)
 }
-
-const FOOT: &str =
-    n!("Each account keeps its sign-in in a folder of its own. Chats and settings are shared between them.");
 
 /// Who the account signed in as, with the way to start using it while another is in use.
 fn signed_in(

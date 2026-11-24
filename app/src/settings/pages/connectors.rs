@@ -1254,8 +1254,7 @@ pub fn dialog(
     .lede(form.map_or_else(
         || t!("Tools for your agents to use {name} for you.", name = name),
         |form| form.lede.clone(),
-    ))
-    .foot(crate::i18n::tr(sign_in::KEPT));
+    ));
     if plugin.id == AWS {
         let chosen = signing.profile.clone().unwrap_or_default();
         let this = this.clone();
