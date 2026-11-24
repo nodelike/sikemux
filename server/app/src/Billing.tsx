@@ -7,7 +7,6 @@ import type {
   ChangePreview,
   ChangeWhen,
   Invoice,
-  Money,
   Org,
   PlanFeature,
   ScheduledChange,
@@ -56,7 +55,6 @@ import {
   priceText,
   productOf,
   times,
-  UNIT_WORD,
 } from "./money.ts";
 import { orgPath, START } from "./navigation.ts";
 import { frozen } from "./orgs.ts";
@@ -84,7 +82,6 @@ import {
 
 export const FREE_DURING_PREVIEW = "Free during preview";
 export const NOT_OPEN = "Buying is not open yet";
-const ME = "me";
 
 type Loaded = {
   catalog: BillingCatalog;
@@ -139,16 +136,8 @@ export function useBillingShown(
 /** What one payer, the person or an org, is billed. Read again whenever `version` moves. */
 function useBill(version: number, orgId?: string) {
   const client = useClient();
-  const [orgs, setOrgs] = useState<Org[]>();
-  const [chosen, setChosen] = useState<string>();
   const [load, setLoad] = useState<Load>({ state: "loading" });
   const [tick, setTick] = useState(0);
-  const { notice, show } = useNotice();
-  const owned = (orgs ?? []).filter((org) => org.role === "owner");
-  const payer = chosen ?? owned[0]?.id ?? (orgs ? ME : undefined);
-  const org = owned.find((each) => each.id === payer);
-  const reload = () => setTick((n) => n + 1);
-
   useEffect(() => {
     let current = true;
     const query = orgId ? { org: orgId } : {};
@@ -216,7 +205,6 @@ function NotLoaded({
         </Column>
       </Page>
     );
-
   return (
     <Page
       {...wear}
@@ -294,7 +282,6 @@ function PersonBill({
   orgs: Org[];
   follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
   reload: () => void;
-  show: Show;
 }) {
   const { catalog, overview, invoices, readAt } = loaded;
   const { allowance, live, canBuy } = overview;
@@ -799,16 +786,6 @@ function OrgBill({
                   />
                 }
               />
-              <li className="row note">
-                <span className="glyph">
-                  <IconInfo size={15} />
-                </span>
-                <span>
-                  Everything you pay for a plan in its first{" "}
-                  {catalog.refundDays} days comes back in full if you ask within
-                  them, once for each plan.
-                </span>
-              </li>
             </Rows>
           </Card>
         ) : null}
@@ -888,46 +865,6 @@ function usePortal(query: { org?: string }) {
   return { ...action, open };
 }
 
-function Lapsed({
-  sub,
-  catalog,
-  query,
-  pays,
-}: {
-  sub: Subscription;
-  catalog: BillingCatalog;
-  query: { org?: string };
-  pays: boolean;
-}) {
-  const portal = usePortal(query);
-  const name = productOf(catalog, sub.product)?.name ?? sub.product;
-  return (
-    <div className="banner warn" role="alert">
-      <IconCircleAlert size={16} />
-      <div className="grow">
-        <b>{name} has lapsed: its last payment didn't go through.</b>
-        <br />
-        {sub.product === "team"
-          ? "Invites and org features are frozen until it's paid. Everyone keeps their own hosts."
-          : "Its features are off until it's paid. Your hosts keep working."}
-        {pays ? null : " Only whoever pays for it can update the card."}
-        {portal.problem ? <p className="problem">{portal.problem}</p> : null}
-      </div>
-      {pays ? (
-        <button
-          type="button"
-          className="button small primary"
-          onClick={() => void portal.open()}
-          disabled={portal.busy}
-          data-busy={portal.busy || undefined}
-        >
-          Update card
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
 function intervalWord(interval: BillingInterval) {
   return interval === "month" ? "monthly" : "yearly";
 }
@@ -988,9 +925,6 @@ function PlanRows({
     onAsk(undefined);
     action.clear();
   };
-  const price = product ? priceText(product, sub.interval) : undefined;
-  const held = heldChange(sub);
-  const pause = sub.seatPause;
 
   return (
     <>
@@ -1134,8 +1068,6 @@ function PlanRows({
                       `${problemText(error)} It still ends on ${ends}.`,
                   )
                 }
-                disabled={action.busy}
-                data-busy={action.busy || undefined}
               >
                 Keep {name}
               </Btn>
@@ -1442,8 +1374,6 @@ function AtRenewal({
                   `${problemText(error)} The change still happens on ${ends}.`,
               )
             }
-            disabled={action.busy}
-            data-busy={action.busy || undefined}
           >
             Keep {kept}
           </Btn>
@@ -1650,20 +1580,9 @@ export function NewTeam({
   submit?: string;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState("");
   const [seats, setSeats] = useState(3);
   const team = productOf(catalog, "team");
   const unit = priceOf(team, "month");
-  const start = () =>
-    void checkout.go(async (routes) => {
-      const org = await routes.createOrg({ name: name.trim() });
-      return routes.startCheckout({
-        product: "team",
-        interval: "month",
-        quantity: seats,
-        orgId: org.id,
-      });
-    });
   return (
     <NameForm
       submit={submit}
@@ -1709,7 +1628,6 @@ export function NewPreviewTeam({
 }) {
   const client = useClient();
   const action = useAction();
-  const [name, setName] = useState("");
   return (
     <NameForm
       submit="Start Team"
@@ -1929,11 +1847,6 @@ export function ShedBox({
               show(text);
             }}
           />
-        ) : (
-          <span>{intervalWord(sub.interval)}</span>
-        )}
-        {sub.quantity > 1 ? (
-          <span className="quiet">· {sub.quantity} boxes</span>
         ) : null}
       </Row>
       <AtRenewal
@@ -2205,17 +2118,6 @@ function PaymentMethod({
   query: { org?: string };
 }) {
   const portal = usePortal(query);
-  const update = (
-    <button
-      type="button"
-      className="button small"
-      onClick={() => void portal.open()}
-      disabled={portal.busy}
-      data-busy={portal.busy || undefined}
-    >
-      {card ? "Update" : "Add a card"}
-    </button>
-  );
   return (
     <Card label="Card">
       <Rows>
