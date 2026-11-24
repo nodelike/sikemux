@@ -254,11 +254,14 @@ pub async fn find(
                 ),
                 None => None,
             };
-            let runs = timed(
+            let mut runs = timed(
                 ASK_BUDGET,
                 codehost::runs(&repo, &branch, id.as_ref(), false),
             )
             .await?;
+            if workflow.is_none() {
+                runs.retain(codehost::change_started);
+            }
             let picked = latest_failing(&runs, &branch, workflow.as_deref(), &mut notes)?;
             also_failing = red(&runs)
                 .into_iter()

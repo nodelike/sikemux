@@ -504,18 +504,40 @@ async fn runs_on(
             json!({ "headSha": sha, "branch": branch, "perPage": 50 }),
         )
         .await?;
+    let listed = page.get("runs").and_then(Value::as_array);
+    Ok(that_check(listed.into_iter().flatten(), sha, workflows))
+}
+
+/// The runs among `listed` that check the commit `sha`.
+fn that_check<'a>(
+    listed: impl Iterator<Item = &'a Value>,
+    sha: &str,
+    workflows: &[String],
+) -> Vec<Value> {
     let named = |run: &&Value| {
         workflows.is_empty() || text(run, "name").is_some_and(|name| workflows.contains(&name))
     };
-    Ok(page
-        .get("runs")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
+    listed
         .filter(|run| run["sha"].as_str() == Some(sha))
         .filter(named)
+        .filter(|run| {
+            change_started(run) || (!workflows.is_empty() && run["event"] == "workflow_run")
+        })
         .cloned()
-        .collect())
+        .collect()
+}
+
+/// Whether pushing or proposing the change started `run`. Code hosts also list runs on a commit
+/// that only happened while it was newest: on a schedule, by hand, or a bot's own, such as
+/// Dependabot's.
+pub fn change_started(run: &Value) -> bool {
+    match run["event"].as_str().unwrap_or_default() {
+        "" | "push" | "pull_request" | "pull_request_target" | "merge_group" => true,
+        "dynamic" => run["path"].as_str().is_some_and(|path| {
+            path.starts_with("dynamic/github-code-scanning/") || path.starts_with("dynamic/pages/")
+        }),
+        _ => false,
+    }
 }
 
 fn conclusion(run_or_job: &Value) -> Option<Conclusion> {
@@ -751,6 +773,39 @@ mod tests {
         let ends = [Some(Conclusion::Passed), Some(Conclusion::Passed)];
         let checks = verdict(&[passed.clone(), passed], &ends, &[]);
         assert!(matches!(checks, Checks::Passed));
+    }
+
+    #[test]
+    fn a_run_the_push_did_not_start_says_nothing_of_its_commit() {
+        let sha = "26a6b52066857907fbc812878526edb9a0459ae7";
+        let run = |id: &str, event: &str, path: &str, conclusion: &str| {
+            json!({
+                "id": id, "name": path, "sha": sha, "branch": "main", "event": event,
+                "path": path, "status": "completed", "conclusion": conclusion,
+            })
+        };
+        let dependabot = "dynamic/dependabot/dependabot-updates";
+        let ci = ".github/workflows/ci.yml";
+        let listed = [
+            run("45324290334", "dynamic", dependabot, "failure"),
+            run("45324284287", "dynamic", dependabot, "failure"),
+            run(
+                "45324251150",
+                "workflow_run",
+                ".github/workflows/nightly.yml",
+                "skipped",
+            ),
+            run(
+                "45324251240",
+                "workflow_run",
+                ".github/workflows/mobile-release.yml",
+                "cancelled",
+            ),
+            run("45324238742", "push", ci, "cancelled"),
+        ];
+        let checks = that_check(listed.iter(), sha, &[]);
+        let ids: Vec<_> = checks.iter().map(|run| run["id"].as_str()).collect();
+        assert_eq!(ids, [Some("45324238742")]);
     }
 
     #[test]

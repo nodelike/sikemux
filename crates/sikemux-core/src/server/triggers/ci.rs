@@ -330,7 +330,7 @@ async fn commit_ended(repo: &codehost::Repo, sha: &str, since: u64) -> Result<Ci
         }
         Checks::None => Ci::Ended(
             format!(
-                "No CI run started on {short} within {} minutes of this trigger being set; it may not be pushed, or CI may skip it.",
+                "No CI run started on {short} within {} minutes of this trigger being set; it may not be pushed, or CI may skip it. A run started by hand or on a schedule doesn't count: wait on its address instead.",
                 CI_START_WAIT_MS / 60_000
             ),
             CiEnded::NeverStarted,
