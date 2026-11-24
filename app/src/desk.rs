@@ -2525,7 +2525,7 @@ fn head(
                 let info = bench.mod_info(id);
                 let icon = crate::mods::icon_named(info.and_then(|info| info.icon.as_deref()));
                 (
-                    ui::icon(icon, 13.).flex_none().into_any_element(),
+                    ui::picture(icon, 13., Tokens::get(cx).text_secondary),
                     info.map_or_else(|| id.clone(), |info| info.name.clone()),
                 )
             }
@@ -2575,7 +2575,7 @@ fn head(
         let (show_agent, close_agent) = (agent.to_owned(), agent.to_owned());
         let tab = pill(
             SharedString::from(format!("desk-simulator-{agent}")),
-            ui::icon(Icon::Phone, 13.).flex_none().into_any_element(),
+            ui::picture(Icon::Phone, 13., Tokens::get(cx).text_secondary),
             label,
             shown,
             at_work,

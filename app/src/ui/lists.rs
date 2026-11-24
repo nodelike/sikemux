@@ -307,6 +307,7 @@ impl RenderOnce for Row {
             )
             .children(self.detail.map(|detail| {
                 let mut detail = meta(detail, cx)
+                    .line_height(crate::theme::ui_text(18.))
                     .min_w_0()
                     .overflow_hidden()
                     .whitespace_nowrap()
