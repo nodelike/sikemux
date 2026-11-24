@@ -3,11 +3,14 @@ run-name: Nightly
 
 # Starts Release on the newest commit of main that passed CI, after each green CI and hourly, when it is newer
 # than the last nightly and the one still building. Release then cancels that older build, unless
-# it has not been building long enough to finish, so a busy main still publishes.
+# its current attempt has not been running long enough to finish, so a busy main still publishes.
+# When the latest Release nightly or push CI on main failed only because GitHub never assigned a
+# runner, reruns only its failed jobs up to a bound instead of rebuilding from scratch, leaving
+# real failures red.
 on:
   schedule:
     - cron: "7 * * * *"
-  # GitHub often skips the schedule, so a green CI on main starts it too.
+  # GitHub often skips the schedule, so a completed CI on main starts it too.
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -16,6 +19,8 @@ on:
 
 permissions:
   actions: write
+  # Reads check-run annotations to tell an unacquired runner (and jobs waiting on it) from a real failure.
+  checks: read
   contents: read
 
 concurrency:
@@ -26,18 +31,116 @@ jobs:
   start:
     name: Start the newest green main
     if: >-
-      vars.NIGHTLY_HOLD == '' && (github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success'))
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Start Release when main has something new
+      - name: Rerun runner shortages or start Release when main has something new
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          TRIGGER_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          NIGHTLY_HOLD: ${{ vars.NIGHTLY_HOLD }}
           # A nightly building longer than this is stuck behind the Mac queue, so a newer one replaces it.
           REPLACE_AFTER_MINUTES: 90
+          # Attempt 1 plus up to 3 reruns of failed jobs when every failure was an unacquired runner.
+          MAX_ATTEMPTS: 4
         run: |
+          shortage_only() {
+            local run_id="$1" attempt="$2"
+            local jobs_json bad_rows dropped_names=() rem_names=() rem_anns=()
+            jobs_json="$(gh api --paginate "repos/$GH_REPO/actions/runs/$run_id/attempts/$attempt/jobs?per_page=100" --jq '.jobs[]' | jq -s '.')"
+            bad_rows="$(jq -r '.[] | select(.conclusion != "success" and .conclusion != "skipped") |
+              "\(.id)\t\(.conclusion // "null")\t\(if (.runner_name // "") == "" then "none" else "assigned" end)\t\(.steps | length)\t\(.name)"' <<<"$jobs_json")"
+            [[ -n "$bad_rows" ]] || return 1
+
+            local id conclusion runner steps name anns
+            while IFS=$'\t' read -r id conclusion runner steps name; do
+              anns="$(gh api "repos/$GH_REPO/check-runs/$id/annotations?per_page=100" --jq '.[].message')"
+              if grep -Fq "The job was not acquired by Runner" <<<"$anns" ||
+                [[ "$conclusion" == cancelled && "$runner" == none && "$steps" == 0 ]]; then
+                dropped_names+=("$name")
+              else
+                rem_names+=("$name")
+                rem_anns+=("$anns")
+              fi
+            done <<<"$bad_rows"
+
+            (( ${#dropped_names[@]} > 0 )) || return 1
+
+            local i dropped explained
+            for i in "${!rem_names[@]}"; do
+              explained=0
+              for dropped in "${dropped_names[@]}"; do
+                if grep -Fq "${dropped} ended with cancelled, so " <<<"${rem_anns[$i]}" ||
+                  [[ "${rem_names[$i]}" == "Rust formatting, lint, and tests" && "$dropped" == "Rust lint" ]]; then
+                  explained=1
+                  break
+                fi
+              done
+              (( explained )) || return 1
+            done
+          }
+
+          # Recover main's newest push CI run if it failed only because a runner was never acquired.
+          ci_row="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=1" \
+            --jq '.workflow_runs[0] // empty | select(.status == "completed" and .conclusion == "failure") | "\(.id) \(.run_attempt)"')"
+          if [[ -n "$ci_row" ]]; then
+            read -r ci_id ci_attempt <<<"$ci_row"
+            if (( ci_attempt < MAX_ATTEMPTS )) && shortage_only "$ci_id" "$ci_attempt"; then
+              gh api -X POST "repos/$GH_REPO/actions/runs/$ci_id/rerun-failed-jobs"
+              echo "Reran failed jobs of CI run $ci_id (attempt $((ci_attempt + 1))/$MAX_ATTEMPTS) after runner shortage" >>"$GITHUB_STEP_SUMMARY"
+            else
+              echo "Leaving CI run $ci_id red (attempt $ci_attempt/$MAX_ATTEMPTS)" >>"$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+          if [[ "$EVENT_NAME" == workflow_run && "$TRIGGER_CONCLUSION" != success ]]; then
+            exit 0
+          fi
+
+          if [[ -n "$NIGHTLY_HOLD" ]]; then
+            echo "Nightlies are held: $NIGHTLY_HOLD" >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          last_tag="$(gh release list --limit 30 --json tagName --jq '[.[].tagName | select(test("^v.*-nightly\\."))][0] // empty')"
+          last=""
+          [[ -n "$last_tag" ]] && last="$(gh api "repos/$GH_REPO/commits/$last_tag" --jq .sha)"
+
+          is_newer() {
+            [[ -z "$2" ]] && return 0
+            [[ "$(gh api "repos/$GH_REPO/compare/$2...$1" --jq .status)" == ahead ]]
+          }
+
+          release_runs="$(gh api "repos/$GH_REPO/actions/workflows/release.yml/runs?event=workflow_dispatch&per_page=20")"
+          building_row="$(jq -r '[.workflow_runs[] | select(.status != "completed")][0] // empty |
+            "\(.display_title | sub("^Release nightly from "; "")) \(.run_started_at // .created_at)"' <<<"$release_runs")"
+          building_sha=""
+          building_since=""
+          if [[ -n "$building_row" ]]; then
+            read -r building_sha building_since <<<"$building_row"
+            minutes=$(( ($(date +%s) - $(date -d "$building_since" +%s)) / 60 ))
+            if (( minutes < REPLACE_AFTER_MINUTES )); then
+              echo "Letting the nightly from $building_sha finish (${minutes} min into this attempt)" >>"$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+          else
+            failed_row="$(jq -r '.workflow_runs[0] // empty | select(.conclusion == "failure") |
+              "\(.id) \(.run_attempt) \(.display_title | sub("^Release nightly from "; ""))"' <<<"$release_runs")"
+            if [[ -n "$failed_row" ]]; then
+              read -r failed_id failed_attempt failed_sha <<<"$failed_row"
+              if (( failed_attempt < MAX_ATTEMPTS )) && is_newer "$failed_sha" "$last" && shortage_only "$failed_id" "$failed_attempt"; then
+                gh api -X POST "repos/$GH_REPO/actions/runs/$failed_id/rerun-failed-jobs"
+                echo "Reran failed jobs of Release run $failed_id from $failed_sha (attempt $((failed_attempt + 1))/$MAX_ATTEMPTS) after runner shortage" >>"$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+          fi
+
           newest="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
             --jq '.workflow_runs[0].head_sha // empty')"
           if [[ -z "$newest" ]]; then
@@ -54,31 +157,9 @@ jobs:
             exit 0
           fi
 
-          last_tag="$(gh release list --limit 30 --json tagName --jq '[.[].tagName | select(test("^v.*-nightly\\."))][0] // empty')"
-          last=""
-          [[ -n "$last_tag" ]] && last="$(gh api "repos/$GH_REPO/commits/$last_tag" --jq .sha)"
-
-          building="$(gh run list --workflow release.yml --event workflow_dispatch --limit 20 \
-            --json status,displayTitle,createdAt \
-            --jq '[.[] | select(.status != "completed")][0] // empty | "\(.displayTitle | sub("^Release nightly from "; "")) \(.createdAt)"')"
-          building_sha="${building%% *}"
-          building_since="${building#* }"
-
-          is_newer() {
-            [[ -z "$2" ]] && return 0
-            [[ "$(gh api "repos/$GH_REPO/compare/$2...$1" --jq .status)" == ahead ]]
-          }
           if ! is_newer "$newest" "$last" || ! is_newer "$newest" "$building_sha"; then
             echo "Nothing newer than ${last_tag:-the last nightly} or the build in progress: $newest" >>"$GITHUB_STEP_SUMMARY"
             exit 0
-          fi
-
-          if [[ -n "$building" ]]; then
-            minutes=$(( ($(date +%s) - $(date -d "$building_since" +%s)) / 60 ))
-            if (( minutes < REPLACE_AFTER_MINUTES )); then
-              echo "Letting the nightly from $building_sha finish (${minutes} min in); $newest goes next hour" >>"$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
           fi
 
           gh workflow run release.yml --ref main -f "sha=$newest"
