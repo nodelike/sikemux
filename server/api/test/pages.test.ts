@@ -6,6 +6,7 @@ import vector from "../../protocol/vectors/share-viewer.json" with { type: "json
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { Database } from "../src/db.ts";
+import { removeDevice } from "../src/devices/removal.ts";
 import { bodySha256, requestMessage } from "../src/devices/signature.ts";
 import { purgePages } from "../src/pages/store.ts";
 import { StashFiles } from "../src/stash/files.ts";
@@ -114,6 +115,47 @@ describe("shared pages", () => {
 
     const state = await asHost(`/v1/pages/${page.id}/state`, "GET");
     expect(await state.json()).toMatchObject({ views: 1, ended: false });
+  });
+
+  it("keeps nothing from a host removed while it uploads", async () => {
+    const page = link();
+    const path = `/v1/pages/${page.id}`;
+    const sealed = new TextEncoder().encode("c2VhbGVk");
+    const sha = bodySha256(sealed);
+    const time = String(Math.floor(Date.now() / 1000) - (sent++ % 50));
+    const message = requestMessage("host", "PUT", path, time, sha);
+    const response = await app.request(path, {
+      method: "PUT",
+      body: new ReadableStream(
+        {
+          async pull(body) {
+            await database.db.transaction().execute((trx) =>
+              removeDevice(trx, {
+                userId: ARJUN,
+                key: host.key,
+                reason: "removed",
+                actor: "system",
+              }),
+            );
+            body.enqueue(sealed);
+            body.close();
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+      duplex: "half",
+      headers: {
+        authorization: `SikemuxHost ${host.key}.${time}.${signText(host, message)}`,
+        "content-type": "application/octet-stream",
+        "x-body-sha256": sha,
+        "x-page-viewer-check": page.check,
+        "x-page-anyone": "true",
+        "x-page-expires": String(Date.now() + DAY),
+      },
+    } as RequestInit);
+
+    expect(response.status).toBe(401);
+    expect((await view(page.id, page.proof)).status).toBe(404);
   });
 
   it("asks a viewer to sign in when the page is not open to anyone", async () => {

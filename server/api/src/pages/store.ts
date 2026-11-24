@@ -4,6 +4,7 @@ import { sql, type Kysely } from "kysely";
 
 import { holdStanding } from "../auth.ts";
 import type { Tables } from "../db.ts";
+import { signInOf } from "../devices/register.ts";
 import { ApiFailure, conflict, notFound } from "../http.ts";
 import type { Logger } from "../log.ts";
 import type { StashFiles } from "../stash/files.ts";
@@ -64,6 +65,7 @@ export async function putPage(
     checkBody(written.sha256);
     const { row, replaced } = await db.transaction().execute(async (trx) => {
       await holdStanding(trx, userId, { exclusive: true });
+      await signInOf(trx, userId, hostKey);
       const before = await trx
         .selectFrom("pages")
         .select(["user_id", "stored_as"])
