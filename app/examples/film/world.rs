@@ -568,6 +568,18 @@ impl World {
         )
     }
 
+    fn sign_out_antigravity(&self) -> anyhow::Result<()> {
+        let bin = self.work.join("bin");
+        std::fs::rename(bin.join("agy"), bin.join("agy-signed-in"))?;
+        stand_in(
+            &bin,
+            "agy",
+            &format!("#!/bin/sh\nbin='{}'\n{SIGNED_OUT}", bin.display()),
+        )?;
+        self.call("forgetAgentStatus", json!({}))?;
+        Ok(())
+    }
+
     /// Does `step` when it is the core's to do.
     pub(super) fn chat_named(&self, name: &str) -> anyhow::Result<String> {
         (self.named.get(name).cloned()).ok_or_else(|| anyhow!("no chat named {name}"))
@@ -586,6 +598,7 @@ impl World {
                 self.project = Some((name, path));
             }
             "signed-in" => self.sign_in()?,
+            "signed-out" => self.sign_out_antigravity()?,
             "host" => self.link_host(step.text(0)?, step.text(1).ok())?,
             "saved" => self.save_chat_on(step.text(0)?, step.text(1)?)?,
             "asleep" => self.freeze(step.text(0)?)?,
@@ -1001,6 +1014,19 @@ fn signed_in(account: &str) -> String {
 
 /// A signed-out agent CLI, such as agy, opens its sign-in page with `open`, which would land
 /// in the person's own browser: the world's `open` goes nowhere.
+const SIGNED_OUT: &str = r#"
+if [ "$1 $2" = 'acp --login' ]; then
+  printf 'Open this page to sign in to your Google account:\n\n  https://accounts.example.com/o/oauth2/v2/auth?response_type=code&client_id=stand-in&redirect_uri=https%%3A%%2F%%2Fexample.com%%2Fcallback&scope=openid+email+profile\n\nPaste the code it gives you: '
+  read -r code
+  [ "$code" = 4821 ] || { echo 'That code was not accepted.'; exit 1; }
+  : > "$bin/agy-account"
+  echo 'Signed in.'
+  exit 0
+fi
+[ "$1" = models ] && [ ! -e "$bin/agy-account" ] && exit 1
+exec "$bin/agy-signed-in" "$@"
+"#;
+
 const OPEN: &str = "#!/bin/sh\nexit 0\n";
 
 fn stand_in(bin: &Path, name: &str, script: &str) -> anyhow::Result<()> {
