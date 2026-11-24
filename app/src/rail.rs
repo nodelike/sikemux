@@ -1098,9 +1098,7 @@ fn project_menu(
     let bench_entity = cx.weak_entity();
     let front = bench.front_copy(folded).cloned();
     let own = (folded.own.as_ref()).map(|own| own.id.clone());
-    let clones: Vec<String> = (folded.own.iter().chain(&folded.clones))
-        .map(|project| project.id.clone())
-        .collect();
+    let clones: Vec<String> = folded.here().map(|project| project.id.clone()).collect();
     let identity = folded.identity.clone();
     let chosen = (bench.space_of(folded))
         .filter(|_| {
@@ -1172,7 +1170,7 @@ fn project_menu(
         popup = popup.separator();
         for (space, name, glyph) in &spaces {
             let mut item = PopupMenuItem::new(name.clone())
-                .checked(current.as_ref() == Some(space))
+                .checked(chosen.as_ref() == Some(space))
                 .on_click(move_to(Some(space.clone())));
             if let Some(glyph) = glyph {
                 item = item.icon(*glyph);
@@ -1193,9 +1191,9 @@ fn project_menu(
             );
         }
         popup.separator().item(
-            PopupMenuItem::new(t!("No Space"))
+            PopupMenuItem::new(unchosen.clone())
                 .icon(Icon::Move)
-                .checked(current.is_none())
+                .checked(chosen.is_none())
                 .on_click(move_to(None)),
         )
     }
