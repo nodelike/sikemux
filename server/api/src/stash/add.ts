@@ -5,6 +5,7 @@ import type { Kysely } from "kysely";
 
 import { holdStanding, type Identity } from "../auth.ts";
 import type { Tables } from "../db.ts";
+import { signInOf } from "../devices/register.ts";
 import { ApiFailure, badRequest } from "../http.ts";
 import type { Logger } from "../log.ts";
 import type { StashFiles } from "./files.ts";
@@ -187,6 +188,7 @@ export async function addFile(
     const device = await fromDevice(db, identity);
     return await db.transaction().execute(async (trx) => {
       await holdStanding(trx, userId, { exclusive: true });
+      if (identity.deviceKey) await signInOf(trx, userId, identity.deviceKey);
       await checkSpace(trx, userId, written.size);
       if (prompt) await openPrompt(trx, userId, prompt);
       const row = await trx

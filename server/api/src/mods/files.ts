@@ -3,6 +3,7 @@ import type { ModFileStored, ModFiles } from "@sikemux/protocol";
 import { sql, type Kysely } from "kysely";
 
 import type { Tables } from "../db.ts";
+import { signInOf } from "../devices/register.ts";
 import { appendEvent } from "../events/log.ts";
 import { ApiFailure, notFound } from "../http.ts";
 import type { Logger } from "../log.ts";
@@ -75,6 +76,7 @@ export async function putFile(
     checkBody(written.sha256);
     const stored = await db.transaction().execute(async (trx) => {
       await lockedCounter(trx, userId);
+      await signInOf(trx, userId, hostKey);
       const { file_bytes } = await trx
         .selectFrom("mod_counters")
         .select("file_bytes")
