@@ -31,6 +31,7 @@ import {
   changeable,
   frozen,
   manages,
+  renewable,
   ROLE_WORDS,
   runs,
   useLoad,
@@ -147,6 +148,7 @@ export function PeoplePage({
   const boss = members?.find((each) => each.role === "owner");
   const bossName = boss?.name ?? "An owner";
   const open = changeable(org, team);
+  const ended = renewable(org, team);
   const billing = orgPath(org.id, "billing");
 
   const body = members && invites && teams && (
@@ -208,10 +210,14 @@ export function PeoplePage({
   if (frozen(org))
     return (
       <Page
-        title={`${org.name} is frozen`}
-        lede="Its Team plan ended. Nothing is deleted."
+        title={`${org.name} is ${ended ? "frozen" : "paused"}`}
+        lede={
+          ended
+            ? "Its Team plan ended. Nothing is deleted."
+            : "Team isn't open to your account now. Nothing is deleted."
+        }
         actions={
-          org.role === "owner" ? (
+          !ended ? undefined : org.role === "owner" ? (
             <a
               className={btnClass({})}
               href={billing}

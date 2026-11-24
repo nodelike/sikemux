@@ -1,6 +1,6 @@
 import lockup from "../../../brand/wordmark/lockup-purple.svg";
 import { useClerk, useUser } from "@clerk/react";
-import type { Org } from "@sikemux/protocol";
+import type { Org, TeamAccess } from "@sikemux/protocol";
 import {
   IconCreditCard,
   IconGlobe,
@@ -20,7 +20,7 @@ import {
 
 import { Avatar, OrgAvatar } from "./Avatar.tsx";
 import { ORG_PAGES, orgPath, START, type OrgPage } from "./navigation.ts";
-import { frozen, seesPage } from "./orgs.ts";
+import { frozen, renewable, seesPage } from "./orgs.ts";
 
 export type NavItem = {
   path: string;
@@ -47,6 +47,8 @@ export function Shell({
   staff,
   orgs,
   current,
+  team,
+  billed,
   canStart,
   offered,
   children,
@@ -57,13 +59,15 @@ export function Shell({
   staff: NavItem[];
   orgs: Org[];
   current?: { org: Org; page: OrgPage };
+  team: TeamAccess;
+  billed: boolean;
   canStart: boolean;
   offered: boolean;
   children: ReactNode;
 }) {
   const orgsShown = orgs.length > 0 || canStart;
   const tabs = current
-    ? pagesOf(current.org).map(([page, name]) => ({
+    ? pagesOf(current.org, billed).map(([page, name]) => ({
         path: orgPath(current.org.id, page),
         name,
       }))
@@ -89,6 +93,8 @@ export function Shell({
                     key={org.id}
                     org={org}
                     page={current?.org.id === org.id ? current.page : undefined}
+                    team={team}
+                    billed={billed}
                     follow={follow}
                   />
                 ))}
@@ -128,6 +134,7 @@ export function Shell({
           <Scopes
             orgs={orgs}
             current={current?.org}
+            team={team}
             canStart={canStart}
             follow={follow}
           />
@@ -139,9 +146,9 @@ export function Shell({
   );
 }
 
-function pagesOf(org: Org) {
+function pagesOf(org: Org, billed: boolean) {
   return (Object.entries(ORG_PAGES) as [OrgPage, string][]).filter(([page]) =>
-    seesPage(org, page),
+    seesPage(org, page, billed),
   );
 }
 
@@ -179,10 +186,14 @@ function NavLink({
 function OrgLinks({
   org,
   page,
+  team,
+  billed,
   follow,
 }: {
   org: Org;
   page?: OrgPage;
+  team: TeamAccess;
+  billed: boolean;
   follow: Follow;
 }) {
   const row = useRef<HTMLDivElement>(null);
@@ -196,11 +207,11 @@ function OrgLinks({
       <a className={here ? "ol on" : "ol"} href={to} onClick={follow(to)}>
         <OrgAvatar id={org.id} />
         <span className="n">{org.name}</span>
-        {frozen(org) ? <FrozenDot /> : null}
+        {frozen(org) ? <FrozenDot ended={renewable(org, team)} /> : null}
       </a>
       {here ? (
         <div className="sub">
-          {pagesOf(org).map(([each, name]) => (
+          {pagesOf(org, billed).map(([each, name]) => (
             <NavLink
               key={each}
               path={orgPath(org.id, each)}
@@ -216,18 +227,20 @@ function OrgLinks({
   );
 }
 
-function FrozenDot() {
-  return <i className="dot" title="Its Team plan ended" />;
+function FrozenDot({ ended }: { ended: boolean }) {
+  return <i className="dot" title={ended ? "Its Team plan ended" : "Paused"} />;
 }
 
 function Scopes({
   orgs,
   current,
+  team,
   canStart,
   follow,
 }: {
   orgs: Org[];
   current?: Org;
+  team: TeamAccess;
   canStart: boolean;
   follow: Follow;
 }) {
@@ -262,7 +275,7 @@ function Scopes({
         >
           <OrgAvatar id={org.id} />
           <span>{org.name}</span>
-          {frozen(org) ? <FrozenDot /> : null}
+          {frozen(org) ? <FrozenDot ended={renewable(org, team)} /> : null}
         </a>
       ))}
       {canStart ? (

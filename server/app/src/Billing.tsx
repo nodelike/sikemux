@@ -34,6 +34,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { ApiProblem } from "@shared/account/api";
 import { api, problemText, signedInToken } from "./api.ts";
 import { BilledSwitch } from "./BilledSwitch.tsx";
 import { PlanCard } from "./PlanCard.tsx";
@@ -90,9 +91,12 @@ export function useClient() {
 }
 
 /** Whether billing answers this account: it does for staff, and for everyone once it is live. */
-export function useBillingShown(ready: boolean): boolean {
+export function useBillingShown(
+  ready: boolean,
+  version: number,
+): boolean | undefined {
   const client = useClient();
-  const [shown, setShown] = useState(false);
+  const [shown, setShown] = useState<boolean>();
   useEffect(() => {
     if (!ready) return;
     let current = true;
@@ -100,12 +104,18 @@ export function useBillingShown(ready: boolean): boolean {
       .then((routes) => routes.getBilling())
       .then(
         () => current && setShown(true),
-        () => undefined,
+        (error: unknown) =>
+          current &&
+          setShown((last) =>
+            error instanceof ApiProblem && error.status === 404
+              ? false
+              : (last ?? false),
+          ),
       );
     return () => {
       current = false;
     };
-  }, [ready, client]);
+  }, [ready, client, version]);
   return shown;
 }
 

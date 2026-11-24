@@ -25,6 +25,10 @@ export const runs = (org: Org) => org.role === "owner" || org.role === "admin";
 /** An org whose plan ended keeps everything, but takes nobody new and changes nothing. */
 export const frozen = (org: Org) => org.seats.limit === 0;
 
+/** Whether a frozen org's plan ended and can be renewed. Otherwise Team itself is shut to the person. */
+export const renewable = (org: Org, team: TeamAccess) =>
+  frozen(org) && team === "sold";
+
 /** Whether the org takes changes from someone Team is open to this way. */
 export const changeable = (org: Org, team: TeamAccess) =>
   !frozen(org) && (team === "preview" || team === "sold");
@@ -34,10 +38,10 @@ export function manages(actor: OrgRole, role: OrgRole): boolean {
   return actor === "owner" || (actor === "admin" && role !== "owner");
 }
 
-/** Whether the org's page is one the API answers someone with this role. */
-export function seesPage(org: Org, page: OrgPage): boolean {
+/** Whether the org's page is one the API answers someone with this role. `billed` is whether billing answers them at all. */
+export function seesPage(org: Org, page: OrgPage, billed: boolean): boolean {
   if (page === "people" || page === "policy") return true;
-  return page === "billing" ? org.role === "owner" : runs(org);
+  return page === "billing" ? billed && org.role === "owner" : runs(org);
 }
 
 export type Orgs = {
@@ -51,18 +55,28 @@ export type Orgs = {
 export function useOrgs(ready: boolean, key: string): Orgs {
   const client = useClient();
   const [state, setState] = useState<Omit<Orgs, "reload">>({});
-  const reload = useCallback(async () => {
+  const read = useCallback(async () => {
     try {
       const { orgs } = await (await client("see your orgs")).listOrgs();
-      setState({ list: orgs });
+      return { list: orgs };
     } catch (error) {
-      const problem = `${problemText(error)} Reload the page to try again.`;
-      setState(({ list }) => ({ list, problem }));
+      return { problem: `${problemText(error)} Reload the page to try again.` };
     }
   }, [client]);
+  const reload = useCallback(async () => {
+    const next = await read();
+    setState(({ list }) => ({ list, ...next }));
+  }, [read]);
   useEffect(() => {
-    if (ready) void reload();
-  }, [ready, key, reload]);
+    if (!ready) return;
+    let current = true;
+    void read().then(
+      (next) => current && setState(({ list }) => ({ list, ...next })),
+    );
+    return () => {
+      current = false;
+    };
+  }, [ready, key, read]);
   return { ...state, reload };
 }
 
@@ -78,18 +92,24 @@ export const keepLastOrg = (id: string) => sessionStorage.setItem(LAST_KEY, id);
 export function useOffers(ready: boolean) {
   const client = useClient();
   const [offers, setOffers] = useState<OrgOffer[]>([]);
-  const reload = useCallback(async () => {
+  const read = useCallback(async () => {
     try {
       const routes = await client("see orgs you can join");
-      setOffers((await routes.listOrgOffers()).offers);
+      return (await routes.listOrgOffers()).offers;
     } catch {
-      setOffers([]);
+      return [];
     }
   }, [client]);
+  const reload = useCallback(async () => setOffers(await read()), [read]);
   useEffect(() => {
-    if (ready) void reload();
-  }, [ready, reload]);
-  return { offers, reload };
+    if (!ready) return;
+    let current = true;
+    void read().then((found) => current && setOffers(found));
+    return () => {
+      current = false;
+    };
+  }, [ready, read]);
+  return { offers: ready ? offers : [], reload };
 }
 
 /** Loads what a page shows, again whenever `key` changes or `again` is called. */

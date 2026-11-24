@@ -5,7 +5,14 @@ import { useState } from "react";
 import { problemText } from "./api.ts";
 import { useClient } from "./Billing.tsx";
 import { iconMark } from "./marks.ts";
-import { changeable, frozen, RULE_WORDS, runs, useLoad } from "./orgs.ts";
+import {
+  changeable,
+  frozen,
+  renewable,
+  RULE_WORDS,
+  runs,
+  useLoad,
+} from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
 import {
   Btn,
@@ -126,9 +133,9 @@ export function PolicyPage({ org, team }: { org: Org; team: TeamAccess }) {
           </>
         ) : runs(org) && !editable ? (
           <p className="note">
-            {frozen(org)
+            {renewable(org, team)
               ? "The org is frozen. The policy comes back when an owner renews Team."
-              : "Team isn't open to your account now. You can still read the policy."}
+              : `${frozen(org) ? `${org.name} is paused. ` : ""}Team isn't open to your account now. You can still read the policy.`}
           </p>
         ) : undefined
       }

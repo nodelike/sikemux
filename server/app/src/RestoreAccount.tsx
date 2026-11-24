@@ -11,8 +11,8 @@ type AccountState =
   | { state: "active"; restorableDays?: number }
   | { state: "deleting"; deletesAt: string };
 
-/** Whether the signed-in account is in use, or deleted and still restorable. A failed read counts as in use, and the devices list says what went wrong. */
-export function useAccountState(ready: boolean) {
+/** Whether the signed-in account is in use, or deleted and still restorable, read again whenever `version` moves. A failed read counts as in use, and the devices list says what went wrong. */
+export function useAccountState(ready: boolean, version: number) {
   const { isSignedIn, getToken } = useAuth();
   const [account, setAccount] = useState<AccountState>({ state: "loading" });
   const [staff, setStaff] = useState(false);
@@ -34,13 +34,16 @@ export function useAccountState(ready: boolean) {
             : { state: "active", restorableDays: read.restorableDays },
         );
       } catch {
-        if (current) setAccount({ state: "active" });
+        if (current)
+          setAccount((last) =>
+            last.state === "loading" ? { state: "active" } : last,
+          );
       }
     })();
     return () => {
       current = false;
     };
-  }, [ready, isSignedIn, getToken]);
+  }, [ready, isSignedIn, getToken, version]);
 
   const restored = useCallback(
     (restorableDays: number) => setAccount({ state: "active", restorableDays }),

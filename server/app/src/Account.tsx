@@ -69,33 +69,40 @@ export function Account({
   const { user } = useUser();
   const { isSignedIn } = useAuth();
   const email = user?.primaryEmailAddress?.emailAddress;
-  const { account, staff, team, restored } = useAccountState(ready);
+  const [planVersion, setPlanVersion] = useState(0);
+  const { account, staff, team, restored } = useAccountState(
+    ready,
+    planVersion,
+  );
   const active = account.state === "active";
   const devices = useDevices(ready && active);
   const signIns = useSignIns(ready && active);
-  const billingShown = useBillingShown(ready && active);
-  const [planVersion, setPlanVersion] = useState(0);
+  const billingShown = useBillingShown(ready && active, planVersion);
   const teamShown = team !== "shut";
   const canStart = team === "sold" || team === "preview";
   const offers = useOffers(canStart);
   const route = orgRoute(path);
   const orgs = useOrgs(teamShown, `${route?.id ?? ""} ${planVersion}`);
-  const org = orgs.list?.find((each) => each.id === route?.id);
+  const list = teamShown ? (orgs.list ?? []) : [];
+  const org = list.find((each) => each.id === route?.id);
   const current =
     route && org
       ? {
           org,
-          page: seesPage(org, route.page) ? route.page : ("people" as const),
+          page: seesPage(org, route.page, billingShown === true)
+            ? route.page
+            : ("people" as const),
         }
       : undefined;
   const named = path === TEAM || route !== null;
   const settled =
     account.state !== "loading" &&
+    billingShown !== undefined &&
     (!teamShown || orgs.list !== undefined || orgs.problem !== undefined);
 
   /** A path that names no page here goes to the nearest one there is. */
   const settle = useEffectEvent(() => {
-    const last = lastOrg(orgs.list ?? []);
+    const last = lastOrg(list);
     if (path === TEAM)
       go(last ? orgPath(last.id) : canStart ? START : "/", { replace: true });
     else if (route && !org && orgs.list) go("/", { replace: true });
@@ -107,12 +114,13 @@ export function Account({
     if (settled && named && !(orgs.problem && !orgs.list)) settle();
   }, [settled, named, path, orgs.list, orgs.problem, current?.page]);
 
+  const currentId = current?.org.id;
   useEffect(() => {
-    if (current) keepLastOrg(current.org.id);
-  }, [current?.org.id]);
+    if (currentId) keepLastOrg(currentId);
+  }, [currentId]);
 
   const shown: Record<string, boolean> = {
-    [BILLING]: billingShown,
+    [BILLING]: billingShown === true,
     [PRICING]: staff,
     [START]: canStart,
   };
@@ -170,7 +178,7 @@ export function Account({
       <StartPage
         team={team}
         staff={staff}
-        orgs={orgs.list ?? []}
+        orgs={list}
         offers={offers.offers}
         follow={follow}
         onJoined={joined}
@@ -233,13 +241,13 @@ export function Account({
       </Card>
     </Page>
   ) : page === PRICING ? (
-    <PricingPage orgs={orgs.list ?? []} reload={orgs.reload} />
+    <PricingPage orgs={list} reload={orgs.reload} />
   ) : page === BILLING ? (
     <BillingPage
       version={planVersion}
       staff={staff}
       team={team}
-      orgs={orgs.list ?? []}
+      orgs={list}
       follow={follow}
     />
   ) : page === HOSTS ? (
@@ -265,8 +273,10 @@ export function Account({
           ? [{ path: PRICING, name: "Pricing", icon: <IconTag size={15} /> }]
           : []
       }
-      orgs={teamShown ? (orgs.list ?? []) : []}
+      orgs={list}
       current={current}
+      team={team}
+      billed={billingShown === true}
       canStart={canStart}
       offered={offers.offers.length > 0}
     >

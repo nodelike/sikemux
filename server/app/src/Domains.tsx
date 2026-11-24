@@ -12,7 +12,7 @@ import { problemText } from "./api.ts";
 import { useClient } from "./Billing.tsx";
 import { useCheer } from "./Field.tsx";
 import { iconMark } from "./marks.ts";
-import { changeable, frozen, possessive, useLoad } from "./orgs.ts";
+import { changeable, frozen, possessive, renewable, useLoad } from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
 import {
   Btn,
@@ -106,9 +106,9 @@ export function DomainsPage({ org, team }: { org: Org; team: TeamAccess }) {
       <Btn onClick={() => setAdding(true)}>Add a domain</Btn>
     ) : domains?.length ? (
       <p className="note">
-        {frozen(org)
+        {renewable(org, team)
           ? "The org is frozen. You can still remove a domain."
-          : "Team isn't open to your account now. You can still remove a domain."}
+          : `${frozen(org) ? `${org.name} is paused. ` : ""}Team isn't open to your account now. You can still remove a domain.`}
       </p>
     ) : undefined);
 
@@ -119,9 +119,11 @@ export function DomainsPage({ org, team }: { org: Org; team: TeamAccess }) {
         lede={
           open
             ? "Prove your domain and people with an address there find the org by themselves."
-            : frozen(org)
+            : renewable(org, team)
               ? "The org is frozen. Domains come back when an owner renews Team."
-              : "Team isn't open to your account now."
+              : frozen(org)
+                ? `${org.name} is paused. Team isn't open to your account now. Nothing is deleted.`
+                : "Team isn't open to your account now."
         }
         actions={add}
         mark={mark}
