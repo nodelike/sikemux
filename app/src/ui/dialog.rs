@@ -249,14 +249,15 @@ pub(crate) struct Floating {
     content: AnyElement,
     yes: Answer,
     no: Answer,
-    answers_keys: bool,
+    inner: Option<FocusHandle>,
     focus: Option<FocusHandle>,
 }
 
 impl Floating {
-    /// Whether Escape and Enter answer it; off while something inside it needs them.
-    pub(crate) fn answers_keys(mut self, answers: bool) -> Self {
-        self.answers_keys = answers;
+    /// What inside it takes the keys in place of the box, Escape and Enter too while it holds
+    /// them.
+    pub(crate) fn keys_to(mut self, inner: Option<FocusHandle>) -> Self {
+        self.inner = inner;
         self
     }
 
@@ -278,15 +279,16 @@ pub(crate) fn floating(
         content: content.into_any_element(),
         yes,
         no,
-        answers_keys: true,
+        inner: None,
         focus: None,
     }
 }
 
 impl RenderOnce for Floating {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let dialog = float(self.width, self.content, self.yes, self.no, cx)
-            .close_on_escape(self.answers_keys);
+        let inner_holds = (self.inner.as_ref()).is_some_and(|inner| inner.is_focused(window));
+        let dialog =
+            float(self.width, self.content, self.yes, self.no, cx).close_on_escape(!inner_holds);
         if let Some(focus) = self.focus {
             return dialog.focus_handle(focus);
         }
@@ -299,13 +301,15 @@ impl RenderOnce for Floating {
             }),
         });
         let focus = state.read(cx).focus.clone();
-        if state.read(cx).loose {
+        let hands_on = self.inner.is_some() && focus.is_focused(window);
+        if state.read(cx).loose || hands_on {
             let focus = focus.clone();
+            let inner = self.inner;
             window.defer(cx, move |window, cx| {
                 state.update(cx, |state, _| state.loose = false);
                 // A field the box opened with may hold it already.
-                if !focus.contains_focused(window, cx) {
-                    focus.focus(window, cx);
+                if focus.is_focused(window) || !focus.contains_focused(window, cx) {
+                    inner.as_ref().unwrap_or(&focus).focus(window, cx);
                 }
             });
         }

@@ -974,7 +974,7 @@ impl Render for Workbench {
                     .children(asked)
                     .children(crate::overlays::dialogs(self, cx))
                     .children(crate::settings::account_dialog(self, &cx.entity(), cx))
-                    .children(crate::agents::setup::sheet(self, &cx.entity(), window, cx))
+                    .children(crate::agents::setup::sheet(self, &cx.entity(), cx))
                     .children(crate::connector_sign_in::dialog(self, &cx.entity(), cx))
                     .children(crate::pairing::sign_in_box(self, cx))
                     .children(crate::boot::reconnecting(self, cx))

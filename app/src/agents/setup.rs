@@ -106,8 +106,6 @@ pub struct Sheet {
     session: Option<SessionId>,
     /// The core has listed its session, so its leaving the list means it ended.
     seen: bool,
-    /// Its terminal has been handed the keys once.
-    focused: std::cell::Cell<bool>,
     phase: Phase,
 }
 
@@ -128,6 +126,15 @@ impl Sheet {
         match self.install {
             true => Doing::Installing,
             false => Doing::SigningIn,
+        }
+    }
+
+    /// Whether running it again may get further: it stopped short, or left the agent signed out.
+    fn can_run_again(&self) -> bool {
+        match &self.phase {
+            Phase::Failed(_) | Phase::Refused(_) => true,
+            Phase::Done(Some(AgentStatus::SignedOut)) => !self.install,
+            Phase::Running | Phase::Checking | Phase::Done(_) => false,
         }
     }
 }
@@ -517,7 +524,6 @@ pub fn installer(kind: &str, label: &str, command: String) -> Sheet {
         command,
         session: None,
         seen: false,
-        focused: std::cell::Cell::new(false),
         phase: Phase::Running,
     }
 }
@@ -553,7 +559,6 @@ pub fn signing_in(agent: &Found, folder: Option<&str>) -> Option<Sheet> {
         command,
         session: None,
         seen: false,
-        focused: std::cell::Cell::new(false),
         phase: Phase::Running,
     })
 }
@@ -778,8 +783,10 @@ fn ended(
         .and_then(|profile| profile.config_path.clone());
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let forgot =
-            Target::here(&asks).request_typed::<call::ForgetAgentStatus>(Forget::default());
+        let forgot = Target::here(&asks).request_typed::<call::ForgetAgentStatus>(Forget {
+            provider: Some(kind.clone()),
+            config_path: config.clone(),
+        });
         let _ = forgot.await;
         let (status, _) = availability(&asks, &kind, config).await;
         let _ = bench.update(cx, |bench, cx| {
@@ -818,7 +825,6 @@ fn again(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     };
     sheet.session = None;
     sheet.seen = false;
-    sheet.focused.set(false);
     sheet.phase = Phase::Running;
     run(bench, sheet, cx);
 }
@@ -937,7 +943,7 @@ fn body(
             on(close),
             cx,
         )),
-        Phase::Failed(_) | Phase::Refused(_) => screen
+        Phase::Failed(_) | Phase::Refused(_) | Phase::Done(_) if sheet.can_run_again() => screen
             .child(sign_in::error(state(sheet), cx))
             .child(
                 ui::Button::new("agent-sheet-again", t!("Try again"), ui::Variant::Primary)
@@ -948,11 +954,13 @@ fn body(
                 sign_in::links()
                     .child(sign_in::link("agent-sheet-close", t!("Close"), cx).clicks(on(close))),
             ),
-        Phase::Done(_) => screen.child(sign_in::note(state(sheet), cx)).child(
-            ui::Button::new("agent-sheet-done", t!("Done"), ui::Variant::Primary)
-                .wide()
-                .on_click(on(close)),
-        ),
+        Phase::Failed(_) | Phase::Refused(_) | Phase::Done(_) => {
+            screen.child(sign_in::note(state(sheet), cx)).child(
+                ui::Button::new("agent-sheet-done", t!("Done"), ui::Variant::Primary)
+                    .wide()
+                    .on_click(on(close)),
+            )
+        }
     };
     Some(screen)
 }
@@ -968,28 +976,26 @@ fn terminal_focus(bench: &Workbench) -> Option<FocusHandle> {
 pub fn sheet(
     bench: &Workbench,
     this: &Entity<Workbench>,
-    window: &mut Window,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
     let screen = body(bench, this, cx)?;
     let sheet = bench.agent_setup.sheet.as_ref()?;
-    if let Some(focus) = terminal_focus(bench) {
-        if !sheet.focused.replace(true) {
-            focus.focus(window, cx);
-        }
-    }
+    let terminal = match sheet.phase {
+        Phase::Running => terminal_focus(bench),
+        _ => None,
+    };
     let on = |run: fn(&mut Workbench, &mut Context<Workbench>)| -> dialog::Answer {
         let this = this.clone();
         Rc::new(move |_, cx| this.update(cx, run))
     };
     let yes = match &sheet.phase {
         Phase::Running | Phase::Checking => Rc::new(|_: &mut Window, _: &mut gpui_kit::App| {}),
-        Phase::Failed(_) | Phase::Refused(_) => on(again),
-        Phase::Done(_) => on(close),
+        _ if sheet.can_run_again() => on(again),
+        _ => on(close),
     };
     Some(
         dialog::floating(px(BOX_WIDTH), screen, yes, on(close))
-            .answers_keys(!matches!(sheet.phase, Phase::Running))
+            .keys_to(terminal)
             .into_any_element(),
     )
 }
