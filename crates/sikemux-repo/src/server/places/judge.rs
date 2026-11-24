@@ -9,7 +9,7 @@ use sikemux_view::inbox::ShipKind;
 use sikemux_view::places::{Level, Recognise};
 
 use super::place::{id_of, new_place, says_not_production, says_production, Place};
-use crate::ship::{Ship, Target};
+use crate::ship::{Ship, Target, SSH};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Goes {
@@ -208,11 +208,12 @@ pub fn stage_place(tool: &str, name: &str, found_in: Option<String>) -> Place {
     )
 }
 
-/// The words of `ship` that say where it lands: the origin of a site it writes to, and every
-/// word of a command.
+/// The words of `ship` that say where it lands: the origin of a site it writes to, the host
+/// it changes over SSH, and every word of any other command.
 fn selecting_words(ship: &Ship) -> &str {
     match ship.target.as_ref().map(Target::bare) {
         Some(Target::Site { origin }) => origin,
+        Some(Target::Stage { tool, name }) if tool == SSH => name,
         _ => &ship.what,
     }
 }

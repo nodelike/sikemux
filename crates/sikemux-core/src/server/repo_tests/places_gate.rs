@@ -164,6 +164,42 @@ async fn a_yes_covers_any_other_action_once_exactly_as_asked() {
     assert!(run(&core, write("UPDATE users SET a=1 WHERE id=5"), &cwd).is_err());
 }
 
+/// An agent changed a production server over SSH on 2026-11-25, and the gate neither held
+/// it nor listed it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_change_over_ssh_is_listed_until_its_host_is_production() {
+    let dir = repo();
+    let (cwd, project) = work_of(&dir);
+    let line = "ssh -o BatchMode=yes citadel 'rm -f /srv/production/web.env; \
+                systemctl disable --now web.timer'";
+    let change = || {
+        let mut ships =
+            crate::ship::of_command(line, &[], crate::ship::Looks::Every, &cwd, &|_| None);
+        assert_eq!(ships.len(), 1);
+        ships.remove(0)
+    };
+    let core = core_at(None, &project, Vec::new());
+    assert!(run(&core, change(), &cwd).is_ok());
+    let seen: Vec<String> = (core.places().of(&project).unplaced.iter())
+        .map(|unplaced| unplaced.seen.what.clone())
+        .collect();
+    assert_eq!(seen, ["citadel on SSH"]);
+
+    let citadel = |level| {
+        let mut place = judge::stage_place(crate::ship::SSH, "citadel", None);
+        place.shown.production = true;
+        place.shown.level = level;
+        place
+    };
+    let held = core_at(None, &project, vec![citadel(Level::Mine)]);
+    assert!(run(&held, change(), &cwd).is_err());
+    assert_eq!(open_calls(&held).len(), 1);
+
+    let trusted = core_at(None, &project, vec![citadel(Level::Yours)]);
+    assert!(run(&trusted, change(), &cwd).is_ok());
+    assert!(open_calls(&trusted).is_empty());
+}
+
 /// Work changed while its call waited, and every tap was refused with nobody told.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_call_whose_work_changed_is_withdrawn_and_the_next_try_asks_again() {

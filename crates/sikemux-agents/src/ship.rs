@@ -14,6 +14,8 @@ use crate::git_guard::{
     base_name, command_words, env_folder, git_args, pieces, shell_script, Piece,
 };
 
+mod ssh;
+
 /// An action leaving this machine: what it does, and the exact command or
 /// call, which the person is shown and allowing lets run once.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -573,6 +575,9 @@ pub(crate) fn target_of(
                 ),
             })
         }
+        program if ssh::PROGRAMS.contains(&program) => ssh::changed_host(program, args)
+            .filter(|host| !host.contains(['$', '`']))
+            .map(|host| stage(SSH, &host)),
         _ => None,
     }
 }
@@ -1317,6 +1322,9 @@ pub(crate) fn of_program(
         }
         return web_write(program, args).then_some(ShipKind::Publish);
     }
+    if ssh::PROGRAMS.contains(&program) {
+        return ssh::changed_host(program, args).map(|_| ShipKind::Deploy);
+    }
     if let Some((program, args)) = wrapped(program, args) {
         return of_program(program, args, cwd, alias);
     }
@@ -1831,7 +1839,9 @@ pub fn of_command(
             said.map(str::to_owned).or_else(|| env(name))
         };
         let at = here.clone().filter(|_| selected.is_empty());
-        let target = match (at, matches!(base_name(program), "curl" | "wget")) {
+        let names_its_host = matches!(base_name(program), "curl" | "wget")
+            || ssh::PROGRAMS.contains(&base_name(program));
+        let target = match (at, names_its_host) {
             (Some(at), _) => target_of(program, args, &set, &at),
             (None, true) => target_of(program, args, &set, cwd),
             (None, false) => None,
@@ -2120,6 +2130,8 @@ const GIT_COMMANDS: &[&str] = &[
 
 /// The registry a GitHub release goes to.
 pub const GITHUB_RELEASES: &str = "GitHub releases";
+/// The tool of a [`Target::Stage`] that is another computer, by its host name.
+pub const SSH: &str = "SSH";
 /// Words in a name that say it is production.
 const PRODUCTION_WORDS: [&str; 4] = ["prod", "production", "prd", "live"];
 /// Words in a name that say it is clearly not production.
@@ -2328,6 +2340,70 @@ mod environment_tests {
         let reads = ["-X", "POST", &read_only, "--data-binary", "@-"].map(str::to_owned);
         let read = of_invocation("curl", &reads, &|_| None, cwd).expect("a web write");
         assert_eq!(read.kind, ShipKind::Publish);
+    }
+
+    fn over_ssh(line: &str) -> Vec<Ship> {
+        of_command(line, &[], Looks::Every, Path::new("/nowhere"), &|_| None)
+    }
+
+    /// An agent stopped a service, deleted its files and ran the deploy script on a production
+    /// server over SSH on 2026-11-25, and the gate saw none of it.
+    #[test]
+    fn a_change_made_over_ssh_lands_on_its_host() {
+        for line in [
+            "ssh -o BatchMode=yes citadel 'set -e\nsystemctl disable --now web.timer\n\
+             rm -f /etc/systemd/system/web.timer\nsystemctl daemon-reload\n\
+             systemctl is-active api 2>/dev/null||true'",
+            "set -e; D=$(mktemp -d); tar -C \"$D/server/deploy\" -cf - . | ssh -o BatchMode=yes \
+             citadel 'set -e; d=/root/deploy; mkdir $d; tar -xf - -C $d; $d/setup-citadel.sh $k \
+             2>&1 | tail -30; cat /srv/current/DEPLOY'",
+            "ssh citadel 'cd /root/deploy; . ./lib.sh; find . -name \"._*\" -delete'",
+            "ssh -fp 22 root@citadel systemctl restart web",
+            "ssh citadel -p 22 'echo hi > /etc/motd'",
+            "ssh citadel 'echo \"$(rm -rf /srv/old)\"'",
+            "ssh citadel 'sudo -u postgres psql -c \"delete from users\"'",
+            "ssh citadel 'curl -sX POST http://127.0.0.1:4000/reset'",
+            "ssh citadel 'bash -s' < setup.sh",
+            "ssh citadel < setup.sh",
+            "scp -P 22 build.tar root@citadel:/srv/",
+            "rsync -av --delete -e 'ssh -p 22' dist/ citadel:/srv/web/",
+            "sftp -b upload.txt citadel",
+        ] {
+            let ships = over_ssh(line);
+            let landed: Vec<_> = (ships.iter())
+                .map(|ship| (ship.kind, ship.target.clone()))
+                .collect();
+            assert_eq!(
+                landed,
+                [(ShipKind::Deploy, Some(stage(SSH, "citadel")))],
+                "{line}"
+            );
+        }
+        let open = over_ssh("ssh $HOST reboot");
+        assert_eq!(open.first().map(|ship| ship.target.clone()), Some(None));
+    }
+
+    #[test]
+    fn what_only_reads_over_ssh_changes_nothing() {
+        for line in [
+            "ssh -o BatchMode=yes citadel 'date; whoami; hostname; systemctl list-timers \
+             --no-pager; ls -la /etc/sikemux 2>&1 | grep -i -E \"leader|sikemux\"; cat \
+             /usr/local/lib/sikemux/deploy.hash'",
+            "ssh citadel 'for f in a b; do cat $f; done; [ \"$(cat a)\" = \"$(cat b)\" ] && echo same'",
+            "ssh citadel 'curl -fsS -m5 http://127.0.0.1:4000/v1/health >/dev/null 2>&1 || echo down'",
+            "ssh citadel \"sudo -u postgres psql -Atc 'select count(*) from users where id > 5'\"",
+            "ssh citadel 'journalctl -u web -n 50; docker compose logs web; find / -name x 2>/dev/null'",
+            "ssh citadel uptime > up.txt",
+            "ssh -fNL 8080:localhost:80 citadel",
+            "ssh -G citadel",
+            "ssh -T git@github.com",
+            "ssh localhost reboot",
+            "scp citadel:/var/log/web.log .",
+            "rsync -avn dist/ citadel:/srv/web/",
+            "rsync -a citadel:/srv/web/ backup/",
+        ] {
+            assert_eq!(over_ssh(line), [], "{line}");
+        }
     }
 
     #[test]
