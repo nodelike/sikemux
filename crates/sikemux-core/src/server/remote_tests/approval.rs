@@ -198,6 +198,8 @@ impl Host {
             name: "Team".into(),
             role: OrgRole::Admin,
             active: true,
+            preview: false,
+            hidden: false,
         };
         let vault: OrgVault = serde_json::from_value(json!({
             "generation": 1, "key": null, "holders": holders, "waiting": waiting,
