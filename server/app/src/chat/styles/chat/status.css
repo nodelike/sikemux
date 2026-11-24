@@ -64,6 +64,13 @@
   height: 14px;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .chat-activity-loader {
+    border-color: var(--live);
+    animation: none;
+  }
+}
+
 @keyframes chat-activity-spin {
   to {
     transform: rotate(360deg);

@@ -7,6 +7,8 @@ import { config } from "../config.ts";
 import { DEFAULT_PALETTE, wearPicked } from "../chat/themes/bus.ts";
 import { ReaderBar } from "./ReaderBar.tsx";
 import "../chat/styles.css";
+import "../chat/styles/chat/status.css";
+import "../chat/styles/share.css";
 
 const ShareSignIn = lazy(() => import("./ShareSignIn.tsx"));
 

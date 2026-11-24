@@ -70,14 +70,9 @@
   /* The elapsed seconds keep saying the turn is alive without any motion. */
   .chat-shimmer-band,
   .chat-shimmer-copy,
-  .chat-activity-loader,
   .chat-activity-mark,
   .chat-tool.live .chat-tool-icon,
   .chat-subagent-spinner {
     animation: none;
-  }
-
-  .chat-activity-loader {
-    border-color: var(--live);
   }
 }
