@@ -258,6 +258,7 @@ impl Render for Foot {
             .relative()
             .flex()
             .flex_col()
+            .pt(SPACE_3_PX)
             .border_t(theme::border())
             .border_color(t.border);
         let Some(open) = asked else {
@@ -282,7 +283,6 @@ impl Render for Foot {
                         .max_w(px(COLUMN + 2. * SIDE))
                         .mx_auto()
                         .px(px(SIDE))
-                        .pt(SPACE_3_PX)
                         .child(asks)
                         .child(answering.choices),
                 ),
