@@ -39,10 +39,15 @@ objc2-core-video = { version = "0.3", default-features = false, features = ["std
 objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "CALayer", "CAShapeLayer", "CATransaction", "objc2-core-foundation", "objc2-core-graphics"] }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["CGEvent", "CGEventSource", "CGEventTypes"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["NSDate", "NSRunLoop"] }
 
 [[test]]
 name = "parked_page_size"
+harness = false
+
+[[test]]
+name = "page_pinch"
 harness = false
 
 [target.'cfg(target_os = "linux")'.dependencies]
