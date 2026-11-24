@@ -1626,7 +1626,9 @@ canvas.dots {
   align-items: center;
   gap: 8px;
 }
-.plan-cards.three {
+.plan-cards {
+  display: grid;
+  gap: 12px;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
 }
 .built {

@@ -150,7 +150,7 @@ function Plans({
       label="Plans"
       aside={<BilledSwitch interval={interval} onChange={setInterval} />}
     >
-      <div className="plan-cards three">
+      <div className="plan-cards">
         {catalog.plans.map((plan) => {
           const product = catalog.products.find(
             (each) => each.kind === "plan" && each.plan === plan.id,
@@ -224,7 +224,7 @@ function Shed({
         A Linux box we run, joined to your account. Buy one or several by the
         box. You sign in to Claude Code and Codex on it with your own plans.
       </p>
-      <div className="plan-cards three">
+      <div className="plan-cards">
         {boxes.map((product) => {
           const words = SHED_WORDS[product.id];
           const { price, per, other } = priced(product, interval);

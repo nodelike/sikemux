@@ -345,7 +345,7 @@ function PersonBill({
         lapsed
           ? "The card was declined"
           : seat
-            ? `${planName}, through ${seatIn.join(" and ")}`
+            ? `${planName}, through ${new Intl.ListFormat("en").format(seatIn)}`
             : planName
       }
       tag={<TestMode live={live} />}
