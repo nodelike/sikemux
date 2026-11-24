@@ -1059,6 +1059,10 @@ pub(super) fn core_command(program: &Path, bin: &Path) -> sikemux_process::comma
     // Set by a Sikemux agent's own shell, they point past the world's .zshrc.
     command.env_remove("ZDOTDIR");
     command.env_remove(sikemux_process::vars::USER_ZDOTDIR);
+    // The GitHub connector signs in with them, and the pictures would show the person's account.
+    for token in ["GH_TOKEN", "GITHUB_TOKEN"] {
+        command.env_remove(token);
+    }
     command
 }
 
