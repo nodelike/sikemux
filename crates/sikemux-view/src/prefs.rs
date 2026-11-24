@@ -327,6 +327,7 @@ pub enum TabRailPage {
     Agents,
     Terminals,
     Files,
+    Pages,
 }
 
 /// The order projects are listed in: last worked in first, first added first, or as the

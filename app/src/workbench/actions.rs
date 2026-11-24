@@ -114,7 +114,7 @@ commands! {
     FocusHosts = "window.hosts" opens |bench, _, _| bench.open_hosts(None);
     FocusPlaybook = "window.playbook" opens |bench, _, _| bench.open_playbook();
     /// The pages agents showed in the project in front.
-    FocusPages = "window.pages" opens |bench, _, _| bench.open_pages();
+    FocusPages = "window.pages" opens |bench, _, cx| bench.open_pages(cx);
     /// The project's tasks on the nearest agent's desk.
     FocusTasks = "window.tasks" opens |bench, _, cx| bench.front_tasks(cx);
     /// Moves the keys to the next of the window's areas: the rails and the view in front.

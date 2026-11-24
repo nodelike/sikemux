@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, App, AppContext, Context, Entity, IntoElement, ParentElement, Render, SharedString,
+    div, App, AppContext, Context, Div, Entity, IntoElement, ParentElement, Render, SharedString,
     Styled, WeakEntity, Window,
 };
 use sikemux_calls::call;
@@ -20,7 +20,7 @@ use crate::theme::{Tokens, SPACE_2};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
 
-/// What the reader's Back does, as the Calls page's return to its call.
+/// What the reader's Back does: the return to the call the page was opened from.
 pub(crate) type Back = Rc<dyn Fn(&mut Window, &mut App)>;
 
 pub(crate) struct Reader {
@@ -121,16 +121,7 @@ impl Render for Reader {
         self.make_view(window, cx);
         let t = Tokens::get(cx).clone();
         let Some(shown) = &self.shown else {
-            return div()
-                .size_full()
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .gap(SPACE_2)
-                .child(ui::icon(Icon::Tabs, 18.).text_color(t.text_disabled))
-                .child(ui::meta(t!("No page open"), cx))
-                .into_any_element();
+            return no_page(cx).into_any_element();
         };
         let bench = self.bench.upgrade();
         let pages = bench.as_ref().map(|bench| &bench.read(cx).pages);
@@ -208,6 +199,19 @@ impl Render for Reader {
             )
             .into_any_element()
     }
+}
+
+/// What stands where a page would be read while there is none.
+pub(super) fn no_page(cx: &App) -> Div {
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(SPACE_2)
+        .child(ui::icon(Icon::Tabs, 18.).text_color(Tokens::get(cx).text_disabled))
+        .child(ui::meta(t!("No pages yet"), cx))
 }
 
 /// How long Sikemux keeps a page, as its header says.

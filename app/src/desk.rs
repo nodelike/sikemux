@@ -2491,7 +2491,7 @@ impl Opening {
             Opening::File => bench.find_for_desk(agent, window, cx),
             Opening::Terminal => bench.open_desk_shell(agent, cx),
             Opening::Simulator => bench.show_simulator(agent, cx),
-            Opening::Pages => bench.open_pages(),
+            Opening::Pages => bench.open_pages(cx),
         }
         bench.parts.redraw_stage(cx);
     }

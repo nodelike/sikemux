@@ -111,6 +111,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                 .into_any_element();
         }
         TabRailPage::Terminals => return terminals_page(bench, cx),
+        TabRailPage::Pages => return crate::pages::list::page(bench, cx),
         TabRailPage::Agents => {}
     }
     if let crate::hosts::HostChoice::Ssh(alias) = bench.chosen_host() {
@@ -1790,6 +1791,13 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
             TabRailPage::Files,
             cx,
         ))
+        .child(page(
+            "page-pages",
+            Icon::Tabs,
+            t!("Pages"),
+            TabRailPage::Pages,
+            cx,
+        ))
 }
 
 /// The Files page's head, with the copy switch while the project has more than one copy.
@@ -1967,10 +1975,10 @@ impl OutOfSight {
 }
 
 /// How deep a rail list's ends fade; the list is padded as deep, so rows at rest sit clear of it.
-const EDGE_FADE: f32 = 14.;
+pub(crate) const EDGE_FADE: f32 = 14.;
 
 /// A rail list whose top and bottom fade into the panel as rows scroll under them.
-fn faded(list: impl IntoElement, cx: &App) -> gpui_kit::Div {
+pub(crate) fn faded(list: impl IntoElement, cx: &App) -> gpui_kit::Div {
     let wrap = div().relative().flex_1().min_h_0().child(list);
     if crate::see_through::clear(cx) {
         return wrap;

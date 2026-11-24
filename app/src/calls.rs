@@ -484,27 +484,6 @@ impl Workbench {
         }
     }
 
-    /// Shows page `page` of call `id` on its asker's Calls page, in place of the call's card.
-    pub(crate) fn read_call_page(&mut self, id: &str, page: &str, cx: &mut Context<Self>) {
-        let Some((place, call)) = self.call_at(id) else {
-            return;
-        };
-        let agent = call.asker.agent_id.clone();
-        let title = (call.pages())
-            .find(|shown| shown.id == page)
-            .map_or_else(String::new, |shown| shown.title.clone());
-        let target = Target::new(&self.asks, place);
-        let files = self.desks.read(cx).page_files.clone();
-        if let Some(folder) = project_of(self, &agent) {
-            self.want_pages(&folder, cx);
-        }
-        let desk = crate::desk::call_page(self, &agent, cx);
-        self.calls.update(cx, |cards, cx| cards.open(id, cx));
-        desk.update(cx, |desk, cx| desk.read(id, page, title, target, files, cx));
-        self.show_calls(&agent, cx);
-        self.saw_page(page, cx);
-    }
-
     /// Sends the answer `params` holds, once, its card sending until the core replies.
     fn send_answer(&mut self, params: AnswerCallParams, cx: &mut Context<Self>) {
         let id = params.id.clone();
@@ -578,8 +557,8 @@ struct Through<'a> {
     bench: &'a WeakEntity<Workbench>,
 }
 
-/// The page a call names, as the row a chat shows for a page: a click opens it on its owner's
-/// desk.
+/// The pages a call names, as the rows a chat shows for pages: a click opens one in its project's
+/// Pages.
 fn linked_page(call: &PersonCall, through: Through, cx: &mut App) -> Option<AnyElement> {
     let Through {
         target,

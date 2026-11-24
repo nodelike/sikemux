@@ -367,7 +367,7 @@ impl Workbench {
             overlays: Overlays::default(),
             project_settings: HashMap::new(),
             playbooks: HashMap::new(),
-            pages: Default::default(),
+            pages: crate::pages::Pages::new(window, cx),
             kept_running_told: false,
             open_waits: Vec::new(),
             pairing: crate::pairing::RemotePairing::new(cx),

@@ -97,10 +97,11 @@ pub const SURFACES: [Surface; 5] = [
 ];
 
 /// The tab rail's pages in the order they sit, left to right.
-pub const PAGES: [TabRailPage; 3] = [
+pub const PAGES: [TabRailPage; 4] = [
     TabRailPage::Agents,
     TabRailPage::Terminals,
     TabRailPage::Files,
+    TabRailPage::Pages,
 ];
 
 /// The kind whose views a tab rail page lists.
@@ -109,6 +110,7 @@ pub fn listed_on(page: TabRailPage) -> PaneKind {
         TabRailPage::Agents => PaneKind::Agent,
         TabRailPage::Terminals => PaneKind::Terminal,
         TabRailPage::Files => PaneKind::Files,
+        TabRailPage::Pages => PaneKind::Pages,
     }
 }
 
@@ -188,7 +190,7 @@ pub fn draw(
         PaneKind::Agent => crate::home::agent_view(bench, tab, id, target, cx),
         PaneKind::Desk => crate::desk::pane(bench, target, window, cx),
         PaneKind::ProjectSettings => crate::playbook::pane(bench, target, window, cx),
-        PaneKind::Pages => crate::pages::pane(bench, target, window, cx),
+        PaneKind::Pages => crate::pages::pane(bench, target, cx),
         PaneKind::InstallSikemux => crate::hosts::install_pane::pane(bench, target, cx),
         PaneKind::Stash => crate::stash::pane(bench, cx),
         PaneKind::Hosts => crate::hosts::page::pane(bench, target, window, cx),

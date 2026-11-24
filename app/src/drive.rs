@@ -499,6 +499,7 @@ impl Workbench {
                 sikemux_view::prefs::TabRailPage::Agents => "agents",
                 sikemux_view::prefs::TabRailPage::Terminals => "terminals",
                 sikemux_view::prefs::TabRailPage::Files => "files",
+                sikemux_view::prefs::TabRailPage::Pages => "pages",
             },
             "railBounds": self.rails.frame.get(),
             "tree": self.files.drive_state(),

@@ -1,5 +1,5 @@
-# A project's Pages: the library from the project tree, a call's page read in place on the
-# Calls page, then a worker's pages in its lead's chat, one opened in Pages.
+# A project's Pages: listed on the tab rail with the newest open, a call's page opened there,
+# then a worker's pages in its lead's chat, one opened in Pages.
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir
