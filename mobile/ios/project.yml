@@ -220,6 +220,8 @@ targets:
       - path: Shared/ExtensionFonts.swift
       - path: Sikemux/UI/Theme.swift
       - path: Sikemux/UI/Format.swift
+      - path: Sikemux/UI/Haptics.swift
+      - path: Sikemux/UI/List.swift
       - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
         group: Sikemux/UI/Notch
       - path: ../../helpers/notch/Sources/NotchKit/Icons.generated.swift

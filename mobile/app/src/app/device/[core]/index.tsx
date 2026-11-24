@@ -8,6 +8,7 @@ import type { ProjectInfo } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
 import { reloadDevices, retry, useDevices, useHostStatus, useLive } from '@/devices/hub';
 import { deviceKind, deviceName, type PairedDevice, updateDevice } from '@/devices/paired';
+import { noteOpenProject } from '@/stash/chats';
 import { CallsTab } from '@/calls/CallsTab';
 import { openCalls } from '@/calls/hostCalls';
 import { CALLS } from '@shared/calls/words';
@@ -300,6 +301,7 @@ export default function Device() {
   const filtering = tab === 'agents' && providers.length > 1;
   const scopeTo = (project: string | null) => {
     setPicking(false);
+    if (project) noteOpenProject(core, project);
     updateDevice(core, { project: project ?? undefined })
       .then(reloadDevices)
       .catch((error: unknown) => console.warn('sikemux: could not keep the project this host shows', error));

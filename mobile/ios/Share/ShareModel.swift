@@ -30,8 +30,7 @@ final class ShareModel: ObservableObject {
     @Published var thumbnails: [UIImage] = []
     /// Called once the confirmation has shown, to close the sheet.
     var onFinish: (() -> Void)?
-    private(set) var chats: [ShareSnapshot.Chat] = []
-    private(set) var newChat: ShareSnapshot.NewChat?
+    private(set) var chiefs: [ShareSnapshot.Chief] = []
     private var upload: StashUpload?
     private var lastSend: (() -> Void)?
     private let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -58,8 +57,7 @@ final class ShareModel: ObservableObject {
             return
         }
         self.upload = upload
-        chats = snapshot.chats
-        newChat = snapshot.newChat
+        chiefs = snapshot.chiefs
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         } catch {
@@ -102,22 +100,19 @@ final class ShareModel: ObservableObject {
         }
     }
 
-    func toChat(_ chat: ShareSnapshot.Chat) {
-        send(
-            to: StashTarget(hostKey: chat.host, chatId: chat.chatId),
-            done: (
-                chat.name.map { String(localized: "Added to @\($0)'s draft") }
-                    ?? String(localized: "Added to the chat's draft"),
-                String(localized: "Unsent, on \(chat.hostName)")
-            ))
+    /// Whether two listed chiefs share this project name, so the host tells them apart.
+    func showHost(for chief: ShareSnapshot.Chief) -> Bool {
+        chiefs.filter { $0.project == chief.project }.count > 1
     }
 
-    func toNewChat(_ chat: ShareSnapshot.NewChat) {
+    func toChief(_ chief: ShareSnapshot.Chief) {
+        let detail =
+            showHost(for: chief)
+            ? String(localized: "Unsent, in \(chief.project) on \(chief.hostName)")
+            : String(localized: "Unsent, in \(chief.project)")
         send(
-            to: StashTarget(hostKey: chat.host, projectPath: chat.projectPath, newChat: true),
-            done: (
-                String(localized: "In a new chat in \(chat.project)"), String(localized: "Unsent, on \(chat.hostName)")
-            ))
+            to: StashTarget(hostKey: chief.host, chatId: chief.chatId),
+            done: (String(localized: "Added to @Chief's draft"), detail))
     }
 
     func toStash() {

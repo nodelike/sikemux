@@ -150,6 +150,9 @@ private struct ChatPane: View {
                 onStop: watchOnly || session.attached != .live ? nil : { await session.stopChat() })
         }
         .onChange(of: provider) { _, provider in context.provider = provider }
+        .onChange(of: listed?.project, initial: true) { _, project in
+            ShareExtension.noteOpenProject(core: core, project: project)
+        }
         .onChange(of: session.rows.head.chief, initial: true) { _, chief in context.chief = chief == true }
         .onChange(of: rows.subagentRows) { _, rows in context.subagentRows = rows }
         .onChange(of: rows.running, initial: true) { was, running in

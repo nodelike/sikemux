@@ -80,14 +80,16 @@ struct ShareView: View {
                         .background(RoundedRectangle(cornerRadius: 12).fill(palette.sunken))
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(palette.border, lineWidth: 1))
                         .padding(.top, 10)
-                        if !model.chats.isEmpty || model.newChat != nil {
-                            SectionLabel(text: "To a chat")
-                            VStack(spacing: 2) {
-                                ForEach(model.chats) { chat in
-                                    ChatRow(chat: chat) { model.toChat(chat) }
-                                }
-                                if let newChat = model.newChat {
-                                    NewChatRow(chat: newChat) { model.toNewChat(newChat) }
+                        if !model.chiefs.isEmpty {
+                            SectionLabel("Project chiefs")
+                            Rows {
+                                ForEach(model.chiefs) { chief in
+                                    Row(
+                                        title: chief.project, folder: true,
+                                        detail: model.showHost(for: chief) ? chief.hostName : nil,
+                                        onPress: { model.toChief(chief) },
+                                        mark: { AgentMark(provider: chief.provider, size: 20) },
+                                        end: { EmptyView() })
                                 }
                             }
                             .padding(.horizontal, -8)
@@ -218,83 +220,6 @@ private struct Preview: View {
             Spacer(minLength: 0)
         }
         .padding(10)
-    }
-}
-
-private struct SectionLabel: View {
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Text(LocalizedStringKey(text)).textCase(.uppercase).font(Theme.ui(11, .medium)).tracking(1.76)
-                .foregroundColor(palette.tertiary)
-            palette.ink.opacity(0.09).frame(height: 1)
-        }
-        .padding(.horizontal, 4)
-        .padding(.top, 18)
-        .padding(.bottom, 4)
-    }
-}
-
-private struct ChatRow: View {
-    let chat: ShareSnapshot.Chat
-    let pick: () -> Void
-
-    var body: some View {
-        Button(action: pick) {
-            HStack(spacing: 10) {
-                AgentMark(provider: chat.provider, size: 20)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(chat.title).font(Theme.ui(14.5, .medium)).foregroundColor(palette.ink).lineLimit(1)
-                    HStack(spacing: 4) {
-                        IconView(icon: Icons.folder, size: 11).foregroundColor(palette.live)
-                        Text("\(chat.project) · \(chat.hostName)").font(Theme.ui(12)).foregroundColor(palette.tertiary)
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 8)
-                if let name = chat.name {
-                    Text("@\(name)").font(Theme.ui(11.5)).foregroundColor(palette.tertiary).lineLimit(1)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(minHeight: 48)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(RowPress())
-    }
-}
-
-private struct NewChatRow: View {
-    let chat: ShareSnapshot.NewChat
-    let pick: () -> Void
-
-    var body: some View {
-        Button(action: pick) {
-            HStack(spacing: 10) {
-                IconView(icon: Icons.plus, size: 18).foregroundColor(palette.secondary).frame(width: 20, height: 20)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("New chat in \(Text(chat.project).foregroundColor(palette.ink))")
-                        .foregroundColor(palette.secondary)
-                        .font(Theme.ui(14.5, .medium)).lineLimit(1)
-                    Text(chat.hostName).font(Theme.ui(12)).foregroundColor(palette.tertiary).lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(minHeight: 48)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(RowPress())
-    }
-}
-
-private struct RowPress: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.background(
-            RoundedRectangle(cornerRadius: 9).fill(configuration.isPressed ? palette.ink.opacity(0.1) : .clear))
     }
 }
 

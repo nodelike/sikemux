@@ -124,8 +124,28 @@ pub(super) async fn deliver_to(
     target: &StashTarget,
 ) -> CoreResult<()> {
     let agent_id = match (&target.chat_id, &target.project_path) {
-        (Some(chat), _) if core.workspaces().agent(chat).is_some() => chat.clone(),
-        (Some(_), _) => return Ok(()),
+        (Some(chat), _) => {
+            if let Some(agent) = core.workspaces().agent(chat) {
+                if agent.asleep && core.workspaces().is_chief(chat) {
+                    super::super::launching::wake_chat(core, chat.clone()).await?;
+                }
+                chat.clone()
+            } else if let Some(project) = (core.workspaces().projects().into_iter())
+                .find(|project| project.chief.as_deref() == Some(chat.as_str()))
+            {
+                super::super::chief::open(
+                    core,
+                    super::super::chief::OpenChiefParams {
+                        project: project.id,
+                    },
+                )
+                .await?
+                .agent_id
+            } else {
+                return Ok(());
+            }
+        }
+        // phone-compat: 0.2.0 — older phone share sheets still send newChat targets.
         (None, Some(project)) if target.new_chat == Some(true) => {
             match new_chat(core, project).await? {
                 Some(agent_id) => agent_id,

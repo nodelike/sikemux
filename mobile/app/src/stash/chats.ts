@@ -1,82 +1,141 @@
 import { useEffect, useState } from 'react';
+import * as SecureStore from 'expo-secure-store';
 
+import { CHIEF_ROLE } from '@shared/calls/words';
 import type { Snapshot } from '@/core/protocol';
 import { knownDevices, liveOf, onAnyHost, useDevices, watch } from '@/devices/hub';
 import { deviceName, type PairedDevice } from '@/devices/paired';
 import { translate } from '@/i18n';
-import { projectAt, projectName, projectOf } from '@/devices/words';
 
-/** A chat the share sheet offers to put what is shared in, as an unsent draft attachment. */
-export type ShareChat = {
+/** A project's chief the share sheet offers to put what is shared in, as an unsent draft attachment. */
+export type ShareChief = {
   host: string;
   hostName: string;
+  projectId: string;
+  project: string;
   chatId: string;
   provider: string;
-  /** Unset for a chat with no title yet. */
-  title?: string;
-  /** What the core calls the agent, such as Otter. */
-  name?: string;
-  project: string;
   activeAt: number;
 };
 
-/** The project a new chat would start in, on its host. */
-type ShareNewChat = { host: string; hostName: string; project: string; projectPath: string };
+type OpenProject = { core: string; project: string };
 
-export type ShareChats = { chats: ShareChat[]; newChat?: ShareNewChat };
+const LAST_PROJECT_KEY = 'sikemux.last-open-project';
+let lastOpen: OpenProject | undefined;
+let loaded: Promise<void> | undefined;
 
-const SHOWN = 4;
+function loadLastOpen() {
+  loaded ??= SecureStore.getItemAsync(LAST_PROJECT_KEY)
+    .then((stored) => {
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as Partial<OpenProject>;
+      if (typeof parsed.core === 'string' && typeof parsed.project === 'string') lastOpen ??= { core: parsed.core, project: parsed.project };
+    })
+    .catch(() => {});
+  return loaded;
+}
 
-/** The chats used last across every host this phone has full access to, and a new chat in the newest one's project. */
-function shareChats(hosts: readonly { device: PairedDevice; snapshot: Snapshot | undefined }[]): ShareChats {
-  const found: (ShareChat & { projectPath: string })[] = [];
+/** Remembers the project the phone had open last, so its chief leads the share sheet. */
+export function noteOpenProject(core: string, project: string | undefined) {
+  if (!project) return;
+  if (lastOpen?.core === core && lastOpen.project === project) return;
+  lastOpen = { core, project };
+  SecureStore.setItemAsync(LAST_PROJECT_KEY, JSON.stringify(lastOpen)).catch(() => {});
+}
+
+function lastOpenOf(hosts: readonly { device: PairedDevice; snapshot: Snapshot | undefined }[]): OpenProject | undefined {
+  if (lastOpen) return lastOpen;
+  let scoped: PairedDevice | undefined;
+  for (const { device } of hosts) {
+    if (!device.project) continue;
+    if (!scoped || (device.lastSeen ?? 0) > (scoped.lastSeen ?? 0)) scoped = device;
+  }
+  return scoped?.project ? { core: scoped.core, project: scoped.project } : undefined;
+}
+
+/**
+ * One row per project that has a chief across every host this phone has full access to, ordered with
+ * the project the phone last had open first, then most recently active.
+ */
+export function shareChiefs(
+  hosts: readonly { device: PairedDevice; snapshot: Snapshot | undefined }[],
+  last: OpenProject | undefined = lastOpenOf(hosts),
+): ShareChief[] {
+  const found: (ShareChief & { order: number })[] = [];
+  let order = 0;
   for (const { device, snapshot } of hosts) {
     if (device.access !== 'full' || !snapshot) continue;
     const hostName = deviceName(device, translate);
-    for (const chat of snapshot.chats) {
-      const shown = snapshot.inbox.agents.find((agent) => agent.agentId === chat.agentId);
-      const where = projectOf(snapshot, chat.agentId) ?? chat.cwd;
+    const seenProjects = new Set<string>();
+    for (const project of snapshot.workspace.projects) {
+      if (!project.chief || project.chiefHome) continue;
+      seenProjects.add(project.id);
+      const chatId = project.chief;
+      const chat = snapshot.chats.find((item) => item.agentId === chatId);
+      const shown =
+        snapshot.inbox.agents.find((agent) => agent.agentId === chatId) ??
+        snapshot.inbox.kept?.find((agent) => agent.agentId === chatId);
+      const recent = snapshot.recent.find((item) => item.agentId === chatId || (item.project === project.id && item.title === CHIEF_ROLE));
+      const provider = chat?.provider ?? shown?.cli ?? project.launcher?.split(':')[0] ?? 'agent';
       found.push({
         host: device.core,
         hostName,
-        chatId: chat.agentId,
-        provider: chat.provider,
-        title: chat.title ?? shown?.title ?? undefined,
-        name: chat.name ?? undefined,
-        project: projectName(snapshot, where, chat.cwd),
-        projectPath: projectAt(snapshot, where)?.path ?? chat.cwd,
-        activeAt: shown?.activeAt ?? 0,
+        projectId: project.id,
+        project: project.name,
+        chatId,
+        provider,
+        activeAt: shown?.activeAt ?? chat?.activeAt ?? recent?.activeAt ?? 0,
+        order: order++,
+      });
+    }
+    // Older cores without project.chief still mark open chiefs in inbox.agents.
+    for (const shown of snapshot.inbox.agents) {
+      if (!shown.chief || !shown.project || seenProjects.has(shown.project)) continue;
+      seenProjects.add(shown.project);
+      const project = snapshot.workspace.projects.find((item) => item.id === shown.project);
+      found.push({
+        host: device.core,
+        hostName,
+        projectId: shown.project,
+        project: project?.name ?? shown.projectName ?? shown.project,
+        chatId: shown.agentId,
+        provider: shown.cli,
+        activeAt: shown.activeAt ?? 0,
+        order: order++,
       });
     }
   }
-  found.sort((a, b) => b.activeAt - a.activeAt);
-  const first = found[0];
-  return {
-    chats: found.slice(0, SHOWN).map(({ projectPath: _, ...chat }) => chat),
-    newChat: first && { host: first.host, hostName: first.hostName, project: first.project, projectPath: first.projectPath },
-  };
+  const isLast = (chief: ShareChief) => last != null && chief.host === last.core && chief.projectId === last.project;
+  found.sort((a, b) => Number(isLast(b)) - Number(isLast(a)) || b.activeAt - a.activeAt || a.order - b.order);
+  return found.map(({ order: _, ...chief }) => chief);
 }
 
-/** The share sheet's chats from what the phone knows of its hosts now. */
-function shareChatsNow(): ShareChats {
-  return shareChats(knownDevices().map((device) => ({ device, snapshot: liveOf(device.core).snapshot })));
+function shareChiefsNow(): ShareChief[] {
+  return shareChiefs(knownDevices().map((device) => ({ device, snapshot: liveOf(device.core).snapshot })));
 }
 
-/** The share sheet's chats, kept current while it shows; every host with full access stays connected meanwhile. */
-export function useShareChats(): ShareChats {
+/** The share sheet's project chiefs, kept current while it shows; every host with full access stays connected meanwhile. */
+export function useShareChiefs(): ShareChief[] {
   const { devices } = useDevices();
   useEffect(() => {
     const stops = devices.filter((device) => device.access === 'full').map((device) => watch(device.core));
     return () => stops.forEach((stop) => stop());
   }, [devices]);
-  const [chats, setChats] = useState(shareChatsNow);
-  useEffect(
-    () =>
-      onAnyHost(() => {
-        const next = shareChatsNow();
-        setChats((shown) => (JSON.stringify(shown) === JSON.stringify(next) ? shown : next));
-      }),
-    [],
-  );
-  return chats;
+  const [chiefs, setChiefs] = useState(shareChiefsNow);
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      const next = shareChiefsNow();
+      setChiefs((shown) => (JSON.stringify(shown) === JSON.stringify(next) ? shown : next));
+    };
+    void loadLastOpen().then(() => {
+      if (active) refresh();
+    });
+    const stop = onAnyHost(refresh);
+    return () => {
+      active = false;
+      stop();
+    };
+  }, []);
+  return chiefs;
 }

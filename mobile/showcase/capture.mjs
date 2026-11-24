@@ -97,6 +97,7 @@ const SCENES = [
   { name: 'question', route: `/device/${CORE}/chat/chat-release` },
   { name: 'assumed', route: `/device/${CORE}/chat/chat-login-check` },
   { name: 'new-chat', route: `/device/${CORE}/new` },
+  { name: 'share-sheet', route: '/stash?url=https://x.com/anthonyronning/status/2125274188751548650' },
   {
     name: 'work-opened',
     route: `/device/${CORE}/chat/chat-login-fix`,

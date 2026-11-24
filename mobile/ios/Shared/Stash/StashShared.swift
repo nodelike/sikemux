@@ -1,28 +1,19 @@
 import Foundation
 
-/// The chats used last and where the accounts server is, as the app writes them down for its share extension.
+/// The project chiefs and where the accounts server is, as the app writes them down for its share extension.
 struct ShareSnapshot: Codable, Equatable {
-    struct Chat: Codable, Equatable, Identifiable {
+    struct Chief: Codable, Equatable, Identifiable {
         let host: String
         let hostName: String
+        let projectId: String
+        let project: String
         let chatId: String
         let provider: String
-        let title: String
-        let name: String?
-        let project: String
-        var id: String { "\(host):\(chatId)" }
-    }
-
-    struct NewChat: Codable, Equatable {
-        let host: String
-        let hostName: String
-        let project: String
-        let projectPath: String
+        var id: String { "\(host):\(projectId)" }
     }
 
     let apiUrl: String
-    let chats: [Chat]
-    let newChat: NewChat?
+    let chiefs: [Chief]
 }
 
 /// What the app leaves for its share extension: the chats used last and where the accounts server

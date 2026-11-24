@@ -14,7 +14,7 @@ import { useBottomGap } from '@/ui/screen';
 import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
 import type { Shared } from '../../modules/stash';
 import type { StashTarget } from './api';
-import type { ShareChat, ShareChats } from './chats';
+import type { ShareChief } from './chats';
 import { outgoingOf, stashAll, tooBig, type Outgoing } from './sharing';
 import { siteOf } from './words';
 
@@ -26,17 +26,17 @@ type Phase =
   { at: 'ready' } | { at: 'sending'; share: number } | { at: 'done'; title: string; detail: string } | { at: 'failed'; problem: string };
 
 /**
- * What another app shared, with a note, the chats used last and Stash. A chat gets it in its draft,
+ * What another app shared, with a note, every project's chief and Stash. A chief gets it in its draft,
  * unsent; Stash keeps it for later. `onDone` closes the sheet.
  */
 export function ShareSheet({
   shared,
-  chats,
+  chiefs,
   token,
   onDone,
 }: {
   shared: Shared;
-  chats: ShareChats;
+  chiefs: readonly ShareChief[];
   token: TokenSource;
   onDone: () => void;
 }) {
@@ -84,24 +84,18 @@ export function ShareSheet({
     }
   };
 
-  const toChat = (chat: ShareChat) =>
+  const projectCounts = new Map<string, number>();
+  for (const chief of chiefs) projectCounts.set(chief.project, (projectCounts.get(chief.project) ?? 0) + 1);
+  const showHost = (chief: ShareChief) => (projectCounts.get(chief.project) ?? 0) > 1;
+  const toChief = (chief: ShareChief) =>
     void send(
-      { hostKey: chat.host, chatId: chat.chatId },
+      { hostKey: chief.host, chatId: chief.chatId },
       {
         at: 'done',
-        title: chat.name ? t("Added to {name}'s draft", { name: chat.name }) : t("Added to the chat's draft"),
-        detail: t('Unsent, on {host}', { host: chat.hostName }),
-      },
-    );
-  const newChat = chats.newChat;
-  const toNewChat = () =>
-    newChat &&
-    void send(
-      { hostKey: newChat.host, projectPath: newChat.projectPath, newChat: true },
-      {
-        at: 'done',
-        title: t('In a new chat in {project}', { project: newChat.project }),
-        detail: t('Unsent, on {host}', { host: newChat.hostName }),
+        title: t("Added to @Chief's draft"),
+        detail: showHost(chief)
+          ? t('Unsent, in {project} on {host}', { project: chief.project, host: chief.hostName })
+          : t('Unsent, in {project}', { project: chief.project }),
       },
     );
   const toStash = () => void send(undefined, { at: 'done', title: t('Stashed'), detail: t('Attach it from + in any chat.') });
@@ -176,29 +170,20 @@ export function ShareSheet({
             style={styles.note}
             selectionColor={colors.accent}
           />
-          {chats.chats.length || newChat ? (
+          {chiefs.length ? (
             <>
-              <SectionLabel>{t('To a chat')}</SectionLabel>
+              <SectionLabel>{t('Project chiefs')}</SectionLabel>
               <Rows>
-                {chats.chats.map((chat) => (
+                {chiefs.map((chief) => (
                   <Row
-                    key={`${chat.host}:${chat.chatId}`}
-                    mark={<AgentIcon provider={chat.provider} size={20} />}
-                    title={chat.title ?? t('New chat')}
-                    place={chat.project}
-                    detail={chat.hostName}
-                    name={chat.name}
-                    onPress={sendable.length ? () => toChat(chat) : undefined}
+                    key={`${chief.host}:${chief.projectId}`}
+                    mark={<AgentIcon provider={chief.provider} size={20} />}
+                    title={chief.project}
+                    folder
+                    detail={showHost(chief) ? chief.hostName : undefined}
+                    onPress={sendable.length ? () => toChief(chief) : undefined}
                   />
                 ))}
-                {newChat ? (
-                  <Row
-                    mark={<Icon name="IconPlus" size={18} color={colors.secondary} />}
-                    title={t('New chat in {project}', { project: newChat.project })}
-                    detail={newChat.hostName}
-                    onPress={sendable.length ? toNewChat : undefined}
-                  />
-                ) : null}
               </Rows>
             </>
           ) : null}

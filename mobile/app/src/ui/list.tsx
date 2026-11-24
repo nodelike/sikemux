@@ -28,6 +28,7 @@ export function Row({
   lead,
   host,
   title,
+  folder,
   aside,
   detail,
   place,
@@ -47,6 +48,8 @@ export function Row({
   /** The linked host the agent runs on, marked before its name as the Mac's rail marks it and said to TalkBack. */
   host?: string;
   title?: string;
+  /** Marks the title itself as a project with the coloured folder. */
+  folder?: boolean;
   /** Quiet words after the title on its line, such as a chief's role; they shrink first, so the title stays whole. */
   aside?: string;
   detail?: ReactNode;
@@ -81,6 +84,7 @@ export function Row({
       {mark ? <View style={styles.mark}>{mark}</View> : null}
       <View style={styles.rowBody}>
         <View style={styles.rowLabel}>
+          {folder ? <Icon name="IconFolder" size={13} color={colors.live} /> : null}
           <Text
             style={[styles.rowTitle, aside ? styles.rowTitleWhole : null, { color: dim ? colors.tertiary : colors.ink }]}
             numberOfLines={1}>
@@ -169,7 +173,7 @@ const makeStyles = (colors: Palette) => {
     rowBeside: { flex: 1, minWidth: 0 },
     mark: { width: MARK, height: MARK, alignItems: 'center', justifyContent: 'center' },
     rowBody: { flex: 1, minWidth: 0 },
-    rowLabel: { flexDirection: 'row', alignItems: 'baseline' },
+    rowLabel: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     rowTitle: { ...type.row, fontSize: 14.5, flexShrink: 1 },
     rowTitleWhole: { flexShrink: 0 },
     rowHostDim: { opacity: 0.55 },

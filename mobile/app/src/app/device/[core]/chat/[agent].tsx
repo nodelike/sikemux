@@ -18,6 +18,7 @@ import { AwaySheet } from '@/devices/AwaySheet';
 import { FindBar } from '@/chat/FindBar';
 import { FindingContext } from '@/chat/found';
 import { ChatTitle } from '@/chat/ChatTitle';
+import { noteOpenProject } from '@/stash/chats';
 import { Composer } from '@/chat/Composer';
 import { askTitle } from '@/chat/PermissionDock';
 import { RecentSheet } from '@/chat/RecentSheet';
@@ -190,6 +191,10 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const runShown = useSyncExternalStore(session.folds.subscribe, () => liveRun !== null && session.folds.isOpen(liveRun, true));
   const activity = doing && runShown ? { verb: doing.verb } : doing;
   const listed = live.snapshot?.inbox.agents.find((shown) => shown.agentId === agentId);
+  const projectId = listed?.project ?? live.snapshot?.workspace.agents?.find((shown) => shown.id === agentId)?.project;
+  useEffect(() => {
+    if (projectId) noteOpenProject(core, projectId);
+  }, [core, projectId]);
   const own = state.title ?? (listed?.titled ? listed.title : undefined);
   const title = own ?? (info?.name ? undefined : (listed?.title ?? agentLabel(provider)));
   const crew = useCrew();

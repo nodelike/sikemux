@@ -50,6 +50,8 @@ struct Rows<Content: View>: View {
 struct Row<Mark: View, End: View, After: View>: View {
     @Environment(\.palette) private var palette
     var title: String?
+    /// Marks the title itself as a project with the coloured folder.
+    var folder = false
     /// The agent's name, small and dim at the row's end.
     var name: String?
     /// The agent it works under, named before its own name when the row does not hang under that agent's row.
@@ -120,7 +122,10 @@ struct Row<Mark: View, End: View, After: View>: View {
                 mark.frame(width: 20, height: 20)
             }
             VStack(alignment: .leading, spacing: 1) {
-                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                HStack(alignment: folder ? .center : .firstTextBaseline, spacing: folder ? 5 : 0) {
+                    if folder {
+                        IconView(icon: Icons.folder, size: 13).foregroundStyle(palette.live)
+                    }
                     Text(label)
                         .font(Theme.ui(14.5, .medium))
                         .tracking(-0.15)
@@ -188,15 +193,15 @@ struct Row<Mark: View, End: View, After: View>: View {
 
 extension Row where After == EmptyView {
     init(
-        title: String? = nil, name: String? = nil, lead: String? = nil, host: String? = nil, aside: String? = nil,
-        detail: String? = nil,
+        title: String? = nil, folder: Bool = false, name: String? = nil, lead: String? = nil, host: String? = nil,
+        aside: String? = nil, detail: String? = nil,
         detailText: Text? = nil, place: String? = nil, under: String? = nil, underText: Text? = nil, dim: Bool = false,
         detailLines: Int = 1, onPress: (() -> Void)? = nil, onLongPress: (() -> Void)? = nil,
         @ViewBuilder mark: () -> Mark, @ViewBuilder end: () -> End
     ) {
         self.init(
-            title: title, name: name, lead: lead, host: host, aside: aside, detail: detail, detailText: detailText,
-            place: place,
+            title: title, folder: folder, name: name, lead: lead, host: host, aside: aside, detail: detail,
+            detailText: detailText, place: place,
             under: under,
             underText: underText, dim: dim,
             detailLines: detailLines, onPress: onPress, onLongPress: onLongPress, mark: mark, end: end,

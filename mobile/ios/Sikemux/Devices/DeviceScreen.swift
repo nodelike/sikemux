@@ -277,6 +277,7 @@ private struct DeviceContent: View {
 
     private func scopeTo(_ project: String?) {
         picking = false
+        if let project { ShareExtension.noteOpenProject(core: core, project: project) }
         Task { await hub.update(core) { $0.project = project } }
     }
 
