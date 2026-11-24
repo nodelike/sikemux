@@ -1,6 +1,7 @@
-//! An agent stopping the turn of a worker it started, as the person's Stop does. The worker then
-//! waits until a message may start it again: one from the agent that stopped it, from a lead above
-//! that one, or from the person. Other mail goes in with that message.
+//! An agent stopping the turn of a worker it started, or its wait for a usage limit to reset, as
+//! the person's Stop does. The worker then waits until a message may start it again: one from the
+//! agent that stopped it, from a lead above that one, or from the person. Other mail goes in with
+//! that message.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -106,6 +107,20 @@ pub(crate) async fn stop_here(core: &Arc<Core>, agent_id: &str, by: &str) -> Res
     if core.harness().mailbox.person_waiting(agent_id) {
         return Err(format!("the person is talking to @{name}"));
     }
+    let in_turn = (core.chats().get(agent_id)).is_some_and(|chat| chat.working());
+    let waits = !in_turn && core.chats().resets.waits(agent_id);
+    let persons = || {
+        (core.chats().heard(agent_id))
+            .is_some_and(|feed| feed.has_queued() || !feed.person_said().is_empty())
+    };
+    if (in_turn || waits) && persons() {
+        return Err(format!("the person is talking to @{name}"));
+    }
+    if waits {
+        core.inbox().stop_by(agent_id, by);
+        super::chat::reset::stop(core, agent_id);
+        return Ok(true);
+    }
     if let Some(chat) = core.chats().get(agent_id) {
         return stop_chat(core, &chat, &name, by).await;
     }
@@ -124,9 +139,6 @@ async fn stop_chat(
     let agent_id = chat.agent_id();
     if !chat.working() {
         return Err(format!("@{name} has no turn to stop"));
-    }
-    if chat.feed.has_queued() || !chat.feed.person_said().is_empty() {
-        return Err(format!("the person is talking to @{name}"));
     }
     core.inbox().stop_by(agent_id, by);
     if let Err(error) = super::chat::stop_turn(chat) {

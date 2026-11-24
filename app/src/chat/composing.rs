@@ -287,7 +287,8 @@ pub(super) fn offered<A: gpui::Action>(
     }
 }
 
-/// Stops the running turn from an empty draft, so a half-written message never stops the agent.
+/// Stops the running turn, or the wait for a usage limit to reset, from an empty draft, so a
+/// half-written message never stops the agent.
 pub(super) fn stop_turn(
     agent: &str,
     cx: &mut Context<Workbench>,
@@ -300,7 +301,7 @@ pub(super) fn stop_turn(
             if !empty {
                 return None;
             }
-            if chat.running() {
+            if chat.running() || chat.resumes_at().is_some() {
                 bench.stop(&agent, window, cx);
                 return Some(());
             }

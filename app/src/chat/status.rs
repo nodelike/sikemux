@@ -705,10 +705,7 @@ pub(super) fn trouble(
                 });
             buttons.push(button.into_any_element());
         }
-        let resumes = failure
-            .and_then(|failure| failure.resumes_at)
-            .filter(|at| *at > now_ms());
-        buttons.push(match resumes {
+        buttons.push(match chat.resumes_at() {
             Some(at) => quiet(
                 &this,
                 &agent.id,

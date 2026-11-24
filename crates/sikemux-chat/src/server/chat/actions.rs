@@ -482,10 +482,14 @@ pub async fn move_to_account(core: &Arc<Core>, agent_id: &str, account_id: &str)
     move_chat(core, agent_id, account).await
 }
 
-/// Stops the running turn. The messages waiting behind it go back to the
-/// person rather than out.
+/// Stops the running turn, or the wait for a usage limit to reset. The messages waiting behind
+/// it go back to the person rather than out.
 pub fn cancel(core: &Core, agent_id: &str) -> CoreResult<()> {
-    let chat = core.chats().running(agent_id)?;
+    let waited = super::reset::stop(core, agent_id);
+    let chat = match core.chats().running(agent_id) {
+        Err(_) if waited => return Ok(()),
+        chat => chat?,
+    };
     chat.feed.clear_queue();
     chat.stop_asked();
     stop_turn(&chat)

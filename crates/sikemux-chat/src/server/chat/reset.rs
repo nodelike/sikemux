@@ -22,6 +22,7 @@ use sikemux_fold::ChatEventKind;
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::super::Core;
+use super::feed::Feed;
 use super::kept;
 use super::rebind::Replay;
 use super::{Chat, ChatCommand};
@@ -123,19 +124,23 @@ impl LimitResumes {
         }
     }
 
+    /// Whether the chat waits for its usage limit to reset, or for when that is.
+    pub fn waits(&self, agent_id: &str) -> bool {
+        self.slots.locked().contains_key(agent_id)
+    }
+
     /// Stops the chat waiting, saying whether it was.
     pub fn cancel(&self, agent_id: &str) -> bool {
         let mut slots = self.slots.locked();
         let Some(slot) = slots.remove(agent_id) else {
             return false;
         };
-        let Slot::Waiting { timer, .. } = slot else {
-            return false;
-        };
-        if let Some(timer) = timer {
-            timer.abort();
+        if let Slot::Waiting { timer, .. } = slot {
+            if let Some(timer) = timer {
+                timer.abort();
+            }
+            self.save(&slots);
         }
-        self.save(&slots);
         true
     }
 
@@ -296,7 +301,7 @@ pub fn schedule(chat: &Arc<Chat>, launch: &ChatLaunch, prompt: Replay, resets_at
         slots.insert(chat.agent_id().to_owned(), Slot::Waiting { waiting, timer });
         resets.save(&slots);
         drop(slots);
-        say(&chat, resume_notice(&launch.provider, at));
+        say(&chat.feed, resume_notice(&launch.provider, at));
     });
 }
 
@@ -322,21 +327,25 @@ pub fn take_due(chat: &Chat) -> Option<Replay> {
         .take_due(chat.agent_id())
 }
 
-/// Stops the chat waiting at the person's word, and says so in it.
-pub fn cancel_by_person(core: &Core, agent_id: &str) {
-    if core.chats().resets.cancel(agent_id) {
-        if let Some(chat) = core.chats().get(agent_id) {
-            let mut update = notice(
-                "info",
-                "This chat will not resume when the limit resets",
-                None,
-            );
-            if let Some(fields) = update.as_object_mut() {
-                fields.insert("resumesAt".to_owned(), Value::Null);
-            }
-            say(&chat, update);
-        }
+/// Stops the chat waiting at the word of the person or its lead, and says so in it, asleep or
+/// not. Answers whether it waited.
+pub fn stop(core: &Core, agent_id: &str) -> bool {
+    if !core.chats().resets.cancel(agent_id) {
+        return false;
     }
+    if let Some(feed) = core.chats().heard(agent_id) {
+        let mut update = notice(
+            "info",
+            "This chat will not resume when the limit resets",
+            None,
+        );
+        if let Some(fields) = update.as_object_mut() {
+            fields.insert("resumesAt".to_owned(), Value::Null);
+        }
+        say(&feed, update);
+    }
+    core.changed(What::View);
+    true
 }
 
 /// Resumes each waiting chat as soon as a reading shows room on an account it may run on, rather
@@ -454,11 +463,11 @@ fn reset_elsewhere(core: &Core, launch: &ChatLaunch) -> Option<u64> {
         .min()
 }
 
-fn say(chat: &Chat, update: Value) {
-    let Some(start) = chat.feed.start() else {
+fn say(feed: &Arc<Feed>, update: Value) {
+    let Some(start) = feed.start() else {
         return;
     };
-    chat.emit(
+    feed.emit(
         ChatEventKind::SessionUpdate,
         json!({ "sessionId": start.session_id, "update": update }),
     );

@@ -333,20 +333,20 @@ pub(crate) fn of(
         .and_then(|ended| ended.at)
         .or_else(|| core.seen().active_at(agent_id))
         .unwrap_or_else(epoch_ms);
-    if let Some(failed) = ended
-        .as_ref()
-        .and_then(|ended| failed(core, agent_id, ended))
-    {
-        let mut state = standing(TurnPhase::Failed, rested_at);
-        state.failed = Some(failed);
-        return Some(state);
-    }
     if let Some(by) = ended.as_ref().and_then(|ended| ended.stop_by.as_deref()) {
         let mut state = standing(TurnPhase::Stopped, rested_at);
         state.stopped = Some(TurnStopped {
             left: None,
             by: Some(core.names().name_or_id(by)),
         });
+        return Some(state);
+    }
+    if let Some(failed) = ended
+        .as_ref()
+        .and_then(|ended| failed(core, agent_id, ended))
+    {
+        let mut state = standing(TurnPhase::Failed, rested_at);
+        state.failed = Some(failed);
         return Some(state);
     }
     if let Some(wait) = wait_of(core, gathered, agent_id, rested_at) {

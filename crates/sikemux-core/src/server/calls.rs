@@ -368,7 +368,9 @@ calls! { core, client, method, params;
     "removeTrigger" = RemoveTrigger: Full => super::triggers::remove(&core, params.trigger),
     "holdTrigger" = HoldTrigger: Full => super::triggers::hold(&core, params),
     "addTrigger" = AddTrigger: Full, counted => super::triggers::add_own(&core, params).await?,
-    "cancelResume" = CancelResume: Full => super::chat::reset::cancel_by_person(&core, &params.agent_id),
+    "cancelResume" = CancelResume: Full => {
+        super::chat::reset::stop(&core, &params.agent_id);
+    },
     "setAgentAccounts": Owner => {
         agent_accounts::set(&core, parse(params)?).await?;
         answer(())

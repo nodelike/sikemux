@@ -974,7 +974,9 @@ impl<B: Backend> Running<'_, B> {
             .account
             .as_ref()
             .map(|account| account.id.clone());
+        let stopped = state.stopping == Some(state.turn);
         let at_limit = failed.failure.kind == FailureKind::Limit
+            && !stopped
             && state.reloadable
             && switches_at_limit(chat);
         let refilled = match (at_limit, chat.core.upgrade()) {
@@ -985,6 +987,7 @@ impl<B: Backend> Running<'_, B> {
         };
         let person = (state.last_prompt.as_ref()).is_some_and(|prompt| prompt.person);
         let retry = match failed.failure.kind {
+            _ if stopped => None,
             FailureKind::Limit if refilled.is_some() && refilled == current => {
                 chat.relaunch(self.launch).map(|launch| Rebind {
                     launch,
@@ -1055,8 +1058,8 @@ impl<B: Backend> Running<'_, B> {
         if failed.failure.kind == FailureKind::Limit {
             crate::server::chat::handoff::offer_another_agent(chat, self.launch);
         }
-        if let (FailureKind::Limit, Some(prompt)) =
-            (failed.failure.kind, state.failed_prompt.clone())
+        if let (FailureKind::Limit, false, Some(prompt)) =
+            (failed.failure.kind, stopped, state.failed_prompt.clone())
         {
             reset::schedule(chat, self.launch, prompt, failed.failure.resets_at);
         }
@@ -1537,6 +1540,9 @@ impl<B: Backend> Running<'_, B> {
             switching.carry_on = false;
         }
         self.chat.moving_on.store(false, Ordering::Release);
+        if let Some(core) = self.chat.core.upgrade() {
+            reset::stop(&core, self.chat.agent_id());
+        }
         if self.chat.prompted() {
             self.state.stopping = Some(self.state.turn);
         }

@@ -1279,6 +1279,14 @@ impl Chat {
         self.state.as_ref().is_some_and(|head| head.running)
     }
 
+    /// When the chat sends its stopped message again, as its usage limit resets then.
+    pub fn resumes_at(&self) -> Option<u64> {
+        let failure = self.state.as_ref()?.failure.as_ref()?;
+        failure
+            .resumes_at
+            .filter(|at| *at > crate::ui::time::now_ms())
+    }
+
     /// Notes that the person is sending this new chat its first message, which starts its
     /// welcome leaving.
     pub(crate) fn sending_first(&self, cx: &App) {
