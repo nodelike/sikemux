@@ -52,7 +52,7 @@ use crate::theme::{
     TEXT_XS,
 };
 use crate::toast;
-use crate::ui::{self, Button, IconButton, Variant};
+use crate::ui::{self, IconButton};
 use crate::workbench::{Strip, Workbench};
 
 /// The browser engine and what the desks show of it.
@@ -2843,7 +2843,6 @@ fn pages_desk(
     window: &Window,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    let t = Tokens::get(cx).clone();
     let desks = bench.desks.read(cx);
     let strip = desks.strips.get(agent).cloned();
     let front_item = desks.front_item(agent).cloned();
@@ -2880,74 +2879,20 @@ fn pages_desk(
         let id = page_id_of(tab.local_file.as_deref()?)?;
         Some((id.to_owned(), tab.title.clone()))
     });
+    let is_artifact = artifact.is_some();
     let keeping = artifact.and_then(|(id, title)| keep_and_share(bench, agent, id, title, cx));
     let foot = (bench.page_on_desk(agent, cx)).map(|_| page_foot(bench, agent, cx));
     let page = bench.desks.read(cx).pages.get(agent);
     if let Some(page) = page {
         page.footed.store(foot.is_some(), Ordering::Relaxed);
     }
-    let (back, forward, reload) = (agent.to_owned(), agent.to_owned(), agent.to_owned());
     let bar = second_row(cx)
-        .child(
-            IconButton::new("desk-back", Icon::Chevron, t!("Back"))
-                .glyph(11.)
-                .turned(std::f32::consts::PI)
-                .disabled(!front.is_some_and(|tab| tab.can_go_back))
-                .on_click(cx.listener(move |bench, _, _, cx| {
-                    bench.with_engine(cx, |engine| engine.history(&back, -1))
-                })),
-        )
-        .child(
-            IconButton::new("desk-forward", Icon::Chevron, t!("Forward"))
-                .glyph(11.)
-                .disabled(!front.is_some_and(|tab| tab.can_go_forward))
-                .on_click(cx.listener(move |bench, _, _, cx| {
-                    bench.with_engine(cx, |engine| engine.history(&forward, 1))
-                })),
-        )
-        .child(
-            IconButton::new("desk-reload", Icon::Refresh, t!("Reload"))
-                .glyph(12.)
-                .on_click(cx.listener(move |bench, _, _, cx| {
-                    bench.with_engine(cx, |engine| engine.reload(&reload))
-                })),
-        )
-        .children(page.map(|page| {
-            let floating = (bench.desks.read(cx).floating.as_ref())
-                .is_some_and(|floating| floating.agent == agent);
-            let focused = page.address.read(cx).focus_handle(cx).is_focused(window);
-            div()
-                .flex_1()
-                .min_w_0()
-                .h(px(26.))
-                .ml(SPACE_1)
-                .flex()
-                .items_center()
-                .rounded(radius_2())
-                .border(crate::theme::border())
-                .border_color(if focused {
-                    t.border_selected
-                } else {
-                    gpui_kit::transparent_black()
-                })
-                .bg(if focused {
-                    t.surface_sunken.opacity(0.8)
-                } else {
-                    t.text_primary.opacity(0.05)
-                })
-                .when(!focused, |field| {
-                    field.hover(move |field| field.bg(t.text_primary.opacity(0.08)))
-                })
-                .when(!floating, |field| {
-                    field.child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(Input::new(&page.address).appearance(false)),
-                    )
-                })
-        }))
-        .children(keeping)
+        .map(|bar| match is_artifact {
+            true => bar
+                .children(keeping.into_iter().flatten())
+                .child(div().flex_1()),
+            false => navigation(bar, bench, agent, front, window, cx),
+        })
         .children(front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
         .child(snip_toggle(bench, agent, cx))
         .children(front.and_then(external_address).map(|address| {
@@ -3000,14 +2945,87 @@ fn pages_desk(
         .into_any_element()
 }
 
-/// How long Sikemux keeps the artifact of the agent's tab in front, and its Keep and Share.
+/// Back, forward, reload and the address of the agent's tab in front, at the start of its bar.
+fn navigation(
+    bar: gpui_kit::Div,
+    bench: &Workbench,
+    agent: &str,
+    front: Option<&sikemux_browser::BrowserTab>,
+    window: &Window,
+    cx: &Context<Workbench>,
+) -> gpui_kit::Div {
+    let t = Tokens::get(cx).clone();
+    let page = bench.desks.read(cx).pages.get(agent);
+    let (back, forward, reload) = (agent.to_owned(), agent.to_owned(), agent.to_owned());
+    bar.child(
+        IconButton::new("desk-back", Icon::Chevron, t!("Back"))
+            .glyph(11.)
+            .turned(std::f32::consts::PI)
+            .disabled(!front.is_some_and(|tab| tab.can_go_back))
+            .on_click(cx.listener(move |bench, _, _, cx| {
+                bench.with_engine(cx, |engine| engine.history(&back, -1))
+            })),
+    )
+    .child(
+        IconButton::new("desk-forward", Icon::Chevron, t!("Forward"))
+            .glyph(11.)
+            .disabled(!front.is_some_and(|tab| tab.can_go_forward))
+            .on_click(cx.listener(move |bench, _, _, cx| {
+                bench.with_engine(cx, |engine| engine.history(&forward, 1))
+            })),
+    )
+    .child(
+        IconButton::new("desk-reload", Icon::Refresh, t!("Reload"))
+            .glyph(12.)
+            .on_click(cx.listener(move |bench, _, _, cx| {
+                bench.with_engine(cx, |engine| engine.reload(&reload))
+            })),
+    )
+    .children(page.map(|page| {
+        let floating = (bench.desks.read(cx).floating.as_ref())
+            .is_some_and(|floating| floating.agent == agent);
+        let focused = page.address.read(cx).focus_handle(cx).is_focused(window);
+        div()
+            .flex_1()
+            .min_w_0()
+            .h(px(26.))
+            .ml(SPACE_1)
+            .flex()
+            .items_center()
+            .rounded(radius_2())
+            .border(crate::theme::border())
+            .border_color(if focused {
+                t.border_selected
+            } else {
+                gpui_kit::transparent_black()
+            })
+            .bg(if focused {
+                t.surface_sunken.opacity(0.8)
+            } else {
+                t.text_primary.opacity(0.05)
+            })
+            .when(!focused, |field| {
+                field.hover(move |field| field.bg(t.text_primary.opacity(0.08)))
+            })
+            .when(!floating, |field| {
+                field.child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(Input::new(&page.address).appearance(false)),
+                )
+            })
+    }))
+}
+
+/// Keep and Share for the artifact of the agent's tab in front.
 fn keep_and_share(
     bench: &Workbench,
     agent: &str,
     id: String,
     title: String,
     cx: &mut Context<Workbench>,
-) -> Option<gpui_kit::Div> {
+) -> Option<[IconButton; 2]> {
     let Some(life) = bench.pages.life_of(&id) else {
         let folder = crate::calls::project_of(bench, agent)?;
         let this = cx.weak_entity();
@@ -3019,38 +3037,30 @@ fn keep_and_share(
         return None;
     };
     let (kept, shared) = (life == PageLife::Kept, bench.pages.share_of(&id).is_some());
-    let fact = match shared {
+    let accent = Tokens::get(cx).accent;
+    let icon = match kept {
+        true => Icon::Pin,
+        false => Icon::Timer,
+    };
+    let label = match shared {
         true => t!("Kept while it is shared").to_owned(),
-        false => crate::pages::stays(life),
+        false => crate::pages::keep_label(life),
     };
-    let keep = (!shared).then(|| {
-        let (label, variant) = match kept {
-            true => (t!("Kept"), Variant::Ghost),
-            false => (t!("Keep"), Variant::Outline),
-        };
-        let id = id.clone();
-        Button::new("page-keep", label, variant)
-            .icon(Icon::Pin)
-            .on_click(cx.listener(move |bench, _, _, cx| bench.keep_page(&id, !kept, cx)))
-    });
-    let (label, variant) = match shared {
-        true => (t!("Shared"), Variant::Ghost),
-        false => (t!("Share"), Variant::Outline),
+    let page = id.clone();
+    let keep = IconButton::new("page-keep", icon, label)
+        .glyph(13.)
+        .when(kept, |button| button.tint(accent))
+        .disabled(shared)
+        .on_click(cx.listener(move |bench, _, _, cx| bench.keep_page(&page, !kept, cx)));
+    let label = match shared {
+        true => t!("Shared"),
+        false => t!("Share"),
     };
-    let share = Button::new("page-share", label, variant)
-        .icon(Icon::Share)
+    let share = IconButton::new("page-share", Icon::Share, label)
+        .glyph(13.)
+        .when(shared, |button| button.tint(accent))
         .on_click(cx.listener(move |bench, _, _, cx| bench.open_page_share(&id, &title, cx)));
-    Some(
-        div()
-            .min_w_0()
-            .flex()
-            .items_center()
-            .gap(SPACE_1)
-            .px(SPACE_1)
-            .child(ui::meta(fact, cx).min_w_0().truncate())
-            .children(keep)
-            .child(share),
-    )
+    Some([keep, share])
 }
 
 /// The foot of `agent`'s desk, made the first time an artifact shows on it.

@@ -178,11 +178,11 @@ pub(crate) fn life_words(life: PageLife, shown_at: u64) -> String {
     }
 }
 
-/// How long Sikemux keeps a page, in full.
-pub(crate) fn stays(life: PageLife) -> String {
+/// What an open page's Keep says: how long the page has left, or that it is kept.
+pub(crate) fn keep_label(life: PageLife) -> String {
     match life {
-        PageLife::Kept => t!("Kept until you let it go").into(),
-        PageLife::WithCall => t!("Goes a day after its ask settles").into(),
-        PageLife::Goes { at } => t!("Goes in {left}", left = ui::time::left_short(at)),
+        PageLife::Kept => t!("Kept · press to let it go").into(),
+        PageLife::WithCall => t!("Keep · goes a day after you answer").into(),
+        PageLife::Goes { at } => t!("Keep · goes in {left}", left = ui::time::left_short(at)),
     }
 }

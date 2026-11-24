@@ -175813,54 +175813,54 @@
         }
       }
     },
-    "Goes a day after its ask settles": {
+    "Keep · goes a day after you answer": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disparaît un jour après la clôture de sa demande"
+            "value": "Conserver · disparaît un jour après votre réponse"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se va un día después de que se resuelva su petición"
+            "value": "Conservar · se va un día después de que respondas"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verschwindet einen Tag, nachdem seine Anfrage erledigt ist"
+            "value": "Behalten · verschwindet einen Tag nach deiner Antwort"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "其请求处理完毕一天后移除"
+            "value": "保留 · 你回答一天后移除"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "依頼が済んだ 1 日後に消えます"
+            "value": "保持 · 回答の 1 日後に消えます"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "요청이 처리된 하루 뒤에 삭제됩니다"
+            "value": "보관 · 답한 하루 뒤에 삭제됩니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Удаляется через день после ответа на запрос"
+            "value": "Сохранить · удалится через день после вашего ответа"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sai um dia depois que o pedido é resolvido"
+            "value": "Manter · sai um dia depois que você responder"
           }
         }
       }
@@ -178569,54 +178569,54 @@
         }
       }
     },
-    "Goes in {left}": {
+    "Keep · goes in {left}": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disparaît dans {left}"
+            "value": "Conserver · disparaît dans {left}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se va en {left}"
+            "value": "Conservar · se va en {left}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verschwindet in {left}"
+            "value": "Behalten · verschwindet in {left}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "{left} 后移除"
+            "value": "保留 · {left} 后移除"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{left} 後に消えます"
+            "value": "保持 · {left} 後に消えます"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "{left} 뒤 삭제됩니다"
+            "value": "보관 · {left} 뒤 삭제됩니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Удалится через {left}"
+            "value": "Сохранить · удалится через {left}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sai em {left}"
+            "value": "Manter · sai em {left}"
           }
         }
       }
@@ -179193,58 +179193,6 @@
         }
       }
     },
-    "Keep": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conserver"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Conservar"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Behalten"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保留"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保持"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "보관"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сохранить"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Manter"
-          }
-        }
-      }
-    },
     "Kept": {
       "localizations": {
         "fr": {
@@ -179297,54 +179245,54 @@
         }
       }
     },
-    "Kept until you let it go": {
+    "Kept · press to let it go": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Conservé jusqu'à ce que vous le libériez"
+            "value": "Conservé · appuyez pour le libérer"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se conserva hasta que lo sueltes"
+            "value": "Conservado · pulsa para soltarlo"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bleibt erhalten, bis du es freigibst"
+            "value": "Behalten · zum Freigeben drücken"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "一直保留，直到你取消保留"
+            "value": "已保留 · 按下取消保留"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保持を解除するまで残ります"
+            "value": "保持済み · 押すと解除します"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "보관을 해제할 때까지 유지됩니다"
+            "value": "보관됨 · 누르면 해제합니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Хранится, пока вы не освободите его"
+            "value": "Сохранено · нажмите, чтобы освободить"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mantido até você liberar"
+            "value": "Mantido · pressione para liberar"
           }
         }
       }
