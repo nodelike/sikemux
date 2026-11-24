@@ -482,6 +482,7 @@ jobs:
             ${{ runner.temp }}/w/mcp-apps/*.png
             ${{ runner.temp }}/w/mcp-apps/*.json
           if-no-files-found: warn
+          retention-days: 14
 
       # The checks' cores listen on sockets inside their output folders, and a socket's path must stay
       # under 104 bytes, which the checkout's own path would pass.
@@ -525,7 +526,12 @@ jobs:
           path: |
             app/window-run
             ${{ runner.temp }}/w
+            !${{ runner.temp }}/w/**/run/Sikemux GPUI Test.app
+            !${{ runner.temp }}/w/**/run/bin
+            !${{ runner.temp }}/w/**/run/data/agent-*
+            !${{ runner.temp }}/w/**/run/cli/agent-*
           if-no-files-found: warn
+          retention-days: 14
 
   # The GPUI app on Linux in a real X window: Xvfb with a window manager, the app and a throwaway core with
   # fake agents only, each check captured. With --browser it also opens a desk tab on a local page and drives
