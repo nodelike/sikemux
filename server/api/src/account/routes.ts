@@ -13,6 +13,7 @@ import { perUser } from "../limits.ts";
 import { planOf } from "../billing/allowance.ts";
 import { makeDueCalls } from "../billing/calls.ts";
 import { endDeletedBilling } from "../billing/deleted.ts";
+import { teamAccess } from "../billing/team.ts";
 import { revokeAppleSignIn } from "./apple.ts";
 import { markDeleted, PURGE_AFTER_DAYS, restoreAccount } from "./deletion.ts";
 import {
@@ -31,7 +32,7 @@ export function accountRoutes({
   clerk,
   appleSignIn: apple,
   push: { app },
-  billing: { provider },
+  billing: { provider, live },
   addressProofKey,
 }: Pick<
   Services,
@@ -62,7 +63,10 @@ export function accountRoutes({
         .select(["deleted_at", "purge_after", "staff"])
         .where("id", "=", userId)
         .executeTakeFirst();
-      const plan = await planOf(db, userId);
+      const [plan, team] = await Promise.all([
+        planOf(db, userId),
+        teamAccess(db, live, userId),
+      ]);
       const body: Account =
         user?.deleted_at && user.purge_after
           ? {
@@ -71,12 +75,14 @@ export function accountRoutes({
               restorableDays: PURGE_AFTER_DAYS,
               staff: user.staff,
               plan,
+              team,
             }
           : {
               status: "active",
               restorableDays: PURGE_AFTER_DAYS,
               staff: user?.staff ?? false,
               plan,
+              team,
             };
       return c.json(body);
     })
@@ -93,6 +99,7 @@ export function accountRoutes({
         restorableDays: PURGE_AFTER_DAYS,
         staff: await isStaff(db, identity.userId),
         plan: await planOf(db, identity.userId),
+        team: await teamAccess(db, live, identity.userId),
       };
       return c.json(body);
     })

@@ -1,6 +1,7 @@
 import { useAuth } from "@clerk/react";
 import { useCallback, useEffect, useState } from "react";
 
+import type { TeamAccess } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
 
@@ -15,6 +16,7 @@ export function useAccountState(ready: boolean) {
   const { isSignedIn, getToken } = useAuth();
   const [account, setAccount] = useState<AccountState>({ state: "loading" });
   const [staff, setStaff] = useState(false);
+  const [team, setTeam] = useState<TeamAccess>("shut");
 
   useEffect(() => {
     if (!ready || !isSignedIn) return;
@@ -25,6 +27,7 @@ export function useAccountState(ready: boolean) {
         const read = await api(token).getAccount();
         if (!current) return;
         setStaff(read.staff);
+        setTeam(read.team ?? "shut");
         setAccount(
           read.status === "deleting" && read.deletesAt
             ? { state: "deleting", deletesAt: read.deletesAt }
@@ -43,7 +46,7 @@ export function useAccountState(ready: boolean) {
     (restorableDays: number) => setAccount({ state: "active", restorableDays }),
     [],
   );
-  return { account, staff, restored };
+  return { account, staff, team, restored };
 }
 
 export function RestoreAccount({

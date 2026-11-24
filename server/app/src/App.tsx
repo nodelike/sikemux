@@ -253,7 +253,7 @@ function Account({
   const { user } = useUser();
   const { isSignedIn } = useAuth();
   const email = user?.primaryEmailAddress?.emailAddress;
-  const { account, staff, restored } = useAccountState(ready);
+  const { account, staff, team, restored } = useAccountState(ready);
   const active = account.state === "active";
   const devices = useDevices(ready && active);
   const signIns = useSignIns(ready && active);
@@ -263,15 +263,15 @@ function Account({
       : undefined;
   const billingShown = useBillingShown(ready && active);
   const [planVersion, setPlanVersion] = useState(0);
-  const offers = useOffers(billingShown);
+  const teamShown = team !== "shut";
+  const offers = useOffers(team === "sold" || team === "preview");
   const shown: Record<string, boolean> = {
     [BILLING]: billingShown,
-    [TEAM]: billingShown,
-    [TEAMS]: billingShown,
-    [DOMAINS]: billingShown,
-    [AUDIT]: billingShown,
-    [POLICY]: billingShown,
-    [JOIN]: billingShown,
+    [TEAM]: teamShown,
+    [TEAMS]: teamShown,
+    [DOMAINS]: teamShown,
+    [AUDIT]: teamShown,
+    [POLICY]: teamShown,
     [PRICING]: staff,
   };
   const page = path in PAGE_TITLES && shown[path] !== false ? path : "/";
@@ -324,6 +324,10 @@ function Account({
               },
             ],
           },
+        ]
+      : []),
+    ...(teamShown
+      ? [
           {
             label: "Org",
             items: [
@@ -389,7 +393,7 @@ function Account({
       ) : page === JOIN ? (
         <JoinPage follow={follow} />
       ) : page === TEAM ? (
-        <TeamPage follow={follow} />
+        <TeamPage team={team} follow={follow} />
       ) : page === TEAMS ? (
         <TeamsPage />
       ) : page === DOMAINS ? (
@@ -401,7 +405,7 @@ function Account({
       ) : page === PRICING ? (
         <PricingPage />
       ) : page === BILLING ? (
-        <BillingPage version={planVersion} staff={staff} />
+        <BillingPage version={planVersion} staff={staff} team={team} />
       ) : page === HOSTS ? (
         <>
           <PageHead title="Hosts">

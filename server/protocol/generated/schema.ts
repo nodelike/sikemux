@@ -28,6 +28,7 @@ export const schema = {
             "The plan the account holds, its own or through a seat; plan.changed says when it changes.",
           $ref: "#/$defs/PlanId",
         },
+        team: { $ref: "#/$defs/TeamAccess" },
       },
       required: ["status", "restorableDays", "staff", "plan"],
       additionalProperties: false,
@@ -739,6 +740,19 @@ export const schema = {
         "Why two accounts may be one person's. invite, share and browser: what the web app saw as the new account signed up. domain: an org proves the new account's address's domain. address: the address is proven on another account. seat: an account brings over a seat another of the person's accounts holds.",
       type: "string",
       enum: ["invite", "share", "browser", "domain", "address", "seat"],
+    },
+    FollowedChannel: {
+      description:
+        "Which releases a host follows, as chosen on it. Staff follows every build of main.",
+      type: "string",
+      enum: ["stable", "nightly", "staff"],
+    },
+    FollowedReleases: {
+      description: "What a host says about the releases it follows.",
+      type: "object",
+      properties: { channel: { $ref: "#/$defs/FollowedChannel" } },
+      required: ["channel"],
+      additionalProperties: false,
     },
     Health: {
       description:
@@ -1917,6 +1931,11 @@ export const schema = {
         role: { description: "Your role in it.", $ref: "#/$defs/OrgRole" },
         seats: { $ref: "#/$defs/OrgSeats" },
         createdAt: { type: "string", format: "date-time" },
+        preview: {
+          description:
+            "Only true: the org has its seats free while Team is in preview.",
+          type: "boolean",
+        },
       },
       required: ["id", "name", "role", "seats", "createdAt"],
       additionalProperties: false,
@@ -2340,6 +2359,11 @@ export const schema = {
         },
         plan: { $ref: "#/$defs/OrgPlan" },
         policy: { $ref: "#/$defs/OrgPolicy" },
+        hidden: {
+          description:
+            "Only true: the host keeps what it holds of the org and shows nothing of it.",
+          type: "boolean",
+        },
       },
       required: ["id", "name", "role", "plan", "policy"],
       additionalProperties: false,
@@ -4114,6 +4138,12 @@ export const schema = {
         "active: paid for the current period. lapsed: a payment failed and the provider is still trying; nothing it pays for is allowed meanwhile. ended: over for good.",
       type: "string",
       enum: ["active", "lapsed", "ended"],
+    },
+    TeamAccess: {
+      description:
+        "How far Team is open to the account. sold: to start by paying; preview: to start free; kept: not open, but the account is in an org it can read, hand over and leave; shut: not open, and nothing of it is shown.",
+      type: "string",
+      enum: ["sold", "preview", "kept", "shut"],
     },
     Vault: {
       description: "The account's vault, as the host that asked sees it.",

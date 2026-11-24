@@ -292,6 +292,11 @@ describe("invites", () => {
 
   it("are refused while the org has no Team plan", async () => {
     const orgId = await createOrg(0);
+    await database.db
+      .updateTable("orgs")
+      .set({ preview_seats: null })
+      .where("id", "=", orgId)
+      .execute();
     expect((await invite(OWNER, orgId, "user")).status).toBe(409);
   });
 });

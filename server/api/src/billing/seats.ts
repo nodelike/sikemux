@@ -2,6 +2,7 @@ import type { OrgRole } from "@sikemux/protocol";
 import { sql, type Kysely } from "kysely";
 
 import type { Tables } from "../db.ts";
+import { previewSeats } from "./team.ts";
 
 function orgSubscriptions(db: Kysely<Tables>, orgId: string) {
   return db
@@ -16,7 +17,8 @@ function orgSubscriptions(db: Kysely<Tables>, orgId: string) {
 
 /**
  * How many seats the org may fill: the fewest of what its active Team plan bills now, what waits
- * at renewal, and a cut its owner claimed that the provider has not reported yet; 0 with no plan.
+ * at renewal, and a cut its owner claimed that the provider has not reported yet. With no plan,
+ * what the preview gives it, or 0.
  */
 export async function seatLimit(
   db: Kysely<Tables>,
@@ -31,7 +33,7 @@ export async function seatLimit(
     .where("subscriptions.product", "=", "team")
     .where("subscriptions.status", "=", "active")
     .executeTakeFirst();
-  return row?.seats ?? 0;
+  return row?.seats ?? (await previewSeats(db, orgId));
 }
 
 /** Longer than a change takes at the provider, so an event this much later already shows it. */

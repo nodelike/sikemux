@@ -1,49 +1,53 @@
 import type { Services } from "../app.ts";
 import type { OrgMemberships } from "@sikemux/protocol";
 import { Hono } from "hono";
-import { sql, type ExpressionBuilder } from "kysely";
+import type { Kysely } from "kysely";
 
 import { isStaff } from "../account/staff.ts";
 import { requireIdentity, type AuthEnv } from "../auth.ts";
+import { mayUseTeam, teamActive, teamAudience } from "../billing/team.ts";
 import type { Tables } from "../db.ts";
 import { perUser } from "../limits.ts";
 import { policyBody } from "./policy.ts";
 
 /**
- * GET /v1/account/orgs: the orgs the account a host is on is in, read again on orgs.changed.
- * Until plans go live only staff are in any.
+ * What a host shows of the account's orgs, by the releases it follows. A staff account's hosts
+ * show them all. A host that follows stable keeps what it holds and shows nothing; one that never
+ * said is from before it could, and is told only of orgs whose vault key it holds, to keep it.
  */
-/** Whether the org in `orgs.id` holds an active Team subscription. */
-export function teamPaid(eb: ExpressionBuilder<Tables, "orgs">) {
-  return eb.exists(
-    eb
-      .selectFrom("subscriptions")
-      .innerJoin(
-        "billing_customers",
-        "billing_customers.id",
-        "subscriptions.customer_id",
-      )
-      .select(sql`1`.as("one"))
-      .whereRef("billing_customers.org_id", "=", "orgs.id")
-      .where("subscriptions.product", "=", "team")
-      .where("subscriptions.status", "=", "active"),
-  );
+async function showing(
+  db: Kysely<Tables>,
+  userId: string,
+  deviceKey: string | undefined,
+): Promise<"shown" | "hidden" | "unsaid"> {
+  if ((await isStaff(db, userId)) || (await teamAudience(db)) === "everyone")
+    return "shown";
+  const host = await db
+    .selectFrom("devices")
+    .select("followed_channel")
+    .where("key", "=", deviceKey ?? "")
+    .executeTakeFirst();
+  if (!host?.followed_channel) return "unsaid";
+  return host.followed_channel === "stable" ? "hidden" : "shown";
 }
 
+/**
+ * GET /v1/account/orgs: the orgs the account a host is on is in, read again on orgs.changed. One
+ * the account may not use Team in now reads as lapsed, so its hosts keep what they hold of it.
+ */
 export function membershipRoutes({
   database: { db },
   verifier,
   limiter,
-  billing: { live },
-}: Pick<Services, "database" | "verifier" | "limiter" | "billing">) {
+}: Pick<Services, "database" | "verifier" | "limiter">) {
   return new Hono<AuthEnv>().get(
     "/",
     requireIdentity(verifier, db, { accept: ["host"] }),
     perUser(limiter, "account-orgs", 30),
     async (c) => {
-      const { userId } = c.get("identity");
-      if (!live && !(await isStaff(db, userId)))
-        return c.json({ orgs: [] } satisfies OrgMemberships);
+      const { userId, deviceKey } = c.get("identity");
+      const show = await showing(db, userId, deviceKey);
+      const open = await mayUseTeam(db, userId);
       const rows = await db
         .selectFrom("orgs")
         .innerJoin("org_users", "org_users.org_id", "orgs.id")
@@ -55,8 +59,16 @@ export function membershipRoutes({
           "orgs.asking",
           "orgs.daily_questions",
         ])
-        .select((eb) => teamPaid(eb).as("paid"))
+        .select((eb) => teamActive(eb).as("active"))
         .where("org_users.user_id", "=", userId)
+        .$if(show === "unsaid", (query) =>
+          query.where("orgs.id", "in", (eb) =>
+            eb
+              .selectFrom("org_vault_keys")
+              .select("org_id")
+              .where("host_key", "=", deviceKey ?? ""),
+          ),
+        )
         .orderBy("orgs.created_at")
         .orderBy("orgs.id")
         .execute();
@@ -65,8 +77,9 @@ export function membershipRoutes({
           id: row.id,
           name: row.name,
           role: row.role,
-          plan: row.paid ? "active" : "lapsed",
+          plan: open && row.active ? "active" : "lapsed",
           policy: policyBody(row),
+          ...(show !== "shown" ? { hidden: true } : {}),
         })),
       };
       return c.json(body);

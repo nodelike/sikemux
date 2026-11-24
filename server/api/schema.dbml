@@ -43,6 +43,8 @@ Table devices {
   hands_only boolean [not null, default: `false`]
   sign_in_session text
   mac_signed_in_at timestamptz
+  followed_channel text [note: 'followed_channel = ANY (ARRAY[\'stable\', \'nightly\', \'staff\'])']
+  followed_at timestamptz
 
   indexes {
     (user_id, created_at) [name: 'devices_by_user', note: 'created_at desc']
@@ -393,6 +395,7 @@ Table orgs {
   rule_adding text [not null, default: 'every_member', note: 'rule_adding = ANY (ARRAY[\'every_member\', \'admins_approve\'])']
   asking boolean [not null, default: `true`]
   daily_questions integer [not null, default: 30, note: '(daily_questions >= 1) AND (daily_questions <= 500)']
+  preview_seats integer [note: 'preview_seats > 0']
 }
 
 Table org_users {
@@ -865,6 +868,12 @@ Table host_removal_sign_outs {
     user_id [name: 'host_removal_sign_outs_by_user']
     clerk_retry_at [name: 'host_removal_sign_outs_due', note: 'where (done_at IS NULL)']
   }
+}
+
+Table team_audience {
+  only_row boolean [pk, default: `true`, note: 'only_row']
+  audience text [not null, default: 'staff', note: 'audience = ANY (ARRAY[\'staff\', \'nightly\', \'everyone\'])']
+  vaults_open boolean [not null, default: `false`]
 }
 
 Ref: devices.user_id > users.id [delete: cascade]

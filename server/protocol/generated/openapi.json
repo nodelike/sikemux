@@ -1601,6 +1601,35 @@
         }
       }
     },
+    "/v1/account/followed-releases": {
+      "put": {
+        "operationId": "reportFollowedReleases",
+        "summary": "Say which releases this host follows, which decides whether previews open to the account",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/FollowedReleases" }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Kept. orgs.changed follows when what the host follows changed."
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/account/orgs": {
       "get": {
         "operationId": "getAccountOrgs",
@@ -6099,6 +6128,72 @@
         }
       }
     },
+    "/v1/billing/orgs/{orgId}/preview": {
+      "post": {
+        "operationId": "moveOrgToPreview",
+        "summary": "End an org's test Team plan at once and give it the preview's free seats",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The org, unchanged but for its seats. Repeating it changes nothing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Org" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner acts for its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "Billing is live, so the preview has ended.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/billing/subscriptions/{subscriptionId}/resume": {
       "post": {
         "operationId": "resumeSubscription",
@@ -6555,7 +6650,8 @@
           "plan": {
             "description": "The plan the account holds, its own or through a seat; plan.changed says when it changes.",
             "$ref": "#/components/schemas/PlanId"
-          }
+          },
+          "team": { "$ref": "#/components/schemas/TeamAccess" }
         },
         "required": ["status", "restorableDays", "staff", "plan"],
         "additionalProperties": false
@@ -7236,6 +7332,20 @@
         "description": "Why two accounts may be one person's. invite, share and browser: what the web app saw as the new account signed up. domain: an org proves the new account's address's domain. address: the address is proven on another account. seat: an account brings over a seat another of the person's accounts holds.",
         "type": "string",
         "enum": ["invite", "share", "browser", "domain", "address", "seat"]
+      },
+      "FollowedChannel": {
+        "description": "Which releases a host follows, as chosen on it. Staff follows every build of main.",
+        "type": "string",
+        "enum": ["stable", "nightly", "staff"]
+      },
+      "FollowedReleases": {
+        "description": "What a host says about the releases it follows.",
+        "type": "object",
+        "properties": {
+          "channel": { "$ref": "#/components/schemas/FollowedChannel" }
+        },
+        "required": ["channel"],
+        "additionalProperties": false
       },
       "Health": {
         "description": "Whether the API can serve requests, and which build is answering.",
@@ -8354,7 +8464,11 @@
             "$ref": "#/components/schemas/OrgRole"
           },
           "seats": { "$ref": "#/components/schemas/OrgSeats" },
-          "createdAt": { "type": "string", "format": "date-time" }
+          "createdAt": { "type": "string", "format": "date-time" },
+          "preview": {
+            "description": "Only true: the org has its seats free while Team is in preview.",
+            "type": "boolean"
+          }
         },
         "required": ["id", "name", "role", "seats", "createdAt"],
         "additionalProperties": false
@@ -8784,7 +8898,11 @@
             "$ref": "#/components/schemas/OrgRole"
           },
           "plan": { "$ref": "#/components/schemas/OrgPlan" },
-          "policy": { "$ref": "#/components/schemas/OrgPolicy" }
+          "policy": { "$ref": "#/components/schemas/OrgPolicy" },
+          "hidden": {
+            "description": "Only true: the host keeps what it holds of the org and shows nothing of it.",
+            "type": "boolean"
+          }
         },
         "required": ["id", "name", "role", "plan", "policy"],
         "additionalProperties": false
@@ -10487,6 +10605,11 @@
         "description": "active: paid for the current period. lapsed: a payment failed and the provider is still trying; nothing it pays for is allowed meanwhile. ended: over for good.",
         "type": "string",
         "enum": ["active", "lapsed", "ended"]
+      },
+      "TeamAccess": {
+        "description": "How far Team is open to the account. sold: to start by paying; preview: to start free; kept: not open, but the account is in an org it can read, hand over and leave; shut: not open, and nothing of it is shown.",
+        "type": "string",
+        "enum": ["sold", "preview", "kept", "shut"]
       },
       "Vault": {
         "description": "The account's vault, as the host that asked sees it.",

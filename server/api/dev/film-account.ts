@@ -258,11 +258,7 @@ for (const org of account.orgs ?? []) {
   await db.query(
     "alter table orgs alter column id set default gen_random_uuid()",
   );
-  if (org.plan === "lapsed")
-    await db.query(
-      "update subscriptions set status = 'ended', ended_at = now() where customer_id = $1",
-      [rows[0].id],
-    );
+  if (org.plan === "lapsed") await setPlan(org.name, "lapsed");
 }
 
 console.log(JSON.stringify({ api }));
@@ -284,6 +280,9 @@ async function setRole(name: string, role: string) {
 async function setPlan(name: string, plan: string) {
   const org = seeded.get(name);
   if (!org) throw new Error(`no org named ${name}`);
+  await db.query("update orgs set preview_seats = null where id = $1", [
+    org.id,
+  ]);
   await db.query(
     plan === "lapsed"
       ? "update subscriptions set status = 'ended', ended_at = now() where customer_id = $1"

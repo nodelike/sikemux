@@ -15,6 +15,7 @@ import type {
   SubscriptionStatus,
   ApnsEnvironment,
   Channel,
+  FollowedChannel,
   DeviceRole,
   HookHeader,
   HookMethod,
@@ -174,6 +175,13 @@ export interface Tables {
     name: string;
     platform: Platform;
     channel: Channel | null;
+    /** The releases the host last said it follows, and when. */
+    followed_channel: ColumnType<
+      FollowedChannel | null,
+      never,
+      FollowedChannel | null
+    >;
+    followed_at: ColumnType<Date | null, never, Date | null>;
     created_at: CreatedAt;
     updated_at: ColumnType<Date, never, Date>;
     last_seen_at: ColumnType<Date | null, never, Date | null>;
@@ -469,6 +477,16 @@ export interface Tables {
     rule_adding: Generated<OrgRuleAdding>;
     asking: Generated<boolean>;
     daily_questions: Generated<number>;
+    preview_seats: ColumnType<
+      number | null,
+      number | null | undefined,
+      number | null
+    >;
+  };
+  team_audience: {
+    only_row: Generated<boolean>;
+    audience: Generated<"staff" | "nightly" | "everyone">;
+    vaults_open: Generated<boolean>;
   };
   org_users: {
     id: Generated<string>;

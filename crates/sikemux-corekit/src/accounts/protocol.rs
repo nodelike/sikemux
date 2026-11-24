@@ -18,6 +18,8 @@ pub struct Account {
     pub staff: Staff,
     /// The plan the account holds, its own or through a seat; plan.changed says when it changes.
     pub plan: PlanId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamAccess>,
 }
 
 /// Every device is revoked and every token refused from the moment this is answered, except to read or restore the account. Signing in again before deletesAt can restore it.
@@ -618,6 +620,27 @@ pub enum FoldWhy {
     Unknown,
 }
 
+/// Which releases a host follows, as chosen on it. Staff follows every build of main.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum FollowedChannel {
+    #[serde(rename = "stable")]
+    Stable,
+    #[serde(rename = "nightly")]
+    Nightly,
+    #[serde(rename = "staff")]
+    Staff,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
+/// What a host says about the releases it follows.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FollowedReleases {
+    pub channel: FollowedChannel,
+}
+
 /// Whether the API can serve requests, and which build is answering.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1027,6 +1050,9 @@ pub struct Org {
     pub role: OrgRole,
     pub seats: OrgSeats,
     pub created_at: String,
+    /// Only true: the org has its seats free while Team is in preview.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<bool>,
 }
 
 /// What happened. ownership is handed over when role_changed has to: owner.
@@ -1367,6 +1393,9 @@ pub struct OrgMembership {
     pub role: OrgRole,
     pub plan: OrgPlan,
     pub policy: OrgPolicy,
+    /// Only true: the host keeps what it holds of the org and shows nothing of it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
 }
 
 /// The orgs the account is in, oldest first. orgs.changed says when to read it again.
@@ -2173,6 +2202,22 @@ pub enum SubscriptionStatus {
     Unknown,
 }
 
+/// How far Team is open to the account. sold: to start by paying; preview: to start free; kept: not open, but the account is in an org it can read, hand over and leave; shut: not open, and nothing of it is shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TeamAccess {
+    #[serde(rename = "sold")]
+    Sold,
+    #[serde(rename = "preview")]
+    Preview,
+    #[serde(rename = "kept")]
+    Kept,
+    #[serde(rename = "shut")]
+    Shut,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
 /// A work address the person proved they hold, kept as a keyed hash: the address itself is never stored, so only its domain is shown.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2272,6 +2317,8 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "FoldSecret" => through::<FoldSecret>(json),
         "FoldStart" => through::<FoldStart>(json),
         "FoldWhy" => through::<FoldWhy>(json),
+        "FollowedChannel" => through::<FollowedChannel>(json),
+        "FollowedReleases" => through::<FollowedReleases>(json),
         "Health" => through::<Health>(json),
         "HealthStatus" => through::<HealthStatus>(json),
         "Invoice" => through::<Invoice>(json),
@@ -2413,6 +2460,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "SubscriptionChange" => through::<SubscriptionChange>(json),
         "SubscriptionId" => through::<SubscriptionId>(json),
         "SubscriptionStatus" => through::<SubscriptionStatus>(json),
+        "TeamAccess" => through::<TeamAccess>(json),
         "WorkAddress" => through::<WorkAddress>(json),
         "WorkAddressList" => through::<WorkAddressList>(json),
         "WorkAddressProven" => through::<WorkAddressProven>(json),

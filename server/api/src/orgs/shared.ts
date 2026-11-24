@@ -8,6 +8,7 @@ import { audit } from "../audit.ts";
 import { holdStanding, type AuthEnv } from "../auth.ts";
 import { checkSeatPauses } from "../billing/seat-pause.ts";
 import { seatLimit, seatsHeld } from "../billing/seats.ts";
+import { isFree } from "../billing/team.ts";
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
 import { conflict, forbidden, notFound } from "../http.ts";
@@ -35,15 +36,17 @@ export async function orgBody(
   org: Selectable<Tables["orgs"]>,
   role: OrgRole,
 ): Promise<Org> {
-  const [held, limit] = await Promise.all([
+  const [held, limit, preview] = await Promise.all([
     seatsHeld(db, org.id),
     seatLimit(db, org.id),
+    isFree(db, org.id),
   ]);
   return {
     id: org.id,
     name: org.name,
     role,
     seats: { held, limit },
+    ...(preview ? { preview: true } : {}),
     createdAt: org.created_at.toISOString(),
   };
 }

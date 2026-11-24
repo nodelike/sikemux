@@ -4,39 +4,37 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import type { Kysely, Transaction } from "kysely";
 
-import { isStaff } from "../account/staff.ts";
 import { audit } from "../audit.ts";
 import { requireIdentity, type AuthEnv } from "../auth.ts";
+import { mayUseTeam, teamActive } from "../billing/team.ts";
 import type { Tables } from "../db.ts";
 import { ownedDevice } from "../devices/owned.ts";
 import { dropUnshared } from "../orgvault/projects.ts";
 import { appendEvents } from "../events/log.ts";
-import { teamPaid } from "./host.ts";
 import { conflict, forbidden, notFound, readBody } from "../http.ts";
 import { signPeerTicket } from "../join/signer.ts";
 import { perUser } from "../limits.ts";
 
 const MEMBER_SHARE_LIMIT = 200;
-const NOT_IN_PAID_ORG =
-  "You are not in an org with that id whose Team plan is paid.";
+const NOT_IN_ACTIVE_ORG =
+  "You are not in an org with that id that has Team now.";
 
 const isRegisteredMeanwhile = (error: unknown) =>
   (error as { code?: string }).code === "23505";
 
-/** The account's memberships in orgs whose Team plan is paid. Until plans go live, staff only. */
-async function paidMemberships(
+/** The account's memberships in orgs that have Team now, when Team is open to the account. */
+async function activeMemberships(
   db: Kysely<Tables>,
   userId: string,
-  live: boolean,
   orgId?: string,
 ) {
-  if (!live && !(await isStaff(db, userId))) return [];
+  if (!(await mayUseTeam(db, userId))) return [];
   let query = db
     .selectFrom("orgs")
     .innerJoin("org_users", "org_users.org_id", "orgs.id")
     .select(["orgs.id as org", "org_users.id as member"])
     .where("org_users.user_id", "=", userId)
-    .where(teamPaid);
+    .where(teamActive);
   if (orgId) query = query.where("orgs.id", "=", orgId);
   return query.orderBy("orgs.created_at").orderBy("orgs.id").execute();
 }
@@ -96,11 +94,7 @@ export function shareRoutes({
   limiter,
   clerk,
   join: signer,
-  billing: { live },
-}: Pick<
-  Services,
-  "database" | "verifier" | "limiter" | "clerk" | "join" | "billing"
->) {
+}: Pick<Services, "database" | "verifier" | "limiter" | "clerk" | "join">) {
   const names = async (c: Context<AuthEnv>, members: MemberRow[]) => {
     const people = new Map<
       string,
@@ -147,7 +141,7 @@ export function shareRoutes({
     .use(hostsOnly)
     .get("/", perUser(limiter, "share-registry", 30), async (c) => {
       const { userId } = c.get("identity");
-      const memberships = await paidMemberships(db, userId, live);
+      const memberships = await activeMemberships(db, userId);
       const orgIds = memberships.map(({ org }) => org);
       const members = await membersOf(orgIds);
       const rows =
@@ -200,8 +194,8 @@ export function shareRoutes({
     .put("/", perUser(limiter, "share-register", 30), async (c) => {
       const { userId } = c.get("identity");
       const { org, project, host } = await readBody(c, "ShareRegistration");
-      const [membership] = await paidMemberships(db, userId, live, org);
-      if (!membership) throw notFound(NOT_IN_PAID_ORG);
+      const [membership] = await activeMemberships(db, userId, org);
+      if (!membership) throw notFound(NOT_IN_ACTIVE_ORG);
       await ownedDevice(db, userId, host, { role: "host" });
       const before = await db
         .selectFrom("org_shares")
@@ -280,8 +274,8 @@ export function shareRoutes({
     .post("/move", perUser(limiter, "share-move", 30), async (c) => {
       const { userId } = c.get("identity");
       const { org, project, host } = await readBody(c, "ShareMove");
-      const [membership] = await paidMemberships(db, userId, live, org);
-      if (!membership) throw notFound(NOT_IN_PAID_ORG);
+      const [membership] = await activeMemberships(db, userId, org);
+      if (!membership) throw notFound(NOT_IN_ACTIVE_ORG);
       await ownedDevice(db, userId, host, { role: "host" });
       await db.transaction().execute(async (trx) => {
         const moved = await trx
@@ -412,8 +406,8 @@ export function shareRoutes({
     .post("/", perUser(limiter, "peer-tickets", 30), async (c) => {
       const { userId, deviceKey } = c.get("identity");
       const { org, host } = await readBody(c, "PeerTicketRequest");
-      const [membership] = await paidMemberships(db, userId, live, org);
-      if (!membership || !deviceKey) throw notFound(NOT_IN_PAID_ORG);
+      const [membership] = await activeMemberships(db, userId, org);
+      if (!membership || !deviceKey) throw notFound(NOT_IN_ACTIVE_ORG);
       const target = await db
         .selectFrom("org_shares")
         .innerJoin("org_users", "org_users.id", "org_shares.member_id")

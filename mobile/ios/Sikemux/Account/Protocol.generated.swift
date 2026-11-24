@@ -13,6 +13,7 @@ struct WireAccount: Codable, Hashable, Sendable {
     var staff: Staff
     /// The plan the account holds, its own or through a seat; plan.changed says when it changes.
     var plan: PlanId
+    var team: TeamAccess?
 }
 
 /// What the phone may send when it deletes an account. The body can be left out.
@@ -1051,4 +1052,18 @@ struct StashSeen: Codable, Hashable, Sendable {
 struct StashUpdate: Codable, Hashable, Sendable {
     var note: StashNote?
     var taken: Bool?
+}
+
+/// How far Team is open to the account. sold: to start by paying; preview: to start free; kept: not open, but the account is in an org it can read, hand over and leave; shut: not open, and nothing of it is shown.
+enum TeamAccess: String, Codable, Hashable, Sendable {
+    case sold = "sold"
+    case preview = "preview"
+    case kept = "kept"
+    case shut = "shut"
+    /// A value added after this build, which it cannot act on.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }

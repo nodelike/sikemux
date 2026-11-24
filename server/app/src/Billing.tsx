@@ -9,10 +9,12 @@ import type {
   Invoice,
   Money,
   Org,
+  PlanFeature,
   ScheduledChange,
   SeatPause,
   Subscription,
   SubscriptionChange,
+  TeamAccess,
 } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
 import {
@@ -29,10 +31,12 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { api, problemText, signedInToken } from "./api.ts";
 import { BilledSwitch } from "./BilledSwitch.tsx";
 import { PlanCard } from "./PlanCard.tsx";
+import { TEAM } from "./navigation.ts";
 import { ShedBoxes } from "./Shed.tsx";
 import {
   FEATURE_WORDS,
   featuresAdded,
+  inPreview,
   money,
   PER,
   priceOf,
@@ -54,6 +58,7 @@ import {
   useNotice,
 } from "./ui.tsx";
 
+export const FREE_DURING_PREVIEW = "Free during preview";
 export const NOT_OPEN = "Buying is not open yet";
 const ME = "me";
 
@@ -101,9 +106,11 @@ export function useBillingShown(ready: boolean): boolean {
 export function BillingPage({
   version,
   staff,
+  team,
 }: {
   version: number;
   staff: boolean;
+  team: TeamAccess;
 }) {
   const client = useClient();
   const [orgs, setOrgs] = useState<Org[]>();
@@ -203,6 +210,7 @@ export function BillingPage({
         orgs={orgs ?? []}
         switcher={switcher}
         staff={staff}
+        team={team}
         reload={reload}
         show={show}
       />
@@ -222,6 +230,7 @@ function Bill({
   orgs,
   switcher,
   staff,
+  team,
   reload,
   show,
 }: Loaded & {
@@ -229,6 +238,7 @@ function Bill({
   orgs: Org[];
   switcher: ReactNode;
   staff: boolean;
+  team: TeamAccess;
   reload: () => void;
   show: Show;
 }) {
@@ -261,7 +271,9 @@ function Bill({
         : overview.payer === "departed"
           ? `${org.name} is on ${planName} until ${ends}. Whoever paid for it no longer owns the org, so it ends then and can be bought again once it has.`
           : `${org.name} is on ${planName}. You own the bill.`
-      : `${org.name} has no Team plan, so nobody can be invited to it.`
+      : org.preview
+        ? `${org.name} is in the Team preview. It is free, for up to ${org.seats.limit} people.`
+        : `${org.name} has no Team plan, so nobody can be invited to it.`
     : free
       ? "You're on Free. It has no cap on hosts and never runs out."
       : !planSub && seatIn.length > 0
@@ -311,15 +323,19 @@ function Bill({
             ) : (
               <PriceRow
                 glyph={org ? <IconUsers size={16} /> : <IconUser size={16} />}
-                name={org ? "No plan" : planName}
+                name={
+                  org ? (org.preview ? "Team preview" : "No plan") : planName
+                }
                 detail={
-                  free
-                    ? "The whole app, on every host you own"
-                    : seatIn.length > 0 && !org
-                      ? `Through a seat in ${seatIn.join(", ")}`
-                      : giftEnds
-                        ? `Free until ${giftEnds}`
-                        : undefined
+                  org?.preview
+                    ? "Free during preview"
+                    : free
+                      ? "The whole app, on every host you own"
+                      : seatIn.length > 0 && !org
+                        ? `Through a seat in ${seatIn.join(", ")}`
+                        : giftEnds
+                          ? `Free until ${giftEnds}`
+                          : undefined
                 }
                 price={free ? "$0" : undefined}
                 per={free ? PER.month : undefined}
@@ -329,8 +345,13 @@ function Bill({
           </Rows>
         </Section>
         {free ? (
-          <Upgrade catalog={catalog} canBuy={canBuy} interval={interval} />
-        ) : org && !planSub ? (
+          <Upgrade
+            catalog={catalog}
+            canBuy={canBuy}
+            interval={interval}
+            access={team}
+          />
+        ) : org && !planSub && !org.preview ? (
           <StartTeam catalog={catalog} canBuy={canBuy} org={org} />
         ) : null}
         <ShedBoxes
@@ -1006,10 +1027,12 @@ function Upgrade({
   catalog,
   canBuy,
   interval,
+  access,
 }: {
   catalog: BillingCatalog;
   canBuy: boolean;
   interval: BillingInterval;
+  access: TeamAccess;
 }) {
   const pro = productOf(catalog, "pro");
   const team = productOf(catalog, "team");
@@ -1059,14 +1082,20 @@ function Upgrade({
             </button>
           </PlanOffer>
         ) : null}
-        {team ? (
+        {team && (access === "sold" || access === "preview") ? (
           <PlanOffer
             catalog={catalog}
             plan="team"
             price={priceOf(team, "month")}
             per={`${UNIT_WORD.seat} ${PER.month}`}
+            other={access === "preview" ? FREE_DURING_PREVIEW : undefined}
+            added={access === "preview" ? inPreview : undefined}
           >
-            {naming ? (
+            {access === "preview" ? (
+              <a className="button" href={TEAM}>
+                Start Team
+              </a>
+            ) : naming ? (
               <NewTeam
                 catalog={catalog}
                 checkout={checkout}
@@ -1098,6 +1127,7 @@ function PlanOffer({
   price,
   per,
   other,
+  added: shown = () => true,
   children,
 }: {
   catalog: BillingCatalog;
@@ -1105,6 +1135,7 @@ function PlanOffer({
   price?: Money;
   per: string;
   other?: string;
+  added?: (feature: PlanFeature) => boolean;
   children: ReactNode;
 }) {
   const { before, added } = featuresAdded(catalog, plan);
@@ -1114,7 +1145,7 @@ function PlanOffer({
       price={price}
       per={other ? `${per} · ${other}` : per}
       plus={before ? `Everything in ${before}, plus` : undefined}
-      lines={added.map((feature) => ({
+      lines={added.filter(shown).map((feature) => ({
         key: feature,
         text: FEATURE_WORDS[feature],
       }))}
@@ -1127,10 +1158,12 @@ function PlanOffer({
 export function NewTeam({
   catalog,
   checkout,
+  submit = "Start Team",
   onCancel,
 }: {
   catalog: BillingCatalog;
   checkout: ReturnType<typeof useCheckout>;
+  submit?: string;
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
@@ -1197,6 +1230,69 @@ export function NewTeam({
           className="button small primary"
           disabled={!name.trim() || checkout.busy}
           data-busy={checkout.busy || undefined}
+        >
+          {submit}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** Makes an org in the free preview, with no checkout. */
+export function NewPreviewTeam({
+  onMade,
+  onCancel,
+}: {
+  onMade: (org: Org) => void;
+  onCancel: () => void;
+}) {
+  const client = useClient();
+  const action = useAction();
+  const [name, setName] = useState("");
+  return (
+    <form
+      className="new-team"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!name.trim()) return;
+        void action.run(
+          async () => {
+            const routes = await client("start a Team");
+            onMade(await routes.createOrg({ name: name.trim() }));
+          },
+          (error) => `${problemText(error)} No org was made.`,
+        );
+      }}
+    >
+      <input
+        className="field"
+        placeholder="Org name"
+        aria-label="Org name"
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        autoFocus
+        maxLength={64}
+      />
+      <span className="quiet">{FREE_DURING_PREVIEW}</span>
+      {action.problem ? (
+        <p className="problem" role="alert">
+          {action.problem}
+        </p>
+      ) : null}
+      <div className="actions">
+        <button
+          type="button"
+          className="button small"
+          onClick={onCancel}
+          disabled={action.busy}
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          className="button small primary"
+          disabled={!name.trim() || action.busy}
+          data-busy={action.busy || undefined}
         >
           Start Team
         </button>

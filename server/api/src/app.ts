@@ -7,6 +7,7 @@ import {
   macSignInRoutes,
   type MacSignInExchange,
 } from "./devices/mac-sign-in.ts";
+import { followedRoutes } from "./account/followed.ts";
 import { profileRoutes } from "./account/profile.ts";
 import {
   reviewSignInRoutes,
@@ -156,6 +157,7 @@ export function createApp(services: Services) {
   app.route("/v1/review-sign-in", reviewSignInRoutes(services));
   app.route("/v1/account/profile", profileRoutes(services));
   app.route("/v1/account/allowance", allowanceRoutes(services));
+  app.route("/v1/account/followed-releases", followedRoutes(services));
   app.route("/v1/account/orgs", membershipRoutes(services));
   const { shares, tickets } = shareRoutes(services);
   app.route("/v1/account/shares", shares);

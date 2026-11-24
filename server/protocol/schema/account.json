@@ -68,6 +68,9 @@
         "plan": {
           "description": "The plan the account holds, its own or through a seat; plan.changed says when it changes.",
           "$ref": "billing.json#/$defs/PlanId"
+        },
+        "team": {
+          "$ref": "#/$defs/TeamAccess"
         }
       },
       "required": ["status", "restorableDays", "staff", "plan"],
@@ -250,6 +253,11 @@
       },
       "required": ["workAddress", "sitting", "offer"],
       "additionalProperties": false
+    },
+    "TeamAccess": {
+      "description": "How far Team is open to the account. sold: to start by paying; preview: to start free; kept: not open, but the account is in an org it can read, hand over and leave; shut: not open, and nothing of it is shown.",
+      "type": "string",
+      "enum": ["sold", "preview", "kept", "shut"]
     }
   }
 }

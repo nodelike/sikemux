@@ -25,6 +25,7 @@ import type {
   FoldPreview,
   FoldSecret,
   FoldStart,
+  FollowedReleases,
   Health,
   Hook,
   HookAdd,
@@ -277,6 +278,9 @@ export function apiClient(send: Send) {
     getAccountProfile: () => send<AccountProfile>("GET", `/v1/account/profile`),
     /** The plan of the account a host is on, and what it may use. */
     getAccountAllowance: () => send<Allowance>("GET", `/v1/account/allowance`),
+    /** Say which releases this host follows, which decides whether previews open to the account. */
+    reportFollowedReleases: (body: FollowedReleases) =>
+      send<void>("PUT", `/v1/account/followed-releases`, body),
     /** The orgs the account a host is on is in, its role in each and whether each one's Team plan is paid. */
     getAccountOrgs: () => send<OrgMemberships>("GET", `/v1/account/orgs`),
     /** The projects teammates share with the account's orgs whose Team plan is paid, and who is in each. */
@@ -621,6 +625,12 @@ export function apiClient(send: Send) {
       send<Subscription>(
         "POST",
         `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+      ),
+    /** End an org's test Team plan at once and give it the preview's free seats. */
+    moveOrgToPreview: (orgId: string) =>
+      send<Org>(
+        "POST",
+        `/v1/billing/orgs/${encodeURIComponent(orgId)}/preview`,
       ),
     /** Take back a cancellation before the period ends. */
     resumeSubscription: (subscriptionId: string) =>

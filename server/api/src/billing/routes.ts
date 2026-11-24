@@ -27,6 +27,7 @@ import {
 import { perUser } from "../limits.ts";
 import type { Logger } from "../log.ts";
 import { orgRole } from "../orgs/roles.ts";
+import { orgBody } from "../orgs/shared.ts";
 import { requireBillingAccess } from "./access.ts";
 import { allowance } from "./allowance.ts";
 import { applyProviderEvents } from "./apply.ts";
@@ -54,6 +55,8 @@ import {
   seatsIncludingPro,
 } from "./seat-pause.ts";
 import { lockSeats, seatsHeld } from "./seats.ts";
+import { moveToPreview } from "./move-to-preview.ts";
+import { mayUseTeam, requireTeam } from "./team.ts";
 import { StandInProvider } from "./stand-in.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -221,7 +224,10 @@ export function billingRoutes({
     } satisfies PaddleCheckout);
   });
 
-  app.use(requireIdentity(verifier, db), requireBillingAccess(db, live));
+  app.use(requireIdentity(verifier, db));
+  if (live) app.get("/catalog", (c) => c.json(CATALOG));
+  else app.get("/catalog", requireTeam(db, live), (c) => c.json(CATALOG));
+  app.use(requireBillingAccess(db, live));
 
   /** The payer a request is about: the person, or with `orgId`, an org they own. */
   const payerOf = async (
@@ -410,8 +416,6 @@ export function billingRoutes({
     return invoiceBody(row, refund?.until);
   };
 
-  app.get("/catalog", (c) => c.json(CATALOG));
-
   app.get("/", async (c) => {
     const payer = await payerOf(c, c.req.query("org"));
     const { userId } = c.get("identity");
@@ -465,6 +469,8 @@ export function billingRoutes({
       throw badRequest(`${sold.name} is bought by a person, not an org.`);
     if (sold.payer === "org" && "userId" in payer)
       throw badRequest(`${sold.name} is bought for an org: send its orgId.`);
+    if (sold.payer === "org" && !(await mayUseTeam(db, userId)))
+      throw forbidden("Team isn't open to your account now.");
     const unit = unitPrice(sold.id, request.interval);
     if (!unit)
       throw badRequest(`${sold.name} is not sold by the ${request.interval}.`);
@@ -885,6 +891,32 @@ export function billingRoutes({
         return c.json(await reread(row.id));
       },
     );
+
+  app.post(
+    "/orgs/:orgId/preview",
+    perUser(limiter, "billing-change", 20),
+    async (c) => {
+      const ready = needProvider(provider);
+      if (live)
+        throw new ApiFailure(409, "conflict", "The free preview has ended.");
+      const orgId = c.req.param("orgId");
+      await payerOf(c, orgId);
+      const { userId } = c.get("identity");
+      const moved = await moveToPreview(db, ready.name, orgId, userId);
+      if (moved) await makeDueCalls(db, ready, c.get("log"));
+      return c.json(
+        await orgBody(
+          db,
+          await db
+            .selectFrom("orgs")
+            .selectAll()
+            .where("id", "=", orgId)
+            .executeTakeFirstOrThrow(),
+          "owner",
+        ),
+      );
+    },
+  );
 
   app.get("/invoices", async (c) => {
     const payer = await payerOf(c, c.req.query("org"));

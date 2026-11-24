@@ -4,11 +4,17 @@ import type {
   OrgVaultEntry,
   OrgVaultState,
 } from "@sikemux/protocol";
-import { sql, type Kysely } from "kysely";
+import type { Kysely } from "kysely";
 
-import { isStaff } from "../account/staff.ts";
+import {
+  holdsVaults,
+  mayHoldVaults,
+  mayUseTeam,
+  teamActive,
+  VAULT_SOON,
+} from "../billing/team.ts";
 import type { Tables } from "../db.ts";
-import { notFound } from "../http.ts";
+import { forbidden, notFound } from "../http.ts";
 import type { Presence } from "../live/hub.ts";
 
 /** Names members by their user ids, leaving out whoever cannot be named. */
@@ -55,8 +61,7 @@ export function toEntry(row: EntryRow): OrgVaultEntry {
   };
 }
 
-export const NOT_IN_ORG =
-  "Your account is in no org with that id, or plans are not open to it yet.";
+export const NOT_IN_ORG = "Your account is in no org with that id.";
 
 export interface Member {
   /** The membership, as `org_users` keeps it. */
@@ -65,46 +70,51 @@ export interface Member {
   active: boolean;
 }
 
-/** The caller's role in the org and whether its Team plan is paid, or 404 when they are not in it. */
+/**
+ * The caller's role in the org and whether it and they have Team now, or 404 when they are not in
+ * it. Without Team a member still reads what the vault holds, as does one whose host holds its key
+ * though vaults are not open to them.
+ */
 export async function memberOf(
   db: Kysely<Tables>,
-  live: boolean,
   orgId: string,
   userId: string,
 ): Promise<Member> {
   const row = await db
-    .selectFrom("org_users")
-    .select(["id", "role"])
-    .select((eb) =>
-      eb
-        .exists(
-          eb
-            .selectFrom("subscriptions")
-            .innerJoin(
-              "billing_customers",
-              "billing_customers.id",
-              "subscriptions.customer_id",
-            )
-            .select(sql`1`.as("one"))
-            .where("billing_customers.org_id", "=", orgId)
-            .where("subscriptions.product", "=", "team")
-            .where("subscriptions.status", "=", "active"),
-        )
-        .as("paid"),
-    )
-    .where("org_id", "=", orgId)
-    .where("user_id", "=", userId)
+    .selectFrom("orgs")
+    .innerJoin("org_users", "org_users.org_id", "orgs.id")
+    .select(["org_users.id", "org_users.role"])
+    .select((eb) => teamActive(eb).as("active"))
+    .where("orgs.id", "=", orgId)
+    .where("org_users.user_id", "=", userId)
     .executeTakeFirst();
-  if (!row || (!live && !(await isStaff(db, userId))))
-    throw notFound(NOT_IN_ORG);
-  return { id: row.id, role: row.role, active: Boolean(row.paid) };
+  if (!row) throw notFound(NOT_IN_ORG);
+  const open = await holdsVaults(db, userId);
+  if (!open && !(await holdsKey(db, orgId, userId)))
+    throw forbidden(VAULT_SOON);
+  const active = open && Boolean(row.active) && (await mayUseTeam(db, userId));
+  return { id: row.id, role: row.role, active };
 }
 
-/** The keys of every host on the accounts of the org's members. */
+/** Whether a host on the account holds the org's key. */
+async function holdsKey(db: Kysely<Tables>, orgId: string, userId: string) {
+  return Boolean(
+    await db
+      .selectFrom("org_vault_keys")
+      .innerJoin("devices", "devices.key", "org_vault_keys.host_key")
+      .select("devices.key")
+      .where("org_vault_keys.org_id", "=", orgId)
+      .where("devices.user_id", "=", userId)
+      .executeTakeFirst(),
+  );
+}
+
+/** The members' hosts that may hold the org's key, or already do, so closing vaults ends no one's. */
 export function memberHosts(db: Kysely<Tables>, orgId: string) {
   return db
     .selectFrom("devices")
     .innerJoin("org_users", "org_users.user_id", "devices.user_id")
+    .innerJoin("users", "users.id", "devices.user_id")
     .select([
       "devices.key",
       "devices.name",
@@ -113,7 +123,19 @@ export function memberHosts(db: Kysely<Tables>, orgId: string) {
       "org_users.role",
     ])
     .where("org_users.org_id", "=", orgId)
-    .where("devices.role", "=", "host");
+    .where("devices.role", "=", "host")
+    .where((eb) =>
+      eb.or([
+        mayHoldVaults(eb),
+        eb.exists(
+          eb
+            .selectFrom("org_vault_keys")
+            .select("host_key")
+            .where("org_id", "=", orgId)
+            .whereRef("host_key", "=", "devices.key"),
+        ),
+      ]),
+    );
 }
 
 /** Whether `hostKey`'s wrap among `wraps` opens: sealed by itself, or by another holder. */

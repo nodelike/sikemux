@@ -22,6 +22,20 @@
       "type": "string",
       "enum": ["dev", "nightly", "stable"]
     },
+    "FollowedChannel": {
+      "description": "Which releases a host follows, as chosen on it. Staff follows every build of main.",
+      "type": "string",
+      "enum": ["stable", "nightly", "staff"]
+    },
+    "FollowedReleases": {
+      "description": "What a host says about the releases it follows.",
+      "type": "object",
+      "properties": {
+        "channel": { "$ref": "#/$defs/FollowedChannel" }
+      },
+      "required": ["channel"],
+      "additionalProperties": false
+    },
     "Challenge": {
       "description": "A one-time value a device signs to prove it holds its key.",
       "type": "object",

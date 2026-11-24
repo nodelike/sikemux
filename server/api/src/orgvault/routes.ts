@@ -50,7 +50,7 @@ function allow(member: Member, need: Need) {
     throw forbidden("Only an org's owner or admin may change its vault.");
   if (need !== "manager" && !member.active)
     throw forbidden(
-      "The org's Team plan has lapsed: its vault keeps what it holds and takes nothing new.",
+      "The org's Team plan has lapsed, or isn't open to your account now: its vault keeps what it holds and takes nothing new.",
     );
 }
 
@@ -65,11 +65,7 @@ export function orgVaultRoutes({
   limiter,
   presence,
   clerk,
-  billing: { live },
-}: Pick<
-  Services,
-  "database" | "verifier" | "limiter" | "presence" | "clerk" | "billing"
->) {
+}: Pick<Services, "database" | "verifier" | "limiter" | "presence" | "clerk">) {
   const asHost = requireIdentity(verifier, db, { accept: ["host"] });
   const people = peopleNamer(clerk);
 
@@ -93,7 +89,7 @@ export function orgVaultRoutes({
   ) => {
     const who = asker(c);
     return db.transaction().execute(async (trx) => {
-      const member = await memberOf(trx, live, who.orgId, who.userId);
+      const member = await memberOf(trx, who.orgId, who.userId);
       allow(member, need);
       return change(trx, who, member);
     });
@@ -126,7 +122,7 @@ export function orgVaultRoutes({
   return new Hono<AuthEnv>()
     .get("/", asHost, perUser(limiter, "org-vault-get", 240), async (c) => {
       const { orgId, userId, hostKey } = asker(c);
-      const { role } = await memberOf(db, live, orgId, userId);
+      const { role } = await memberOf(db, orgId, userId);
       const after = c.req.query("after");
       if (after !== undefined && !CHANGES.test(after))
         throw badRequest("after is a count of the vault's changes.");

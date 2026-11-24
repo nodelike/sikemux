@@ -5,6 +5,7 @@ import type {
   OrgMember,
   OrgRole,
   Subscription,
+  TeamAccess,
 } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
 import {
@@ -23,7 +24,9 @@ import { problemText } from "./api.ts";
 import { Avatar, PersonAvatar } from "./Avatar.tsx";
 import {
   ChangeSeats,
+  FREE_DURING_PREVIEW,
   heldChange,
+  NewPreviewTeam,
   NewTeam,
   NOT_OPEN,
   useCheckout,
@@ -32,6 +35,7 @@ import {
 import {
   FEATURE_WORDS,
   featuresAdded,
+  inPreview,
   money,
   priceOf,
   productOf,
@@ -71,7 +75,13 @@ type Detail = {
   team?: { sub: Subscription; catalog: BillingCatalog };
 };
 
-export function TeamPage({ follow }: { follow: Follow }) {
+export function TeamPage({
+  team,
+  follow,
+}: {
+  team: TeamAccess;
+  follow: Follow;
+}) {
   const { orgs, org, problem, choose, reload, version } = useOrgs();
   const offers = useOffers(true);
   const { notice, show } = useNotice();
@@ -115,15 +125,26 @@ export function TeamPage({ follow }: { follow: Follow }) {
   if (!org)
     return (
       <>
-        <NoOrg offered={offered} />
+        <NoOrg
+          access={team}
+          offered={offered}
+          onMade={(made) => {
+            show(`${made.name} is ready`);
+            choose(made.id);
+            reload();
+          }}
+        />
         {notice}
       </>
     );
 
   return (
     <>
-      <PageHead title="Team">
-        {org.name}. Everyone with a seat has Pro on their own hosts.
+      <PageHead title="Team" tag={org.preview ? <PreviewTag /> : null}>
+        {org.name}.{" "}
+        {org.preview
+          ? `${FREE_DURING_PREVIEW}, for up to ${org.seats.limit} people.`
+          : "Everyone with a seat has Pro on their own hosts."}
       </PageHead>
       <OrgChoice orgs={orgs} org={org} choose={choose} />
       <OrgView
@@ -331,6 +352,9 @@ function Seats({
                 {held} of {limit} used
               </span>
               <span className="quiet">· {free} free</span>
+              {org.preview ? (
+                <span className="quiet">· {FREE_DURING_PREVIEW}</span>
+              ) : null}
               {atRenewal && team && atRenewal.quantity !== team.sub.quantity ? (
                 <span className="quiet">
                   · {team.sub.quantity} paid until{" "}
@@ -741,7 +765,18 @@ function Leave({
   );
 }
 
-function NoOrg({ offered }: { offered: ReactNode }) {
+const PreviewTag = () => <span className="testmode">PREVIEW</span>;
+
+function NoOrg({
+  access,
+  offered,
+  onMade,
+}: {
+  access: TeamAccess;
+  offered: ReactNode;
+  onMade: (org: Org) => void;
+}) {
+  const free = access === "preview";
   const client = useClient();
   const checkout = useCheckout();
   const [catalog, setCatalog] = useState<BillingCatalog>();
@@ -752,30 +787,36 @@ function NoOrg({ offered }: { offered: ReactNode }) {
     let current = true;
     void client("see Team")
       .then((routes) =>
-        Promise.all([routes.getBillingCatalog(), routes.getBilling()]),
+        Promise.all([
+          routes.getBillingCatalog(),
+          free || routes.getBilling().then(({ canBuy }) => canBuy),
+        ]),
       )
       .then(
-        ([catalog, overview]) => {
+        ([catalog, canBuy]) => {
           if (!current) return;
           setCatalog(catalog);
-          setCanBuy(overview.canBuy);
+          setCanBuy(canBuy);
         },
         () => undefined,
       );
     return () => {
       current = false;
     };
-  }, [client]);
+  }, [client, free]);
 
-  const { added } = catalog ? featuresAdded(catalog, "team") : { added: [] };
+  const all = catalog ? featuresAdded(catalog, "team").added : [];
+  const added = free ? all.filter(inPreview) : all;
   const unit = catalog
     ? priceOf(productOf(catalog, "team"), "month")
     : undefined;
 
   return (
     <>
-      <PageHead title="Team">
-        An org of your own, with seats, roles and shared hosts.
+      <PageHead title="Team" tag={free ? <PreviewTag /> : null}>
+        {free
+          ? "An org of your own, with seats and roles."
+          : "An org of your own, with seats, roles and shared hosts."}
       </PageHead>
       <div className="groups">
         <Section label="No org yet">
@@ -785,7 +826,9 @@ function NoOrg({ offered }: { offered: ReactNode }) {
             </span>
             <p>
               An org comes with a Team plan
-              {unit ? `, ${money(unit, { cents: false })} a seat a month` : ""}.
+              {unit
+                ? `, ${money(unit, { cents: false })} a seat a month`
+                : ""}. {free ? `${FREE_DURING_PREVIEW}. ` : ""}
               Everything in Pro, plus:
             </p>
             <ul className="features">
@@ -796,7 +839,12 @@ function NoOrg({ offered }: { offered: ReactNode }) {
                 </li>
               ))}
             </ul>
-            {catalog && naming ? (
+            {naming && free ? (
+              <NewPreviewTeam
+                onMade={onMade}
+                onCancel={() => setNaming(false)}
+              />
+            ) : catalog && naming ? (
               <NewTeam
                 catalog={catalog}
                 checkout={checkout}

@@ -11,6 +11,7 @@ export interface Account {
   staff: Staff;
   /** The plan the account holds, its own or through a seat; plan.changed says when it changes. */
   plan: PlanId;
+  team?: TeamAccess;
 }
 
 /** Every device is revoked and every token refused from the moment this is answered, except to read or restore the account. Signing in again before deletesAt can restore it. */
@@ -454,6 +455,19 @@ export const foldWhyValues: readonly FoldWhy[] = [
   "address",
   "seat",
 ];
+
+/** Which releases a host follows, as chosen on it. Staff follows every build of main. */
+export type FollowedChannel = "stable" | "nightly" | "staff";
+export const followedChannelValues: readonly FollowedChannel[] = [
+  "stable",
+  "nightly",
+  "staff",
+];
+
+/** What a host says about the releases it follows. */
+export interface FollowedReleases {
+  channel: FollowedChannel;
+}
 
 /** Whether the API can serve requests, and which build is answering. */
 export interface Health {
@@ -1046,6 +1060,8 @@ export interface Org {
   role: OrgRole;
   seats: OrgSeats;
   createdAt: string;
+  /** Only true: the org has its seats free while Team is in preview. */
+  preview?: boolean;
 }
 
 /** What happened. ownership is handed over when role_changed has to: owner. */
@@ -1311,6 +1327,8 @@ export interface OrgMembership {
   role: OrgRole;
   plan: OrgPlan;
   policy: OrgPolicy;
+  /** Only true: the host keeps what it holds of the org and shows nothing of it. */
+  hidden?: boolean;
 }
 
 /** The orgs the account is in, oldest first. orgs.changed says when to read it again. */
@@ -2280,6 +2298,15 @@ export const subscriptionStatusValues: readonly SubscriptionStatus[] = [
   "ended",
 ];
 
+/** How far Team is open to the account. sold: to start by paying; preview: to start free; kept: not open, but the account is in an org it can read, hand over and leave; shut: not open, and nothing of it is shown. */
+export type TeamAccess = "sold" | "preview" | "kept" | "shut";
+export const teamAccessValues: readonly TeamAccess[] = [
+  "sold",
+  "preview",
+  "kept",
+  "shut",
+];
+
 /** The account's vault, as the host that asked sees it. */
 export interface Vault {
   generation: VaultGeneration;
@@ -2509,6 +2536,8 @@ export interface Definitions {
   FoldSecret: FoldSecret;
   FoldStart: FoldStart;
   FoldWhy: FoldWhy;
+  FollowedChannel: FollowedChannel;
+  FollowedReleases: FollowedReleases;
   Health: Health;
   HealthStatus: HealthStatus;
   Hook: Hook;
@@ -2753,6 +2782,7 @@ export interface Definitions {
   SubscriptionChange: SubscriptionChange;
   SubscriptionId: SubscriptionId;
   SubscriptionStatus: SubscriptionStatus;
+  TeamAccess: TeamAccess;
   Vault: Vault;
   VaultCreate: VaultCreate;
   VaultEnded: VaultEnded;

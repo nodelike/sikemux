@@ -2,5 +2,6 @@
   "status": "active",
   "restorableDays": 30,
   "staff": true,
-  "plan": "pro"
+  "plan": "pro",
+  "team": "preview"
 }

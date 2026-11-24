@@ -8,6 +8,7 @@ import { sql, type Kysely } from "kysely";
 
 import type { Tables } from "../db.ts";
 import { ALL_FEATURES, featuresOf, product } from "./catalog.ts";
+import { mayUseTeam, teamActive, teamPaid } from "./team.ts";
 
 type Payer = { userId: string } | { orgId: string };
 
@@ -53,27 +54,18 @@ function boxesOf(
   return [...counts].map(([id, quantity]) => ({ product: id, quantity }));
 }
 
-/** The orgs whose paid Team plan `userId` holds a seat in. */
+/** The orgs `userId` holds a seat with Team in, free ones only while Team is open to them. */
 async function seatOrgs(db: Kysely<Tables>, userId: string): Promise<string[]> {
+  const open = await mayUseTeam(db, userId);
   const rows = await db
-    .selectFrom("org_users")
-    .innerJoin(
-      "billing_customers",
-      "billing_customers.org_id",
-      "org_users.org_id",
+    .selectFrom("orgs")
+    .select("orgs.id")
+    .where("orgs.id", "in", (eb) =>
+      eb.selectFrom("org_users").select("org_id").where("user_id", "=", userId),
     )
-    .innerJoin(
-      "subscriptions",
-      "subscriptions.customer_id",
-      "billing_customers.id",
-    )
-    .select("org_users.org_id")
-    .where("org_users.user_id", "=", userId)
-    .where("subscriptions.product", "=", "team")
-    .where("subscriptions.status", "=", "active")
-    .distinct()
+    .where(open ? teamActive : teamPaid)
     .execute();
-  return rows.map((row) => row.org_id);
+  return rows.map((row) => row.id);
 }
 
 /** When the Pro a person was given free ends, while it has not. */

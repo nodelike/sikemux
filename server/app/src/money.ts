@@ -28,6 +28,17 @@ export const FEATURE_WORDS: Record<PlanFeature, string> = {
   org_policy: "Policy, audit log, one bill",
 };
 
+/** Team features the preview does not open to everyone in it. */
+const NOT_IN_PREVIEW = new Set<PlanFeature>([
+  "org_hosts",
+  "org_shared_setup",
+  "org_model_keys",
+  "org_github",
+  "org_bot_triggers",
+]);
+
+export const inPreview = (feature: PlanFeature) => !NOT_IN_PREVIEW.has(feature);
+
 /** What a plan adds over the one before it in the catalog. */
 export function featuresAdded(catalog: BillingCatalog, plan: PlanId) {
   const index = catalog.plans.findIndex((each) => each.id === plan);

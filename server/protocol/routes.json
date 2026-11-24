@@ -728,6 +728,19 @@
       }
     },
     {
+      "method": "put",
+      "path": "/v1/account/followed-releases",
+      "operationId": "reportFollowedReleases",
+      "summary": "Say which releases this host follows, which decides whether previews open to the account",
+      "auth": "host",
+      "request": "FollowedReleases",
+      "responses": {
+        "204": {
+          "description": "Kept. orgs.changed follows when what the host follows changed."
+        }
+      }
+    },
+    {
       "method": "get",
       "path": "/v1/account/orgs",
       "operationId": "getAccountOrgs",
@@ -2634,6 +2647,35 @@
         },
         "409": {
           "description": "The subscription has ended.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/orgs/{orgId}/preview",
+      "operationId": "moveOrgToPreview",
+      "summary": "End an org's test Team plan at once and give it the preview's free seats",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The org, unchanged but for its seats. Repeating it changes nothing.",
+          "body": "Org"
+        },
+        "403": {
+          "description": "Only the org's owner acts for its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "Billing is live, so the preview has ended.",
           "body": "ApiError"
         },
         "503": {

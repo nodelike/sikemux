@@ -64,6 +64,10 @@
         "createdAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "preview": {
+          "description": "Only true: the org has its seats free while Team is in preview.",
+          "type": "boolean"
         }
       },
       "required": ["id", "name", "role", "seats", "createdAt"],
@@ -107,6 +111,10 @@
         },
         "policy": {
           "$ref": "#/$defs/OrgPolicy"
+        },
+        "hidden": {
+          "description": "Only true: the host keeps what it holds of the org and shows nothing of it.",
+          "type": "boolean"
         }
       },
       "required": ["id", "name", "role", "plan", "policy"],

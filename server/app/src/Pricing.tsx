@@ -2,13 +2,14 @@ import type {
   BillingCatalog,
   BillingInterval,
   BillingProduct,
+  Org,
   PlanFeature,
 } from "@sikemux/protocol";
 import { IconLock } from "@shared/ui/Icons";
 import { useEffect, useState } from "react";
 
 import { problemText } from "./api.ts";
-import { useClient } from "./Billing.tsx";
+import { NewTeam, useCheckout, useClient } from "./Billing.tsx";
 import { BilledSwitch } from "./BilledSwitch.tsx";
 import {
   FEATURE_WORDS,
@@ -20,7 +21,8 @@ import {
   UNIT_WORD,
 } from "./money.ts";
 import { PlanCard, type CardLine } from "./PlanCard.tsx";
-import { PageHead, Section } from "./ui.tsx";
+import { useOrgs } from "./OrgPages.tsx";
+import { PageHead, Row, Rows, Section, useAction, useNotice } from "./ui.tsx";
 
 type Built = "" | "partly" | "not built" | "later";
 
@@ -121,6 +123,7 @@ export function PricingPage() {
             setInterval={setInterval}
           />
           <Shed catalog={load.catalog} interval={interval} />
+          <TeamTests catalog={load.catalog} />
         </div>
       )}
     </>
@@ -275,4 +278,107 @@ function Mark({ built }: { built: Built }) {
       {built}
     </span>
   ) : null;
+}
+
+/** Billing's tests: the checkout nobody in the free preview meets, and taking an org off it. */
+function TeamTests({ catalog }: { catalog: BillingCatalog }) {
+  const { orgs, reload } = useOrgs();
+  const checkout = useCheckout();
+  const { notice, show } = useNotice();
+  const [naming, setNaming] = useState(false);
+  const bought = orgs?.filter((org) => org.role === "owner" && !org.preview);
+  return (
+    <Section label="Team tests">
+      <Rows>
+        <Row
+          label="Test checkout"
+          action={
+            naming ? null : (
+              <button
+                type="button"
+                className="button small"
+                onClick={() => {
+                  checkout.clear();
+                  setNaming(true);
+                }}
+              >
+                Test checkout
+              </button>
+            )
+          }
+          below={
+            naming ? (
+              <NewTeam
+                catalog={catalog}
+                checkout={checkout}
+                submit="Go to checkout"
+                onCancel={() => setNaming(false)}
+              />
+            ) : null
+          }
+        >
+          <span className="quiet">
+            Makes an org and buys it a Team plan with a test card.
+          </span>
+        </Row>
+        {bought?.map((org) => (
+          <MoveToPreview
+            key={org.id}
+            org={org}
+            onMoved={(moved) => {
+              show(`${moved.name} is in the free preview`);
+              reload();
+            }}
+          />
+        ))}
+      </Rows>
+      {notice}
+    </Section>
+  );
+}
+
+function MoveToPreview({
+  org,
+  onMoved,
+}: {
+  org: Org;
+  onMoved: (org: Org) => void;
+}) {
+  const client = useClient();
+  const action = useAction();
+  return (
+    <Row
+      label={org.name}
+      action={
+        <button
+          type="button"
+          className="button small"
+          disabled={action.busy}
+          data-busy={action.busy || undefined}
+          onClick={() =>
+            void action.run(
+              async () => {
+                const routes = await client("move your org");
+                onMoved(await routes.moveOrgToPreview(org.id));
+              },
+              (error) => `${problemText(error)} ${org.name} is unchanged.`,
+            )
+          }
+        >
+          Move to the free preview
+        </button>
+      }
+      below={
+        action.problem ? (
+          <p className="problem" role="alert">
+            {action.problem}
+          </p>
+        ) : null
+      }
+    >
+      <span className="quiet">
+        Keeps the org and everything in it, and ends its test plan.
+      </span>
+    </Row>
+  );
 }

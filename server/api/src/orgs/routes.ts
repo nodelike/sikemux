@@ -17,8 +17,8 @@ import type { Services } from "../app.ts";
 import { audit } from "../audit.ts";
 import type { Person } from "../account/clerk.ts";
 import { dropSeatProofs } from "../account/proofs.ts";
+import { isStaff } from "../account/staff.ts";
 import { holdStanding, requireIdentity, type AuthEnv } from "../auth.ts";
-import { requireBillingAccess } from "../billing/access.ts";
 import { makeDueCalls } from "../billing/calls.ts";
 import { payerLeft } from "../billing/payer.ts";
 import {
@@ -28,6 +28,7 @@ import {
   seatLimit,
   seatsHeld,
 } from "../billing/seats.ts";
+import { PREVIEW_SEATS, requireTeam } from "../billing/team.ts";
 import type { Tables } from "../db.ts";
 import {
   badRequest,
@@ -108,6 +109,21 @@ async function keepAnOwner(
     throw conflict(message);
 }
 
+/** Staff may make as many as their tests take. */
+async function refuseSecondPreview(db: Kysely<Tables>, userId: string) {
+  if (await isStaff(db, userId)) return;
+  const made = await db
+    .selectFrom("orgs")
+    .select("name")
+    .where("created_by", "=", userId)
+    .where("preview_seats", "is not", null)
+    .executeTakeFirst();
+  if (made)
+    throw conflict(
+      `The preview gives each person one org, and you made ${made.name}.`,
+    );
+}
+
 async function membersOf(db: Kysely<Tables>, orgId: string) {
   const rows = await db
     .selectFrom("org_users")
@@ -168,15 +184,20 @@ export function orgRoutes({
 
   return new Hono<AuthEnv>()
     .use(requireIdentity(verifier, db))
-    .use(requireBillingAccess(db, live))
+    .use(requireTeam(db, live))
     .post("/", perUser(limiter, "create-org", 10), async (c) => {
       const { userId } = c.get("identity");
       const { name } = await readBody(c, "OrgCreate");
       const org = await db.transaction().execute(async (trx) => {
-        await holdStanding(trx, userId);
+        await holdStanding(trx, userId, { exclusive: true });
+        if (!live) await refuseSecondPreview(trx, userId);
         const created = await trx
           .insertInto("orgs")
-          .values({ name: orgName(name), created_by: userId })
+          .values({
+            name: orgName(name),
+            created_by: userId,
+            preview_seats: live ? null : PREVIEW_SEATS,
+          })
           .returningAll()
           .executeTakeFirstOrThrow();
         await trx
