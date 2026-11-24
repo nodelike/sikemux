@@ -78,21 +78,27 @@ def page_drawn(run, name):
 
 
 def shown_in_chat(run):
-    # A tab to put over the page later, opened first since its long answer pushes the card out of the chat.
-    run.prompt(desk.json_tool("browser.navigate", {"url": f"{run.site}/page2.html", "newTab": True}))
+    # A file to put over the page later, opened first since the turn's answer would push the card out of the chat.
+    path = str(run.root / "project/a.txt")
+    run.prompt(desk.json_tool("ui.open", {"kind": "file", "path": path}))
     said = run.prompt("show " + json.dumps({"path": str(run.root / "site/shown.html"), "title": "Kit shown"}))
     card = lambda: next((frame for name, frame in ((run.state() or {}).get("spots") or {}).items()
                          if name.startswith("page-card-")), None)
-    shown = lambda: (lambda page: page if page.get("title") == "Kit shown page" and not page.get("loading") else None)(desk.active_page(run.desk()))
+
+    def shown():
+        on_desk = run.desk()
+        page = desk.active_page(on_desk)
+        return page if page.get("title") == "Kit shown page" and not page.get("loading") and not on_desk.get("front") else None
+
     asked = time.time()
     page = desk.until(shown, 40) or {}
     waited = f"its desk tab loaded {time.time() - asked:.1f} s after it was shown" if page else "no desk tab loaded it"
-    other = next((name for name in desk.pills(run) if name.startswith("desk-page-") and "Kit shown" not in name), None)
-    over = desk.in_view(run, other) if other else None
+    desk.show_kind(run, "files")
+    over = desk.in_view(run, f"desk-item-{run.agent}-a.txt")
     if over:
         x, y = desk.middle(over)
         run.drive(f"click {x:.0f} {y:.0f}", "wait 1")
-    covered = desk.until(lambda: not shown(), 20) if over else None
+    covered = desk.until(lambda: (run.desk().get("front") or {}).get("file") == path, 20)
     last = {}
 
     def settled_card():
@@ -109,7 +115,7 @@ def shown_in_chat(run):
     forward = desk.until(shown, 10) if carded and covered else None
     copies = [other for other in desk.pages(run.desk()) if other.get("title") == "Kit shown page"]
     run.report("L6", said.startswith("tool answered") and bool(page) and bool(forward) and len(copies) == 1,
-               f"page_show answered {said[:120]!r}; {waited}; the chat's card {carded}; another tab {'covered it' if covered else 'never covered it'}, "
+               f"page_show answered {said[:120]!r}; {waited}; the chat's card {carded}; a file {'covered it' if covered else 'never covered it'}, "
                f"and the click {'brought it forward' if forward else 'did not'}, in {len(copies)} tab(s)")
     drawn, seen = page_drawn(run, "L10") if forward else (False, "")
     run.report("L10", drawn, seen)
