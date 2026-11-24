@@ -17,9 +17,9 @@ key cmd-alt-8
 settle 3
 snap pages-library
 front Wren
-settle 2
+settle 5
 click "Which store should the product page cache use?"
-settle 2
+settle 5
 snap pages-call
 click 1036,284
 settle 3
