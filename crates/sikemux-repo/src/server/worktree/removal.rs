@@ -13,11 +13,13 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use super::{left, published, take_folder, AgentWorktree};
+use super::build_output::LEFT_UNTOUCHED_FOR;
+use super::{branch_exists, left, published, take_folder, AgentWorktree};
 use crate::git::Git;
 use crate::server::connection::blocking;
 use crate::server::ports;
 use crate::server::{Core, CoreError, CoreResult};
+use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::AgentState;
@@ -55,7 +57,15 @@ fn count(output: Result<String, String>) -> usize {
     })
 }
 
+/// Whether the worktree already went with its branch, as an agent that slept for days leaves it.
+fn gone(worktree: &AgentWorktree) -> bool {
+    !worktree.path.exists() && !branch_exists(&worktree.repo, &worktree.branch)
+}
+
 fn costs(worktree: &AgentWorktree) -> (usize, usize) {
+    if gone(worktree) {
+        return (0, 0);
+    }
     let dirty = count(Git::at(&worktree.path).text(&["status", "--porcelain"]));
     let base = worktree.base.as_deref().unwrap_or(&worktree.start_sha);
     let unmerged = Git::at(&worktree.repo)
@@ -255,6 +265,9 @@ pub async fn remove(core: &Arc<Core>, params: RemoveWorktreeParams) -> CoreResul
     let deleted = {
         let worktree = worktree.clone();
         blocking(move || {
+            if gone(&worktree) {
+                return Ok(false);
+            }
             let path = worktree.path.to_string_lossy().into_owned();
             let mut args = vec!["worktree", "remove"];
             if discard {
@@ -300,7 +313,7 @@ pub enum Work {
 /// ignored folders go with it.
 pub async fn remove_left(core: &Arc<Core>, repo: &Path, tree: &Path, work: Work) {
     let removal = core.build_outputs().removal.lock().await;
-    if let Some(holder) = held_now(core, tree) {
+    if let Some(holder) = held_now(core, tree, work) {
         eprintln!(
             "sikemux core: kept the worktree {}, as {holder} works in it again",
             tree.display()
@@ -339,25 +352,39 @@ pub async fn remove_left(core: &Arc<Core>, repo: &Path, tree: &Path, work: Work)
     }
 }
 
-/// Who works in `tree` at this moment: an open agent, or one being reopened there.
-fn held_now(core: &Core, tree: &Path) -> Option<String> {
+/// Who works in `tree` at this moment: an open agent, or one being reopened or woken there. An
+/// agent at rest holds only work that is not landed.
+fn held_now(core: &Core, tree: &Path, work: Work) -> Option<String> {
     let reopening =
         (core.build_outputs().reopening.locked().iter()).any(|cwd| cwd.starts_with(tree));
     if reopening {
-        return Some("an agent being reopened".into());
+        return Some("an agent being reopened or woken".into());
     }
     (core.workspaces().agent_ids().into_iter())
         .filter_map(|id| core.workspaces().agent(&id))
-        .find(|agent| {
-            agent.cwd.starts_with(tree)
-                || (agent.worktree.as_ref()).is_some_and(|held| held.path == tree)
-        })
+        .find(|agent| works_in(agent, tree) && !(work == Work::Landed && rests(core, agent)))
         .map(|agent| agent.id)
 }
 
-/// Keeps the folder an agent is being reopened in from removal until this is dropped, by which
-/// time the agent's record holds it. A removal already under way finishes first, so the reopen
-/// finds the folder gone and makes it again.
+pub(super) fn works_in(agent: &WorkspaceAgent, tree: &Path) -> bool {
+    agent.cwd.starts_with(tree)
+        || (agent.worktree.as_ref()).is_some_and(|held| held.path.starts_with(tree))
+}
+
+/// Whether the agent finished its last turn and has slept since, for days, so it needs its
+/// folder only once it wakes, which makes it again.
+pub(super) fn rests(core: &Core, agent: &WorkspaceAgent) -> bool {
+    agent.asleep
+        && core.agent_now(&agent.id).chat_state().is_none()
+        && !core.agent_now(&agent.id).waits_on_something()
+        && (core.repo_above().turn_state_done_at)(core, &agent.id).is_some_and(|at| {
+            epoch_ms().saturating_sub(at) >= LEFT_UNTOUCHED_FOR.as_millis() as u64
+        })
+}
+
+/// Keeps the folder an agent is being reopened or woken in from removal until this is dropped, by
+/// which time the agent's record holds it or the agent is awake. A removal already under way
+/// finishes first, so the agent finds the folder gone and makes it again.
 pub struct Reopening {
     core: Arc<Core>,
     cwd: PathBuf,

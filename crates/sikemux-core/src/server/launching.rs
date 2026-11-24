@@ -209,6 +209,7 @@ async fn launch_terminal(
     (cols, rows): (u16, u16),
     continues: Option<Continuation>,
 ) -> CoreResult<SessionId> {
+    let _waking = super::worktree::agent::waking(core, agent_id).await?;
     super::worktree::agent::restore(core, agent_id).await?;
     let agent = core.workspaces().agent_or_gone(agent_id)?;
     if agent.resume_id.is_none() {
@@ -541,6 +542,7 @@ pub(crate) async fn start_agent(
     agent_id: &str,
     waits_for_person: bool,
 ) -> CoreResult<Arc<chat::Chat>> {
+    let _waking = super::worktree::agent::waking(core, agent_id).await?;
     super::worktree::agent::restore(core, agent_id).await?;
     let kept = core
         .workspaces()

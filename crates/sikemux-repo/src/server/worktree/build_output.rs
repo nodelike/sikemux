@@ -4,7 +4,10 @@
 //! worktree's agent has closed, once its agent has landed everything and gone to sleep, and,
 //! least recently built first, while free space is low. A worktree no agent holds whose work is
 //! all on its base branch goes whole, as its agent closes or on an hourly sweep; one with work
-//! left in it goes on the sweep once untouched for days, its work kept on a branch. The main checkout's is never touched,
+//! left in it goes on the sweep once untouched for days, its work kept on a branch. One whose work
+//! is all on its base branch also goes on the sweep after days untouched when only agents that
+//! finished and slept for as long hold it, and waking one makes it again. The main checkout's is
+//! never touched,
 //! nor a worktree's while an agent is at work in it or any process runs from it. A worktree that
 //! settles, as its agent closes or has landed everything and gone to sleep, also runs the
 //! project's `worktree.onSettle`.
@@ -26,7 +29,7 @@ use sikemux_view::changed::Topic;
 use sikemux_view::host_stats::{ClearedFor, HostEventKind};
 
 use super::left::last_changed;
-use super::removal::{busy, Work};
+use super::removal::{busy, rests, works_in, Work};
 use super::warm::{hold_builds, ignored_folders, is_cargo_output};
 use super::{worktrees_folder, AgentWorktree};
 use crate::git::{main_checkout, Git};
@@ -64,8 +67,8 @@ const SWEEP_LANDED_EVERY: Duration = Duration::from_secs(60 * 60);
 /// being given at that moment stays.
 const LANDED_UNTOUCHED_FOR: Duration = Duration::from_secs(60 * 60);
 /// How long one with work left in it goes untouched before a sweep keeps that work on a branch
-/// and takes the folder.
-const LEFT_UNTOUCHED_FOR: Duration = Duration::from_secs(3 * 24 * 60 * 60);
+/// and takes the folder, and how long a finished agent sleeps before its landed one goes.
+pub(super) const LEFT_UNTOUCHED_FOR: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 
 #[derive(Default)]
 pub struct BuildOutputs {
@@ -238,18 +241,16 @@ pub fn sweep_landed(core: &Core) {
     });
 }
 
-/// The worktrees, with the main checkout each belongs to, that no agent holds or runs from and
-/// nothing touched for as long as their work calls for.
+/// The worktrees, with the main checkout each belongs to, that only agents at rest hold, nothing
+/// runs from and nothing touched for as long as their work calls for.
 fn left(core: &Core) -> Vec<(PathBuf, PathBuf, Work)> {
     let Some(places) = procs::places() else {
         return Vec::new();
     };
     let projects = core.workspaces().project_paths();
-    let held: Vec<PathBuf> = (core.workspaces().agent_ids().into_iter())
+    let (resting, holding): (Vec<_>, Vec<_>) = (core.workspaces().agent_ids().into_iter())
         .filter_map(|id| core.workspaces().agent(&id))
-        .flat_map(|agent| [Some(agent.cwd), agent.worktree.map(|tree| tree.path)])
-        .flatten()
-        .collect();
+        .partition(|agent| rests(core, agent));
     let mut mains: Vec<PathBuf> = (projects.iter())
         .filter_map(|project| main_checkout(project))
         .collect();
@@ -262,15 +263,21 @@ fn left(core: &Core) -> Vec<(PathBuf, PathBuf, Work)> {
         };
         for tree in worktrees_of(std::slice::from_ref(&main)) {
             let in_use = projects.iter().any(|project| project.starts_with(&tree))
-                || held.iter().any(|path| path.starts_with(&tree))
+                || holding.iter().any(|agent| works_in(agent, &tree))
                 || sikemux_process::files::real_path(&tree)
                     .map_or(true, |real| running_in(&places, &[&tree, &real]).is_some());
-            if in_use || !untouched_for(&tree, LANDED_UNTOUCHED_FOR) {
+            let rested_in = resting.iter().any(|agent| works_in(agent, &tree));
+            let landed_for = match rested_in {
+                true => LEFT_UNTOUCHED_FOR,
+                false => LANDED_UNTOUCHED_FOR,
+            };
+            if in_use || !untouched_for(&tree, landed_for) {
                 continue;
             }
             if on_base(&tree, &base) {
                 left.push((main.clone(), tree, Work::Landed));
-            } else if untouched_for(&tree, LEFT_UNTOUCHED_FOR)
+            } else if !rested_in
+                && untouched_for(&tree, LEFT_UNTOUCHED_FOR)
                 && last_changed(&tree).is_none_or(|at| ago(at, LEFT_UNTOUCHED_FOR))
             {
                 left.push((main.clone(), tree, Work::Left));

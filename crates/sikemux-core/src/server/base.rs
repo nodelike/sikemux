@@ -21,6 +21,7 @@ use super::spawn::{self, Ending};
 use std::path::PathBuf;
 
 use sikemux_view::prefs::{Belongs, PreferenceChange};
+use sikemux_view::turn::TurnPhase;
 
 use super::activity_log::{transcript_of, Place};
 use super::board_above::BoardAbove;
@@ -404,6 +405,11 @@ pub(super) fn repo_above() -> RepoAbove {
         turn_state_wrote: turn_state::wrote,
         pushed: finished::moved,
         triggers_pushed: triggers::pushed,
+        turn_state_done_at: |core, agent| {
+            turn_state::now(core, agent)
+                .filter(|turn| turn.state == TurnPhase::Done && turn.call.is_none())
+                .map(|turn| turn.since)
+        },
         turn_state_committed: |core, agent| {
             core.inbox().committed(agent);
             turn_state::read_work(core, agent);

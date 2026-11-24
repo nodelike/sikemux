@@ -87,6 +87,8 @@ pub struct RepoAbove {
     /// Commits the agents made went to the remote from the checkout, the newest given, so
     /// its CI is watched for them.
     pub triggers_pushed: fn(&Core, &Path, &[String], &str),
+    /// When the agent's last turn ended done, with nothing left to bring the agent back.
+    pub turn_state_done_at: fn(&Core, &str) -> Option<u64>,
     pub turn_state_committed: fn(&Core, &str),
     /// The project's check passed on the `covered` commits, so the pages of the turns whose
     /// work is at one of them are taken.

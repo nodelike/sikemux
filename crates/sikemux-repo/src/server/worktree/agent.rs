@@ -14,6 +14,7 @@ use sikemux_process::vars;
 use sikemux_view::changed::Topic;
 use sikemux_view::host_stats::HostEventKind;
 
+use super::removal::{self, Reopening};
 use super::{
     add_again, base_branch, branch_exists, branch_for, copy_included, cut, inside, left, warm,
     worktrees_folder, AgentWorktree,
@@ -121,6 +122,12 @@ pub fn resumed_in(cwd: &Path, branch: Option<&str>) -> Result<ResumedIn, String>
         worktree: Some(worktree),
         made_again: true,
     })
+}
+
+/// Keeps the folder of an agent about to be woken from removal until this is dropped.
+pub async fn waking(core: &Arc<Core>, agent_id: &str) -> CoreResult<Reopening> {
+    let agent = core.workspaces().agent_or_gone(agent_id)?;
+    Ok(removal::reopening(core, &agent.cwd).await)
 }
 
 /// Makes again the worktree a stored agent ran in when it was cleaned away, so it wakes on its
