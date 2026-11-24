@@ -9,10 +9,11 @@ function fail(message) {
   process.exit(1);
 }
 
-const [artifactPath, signaturePath, keyArgument] = process.argv.slice(2);
-if (!artifactPath || !signaturePath) {
+const [artifactPath, signaturePath, version, keyArgument] =
+  process.argv.slice(2);
+if (!artifactPath || !signaturePath || !version) {
   fail(
-    "usage: verify-updater-signature.mjs <artifact> <signature> [base64 public key]",
+    "usage: verify-updater-signature.mjs <artifact> <signature> <version> [base64 public key]",
   );
 }
 
@@ -77,12 +78,12 @@ if (!verify(null, digest, publicKey, signaturePacket.subarray(10)))
 const trustedComment = Buffer.from(
   signatureLines[2].slice("trusted comment: ".length),
 );
-if (
-  !trustedComment
-    .toString("utf8")
-    .includes(`file:${artifactPath.split("/").pop()}`)
-) {
+const signedFor = trustedComment.toString("utf8").split("\t");
+if (!signedFor.includes(`file:${artifactPath.split("/").pop()}`)) {
   fail("trusted comment names a different artifact");
+}
+if (!signedFor.includes(`version:${version}`)) {
+  fail(`trusted comment does not name version ${version}`);
 }
 if (
   !verify(

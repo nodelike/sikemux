@@ -144,7 +144,7 @@ COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata --no-xattrs --no-acls --no-ffl
   -cf - -C "$(dirname "$APP")" "$(basename "$APP")" | libdeflate-gzip -12 >"$TAR"
 TAURI_SIGNING_PRIVATE_KEY="$UPDATER_KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$UPDATER_KEY_PASSWORD" \
   "$TAURI_CLI" signer sign --app-version "$VERSION" "$TAR" >/dev/null
-node "$ROOT/scripts/verify-updater-signature.mjs" "$TAR" "$SIG"
+node "$ROOT/scripts/verify-updater-signature.mjs" "$TAR" "$SIG" "$VERSION"
 
 echo "→ Putting the signed app in $(basename "$DMG")"
 /usr/bin/hdiutil convert "$DMG" -format UDRW -o "$WORK/layout.dmg" -quiet || fail "could not unpack $DMG"

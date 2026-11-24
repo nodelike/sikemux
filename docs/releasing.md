@@ -72,7 +72,7 @@ Omarchy installs Sikemux from its own package repository, pkgs.omarchy.org, not 
 
 The updater and Apple Gatekeeper trust different signatures. By default, `scripts/release.sh` makes a community release. It signs the updater archive with the Tauri updater key and applies an ad hoc code signature to the app and DMG.
 
-Existing community installations can receive in-app updates. Fresh downloads are not notarized by Apple, so macOS may ask you to remove quarantine again. Keep the updater private key secure. Clients reject archives that do not match the public key bundled with the app.
+Existing community installations can receive in-app updates. Fresh downloads are not notarized by Apple, so macOS may ask you to remove quarantine again. Keep the updater private key secure. Clients reject archives that do not match the public key bundled with the app. They also reject a file whose signed comment does not name that file and the version offered, a version no newer than the one running, and a nightly on the stable channel (`crates/sikemux-release`). A feed is not signed, so nothing it claims counts until the comment says the same.
 
 Every release is a versioned GitHub release holding the build and its `latest.json`. The default channel follows the latest stable release's. A nightly requires a `-nightly.N` version and is published as a prerelease. Two moving releases hold only a `latest.json` each and point at one of these builds: `staff`, which the staff channel follows, and `nightly`, which the opt-in Nightly channel follows. `scripts/move-feed.sh` points one at a build by copying that build's `latest.json`, so moving a feed rebuilds nothing.
 

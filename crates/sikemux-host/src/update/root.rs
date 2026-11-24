@@ -17,6 +17,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use sikemux_core::host_update::{self, HostAction, HostRequest, UpdateStep};
 use sikemux_core::release_feed;
+use sikemux_release::{Product, Update};
 use sikemux_view::prefs::UpdateChannel;
 use sikemux_view::updates::{UpdateOutcome, UpdateOutcomeState};
 
@@ -30,7 +31,6 @@ const REQUEST_WAIT: libc::timeval = libc::timeval {
 };
 /// How much of a failure's output an outcome keeps as evidence.
 const EVIDENCE_LINES: usize = 20;
-const MAX_ARCHIVE_BYTES: u64 = 256 << 20;
 const MAX_CORE_BYTES: u64 = 512 << 20;
 /// However often it is asked, root reads the feeds at most this often.
 const RECHECK: Duration = Duration::from_secs(5 * 60);
@@ -178,6 +178,12 @@ async fn attempt(
         None
     };
 
+    let offered = |product| Update {
+        product,
+        version: newest.version.clone(),
+        running: installed.clone(),
+        channel: release_feed::takes(channel),
+    };
     let mut outcome = UpdateOutcome {
         id: id.to_owned(),
         state: UpdateOutcomeState::Failed,
@@ -197,10 +203,14 @@ async fn attempt(
             .create(&work)
             .map_err(|error| error.to_string())?;
         let unpacked = match &app_asset {
-            Some(app_asset) => Some(fetch_app(&work, &newest.version, app_asset, report).await?),
+            Some(app_asset) => {
+                let update = offered(Product::AppImage);
+                let appimage = fetch(&work, &update, app_asset, report).await?;
+                Some(unpack_app(&work, &appimage)?)
+            }
             None => None,
         };
-        let archive = fetch_core(&work, &newest.version, &asset, report).await?;
+        let archive = fetch(&work, &offered(Product::HostCore), &asset, report).await?;
         // The app goes in first: should the core then fail, the next try finds the old
         // version still installed and puts both in again.
         if let Some(unpacked) = unpacked {
@@ -238,76 +248,31 @@ async fn attempt(
     })
 }
 
-/// Downloads the release, checking the updater key's signature as it comes
-/// and that it was made for this very file and version, so no other
-/// release's signature can stand in for it.
-async fn fetch_core(
+/// Downloads a file of the release, checking the updater key's signature as it comes and that it
+/// was made for this very update.
+async fn fetch(
     work: &Path,
-    version: &Version,
+    update: &Update,
     asset: &release_feed::Asset,
     report: &mut dyn FnMut(&UpdateStep),
 ) -> Result<PathBuf, String> {
-    let file = host_update::host_asset(version, std::env::consts::ARCH);
-    let archive = work.join(&file);
+    let file = work.join(update.file());
     let key = release_feed::release_key()?;
     let mut bytes = 0;
-    let signed = release_feed::fetch_verified(
-        &asset.url,
-        &asset.signature,
-        &key,
-        &archive,
-        Some(MAX_ARCHIVE_BYTES),
-        |done, _| bytes = done,
-    )
-    .await?;
+    release_feed::fetch_verified(update, asset, &key, &file, |done, _| bytes = done).await?;
     report(&UpdateStep::Downloaded {
-        version: version.to_string(),
+        version: update.version.to_string(),
         bytes,
     });
-    if !release_feed::signed_for(&signed, &file, version) {
-        return Err(format!(
-            "{file} is not signed by Sikemux: its signature was made for another file ({signed})"
-        ));
-    }
     report(&UpdateStep::Verified);
-    Ok(archive)
+    Ok(file)
 }
 
-/// Downloads the release's AppImage, checked as the core is, and unpacks it in
-/// `work`, answering with the unpacked folder.
-async fn fetch_app(
-    work: &Path,
-    version: &Version,
-    asset: &release_feed::Asset,
-    report: &mut dyn FnMut(&UpdateStep),
-) -> Result<PathBuf, Failure> {
-    let file = format!("Sikemux_{version}_{}.AppImage", package_arch());
-    let appimage = work.join(&file);
-    let key = release_feed::release_key()?;
-    let mut bytes = 0;
-    let signed = release_feed::fetch_verified(
-        &asset.url,
-        &asset.signature,
-        &key,
-        &appimage,
-        Some(MAX_ARCHIVE_BYTES),
-        |done, _| bytes = done,
-    )
-    .await?;
-    report(&UpdateStep::Downloaded {
-        version: version.to_string(),
-        bytes,
-    });
-    if !release_feed::signed_for(&signed, &file, version) {
-        return Err(format!(
-            "{file} is not signed by Sikemux: its signature was made for another file ({signed})"
-        )
-        .into());
-    }
-    report(&UpdateStep::Verified);
+/// Unpacks the release's AppImage in `work`, answering with the unpacked folder.
+fn unpack_app(work: &Path, appimage: &Path) -> Result<PathBuf, Failure> {
     let failed = |error: io::Error| format!("could not unpack the app: {error}");
-    fs::set_permissions(&appimage, fs::Permissions::from_mode(0o700)).map_err(failed)?;
-    let extracted = sikemux_process::user_environment::command(&appimage)
+    fs::set_permissions(appimage, fs::Permissions::from_mode(0o700)).map_err(failed)?;
+    let extracted = sikemux_process::user_environment::command(appimage)
         .arg("--appimage-extract")
         .current_dir(work)
         .stdout(sikemux_process::command::Stdio::null())
@@ -317,7 +282,11 @@ async fn fetch_app(
     let unpacked = work.join("squashfs-root");
     if !extracted.status.success() || !unpacked.join(host_update::INSTALLED_APP_PROGRAM).is_file() {
         return Err(Failure {
-            message: format!("{file} could not be unpacked ({})", extracted.status),
+            message: format!(
+                "{} could not be unpacked ({})",
+                appimage.display(),
+                extracted.status
+            ),
             evidence: tail(&extracted.stderr),
         });
     }
@@ -344,15 +313,6 @@ fn only_root_writes(folder: &Path) -> io::Result<()> {
         }
     }
     Ok(())
-}
-
-/// What the release calls this machine in its package names.
-fn package_arch() -> &'static str {
-    match std::env::consts::ARCH {
-        "x86_64" => "amd64",
-        "aarch64" => "arm64",
-        other => other,
-    }
 }
 
 /// Puts the unpacked app in place of the installed one, putting the old one back

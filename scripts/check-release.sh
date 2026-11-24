@@ -263,7 +263,7 @@ const minisign = (name) => {
   const id = crypto.randomBytes(8);
   const raw = Buffer.from(publicKey.export({ format: "jwk" }).x, "base64url");
   const signature = crypto.sign(null, crypto.createHash("blake2b512").update(artifact).digest(), privateKey);
-  const trusted = "timestamp:0\tfile:artifact.tar.gz";
+  const trusted = "timestamp:0\tfile:artifact.tar.gz\tversion:1.0.0";
   const global = crypto.sign(null, Buffer.concat([signature, Buffer.from(trusted)]), privateKey);
   const pub = `untrusted comment: minisign public key\n${Buffer.concat([Buffer.from("Ed"), id, raw]).toString("base64")}\n`;
   const sig = `untrusted comment: signature\n${Buffer.concat([Buffer.from("ED"), id, signature]).toString("base64")}\ntrusted comment: ${trusted}\n${global.toString("base64")}\n`;
@@ -273,13 +273,17 @@ const minisign = (name) => {
 minisign("test");
 minisign("other");
 NODE
-node scripts/verify-updater-signature.mjs "$TMP/artifact.tar.gz" "$TMP/test.sig" "$(cat "$TMP/test.pub")" >/dev/null
-if node scripts/verify-updater-signature.mjs "$TMP/artifact.tar.gz" "$TMP/other.sig" "$(cat "$TMP/test.pub")" >"$TMP/other.out" 2>&1; then
+node scripts/verify-updater-signature.mjs "$TMP/artifact.tar.gz" "$TMP/test.sig" 1.0.0 "$(cat "$TMP/test.pub")" >/dev/null
+if node scripts/verify-updater-signature.mjs "$TMP/artifact.tar.gz" "$TMP/other.sig" 1.0.0 "$(cat "$TMP/test.pub")" >"$TMP/other.out" 2>&1; then
   echo "updater verifier accepted an artifact signed with another key" >&2
   exit 1
 fi
+if node scripts/verify-updater-signature.mjs "$TMP/artifact.tar.gz" "$TMP/test.sig" 1.0.1 "$(cat "$TMP/test.pub")" >"$TMP/version.out" 2>&1; then
+  echo "updater verifier accepted a signature made for another version" >&2
+  exit 1
+fi
 printf 'tampered\n' >>"$TMP/artifact.tar.gz"
-if node scripts/verify-updater-signature.mjs "$TMP/artifact.tar.gz" "$TMP/test.sig" "$(cat "$TMP/test.pub")" >"$TMP/tamper.out" 2>&1; then
+if node scripts/verify-updater-signature.mjs "$TMP/artifact.tar.gz" "$TMP/test.sig" 1.0.0 "$(cat "$TMP/test.pub")" >"$TMP/tamper.out" 2>&1; then
   echo "updater verifier accepted a modified artifact" >&2
   exit 1
 fi

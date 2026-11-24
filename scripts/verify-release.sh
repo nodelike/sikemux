@@ -68,9 +68,7 @@ fi
 [[ -s "$SIG" ]] || fail "updater signature was not produced"
 [[ -s "$DMG" ]] || fail "DMG is empty"
 /usr/bin/hdiutil verify "$DMG" >/dev/null || fail "DMG verification failed"
-node "$ROOT/scripts/verify-updater-signature.mjs" "$TAR" "$SIG"
-grep -q "^trusted comment: .*"$'\t'"version:$VERSION\$" <<<"$(/usr/bin/base64 -d -i "$SIG")" ||
-  fail "updater signature is not bound to version $VERSION"
+node "$ROOT/scripts/verify-updater-signature.mjs" "$TAR" "$SIG" "$VERSION"
 UPDATE_BUDGET_BYTES=$((40 * 1024 * 1024))
 TAR_BYTES="$(stat -f %z "$TAR")"
 echo "→ Updater archive is $TAR_BYTES bytes (budget $UPDATE_BUDGET_BYTES)"

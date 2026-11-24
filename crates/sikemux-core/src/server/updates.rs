@@ -32,8 +32,9 @@ use super::changed::Topic;
 use super::connection::blocking;
 use super::{update_reports, upgrade, Core, CoreError, CoreResult};
 use crate::host_update::{self, HostAction, HostRequest, HostUpdate, UpdateStep, INSTALLED_CORE};
-use crate::release_feed::{self, Newest};
+use crate::release_feed::{self, Asset, Newest};
 use crate::releases::bundled_credits;
+use sikemux_release::{Product, Update};
 use sikemux_view::device::Flag;
 use sikemux_view::prefs::{PreferenceChange, UpdateChannel};
 use sikemux_view::updates::{
@@ -74,8 +75,8 @@ const WATCH_EVERY: Duration = Duration::from_secs(30);
 /// Where to fetch the release `available` names.
 #[derive(Clone)]
 struct Found {
-    url: String,
-    signature: String,
+    asset: Asset,
+    version: Version,
 }
 
 #[derive(Default)]
@@ -486,11 +487,12 @@ pub(crate) async fn check(core: &Core) -> CoreResult<UpdateStatus> {
     let release = newest
         .filter(|newest| newest.version > current)
         .filter(|newest| put_back.as_deref() != Some(newest.version.to_string().as_str()))
-        .and_then(|Newest { feed, raw, .. }| {
-            let found = feed.platforms.get(&own_platform()).map(|asset| Found {
-                url: asset.url.clone(),
-                signature: asset.signature.clone(),
-            });
+        .and_then(|Newest { version, feed, raw }| {
+            let found = feed
+                .platforms
+                .get(&own_platform())
+                .cloned()
+                .map(|asset| Found { asset, version });
             if status.updates && found.is_none() {
                 return None;
             }
@@ -533,8 +535,8 @@ pub(crate) fn install(core: &Arc<Core>, params: UpdateInstallParams) -> CoreResu
 }
 
 /// Hands the installer this core fetched to the Sikemux service, which installs it for everyone
-/// on this computer and opens the app again. False when no service runs this core, so the app
-/// runs the installer itself.
+/// on this computer and opens the app again. False when no service runs this core, which then
+/// cannot install it.
 pub(crate) async fn apply(core: &Arc<Core>) -> CoreResult<bool> {
     if !super::remote::asks_in_window() {
         return Ok(false);
@@ -561,7 +563,7 @@ async fn apply_through_service(core: &Core) -> CoreResult<()> {
     let setup = sikemux_process::paths::update_setup()
         .ok_or_else(|| CoreError::from("there is no cache folder"))?;
     blocking(move || {
-        sikemux_trust::service::apply_update(&setup, &found.signature, &release.version)
+        sikemux_trust::service::apply_update(&setup, &found.asset.signature, &release.version)
             .map_err(|error| CoreError::from(error.to_string()))
     })
     .await
@@ -991,6 +993,17 @@ async fn put_in_place(
         core.updates().edit(core, |held| held.installed = true);
         return Ok(());
     }
+    let update = Update {
+        product: match app {
+            OwnApp::Bundle(_) => Product::MacApp,
+            OwnApp::AppImage(_) => Product::AppImage,
+            OwnApp::Installer => Product::Installer,
+            OwnApp::Host => Product::HostCore,
+        },
+        version: found.version.clone(),
+        running: Version::parse(&core.config().build.version).map_err(|error| error.to_string())?,
+        channel: release_feed::takes(channel(core)),
+    };
     let key = release_feed::release_key()?;
     let archive = match app {
         #[cfg(windows)]
@@ -1010,13 +1023,8 @@ async fn put_in_place(
         OwnApp::Host => return Err("root puts a host's core in place".into()),
     };
     let mut last = Instant::now();
-    let fetched = release_feed::fetch_verified(
-        &found.url,
-        &found.signature,
-        &key,
-        &archive,
-        None,
-        |done, total| {
+    let fetched =
+        release_feed::fetch_verified(&update, &found.asset, &key, &archive, |done, total| {
             if last.elapsed() >= PROGRESS_EVERY || total == Some(done) {
                 last = Instant::now();
                 core.updates().edit(core, |held| {
@@ -1024,9 +1032,8 @@ async fn put_in_place(
                     held.status.total_bytes = total;
                 });
             }
-        },
-    )
-    .await;
+        })
+        .await;
     if let Err(error) = fetched {
         let _ = std::fs::remove_file(&archive);
         return Err(error);

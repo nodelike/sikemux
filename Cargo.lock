@@ -10001,6 +10001,7 @@ dependencies = [
  "sikemux-plugin-api",
  "sikemux-process",
  "sikemux-pty",
+ "sikemux-release",
  "sikemux-remote",
  "sikemux-repo",
  "sikemux-serve",
@@ -10045,6 +10046,7 @@ dependencies = [
  "sikemux-client",
  "sikemux-grid",
  "sikemux-process",
+ "sikemux-release",
  "sikemux-view",
  "sikemux-wire",
  "tempfile",
@@ -10244,6 +10246,7 @@ dependencies = [
  "sikemux-plugin-vercel",
  "sikemux-process",
  "sikemux-pty",
+ "sikemux-release",
  "sikemux-trust",
  "sikemux-view",
  "sikemux-wire",
@@ -10635,6 +10638,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sikemux-release"
+version = "0.6.2"
+dependencies = [
+ "base64 0.22.1",
+ "minisign-verify",
+ "semver",
+ "workspace-hack",
+]
+
+[[package]]
 name = "sikemux-remote"
 version = "0.6.2"
 dependencies = [
@@ -10762,11 +10775,11 @@ dependencies = [
 name = "sikemux-trust"
 version = "0.6.2"
 dependencies = [
- "base64 0.22.1",
  "minisign-verify",
  "semver",
  "serde",
  "serde_json",
+ "sikemux-release",
  "windows-sys 0.61.2",
  "workspace-hack",
 ]

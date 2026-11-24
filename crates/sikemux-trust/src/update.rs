@@ -10,10 +10,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use base64::Engine;
-use minisign_verify::{PublicKey, Signature};
+use minisign_verify::PublicKey;
 use semver::Version;
 use serde::{Deserialize, Serialize};
+use sikemux_release::{Channel, Product, Update, UpdateSignature, LARGEST_FILE};
 use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 use windows_sys::Win32::System::RemoteDesktop::WTSQueryUserToken;
@@ -22,7 +22,6 @@ use crate::service::{quote, system_folder};
 use crate::spawn::{spawn, Start};
 use crate::token::{Integrity, Token};
 
-const LARGEST: u64 = 1 << 30;
 /// A mark older than this belongs to an install that never started the service again.
 const REOPEN_WITHIN: Duration = Duration::from_secs(10 * 60);
 const APP: &str = "sikemux.exe";
@@ -46,10 +45,14 @@ pub(crate) fn apply(
 ) -> Result<(), String> {
     let version = Version::parse(version.trim_start_matches('v'))
         .map_err(|error| format!("the update's version: {error}"))?;
-    let own = Version::parse(env!("CARGO_PKG_VERSION")).map_err(|error| error.to_string())?;
-    if version <= own {
-        return Err(format!("Sikemux {own} is already as new as {version}"));
-    }
+    let update = Update {
+        product: Product::Installer,
+        version,
+        running: Version::parse(env!("CARGO_PKG_VERSION")).map_err(|error| error.to_string())?,
+        // The core asking has checked the channel, which is the person's to choose.
+        channel: Channel::Nightly,
+    };
+    let signature = update.signature(signature)?;
     let _applying = APPLYING.lock().unwrap_or_else(|held| held.into_inner());
     let source = person
         .as_user(|| File::open(setup))
@@ -58,12 +61,12 @@ pub(crate) fn apply(
     let folder = updates()?;
     let _ = fs::remove_dir_all(&folder);
     fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
-    let copy = folder.join(format!("Sikemux_{version}-setup.exe"));
+    let copy = folder.join(update.file());
     let mut written = File::create_new(&copy).map_err(|error| error.to_string())?;
-    let copied =
-        io::copy(&mut source.take(LARGEST + 1), &mut written).map_err(|error| error.to_string())?;
+    let copied = io::copy(&mut source.take(LARGEST_FILE + 1), &mut written)
+        .map_err(|error| error.to_string())?;
     drop(written);
-    if copied > LARGEST {
+    if copied > LARGEST_FILE {
         return Err("the installer is larger than any release would be".into());
     }
     // Held, with no one else let in to write, until the installer has started from it.
@@ -72,12 +75,7 @@ pub(crate) fn apply(
         .share_mode(FILE_SHARE_READ)
         .open(&copy)
         .map_err(|error| error.to_string())?;
-    let comment = verified(&mut held, key, signature)?;
-    if !signed_for(&comment, &version) {
-        return Err(format!(
-            "the signature was not made for Sikemux {version}'s installer"
-        ));
-    }
+    check(&mut held, key, &signature)?;
     let mark = Reopen {
         user: person.user().map_err(|error| error.to_string())?,
         session: person.session().map_err(|error| error.to_string())?,
@@ -173,37 +171,16 @@ fn open_app(program: &Path, mark: &Reopen) -> io::Result<()> {
     Ok(())
 }
 
-fn verified(file: &mut File, key: &PublicKey, signature: &str) -> Result<String, String> {
-    let text = base64::engine::general_purpose::STANDARD
-        .decode(signature.trim())
-        .map_err(|error| format!("the update's signature: {error}"))?;
-    let signature = Signature::decode(&String::from_utf8_lossy(&text))
-        .map_err(|error| format!("the update's signature: {error}"))?;
-    let mut verifier = key
-        .verify_stream(&signature)
-        .map_err(|_| "the update is signed with another key".to_owned())?;
+fn check(file: &mut File, key: &PublicKey, signature: &UpdateSignature) -> Result<(), String> {
+    let mut check = signature.check(key)?;
     let mut chunk = vec![0u8; 1 << 16];
     loop {
         let read = file.read(&mut chunk).map_err(|error| error.to_string())?;
         let Some(bytes) = chunk.get(..read).filter(|bytes| !bytes.is_empty()) else {
-            break;
+            return check.finish();
         };
-        verifier.update(bytes);
+        check.update(bytes);
     }
-    verifier
-        .finalize()
-        .map_err(|_| "the installer does not match the release's signature".to_owned())?;
-    Ok(signature.trusted_comment().to_owned())
-}
-
-/// The release scripts sign `file:Sikemux_<version>_<arch>-setup.exe` and `version:<version>`.
-fn signed_for(comment: &str, version: &Version) -> bool {
-    let fields: Vec<&str> = comment.split('\t').collect();
-    let file = format!("file:Sikemux_{version}_");
-    fields.contains(&format!("version:{version}").as_str())
-        && fields
-            .iter()
-            .any(|field| field.starts_with(&file) && field.ends_with("-setup.exe"))
 }
 
 /// Inside the service's own profile, which only it and administrators can write.

@@ -2,7 +2,6 @@
 //! core asks a root service over [`SOCKET`], which finds the release in the
 //! feeds itself and checks it before putting it in place.
 
-use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use sikemux_view::prefs::UpdateChannel;
@@ -89,11 +88,6 @@ impl UpdateStep {
 pub struct HostUpdate {
     pub steps: Vec<UpdateStep>,
     pub handing_over: Option<String>,
-}
-
-/// The file a release publishes for a host on `arch`.
-pub fn host_asset(version: &Version, arch: &str) -> String {
-    format!("sikemux-host-{version}-linux-{arch}.tar.gz")
 }
 
 /// Asks root to do what `request` says, telling `seen` each step on the way,

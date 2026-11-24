@@ -14,7 +14,7 @@ INSTALLERS=(target/windows/Sikemux_"$VERSION"_*-setup.exe)
 shopt -u nullglob
 [[ ${#INSTALLERS[@]} -eq 2 ]] || { echo "expected the x64 and arm64 installers, found ${#INSTALLERS[@]}" >&2; exit 1; }
 for installer in "${INSTALLERS[@]}"; do
-  node scripts/verify-updater-signature.mjs "$installer" "$installer.sig"
+  node scripts/verify-updater-signature.mjs "$installer" "$installer.sig" "$VERSION"
 done
 
 dir="$(mktemp -d)"

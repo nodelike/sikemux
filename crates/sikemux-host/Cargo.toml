@@ -47,6 +47,7 @@ sikemux-wire = { path = "../sikemux-wire" }
 sikemux-loopback = { path = "../sikemux-loopback" }
 sikemux-keychain = { path = "../sikemux-keychain" }
 sikemux-process = { path = "../sikemux-process" }
+sikemux-release = { path = "../sikemux-release" }
 sikemux-pty = { path = "../sikemux-pty" }
 sikemux-plugin-api = { path = "../sikemux-plugin-api" }
 sikemux-plugin-aws = { path = "../../plugins/aws", optional = true }

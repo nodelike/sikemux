@@ -29,6 +29,7 @@ sikemux-base = { path = "../sikemux-base" }
 sikemux-client = { path = "../sikemux-client" }
 sikemux-grid = { path = "../sikemux-grid" }
 sikemux-process = { path = "../sikemux-process" }
+sikemux-release = { path = "../sikemux-release" }
 sikemux-view = { path = "../sikemux-view" }
 sikemux-wire = { path = "../sikemux-wire" }
 tempfile = "3"

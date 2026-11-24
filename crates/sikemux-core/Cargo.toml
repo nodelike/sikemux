@@ -15,6 +15,7 @@ sikemux-base = { path = "../sikemux-base" }
 sikemux-calls = { path = "../sikemux-calls" }
 sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-process = { path = "../sikemux-process" }
+sikemux-release = { path = "../sikemux-release" }
 sikemux-fold = { path = "../sikemux-fold" }
 sikemux-markdown = { path = "../sikemux-markdown" }
 hex = "0.4"

@@ -46,5 +46,5 @@ tar -xzf "$WORK/tauri-cli.tgz" -C "$WORK" cargo-tauri
 for signed in "${SIGNED[@]}"; do
   rm -f "$signed.sig"
   "$WORK/cargo-tauri" signer sign --app-version "$VERSION" "$signed" >/dev/null
-  node "$ROOT/scripts/verify-updater-signature.mjs" "$signed" "$signed.sig"
+  node "$ROOT/scripts/verify-updater-signature.mjs" "$signed" "$signed.sig" "$VERSION"
 done

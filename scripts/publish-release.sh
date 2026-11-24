@@ -59,7 +59,7 @@ for file in "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" 
 done
 [[ "$(node -p "require('$MANIFEST').version")" == "$VERSION" ]] || fail "$MANIFEST is not for v$VERSION"
 for signed in "${HOSTS[@]}" "${APPIMAGES[@]}"; do
-  node scripts/verify-updater-signature.mjs "$signed" "$signed.sig" || fail "$signed is not signed by the updater key"
+  node scripts/verify-updater-signature.mjs "$signed" "$signed.sig" "$VERSION" || fail "$signed is not signed by the updater key"
 done
 # The Linux app updates itself only as an AppImage, so only the AppImages join the
 # feed the macOS build wrote, beside each host core, which root installs on a host.

@@ -9,11 +9,12 @@ use std::time::Duration;
 
 use base64::Engine;
 use futures_util::StreamExt;
-use minisign_verify::{PublicKey, Signature};
+use minisign_verify::PublicKey;
 use semver::Version;
 use serde::Deserialize;
 use serde_json::Value;
 
+use sikemux_release::{Channel, Update, LARGEST_FILE};
 use sikemux_view::prefs::UpdateChannel;
 
 const STABLE_FEED: &str =
@@ -137,37 +138,37 @@ pub fn release_key() -> Result<PublicKey, String> {
     PublicKey::decode(&String::from_utf8_lossy(&text)).map_err(|error| error.to_string())
 }
 
-/// Downloads `url` to `to`, checking it against the release's `signature` as
-/// it comes, and reports each step as bytes done of the whole. Answers with
-/// the signature's trusted comment, which names the file and version it was
-/// made for. A slow download runs as long as it keeps coming; the client stops
-/// one that goes quiet.
+/// The releases `channel` may install. Staff and nightly both take stable ones, such as a
+/// candidate on the staff feed.
+pub fn takes(channel: UpdateChannel) -> Channel {
+    match channel {
+        UpdateChannel::Stable => Channel::Stable,
+        UpdateChannel::Nightly | UpdateChannel::Staff => Channel::Nightly,
+    }
+}
+
+/// Downloads `asset` to `to` once its signature says it was made for `update`, checking the file
+/// against that signature as it comes, and reports each step as bytes done of the whole. A slow
+/// download runs as long as it keeps coming; the client stops one that goes quiet.
 pub async fn fetch_verified(
-    url: &str,
-    signature: &str,
+    update: &Update,
+    asset: &Asset,
     key: &PublicKey,
     to: &Path,
-    max_bytes: Option<u64>,
     mut progress: impl FnMut(u64, Option<u64>),
-) -> Result<String, String> {
-    let text = base64::engine::general_purpose::STANDARD
-        .decode(signature.trim())
-        .map_err(|error| format!("the release's signature: {error}"))?;
-    let signature = Signature::decode(&String::from_utf8_lossy(&text))
-        .map_err(|error| format!("the release's signature: {error}"))?;
-    let mut verifier = key
-        .verify_stream(&signature)
-        .map_err(|_| "the release is signed with another key".to_owned())?;
+) -> Result<(), String> {
+    let signature = update.signature(&asset.signature)?;
+    let mut check = signature.check(key)?;
     let client = crate::http::client().map_err(|error| error.to_string())?;
     let response = client
-        .get(url)
+        .get(&asset.url)
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
         .map_err(|error| format!("download: {error}"))?;
     let total = response.content_length();
     let too_big = || "the download is larger than any release would be".to_owned();
-    if total.zip(max_bytes).is_some_and(|(total, max)| total > max) {
+    if total.is_some_and(|total| total > LARGEST_FILE) {
         return Err(too_big());
     }
     let mut file = std::fs::File::create(to).map_err(|error| error.to_string())?;
@@ -176,24 +177,13 @@ pub async fn fetch_verified(
     while let Some(chunk) = body.next().await {
         let chunk = chunk.map_err(|error| format!("download: {error}"))?;
         done += chunk.len() as u64;
-        if max_bytes.is_some_and(|max| done > max) {
+        if done > LARGEST_FILE {
             return Err(too_big());
         }
-        verifier.update(&chunk);
+        check.update(&chunk);
         file.write_all(&chunk).map_err(|error| error.to_string())?;
         progress(done, total);
     }
     file.flush().map_err(|error| error.to_string())?;
-    verifier
-        .finalize()
-        .map_err(|_| "the download does not match the release's signature".to_owned())?;
-    Ok(signature.trusted_comment().to_owned())
-}
-
-/// Whether a trusted comment says its signature was made for `file` at
-/// `version`, as the release scripts sign every file.
-pub fn signed_for(trusted_comment: &str, file: &str, version: &Version) -> bool {
-    let fields: Vec<&str> = trusted_comment.split('\t').collect();
-    fields.contains(&format!("file:{file}").as_str())
-        && fields.contains(&format!("version:{version}").as_str())
+    check.finish()
 }
