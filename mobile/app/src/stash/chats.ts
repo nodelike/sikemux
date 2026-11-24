@@ -29,7 +29,8 @@ function loadLastOpen() {
     .then((stored) => {
       if (!stored) return;
       const parsed = JSON.parse(stored) as Partial<OpenProject>;
-      if (typeof parsed.core === 'string' && typeof parsed.project === 'string') lastOpen ??= { core: parsed.core, project: parsed.project };
+      if (typeof parsed.core === 'string' && typeof parsed.project === 'string')
+        lastOpen ??= { core: parsed.core, project: parsed.project };
     })
     .catch(() => {});
   return loaded;
@@ -73,8 +74,7 @@ export function shareChiefs(
       const chatId = project.chief;
       const chat = snapshot.chats.find((item) => item.agentId === chatId);
       const shown =
-        snapshot.inbox.agents.find((agent) => agent.agentId === chatId) ??
-        snapshot.inbox.kept?.find((agent) => agent.agentId === chatId);
+        snapshot.inbox.agents.find((agent) => agent.agentId === chatId) ?? snapshot.inbox.kept?.find((agent) => agent.agentId === chatId);
       const recent = snapshot.recent.find((item) => item.agentId === chatId || (item.project === project.id && item.title === CHIEF_ROLE));
       const provider = chat?.provider ?? shown?.cli ?? project.launcher?.split(':')[0] ?? 'agent';
       found.push({
