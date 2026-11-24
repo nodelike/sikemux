@@ -19,6 +19,7 @@ const HOUSEKEEPING: &[&str] = &[
     "gif",
     "page_preview",
     "page_show",
+    "sign_in",
     "ask",
     "AskUserQuestion",
     "mark_chapter",

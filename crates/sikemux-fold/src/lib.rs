@@ -40,9 +40,9 @@ use sikemux_view::chat::{
     ChatTrigger, ClosedCard, Compactions, ContentBlock, ContextUsage, EndedTasks, FailureKind,
     GifRef, GuestMessage, KeptRule, LetterKind, MoveReason, NoticeSeverity, NoticeState,
     OverruledDecision, PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage,
-    RestoredPart, Retrying, RuleChange, SentContext, SessionEnded, StopReason, SubagentCard,
-    SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail, ToolStatus, TurnStart,
-    Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
+    RestoredPart, Retrying, RuleChange, SentContext, SessionEnded, SignInCard, StopReason,
+    SubagentCard, SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail,
+    ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
 };
 use sikemux_view::shown::TurnShown;
 use sikemux_view::turn::TurnState;

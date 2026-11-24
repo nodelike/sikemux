@@ -59,7 +59,7 @@ pub(crate) async fn window_call(core: &Core, call: PluginCall) -> PluginOutcome 
         wrote(&core, &call.plugin, &call.method, &call.params);
     }
     tell_agents_if_theirs(core, &call.plugin);
-    sign_in_moved(core, &call.plugin, &call.method);
+    sign_in_moved(core, &call.plugin, &call.method, outcome.as_ref().err());
     match outcome {
         Ok(value) => PluginOutcome::Value(value),
         Err(failure) => PluginOutcome::Failed(failure),
@@ -195,8 +195,13 @@ pub(crate) async fn listed(core: &Core) -> Vec<Listed> {
 }
 
 /// A plugin's call may have signed it in or out, or picked another account,
-/// so clients read the plugins again.
-pub(crate) fn sign_in_moved(core: &Core, plugin: &str, method: &str) {
+/// so clients read the plugins again, and a sign-in card waiting on it moves.
+pub(crate) fn sign_in_moved(
+    core: &Core,
+    plugin: &str,
+    method: &str,
+    failure: Option<&PluginFailure>,
+) {
     let account_moved = manifest(core, plugin).is_some_and(|manifest| {
         manifest
             .account_methods
@@ -206,6 +211,7 @@ pub(crate) fn sign_in_moved(core: &Core, plugin: &str, method: &str) {
     if account_moved {
         core.vault().touched();
         core.changed(What::Read(Topic::Plugins));
+        super::sign_in_asks::moved(core, plugin, failure);
     }
 }
 
@@ -245,12 +251,13 @@ pub(crate) fn stream(
             Ok(plugins) => plugins.stream(&plugin, &method, params, sink).await,
             Err(failure) => Err(failure),
         };
-        match ended {
-            Ok(()) => stream.finish(None),
-            Err(failure) => stream.fail(serde_json::to_value(failure).unwrap_or_default()),
+        let failure = ended.err();
+        match &failure {
+            None => stream.finish(None),
+            Some(failure) => stream.fail(serde_json::to_value(failure).unwrap_or_default()),
         }
         tell_agents_if_theirs(&core, &plugin);
-        sign_in_moved(&core, &plugin, &method);
+        sign_in_moved(&core, &plugin, &method, failure.as_ref());
     });
     Ok(json!({ "stream": id }))
 }
@@ -460,7 +467,7 @@ mod tests {
             failure(FailureCategory::Unconfigured, None),
             failure(FailureCategory::Http, Some(401)),
         ] {
-            assert!(explain(&signed_out).contains("Ask the person to sign in"));
+            assert!(explain(&signed_out).contains("Call sign_in"));
         }
         assert_eq!(
             explain(&failure(FailureCategory::BadParams, None)),

@@ -725,6 +725,7 @@ mod tests {
             decided: None,
             worker_page: None,
             closed_card: None,
+            sign_in: None,
         };
         let chip = WhyChip {
             href: "sikemux://why/commit/c0ffee1234".into(),

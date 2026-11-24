@@ -2064,6 +2064,28 @@
       ]
     },
     {
+      "name": "sign_in",
+      "row": {"verb": "sign in", "kind": "think", "icon": "user", "target": ["{connectors}"]},
+      "method": "plugins.signin",
+      "description": "Ask the person to sign in again to connectors whose sign-in failed, from a card in your chat; then end your turn.",
+      "properties": {
+        "connectors": {
+          "description": "Connector ids or names, like bitbucket or aws",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"type": "string", "minLength": 1, "maxLength": 80}
+        },
+        "why": {
+          "description": "What you need them for, in a few words",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      },
+      "required": ["connectors", "why"]
+    },
+    {
       "name": "ask",
       "row": {"verb": "ask", "kind": "think", "icon": "message", "target": ["{question}"]},
       "method": "agent.ask",

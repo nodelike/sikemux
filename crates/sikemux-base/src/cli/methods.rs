@@ -69,6 +69,7 @@ pub const HARNESS_METHODS: &[&str] = &[
     "agent.close",
     "agent.account",
     "agent.hire",
+    "plugins.signin",
     "agent.ask",
     "task.add",
     "task.list",

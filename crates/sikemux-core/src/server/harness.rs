@@ -671,6 +671,7 @@ async fn dispatch(
         PLUGINS_CHANGED_METHOD => plugins_wait(core.harness(), &request.params).await,
         "plugins.tools" => super::plugins::agent_tools(core, &request.project).await,
         "plugins.call" => super::plugins::call_agent_tool(core, &request).await,
+        "plugins.signin" => super::sign_in_asks::tool(core, &request).await,
         "skills.manage" => skills_call(core, &request).await,
         "process.start" => process_start(core, &request, false).await,
         "process.restart" => process_start(core, &request, true).await,

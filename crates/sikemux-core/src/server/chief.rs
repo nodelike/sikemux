@@ -1168,6 +1168,71 @@ pub(crate) fn page_shown(core: &Core, lead: Option<&str>, page: WorkerPage) {
     }
 }
 
+/// `update` goes in `agent`'s chat as its line kept under `key`, in place of the one there, whose
+/// time it keeps.
+pub(crate) fn put_line(core: &Core, agent: &str, key: &str, update: Value) {
+    let feed = core.chats().heard(agent);
+    let at = core.chiefs().change(|saved| {
+        let lines = saved.lines.entry(agent.to_owned()).or_default();
+        let feed = feed.as_ref().map(|feed| feed.id().to_owned());
+        if let Some(line) = lines.iter_mut().find(|line| line.key == key) {
+            line.update = update.clone();
+            line.feed = feed;
+            return line.at;
+        }
+        let at = epoch_ms();
+        lines.push(Row {
+            key: key.to_owned(),
+            update: update.clone(),
+            at,
+            feed,
+        });
+        if lines.len() > MOST_ROWS {
+            lines.remove(0);
+        }
+        at
+    });
+    if let Some(feed) = feed {
+        emit_row(&feed, agent, update, at);
+    }
+}
+
+/// The lines kept in agents' chats under keys that start with `prefix`, with whose chat holds each.
+pub(crate) fn lines_under(core: &Core, prefix: &str) -> Vec<(String, Value)> {
+    let saved = core.chiefs().state.locked();
+    (saved.lines.iter())
+        .flat_map(|(agent, lines)| {
+            (lines.iter())
+                .filter(|line| line.key.starts_with(prefix))
+                .map(|line| (agent.clone(), line.update.clone()))
+        })
+        .collect()
+}
+
+/// `change` gets each line kept under a key that starts with `prefix`, in every chat, and the
+/// ones it answers true for go in their chats again as they are now.
+pub(crate) fn change_lines(core: &Core, prefix: &str, mut change: impl FnMut(&mut Value) -> bool) {
+    let moved: Vec<(String, Value, u64, Option<Arc<Feed>>)> = core.chiefs().change(|saved| {
+        let mut moved = Vec::new();
+        for (agent, lines) in saved.lines.iter_mut() {
+            for line in lines.iter_mut().filter(|line| line.key.starts_with(prefix)) {
+                if !change(&mut line.update) {
+                    continue;
+                }
+                let feed = core.chats().heard(agent);
+                line.feed = feed.as_ref().map(|feed| feed.id().to_owned());
+                moved.push((agent.clone(), line.update.clone(), line.at, feed));
+            }
+        }
+        moved
+    });
+    for (agent, update, at, feed) in moved {
+        if let Some(feed) = feed {
+            emit_row(&feed, &agent, update, at);
+        }
+    }
+}
+
 /// The page `agent` showed last, if it did in the last `within` ms.
 pub(crate) fn last_page(core: &Core, agent: &str, within: u64) -> Option<WorkerPage> {
     let now = epoch_ms();

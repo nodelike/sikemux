@@ -191,7 +191,7 @@ pub fn explain(failure: &PluginFailure) -> String {
     ) || matches!(failure.status, Some(401 | 403));
     if signed_out {
         format!(
-            "{} is not signed in ({}). Ask the person to sign in from its pane in Sikemux, then try again; do not switch to another tool or MCP server for it.",
+            "{} is not signed in ({}). Call sign_in with it and why you need it, then end your turn: Sikemux tells you once the person signed in. Do not switch to another tool or MCP server for it.",
             failure.plugin, failure.message
         )
     } else {

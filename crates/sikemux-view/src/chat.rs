@@ -1813,6 +1813,49 @@ pub struct AgentNotice {
     /// A card the board closed by itself, with Undo (`boardUpdate` back to progress).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed_card: Option<Box<ClosedCard>>,
+    /// Connectors an agent needs signed in again, each signed in from the card itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_in: Option<Box<SignInCard>>,
+}
+
+/// The connectors an agent asked the person to sign in to with `sign_in`, in its own chat and
+/// its lead's. Shown again by id, it takes its old row's place.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInCard {
+    pub id: String,
+    /// The agent that asked, by id and by name.
+    pub agent_id: String,
+    pub name: String,
+    /// What the agent needs them for, in its words.
+    pub why: String,
+    pub connectors: Vec<SignInConnector>,
+}
+
+impl SignInCard {
+    pub fn done(&self) -> bool {
+        (self.connectors.iter()).all(|connector| connector.state == SignInState::SignedIn)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInConnector {
+    /// The plugin, by id.
+    pub id: String,
+    pub name: String,
+    pub state: SignInState,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum SignInState {
+    Waiting,
+    SignedIn,
+    /// The last try failed, in the service's words.
+    Failed {
+        reason: String,
+    },
 }
 
 /// A card the board closed once the project's check passed on its owner's landed commit, and

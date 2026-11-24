@@ -140,6 +140,7 @@ mod session_watch;
 pub mod settling;
 pub mod setup_check;
 pub(crate) mod shares;
+mod sign_in_asks;
 pub use sikemux_remote::server::share;
 pub use sikemux_repo::server::ship;
 pub use sikemux_repo::server::skill_library;

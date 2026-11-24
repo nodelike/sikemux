@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sikemux_view::chat::{
     AgentLetter, ChiefWeek, ClosedCard, DecidedLine, GoalMarker, KeptRule, OverruledDecision,
-    RuleChange, StopReason, WorkerPage,
+    RuleChange, SignInCard, StopReason, WorkerPage,
 };
 
 use crate::ChatEventKind;
@@ -404,6 +404,13 @@ pub fn rule_change_notice(title: &str, rule_change: RuleChange) -> Value {
 pub fn closed_card_notice(title: &str, closed_card: ClosedCard) -> Value {
     let mut update = notice("info", title, None);
     set(&mut update, "closedCard", json!(closed_card));
+    update
+}
+
+/// The card that asks the person to sign in to connectors an agent needs.
+pub fn sign_in_notice(card: SignInCard) -> Value {
+    let mut update = notice("info", "Sign in", None);
+    set(&mut update, "signIn", json!(card));
     update
 }
 

@@ -73,6 +73,7 @@ const METHODS: &[Method] = &[
     plumbing(on_desk(SIM_CANCEL_METHOD, SIMULATOR)),
     on_desk("sim.", SIMULATOR),
     acting("plugins.call"),
+    acting("plugins.signin"),
     plumbing_for_anyone("plugins.tools"),
     plumbing_for_anyone(PLUGINS_CHANGED_METHOD),
     plumbing_for_anyone(TOOLS_MANIFEST_METHOD),

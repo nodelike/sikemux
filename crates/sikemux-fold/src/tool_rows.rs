@@ -735,6 +735,17 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "sign_in",
+        Spec {
+            verb: "sign in",
+            kind: "think",
+            icon: "user",
+            target: &["{connectors}"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
         "ask",
         Spec {
             verb: "ask",
