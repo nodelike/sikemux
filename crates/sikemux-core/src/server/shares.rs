@@ -35,11 +35,24 @@ fn orgs(core: &Core) -> Vec<AccountOrg> {
     sikemux_corekit::accounts::orgs(core.account().shown().as_ref()).to_vec()
 }
 
-/// The name of org `org` the account is in.
+fn shown_orgs(core: &Core) -> Vec<AccountOrg> {
+    sikemux_corekit::accounts::shown_orgs(core.account().shown().as_ref())
+        .cloned()
+        .collect()
+}
+
+/// The name of org `org` the account is in, while this host shows it.
 pub(crate) fn org_name(core: &Core, org: &str) -> Option<String> {
-    (orgs(core).into_iter())
+    shown_orgs(core)
+        .into_iter()
         .find(|known| known.id == org)
         .map(|known| known.name)
+}
+
+fn hidden(core: &Core, org: &str) -> bool {
+    orgs(core)
+        .iter()
+        .any(|known| known.id == org && known.hidden)
 }
 
 /// The org whose key `route` names, among those the account is in.
@@ -75,7 +88,7 @@ pub(crate) fn project_org(core: &Core, path: &Path) -> Option<String> {
 
 /// The org the project's board is shared with, as both the rail and the Share control show it.
 pub(crate) fn shared_org(core: &Core, folder: &str) -> Option<SharedOrg> {
-    let org = shared_with(core, folder)?;
+    let org = shared_with(core, folder).filter(|org| !hidden(core, org))?;
     let name = org_name(core, &org).unwrap_or_default();
     Some(SharedOrg { org, name })
 }
@@ -630,10 +643,12 @@ pub(crate) async fn sharing(core: &Arc<Core>, project_named: &str) -> ProjectSha
             .map(|list| list.org.clone());
         held.or(setting.filter(|org| list(org).is_none()))
     });
-    let shared = shared.map(|org| SharedOrg {
-        name: org_name(core, &org).unwrap_or_default(),
-        org,
-    });
+    let shared = shared
+        .filter(|org| !hidden(core, org))
+        .map(|org| SharedOrg {
+            name: org_name(core, &org).unwrap_or_default(),
+            org,
+        });
     ProjectSharing {
         project: project_named.to_owned(),
         shared: shared.map(|SharedOrg { org, name }| SharedWith {

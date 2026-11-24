@@ -1327,6 +1327,8 @@ export interface OrgMembership {
   role: OrgRole;
   plan: OrgPlan;
   policy: OrgPolicy;
+  /** Only true: the org has its seats free while Team is in preview. */
+  preview?: boolean;
   /** Only true: the host keeps what it holds of the org and shows nothing of it. */
   hidden?: boolean;
 }

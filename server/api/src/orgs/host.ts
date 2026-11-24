@@ -5,7 +5,12 @@ import type { Kysely } from "kysely";
 
 import { isStaff } from "../account/staff.ts";
 import { requireIdentity, type AuthEnv } from "../auth.ts";
-import { mayUseTeam, teamActive, teamAudience } from "../billing/team.ts";
+import {
+  mayUseTeam,
+  teamActive,
+  teamAudience,
+  teamFree,
+} from "../billing/team.ts";
 import type { Tables } from "../db.ts";
 import { perUser } from "../limits.ts";
 import { policyBody } from "./policy.ts";
@@ -59,7 +64,7 @@ export function membershipRoutes({
           "orgs.asking",
           "orgs.daily_questions",
         ])
-        .select((eb) => teamActive(eb).as("active"))
+        .select((eb) => [teamActive(eb).as("active"), teamFree(eb).as("free")])
         .where("org_users.user_id", "=", userId)
         .$if(show === "unsaid", (query) =>
           query.where("orgs.id", "in", (eb) =>
@@ -79,6 +84,7 @@ export function membershipRoutes({
           role: row.role,
           plan: open && row.active ? "active" : "lapsed",
           policy: policyBody(row),
+          ...(row.free ? { preview: true } : {}),
           ...(show !== "shown" ? { hidden: true } : {}),
         })),
       };

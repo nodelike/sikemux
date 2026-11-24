@@ -49,6 +49,14 @@ pub fn orgs(
     account.map_or(&[], |account| &account.orgs)
 }
 
+/// The orgs this host shows its person: all but those of an account whose Team preview stays shut
+/// on the releases this host follows.
+pub fn shown_orgs(
+    account: Option<&sikemux_view::device::AccountInfo>,
+) -> impl Iterator<Item = &sikemux_view::device::AccountOrg> {
+    orgs(account).iter().filter(|org| !org.hidden)
+}
+
 /// Where the web app is. A shared chat's link opens there, and it hands the
 /// link on to the Mac or phone app when one is installed.
 pub fn app_base() -> String {

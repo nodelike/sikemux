@@ -204,7 +204,7 @@ fn is_host() -> bool {
 
 /// The channel to update on: the person's. Nightly is staff for a staff account,
 /// while the accounts server leaves the staff feed on.
-fn channel(core: &Core) -> UpdateChannel {
+pub(super) fn channel(core: &Core) -> UpdateChannel {
     let chosen = core.preferences().get().update_channel;
     let staff_feed = core
         .account()
@@ -226,6 +226,7 @@ fn keep_installed_channel(core: &Core) {
     {
         core.preferences()
             .change(PreferenceChange::UpdateChannel(UpdateChannel::Nightly));
+        super::followed_releases::tell(core);
     }
 }
 

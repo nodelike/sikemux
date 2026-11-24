@@ -29,7 +29,9 @@ pub async fn read(dir: &Path, user_id: &str) -> Vec<AccountOrg> {
                 protocol::OrgRole::Admin => OrgRole::Admin,
                 protocol::OrgRole::User | protocol::OrgRole::Unknown => OrgRole::User,
             },
-            active: org.plan == OrgPlan::Active,
+            active: org.plan == OrgPlan::Active && org.hidden != Some(true),
+            preview: org.preview == Some(true),
+            hidden: org.hidden == Some(true),
         })
         .collect()
 }

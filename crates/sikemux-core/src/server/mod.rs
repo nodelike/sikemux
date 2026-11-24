@@ -57,6 +57,7 @@ pub use sikemux_workspace::server::faces;
 mod ask_aside;
 mod finished;
 mod follow;
+mod followed_releases;
 mod from_app;
 pub mod git;
 mod goal_summary;

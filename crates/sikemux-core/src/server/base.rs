@@ -38,7 +38,7 @@ use super::{
     lifecycle, messages, pins, requests, session_watch, ssh, tasks, themes, triggers, upgrade,
     worktree, Core, CoreResult,
 };
-use super::{finished, hooks, inbox, mods, org_routes, shares, stash};
+use super::{finished, followed_releases, hooks, inbox, mods, org_routes, shares, stash};
 use serde_json::Value;
 use sikemux_wire::protocol::ChatLaunch;
 
@@ -156,7 +156,8 @@ fn preference_changed(core: &Core, change: &PreferenceChange) -> CoreResult<()> 
     match change {
         PreferenceChange::Notch(_) => notch::follow(core),
         PreferenceChange::UpdateChannel(_) | PreferenceChange::UpdateWhenIdle(_) => {
-            super::updates::follow_when_idle(core)
+            super::updates::follow_when_idle(core);
+            followed_releases::tell(core);
         }
         PreferenceChange::PaneBackdrop(_) | PreferenceChange::PaneImage(_) => {
             backdrop::follow(core)
@@ -362,6 +363,7 @@ pub(super) fn remote_above() -> RemoteAbove {
         account_catch_up: |core| {
             stash::catch_up(core);
             mods::catch_up(core);
+            followed_releases::tell(core);
         },
         inbox_told: inbox::told,
         activity_glance: |core| {

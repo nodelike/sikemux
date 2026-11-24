@@ -165,9 +165,15 @@ pub struct AccountOrg {
     pub id: String,
     pub name: String,
     pub role: OrgRole,
-    /// Whether the org's Team plan is paid. While it is not, the org's features and invites are
+    /// Whether the org has Team now. While it does not, the org's features and invites are
     /// frozen and its data is kept.
     pub active: bool,
+    /// The org has its seats free while Team is in preview.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub preview: bool,
+    /// This host keeps what it holds of the org and shows nothing of it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 /// What a member may do in an org. owner: everything, billing and deleting the org included.

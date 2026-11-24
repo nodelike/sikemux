@@ -7,6 +7,7 @@ use gpui_kit::{
 };
 use sikemux_calls::call;
 use sikemux_calls::params::NoParams;
+use sikemux_corekit::accounts;
 use sikemux_view::device::Flag;
 use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::prefs::UpdateChannel;
@@ -53,6 +54,41 @@ pub(in crate::settings) const ENTRIES: &[Entry] = &[
     ),
 ];
 
+/// Follows `channel`, once the person has heard what they'd lose on it.
+fn follow(bench: &mut Workbench, channel: UpdateChannel, cx: &mut Context<Workbench>) {
+    let set = move |bench: &mut Workbench| {
+        crate::settings::set(bench, PreferenceChange::UpdateChannel(channel))
+    };
+    let account = bench.this_view().and_then(|view| view.account.as_deref());
+    let staff = account.is_some_and(|account| account.flags.contains(&Flag::StaffFeed));
+    let preview = accounts::shown_orgs(account)
+        .filter(|org| org.preview)
+        .map(|org| org.name.clone())
+        .collect::<Vec<_>>();
+    if staff
+        || preview.is_empty()
+        || channel != UpdateChannel::Stable
+        || bench.preferences().update_channel == UpdateChannel::Stable
+    {
+        return set(bench);
+    }
+    bench.confirm(
+        t!("Switch to stable releases?"),
+        t!(
+            "Team is in preview for people on nightly. On stable, this computer stops showing {orgs}: no shared boards, no teammates, and agents here stop using its keys. Nothing is deleted, and it all comes back on nightly. On app.sikemux.com you can still read it, leave it or hand it over.",
+            orgs = preview.join(", ")
+        ),
+        t!("Switch to stable"),
+        false,
+        move |bench, yes, _, _| {
+            if yes {
+                set(bench);
+            }
+        },
+        cx,
+    );
+}
+
 pub fn render(
     bench: &Workbench,
     lit: &dyn Fn(&str) -> bool,
@@ -87,9 +123,7 @@ pub fn render(
             } else {
                 UpdateChannel::Nightly
             };
-            this.update(cx, |bench, _| {
-                crate::settings::set(bench, PreferenceChange::UpdateChannel(channel))
-            })
+            this.update(cx, |bench, cx| follow(bench, channel, cx))
         })
     };
     let status = bench.reads.update.as_ref();

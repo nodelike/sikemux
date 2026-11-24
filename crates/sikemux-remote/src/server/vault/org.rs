@@ -549,6 +549,14 @@ async fn sync_org(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> Core
     Ok(())
 }
 
+/// Why the accounts server refused, in its own words.
+fn refusal(said: &[u8]) -> String {
+    serde_json::from_slice::<Value>(said)
+        .ok()
+        .and_then(|said| Some(said.get("error")?.get("message")?.as_str()?.to_owned()))
+        .unwrap_or_else(|| String::from_utf8_lossy(said).into_owned())
+}
+
 /// One org's vault from the accounts server, only what changed after `after` changes when given;
 /// None when the account is in no such org.
 async fn fetch(core: &Core, org: &str, after: Option<i64>) -> CoreResult<Option<OrgVaultState>> {
@@ -565,11 +573,14 @@ async fn fetch(core: &Core, org: &str, after: Option<i64>) -> CoreResult<Option<
         CoreError::unreachable(&format!("the answer to {path} broke off"), &error)
     })?;
     if !status.is_success() {
-        return Err(format!(
-            "the accounts server answered {status}: {}",
-            String::from_utf8_lossy(&bytes)
-        )
-        .into());
+        return Err(match status {
+            StatusCode::FORBIDDEN => refusal(&bytes).into(),
+            _ => format!(
+                "the accounts server answered {status}: {}",
+                String::from_utf8_lossy(&bytes)
+            )
+            .into(),
+        });
     }
     Ok(Some(serde_json::from_slice(&bytes)?))
 }
@@ -1191,6 +1202,7 @@ pub fn shown(core: &Core) -> Vec<ShownOrgVault> {
     let orgs = account_orgs(core).unwrap_or_default();
     let state = core.vault().orgs().state.locked();
     orgs.iter()
+        .filter(|org| !org.hidden)
         .map(|org| {
             let held = state.orgs.get(&org.id).cloned().unwrap_or_default();
             let model_keys = model_keys(&held.held)
@@ -1428,12 +1440,7 @@ pub async fn put_project(
         }
         Put::Written(written.revision)
     } else if status.is_client_error() && !answers_later(status) {
-        let said = answer.bytes().await.unwrap_or_default();
-        let why = serde_json::from_slice::<Value>(&said)
-            .ok()
-            .and_then(|said| Some(said.get("error")?.get("message")?.as_str()?.to_owned()))
-            .unwrap_or_else(|| String::from_utf8_lossy(&said).into_owned());
-        Put::Refused(why)
+        Put::Refused(refusal(&answer.bytes().await.unwrap_or_default()))
     } else {
         return Err(format!("the accounts server answered {status}").into());
     };

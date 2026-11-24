@@ -139,7 +139,10 @@ fn plan_state(org: &AccountOrg, cx: &App) -> AnyElement {
     let (mark, label, color) = match org.active {
         true => (
             ui::dot(ui::Tone::Ok, cx).into_any_element(),
-            t!("Active"),
+            match org.preview {
+                true => t!("Free during preview"),
+                false => t!("Active"),
+            },
             t.text_secondary,
         ),
         false => (
@@ -254,7 +257,7 @@ pub fn render(
             )
         }
     };
-    let orgs = accounts::orgs(account);
+    let orgs: Vec<_> = accounts::shown_orgs(account).cloned().collect();
     let mut sections = vec![rows::section(
         n!("Account"),
         None,
@@ -264,7 +267,7 @@ pub fn render(
         cx,
     )];
     if !orgs.is_empty() {
-        sections.push(orgs_section(orgs, lit("Orgs"), this, cx));
+        sections.push(orgs_section(&orgs, lit("Orgs"), this, cx));
     }
     sections
 }

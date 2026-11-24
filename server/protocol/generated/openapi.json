@@ -8899,6 +8899,10 @@
           },
           "plan": { "$ref": "#/components/schemas/OrgPlan" },
           "policy": { "$ref": "#/components/schemas/OrgPolicy" },
+          "preview": {
+            "description": "Only true: the org has its seats free while Team is in preview.",
+            "type": "boolean"
+          },
           "hidden": {
             "description": "Only true: the host keeps what it holds of the org and shows nothing of it.",
             "type": "boolean"

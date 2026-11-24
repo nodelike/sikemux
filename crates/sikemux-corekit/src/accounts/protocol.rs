@@ -1393,6 +1393,9 @@ pub struct OrgMembership {
     pub role: OrgRole,
     pub plan: OrgPlan,
     pub policy: OrgPolicy,
+    /// Only true: the org has its seats free while Team is in preview.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<bool>,
     /// Only true: the host keeps what it holds of the org and shows nothing of it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hidden: Option<bool>,

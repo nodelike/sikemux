@@ -81,13 +81,17 @@ export async function previewSeats(db: Kysely<Tables>, orgId: string) {
   return org?.preview_seats ?? 0;
 }
 
-/** Whether the org's seats are the preview's, not bought. */
+/** Whether the org in `orgs.id` has its seats from the preview, not bought. */
+export function teamFree(eb: ExpressionBuilder<Tables, "orgs">) {
+  return eb.and([previewing(eb), eb.not(teamPaid(eb))]);
+}
+
 export async function isFree(db: Kysely<Tables>, orgId: string) {
   const org = await db
     .selectFrom("orgs")
     .select("id")
     .where("id", "=", orgId)
-    .where((eb) => eb.and([previewing(eb), eb.not(teamPaid(eb))]))
+    .where(teamFree)
     .executeTakeFirst();
   return org !== undefined;
 }

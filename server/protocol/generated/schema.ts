@@ -2359,6 +2359,11 @@ export const schema = {
         },
         plan: { $ref: "#/$defs/OrgPlan" },
         policy: { $ref: "#/$defs/OrgPolicy" },
+        preview: {
+          description:
+            "Only true: the org has its seats free while Team is in preview.",
+          type: "boolean",
+        },
         hidden: {
           description:
             "Only true: the host keeps what it holds of the org and shows nothing of it.",
