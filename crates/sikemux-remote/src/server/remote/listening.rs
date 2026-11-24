@@ -65,8 +65,8 @@ pub async fn start(
     watch_network(core);
 }
 
-/// Reads the network now and every few hours while the core runs. Until the
-/// first answer, the host uses the last copy it saved.
+/// Reads the network now and every few hours while the host is signed in or waiting to leave
+/// its account. Until the first answer, the host uses the last copy it saved.
 pub fn watch_network(core: &Arc<Core>) {
     let mut inner = core.remote().inner.locked();
     let Some(base) = inner.accounts_api.clone() else {
@@ -79,6 +79,13 @@ pub fn watch_network(core: &Arc<Core>) {
     let core = Arc::downgrade(core);
     inner.network = Some(tokio::spawn(async move {
         loop {
+            let Some(used) = core.upgrade().map(|core| uses_network(&core)) else {
+                return;
+            };
+            if !used {
+                refresh.notified().await;
+                continue;
+            }
             let fetched = network::fetch(&base).await;
             let Some(core) = core.upgrade() else {
                 return;
@@ -100,6 +107,10 @@ pub fn watch_network(core: &Arc<Core>) {
             }
         }
     }));
+}
+
+fn uses_network(core: &Core) -> bool {
+    core.remote().inner.locked().stored.want() != Want::Stop
 }
 
 /// The part of the network only the core reads, which the phone's copy of it leaves out.

@@ -10,6 +10,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
+use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::plugins::{Disabled, PluginCall, StreamCall};
 pub use sikemux_calls::plugins::{PluginFailure, PluginOutcome};
@@ -141,9 +142,10 @@ pub(crate) fn sign_in_callback(core: &Core, landed: Landed) -> CoreResult<()> {
 }
 
 /// Every plugin built in, each with whether its sign-in works and as whom, asked of its
-/// service now.
+/// service now. Until the app's first-run setup is done no service is asked.
 pub(crate) async fn listed(core: &Core) -> Vec<Listed> {
     let disabled = disabled(core);
+    let setting_up = core.window().is_open() && !core.preferences().get().onboarding_complete;
     let asked = manifests(core).into_iter().map(|manifest| {
         let offers = |method: &str| manifest.account_methods.iter().any(|named| named == method);
         let mut listed = Listed {
@@ -159,7 +161,7 @@ pub(crate) async fn listed(core: &Core) -> Vec<Listed> {
         };
         let browser = offers("signInWithBrowser");
         async move {
-            if !listed.enabled {
+            if !listed.enabled || setting_up {
                 return listed;
             }
             let checking = sikemux_plugin_api::vault::Caller {

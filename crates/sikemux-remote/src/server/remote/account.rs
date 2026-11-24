@@ -56,6 +56,7 @@ pub async fn set_owner(
     } else {
         stop(core).await;
     }
+    core.remote().refresh.notify_one();
     ensure_live(core);
     core.vault().wake();
     if leaving {

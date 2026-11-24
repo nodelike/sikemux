@@ -1608,10 +1608,22 @@ impl Workbench {
         }
     }
 
+    /// Reads the limits as the app starts, once the core has listed its agents.
+    pub(crate) fn read_usage_at_start(&mut self) {
+        let ready = self.preferences().onboarding_complete && !self.launchers().is_empty();
+        if self.usage_wanted && ready {
+            self.usage_wanted = false;
+            self.read_usage();
+        }
+    }
+
     /// Reads the plan limits again: each lookup reaches the agent's service on the person's
     /// sign-in, so it runs as the app starts, every few minutes while they show, and when the
-    /// person asks.
+    /// person asks, and never before the first-run setup has said so.
     pub fn read_usage(&self) {
+        if !self.preferences().onboarding_complete {
+            return;
+        }
         Target::here(&self.asks).call_typed::<call::ReadAgentUsages>(NoParams {});
     }
 }

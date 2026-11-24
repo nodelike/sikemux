@@ -93,6 +93,7 @@ pub async fn trust_held(core: &Arc<Core>) -> CoreResult<RemoteStatus> {
     if let Err(error) = listen(core).await {
         eprintln!("sikemux core: remote access did not start: {error}");
     }
+    core.remote().refresh.notify_one();
     ensure_live(core);
     (core.remote_above().hosts_relink)(core);
     Ok(announce(core))

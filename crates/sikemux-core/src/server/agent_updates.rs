@@ -105,7 +105,7 @@ fn latest(core: &Arc<Core>, def: &'static AgentEntry, program: Option<PathBuf>) 
     if fresh {
         return latest;
     }
-    if matches!(source, Latest::Command(_)) && program.is_none() {
+    if program.is_none() {
         return latest;
     }
     known_now.insert(

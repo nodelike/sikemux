@@ -73,10 +73,8 @@ pub struct Simulators {
     acting: HashSet<String>,
     /// How far the helper's first download has come.
     pub progress: Option<f64>,
-    /// How many bytes setting up the Android Emulator would download, when it is not set up.
-    android_offer: Option<u64>,
-    /// Whether the offer was looked for already this run.
-    android_asked: bool,
+    /// Whether setting up the Android Emulator is offered, as no Android device is there.
+    android_offer: bool,
     /// The step setting up the Android Emulator is on, and how far it has come.
     android_setup: Option<(String, f64)>,
     /// A desk waiting to show a device by name once the device list next has it, as after setup or pairing.
@@ -216,8 +214,7 @@ impl Simulators {
             problem: None,
             acting: HashSet::new(),
             progress: None,
-            android_offer: None,
-            android_asked: false,
+            android_offer: false,
             android_setup: None,
             showing_next: None,
             screens: HashMap::new(),
@@ -333,7 +330,7 @@ impl Simulators {
             }
             Heard::AndroidReady(error) => {
                 self.android_setup = None;
-                self.android_offer = None;
+                self.android_offer = false;
                 match error {
                     Some(error) => {
                         self.showing_next = None;
@@ -452,33 +449,11 @@ impl Simulators {
                             }
                         }
                         sims.devices = Some(devices);
-                        if !android {
-                            sims.look_for_android_offer(cx);
-                        }
+                        sims.android_offer = !android;
                     }
                     Some(Err(error)) => sims.problem = Some(error.into()),
                     None => {}
                 }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// Asks once a run what setting up the Android Emulator would download, for the device menu to offer it.
-    fn look_for_android_offer(&mut self, cx: &mut Context<Self>) {
-        if self.android_asked || self.android_setup.is_some() {
-            return;
-        }
-        self.android_asked = true;
-        let engine = Arc::clone(&self.engine);
-        cx.spawn(async move |sims, cx| {
-            let plan = crate::desk::run(async move { engine.android_plan().await }).await;
-            let _ = sims.update(cx, |sims, cx| {
-                sims.android_offer = match plan {
-                    Some(Ok(Some(plan))) => Some(plan.size()),
-                    _ => None,
-                };
                 cx.notify();
             });
         })
@@ -1260,8 +1235,8 @@ pub fn picker(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
     };
     let (this, agent) = (bench.sims.downgrade(), agent.to_owned());
     let current = sims.attached.get(&agent).map(|device| device.udid.clone());
-    let offer = sims.android_offer.filter(|_| sims.android_setup.is_none());
-    let pairable = offer.is_none() && sims.engine.android().sdk().is_some();
+    let offer = sims.android_offer && sims.android_setup.is_none();
+    let pairable = !offer && sims.engine.android().sdk().is_some();
     let bench_entity = cx.entity();
     Some(
         trigger
@@ -1309,18 +1284,16 @@ pub fn picker(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
                                 }),
                         );
                     }
-                    if let Some(bytes) = offer {
+                    if offer {
                         let (this, agent) = (this.clone(), agent.clone());
                         popup = popup.label(t!("Android")).item(
-                            PopupMenuItem::new(t!(
-                                "Set up Android Emulator… {size}",
-                                size = gigabytes(bytes)
-                            ))
-                            .icon(Icon::Phone)
-                            .on_click(move |_, _, cx| {
-                                let _ = this
-                                    .update(cx, |sims, cx| sims.set_up_android(Some(&agent), cx));
-                            }),
+                            PopupMenuItem::new(t!("Set up Android Emulator"))
+                                .icon(Icon::Phone)
+                                .on_click(move |_, _, cx| {
+                                    let _ = this.update(cx, |sims, cx| {
+                                        sims.set_up_android(Some(&agent), cx)
+                                    });
+                                }),
                         );
                     }
                     popup
@@ -1328,10 +1301,6 @@ pub fn picker(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
             )
             .into_any_element(),
     )
-}
-
-fn gigabytes(bytes: u64) -> String {
-    format!("{:.1} GB", bytes as f64 / 1e9)
 }
 
 /// Where a screenshot of `device` goes: the Desktop, named by the device and the time.
@@ -1520,16 +1489,13 @@ pub fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyE
             _ => t!("Finding devices…").into(),
         };
         let failed = sims.problem.is_some();
-        let offer = sims.android_offer.filter(|_| !failed);
+        let offer = sims.android_offer && !failed;
         let setting_up = agent.to_owned();
         return says(message)
-            .when_some(offer, |column, bytes| {
+            .when(offer, |column| {
                 column.child(
                     Button::new("sim-set-up-android")
-                        .label(t!(
-                            "Set up Android Emulator · {size}",
-                            size = gigabytes(bytes)
-                        ))
+                        .label(t!("Set up Android Emulator"))
                         .on_click(cx.listener(move |bench, _, _, cx| {
                             bench
                                 .sims

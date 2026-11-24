@@ -233,12 +233,7 @@ impl Workbench {
         self.keep_terminals();
         crate::editor::keep(self, cx);
         if here {
-            // The core finds its agents a moment after it starts, so the plan limits are
-            // read once it lists them.
-            if self.usage_wanted && !self.launchers().is_empty() {
-                self.usage_wanted = false;
-                self.read_usage();
-            }
+            self.read_usage_at_start();
             crate::agents::setup::settle(self, cx);
             self.settle_open_waits();
             crate::notifications::badge(self);

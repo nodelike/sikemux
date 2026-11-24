@@ -1115,7 +1115,7 @@ impl SimulatorManager {
     }
 
     /// What setting up the Android Emulator would download here, or nothing when it is set up.
-    pub async fn android_plan(&self) -> SimResult<Option<android::install::Plan>> {
+    async fn android_plan(&self) -> SimResult<Option<android::install::Plan>> {
         let data_dir = self.host.data_dir();
         let root = android::sdk::root(data_dir.as_deref())
             .or_else(|| {
@@ -1130,7 +1130,7 @@ impl SimulatorManager {
     }
 
     /// What Settings shows about Android: the SDK in use, its emulator's version and the
-    /// virtual devices, or what setting it up would download.
+    /// virtual devices, and whether it is still to be set up.
     pub async fn android_info(&self) -> Value {
         let root = self.android.sdk();
         let (emulator, devices) = tokio::task::spawn_blocking({
@@ -1151,15 +1151,7 @@ impl SimulatorManager {
         })
         .await
         .unwrap_or_default();
-        let offer = match root.is_none() || emulator.is_none() || devices.is_empty() {
-            true => self
-                .android_plan()
-                .await
-                .ok()
-                .flatten()
-                .map(|plan| plan.size()),
-            false => None,
-        };
+        let offer = root.is_none() || emulator.is_none() || devices.is_empty();
         json!({ "sdk": root, "emulator": emulator, "devices": devices, "offer": offer })
     }
 

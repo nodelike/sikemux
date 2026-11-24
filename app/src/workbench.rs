@@ -152,7 +152,7 @@ pub struct Workbench {
     /// person chose for that kind.
     pub launcher_choice: Option<String>,
     /// The plan limits are to be read once the core lists its agents, as the app starts.
-    usage_wanted: bool,
+    pub(crate) usage_wanted: bool,
     pub pinch: Option<crate::text_size::Pinch>,
     pub calendar: crate::activity_view::Calendar,
     /// The rail's filter of recent chats, while it shows.

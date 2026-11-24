@@ -94173,158 +94173,54 @@
         }
       }
     },
-    "Set up Android Emulator · {size}": {
+    "Set up Android Emulator": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installer l'émulateur Android · {size}"
+            "value": "Installer l'émulateur Android"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configurar Android Emulator · {size}"
+            "value": "Configurar Android Emulator"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Android Emulator einrichten · {size}"
+            "value": "Android Emulator einrichten"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置 Android Emulator · {size}"
+            "value": "设置 Android Emulator"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Android エミュレータをセットアップ · {size}"
+            "value": "Android エミュレータをセットアップ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Android Emulator 설정 · {size}"
+            "value": "Android Emulator 설정"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Установить Android Emulator · {size}"
+            "value": "Установить Android Emulator"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configurar o Android Emulator · {size}"
-          }
-        }
-      }
-    },
-    "Set up Android Emulator… {size}": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Installer l'émulateur Android… {size}"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configurar Android Emulator… {size}"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Android Emulator einrichten … {size}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "设置 Android Emulator… {size}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Android エミュレータをセットアップ… {size}"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Android Emulator 설정… {size}"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Установить Android Emulator… {size}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configurar o Android Emulator… {size}"
-          }
-        }
-      }
-    },
-    "Set up · {size} GB": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Installer · {size} Go"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configurar · {size} GB"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Einrichten · {size} GB"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "设置 · {size} GB"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セットアップ · {size} GB"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "설정 · {size} GB"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Установить · {size} ГБ"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Configurar · {size} GB"
+            "value": "Configurar o Android Emulator"
           }
         }
       }
@@ -184961,6 +184857,214 @@
           "stringUnit": {
             "state": "translated",
             "value": "O artefato não abriu: {error}"
+          }
+        }
+      }
+    },
+    "Share anonymous usage and crash reports": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager des données d'utilisation et des rapports de plantage anonymes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir uso anónimo e informes de fallos"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anonyme Nutzungsdaten und Absturzberichte teilen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享匿名使用数据和崩溃报告"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名の使用状況とクラッシュレポートを共有"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "익명 사용 정보와 비정상 종료 보고서 공유"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправлять анонимную статистику и отчёты о сбоях"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar uso anônimo e relatórios de falhas"
+          }
+        }
+      }
+    },
+    "Plan limits are read with each agent's own sign-in.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les limites du forfait sont lues avec la connexion de chaque agent."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los límites del plan se leen con la sesión de cada agente."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarif-Limits werden mit der Anmeldung des jeweiligen Agents gelesen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套餐额度通过各智能体自己的登录读取。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランの上限は各エージェント自身のサインインで読み取られます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요금제 한도는 각 에이전트의 로그인으로 읽습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лимиты тарифа читаются через вход каждого агента."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os limites do plano são lidos com o login de cada agente."
+          }
+        }
+      }
+    },
+    "Sikemux shares anonymous usage and crash reports, and reads plan limits with each agent's own sign-in.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux partage des données d'utilisation et des rapports de plantage anonymes, et lit les limites du forfait avec la connexion de chaque agent."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux comparte uso anónimo e informes de fallos, y lee los límites del plan con la sesión de cada agente."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux teilt anonyme Nutzungsdaten und Absturzberichte und liest Tarif-Limits mit der Anmeldung des jeweiligen Agents."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux 会共享匿名使用数据和崩溃报告，并通过各智能体自己的登录读取套餐额度。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux は匿名の使用状況とクラッシュレポートを共有し、プランの上限を各エージェント自身のサインインで読み取ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux는 익명 사용 정보와 비정상 종료 보고서를 공유하고, 각 에이전트의 로그인으로 요금제 한도를 읽습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux отправляет анонимную статистику и отчёты о сбоях и читает лимиты тарифа через вход каждого агента."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Sikemux compartilha uso anônimo e relatórios de falhas e lê os limites do plano com o login de cada agente."
+          }
+        }
+      }
+    },
+    "Turn off sharing": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactiver le partage"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilen ausschalten"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭共享"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有をオフにする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 끄기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключить отправку"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativar"
           }
         }
       }

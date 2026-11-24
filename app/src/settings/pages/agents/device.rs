@@ -422,16 +422,13 @@ fn android_rows(
             cx,
         )];
     };
-    let offer = android["offer"].as_u64();
-    let set_up = offer.map(|bytes| {
+    let offer = android["offer"] == true;
+    let set_up = offer.then(|| {
         let this = this.clone();
         Button::new("android-set-up")
             .primary()
             .compact()
-            .label(t!(
-                "Set up · {size} GB",
-                size = format!("{:.1}", bytes as f64 / 1e9)
-            ))
+            .label(t!("Set up"))
             .on_click(move |_, _, cx| {
                 this.update(cx, |bench, cx| {
                     bench
