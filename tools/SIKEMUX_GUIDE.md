@@ -594,8 +594,8 @@ The `aws` tool only reads. Leave `profile` out to get the one the person
 picked for agents; `aws profiles` lists them. Your shell already has
 `AWS_PROFILE` set, so the `aws` CLI works without `--profile`.
 
-When the sign-in expired, the CLI is missing or no profile is set up, stop and
-tell the person to fix it from the AWS pane. Never run `aws sso login` or
+When the sign-in expired, call `sign_in`. When the CLI is missing or no profile
+is set up, stop and tell the person to fix it from the AWS pane. Never run `aws sso login` or
 `aws configure`.
 
 - `aws ecs` goes one level down per argument: clusters, a `cluster`'s
@@ -616,6 +616,10 @@ For anything else, run the `aws` CLI yourself, read-only.
 
 ## connectors: Pull requests, CI logs and SigNoz logs
 
+- A connector refuses because its sign-in failed: call `sign_in` with every
+  connector you need, by id or name, and `why` in a few words. A card in your
+  chat, and your lead's, signs the person in. End your turn; you are messaged
+  once all of them are back.
 - A picture in a GitHub pull request or issue must be pushed, not a local
   path. Commit it with a temporary index to a side branch such as `pr-assets`
   (a folder per pull request), never the pull request's own branch, and link

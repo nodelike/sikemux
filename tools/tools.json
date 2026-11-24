@@ -41,7 +41,7 @@
           "type": "boolean"
         },
         "waitFor": {
-          "description": "Condition to wait for after the load",
+          "description": "Wait for this after the load",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -94,7 +94,7 @@
       "name": "browser_state",
       "row": {"verb": "look", "kind": "read", "icon": "eye", "target": ["{selector}", "the page"]},
       "method": "browser.state",
-      "description": "Read the tab: url, title, numbered elements, text, tabs, downloads.",
+      "description": "Read the tab: numbered elements, text, tabs, downloads.",
       "properties": {
         "fullText": {
           "description": "Up to 40 KB of text",
@@ -105,7 +105,7 @@
           "maxLength": 512
         },
         "around": {
-          "description": "Read text around this phrase, not from the top",
+          "description": "Text around this phrase",
           "type": "string",
           "minLength": 1,
           "maxLength": 500
@@ -117,7 +117,7 @@
           "maximum": 40000
         },
         "tail": {
-          "description": "Read only the last this many characters",
+          "description": "The last this many characters",
           "type": "integer",
           "minimum": 1,
           "maximum": 40000
@@ -211,7 +211,7 @@
       "description": "Type into a field, replacing it or at the caret.",
       "properties": {
         "index": {
-          "description": "Field number; omit to type at the caret",
+          "description": "Field number; else at the caret",
           "type": "integer",
           "minimum": 0
         },
@@ -537,7 +537,7 @@
           ]
         },
         "index": {
-          "description": "Element to bring into view, or whose container deltaY and to scroll",
+          "description": "Element to show, or whose container deltaY and to scroll",
           "type": "integer",
           "minimum": 0
         },
@@ -586,7 +586,7 @@
       "name": "browser_network",
       "row": {"verb": "network", "kind": "read", "icon": "network", "target": ["“{filter}”", "request {id}", "recent requests"], "detail": ["{method}"]},
       "method": "browser.network",
-      "description": "List page requests with status and body.",
+      "description": "Page requests with status and body.",
       "properties": {
         "limit": {
           "type": "integer",
@@ -628,7 +628,7 @@
       "name": "browser_console",
       "row": {"verb": "read", "kind": "read", "icon": "terminal", "target": ["the page console"]},
       "method": "browser.console",
-      "description": "List page console messages and errors.",
+      "description": "Page console messages and errors.",
       "properties": {
         "limit": {
           "type": "integer",
@@ -1628,7 +1628,7 @@
           "maxLength": 200
         },
         "allProjects": {
-          "description": "true lists every project's, not just this one's",
+          "description": "Every project's",
           "type": "boolean"
         }
       },
@@ -2067,17 +2067,15 @@
       "name": "sign_in",
       "row": {"verb": "sign in", "kind": "think", "icon": "user", "target": ["{connectors}"]},
       "method": "plugins.signin",
-      "description": "Ask the person to sign in again to connectors whose sign-in failed, from a card in your chat; then end your turn.",
+      "description": "Ask for a connector sign-in.",
       "properties": {
         "connectors": {
-          "description": "Connector ids or names, like bitbucket or aws",
           "type": "array",
           "minItems": 1,
           "maxItems": 8,
           "items": {"type": "string", "minLength": 1, "maxLength": 80}
         },
         "why": {
-          "description": "What you need them for, in a few words",
           "type": "string",
           "minLength": 1,
           "maxLength": 120
@@ -2115,7 +2113,7 @@
         "page": {"description": "Id of a page you showed that pictures it", "type": "string", "minLength": 32, "maxLength": 32},
         "pages": {"description": "Several such page ids, in order; on edit, the new list", "type": "array", "maxItems": 6, "items": {"type": "string", "minLength": 32, "maxLength": 32}},
         "edit": {"description": "questionId, or title, of your open call: change it in place with the fields given", "type": "string", "minLength": 1, "maxLength": 64},
-        "withdraw": {"description": "With edit: take the call back, once the person answered in chat or it no longer stands", "type": "boolean"}
+        "withdraw": {"description": "With edit: take the call back", "type": "boolean"}
       },
       "required": []
     },
@@ -2400,7 +2398,7 @@
           }
         },
         "check": {
-          "description": "How Sikemux tests knowledge from now on",
+          "description": "How to test it from now on",
           "type": "object",
           "properties": {
             "kind": {
@@ -2508,7 +2506,7 @@
           "type": "string"
         },
         "process": {
-          "description": "Fire once this executionId ends; it comes in process_start's result, so start first",
+          "description": "Fire once this executionId from process_start ends",
           "type": "string"
         },
         "agent": {
@@ -2599,7 +2597,7 @@
           "type": "boolean"
         },
         "land": {
-          "description": "Own checkout: queue your commits for its base branch; a message says how it ended",
+          "description": "Own checkout: queue your commits for its base branch",
           "type": "boolean"
         },
         "push": {
@@ -2666,7 +2664,7 @@
           "type": "boolean"
         },
         "previous": {
-          "description": "The errors of the app's last run, kept after it ended",
+          "description": "The last run's errors",
           "type": "boolean"
         }
       },

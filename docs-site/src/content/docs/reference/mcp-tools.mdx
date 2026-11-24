@@ -12,7 +12,7 @@ Every agent Sikemux starts gets these tools through the `sikemux-tools` MCP serv
 | Tool | What it does |
 |---|---|
 | `browser_navigate` | Go to a URL, back, forward or reload; waits for the page. |
-| `browser_state` | Read the tab: url, title, numbered elements, text, tabs, downloads. |
+| `browser_state` | Read the tab: numbered elements, text, tabs, downloads. |
 | `browser_find` | Find elements by visible text or accessible name. |
 | `browser_click` | Click an element by number, text, selector or point. |
 | `browser_type` | Type into a field, replacing it or at the caret. |
@@ -24,8 +24,8 @@ Every agent Sikemux starts gets these tools through the `sikemux-tools` MCP serv
 | `browser_viewport` | Set this tab's viewport size or preset. |
 | `browser_scroll` | Scroll to an element, by deltaY, or to an end. |
 | `browser_evaluate` | Run a script in the page; returns JSON. |
-| `browser_network` | List page requests with status and body. |
-| `browser_console` | List page console messages and errors. |
+| `browser_network` | Page requests with status and body. |
+| `browser_console` | Page console messages and errors. |
 | `browser_screenshot` | Capture the tab or the whole page. |
 | `browser_annotate` | Box an element or caption the page. |
 | `browser_record` | Record this tab to MP4, or stop. |
@@ -139,7 +139,7 @@ Every agent Sikemux starts gets these tools through the `sikemux-tools` MCP serv
 
 | Tool | What it does |
 |---|---|
-| `sign_in` | Ask the person to sign in again to connectors whose sign-in failed, from a card in your chat; then end your turn. |
+| `sign_in` | Ask for a connector sign-in. |
 
 ## ask
 
