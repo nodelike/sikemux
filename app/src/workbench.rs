@@ -80,6 +80,8 @@ pub struct Workbench {
     pub hosts_page: crate::hosts::page::Page,
     pub battery: Option<Battery>,
     pub agent_setup: crate::agents::setup::Setup,
+    /// A connector's sign-in, while it is open over the window.
+    pub connector_sign_in: Option<crate::connector_sign_in::Signing>,
     pub overlays: Overlays,
     /// The question over the window while a phone waits to connect.
     pub pairing: crate::pairing::RemotePairing,
@@ -361,6 +363,7 @@ impl Workbench {
             hosts_page: crate::hosts::page::Page::new(window, cx),
             battery: crate::battery::read(),
             agent_setup: Default::default(),
+            connector_sign_in: None,
             overlays: Overlays::default(),
             project_settings: HashMap::new(),
             playbooks: HashMap::new(),
@@ -969,6 +972,7 @@ impl Render for Workbench {
                     .children(crate::overlays::dialogs(self, cx))
                     .children(crate::settings::account_dialog(self, &cx.entity(), cx))
                     .children(crate::agents::setup::sheet(self, &cx.entity(), window, cx))
+                    .children(crate::connector_sign_in::dialog(self, &cx.entity(), cx))
                     .children(crate::boot::reconnecting(self, cx))
                     .children(crate::boot::stopped(self, cx))
                     .children(crate::updates::required(self, cx))

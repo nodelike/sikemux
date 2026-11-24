@@ -17,6 +17,7 @@ mod closing;
 mod code_host_marks;
 mod command_popup;
 mod commands;
+mod connector_sign_in;
 pub mod console;
 pub mod copies;
 pub mod core;

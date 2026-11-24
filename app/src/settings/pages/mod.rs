@@ -176,7 +176,7 @@ pub fn render(
     }
 }
 
-/// A connector's sign-in, over whichever page is open.
+/// A connector's settings, over whichever page is open.
 pub fn dialogs(
     bench: &Workbench,
     this: &Entity<Workbench>,
