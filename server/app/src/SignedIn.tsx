@@ -14,11 +14,26 @@ export function SignedIn() {
   const cancelled = new URLSearchParams(location.search).has("cancelled");
 
   useLayoutEffect(() => {
-    if (!canvas.current || !place.current) return;
-    return drawDots(canvas.current, place.current, {
-      tint: getComputedStyle(place.current).color,
-      failed: cancelled,
+    const page = place.current?.closest(".ending");
+    if (!canvas.current || !place.current || !page) return;
+    const { color } = getComputedStyle(place.current);
+    const dots = drawDots(canvas.current, {
+      mark: place.current,
+      quiet: () => [
+        ...page.querySelectorAll<HTMLElement>(
+          "main > :not(.ending-mark), footer",
+        ),
+      ],
     });
+    dots?.look({ tint: color, tone: cancelled ? "failed" : "worked" });
+    dots?.show({ svg: mark, color });
+    const ringing = cancelled
+      ? undefined
+      : setTimeout(() => dots?.ring(color), 350);
+    return () => {
+      clearTimeout(ringing);
+      dots?.stop();
+    };
   }, [cancelled]);
 
   return (

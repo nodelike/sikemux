@@ -10,8 +10,14 @@ if (poll)
   }, 1000);
 
 const canvas = document.querySelector("canvas");
-drawDots(canvas, document.querySelector(".mark"), {
-  tint: canvas.dataset.tint,
-  failed: body.classList.contains("failed"),
-  waiting: body.classList.contains("waiting"),
+const mark = document.querySelector(".mark");
+const icon = mark.querySelector("svg");
+const { tint } = canvas.dataset;
+const tone = body.className;
+const dots = drawDots(canvas, {
+  mark,
+  quiet: () => [...document.querySelectorAll("main > :not(.mark), footer")],
 });
+dots?.look({ tint, tone });
+dots?.show({ svg: icon.outerHTML, color: getComputedStyle(icon).color });
+if (tone === "worked") setTimeout(() => dots?.ring(tint), 350);
