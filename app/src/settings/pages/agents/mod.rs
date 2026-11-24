@@ -94,9 +94,7 @@ pub(super) fn stale(fields: &Fields, page: Page) -> bool {
     matches!(page, Page::Agents | Page::Models) && providers::stale(&fields.providers)
 }
 
-pub(crate) use accounts::{
-    dialog as account_dialog, screen as account_screen, submit as account_submit,
-};
+pub(crate) use accounts::dialog as account_dialog;
 pub(super) use providers::rebuild_choices;
 
 /// The install or sign-in sheet, over whichever page is open.

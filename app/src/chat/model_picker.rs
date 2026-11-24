@@ -17,7 +17,6 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Subscription, Task, WeakEntity, Window,
 };
 use sikemux_agents::agent_accounts::status::AgentStatus;
-use sikemux_agents::agent_accounts::Profile;
 use sikemux_view::workspace::{ConfigChoice, ConfigPicker, RecentModel};
 
 use crate::accounts;
@@ -205,16 +204,6 @@ enum Need {
     Ready,
 }
 
-/// Something the welcome card was waiting on that has now happened.
-enum Settled {
-    /// The account the card was signing in to is signed in.
-    SignedIn(Profile),
-    /// The add-account dialog closed some other way.
-    Closed,
-    /// The agent the card showed can run chats now.
-    Ready(String),
-}
-
 /// The open menu: its search, the row the keys are on, and the connected providers.
 pub struct Menu {
     bench: WeakEntity<Workbench>,
@@ -238,15 +227,11 @@ pub struct Menu {
     viewing: Option<String>,
     /// The agent whose install this menu started, so its card says it installed.
     installed: Option<String>,
-    /// The add-account dialog was opened from this menu, so the card draws it.
-    adding: bool,
     /// What just finished, said in the search bar for a moment.
     said: Option<SharedString>,
     _saying: Option<Task<()>>,
     _typing: Subscription,
     _bench: Subscription,
-    /// Drops the add-account dialog this menu opened when the menu closes.
-    _closing: Subscription,
 }
 
 /// Context, price per million tokens and tool calls, in a few words, as Settings words them.
@@ -325,16 +310,10 @@ impl Menu {
             named: None,
             viewing: None,
             installed: None,
-            adding: false,
             said: None,
             _saying: None,
             _typing: typing,
             _bench: cx.observe(bench, |_, _, cx| cx.notify()),
-            _closing: cx.on_release(|menu, cx| {
-                if let Some(bench) = menu.bench.upgrade().filter(|_| menu.adding) {
-                    bench.update(cx, accounts::close_dialog);
-                }
-            }),
         }
     }
 
@@ -1150,7 +1129,6 @@ impl Menu {
     /// Moves the chat to the agent picked in the rail when it can run chats, else shows the
     /// card that gets it ready.
     fn show_agent(&mut self, going: Moving, window: &mut Window, cx: &mut Context<Self>) {
-        self.stop_adding(cx);
         let own = going.provider == self.picked.provider;
         let need = match (self.here(), self.bench.upgrade()) {
             (true, Some(bench)) => self.need(bench.read(cx), &going.provider),
@@ -1221,71 +1199,35 @@ impl Menu {
         }
         let bench = self.bench.upgrade()?;
         let bench = bench.read(cx);
-        if self.adding && bench.accounts.dialog.is_some() {
-            return Some((self.shown().to_owned(), Need::Ready));
-        }
         let need = self.need(bench, self.shown());
         (need != Need::Ready).then(|| (self.shown().to_owned(), need))
     }
 
-    /// What the card was waiting on that has happened since it last drew.
-    fn settled(&self, cx: &App) -> Option<Settled> {
+    /// The agent the welcome card showed, once it can run chats.
+    fn settled(&self, cx: &App) -> Option<String> {
         let bench = self.bench.upgrade()?;
-        let bench = bench.read(cx);
-        if self.adding {
-            let Some(dialog) = &bench.accounts.dialog else {
-                return Some(Settled::Closed);
-            };
-            let profile = dialog
-                .account
-                .as_deref()
-                .filter(|id| !bench.accounts.signing.contains_key(*id))
-                .and_then(|id| bench.accounts.profile(id))?;
-            let signed_in = accounts::status(bench, profile)
-                .and_then(|status| status.as_ref().ok())
-                .is_some_and(|status| status.signed_in);
-            return signed_in.then(|| Settled::SignedIn(profile.clone()));
-        }
         let viewing = self.viewing.as_deref()?;
-        (self.need(bench, viewing) == Need::Ready).then(|| Settled::Ready(viewing.to_owned()))
+        (self.need(bench.read(cx), viewing) == Need::Ready).then(|| viewing.to_owned())
     }
 
     /// Hands the chat on once what the card waited on has happened.
-    fn hand_back(&mut self, settled: Settled, window: &mut Window, cx: &mut Context<Self>) {
+    fn hand_back(&mut self, provider: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some(bench) = self.bench.upgrade() else {
             return;
         };
-        match settled {
-            Settled::Closed => self.adding = false,
-            Settled::SignedIn(profile) => {
-                self.adding = false;
-                bench.update(cx, accounts::close_dialog);
-                let name = profile.shown_name(None);
-                if profile.provider == self.picked.provider
-                    && self.picked.profile.as_deref() != Some(profile.id.as_str())
-                {
-                    if let Some(pick) = self.picked.account.clone() {
-                        pick(&profile, cx);
-                    }
-                }
-                self.say(t!("{name} is signed in", name = name).into(), cx);
-            }
-            Settled::Ready(provider) => {
-                self.viewing = None;
-                self.installed = None;
-                let label = bench.read(cx).agent_name(&provider).to_owned();
-                if provider != self.picked.provider {
-                    let going = Moving {
-                        provider,
-                        profile: None,
-                        model: None,
-                        model_provider: None,
-                    };
-                    (self.picked.moving)(going, window, cx);
-                }
-                self.say(t!("{agent} is ready", agent = label).into(), cx);
-            }
+        self.viewing = None;
+        self.installed = None;
+        let label = bench.read(cx).agent_name(&provider).to_owned();
+        if provider != self.picked.provider {
+            let going = Moving {
+                provider,
+                profile: None,
+                model: None,
+                model_provider: None,
+            };
+            (self.picked.moving)(going, window, cx);
         }
+        self.say(t!("{agent} is ready", agent = label).into(), cx);
         cx.notify();
     }
 
@@ -1301,17 +1243,8 @@ impl Menu {
         }));
     }
 
-    /// Closes the add-account dialog this menu opened.
-    fn stop_adding(&mut self, cx: &mut Context<Self>) {
-        if std::mem::take(&mut self.adding) {
-            if let Some(bench) = self.bench.upgrade() {
-                bench.update(cx, accounts::close_dialog);
-            }
-        }
-    }
-
-    /// Opens the add-account dialog for `provider` in the card, signing `account` in again
-    /// when there is one.
+    /// Closes the menu and opens the add-account dialog for `provider` over the window,
+    /// signing `account` in again when there is one.
     fn add_account(
         &mut self,
         provider: &str,
@@ -1322,17 +1255,13 @@ impl Menu {
         let Some(bench) = self.bench.upgrade() else {
             return;
         };
+        (self.close)(window, cx);
         bench.update(cx, |bench, cx| {
             accounts::open_dialog(bench, provider, window, cx);
-            if let Some(dialog) = bench.accounts.dialog.as_mut() {
-                dialog.in_picker = true;
-            }
             if let Some(account) = account {
                 accounts::sign_in_again(bench, account, cx);
             }
         });
-        self.adding = true;
-        cx.notify();
     }
 
     /// The card that installs the agent and signs it in, where its models would be.
@@ -1342,11 +1271,6 @@ impl Menu {
         };
         let t = Tokens::get(cx);
         let shown = bench.read(cx);
-        if self.adding {
-            if let Some(screen) = crate::settings::account_screen(shown, &bench, cx) {
-                return screen.into_any_element();
-            }
-        }
         let label = shown.agent_name(provider).to_owned();
         let about = (shown.reads.catalog.kind(provider)).map(|kind| kind.about.clone());
         let on = |run: fn(&mut Menu, &str, &mut Window, &mut Context<Menu>)| {
@@ -1797,12 +1721,6 @@ impl Render for Menu {
                 }
             }))
             .on_action(cx.listener(|menu, _: &Choose, window, cx| {
-                if menu.adding {
-                    if let Some(bench) = menu.bench.upgrade() {
-                        bench.update(cx, crate::settings::account_submit);
-                    }
-                    return;
-                }
                 if menu.card(cx).is_some() {
                     return;
                 }

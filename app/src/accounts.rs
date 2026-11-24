@@ -63,8 +63,6 @@ pub struct Dialog {
     /// The account this dialog made, taken away again if it closes before signing in.
     pub made: Option<String>,
     pub busy: bool,
-    /// Whether the model picker draws it in its own card, so the window does not.
-    pub in_picker: bool,
 }
 
 #[derive(Default)]
@@ -846,7 +844,6 @@ pub fn open_dialog(
         account: None,
         made: None,
         busy: false,
-        in_picker: false,
     });
     redraw(bench, cx);
 }

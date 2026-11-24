@@ -18,7 +18,7 @@ pub(super) mod appearance;
 pub(super) mod cli;
 pub(super) mod connectors;
 pub(super) mod general;
-pub(crate) use agents::{account_dialog, account_screen, account_submit};
+pub(crate) use agents::account_dialog;
 pub(crate) use general::sent as session_sent;
 pub(super) mod keybindings;
 pub(super) mod mods;

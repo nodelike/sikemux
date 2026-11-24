@@ -361,9 +361,6 @@ pub fn dialog(
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
-    if bench.accounts.dialog.as_ref()?.in_picker {
-        return None;
-    }
     let screen = screen(bench, this, cx)?;
     let close: dialog::Answer = {
         let this = this.clone();
@@ -379,7 +376,7 @@ pub fn dialog(
 
 /// Answers the add-account dialog as its main button does: adds the named account, or
 /// closes the dialog once the account has signed in.
-pub(crate) fn submit(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+fn submit(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let Some(open) = &bench.accounts.dialog else {
         return;
     };
@@ -402,13 +399,9 @@ fn brand(bench: &Workbench, provider: &str) -> String {
         .to_owned()
 }
 
-/// What the add-account dialog shows, wherever it is drawn: a name, then the agent's own login
+/// What the add-account dialog shows: a name, then the agent's own login
 /// in the browser, then who it signed in as.
-pub(crate) fn screen(
-    bench: &Workbench,
-    this: &Entity<Workbench>,
-    cx: &App,
-) -> Option<sign_in::Screen> {
+fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_in::Screen> {
     let open = bench.accounts.dialog.as_ref()?;
     let label = bench.agent_name(&open.provider).to_owned();
     let account = open
