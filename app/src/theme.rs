@@ -244,6 +244,11 @@ pub fn radius_3() -> Pixels {
     radius(2)
 }
 
+/// The corner of what sits inside a pane's one pixel border.
+pub fn inside_pane_radius() -> Pixels {
+    (radius_3() - px(1.)).max(px(0.))
+}
+
 pub fn radius_4() -> Pixels {
     radius(3)
 }

@@ -15,6 +15,7 @@ use objc2_foundation::{
     ns_string, NSDictionary, NSKeyValueChangeKey, NSKeyValueObservingOptions, NSObject,
     NSObjectNSKeyValueObserverRegistration, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
 };
+use objc2_quartz_core::CACornerMask;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use crate::{Frame, NativeSurface, Shared, Surface};
@@ -41,6 +42,19 @@ impl OwnedView {
 
     pub fn view(&self) -> &NSView {
         &self.view
+    }
+
+    /// Rounds what shows at its two lower corners, to fit inside a pane's rounded edge.
+    pub fn round_bottom(&self, radius: Pixels) {
+        let Some(layer) = self.clip.layer() else {
+            return;
+        };
+        layer.setMaskedCorners(if layer.isGeometryFlipped() {
+            CACornerMask::LayerMinXMaxYCorner | CACornerMask::LayerMaxXMaxYCorner
+        } else {
+            CACornerMask::LayerMinXMinYCorner | CACornerMask::LayerMaxXMinYCorner
+        });
+        layer.setCornerRadius(f64::from(radius));
     }
 }
 

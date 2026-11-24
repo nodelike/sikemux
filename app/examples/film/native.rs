@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context as _};
 use block2::RcBlock;
 use objc2::rc::Retained;
-use objc2::MainThreadMarker;
+use objc2::runtime::AnyObject;
+use objc2::{msg_send, MainThreadMarker};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType,
     NSBitmapImageRep, NSImage, NSView, NSWindow, NSWindowStyleMask,
@@ -86,7 +87,8 @@ impl StandIn {
             } else {
                 height - placed.origin.y - placed.size.height
             };
-            let picture = self.picture(&webview, visible, placed.size.width * density)?;
+            let mut picture = self.picture(&webview, visible, placed.size.width * density)?;
+            round_bottom(&mut picture, (bottom_radius(&webview) * density) as f32);
             image::imageops::overlay(
                 shot,
                 &picture,
@@ -160,6 +162,34 @@ fn web_views(view: &NSView, found: &mut Vec<Retained<WKWebView>>) {
         match child.downcast::<WKWebView>() {
             Ok(webview) => found.push(webview),
             Err(child) => web_views(&child, found),
+        }
+    }
+}
+
+/// How far AppKit rounds `webview`'s lower corners, by its own layer or the view that cuts it.
+fn bottom_radius(webview: &WKWebView) -> f64 {
+    // SAFETY: main thread, as every caller has a `StandIn`, and `webview` is live.
+    let clip = unsafe { webview.superview() };
+    let radius = |view: &NSView| -> f64 {
+        // SAFETY: every NSView answers `layer` with a CALayer or nil.
+        let layer: Option<Retained<AnyObject>> = unsafe { msg_send![view, layer] };
+        // SAFETY: a CALayer's `cornerRadius` is a CGFloat.
+        layer.map_or(0., |layer| unsafe { msg_send![&*layer, cornerRadius] })
+    };
+    clip.as_deref().map_or(0., radius).max(radius(webview))
+}
+
+fn round_bottom(picture: &mut image::RgbaImage, radius: f32) {
+    let (width, height) = picture.dimensions();
+    let (right, bottom) = (width as f32 - radius, height as f32 - radius);
+    for y in (bottom.max(0.) as u32)..height {
+        for x in 0..width {
+            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+            let across = (radius - px).max(px - right).max(0.);
+            let down = (py - bottom).max(0.);
+            let inside = (radius - across.hypot(down) + 0.5).clamp(0., 1.);
+            let alpha = &mut picture.get_pixel_mut(x, y).0[3];
+            *alpha = (f32::from(*alpha) * inside) as u8;
         }
     }
 }

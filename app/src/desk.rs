@@ -41,7 +41,8 @@ use crate::core::{Ask, Target, TerminalAsk};
 use crate::icons::Icon;
 use crate::tabs::shows;
 use crate::theme::{
-    radius_2, radius_3, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_4, TEXT_XS,
+    inside_pane_radius, radius_2, radius_3, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_4,
+    TEXT_XS,
 };
 use crate::toast;
 use crate::ui::{self, IconButton};
@@ -836,7 +837,7 @@ impl Surface for DeskPage {
             holes: Vec::new(),
             dim: 0.,
             opacity: 1.,
-            bottom_radius: f64::from(f32::from(radius_3()) - 1.),
+            bottom_radius: f64::from(inside_pane_radius()),
         });
         if let Err(error) = self.engine.set_bounds(&self.agent, bounds) {
             eprintln!("sikemux: the desk's page could not be placed: {error}");

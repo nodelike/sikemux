@@ -55,6 +55,9 @@ pub(crate) fn open(
         let _ = events.send(event);
     }));
     let view = gpui_native_view::OwnedView::new(page.view(), window)?;
+    if matches!(room, Room::Served(_)) {
+        view.round_bottom(crate::theme::inside_pane_radius());
+    }
     let parks = matches!(room, Room::App);
     if parks {
         gpui_native_view::Surface::place(&view, Some(parked()));
