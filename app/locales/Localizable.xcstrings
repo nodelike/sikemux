@@ -176280,6 +176280,630 @@
           }
         }
       }
+    },
+    "Artifacts": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artefacts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artefactos"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artefakte"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工件"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아티팩트"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Артефакты"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artefatos"
+          }
+        }
+      }
+    },
+    "Find an artifact": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chercher un artefact"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar un artefacto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artefakt suchen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找工件"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトを検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아티팩트 찾기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найти артефакт"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar um artefato"
+          }
+        }
+      }
+    },
+    "The artifact was not kept": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'artefact n'a pas été conservé"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se conservó el artefacto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Artefakt wurde nicht behalten"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未能保留该工件"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトを保持できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아티팩트를 보관하지 못했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Артефакт не сохранён"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O artefato não foi mantido"
+          }
+        }
+      }
+    },
+    "The artifact was not let go": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'artefact n'a pas été libéré"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se soltó el artefacto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Artefakt wurde nicht freigegeben"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未能取消保留该工件"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトの保持を解除できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아티팩트 보관을 해제하지 못했습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Артефакт не освобождён"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O artefato não foi liberado"
+          }
+        }
+      }
+    },
+    "No artifact matches": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun artefact ne correspond"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ningún artefacto coincide"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Artefakt passt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有匹配的工件"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するアーティファクトはありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 아티팩트 없음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подходящих артефактов нет"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum artefato corresponde"
+          }
+        }
+      }
+    },
+    "In Artifacts": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans Artefacts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Artefactos"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Artefakten"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在工件中"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクト内"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아티팩트에서"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В артефактах"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em Artefatos"
+          }
+        }
+      }
+    },
+    "Share this artifact": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager cet artefact"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir este artefacto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Artefakt teilen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享此工件"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアーティファクトを共有"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 아티팩트 공유"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поделиться артефактом"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartilhar este artefato"
+          }
+        }
+      }
+    },
+    "@{name} showed {count} artifacts": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} a montré {count} artefacts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} mostró {count} artefactos"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} hat {count} Artefakte gezeigt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} 展示了 {count} 个工件"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} が {count} 件のアーティファクトを表示しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name}이(가) 아티팩트 {count}개를 보여 줬습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} показал(а) артефактов: {count}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} mostrou {count} artefatos"
+          }
+        }
+      }
+    },
+    "Anyone who has the link can view this artifact, without signing in.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toute personne ayant le lien peut voir cet artefact, sans se connecter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cualquiera que tenga el enlace puede ver este artefacto, sin iniciar sesión."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder mit dem Link kann dieses Artefakt ansehen, ohne sich anzumelden."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任何拿到链接的人都可以查看此工件，无需登录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクを知っている人は、サインインなしでこのアーティファクトを表示できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크가 있는 사람은 누구나 로그인 없이 이 아티팩트를 볼 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Любой, у кого есть ссылка, может открыть этот артефакт без входа."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qualquer pessoa com o link pode ver este artefato, sem entrar."
+          }
+        }
+      }
+    },
+    "Anyone signed in to Sikemux who has the link can view this artifact.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toute personne connectée à Sikemux ayant le lien peut voir cet artefact."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cualquiera con sesión en Sikemux que tenga el enlace puede ver este artefacto."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder, der bei Sikemux angemeldet ist und den Link hat, kann dieses Artefakt ansehen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任何已登录 Sikemux 并拿到链接的人都可以查看此工件。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux にサインインしていてリンクを知っている人は、このアーティファクトを表示できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux에 로그인했고 링크가 있는 사람은 누구나 이 아티팩트를 볼 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Любой, кто вошёл в Sikemux и имеет ссылку, может открыть этот артефакт."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qualquer pessoa conectada ao Sikemux com o link pode ver este artefato."
+          }
+        }
+      }
+    },
+    "The link shows the artifact's latest version, and Sikemux keeps the artifact while it is shared. It is sealed on this Mac with the key in the link, so our server cannot read it.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lien montre la dernière version de l'artefact, et Sikemux le conserve tant qu'il est partagé. Il est chiffré sur ce Mac avec la clé du lien : notre serveur ne peut pas le lire."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El enlace muestra la última versión del artefacto, y Sikemux lo conserva mientras esté compartido. Se cifra en este Mac con la clave del enlace, así que nuestro servidor no puede leerlo."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Link zeigt die neueste Version des Artefakts, und Sikemux behält es, solange es geteilt ist. Es wird auf diesem Mac mit dem Schlüssel im Link versiegelt, daher kann unser Server es nicht lesen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "链接显示工件的最新版本，分享期间 Sikemux 会保留该工件。它在这台 Mac 上用链接中的密钥加密，因此我们的服务器无法读取。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクにはアーティファクトの最新版が表示され、共有中は Sikemux が保持します。この Mac でリンク内の鍵により暗号化されるため、当社のサーバーでは読めません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크에는 아티팩트의 최신 버전이 표시되며, 공유하는 동안 Sikemux가 아티팩트를 보관합니다. 링크에 든 키로 이 Mac에서 봉인되므로 서버에서는 읽을 수 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ссылка показывает последнюю версию артефакта, а Sikemux хранит его, пока он открыт. Он запечатан на этом Mac ключом из ссылки, поэтому наш сервер не может его прочитать."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O link mostra a versão mais recente do artefato, e o Sikemux o mantém enquanto estiver compartilhado. Ele é lacrado neste Mac com a chave do link, então nosso servidor não consegue lê-lo."
+          }
+        }
+      }
+    },
+    "Open the artifacts agents showed in the project, to find one, read it again or keep it": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les artefacts montrés par les agents dans le projet, pour en trouver un, le relire ou le garder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir los artefactos que mostraron los agentes en el proyecto, para encontrar uno, leerlo otra vez o conservarlo"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Artefakte öffnen, die Agenten im Projekt gezeigt haben, um eines zu finden, erneut zu lesen oder zu behalten"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开智能体在项目中展示过的工件，用来查找、重读或保留"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトでエージェントが表示したアーティファクトを開き、探したり、読み返したり、保持したりします"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트에서 에이전트가 보여 준 아티팩트를 열어 찾거나 다시 읽거나 보관합니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть артефакты, показанные агентами в проекте: найти нужный, перечитать или сохранить"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir os artefatos que os agentes mostraram no projeto, para encontrar um, lê-lo de novo ou mantê-lo"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
