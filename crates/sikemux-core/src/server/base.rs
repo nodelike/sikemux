@@ -364,7 +364,6 @@ pub(super) fn remote_above() -> RemoteAbove {
             mods::catch_up(core);
         },
         inbox_told: inbox::told,
-        agent_needs: inbox::agent_needs,
         activity_glance: |core| {
             let (chats, sessions) = core.ranked_infos();
             inbox::view(core, &chats, &sessions).glance

@@ -52,7 +52,7 @@ pub use event::{ChatEvent, ChatEventKind};
 pub use find::{found_in, matches, searchable, Found, Query};
 pub use left_out::restored_parts;
 pub use send::{with_trees, PageOf, PAGE_BYTES, TAIL_TURNS};
-pub use team::AgentNeed;
+pub use team::REPORT_OPENING;
 pub use update::UpdateKind;
 use update::{finished_compaction, stamped_at};
 
@@ -401,8 +401,6 @@ pub struct Fold {
     dropped: Option<String>,
     /// The main rows from this position on may have new folds or meta.
     settle_from: Option<usize>,
-    /// What other agents need of the person now, and the run that says so for each.
-    needs: team::Needs,
     /// The number of the change it takes in now.
     seq: u64,
     /// The change that last said whether a turn runs.
@@ -735,7 +733,6 @@ impl Fold {
             head_dirty: BTreeSet::new(),
             dropped: None,
             settle_from: None,
-            needs: team::Needs::default(),
             seq: 1,
             running_v: 0,
             offers_effort: false,
@@ -1311,7 +1308,6 @@ impl Fold {
         self.set_head("plan");
         self.set_head("stopReason");
         self.drop_suggestion();
-        self.needs_moved();
         self.settle_from = Some(
             self.settle_from
                 .map_or(at, |from| from.min(at))

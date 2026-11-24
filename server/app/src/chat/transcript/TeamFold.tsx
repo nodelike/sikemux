@@ -17,7 +17,7 @@ export function TeamFold({
   onToggle: () => void;
   onAll: () => void;
 }) {
-  const { words, wanting } = teamWords(line);
+  const words = teamWords(line);
   return (
     <div className="chat-team">
       <button
@@ -41,12 +41,7 @@ export function TeamFold({
           )}
         </span>
         <span className="chat-team-count">{teamCount(line.messages)}</span>
-        <span
-          className="chat-team-words"
-          data-wanting={wanting ? "" : undefined}
-        >
-          {words}
-        </span>
+        <span className="chat-team-words">{words}</span>
         {line.took !== undefined && (
           <span className="chat-team-took">{teamTook(line.took)}</span>
         )}

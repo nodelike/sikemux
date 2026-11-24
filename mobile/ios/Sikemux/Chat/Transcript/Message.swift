@@ -597,24 +597,8 @@ struct TeamFoldLine: View {
     let onToggle: () -> Void
     let onAll: () -> Void
 
-    private var words: (String, Bool) {
-        guard let need = line.need else { return (line.latest.map { "@\($0.name): \($0.text)" } ?? "", false) }
-        let name = "@\(need.name)"
-        let said: String =
-            switch need.kind {
-            case .asks:
-                need.text.map { String(localized: "\(name) asks: \($0)") }
-                    ?? String(localized: "\(name) has a question")
-            case .waits: need.text.map { "\(name): \($0)" } ?? String(localized: "\(name) waits on you")
-            case .failed:
-                need.text.map { String(localized: "\(name) failed: \($0)") } ?? String(localized: "\(name) failed")
-            default: String(localized: "\(name) stopped")
-            }
-        return (said, true)
-    }
-
     var body: some View {
-        let (said, wanting) = words
+        let said = line.latest.map { "@\($0.name): \($0.text)" } ?? ""
         let count = line.messages == 1 ? String(localized: "1 message") : String(localized: "\(line.messages) messages")
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -633,7 +617,7 @@ struct TeamFoldLine: View {
                         }
                     }
                     Text(count).font(Theme.ui(12.5, .semibold)).foregroundStyle(palette.ink)
-                    Text(said).font(Theme.ui(12.5)).foregroundStyle(wanting ? palette.danger : palette.inkDim)
+                    Text(said).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if let took = line.took {

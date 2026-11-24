@@ -27,8 +27,8 @@ use super::super::connection::{ClientConn, ClientId};
 use super::history::{History, HistoryState, Page, MAX_HISTORY_BYTES};
 use super::queue::{batch_len, Queued, MAX_QUEUED};
 use super::states::Subagent;
-use sikemux_fold::{AgentNeed, Fold, PageOf, PAGE_BYTES as ROW_BYTES};
 use sikemux_fold::{Agents, ChatEventKind, Place, UpdateKind};
+use sikemux_fold::{Fold, PageOf, PAGE_BYTES as ROW_BYTES};
 
 mod gifs;
 pub mod replay;
@@ -96,8 +96,6 @@ pub struct Inner {
     chief: bool,
     /// The chief that hears what the person types here.
     chief_hears: Option<String>,
-    /// What other agents need of the person.
-    needs: Vec<AgentNeed>,
     /// The folder the chat's agent works in, and where its edits sit in their files,
     /// for each fold made for it.
     work: Option<(PathBuf, Place)>,
@@ -302,7 +300,6 @@ impl Feed {
                 turn: None,
                 chief: false,
                 chief_hears: None,
-                needs: Vec::new(),
                 work: None,
                 agents: None,
                 waits_for_person: false,
@@ -397,7 +394,6 @@ impl Feed {
                 turn: None,
                 chief: false,
                 chief_hears: None,
-                needs: Vec::new(),
                 work: None,
                 agents: None,
                 waits_for_person: false,
@@ -491,7 +487,6 @@ impl Feed {
                 fold.set_chief(inner.chief);
                 fold.set_chief_hears(inner.chief_hears.clone());
                 fold.set_shown(self.stand.locked().shown.clone());
-                fold.set_needs(inner.needs.clone());
                 if inner.replay.is_trimmed() && !inner.replay.keeps_history() {
                     fold.set_earlier_lost();
                 }
@@ -858,19 +853,6 @@ impl Feed {
         inner.turn.clone_from(&turn);
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_turn(turn);
-            self.flush_locked(&mut inner);
-        }
-    }
-
-    /// What other agents need of the person changed; clients already hearing the chat are told.
-    pub fn set_needs(&self, needs: &[AgentNeed]) {
-        let mut inner = self.inner.locked();
-        if inner.needs == needs {
-            return;
-        }
-        inner.needs = needs.to_vec();
-        if let Some(fold) = inner.fold.as_mut() {
-            fold.set_needs(needs.to_vec());
             self.flush_locked(&mut inner);
         }
     }

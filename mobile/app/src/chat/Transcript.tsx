@@ -624,7 +624,7 @@ export function TeamFold({
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const t = useT();
-  const { words, wanting } = teamWords(line, t);
+  const words = teamWords(line);
   const count = teamCount(line.messages, t);
   return (
     <View style={styles.team}>
@@ -648,7 +648,7 @@ export function TeamFold({
           {line.more > 0 ? <Text style={styles.teamMore}>+{line.more}</Text> : null}
         </View>
         <Text style={styles.teamCount}>{count}</Text>
-        <Text style={[styles.teamWords, wanting && { color: colors.danger }]} numberOfLines={1}>
+        <Text style={styles.teamWords} numberOfLines={1}>
           {words}
         </Text>
         {line.took !== undefined ? <Text style={styles.teamTook}>{teamTook(line.took, t)}</Text> : null}

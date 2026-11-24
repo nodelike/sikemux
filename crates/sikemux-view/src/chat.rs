@@ -872,9 +872,6 @@ pub struct TeamLine {
     /// The latest message in it, on one line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest: Option<TeamSaid>,
-    /// What someone in it needs of the person, which takes over from `latest` until it is settled.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub need: Option<TeamNeed>,
     /// How long it lasted, from its first row to its last.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub took: Option<u64>,
@@ -895,32 +892,6 @@ pub struct TeamSaid {
     pub agent_id: String,
     pub name: String,
     pub text: String,
-}
-
-/// What an agent in a run needs of the person, as the core knows it: never read from what it wrote.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TeamNeed {
-    pub kind: TeamNeedKind,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub agent_id: String,
-    pub name: String,
-    /// What it asks or what went wrong, in a line, when it says.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum TeamNeedKind {
-    /// It asked the person something and has no answer yet.
-    Asks,
-    /// It waits on the person for something else, such as a permission.
-    Waits,
-    /// Its last turn failed.
-    Failed,
-    /// It ended or never started.
-    Stopped,
 }
 
 /// Where an `@` mention of another agent points.

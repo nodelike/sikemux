@@ -545,10 +545,6 @@
   white-space: nowrap;
 }
 
-.chat-team-words[data-wanting] {
-  color: var(--danger);
-}
-
 .chat-team-took {
   flex: none;
 }

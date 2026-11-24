@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use iroh::endpoint::Connection;
 use sikemux_calls::hosts::{HostRow, LinkedHost};
-use sikemux_fold::AgentNeed;
 use sikemux_plugin_api::vault::Book;
 use sikemux_view::inbox::InboxItem;
 use sikemux_view::push::ActivityGlance;
@@ -77,8 +76,6 @@ pub struct RemoteAbove {
     pub account_catch_up: fn(&Arc<Core>),
     /// What the inbox tells the person of now.
     pub inbox_told: fn(&Core) -> Vec<InboxItem>,
-    /// What each agent needs of the person, for the chats that show it.
-    pub agent_needs: fn(&Core) -> Vec<AgentNeed>,
     /// What a phone's lock screen shows of this host at a glance.
     pub activity_glance: fn(&Core) -> ActivityGlance,
     /// Whether the agent waits on an answer to a question it asked.

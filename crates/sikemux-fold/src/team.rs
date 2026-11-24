@@ -1,11 +1,7 @@
 //! Messages between agents, folded so they do not bury what the person asked and what they were
 //! answered. Messages from other agents in a row fold into one run; anything else ends it.
 
-use std::collections::HashMap;
-
-use sikemux_view::chat::{
-    ChatRole, LetterKind, TeamAgent, TeamFold, TeamLine, TeamNeed, TeamNeedKind, TeamSaid,
-};
+use sikemux_view::chat::{ChatRole, LetterKind, TeamAgent, TeamFold, TeamLine, TeamSaid};
 
 use super::{Fold, Row};
 
@@ -16,24 +12,10 @@ const OPENS_ON: u64 = 5;
 /// A run is read again whole each time it grows, so one this long ends and the next begins.
 const MOST_ROWS: usize = 400;
 const MAX_LINE_CHARS: usize = 240;
+/// How a worker's report opens when its turn ended with an answer, which follows.
+pub const REPORT_OPENING: &str = "Finished its turn. Its final answer:";
 /// A run this quick says nothing by how long it lasted.
 const MIN_TOOK_MS: u64 = 1000;
-
-/// What an agent needs of the person, as the core knows it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AgentNeed {
-    pub agent_id: String,
-    pub kind: TeamNeedKind,
-    pub text: Option<String>,
-}
-
-#[derive(Default)]
-pub(super) struct Needs {
-    of: Vec<AgentNeed>,
-    /// What each run's line says of them, by the run: only the latest run an agent wrote in.
-    placed: HashMap<String, TeamNeed>,
-    moved: bool,
-}
 
 /// A message from another agent, rather than something the person sent or a trigger fired.
 fn from_an_agent(row: &Row) -> bool {
@@ -56,20 +38,18 @@ fn read_from(rows: &[Row], from: usize) -> usize {
     }
 }
 
-/// The first thing said in a text, without what marks it up.
-fn one_line(text: &str) -> String {
-    let line = (text.lines().map(str::trim))
-        .find(|line| !line.is_empty())
-        .unwrap_or_default()
-        .trim_start_matches(['#', '>', ' ']);
-    let line = (line.strip_prefix("- "))
-        .or_else(|| line.strip_prefix("* "))
-        .unwrap_or(line)
-        .replace("**", "")
-        .replace('`', "");
+/// The first words of a message, without what marks them up. A report opens on words of
+/// Sikemux's own, so its first words are the answer's.
+fn first_words(text: &str) -> String {
+    let text = text.strip_prefix(REPORT_OPENING).unwrap_or(text);
+    let words = sikemux_markdown::words(text);
+    let line = (words.lines().map(str::trim))
+        .chain(text.lines().map(str::trim))
+        .find(|line| !line.is_empty() && !line.starts_with("```"))
+        .unwrap_or_default();
     match line.char_indices().nth(MAX_LINE_CHARS) {
-        Some((at, _)) => format!("{}…", line.get(..at).unwrap_or(&line)),
-        None => line,
+        Some((at, _)) => format!("{}…", line.get(..at).unwrap_or(line)),
+        None => line.to_owned(),
     }
 }
 
@@ -85,13 +65,12 @@ struct Run {
     /// The rows that say something, and how much.
     said: Vec<(usize, u64)>,
     agents: Vec<TeamAgent>,
-    latest: Option<TeamSaid>,
 }
 
 impl Run {
-    fn add(&mut self, rows: &mut [Row], at: usize, out: &mut Reading) {
+    fn add(&mut self, rows: &mut [Row], at: usize, touched: &mut Vec<usize>) {
         if self.rows.len() >= MOST_ROWS {
-            self.close(rows, out);
+            self.close(rows, touched);
         }
         let Some(row) = rows.get(at) else {
             return;
@@ -104,16 +83,6 @@ impl Run {
             if !self.agents.contains(&sender) {
                 self.agents.push(sender);
             }
-            self.latest = Some(TeamSaid {
-                agent_id: letter.agent_id.clone(),
-                name: letter.name.clone(),
-                text: one_line(&letter.text),
-            });
-            out.needs.moved |= out
-                .needs
-                .of
-                .iter()
-                .any(|need| need.agent_id == letter.agent_id);
         }
         self.said.push((at, row.msg.letters.len() as u64));
         self.rows.push(at);
@@ -124,11 +93,10 @@ impl Run {
         clippy::indexing_slicing,
         reason = "a run holds only the places of rows `read` walked, all within `rows`"
     )]
-    fn close(&mut self, rows: &mut [Row], out: &mut Reading) {
+    fn close(&mut self, rows: &mut [Row], touched: &mut Vec<usize>) {
         let members = std::mem::take(&mut self.rows);
         let said = std::mem::take(&mut self.said);
         let agents = std::mem::take(&mut self.agents);
-        let latest = self.latest.take();
         let (Some(first), Some(last)) = (members.first(), members.last()) else {
             return;
         };
@@ -151,6 +119,11 @@ impl Run {
             .zip(times().max())
             .map(|(began, ended)| ended - began)
             .filter(|took| *took >= MIN_TOOK_MS);
+        let latest = rows[last].msg.letters.last().map(|letter| TeamSaid {
+            agent_id: letter.agent_id.clone(),
+            name: letter.name.clone(),
+            text: first_words(&letter.text),
+        });
         let line = TeamLine {
             more: agents.len().saturating_sub(MOST_MARKS) as u64,
             agents: agents.into_iter().take(MOST_MARKS).collect(),
@@ -158,7 +131,6 @@ impl Run {
             from: rows[from].msg.id.clone(),
             earlier: messages - shown,
             latest,
-            need: out.needs.placed.get(&id).cloned(),
             took,
         };
         let v = members.iter().map(|at| rows[*at].v).max().unwrap_or(0);
@@ -169,7 +141,7 @@ impl Run {
                 shown: Vec::new(),
                 line: if at == last { line.take() } else { None },
             };
-            put(&mut rows[at], Some(team), v, at, &mut out.touched);
+            put(&mut rows[at], Some(team), v, at, touched);
         }
     }
 }
@@ -183,110 +155,39 @@ fn put(row: &mut Row, team: Option<TeamFold>, v: u64, at: usize, touched: &mut V
     }
 }
 
-/// What reading the rows gave and took.
-struct Reading<'a> {
-    touched: Vec<usize>,
-    needs: &'a mut Needs,
-}
-
-fn read(rows: &mut [Row], from: usize, needs: &mut Needs) -> Vec<usize> {
-    let mut out = Reading {
-        touched: Vec::new(),
-        needs,
-    };
+/// Works out the runs from the one a change at `from` falls in, and gives the rows that moved.
+fn read(rows: &mut [Row], from: usize) -> Vec<usize> {
+    let mut touched = Vec::new();
     let mut run = Run::default();
     for at in read_from(rows, from)..rows.len() {
         if rows.get(at).is_some_and(from_an_agent) {
-            run.add(rows, at, &mut out);
+            run.add(rows, at, &mut touched);
         } else {
-            run.close(rows, &mut out);
+            run.close(rows, &mut touched);
             if let Some(row) = rows.get_mut(at) {
-                put(row, None, 0, at, &mut out.touched);
+                put(row, None, 0, at, &mut touched);
             }
         }
     }
-    run.close(rows, &mut out);
-    out.touched
+    run.close(rows, &mut touched);
+    touched
 }
 
 /// The folds of rows read on their own, such as an earlier page.
 pub(super) fn settle_page(rows: &mut [Row]) {
     if !rows.is_empty() {
-        read(rows, 0, &mut Needs::default());
+        read(rows, 0);
     }
 }
 
 impl Fold {
-    /// What other agents need of the person now, which the core works out across its chats.
-    pub fn set_needs(&mut self, needs: Vec<AgentNeed>) {
-        if self.needs.of != needs {
-            self.needs.of = needs;
-            self.needs.moved = true;
-            self.settle_last_run();
-        }
-    }
-
-    pub(super) fn needs_moved(&mut self) {
-        self.needs.moved = !self.needs.of.is_empty();
-    }
-
     /// Works out the runs again from the first main row that changed.
     pub(super) fn settle_team(&mut self, from: usize) {
         if self.main.rows.is_empty() {
             return;
         }
-        for at in read(&mut self.main.rows, from, &mut self.needs) {
+        for at in read(&mut self.main.rows, from) {
             self.main.queue(at);
-        }
-        if std::mem::take(&mut self.needs.moved) {
-            self.place_needs();
-        }
-    }
-
-    /// Says each need on the latest run its agent wrote in. Needs change rarely, so this reads
-    /// the whole chat rather than keeping track of where each agent last wrote.
-    fn place_needs(&mut self) {
-        let mut left: Vec<&AgentNeed> = self.needs.of.iter().collect();
-        let mut placed = HashMap::new();
-        for row in self.main.rows.iter().rev() {
-            let Some(team) = row.msg.team.as_ref().filter(|_| !left.is_empty()) else {
-                continue;
-            };
-            left.retain(|need| {
-                let letter =
-                    (row.msg.letters.iter()).find(|letter| letter.agent_id == need.agent_id);
-                let Some(letter) = letter else {
-                    return true;
-                };
-                placed.entry(team.id.clone()).or_insert_with(|| TeamNeed {
-                    kind: need.kind,
-                    agent_id: letter.agent_id.clone(),
-                    name: letter.name.clone(),
-                    text: need.text.clone(),
-                });
-                false
-            });
-        }
-        let mut changed = Vec::new();
-        for (at, row) in self.main.rows.iter_mut().enumerate() {
-            let Some(team) = row.msg.team.as_mut() else {
-                continue;
-            };
-            let wanted = placed.get(&team.id);
-            let Some(line) = team
-                .line
-                .as_mut()
-                .filter(|line| line.need.as_ref() != wanted)
-            else {
-                continue;
-            };
-            line.need = wanted.cloned();
-            row.set("team");
-            changed.push(at);
-        }
-        self.needs.placed = placed;
-        for at in changed {
-            self.main.touch(at);
         }
     }
 }

@@ -51,19 +51,9 @@ export function teamRows(rows: readonly ChatMessage[], how: (id: string) => RunO
     return found;
 }
 
-/** What a run's line says after its count, and whether it wants the person. */
-export function teamWords(line: TeamLine, say: Say = english): { words: string; wanting: boolean } {
-    const need = line.need;
-    if (!need) return { words: line.latest ? `@${line.latest.name}: ${line.latest.text}` : "", wanting: false };
-    const name = `@${need.name}`;
-    const text = need.text;
-    const words = {
-        asks: text ? say("{name} asks: {text}", { name, text }) : say("{name} has a question", { name }),
-        waits: text ? `${name}: ${text}` : say("{name} waits on you", { name }),
-        failed: text ? say("{name} failed: {text}", { name, text }) : say("{name} failed", { name }),
-        stopped: say("{name} stopped", { name }),
-    }[need.kind];
-    return { words, wanting: true };
+/** What a run's line says after its count: who wrote last, and their first words. */
+export function teamWords({ latest }: TeamLine): string {
+    return latest ? `@${latest.name}: ${latest.text}` : "";
 }
 
 export function teamCount(messages: number, say: Say = english): string {

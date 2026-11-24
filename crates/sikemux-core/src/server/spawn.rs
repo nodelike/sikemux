@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
+use sikemux_fold::REPORT_OPENING;
 use sikemux_process::sync::Locked;
 use sikemux_view::workspace::WorkspaceAgent;
 
@@ -1329,10 +1330,8 @@ fn report(
     let (what, last) = match ending {
         _ if paused => (PAUSED_FOR_AGENTS.to_owned(), None),
         Ending::Finished => match answer {
-            Some(answer) => (
-                format!("Finished its turn. {}", wrote(answer, "Its final answer:")),
-                None,
-            ),
+            Some(answer @ TerminalAnswer::Said(_)) => (wrote(answer, REPORT_OPENING), None),
+            Some(screen) => (format!("Finished its turn. {}", wrote(screen, "")), None),
             None => (
                 "Finished its turn without writing an answer.".to_owned(),
                 None,

@@ -40,28 +40,6 @@ fn elapsed(took: u64) -> String {
     }
 }
 
-/// What a run's line says after its count: the agent it is about, by id and name, what that
-/// agent said or needs of the person, and the need itself.
-fn said(line: &TeamLine) -> (Option<(&str, &str)>, String, Option<TeamNeedKind>) {
-    if let Some(need) = &line.need {
-        let text = need.text.as_deref();
-        let words = match (need.kind, text) {
-            (TeamNeedKind::Asks, Some(text)) => t!("asks: {text}", text = text),
-            (TeamNeedKind::Asks, None) => t!("has a question").to_owned(),
-            (TeamNeedKind::Waits, Some(text)) => text.to_owned(),
-            (TeamNeedKind::Waits, None) => t!("waits on you").to_owned(),
-            (TeamNeedKind::Failed, Some(text)) => t!("failed: {text}", text = text),
-            (TeamNeedKind::Failed, None) => t!("failed").to_owned(),
-            (TeamNeedKind::Stopped, _) => t!("stopped").to_owned(),
-        };
-        return (Some((&need.agent_id, &need.name)), words, Some(need.kind));
-    }
-    match &line.latest {
-        Some(said) => (Some((&said.agent_id, &said.name)), said.text.clone(), None),
-        None => (None, String::new(), None),
-    }
-}
-
 /// Changes what the reader opened, keeping the line they pressed where it is.
 pub(super) fn holding(looks: &Drawn) -> impl Fn(&mut App, &dyn Fn(&mut Reading)) + Clone {
     let (reader, bench, agent) = (
@@ -117,25 +95,18 @@ pub(super) fn head(
     looks: &Drawn,
     cx: &mut App,
 ) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let (sender, words, need) = said(line);
-    let tone = match need {
-        Some(TeamNeedKind::Failed) => t.danger,
-        Some(_) => t.accent,
-        None => looks.quiet,
-    };
-    let pill = sender
-        .filter(|(agent, _)| !agent.is_empty())
-        .and_then(|(agent, name)| {
+    let pill = (line.latest.as_ref())
+        .filter(|said| !said.agent_id.is_empty())
+        .and_then(|said| {
             let bench = looks.bench.upgrade()?;
             let cli = (line.agents.iter())
-                .find(|sent| sent.agent_id == agent)
+                .find(|sent| sent.agent_id == said.agent_id)
                 .map_or(looks.provider.as_str(), |sent| sent.cli.as_str());
-            let mark = looks.mark_of(agent, cli, TEXT_XS_H + 1., cx);
+            let mark = looks.mark_of(&said.agent_id, cli, TEXT_XS_H + 1., cx);
             let from = bench.read(cx).chat_target(&looks.agent);
             Some(super::agent_pill_of(
-                agent,
-                name,
+                &said.agent_id,
+                &said.name,
                 mark,
                 TEXT_XS_H,
                 from,
@@ -143,10 +114,10 @@ pub(super) fn head(
                 cx,
             ))
         });
-    let words = match (&pill, sender) {
-        (None, Some((_, name))) if need.is_none() => format!("@{name}: {words}"),
-        (None, Some((_, name))) => format!("@{name} {words}"),
-        _ => words,
+    let words = match (&pill, &line.latest) {
+        (None, Some(said)) => format!("@{}: {}", said.name, said.text),
+        (Some(_), Some(said)) => said.text.clone(),
+        (_, None) => String::new(),
     };
     let alone = pill.is_some() && line.agents.len() == 1 && line.more == 0;
     let marks = (line.agents.iter())
@@ -197,7 +168,7 @@ pub(super) fn head(
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .text_color(tone)
+                    .text_color(looks.quiet)
                     .child(words),
             )
             .children(line.took.map(|took| {

@@ -415,7 +415,6 @@ enum Told<'a> {
 /// the core started, so it is neither sent again nor left on a phone once over.
 /// Nothing is looked at while nobody could be told.
 fn inbox(core: &Core, now: u64) {
-    tell_chats_needs(core);
     activity::tell(core, now);
     let phones: Vec<String> = core
         .remote()
@@ -655,14 +654,6 @@ fn guest_card(agent_id: &str, id: &str) -> String {
 
 fn input_card(agent_id: &str) -> String {
     format!("input|{agent_id}")
-}
-
-/// Each chat says what the agents messaging it need of the person on the line their messages fold to.
-fn tell_chats_needs(core: &Core) {
-    let needs = (core.remote_above().agent_needs)(core);
-    for chat in core.chats().all() {
-        chat.feed.set_needs(&needs);
-    }
 }
 
 fn inbox_card(id: &str) -> String {
