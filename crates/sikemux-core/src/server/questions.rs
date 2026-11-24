@@ -1863,8 +1863,7 @@ fn unwoken(core: &Core, agent_id: &str) -> Option<String> {
         return None;
     }
     let now = core.agent_now(agent_id);
-    let woken = chat.feed.running_tasks() > 0
-        || chat.feed.running_subagents() > 0
+    let woken = now.in_background()
         || chat.feed.has_queued()
         || now.waits_on_something()
         || now.workers_busy(agent_id)

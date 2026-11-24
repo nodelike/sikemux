@@ -11,8 +11,9 @@
 //! a rebase by hand, a landing and a push, a footer copied onto another commit
 //! still counts for nothing, an agent can wake one held by a stop, and a file a shell command
 //! wrote reads as the turn's uncommitted work, and a worker that ends waiting with nothing set to
-//! wake it is sent back rather than reported as done, and a land drops the merge queue's old builds,
-//! and a message to a closed worker starts its turn at once.
+//! wake it is sent back rather than reported as done, and one that ends on its own background
+//! command wakes no lead, and a land drops the merge queue's old builds, and a message to a closed
+//! worker starts its turn at once.
 
 mod folded;
 
@@ -28,6 +29,7 @@ use sikemux_view::chat::{ChatMessage, ChatRole};
 use sikemux_wire::protocol::ask;
 
 const CORE: &str = env!("CARGO_BIN_EXE_sikemux-core");
+const FAKE_CLAUDE: &str = env!("CARGO_BIN_EXE_sikemux-fake-claude");
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_sikemux-fake-acp-agent");
 const WAIT: Duration = Duration::from_secs(90);
 
@@ -100,6 +102,11 @@ fn answers<'a>(rows: &'a [ChatMessage], prompt: &'a str) -> impl Iterator<Item =
     rows.chunk_by(move |_, next| !sent(next))
         .filter(move |turn| folded::prompts(&turn[..1]) == [prompt])
         .map(folded::said)
+}
+
+/// What other agents sent this one.
+fn letters(rows: &[ChatMessage]) -> impl Iterator<Item = &str> {
+    (rows.iter()).flat_map(|row| row.letters.iter().map(|letter| letter.text.as_str()))
 }
 
 /// One agent's chat, which a test prompts as the person does.
@@ -452,6 +459,73 @@ async fn a_worker_that_ends_waiting_on_nothing_is_sent_back_and_its_lead_not_tol
         !(heard.iter())
             .filter(|prompt| !prompt.starts_with("tool "))
             .any(|prompt| prompt.contains(waits)),
+        "{heard:#?}"
+    );
+}
+
+/// A worker ended its turn on a build left running in the background, which wakes it as it ends,
+/// and its lead was told it had finished.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_that_ends_on_its_own_background_command_does_not_wake_its_lead() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
+    let (project, claude) = (root.join("project"), root.join("claude"));
+    for dir in [&root.join("home"), &project, &claude] {
+        std::fs::create_dir_all(dir).expect("a folder");
+    }
+    std::fs::write(
+        claude.join("fake-account.json"),
+        json!({ "loggedIn": true, "authMethod": "claude.ai", "email": "qa@example.com", "subscriptionType": "max" }).to_string(),
+    )
+    .expect("an account");
+    git(&project, &["init", "--quiet", "-b", "main"]);
+    commit_file(&project, "base.txt", "base\n", "base");
+    let socket: PathBuf = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [
+        { "id": "builtin-claude", "name": "Claude", "provider": "claude", "accent": "#d97757", "executablePath": FAKE_CLAUDE, "configPath": claude },
+        { "id": "fake", "name": "Fake", "provider": "omp", "accent": "#a277ff", "executablePath": FAKE_AGENT },
+    ] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    let added = json!({ "id": "widget", "name": "widget", "path": project });
+    app.call("addProject", added).await.expect("the project");
+    let (lead, _) = app
+        .start_chat("omp:fake".into(), "widget".into(), None)
+        .await
+        .expect("the lead starts");
+    let mut lead = Agent::open(&socket, &lead).await;
+    let spawned = lead
+        .tool(
+            "agent.spawn",
+            json!({ "cli": "claude", "title": "Render", "prompt": "hello" }),
+        )
+        .await
+        .expect("a worker");
+    let mut worker = Agent::open(&socket, spawned["agentId"].as_str().expect("its id")).await;
+    lead.chat
+        .until(|chat| letters(&chat.view.rows).any(|text| text.contains("hello")))
+        .await;
+
+    worker
+        .says("background".to_owned(), "waiting on the render")
+        .await;
+    worker.chat.until(|chat| !chat.view.head.running).await;
+    let listed = lead.tool("agent.list", json!({})).await.expect("the list");
+    assert!(listed.to_string().contains("Poll the render"), "{listed}");
+
+    let asks = "Should I render it again?";
+    worker
+        .says(format!("shell echo '{asks}'; exit #"), asks)
+        .await;
+    lead.chat
+        .until(|chat| letters(&chat.view.rows).any(|text| text.contains(asks)))
+        .await;
+    let heard: Vec<&str> = letters(&lead.chat.view.rows).collect();
+    assert!(
+        !(heard.iter()).any(|text| text.contains("waiting on the render")),
         "{heard:#?}"
     );
 }

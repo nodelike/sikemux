@@ -6,6 +6,7 @@
 
 pub(crate) use super::chat::Ending;
 use crate::server::activity::ActivityCore;
+use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
@@ -1129,9 +1130,10 @@ async fn spawn_terminal(
 /// What a lead is told of a worker it starts that reports to it.
 const REPORTS: &str = " When its turn fails, stops or asks something, or its land is sent back, you hear at once. A turn that finished calmly with its work landed, or a land that went in, comes as one line with your next turn, and wakes you at once when it is on work the person asked for, else only once no other worker of yours is at work. A turn that ends on something set to wake it sends nothing.";
 
-/// Sends a worker's lead how its turn ended, unless it finished on something set to wake it and
-/// asks nothing: its row says what it waits on, and the lead hears once a land of its goes in.
-/// A turn that finished saying nothing is not sent either.
+/// Sends a worker's lead how its turn ended, unless it finished on something set to wake it, or
+/// with a background command or subagent of its running, and asks nothing: its row says what it
+/// waits on, and the lead hears once a land of its goes in. A turn that finished saying nothing
+/// is not sent either.
 pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
     let Some(lead) = core.names().reports_to(agent_id) else {
         return;
@@ -1143,7 +1145,8 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
         .get(agent_id)
         .map(|chat| chat.feed.last_answer().map(TerminalAnswer::Said));
     let wrote_nothing = matches!((&ending, &chat_answer), (Ending::Finished, Some(None)));
-    let sent_back = super::questions::sent_back_unwoken(core, agent_id);
+    let comes_back = super::questions::sent_back_unwoken(core, agent_id)
+        || core.agent_now(agent_id).in_background();
     let unwoken = super::questions::waits_unwoken(core, agent_id);
     core.harness().mailbox.report_begins(agent_id);
     let (core, worker) = (core.clone(), agent_id.to_owned());
@@ -1174,7 +1177,8 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
             }
         };
         let own_stop = stopped_by.as_ref() == Some(&lead);
-        if wrote_nothing || own_stop || quiet(&core, &worker, &ending, answer.as_ref(), sent_back) {
+        if wrote_nothing || own_stop || quiet(&core, &worker, &ending, answer.as_ref(), comes_back)
+        {
             elsewhere::send_commits(&core, &worker).await;
             return;
         }
@@ -1271,7 +1275,7 @@ fn quiet(
     worker: &str,
     ending: &Ending,
     answer: Option<&TerminalAnswer>,
-    sent_back: bool,
+    comes_back: bool,
 ) -> bool {
     if !matches!(ending, Ending::Finished) {
         return false;
@@ -1283,7 +1287,7 @@ fn quiet(
         {
             false
         }
-        _ => sent_back || super::turn_state::set_a_wake(core, worker),
+        _ => comes_back || super::turn_state::set_a_wake(core, worker),
     }
 }
 
