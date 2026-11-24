@@ -965,11 +965,10 @@ impl Workspaces {
             if agent.renamed || agent.title == title || (stand_in && !untitled) {
                 return Ok(false);
             }
-            // A chief's agent names its chat from the greeting Sikemux sends it, which the
-            // person never wrote.
+            // A chief is always titled by its role, never by its greeting, prompt or CLI title.
             let chief =
                 (saved.projects.iter()).any(|project| project.chief.as_deref() == Some(agent_id));
-            if chief && !stand_in {
+            if chief {
                 return Ok(false);
             }
             if let Some(kept) = saved.kept_mut(agent_id) {

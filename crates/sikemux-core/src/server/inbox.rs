@@ -1357,6 +1357,10 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     let chiefs = super::chief::all(core);
     for agent in &mut shown {
         agent.chief = chiefs.contains(&agent.agent_id);
+        if agent.chief {
+            agent.title = sikemux_view::chat::CHIEF_ROLE.to_owned();
+            agent.titled = true;
+        }
         agent.turn = turn_state::of(core, &gathered, &agent.agent_id, agent.status);
     }
     for agent in shown.iter_mut().filter(|agent| !agent.chief) {
@@ -1398,11 +1402,12 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     for agent in listed.iter_mut().chain(kept.iter_mut()) {
         agent.lead = leads.get(&agent.agent_id).cloned();
     }
-    for agent in kept
-        .iter_mut()
-        .filter(|agent| !chiefs.contains(&agent.agent_id))
-    {
-        if let Some((place, _)) = places.get(&agent.agent_id) {
+    for agent in &mut kept {
+        agent.chief = chiefs.contains(&agent.agent_id);
+        if agent.chief {
+            agent.title = sikemux_view::chat::CHIEF_ROLE.to_owned();
+            agent.titled = true;
+        } else if let Some((place, _)) = places.get(&agent.agent_id) {
             super::settling::show(agent, place, now);
         }
     }

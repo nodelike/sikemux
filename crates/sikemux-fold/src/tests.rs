@@ -286,6 +286,26 @@ mod reducer {
     }
 
     #[test]
+    fn a_chiefs_head_title_is_chief_of_staff_never_its_sessions_title() {
+        let mut before = Chat::new();
+        before.update(json!({
+            "sessionUpdate": "session_info_update",
+            "title": "t3code Antigravity gaps"
+        }));
+        assert_eq!(
+            before.head().title.as_deref(),
+            Some("t3code Antigravity gaps")
+        );
+        before.fold.set_chief(true);
+        assert_eq!(before.head().title.as_deref(), Some("Chief of staff"));
+        before.update(json!({
+            "sessionUpdate": "session_info_update",
+            "title": "Another session title"
+        }));
+        assert_eq!(before.head().title.as_deref(), Some("Chief of staff"));
+    }
+
+    #[test]
     fn rebuilds_from_a_replay_with_streamed_text_joined_the_transcript_a_watching_client_built() {
         let tool = json!({ "sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Read file", "status": "in_progress" });
         let tool_done = json!({ "sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "completed" });

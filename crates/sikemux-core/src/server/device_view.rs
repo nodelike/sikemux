@@ -189,7 +189,11 @@ impl DeviceViewCore for Core {
 
     fn chat_infos(&self) -> Vec<sikemux_wire::protocol::ChatInfo> {
         let mut chats = self.workspaces().listed(self.chats().list());
+        let chiefs = super::chief::all(self);
         for chat in &mut chats {
+            if chiefs.contains(&chat.agent_id) {
+                chat.title = Some(sikemux_view::chat::CHIEF_ROLE.to_owned());
+            }
             chat.name = self.names().name(&chat.agent_id);
             chat.pending_permissions.sort();
             chat.unread = self.seen().unread(&chat.agent_id);
@@ -222,6 +226,7 @@ impl DeviceViewCore for Core {
         let mut agents = self.workspaces().view().agents;
         self.names().fill(&mut agents);
         self.faces().fill(&mut agents);
+        title_chief_agents(self, &mut agents);
         agents
     }
 
@@ -241,6 +246,7 @@ impl DeviceViewCore for Core {
         workspace.disabled_plugins = super::plugins::disabled_in(self.config().plugins);
         self.names().fill(&mut workspace.agents);
         self.faces().fill(&mut workspace.agents);
+        title_chief_agents(self, &mut workspace.agents);
         let accounts = self.workspaces().accounts();
         let preferred = preferences.last_agent_type.as_deref().and_then(|kind| {
             let ids = workspace
@@ -286,7 +292,8 @@ impl DeviceViewCore for Core {
         let mut attentions = self.chats().attentions();
         attentions.extend(inbox::foreign_attentions(self));
         attentions.sort_by(|a, b| (a.at, &a.id).cmp(&(b.at, &b.id)));
-        let recent = self.workspaces().recent(&chats, &self.triggers().held());
+        let mut recent = self.workspaces().recent(&chats, &self.triggers().held());
+        title_chief_recents(self, &mut recent);
         let inbox = inbox::view(self, &chats, &sessions);
         let searched =
             super::chat_search::Searched::of(&inbox, &recent, self.workspaces().holders());
@@ -539,5 +546,39 @@ fn place_calls(core: &Core, chiefs: &HashMap<String, String>, calls: &mut [Perso
             chats.push((*chief).clone());
         }
         call.shown_in = chats;
+    }
+}
+
+/// Every project's chief goes to clients titled by its role, leaving its saved workspace record and
+/// CLI session title untouched.
+fn title_chief_agents(core: &Core, agents: &mut [sikemux_view::workspace::WorkspaceAgent]) {
+    let chiefs = super::chief::all(core);
+    for agent in agents {
+        if chiefs.contains(&agent.id) {
+            agent.title = sikemux_view::chat::CHIEF_ROLE.to_owned();
+            agent.titled = true;
+        }
+    }
+}
+
+/// Recent entries that hold a project's chief, open or closed, go to clients titled by its role.
+pub(crate) fn title_chief_recents(core: &Core, chats: &mut [sikemux_view::device::RecentInfo]) {
+    let chiefs = super::chief::all(core);
+    if chiefs.is_empty() {
+        return;
+    }
+    let sessions: HashSet<String> = (chiefs.iter())
+        .filter_map(|chief| core.names().ran_session(chief))
+        .map(|ran| format!("{}:{}", ran.provider, ran.session_id))
+        .collect();
+    for chat in chats {
+        let is_chief = chat
+            .agent_id
+            .as_deref()
+            .is_some_and(|id| chiefs.contains(id))
+            || sessions.contains(&chat.id);
+        if is_chief {
+            chat.title = sikemux_view::chat::CHIEF_ROLE.to_owned();
+        }
     }
 }

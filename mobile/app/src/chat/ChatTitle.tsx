@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { type LayoutChangeEvent, StyleSheet, Text, View } from 'react-native';
 
+import { CHIEF_ROLE } from '@shared/calls/words';
 import type { TurnState } from '@shared/wire.generated';
 import { CrumbTrail, type Named, OwnMark } from '@/devices/Crew';
+import { useT } from '@/i18n';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 
 /** The room the chat's own words keep beside its crumbs before the crumbs give way. */
@@ -34,10 +36,12 @@ export function ChatTitle({
   /** The agents it works under, the chief first. */
   crumbs?: readonly Named[];
 }) {
+  const t = useT();
   const styles = useStyles(makeStyles);
   const [room, setRoom] = useState(0);
   const [widths, setWidths] = useState<Record<string, number>>({});
   const handle = name ? `@${name}` : chief ? '@Chief' : undefined;
+  const heading = chief ? t(CHIEF_ROLE) : title;
   const shown = crumbsThatFit(crumbs, widths, room);
   const measure = (key: string) => (event: LayoutChangeEvent) => {
     const width = Math.ceil(event.nativeEvent.layout.width);
@@ -62,10 +66,10 @@ export function ChatTitle({
       ) : null}
       <OwnMark agentId={agentId} provider={provider} chief={chief} turn={turn} size={MARK} />
       <View style={[styles.words, crumbs.length > 0 && { minWidth: WORDS_KEEP }]}>
-        {title ? (
+        {heading ? (
           <>
             <Text style={styles.title} numberOfLines={1} accessibilityRole="header">
-              {title}
+              {heading}
             </Text>
             {handle ? <Text style={styles.name}>{handle}</Text> : null}
           </>

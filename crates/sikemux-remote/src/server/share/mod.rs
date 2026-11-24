@@ -246,7 +246,10 @@ pub fn share_chat(
     title: Option<String>,
     anyone: bool,
 ) -> CoreResult<ShareView> {
-    let title = title.as_deref().and_then(chat::feed::title);
+    let title = match core.workspaces().is_chief(agent_id) {
+        true => Some(sikemux_view::chat::CHIEF_ROLE.to_owned()),
+        false => title.as_deref().and_then(chat::feed::title),
+    };
     if core.remote().signed_in_api().is_none() {
         return Err("Sign in to Sikemux to share chats.".into());
     }

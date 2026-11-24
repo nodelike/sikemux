@@ -31,6 +31,9 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.agent_by_id(agent).is_some_and(|row| row.chief) {
+            return;
+        }
         let here = self.this_view().and_then(|view| {
             view.workspace
                 .agents

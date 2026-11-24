@@ -580,7 +580,7 @@ async fn a_decision_an_agent_records_shows_in_its_chat_until_overruled_then_undo
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_chiefs_chat_is_titled_only_from_what_the_person_wrote() {
+async fn a_chiefs_chat_is_always_titled_chief_of_staff() {
     let root = tempfile::Builder::new()
         .prefix("chief")
         .tempdir_in("/tmp")
@@ -603,7 +603,7 @@ async fn a_chiefs_chat_is_titled_only_from_what_the_person_wrote() {
     std::fs::create_dir_all(&sessions).expect("its sessions");
     let socket = root.join("core.sock");
     let _core = start_core(&root, &socket);
-    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let (app, mut events) = CoreClient::connect(&socket).await.expect("connect");
     let accounts = json!({ "profiles": [{
         "id": "builtin-claude",
         "name": "Claude",
@@ -634,7 +634,7 @@ async fn a_chiefs_chat_is_titled_only_from_what_the_person_wrote() {
         .expect("a worker starts");
     let mut working = Agent::open(&socket, &worker).await;
     working.says("Sort the inbox", "Sort the inbox").await;
-    boss.says("Plan the launch week", "Plan the launch week")
+    boss.says("t3code Antigravity gaps", "t3code Antigravity gaps")
         .await;
 
     let agent = |id: String| {
@@ -665,8 +665,11 @@ async fn a_chiefs_chat_is_titled_only_from_what_the_person_wrote() {
             }
         }
     };
-    until_titled(chief.clone(), "Plan the launch week").await;
-
+    let chief_session = agent(chief.clone()).await["resumeId"]
+        .as_str()
+        .expect("its session")
+        .to_owned();
+    let chief_file = sessions.join(format!("{chief_session}.jsonl"));
     let claude_titles = |id: String, named: &'static str| {
         let (agent, sessions) = (&agent, &sessions);
         async move {
@@ -682,14 +685,47 @@ async fn a_chiefs_chat_is_titled_only_from_what_the_person_wrote() {
             .expect("Claude's title");
         }
     };
-    claude_titles(chief.clone(), "Chief of widget first message").await;
+    claude_titles(chief.clone(), "t3code Antigravity gaps").await;
     claude_titles(worker.clone(), "Inbox sorted by Claude").await;
     until_titled(worker.clone(), "Inbox sorted by Claude").await;
     claude_titles(worker.clone(), "Inbox sorted again").await;
     until_titled(worker.clone(), "Inbox sorted again").await;
+
     assert_eq!(
         titled(&agent(chief.clone()).await).as_deref(),
-        Some("Plan the launch week")
+        Some("Chief of staff")
+    );
+    assert_eq!(boss.chat.head().title.as_deref(), Some("Chief of staff"));
+    app.ask(sikemux_wire::protocol::ask::WatchView)
+        .await
+        .expect("watch view");
+    let view: Value = loop {
+        let event = tokio::time::timeout(WAIT, events.recv())
+            .await
+            .expect("the view arrives")
+            .expect("the core disconnected");
+        if let sikemux_client::client::ClientEvent::DeviceView(view) = event {
+            break serde_json::from_str(&view).expect("device view json");
+        }
+    };
+    let chat_title = view["chats"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|chat| chat["agentId"] == chief.as_str())
+        .and_then(|chat| chat["title"].as_str());
+    assert_eq!(chat_title, Some("Chief of staff"));
+    let inbox_title = view["inbox"]["agents"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|shown| shown["agentId"] == chief.as_str())
+        .and_then(|shown| shown["title"].as_str());
+    assert_eq!(inbox_title, Some("Chief of staff"));
+    let cli_session = std::fs::read_to_string(&chief_file).expect("CLI session file");
+    assert!(
+        cli_session.contains("t3code Antigravity gaps"),
+        "CLI session title should stay untouched: {cli_session}"
     );
 }
 

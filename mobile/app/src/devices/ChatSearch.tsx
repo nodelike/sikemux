@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 
+import { CHIEF_ROLE } from '@shared/calls/words';
 import { formatAge } from '@shared/lib/format';
 import type { AgentShown, FoundChat, FoundLine, ProjectInfo, RecentChats, RecentInfo } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';
 import type { Snapshot } from '@/core/protocol';
 import { Working } from '@/devices/AgentMarks';
+import { OwnMark } from '@/devices/Crew';
 import { connectionOf, useLive } from '@/devices/hub';
 import { askFind } from '@/devices/pendingFind';
 import { useT } from '@/i18n';
@@ -191,8 +193,8 @@ export function ChatSearch({
                 return agent ? (
                   <Row
                     key={agent.agentId}
-                    mark={<AgentIcon provider={agent.cli} size={20} />}
-                    title={agent.title}
+                    mark={<OwnMark agentId={agent.agentId} provider={agent.cli} chief={agent.chief} size={20} still />}
+                    title={agent.chief ? t(CHIEF_ROLE) : agent.title}
                     name={agent.name}
                     under={line ? <FoundLineText line={line} /> : undefined}
                     onPress={() => open(agent.agentId, line)}

@@ -72,10 +72,15 @@ struct ChatSearch: View {
                                 switch hit {
                                 case .agent(let agent, _):
                                     Row(
-                                        title: agent.title, name: agent.name,
+                                        title: agent.chief == true ? CallWords.chiefRole : agent.title,
+                                        name: agent.name,
                                         underText: line.map { FoundLineText.of($0, palette) },
                                         onPress: { open(agent.agentId, line) },
-                                        mark: { AgentMark(provider: agent.cli, size: 20) }, end: { EmptyView() })
+                                        mark: {
+                                            OwnMark(
+                                                agentId: agent.agentId, provider: agent.cli, chief: agent.chief == true,
+                                                size: 20, still: true)
+                                        }, end: { EmptyView() })
                                 case .saved(let chat, _):
                                     Row(
                                         title: chat.title, underText: line.map { FoundLineText.of($0, palette) },

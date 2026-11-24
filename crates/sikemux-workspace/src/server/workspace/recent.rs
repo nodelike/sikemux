@@ -159,20 +159,28 @@ pub fn shown<'a>(
             .iter()
             .any(|pin| pin.provider == chat.provider && pin.session_id == chat.session_id)
     };
+    let chiefs: HashSet<&str> = (saved.projects.iter())
+        .filter_map(|project| project.chief.as_deref())
+        .collect();
     chats
         .filter_map(|chat| {
             let project = saved
                 .projects
                 .iter()
                 .find(|project| project.path == chat.project)?;
+            let agent_id = holder(chat);
+            let title = match agent_id.as_deref().is_some_and(|id| chiefs.contains(id)) {
+                true => sikemux_view::chat::CHIEF_ROLE.to_owned(),
+                false => chat.title.clone(),
+            };
             Some(RecentInfo {
                 id: recent_id(chat),
                 provider: chat.provider.clone(),
-                title: chat.title.clone(),
+                title,
                 project: project.id.clone(),
                 cwd: chat.cwd.clone(),
                 active_at: chat.active_at,
-                agent_id: holder(chat),
+                agent_id,
                 pinned: pinned(chat),
                 triggers: held
                     .iter()
@@ -345,18 +353,17 @@ impl Workspaces {
     /// The agent's chat as Recent keeps it once the agent closes, when it has one to take up.
     pub fn held_chat(&self, agent: &WorkspaceAgent) -> Option<HeldChat> {
         let session_id = agent.resume_id.clone()?;
-        let project = self
-            .published
-            .locked()
-            .saved
-            .project(&agent.project)?
-            .path
-            .clone();
+        let saved = self.published.locked();
+        let project = saved.saved.project(&agent.project)?;
+        let title = match project.chief.as_deref() == Some(agent.id.as_str()) {
+            true => sikemux_view::chat::CHIEF_ROLE.to_owned(),
+            false => agent.title.clone(),
+        };
         Some(HeldChat {
             provider: agent.provider.clone(),
             session_id,
-            title: agent.title.clone(),
-            project,
+            title,
+            project: project.path.clone(),
             cwd: agent.cwd.clone(),
             closed_at: epoch_ms(),
         })

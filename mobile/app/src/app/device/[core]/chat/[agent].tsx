@@ -277,7 +277,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
               provider={provider}
               name={info?.name}
               title={title}
-              chief={state.chief}
+              chief={state.chief === true || listed?.chief === true}
               crumbs={crumbs}
             />
           </HostContext>

@@ -34,9 +34,10 @@ struct ChatTitle: View {
 
     @ViewBuilder private var words: some View {
         let handle = name.map { "@\($0)" } ?? (chief ? "@Chief" : nil)
+        let heading = chief ? CallWords.chiefRole : title
         HStack(spacing: 6) {
-            if let title {
-                Text(title).font(Theme.ui(16, .semibold)).tracking(-0.25).foregroundStyle(palette.ink).lineLimit(1)
+            if let heading {
+                Text(heading).font(Theme.ui(16, .semibold)).tracking(-0.25).foregroundStyle(palette.ink).lineLimit(1)
                     .accessibilityAddTraits(.isHeader)
                 if let handle { Text(handle).font(Theme.ui(12)).foregroundStyle(palette.tertiary).fixedSize() }
             } else if let handle {

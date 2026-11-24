@@ -151,7 +151,9 @@ pub async fn recent_chats(core: &Arc<Core>, asked: RecentChatsParams) -> CoreRes
         return Ok(super::hosts::search::elsewhere(core, &asked, query).await);
     }
     if Query::parse(asked.query.as_deref()).is_none() {
-        return workspace::recent_chats(core, asked).await;
+        let mut answer = workspace::recent_chats(core, asked).await?;
+        super::device_view::title_chief_recents(core, &mut answer.chats);
+        return Ok(answer);
     }
     let (mut answer, found) = search_here(core, asked).await?;
     answer.found = found.into_iter().map(|(_, found)| found).collect();
@@ -172,6 +174,7 @@ pub(crate) async fn search_here(
         true => RecentChats::default(),
         false => workspace::recent_chats(core, asked).await?,
     };
+    super::device_view::title_chief_recents(core, &mut answer.chats);
     let searched = searched(core);
     let in_scope = |of: Option<&String>| project.is_none() || of == project.as_ref();
     let agents: Vec<&Searchable> = (searched.agents.iter())

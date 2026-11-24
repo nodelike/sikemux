@@ -42,7 +42,8 @@ use sikemux_view::chat::{
     OverruledDecision, PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage,
     RestoredPart, Retrying, RuleChange, SentContext, SessionEnded, SignInCard, StopReason,
     SubagentCard, SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail,
-    ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
+    ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, CHIEF_ROLE,
+    WHY_URI,
 };
 use sikemux_view::shown::TurnShown;
 use sikemux_view::turn::TurnState;
@@ -921,6 +922,10 @@ impl Fold {
             self.head.chief = chief;
             self.set_head("chief");
         }
+        if chief && self.head.title.as_deref() != Some(CHIEF_ROLE) {
+            self.head.title = Some(CHIEF_ROLE.to_owned());
+            self.set_head("title");
+        }
     }
 
     pub fn set_shown(&mut self, shown: Vec<TurnShown>) {
@@ -1546,7 +1551,7 @@ impl Fold {
                 );
             }
             UpdateKind::SessionInfoUpdate => {
-                if let Some(title) = text_of(update.get("title")) {
+                if let Some(title) = text_of(update.get("title")).filter(|_| !self.head.chief) {
                     self.head.title = Some(title.to_owned());
                     self.set_head("title");
                 }

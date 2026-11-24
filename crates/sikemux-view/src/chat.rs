@@ -12,6 +12,9 @@ use sikemux_wire::protocol::ChatContext;
 
 use crate::slice::SliceState;
 
+/// What every client titles a project's chief, never its session's own title.
+pub const CHIEF_ROLE: &str = "Chief of staff";
+
 /// A chat as a client opening it is sent: how it stands, its latest rows, and
 /// the rows of the subagents those name.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

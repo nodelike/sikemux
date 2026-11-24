@@ -1116,7 +1116,12 @@ impl Feed {
 
     /// What the agent last called this session, as the host's rail shows it.
     pub fn title(&self) -> Option<String> {
-        self.inner.locked().title.clone()
+        let inner = self.inner.locked();
+        if inner.chief {
+            Some(sikemux_view::chat::CHIEF_ROLE.to_owned())
+        } else {
+            inner.title.clone()
+        }
     }
 
     /// What the agent's CLI last said this session has cost, in dollars.

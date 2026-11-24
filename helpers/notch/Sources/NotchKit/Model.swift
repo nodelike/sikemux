@@ -87,7 +87,7 @@ struct Entry: Identifiable, Equatable {
     /// The workspace project it is in, by id, which tells apart two projects of one name.
     var projectId: String? { agent?.project ?? item?.project }
     /// What the core says its row leads with; an agent the inbox has nothing about goes by its title.
-    var title: String { item?.heading ?? agent?.title ?? "" }
+    var title: String { item?.heading ?? (isChief ? "Chief of staff" : agent?.title) ?? "" }
     /// The attempt its agent is retrying a failed request on, 0 when it did not say.
     var reconnecting: Int? { agent?.reconnecting }
     /// Subagents, and shells or monitors, its agent still has going.

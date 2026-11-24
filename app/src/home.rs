@@ -502,9 +502,11 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
         .when_some(chain, PaneHeader::back)
         .when_some(chief, PaneHeader::fact)
         .title_view(editing)
-        .on_title_double_click(
-            cx.listener(move |bench, _, window, cx| bench.retitle(&id, false, window, cx)),
-        )
+        .when(!agent.chief, |header| {
+            header.on_title_double_click(
+                cx.listener(move |bench, _, window, cx| bench.retitle(&id, false, window, cx)),
+            )
+        })
         .mark(match agent.face.is_some() {
             true => {
                 let picked = agent.id.clone();
