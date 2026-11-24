@@ -94,18 +94,19 @@ pub(super) fn stale(fields: &Fields, page: Page) -> bool {
     matches!(page, Page::Agents | Page::Models) && providers::stale(&fields.providers)
 }
 
-pub(crate) use accounts::{screen as account_screen, submit as account_submit};
+pub(crate) use accounts::{
+    dialog as account_dialog, screen as account_screen, submit as account_submit,
+};
 pub(super) use providers::rebuild_choices;
 
-/// The add-account dialog and the install or sign-in sheet, over whichever page is open.
+/// The install or sign-in sheet, over whichever page is open.
 pub fn dialogs(
     bench: &Workbench,
     this: &Entity<Workbench>,
     window: &Window,
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
-    let mut open = Vec::new();
-    open.extend(accounts::dialog(bench, this, cx));
-    open.extend(crate::agents::setup::sheet(bench, this, window, cx));
-    open
+    crate::agents::setup::sheet(bench, this, window, cx)
+        .into_iter()
+        .collect()
 }

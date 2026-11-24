@@ -18,7 +18,7 @@ pub(super) mod appearance;
 pub(super) mod cli;
 pub(super) mod connectors;
 pub(super) mod general;
-pub(crate) use agents::{account_screen, account_submit};
+pub(crate) use agents::{account_dialog, account_screen, account_submit};
 pub(crate) use general::sent as session_sent;
 pub(super) mod keybindings;
 pub(super) mod mods;
@@ -176,7 +176,7 @@ pub fn render(
     }
 }
 
-/// The add-account dialog, the install or sign-in sheet and a connector's sign-in, over
+/// The install or sign-in sheet and a connector's sign-in, over
 /// whichever page is open.
 pub fn dialogs(
     bench: &Workbench,

@@ -355,12 +355,15 @@ pub fn list(bench: &Workbench, provider: &str, this: &Entity<Workbench>, cx: &Ap
         .into_any_element()
 }
 
-/// The add-account dialog while it is open, floating over Settings.
+/// The add-account dialog while it is open, floating over whatever the window shows.
 pub fn dialog(
     bench: &Workbench,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
+    if bench.accounts.dialog.as_ref()?.in_picker {
+        return None;
+    }
     let screen = screen(bench, this, cx)?;
     let close: dialog::Answer = {
         let this = this.clone();

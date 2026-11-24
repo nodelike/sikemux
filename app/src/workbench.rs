@@ -967,6 +967,7 @@ impl Render for Workbench {
                     })
                     .children(asked)
                     .children(crate::overlays::dialogs(self, cx))
+                    .children(crate::settings::account_dialog(self, &cx.entity(), cx))
                     .children(crate::boot::reconnecting(self, cx))
                     .children(crate::boot::stopped(self, cx))
                     .children(crate::updates::required(self, cx))

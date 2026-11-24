@@ -1324,6 +1324,9 @@ impl Menu {
         };
         bench.update(cx, |bench, cx| {
             accounts::open_dialog(bench, provider, window, cx);
+            if let Some(dialog) = bench.accounts.dialog.as_mut() {
+                dialog.in_picker = true;
+            }
             if let Some(account) = account {
                 accounts::sign_in_again(bench, account, cx);
             }

@@ -63,6 +63,8 @@ pub struct Dialog {
     /// The account this dialog made, taken away again if it closes before signing in.
     pub made: Option<String>,
     pub busy: bool,
+    /// Whether the model picker draws it in its own card, so the window does not.
+    pub in_picker: bool,
 }
 
 #[derive(Default)]
@@ -519,8 +521,8 @@ pub fn used(bench: &Workbench, profile: &Profile) -> Option<f64> {
     bench.usage_peak(&launcher_of(bench, profile))
 }
 
-/// Opens Settings on its agents with the add-account dialog for `provider`, signing in
-/// the account `id` there when there is one.
+/// Opens the add-account dialog for `provider` over the window, signing in the account `id`
+/// there when there is one.
 pub fn open_sign_in(
     bench: &mut Workbench,
     provider: &str,
@@ -528,7 +530,6 @@ pub fn open_sign_in(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    bench.open_settings(crate::settings::Page::Models, window, cx);
     open_dialog(bench, provider, window, cx);
     if let Some(id) = id {
         sign_in_again(bench, id, cx);
@@ -845,6 +846,7 @@ pub fn open_dialog(
         account: None,
         made: None,
         busy: false,
+        in_picker: false,
     });
     redraw(bench, cx);
 }
