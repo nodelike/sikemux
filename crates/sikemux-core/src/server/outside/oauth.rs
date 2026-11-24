@@ -25,6 +25,10 @@ pub(super) struct Registration {
     name: String,
     redirect_uris: Vec<String>,
     at: u64,
+    /// Whether the person has let it in. Anything on this computer can register, so these are
+    /// the last to make room for another.
+    #[serde(default)]
+    allowed: bool,
 }
 
 /// A code the browser carries back to the client, good once.
@@ -135,6 +139,7 @@ impl Outside {
             name,
             redirect_uris: uris,
             at: epoch_ms(),
+            allowed: false,
         };
         let answer = json!({
             "client_id": registration.client_id,
@@ -148,7 +153,8 @@ impl Outside {
         let mut inner = self.inner.locked();
         let kept = &mut inner.stored.registrations;
         if kept.len() >= MAX_REGISTRATIONS {
-            kept.remove(0);
+            let oldest = kept.iter().position(|kept| !kept.allowed).unwrap_or(0);
+            kept.remove(oldest);
         }
         kept.push(registration);
         self.save(&inner.stored);
@@ -232,6 +238,14 @@ impl Outside {
                             until: now + CODE_LASTS.as_millis() as u64,
                         },
                     );
+                    let registrations = &mut inner.stored.registrations;
+                    if let Some(registration) = registrations
+                        .iter_mut()
+                        .find(|kept| kept.client_id == asked.client_id)
+                    {
+                        registration.allowed = true;
+                        self.save(&inner.stored);
+                    }
                     query.append_pair("code", &code);
                 }
                 _ => {
