@@ -476,7 +476,7 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
             sign_in::Screen::new(
                 "account-dialog",
                 mark,
-                t!("Add a {label} account", label = label),
+                t!("Add an account for {agent}", agent = label),
             )
             .lede(t!(
                 "Sign in with {label}'s own login in your browser.",

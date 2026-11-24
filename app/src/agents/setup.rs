@@ -862,7 +862,7 @@ fn state(sheet: &Sheet) -> String {
             label = label
         ),
         (Phase::Done(_), false) => t!(
-            "The sign-in finished. Start a {label} chat to use it.",
+            "The sign-in finished. Start a chat with {label} to use it.",
             label = label
         ),
     }

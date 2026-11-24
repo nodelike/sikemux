@@ -511,7 +511,7 @@ fn add_button(view: &View, agent: &Agent) -> IconButton {
     small_button(
         SharedString::from(format!("add-account-{provider}")),
         Icon::Plus,
-        t!("Add a {name} account", name = agent.name),
+        t!("Add an account for {agent}", agent = agent.name),
     )
     .on_click(view.on(move |bench, window, cx| {
         crate::accounts::open_sign_in(bench, &provider, None, window, cx);
