@@ -460,6 +460,10 @@ jobs:
         run: cargo build --features drive --bin sikemux --example fake_chat
         working-directory: app
 
+      - name: Pinch a page in a window, and lay a parked one out
+        if: ${{ !cancelled() }}
+        run: cargo test -p sikemux-browser --no-fail-fast --test page_pinch --test parked_page_size
+
       - name: Time a long chat of MCP apps against one as long without
         if: ${{ !cancelled() }}
         working-directory: app
