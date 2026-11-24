@@ -309,6 +309,12 @@ impl Workbench {
                 if self.feeds.this.approval.is_none() {
                     self.read_approval(None, cx);
                 }
+                let linked = &self.reads.hosts;
+                self.desks.update(cx, |desks, _| {
+                    desks.stop_awaiting(|host| {
+                        !linked.iter().any(|row| row.id.as_deref() == Some(host))
+                    });
+                });
                 if !changed {
                     return;
                 }

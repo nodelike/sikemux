@@ -71,6 +71,8 @@ pub struct Desks {
     pub(crate) task_views: HashMap<String, crate::task_list::View>,
     /// The agents in the view as last heard, so those that leave it are let go.
     present: HashSet<String>,
+    /// The agents of linked hosts whose pages came back before their host's view did, by host.
+    awaited: HashMap<String, String>,
     /// The agents in a turn as last heard, so each one's desk is tidied as its turn ends.
     working: HashSet<String>,
     /// The terminals of runs that finished, which leave their desk once its agent's turn ends.
@@ -376,6 +378,7 @@ impl Desks {
             page_feet: HashMap::new(),
             task_views: HashMap::new(),
             present: HashSet::new(),
+            awaited: HashMap::new(),
             working: HashSet::new(),
             finished_runs: HashSet::new(),
             page_files,
@@ -407,10 +410,26 @@ impl Desks {
         self.engine.as_ref()
     }
 
-    /// Agents whose pages or device came back from the last run, let go on the first view if
-    /// they are no longer in it.
-    pub fn expect(&mut self, agents: impl IntoIterator<Item = String>) {
-        self.present.extend(agents);
+    /// Agents whose pages or device came back from the last run, each with its linked host, let
+    /// go on their host's first view if they are no longer in it.
+    pub fn expect(&mut self, agents: impl IntoIterator<Item = (String, Option<String>)>) {
+        for (agent, host) in agents {
+            match host {
+                Some(host) => _ = self.awaited.insert(agent, host),
+                None => _ = self.present.insert(agent),
+            }
+        }
+    }
+
+    pub(crate) fn awaited_host(&self, agent: &str) -> Option<String> {
+        self.awaited.get(agent).cloned()
+    }
+
+    /// Stops waiting for the hosts `over` names, so the next view lets go of their agents it
+    /// lacks.
+    pub(crate) fn stop_awaiting(&mut self, over: impl Fn(&str) -> bool) {
+        let met = self.awaited.extract_if(|_, host| over(host));
+        self.present.extend(met.map(|(agent, _)| agent));
     }
 
     pub(crate) fn redraw_call_pages(&self, cx: &mut Context<Self>) {
@@ -1000,6 +1019,12 @@ impl Workbench {
             .flat_map(|(_, view)| &view.workspace.agents)
             .map(|agent| agent.id.clone())
             .collect();
+        let hosts: HashSet<String> = (self.views())
+            .filter_map(|(place, _)| match place {
+                crate::hosts::Place::Account(host) => Some(host),
+                crate::hosts::Place::This => None,
+            })
+            .collect();
         let asleep: Vec<String> = agents
             .iter()
             .filter(|agent| agent.asleep && self.sims.read(cx).attached_by(&agent.id))
@@ -1011,6 +1036,7 @@ impl Workbench {
             .collect();
         let place = self.place();
         let (departed, ended) = self.desks.update(cx, |desks, cx| {
+            desks.stop_awaiting(|host| hosts.contains(host));
             let departed: Vec<String> = desks.present.difference(&present).cloned().collect();
             let ended: Vec<String> = (desks.working.difference(&working))
                 .filter(|agent| present.contains(*agent))

@@ -300,6 +300,15 @@ impl Workbench {
         this.into_iter().chain(hosts)
     }
 
+    pub(crate) fn linked_host_of(&self, agent: &str) -> Option<String> {
+        self.views().find_map(|(place, view)| match place {
+            Place::Account(host) if view.workspace.agents.iter().any(|held| held.id == agent) => {
+                Some(host)
+            }
+            _ => None,
+        })
+    }
+
     pub(crate) fn call_at(&self, id: &str) -> Option<(Place, &PersonCall)> {
         self.views().find_map(|(place, view)| {
             let call = view.calls.iter().find(|call| call.id == id)?;

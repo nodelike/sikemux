@@ -93,7 +93,12 @@ fn write(path: &Option<PathBuf>, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 fn pages(bench: &Workbench, cx: &App) -> Option<Vec<u8>> {
-    let strips = bench.desks.read(cx).engine()?.saved_strips();
+    let desks = bench.desks.read(cx);
+    let strips = desks.engine()?.saved_strips(|agent| {
+        bench
+            .linked_host_of(agent)
+            .or_else(|| desks.awaited_host(agent))
+    });
     serde_json::to_vec(&strips).ok()
 }
 
@@ -149,7 +154,9 @@ fn restore(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         .engine()
         .map(|engine| engine.reopen(strips))
         .unwrap_or_default();
-    let devices = restore_simulators(bench, cx);
+    let devices = restore_simulators(bench, cx)
+        .into_iter()
+        .map(|agent| (agent, None));
     bench
         .desks
         .update(cx, |desks, _| desks.expect(tabs.into_iter().chain(devices)));

@@ -15,6 +15,8 @@ use crate::viewport::Viewport;
 #[serde(rename_all = "camelCase")]
 pub struct SavedStrip {
     agent_id: String,
+    /// The linked host the agent runs on; none for this one.
+    host: Option<String>,
     tabs: Vec<SavedTab>,
     active: Option<String>,
 }
@@ -66,13 +68,14 @@ fn plain_tab_id(tab_id: &str) -> bool {
 }
 
 impl BrowserManager {
-    pub fn saved_strips(&self) -> Vec<SavedStrip> {
+    pub fn saved_strips(&self, host_of: impl Fn(&str) -> Option<String>) -> Vec<SavedStrip> {
         self.agents
             .locked()
             .iter()
             .filter(|(_, agent)| !agent.strip.order.is_empty())
             .map(|(agent_id, agent)| SavedStrip {
                 agent_id: agent_id.clone(),
+                host: host_of(agent_id),
                 tabs: agent
                     .strip
                     .order
@@ -100,8 +103,9 @@ impl BrowserManager {
             .collect()
     }
 
-    /// Puts the saved strips back with every tab unloaded, and names the agents they went to.
-    pub fn reopen(&self, strips: Vec<SavedStrip>) -> Vec<String> {
+    /// Puts the saved strips back with every tab unloaded, and names the agents they went to
+    /// with the host each runs on.
+    pub fn reopen(&self, strips: Vec<SavedStrip>) -> Vec<(String, Option<String>)> {
         let mut reopened = Vec::new();
         let mut agents = self.agents.locked();
         for saved in strips {
@@ -149,7 +153,7 @@ impl BrowserManager {
             if let Some(active) = saved.active {
                 agent.strip.activate(&active);
             }
-            reopened.push(saved.agent_id.clone());
+            reopened.push((saved.agent_id.clone(), saved.host));
             agents.insert(saved.agent_id, agent);
         }
         reopened
