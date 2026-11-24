@@ -144,13 +144,22 @@ fn fetch_base(repo: &Path, base: &str) -> Option<String> {
 fn sync_note(base: &str, at: &Newest, unread: Option<&str>) -> Option<String> {
     let lacks = (at.lacks > 0).then(|| {
         let commits = if at.lacks == 1 { "commit" } else { "commits" };
-        format!("origin/{base} has {} {commits} {base} here lacks, and {base} here has ones origin lacks. Your checkout stands on {base} here, without origin's.", at.lacks)
+        format!("origin/{base} has {} {commits} {base} here lacks, and {base} here has ones origin lacks. Sync compared with {base} here, without origin's; to go on from origin's instead, run git rebase origin/{base} in your checkout.", at.lacks)
     });
     let unread = unread.map(|why| {
         format!("origin could not be read, so {base} there may have newer commits your checkout lacks: {why}")
     });
     let said: Vec<String> = lacks.into_iter().chain(unread).collect();
     (!said.is_empty()).then(|| said.join(" "))
+}
+
+/// How a sync that clashes with `name` at `tip` says so, and what to do next.
+fn clash_with(name: &str, tip: &str, note: Option<&str>) -> String {
+    let says = format!(
+        "onto {name} ({}), which changed the same lines. Run git rebase {name} in your checkout and settle the clash",
+        short(tip)
+    );
+    note.map_or_else(|| says.clone(), |note| format!("{says}. {note}"))
 }
 
 /// What landing does to one file of the project's checkout.
@@ -329,7 +338,7 @@ fn sync_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Synced, Stri
             &worktree.path,
             &tip,
             &commits.iter().collect::<Vec<_>>(),
-            &format!("onto {name}, which changed the same lines. Run git rebase {name} in your checkout and settle the clash"),
+            &clash_with(&name, &tip, note.as_deref()),
         )?;
         if synced == head {
             return Ok(Synced {
@@ -423,7 +432,7 @@ pub fn lay(
         repo,
         onto,
         &commits.iter().collect::<Vec<_>>(),
-        &format!("onto {base}, which changed the same lines since your checkout was cut. Run git_commit with sync: true, settle the clash, then land again"),
+        &format!("onto {base} ({}), which changed the same lines since your checkout was cut. Run git_commit with sync: true, settle the clash, then land again", short(onto)),
     )?;
     Ok((tip != onto).then(|| Laid {
         listed: listed(&commits),
@@ -1098,5 +1107,79 @@ mod tests {
         std::fs::rename(&remote, root.join("gone.git")).unwrap();
         let synced = sync_from(&worktree, &signing).unwrap();
         assert!(synced.note.unwrap().contains("could not be read"));
+    }
+
+    /// A stale base here refused commits made on origin's newer ones, as they clashed with it.
+    #[test]
+    fn syncing_goes_onto_origin_when_the_base_here_is_behind_commits_the_worker_builds_on() {
+        let root = tempfile::tempdir().unwrap();
+        let root = sikemux_process::files::real_path(root.path()).unwrap();
+        let remote = root.join("remote.git");
+        let remote_path = remote.to_string_lossy().into_owned();
+        git_in(&root, &["init", "-q", "--bare", "-b", "main", &remote_path]);
+        let main = root.join("project");
+        std::fs::create_dir(&main).unwrap();
+        git_in(&main, &["init", "-q", "-b", "main"]);
+        let write = |dir: &Path, text: &str, subject: &str| {
+            std::fs::write(dir.join("shared.txt"), text).unwrap();
+            git_in(dir, &["add", "."]);
+            git_in(dir, &["commit", "-qm", subject]);
+        };
+        write(&main, "one\n", "base");
+        git_in(&main, &["remote", "add", "origin", &remote_path]);
+        git_in(&main, &["push", "-q", "-u", "origin", "main"]);
+        let start_sha = git_in(&main, &["rev-parse", "HEAD"]);
+        let other = root.join("other");
+        git_in(
+            &root,
+            &["clone", "-q", &remote_path, &other.to_string_lossy()],
+        );
+        write(&other, "two\n", "newer on origin");
+        git_in(&other, &["push", "-q", "origin", "main"]);
+        git_in(&main, &["fetch", "-q", "origin"]);
+        let tree = root.join("tree");
+        let tree_path = tree.to_string_lossy().into_owned();
+        git_in(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "work",
+                &tree_path,
+                "origin/main",
+            ],
+        );
+        write(&tree, "three\n", "worker");
+        let worktree = AgentWorktree {
+            repo: main.clone(),
+            path: tree.clone(),
+            branch: "work".into(),
+            base: Some("main".into()),
+            start_sha: start_sha.clone(),
+            name: String::new(),
+            first_port: None,
+        };
+        let signing = Signing {
+            key: None,
+            hosts: Vec::new(),
+        };
+
+        assert_eq!(
+            sync_from(&worktree, &signing).unwrap().branch,
+            "origin/main"
+        );
+        assert_eq!(git_in(&main, &["rev-parse", "main"]), start_sha);
+
+        let head = git_in(&tree, &["rev-parse", "HEAD"]);
+        assert_eq!(
+            laid_on(&main, "main", &start_sha, &[&head]),
+            git_in(&main, &["rev-parse", "origin/main"])
+        );
+
+        git_in(&main, &["commit", "-q", "--allow-empty", "-m", "only here"]);
+        let why = sync_from(&worktree, &signing).err().unwrap();
+        assert!(why.contains("git rebase origin/main"), "{why}");
     }
 }
