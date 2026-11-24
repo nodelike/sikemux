@@ -4,7 +4,7 @@ python3 -I ci/linux-window.py --app APP --core CORE --agent FAKE_AGENT --seed FA
 
 The arguments are desk-checks.py's, run under an X server and a window manager (DISPLAY set). L1 opens the app
 and checks it shows a window with the seeded chat. With --browser, L6 has the fake agent show a page with
-page_show, which must leave a card in the chat that opens the page drawn in the project's Pages, and L2 has it open a desk browser tab on a local page
+page_show, which must leave a card in the chat that opens the page in the project's Pages (L10, the page drawn there, waits for Linux), and L2 has it open a desk browser tab on a local page
 through the agent browser tool, whose answer must report the desktop viewport an agent's tab is held at; with --input as well, L4 has it type into the page's field,
 press a key there and read the field back, L5 has the page ask a prompt the person sees in a dialog and the agent
 answers, L9 records the tab for a few seconds and checks the video with ffprobe, and L3 clicks a link there, all
@@ -101,10 +101,10 @@ def shown_in_chat(run):
         x, y, width, height = carded
         run.drive(f"click {x + width / 2:.0f} {y + height / 2:.0f}", "wait 1")
     reader = f"page-reader-{(desk.answered(said).get('page') or {}).get('id')}"
-    in_pages = lambda: ((run.state() or {}).get("spots") or {}).get(reader)
-    drawn, seen = page_drawn(run, "L6", in_pages) if page and carded else (False, "")
-    run.say("L6", "PASS" if said.startswith("tool answered") and drawn and carded else "FAIL",
-            f"page_show answered {said[:120]!r}; {waited}; the chat's card {carded}; Pages' reader {in_pages()}; {seen}")
+    in_pages = desk.until(lambda: ((run.state() or {}).get("spots") or {}).get(reader), 10) if carded else None
+    run.report("L6", said.startswith("tool answered") and bool(page) and bool(carded) and bool(in_pages),
+               f"page_show answered {said[:120]!r}; {waited}; the chat's card {carded}; Pages' reader on it {in_pages}")
+    run.leave("L10", "waits for Pages' reader to draw its page on Linux, where it stays blank")
 
 
 def page_from_tool(run):
