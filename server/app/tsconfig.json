@@ -12,5 +12,5 @@
       "react/*": ["./node_modules/@types/react/*"]
     }
   },
-  "include": ["src", "dev", "test", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "dev", "vite.config.ts"]
 }

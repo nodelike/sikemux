@@ -99,9 +99,6 @@ importers:
       '@clerk/react':
         specifier: ^6.17.5
         version: 6.17.5(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@paper-design/shaders':
-        specifier: 0.0.81
-        version: 0.0.81
       '@sentry/react':
         specifier: ^11.12.0
         version: 11.12.0(react@19.3.0)
@@ -139,9 +136,6 @@ importers:
       vite:
         specifier: ^8.3.3
         version: 8.3.3(@types/node@22.20.5)(esbuild@0.28.2)
-      vitest:
-        specifier: 'catalog:'
-        version: 5.0.3(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(vite@8.3.3(@types/node@22.20.5)(esbuild@0.28.2))
 
   protocol:
     dependencies:
@@ -639,9 +633,6 @@ packages:
 
   '@oxc-project/types@0.156.0':
     resolution: {integrity: sha512-1Duyg48TdJNdyhEB8Xn1L36bT9Pv6GUtlKjHxOys8xkaF/rQq3XJE+bAurSK/AgIz5mGFsb77cn9Pb20+WCScw==}
-
-  '@paper-design/shaders@0.0.81':
-    resolution: {integrity: sha512-jeGdyjMscZ2bxmQdo8lhwUufHUf4iq3s1ayjh8PXU7Go42Rw8E3I0It1FZdc3HuWt5J82m//DRWaxsRqRfA4Gg==}
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
@@ -2282,8 +2273,6 @@ snapshots:
   '@oxc-project/types@0.152.0': {}
 
   '@oxc-project/types@0.156.0': {}
-
-  '@paper-design/shaders@0.0.81': {}
 
   '@pinojs/redact@0.4.0': {}
 

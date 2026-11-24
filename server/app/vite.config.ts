@@ -24,53 +24,29 @@ const TYPES: Record<string, string> = {
   ".wasm": "application/wasm",
 };
 
-const WEB_DEVICE = join(repo, "target/web-device");
-/** Homebrew's LLVM, since Apple's clang cannot build ring's C for wasm. */
-const LLVM = "/opt/homebrew/opt/llvm/bin";
-
-/** Builds a Rust crate for the browser. Needs rustup's cargo, which reads rust-toolchain.toml. */
-function buildWasm(crate: string) {
+/** Builds the core's markdown parser for the browser. Needs rustup's cargo, which reads rust-toolchain.toml. */
+function buildMarkdown() {
   const rustup = join(homedir(), ".cargo/bin");
-  const llvm = existsSync(LLVM);
   execFileSync(
     "cargo",
-    ["build", "-p", crate, "--target", "wasm32-unknown-unknown", "--release"],
+    [
+      "build",
+      "-p",
+      "sikemux-markdown-wasm",
+      "--target",
+      "wasm32-unknown-unknown",
+      "--release",
+    ],
     {
       cwd: repo,
       stdio: "inherit",
       env: {
-        ...(llvm
-          ? {
-              CC_wasm32_unknown_unknown: `${LLVM}/clang`,
-              AR_wasm32_unknown_unknown: `${LLVM}/llvm-ar`,
-            }
-          : {}),
         ...process.env,
         PATH: existsSync(rustup)
           ? `${rustup}:${process.env.PATH ?? ""}`
           : process.env.PATH,
       },
     },
-  );
-}
-
-/** The core's markdown parser, and the browser's own device for reading a host's look, built from the same Rust. */
-function buildRust() {
-  buildWasm("sikemux-markdown-wasm");
-  buildWasm("sikemux-web-device");
-  execFileSync(
-    "wasm-bindgen",
-    [
-      "--target",
-      "web",
-      "--out-dir",
-      WEB_DEVICE,
-      join(
-        repo,
-        "target/wasm32-unknown-unknown/release/sikemux_web_device.wasm",
-      ),
-    ],
-    { stdio: "inherit" },
   );
 }
 
@@ -88,10 +64,10 @@ function chatAssets(): Plugin {
   return {
     name: "sikemux-chat-assets",
     buildStart() {
-      buildRust();
+      buildMarkdown();
     },
     configureServer(server) {
-      buildRust();
+      buildMarkdown();
       const files = chatFiles();
       server.middlewares.use((request, response, next) => {
         const path = new URL(request.url ?? "/", "http://app").pathname.slice(
@@ -148,13 +124,7 @@ function sentrySourceMaps() {
 export default defineConfig({
   plugins: [standInClerk(), react(), chatAssets(), sentrySourceMaps()],
   resolve: {
-    alias: [
-      { find: /^@shared\//, replacement: `${join(repo, "shared")}/` },
-      {
-        find: /^@web-device$/,
-        replacement: join(WEB_DEVICE, "sikemux_web_device.js"),
-      },
-    ],
+    alias: [{ find: /^@shared\//, replacement: `${join(repo, "shared")}/` }],
     dedupe: ["react", "react-dom"],
   },
   server: { port: 5173, strictPort: true, fs: { allow: [repo] } },
