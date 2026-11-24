@@ -786,7 +786,9 @@ async fn a_push_after_a_change_of_folder_is_judged_where_it_runs() {
         crate::server::places::found::in_files(root.path())
     };
     let core = core_at(None, &project, found);
-    let scratch = theirs.path().display();
+    // A shell takes a Windows path's backslashes for escapes, so the lines spell it with slashes.
+    let scratch = (theirs.path().to_string_lossy()).replace(std::path::MAIN_SEPARATOR, "/");
+    let work = Path::new(&scratch).join("work");
     let ships =
         |line: &str| crate::ship::of_command(line, &[], crate::ship::Looks::Every, &cwd, &|_| None);
     let elsewhere = [
@@ -801,7 +803,7 @@ async fn a_push_after_a_change_of_folder_is_judged_where_it_runs() {
         let found = ships(line);
         assert_eq!(found.len(), 1, "{line}");
         assert!(
-            found[0].what.contains(&format!("{scratch}/work")),
+            (found[0].what.split_whitespace()).any(|word| Path::new(word) == work),
             "{line}: {}",
             found[0].what
         );
