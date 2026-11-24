@@ -1055,8 +1055,9 @@ pub(super) fn core_command(program: &Path, bin: &Path) -> sikemux_process::comma
     if let Ok(path) = std::env::join_paths(std::iter::once(bin.to_path_buf()).chain(shared)) {
         command.env("PATH", path);
     }
-    // Set by a Sikemux agent's own shell, it points past the world's .zshrc.
+    // Set by a Sikemux agent's own shell, they point past the world's .zshrc.
     command.env_remove("ZDOTDIR");
+    command.env_remove(sikemux_process::vars::USER_ZDOTDIR);
     command
 }
 
