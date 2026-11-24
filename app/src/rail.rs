@@ -1217,14 +1217,14 @@ fn surfaces(
     let pages = tree_row(
         "surface-pages".into(),
         Icon::Presentation,
-        n!("Pages"),
+        n!("Artifacts"),
         front == Some(PaneKind::Pages),
         false,
         keymap::hint(pages, cx),
         cx,
     )
     .clicks(move |_, window, cx| keymap::dispatch(pages, window, cx));
-    let pages = keyed.row("surface-pages", t!("Pages"), pages, cx);
+    let pages = keyed.row("surface-pages", t!("Artifacts"), pages, cx);
     let playbook = crate::workbench::actions::FocusPlaybook::ID;
     let playbook = tree_row(
         "surface-playbook".into(),

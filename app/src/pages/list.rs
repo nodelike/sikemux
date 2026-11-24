@@ -16,7 +16,7 @@ use crate::ui::{self, Field, Group, Row};
 use crate::workbench::{actions, Workbench};
 
 pub(crate) fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
-    let body = page_body().child(page_header(t!("Pages"), bench, cx));
+    let body = page_body().child(page_header(t!("Artifacts"), bench, cx));
     let Some(project) = bench.project() else {
         return body
             .child(rail_empty(
@@ -43,8 +43,8 @@ pub(crate) fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
         .filter(|page| matches(page, &words))
         .collect();
     let empty = (listed.is_some() && found.is_empty()).then(|| match words.is_empty() {
-        true => rail_empty(Icon::Presentation, t!("No pages yet"), None, cx),
-        false => rail_empty(Icon::Search, t!("No page matches"), None, cx),
+        true => rail_empty(Icon::Presentation, t!("No artifacts yet"), None, cx),
+        false => rail_empty(Icon::Search, t!("No artifact matches"), None, cx),
     });
     let in_front = (bench.tab())
         .and_then(|tab| crate::tabs::first_view(&tab.pane))

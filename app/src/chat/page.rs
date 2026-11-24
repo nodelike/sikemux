@@ -74,7 +74,7 @@ pub(super) fn tabs(
             let (picture, failed) = (shown.picture.clone(), shown.failed.clone());
             let place: SharedString = match failed {
                 Some(failed) => t!("Could not show it: {failed}", failed = failed).into(),
-                None => t!("In Pages").into(),
+                None => t!("In Artifacts").into(),
             };
             let open = opens_page(page, &looks.bench);
             tab_row(page, picture, place, at > 0, open, cx)
@@ -98,7 +98,7 @@ pub(super) fn worker_pages(
                 title: page.title.clone(),
             };
             let picture = shown(&page_ref, looks, window, cx).picture.clone();
-            let place = t!("@{name}'s page", name = page.name).into();
+            let place = t!("@{name}'s artifact", name = page.name).into();
             let open = opens_page(&page_ref, &looks.bench);
             tab_row(&page_ref, picture, place, at > 0, open, cx)
         })

@@ -628,7 +628,7 @@ fn go_row(
     let go = match (call.kind, &call.page) {
         (CallKind::Look, Some(_)) => Some(go_button(
             call,
-            t!("Open page").into(),
+            t!("Open artifact").into(),
             true,
             sending,
             bench,

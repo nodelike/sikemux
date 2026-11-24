@@ -868,7 +868,7 @@ fn fact_words(row: &TaskRow) -> String {
         }) => {
             let mut parts = Vec::new();
             if *page {
-                parts.push(t!("page").to_owned());
+                parts.push(t!("artifact").to_owned());
             }
             match (pictures, choices) {
                 (0, 0) => {}

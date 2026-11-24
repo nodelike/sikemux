@@ -102,13 +102,13 @@ export default function SharedPage() {
 
   const title = loaded.kind === "page" ? loaded.page.title.trim() : "";
   useEffect(() => {
-    document.title = title ? `${title} · Sikemux` : "Shared page · Sikemux";
+    document.title = title ? `${title} · Sikemux` : "Shared artifact · Sikemux";
   }, [title]);
 
   if (link && loaded.kind === "signIn")
     return (
       <Suspense fallback={null}>
-        <ShareSignIn lede="Sign in to Sikemux to read the page shared with you." />
+        <ShareSignIn lede="Sign in to Sikemux to read the artifact shared with you." />
       </Suspense>
     );
 
@@ -122,7 +122,7 @@ export default function SharedPage() {
       {loaded.kind === "page" ? (
         <iframe
           className="shared-page-frame"
-          title={title || "Shared page"}
+          title={title || "Shared artifact"}
           sandbox="allow-scripts"
           srcDoc={framed(loaded.page.html)}
         />
@@ -143,10 +143,10 @@ function PageState({ loaded }: { loaded: Loaded }) {
       {loading && <span className="chat-activity-loader" aria-hidden="true" />}
       <span>
         {loading
-          ? "Opening the shared page…"
+          ? "Opening the shared artifact…"
           : loaded.kind === "failed"
-            ? "The page didn’t load. Reload to try again."
-            : "This page isn’t shared any more."}
+            ? "The artifact didn’t load. Reload to try again."
+            : "This artifact isn’t shared any more."}
       </span>
     </div>
   );

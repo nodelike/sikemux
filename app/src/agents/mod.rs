@@ -1807,7 +1807,7 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .child(page(
             "page-pages",
             Icon::Presentation,
-            t!("Pages"),
+            t!("Artifacts"),
             TabRailPage::Pages,
             cx,
         ))

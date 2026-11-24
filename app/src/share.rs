@@ -420,12 +420,12 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
             t!("It shows everything the agent read and ran, including the contents of files and any secrets in them. The key stays in the link, so our server cannot read it."),
         ),
         (true, true) => (
-            t!("Anyone who has the link can view this page, without signing in."),
-            t!("The link shows the page's latest version, and Sikemux keeps the page while it is shared. It is sealed on this Mac with the key in the link, so our server cannot read it."),
+            t!("Anyone who has the link can view this artifact, without signing in."),
+            t!("The link shows the artifact's latest version, and Sikemux keeps the artifact while it is shared. It is sealed on this Mac with the key in the link, so our server cannot read it."),
         ),
         (true, false) => (
-            t!("Anyone signed in to Sikemux who has the link can view this page."),
-            t!("The link shows the page's latest version, and Sikemux keeps the page while it is shared. It is sealed on this Mac with the key in the link, so our server cannot read it."),
+            t!("Anyone signed in to Sikemux who has the link can view this artifact."),
+            t!("The link shows the artifact's latest version, and Sikemux keeps the artifact while it is shared. It is sealed on this Mac with the key in the link, so our server cannot read it."),
         ),
     };
     let body = dialog::marked_body()
@@ -508,7 +508,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     cx,
                 ));
             let title = match page {
-                true => t!("Share this page"),
+                true => t!("Share this artifact"),
                 false => t!("Share this chat read-only"),
             };
             (title, foot, create)

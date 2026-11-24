@@ -569,7 +569,7 @@ fn linked_page(call: &PersonCall, through: Through, cx: &mut App) -> Option<AnyE
     let rows: Vec<AnyElement> = (call.pages().enumerate())
         .map(|(at, page)| {
             let picture = cards.update(cx, |cards, cx| cards.page_picture(&page.id, target, cx));
-            let place = t!("@{name}'s page", name = owner.name).into();
+            let place = t!("@{name}'s artifact", name = owner.name).into();
             let open: std::rc::Rc<dyn Fn(&mut App)> = {
                 let (bench, call, page) = (bench.clone(), call.id.clone(), page.id.clone());
                 std::rc::Rc::new(move |cx| {

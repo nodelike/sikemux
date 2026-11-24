@@ -517,8 +517,8 @@
     },
     {
         "id": "window.pages",
-        "label": "Pages",
-        "detail": "Open the pages agents showed in the project, to find one, read it again or keep it",
+        "label": "Artifacts",
+        "detail": "Open the artifacts agents showed in the project, to find one, read it again or keep it",
         "category": "Navigation",
         "mac": "Meta+Alt+Digit8",
         "other": "Ctrl+Alt+Digit8"

@@ -37,7 +37,7 @@ pub(crate) struct Pages {
 
 impl Pages {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Workbench>) -> Self {
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Find a page")));
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Find an artifact")));
         let filtering = cx.subscribe(&filter, |bench, _, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
                 bench.redraw_rail(Rail::Agents, cx);
@@ -217,8 +217,8 @@ impl Workbench {
                 keep,
             });
         let what = match keep {
-            true => t!("The page was not kept"),
-            false => t!("The page was not let go"),
+            true => t!("The artifact was not kept"),
+            false => t!("The artifact was not let go"),
         };
         self.report(keeping, what, |_, _, _| {}, cx);
     }

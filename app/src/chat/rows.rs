@@ -1170,8 +1170,12 @@ fn worker_pages(
 ) -> AnyElement {
     let name = pages.first().map_or("", |page| page.name.as_str());
     let said = match pages.len() {
-        1 => t!("@{name} showed a page", name = name),
-        count => t!("@{name} showed {count} pages", name = name, count = count),
+        1 => t!("@{name} showed an artifact", name = name),
+        count => t!(
+            "@{name} showed {count} artifacts",
+            name = name,
+            count = count
+        ),
     };
     div()
         .flex()

@@ -2652,7 +2652,7 @@ impl Opening {
             Opening::File => t!("File"),
             Opening::Terminal => t!("Terminal"),
             Opening::Simulator => t!("Simulator"),
-            Opening::Pages => t!("Pages"),
+            Opening::Pages => t!("Artifacts"),
         }
     }
 

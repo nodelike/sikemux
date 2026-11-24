@@ -3433,54 +3433,54 @@
         }
       }
     },
-    "@{name} showed a page": {
+    "@{name} showed an artifact": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "@{name} a montré une page"
+            "value": "@{name} a montré un artefact"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "@{name} mostró una página"
+            "value": "@{name} mostró un artefacto"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "@{name} hat eine Seite gezeigt"
+            "value": "@{name} hat ein Artefakt gezeigt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "@{name} 展示了一个页面"
+            "value": "@{name} 展示了一个工件"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "@{name} がページを表示しました"
+            "value": "@{name} がアーティファクトを表示しました"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "@{name}이(가) 페이지를 보여 줬습니다"
+            "value": "@{name}이(가) 아티팩트를 보여 줬습니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "@{name} показал(а) страницу"
+            "value": "@{name} показал(а) артефакт"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "@{name} mostrou uma página"
+            "value": "@{name} mostrou um artefato"
           }
         }
       }
@@ -3537,54 +3537,54 @@
         }
       }
     },
-    "@{name}'s page": {
+    "@{name}'s artifact": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Page de @{name}"
+            "value": "Artefact de @{name}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Página de @{name}"
+            "value": "Artefacto de @{name}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seite von @{name}"
+            "value": "Artefakt von @{name}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "@{name} 的页面"
+            "value": "@{name} 的工件"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "@{name} のページ"
+            "value": "@{name} のアーティファクト"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "@{name}의 페이지"
+            "value": "@{name}의 아티팩트"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Страница @{name}"
+            "value": "Артефакт @{name}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Página de @{name}"
+            "value": "Artefato de @{name}"
           }
         }
       }
@@ -63545,54 +63545,54 @@
         }
       }
     },
-    "No pages yet": {
+    "No artifacts yet": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune page pour l'instant"
+            "value": "Aucun artefact pour l'instant"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aún no hay páginas"
+            "value": "Aún no hay artefactos"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noch keine Seiten"
+            "value": "Noch keine Artefakte"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "尚无页面"
+            "value": "尚无工件"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ページはまだありません"
+            "value": "アーティファクトはまだありません"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아직 페이지 없음"
+            "value": "아직 아티팩트 없음"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Страниц пока нет"
+            "value": "Артефактов пока нет"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhuma página ainda"
+            "value": "Nenhum artefato ainda"
           }
         }
       }
@@ -71501,54 +71501,54 @@
         }
       }
     },
-    "Open page": {
+    "Open artifact": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir la page"
+            "value": "Ouvrir l'artefact"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir página"
+            "value": "Abrir artefacto"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seite öffnen"
+            "value": "Artefakt öffnen"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开页面"
+            "value": "打开工件"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ページを開く"
+            "value": "アーティファクトを開く"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "페이지 열기"
+            "value": "아티팩트 열기"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открыть страницу"
+            "value": "Открыть артефакт"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir página"
+            "value": "Abrir artefato"
           }
         }
       }
@@ -147785,54 +147785,54 @@
         }
       }
     },
-    "page": {
+    "artifact": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "page"
+            "value": "artefact"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "página"
+            "value": "artefacto"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seite"
+            "value": "Artefakt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "页面"
+            "value": "工件"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ページ"
+            "value": "アーティファクト"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "페이지"
+            "value": "아티팩트"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "страница"
+            "value": "артефакт"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "página"
+            "value": "artefato"
           }
         }
       }

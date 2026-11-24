@@ -211,7 +211,7 @@ pub(super) fn no_page(cx: &App) -> Div {
         .justify_center()
         .gap(SPACE_2)
         .child(ui::icon(Icon::Presentation, 18.).text_color(Tokens::get(cx).text_disabled))
-        .child(ui::meta(t!("No pages yet"), cx))
+        .child(ui::meta(t!("No artifacts yet"), cx))
 }
 
 /// How long Sikemux keeps a page, as its header says.
