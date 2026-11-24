@@ -1802,15 +1802,7 @@ pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
 }
 
 fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
-    let t = Tokens::get(cx);
-    let (border, marked) = (t.border, t.warn);
-    let badges: Vec<String> = (bench.mods_here())
-        .filter_map(|shown| Some(format!("{} {}", shown.name, shown.badge.as_ref()?)))
-        .collect();
-    let mods = std::iter::once(t!("Mods").to_owned())
-        .chain(badges.iter().cloned())
-        .collect::<Vec<_>>()
-        .join(" · ");
+    let border = Tokens::get(cx).border;
     let page = |id: &'static str,
                 glyph: Icon,
                 label: SharedString,
@@ -1861,20 +1853,13 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
             TabRailPage::Pages,
             cx,
         ))
-        .child(
-            div()
-                .relative()
-                .child(page(
-                    "page-mods",
-                    Icon::Puzzle,
-                    mods.into(),
-                    TabRailPage::Mods,
-                    cx,
-                ))
-                .when(!badges.is_empty(), |tab| {
-                    tab.child(ui::corner_dot(marked, cx))
-                }),
-        )
+        .child(page(
+            "page-mods",
+            Icon::Puzzle,
+            t!("Mods").into(),
+            TabRailPage::Mods,
+            cx,
+        ))
 }
 
 /// The Files page's head, with the copy switch while the project has more than one copy.
