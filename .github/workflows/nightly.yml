@@ -50,7 +50,7 @@ jobs:
           MAX_ATTEMPTS: 4
         run: |
           shortage_only() {
-            local run_id="$1" attempt="$2"
+            local run_id="$1" attempt="$2" wf_path="$3" wf_sha="$4"
             local jobs_json bad_rows dropped_names=() rem_names=() rem_anns=()
             jobs_json="$(gh api --paginate "repos/$GH_REPO/actions/runs/$run_id/attempts/$attempt/jobs?per_page=100" --jq '.jobs[]' | jq -s '.')"
             bad_rows="$(jq -r '.[] | select(.conclusion != "success" and .conclusion != "skipped") |
@@ -70,8 +70,48 @@ jobs:
             done <<<"$bad_rows"
 
             (( ${#dropped_names[@]} > 0 )) || return 1
+            (( ${#rem_names[@]} > 0 )) || return 0
 
-            local i dropped explained
+            # Skipped jobs whose needs chain leads to a dropped job explain waiters on them too.
+            local wf_yaml skipped_by_drop=() skipped_line
+            wf_yaml="$(gh api -H "Accept: application/vnd.github.raw+json" "repos/$GH_REPO/contents/$wf_path?ref=$wf_sha")"
+            while IFS= read -r skipped_line; do
+              [[ -n "$skipped_line" ]] && skipped_by_drop+=("$skipped_line")
+            done < <(
+              JOBS_JSON="$jobs_json" DROPPED_NAMES="$(printf '%s\n' "${dropped_names[@]}")" \
+                ruby -ryaml -rjson -e '
+                  wf = YAML.safe_load(STDIN.read, aliases: true)
+                  jobs = JSON.parse(ENV.fetch("JOBS_JSON"))
+                  dropped = ENV.fetch("DROPPED_NAMES").split("\n").reject(&:empty?)
+                  patterns = (wf["jobs"] || {}).each_with_object({}) do |(id, j), h|
+                    tmpl = (j["name"] || id).to_s
+                    re = /\A#{tmpl.split(/\$\{\{.*?\}\}/, -1).map { |s| Regexp.escape(s) }.join(".*")}\z/
+                    h[id.to_s] = [re, tmpl, Array(j["needs"]).map(&:to_s)]
+                  end
+                  id_of = ->(name) do
+                    patterns.each { |id, (re, tmpl, _)| return id if re.match?(name) || id == name || name.start_with?("#{tmpl} / ") }
+                    nil
+                  end
+                  blocked = dropped.filter_map(&id_of).uniq
+                  skipped = jobs.select { |j| j["conclusion"] == "skipped" }.map { |j| j["name"] }
+                  out = []
+                  loop do
+                    added = false
+                    skipped.each do |name|
+                      next if out.include?(name)
+                      id = id_of.call(name)
+                      next unless id && !(patterns[id][2] & blocked).empty?
+                      out << name
+                      blocked << id unless blocked.include?(id)
+                      added = true
+                    end
+                    break unless added
+                  end
+                  puts out
+                ' <<<"$wf_yaml"
+            )
+
+            local i dropped skipped explained
             for i in "${!rem_names[@]}"; do
               explained=0
               for dropped in "${dropped_names[@]}"; do
@@ -81,16 +121,24 @@ jobs:
                   break
                 fi
               done
+              if (( !explained )); then
+                for skipped in "${skipped_by_drop[@]}"; do
+                  if grep -Fq "${skipped} ended with skipped, so " <<<"${rem_anns[$i]}"; then
+                    explained=1
+                    break
+                  fi
+                done
+              fi
               (( explained )) || return 1
             done
           }
 
           # Recover main's newest push CI run if it failed only because a runner was never acquired.
           ci_row="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=1" \
-            --jq '.workflow_runs[0] // empty | select(.status == "completed" and .conclusion == "failure") | "\(.id) \(.run_attempt)"')"
+            --jq '.workflow_runs[0] // empty | select(.status == "completed" and .conclusion == "failure") | "\(.id) \(.run_attempt) \(.path) \(.head_sha)"')"
           if [[ -n "$ci_row" ]]; then
-            read -r ci_id ci_attempt <<<"$ci_row"
-            if (( ci_attempt < MAX_ATTEMPTS )) && shortage_only "$ci_id" "$ci_attempt"; then
+            read -r ci_id ci_attempt ci_path ci_sha <<<"$ci_row"
+            if (( ci_attempt < MAX_ATTEMPTS )) && shortage_only "$ci_id" "$ci_attempt" "$ci_path" "$ci_sha"; then
               gh api -X POST "repos/$GH_REPO/actions/runs/$ci_id/rerun-failed-jobs"
               echo "Reran failed jobs of CI run $ci_id (attempt $((ci_attempt + 1))/$MAX_ATTEMPTS) after runner shortage" >>"$GITHUB_STEP_SUMMARY"
             else
@@ -130,10 +178,11 @@ jobs:
             fi
           else
             failed_row="$(jq -r '.workflow_runs[0] // empty | select(.conclusion == "failure") |
-              "\(.id) \(.run_attempt) \(.display_title | sub("^Release nightly from "; ""))"' <<<"$release_runs")"
+              "\(.id) \(.run_attempt) \(.path) \(.head_sha) \(.display_title | sub("^Release nightly from "; ""))"' <<<"$release_runs")"
             if [[ -n "$failed_row" ]]; then
-              read -r failed_id failed_attempt failed_sha <<<"$failed_row"
-              if (( failed_attempt < MAX_ATTEMPTS )) && is_newer "$failed_sha" "$last" && shortage_only "$failed_id" "$failed_attempt"; then
+              read -r failed_id failed_attempt failed_path failed_wf_sha failed_sha <<<"$failed_row"
+              if (( failed_attempt < MAX_ATTEMPTS )) && is_newer "$failed_sha" "$last" &&
+                shortage_only "$failed_id" "$failed_attempt" "$failed_path" "$failed_wf_sha"; then
                 gh api -X POST "repos/$GH_REPO/actions/runs/$failed_id/rerun-failed-jobs"
                 echo "Reran failed jobs of Release run $failed_id from $failed_sha (attempt $((failed_attempt + 1))/$MAX_ATTEMPTS) after runner shortage" >>"$GITHUB_STEP_SUMMARY"
                 exit 0

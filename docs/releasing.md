@@ -13,7 +13,7 @@ A run is titled with its tag, or with the commit for a nightly, and it stops if 
 
 1. **Build the helpers** compiles the voice and simulator helpers (`scripts/release.sh --stage helpers`).
 2. **Sign the helpers** signs them with the Developer ID (`scripts/sign-helper.sh`). The app is compiled with their SHA-256 and refuses any other download, so they are signed before it is built.
-3. **Build the app** starts compiling with the helpers, since only the helper crates and the app embed their hashes. Once the signed helpers arrive (`scripts/wait-for-artifact.sh`) it compiles the app around them (`scripts/release.sh --stage compile`), while **Build the Mac core** compiles the core, which does not embed their hashes. Once the core arrives, the same job builds the bundle and the DMG around both, ad hoc signed (`scripts/release.sh --stage package`, with the core handed over as `PREBUILT_CORE`).
+3. **Build the app** runs once the signed helpers are ready and compiles the app around them (`scripts/release.sh --stage compile`), while **Build the Mac core** compiles the core, which does not embed their hashes. Once the core arrives (`scripts/wait-for-artifact.sh`), the same job builds the bundle and the DMG around both, ad hoc signed (`scripts/release.sh --stage package`, with the core handed over as `PREBUILT_CORE`).
 4. **Sign and notarize the app** signs the app on a fresh machine with Apple's tools and a Tauri CLI pinned by hash, notarizes it, packs and signs the updater archive, and puts the signed app back into the DMG (`scripts/sign-mac.sh`).
 5. **Verify the signed release** checks every signature, notarization ticket, hash, architecture and size, starts the signed CLI and helpers, and writes `latest.json` (`scripts/verify-release.sh`).
 

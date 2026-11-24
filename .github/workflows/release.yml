@@ -387,14 +387,12 @@ jobs:
           if-no-files-found: error
           path: ${{ runner.temp }}/helpers.tar
 
-  # The build runs alongside the checks; only publishing waits for them.
-  # Starts with the helpers rather than after them: only the helper crates and the app take
-  # their hashes, so everything else compiles while they are signed. The core goes into the
-  # app only when it is packed, so the app compiles while the core does.
+  # The build runs alongside the checks and the Mac core; only publishing waits for the checks.
+  # The core goes into the app only when it is packed, so the app compiles while the core does.
   build:
     name: Build the app
-    needs: plan
-    if: *planned
+    needs: [plan, sign-helpers]
+    if: ${{ !cancelled() && needs.sign-helpers.result == 'success' }}
     env:
       CARGO_PROFILE_RELEASE_LTO: &lto ${{ needs.plan.outputs.channel == 'stable' && 'fat' || 'thin' }}
     runs-on: macos-26
@@ -438,23 +436,18 @@ jobs:
 
       - *keep_symbols
 
+      - name: Fetch helpers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: helpers
+          path: ${{ runner.temp }}/helpers
+
       - name: Compile the app around the signed helpers
         env:
           VERSION: ${{ needs.plan.outputs.version }}
           CHANNEL: ${{ needs.plan.outputs.channel }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p packaging/binaries
-          # The same build release.sh runs, with the environment it exports, so its work is reused.
-          set -m
-          (cd app && SIKEMUX_USAGE_REPORTING=app exec cargo build --release --locked --bin sikemux) &
-          early=$!
-          set +m
-          ./scripts/wait-for-artifact.sh helpers "$RUNNER_TEMP/helpers" "Build the helpers" "Sign the helpers"
-          # Finished crates are kept; the helper crates and the app rebuild with the hashes.
-          kill -TERM -- "-$early" 2>/dev/null || true
-          wait "$early" || true
-          while pgrep -g "$early" >/dev/null; do sleep 1; done
           tar -xmf "$RUNNER_TEMP/helpers/helpers.tar" -C packaging/binaries
           flags=(--publish --stage compile)
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
