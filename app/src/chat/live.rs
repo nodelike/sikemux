@@ -898,7 +898,7 @@ fn handoff(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
     ));
     let lead = match handoff.forked_from {
         Some(_) => t!(
-            "Forked from a {agent} chat",
+            "Forked from a chat with {agent}",
             agent = agent_label(&handoff.from)
         ),
         None => t!(

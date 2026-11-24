@@ -159,7 +159,7 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
         return;
     }
     let body = t!(
-        "A link asks to resume a {agent} chat in {folder}, which is not one of your projects.\nThe agent starts there at once and follows the folder's own settings and hooks. Go ahead only if you trust it.",
+        "A link asks to resume a chat with {agent} in {folder}, which is not one of your projects.\nThe agent starts there at once and follows the folder's own settings and hooks. Go ahead only if you trust it.",
         agent = bench.agent_name(&resume.provider),
         folder = resume.project.display(),
     );

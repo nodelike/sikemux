@@ -4161,7 +4161,7 @@
         }
       }
     },
-    "A link asks to resume a {agent} chat in {folder}, which is not one of your projects.\nThe agent starts there at once and follows the folder's own settings and hooks. Go ahead only if you trust it.": {
+    "A link asks to resume a chat with {agent} in {folder}, which is not one of your projects.\nThe agent starts there at once and follows the folder's own settings and hooks. Go ahead only if you trust it.": {
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -39365,7 +39365,7 @@
         }
       }
     },
-    "Forked from a {agent} chat": {
+    "Forked from a chat with {agent}": {
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -184185,54 +184185,54 @@
         }
       }
     },
-    "{agent} signs in with its own login. Sikemux runs it for you.": {
+    "Runs {agent}'s own login.": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} se connecte avec son propre identifiant. Sikemux l'exécute pour vous."
+            "value": "Lance la connexion officielle de {agent}."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} inicia sesión con su propio acceso. Sikemux lo ejecuta por ti."
+            "value": "Ejecuta el inicio de sesión propio de {agent}."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} meldet sich mit seinem eigenen Login an. Sikemux führt ihn für dich aus."
+            "value": "Führt den eigenen Login von {agent} aus."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} 使用其自有账号登录。Sikemux 替你运行它。"
+            "value": "运行 {agent} 自带的登录程序。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} は独自のログインでサインインします。Sikemux が代わりに実行します。"
+            "value": "{agent} 公式のログインを実行します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent}은(는) 자체 로그인을 사용합니다. Sikemux가 대신 실행합니다."
+            "value": "{agent} 자체 로그인을 실행합니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} входит под своей учётной записью. Sikemux запускает его за вас."
+            "value": "Запускает собственный вход {agent}."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "{agent} entra com o próprio login. O Sikemux executa para você."
+            "value": "Executa o próprio login do {agent}."
           }
         }
       }

@@ -911,10 +911,7 @@ fn body(
         ),
         false => (
             t!("Sign in to {agent}", agent = label),
-            t!(
-                "{agent} signs in with its own login. Sikemux runs it for you.",
-                agent = label
-            ),
+            t!("Runs {agent}'s own login.", agent = label),
         ),
     };
     let on = |run: fn(&mut Workbench, &mut Context<Workbench>)| {
