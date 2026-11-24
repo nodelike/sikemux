@@ -75,7 +75,7 @@ fn row(
     let line: SharedString = match (&connector.state, &stand, &failed) {
         (SignInState::SignedIn, ..) => t!("Signed in").into(),
         (_, _, Some(reason)) => reason.clone(),
-        (_, Some(Stand::Busy), _) => t!("Signing in").into(),
+        (_, Some(Stand::Busy), _) => t!("Signing in…").into(),
         _ => t!("Not signed in").into(),
     };
     let line_ink = match failed {
@@ -128,7 +128,11 @@ fn row(
                 .bg(t.surface_hover)
                 .border(crate::theme::border())
                 .border_color(t.line_soft)
-                .child(ui::picture(mark(&connector.id), 16., t.text_secondary)),
+                .child(ui::picture(
+                    connector_sign_in::mark(&connector.id),
+                    16.,
+                    t.text_secondary,
+                )),
         )
         .child(
             div()
@@ -169,10 +173,4 @@ fn done(card: &SignInCard, looks: &Drawn, cx: &App) -> AnyElement {
                 .child(t!("· @{name} carried on", name = card.name.clone())),
         )
         .into_any_element()
-}
-
-fn mark(id: &str) -> Icon {
-    id.strip_prefix("sikemux.")
-        .and_then(Icon::named)
-        .unwrap_or(Icon::Plug)
 }

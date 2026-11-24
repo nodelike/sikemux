@@ -12,5 +12,12 @@
       { "say": "Jira and Vercel both refuse my calls until you sign in again.", "perSecond": 40 },
       { "tool": "mcp__sikemux-tools__sign_in", "call": "plugins.signin", "input": { "connectors": ["jira", "vercel"], "why": "to read the sprint's tickets and the last deploy" }, "ms": 400 }
     ]
+  },
+  {
+    "when": "broke checkout",
+    "steps": [
+      { "say": "SigNoz has no key here, so I can't read last night's logs.", "perSecond": 40 },
+      { "tool": "mcp__sikemux-tools__sign_in", "call": "plugins.signin", "input": { "connectors": ["signoz"], "why": "to read last night's checkout logs" }, "ms": 400 }
+    ]
   }
 ]

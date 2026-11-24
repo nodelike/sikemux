@@ -13,9 +13,19 @@ chat Kaguya
 title "Release notes"
 say "Write the release notes from Jira and the last Vercel deploy"
 settle 6
+chat Osono
+title "Checkout errors"
+say "Find what broke checkout last night"
+settle 6
 front Wren
 settle 2
 snap sign-in-one
 front Kaguya
 settle 2
 snap sign-in-two
+front Osono
+settle 2
+snap sign-in-key
+click "Sign in"
+settle 2
+snap sign-in-box
