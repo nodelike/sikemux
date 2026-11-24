@@ -307,6 +307,7 @@ export function Popover({
     name: ReactNode;
     detail?: ReactNode;
     chosen?: boolean;
+    bad?: boolean;
     choose: () => void;
   }[];
   disabled?: boolean;
@@ -346,6 +347,7 @@ export function Popover({
             <button
               key={option.key}
               type="button"
+              className={option.bad ? "bad" : undefined}
               role="menuitemradio"
               aria-checked={option.chosen ?? false}
               onClick={() => {

@@ -1,4 +1,10 @@
-import type { Org, OrgOffer, OrgRole } from "@sikemux/protocol";
+import type {
+  Org,
+  OrgOffer,
+  OrgPolicy,
+  OrgRole,
+  TeamAccess,
+} from "@sikemux/protocol";
 import { useCallback, useEffect, useEffectEvent, useState } from "react";
 
 import { problemText } from "./api.ts";
@@ -18,6 +24,10 @@ export const runs = (org: Org) => org.role === "owner" || org.role === "admin";
 
 /** An org whose plan ended keeps everything, but takes nobody new and changes nothing. */
 export const frozen = (org: Org) => org.seats.limit === 0;
+
+/** Whether the org takes changes from someone Team is open to this way. */
+export const changeable = (org: Org, team: TeamAccess) =>
+  !frozen(org) && (team === "preview" || team === "sold");
 
 /** Whether someone with `actor`'s role may change, remove or invite someone with `role`, as the API decides it. */
 export function manages(actor: OrgRole, role: OrgRole): boolean {
@@ -82,23 +92,29 @@ export function useOffers(ready: boolean) {
   return { offers, reload };
 }
 
-/** Loads what a page shows, again whenever `key` changes. */
+/** Loads what a page shows, again whenever `key` changes or `again` is called. */
 export function useLoad<T>(load: () => Promise<T>, key: string) {
   const [state, setState] = useState<{ data?: T; problem?: string }>({});
+  const [round, setRound] = useState(0);
   const loadNow = useEffectEvent(load);
   useEffect(() => {
     let current = true;
     loadNow().then(
       (data) => current && setState({ data }),
-      (error: unknown) =>
-        current &&
-        setState({
-          problem: `${problemText(error)} Reload the page to try again.`,
-        }),
+      (error: unknown) => current && setState({ problem: problemText(error) }),
     );
     return () => {
       current = false;
     };
-  }, [key]);
-  return state;
+  }, [key, round]);
+  const again = useCallback(() => setRound((last) => last + 1), []);
+  return { ...state, again };
 }
+
+export const RULE_WORDS: Record<OrgPolicy["ruleAdding"], string> = {
+  every_member: "Every member",
+  admins_approve: "Admins approve first",
+};
+
+export const possessive = (name: string) =>
+  name.endsWith("s") ? `${name}'` : `${name}'s`;

@@ -5,10 +5,11 @@ import type {
   Org,
   PlanFeature,
 } from "@sikemux/protocol";
-import { IconLock } from "@shared/ui/Icons";
-import { useEffect, useState } from "react";
+import { IconCreditCard, IconLock } from "@shared/ui/Icons";
+import { useState } from "react";
 
 import { problemText } from "./api.ts";
+import { OrgAvatar } from "./Avatar.tsx";
 import { NewTeam, useCheckout, useClient } from "./Billing.tsx";
 import { BilledSwitch } from "./BilledSwitch.tsx";
 import {
@@ -21,8 +22,19 @@ import {
   UNIT_WORD,
 } from "./money.ts";
 import { PlanCard, type CardLine } from "./PlanCard.tsx";
-import { useOrgs } from "./OrgPages.tsx";
-import { PageHead, Row, Rows, Section, useAction, useNotice } from "./old.tsx";
+import { iconMark } from "./marks.ts";
+import { useLoad } from "./orgs.ts";
+import {
+  Btn,
+  Card,
+  Page,
+  Problem,
+  Row,
+  Rows,
+  Tile,
+  useAction,
+  useToast,
+} from "./ui.tsx";
 
 type Built = "" | "partly" | "not built" | "later";
 
@@ -71,62 +83,56 @@ const TAGS: Record<string, string> = {
   team: "What a company pays for",
 };
 
-type Load =
-  | { state: "loading" }
-  | { state: "failed"; problem: string }
-  | { state: "loaded"; catalog: BillingCatalog };
-
-export function PricingPage() {
+export function PricingPage({
+  orgs,
+  reload,
+}: {
+  orgs: Org[];
+  reload: () => Promise<void>;
+}) {
   const client = useClient();
-  const [load, setLoad] = useState<Load>({ state: "loading" });
   const [interval, setInterval] = useState<BillingInterval>("month");
-
-  useEffect(() => {
-    let current = true;
-    void client("see the prices")
-      .then((routes) => routes.getBillingCatalog())
-      .then(
-        (catalog) => current && setLoad({ state: "loaded", catalog }),
-        (error: unknown) =>
-          current &&
-          setLoad({
-            state: "failed",
-            problem: `${problemText(error)} Reload the page to try again.`,
-          }),
-      );
-    return () => {
-      current = false;
-    };
-  }, [client]);
-
+  const loaded = useLoad(
+    async () => (await client("see the prices")).getBillingCatalog(),
+    "",
+  );
+  const catalog = loaded.data;
   return (
-    <>
-      <div className="staff-only">
-        <IconLock size={13} />
-        Staff only. Not linked from sikemux.com. Build marks are for us.
-      </div>
-      <PageHead title="Pricing">
-        The app stays free and MIT. Paying is only for what costs us money to
-        run.
-      </PageHead>
-      {load.state === "loading" ? (
-        <p className="quiet">Loading prices…</p>
-      ) : load.state === "failed" ? (
-        <p className="problem" role="alert">
-          {load.problem}
-        </p>
+    <Page
+      title={loaded.problem ? "Prices didn't load" : "Pricing"}
+      lede="The app stays free and MIT. Paying is only for what costs us money to run."
+      actions={
+        loaded.problem ? (
+          <Btn onClick={loaded.again}>Try again</Btn>
+        ) : (
+          <p className="note staff-only">
+            <IconLock size={13} />
+            Staff only. Not linked from sikemux.com. Build marks are for us.
+          </p>
+        )
+      }
+      mark={iconMark("tag")}
+      scene="plan"
+      tone={loaded.problem ? "failed" : undefined}
+    >
+      {loaded.problem ? (
+        <Card label="Plans">
+          <Problem>{loaded.problem}</Problem>
+        </Card>
+      ) : !catalog ? (
+        <Card label="Plans" busy />
       ) : (
-        <div className="groups">
+        <>
           <Plans
-            catalog={load.catalog}
+            catalog={catalog}
             interval={interval}
             setInterval={setInterval}
           />
-          <Shed catalog={load.catalog} interval={interval} />
-          <TeamTests catalog={load.catalog} />
-        </div>
+          <Shed catalog={catalog} interval={interval} />
+          <TeamTests catalog={catalog} orgs={orgs} reload={reload} />
+        </>
       )}
-    </>
+    </Page>
   );
 }
 
@@ -140,7 +146,7 @@ function Plans({
   setInterval: (interval: BillingInterval) => void;
 }) {
   return (
-    <Section
+    <Card
       label="Plans"
       aside={<BilledSwitch interval={interval} onChange={setInterval} />}
     >
@@ -199,7 +205,7 @@ function Plans({
           );
         })}
       </div>
-    </Section>
+    </Card>
   );
 }
 
@@ -213,8 +219,8 @@ function Shed({
   const boxes = catalog.products.filter((product) => product.kind === "shed");
   if (boxes.length === 0) return null;
   return (
-    <Section label="Shed · add-on · any plan, Free included">
-      <p className="section-lede">
+    <Card label="Shed · add-on · any plan, Free included">
+      <p className="note">
         A Linux box we run, joined to your account. Buy one or several by the
         box. You sign in to Claude Code and Codex on it with your own plans.
       </p>
@@ -228,7 +234,7 @@ function Shed({
               name={
                 <>
                   {product.name}
-                  <Mark built="not built" />
+                  <BuiltMark built="not built" />
                 </>
               }
               price={price}
@@ -241,7 +247,7 @@ function Shed({
           );
         })}
       </div>
-    </Section>
+    </Card>
   );
 }
 
@@ -267,12 +273,12 @@ function Feature({ text, built }: { text: string; built: Built }) {
   return (
     <>
       {text}
-      <Mark built={built} />
+      <BuiltMark built={built} />
     </>
   );
 }
 
-function Mark({ built }: { built: Built }) {
+function BuiltMark({ built }: { built: Built }) {
   return built ? (
     <span className="built" data-built={built}>
       {built}
@@ -281,59 +287,67 @@ function Mark({ built }: { built: Built }) {
 }
 
 /** Billing's tests: the checkout nobody in the free preview meets, and taking an org off it. */
-function TeamTests({ catalog }: { catalog: BillingCatalog }) {
-  const { orgs, reload } = useOrgs();
+function TeamTests({
+  catalog,
+  orgs,
+  reload,
+}: {
+  catalog: BillingCatalog;
+  orgs: Org[];
+  reload: () => Promise<void>;
+}) {
   const checkout = useCheckout();
-  const { notice, show } = useNotice();
+  const say = useToast();
   const [naming, setNaming] = useState(false);
-  const bought = orgs?.filter((org) => org.role === "owner" && !org.preview);
+  const bought = orgs.filter((org) => org.role === "owner" && !org.preview);
   return (
-    <Section label="Team tests">
+    <Card label="Team tests">
       <Rows>
         <Row
-          label="Test checkout"
-          action={
+          wrap
+          lead={
+            <Tile>
+              <IconCreditCard size={14} />
+            </Tile>
+          }
+          name="Test checkout"
+          detail="Makes an org and buys it a Team plan with a test card."
+          end={
             naming ? null : (
-              <button
-                type="button"
-                className="button small"
+              <Btn
+                small
+                quiet
                 onClick={() => {
                   checkout.clear();
                   setNaming(true);
                 }}
               >
                 Test checkout
-              </button>
+              </Btn>
             )
           }
-          below={
-            naming ? (
-              <NewTeam
-                catalog={catalog}
-                checkout={checkout}
-                submit="Go to checkout"
-                onCancel={() => setNaming(false)}
-              />
-            ) : null
-          }
         >
-          <span className="quiet">
-            Makes an org and buys it a Team plan with a test card.
-          </span>
+          {naming ? (
+            <NewTeam
+              catalog={catalog}
+              checkout={checkout}
+              submit="Go to checkout"
+              onCancel={() => setNaming(false)}
+            />
+          ) : null}
         </Row>
-        {bought?.map((org) => (
+        {bought.map((org) => (
           <MoveToPreview
             key={org.id}
             org={org}
             onMoved={(moved) => {
-              show(`${moved.name} is in the free preview`);
-              reload();
+              say(`${moved.name} is in the free preview`);
+              void reload();
             }}
           />
         ))}
       </Rows>
-      {notice}
-    </Section>
+    </Card>
   );
 }
 
@@ -348,13 +362,15 @@ function MoveToPreview({
   const action = useAction();
   return (
     <Row
-      label={org.name}
-      action={
-        <button
-          type="button"
-          className="button small"
-          disabled={action.busy}
-          data-busy={action.busy || undefined}
+      wrap
+      lead={<OrgAvatar id={org.id} size={20} />}
+      name={org.name}
+      detail="Keeps the org and everything in it, and ends its test plan."
+      end={
+        <Btn
+          small
+          quiet
+          busy={action.busy}
           onClick={() =>
             void action.run(
               async () => {
@@ -366,19 +382,10 @@ function MoveToPreview({
           }
         >
           Move to the free preview
-        </button>
-      }
-      below={
-        action.problem ? (
-          <p className="problem" role="alert">
-            {action.problem}
-          </p>
-        ) : null
+        </Btn>
       }
     >
-      <span className="quiet">
-        Keeps the org and everything in it, and ends its test plan.
-      </span>
+      {action.problem ? <Problem>{action.problem}</Problem> : null}
     </Row>
   );
 }

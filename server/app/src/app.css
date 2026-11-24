@@ -694,6 +694,9 @@ canvas.dots {
 .pop button > svg {
   color: var(--acc);
 }
+.pop button.bad b {
+  color: var(--bad-ink);
+}
 .pop b {
   font-weight: 500;
 }
@@ -772,7 +775,7 @@ canvas.dots {
 }
 .rail .orgs {
   flex: 0 1 auto;
-  min-height: 120px;
+  min-height: 0;
   overflow: auto;
   scrollbar-width: none;
 }
@@ -1091,7 +1094,19 @@ canvas.dots {
 .full-err {
   grid-column: 1/-1;
 }
+.linkbox {
+  display: flex;
+  align-items: center;
+  min-height: var(--ctl);
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: var(--r);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--fline);
+  overflow-wrap: anywhere;
+}
 .form {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -1448,7 +1463,7 @@ canvas.dots {
   overflow-x: hidden;
   display: grid;
   grid-template-rows: 1fr auto;
-  --ending-bg: #0b0b0e;
+  --ending-bg: #09090b;
   background: var(--ending-bg);
 }
 
@@ -1604,4 +1619,42 @@ canvas.dots {
     scale: 0.8;
     margin: -26px 0 -8px;
   }
+}
+
+.after {
+  grid-column: 1 / -1;
+}
+.box .line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+.box .line > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.box > form {
+  display: contents;
+}
+.staff-only {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.plan-cards.three {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+}
+.built {
+  margin-left: 8px;
+  color: var(--two);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.built[data-built="partly"] {
+  color: var(--warn-ink);
+}
+.runs-on {
+  color: var(--two);
+  font-size: 12px;
 }

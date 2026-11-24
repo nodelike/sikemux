@@ -213,11 +213,11 @@ export function Account({
         }}
       />
     ) : current.page === "domains" ? (
-      <DomainsPage key={current.org.id} org={current.org} />
+      <DomainsPage key={current.org.id} org={current.org} team={team} />
     ) : current.page === "audit-log" ? (
       <AuditLogPage key={current.org.id} org={current.org} />
     ) : current.page === "policy" ? (
-      <PolicyPage key={current.org.id} org={current.org} />
+      <PolicyPage key={current.org.id} org={current.org} team={team} />
     ) : (
       <OrgBillingPage
         key={current.org.id}
@@ -233,7 +233,7 @@ export function Account({
       </Card>
     </Page>
   ) : page === PRICING ? (
-    <PricingPage />
+    <PricingPage orgs={orgs.list ?? []} reload={orgs.reload} />
   ) : page === BILLING ? (
     <BillingPage
       version={planVersion}
