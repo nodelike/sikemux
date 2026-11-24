@@ -628,9 +628,47 @@ pub fn overlay(
     )
 }
 
+/// The box over the window while this host signs in to the person's Sikemux account in the
+/// browser.
+pub fn sign_in_box(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    if !bench.signing_in {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let this = cx.entity();
+    let cancel = {
+        let this = this.clone();
+        move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| this.update(cx, stop_sign_in)
+    };
+    let screen = ui::sign_in::Screen::new(
+        "sikemux-sign-in",
+        ui::picture(Icon::Logo, 26., t.text_primary),
+        t!("Sign in to Sikemux"),
+    )
+    .lede(t!("Your phone finds this host through it."))
+    .child(ui::sign_in::waiting(
+        "sikemux-sign-in-waiting",
+        t!("Finish signing in in your browser"),
+        cancel,
+        cx,
+    ));
+    let no: ui::dialog::Answer = std::rc::Rc::new(move |_, cx| this.update(cx, stop_sign_in));
+    let body = div().px(px(4.)).pt(px(4.)).child(screen);
+    Some(
+        ui::dialog::floating(px(440.), body, std::rc::Rc::new(|_, _| {}), no, cx)
+            .into_any_element(),
+    )
+}
+
+fn stop_sign_in(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    bench.cancel_sign_in();
+    cx.notify();
+}
+
 impl Workbench {
-    pub fn sign_in(&mut self) {
+    pub fn sign_in(&mut self, cx: &mut Context<Self>) {
         self.signing_in = true;
+        cx.notify();
         Target::here(&self.asks).answer::<call::AccountSignIn>(Read::SignIn, NoParams {});
     }
 

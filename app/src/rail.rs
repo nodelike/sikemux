@@ -1830,8 +1830,7 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
                 cx.notify();
             })),
         false => Row::new("account", t!("Sign in")).on_click(cx.listener(|bench, _, _, cx| {
-            bench.sign_in();
-            cx.notify();
+            bench.sign_in(cx);
         })),
     };
     div().flex_1().min_w_0().child(

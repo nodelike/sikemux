@@ -195,7 +195,7 @@ pub(super) fn fixes(
         Some((ReachStep::Account, Some(StepWhy::SignedOut | StepWhy::RemovedFromAccount))) => fixes
             .push(
                 primary("diagnosis-sign-in", t!("Sign in"))
-                    .on_click(cx.listener(|bench, _, _, _| bench.sign_in()))
+                    .on_click(cx.listener(|bench, _, _, cx| bench.sign_in(cx)))
                     .into_any_element(),
             ),
         Some((ReachStep::Path | ReachStep::Core, _)) => {

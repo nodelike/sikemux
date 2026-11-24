@@ -103,7 +103,7 @@ fn sign_in_panel(
                 })
             }),
         false => ui::Button::new("devices-sign-in", t!("Sign in"), ui::Variant::Primary)
-            .on_click(move |_, _, cx| this.update(cx, |bench, _| bench.sign_in())),
+            .on_click(move |_, _, cx| this.update(cx, |bench, cx| bench.sign_in(cx))),
     };
     div()
         .flex()

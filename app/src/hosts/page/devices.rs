@@ -280,7 +280,7 @@ fn empty(bench: &Workbench, none_at_all: bool, t: &Tokens, cx: &mut Context<Work
         .when(!signed_in(bench) && bench.this_view().is_some(), |empty| {
             empty.child(
                 Button::new("devices-sign-in", t!("Sign in"), Variant::Primary)
-                    .on_click(cx.listener(|bench, _, _, _| bench.sign_in())),
+                    .on_click(cx.listener(|bench, _, _, cx| bench.sign_in(cx))),
             )
         })
 }
