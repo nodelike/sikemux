@@ -5,6 +5,8 @@ packages:
 catalog:
   '@types/react': ~19.2.2
   typescript: ~6.0.3
+overrides:
+  'uuid@<11.1.1': ^11.1.1
 patchedDependencies:
   'expo-router@57.0.24': patches/expo-router@57.0.24.patch
   '@shopify/flash-list@2.3.3': patches/@shopify__flash-list@2.3.3.patch
