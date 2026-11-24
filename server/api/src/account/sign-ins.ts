@@ -482,7 +482,12 @@ async function endSessions(
           made_at: session.createdAt,
         })),
       )
-      .onConflict((oc) => oc.column("session_id").doNothing())
+      .onConflict((oc) =>
+        oc.column("session_id").doUpdateSet({
+          cause: "work_address",
+          made_at: sql<Date>`least(ended_sessions.made_at, excluded.made_at)`,
+        }),
+      )
       .execute();
     const added = await trx
       .selectFrom("devices")

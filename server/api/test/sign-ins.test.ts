@@ -261,6 +261,32 @@ it("takes off a host a Mac signed in during the Acme session approved, and the h
     expect((await signedAsHost(app, host)).status).toBe(401);
 });
 
+it("finishes no code a Mac signed in during the Acme session approved, though its phone was removed and came back", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  const app = testApp(database, undefined, { clerk });
+  const phone = await registered(app, MAYA, "client", {
+    sessionId: "sess_work",
+  });
+  const mac = await signInMac(app, MAYA);
+  clerk.failing = true;
+  await caller(app)(`/v1/devices/${phone.key}`, await sessionToken(MAYA), {
+    method: "DELETE",
+  });
+  clerk.failing = false;
+  await registered(app, MAYA, "client", {
+    device: phone,
+    sessionId: "sess_own",
+  });
+  const { finish } = await codeApprovedFromHost(app, mac);
+
+  await stripWorkSignIns(database.db, clerk, null, log, MAYA);
+
+  expect((await finish()).status).toBe(401);
+});
+
 it("adds no Mac while Clerk has yet to end the Acme session", async () => {
   const { clerk, added } = await mayaWithAcmeAddress();
   clerk.userSessions.set(MAYA, [
@@ -411,6 +437,15 @@ async function approvedFromHost(
   app: ReturnType<typeof testApp>,
   approver: TestDevice,
 ) {
+  const { host, finish } = await codeApprovedFromHost(app, approver);
+  expect((await finish()).status).toBe(201);
+  return host;
+}
+
+async function codeApprovedFromHost(
+  app: ReturnType<typeof testApp>,
+  approver: TestDevice,
+) {
   const host = newDevice();
   const post = (path: string, json: unknown) =>
     app.request(path, {
@@ -438,13 +473,16 @@ async function approvedFromHost(
     await post("/v1/host-sign-ins/poll", { code }),
     "HostSignInState",
   );
-  const finished = await post("/v1/host-sign-ins/finish", {
-    code,
-    nonce,
-    signature: signText(host, registrationMessage(nonce ?? "", MAYA, host.key)),
-  });
-  expect(finished.status).toBe(201);
-  return host;
+  const finish = () =>
+    post("/v1/host-sign-ins/finish", {
+      code,
+      nonce,
+      signature: signText(
+        host,
+        registrationMessage(nonce ?? "", MAYA, host.key),
+      ),
+    });
+  return { host, finish };
 }
 
 let signed = 0;
