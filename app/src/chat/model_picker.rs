@@ -1342,7 +1342,7 @@ impl Menu {
                             (menu.close)(window, cx);
                             if let Some(bench) = menu.bench.upgrade() {
                                 bench.update(cx, |bench, cx| {
-                                    setup::show_install(bench, provider, window, cx)
+                                    setup::show_install(bench, provider, cx)
                                 });
                             }
                         }),

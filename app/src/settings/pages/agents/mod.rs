@@ -96,15 +96,3 @@ pub(super) fn stale(fields: &Fields, page: Page) -> bool {
 
 pub(crate) use accounts::dialog as account_dialog;
 pub(super) use providers::rebuild_choices;
-
-/// The install or sign-in sheet, over whichever page is open.
-pub fn dialogs(
-    bench: &Workbench,
-    this: &Entity<Workbench>,
-    window: &Window,
-    cx: &mut Context<Workbench>,
-) -> Vec<AnyElement> {
-    crate::agents::setup::sheet(bench, this, window, cx)
-        .into_iter()
-        .collect()
-}

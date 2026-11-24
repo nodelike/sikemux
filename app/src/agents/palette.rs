@@ -57,7 +57,7 @@ impl Workbench {
             AGENT_PALETTE,
             t!("search agents"),
             rows,
-            move |row, bench, window, cx| {
+            move |row, bench, _, cx| {
                 let key: &str = &row.key;
                 if let Some(launcher) = key.strip_prefix(NEW) {
                     let provider = launcher_of(bench, launcher)
@@ -79,9 +79,9 @@ impl Workbench {
                         Some(launch_mode),
                     );
                 } else if let Some(launcher) = key.strip_prefix(SIGN_IN) {
-                    sign_in(bench, launcher, window, cx);
+                    sign_in(bench, launcher, cx);
                 } else if let Some(launcher) = key.strip_prefix(INSTALL) {
-                    install(bench, launcher, window, cx);
+                    install(bench, launcher, cx);
                 } else if let Some(agent) = key.strip_prefix(OPEN) {
                     bench.open_found_agent(agent, cx);
                 } else if let Some(id) = key.strip_prefix(RESUME) {
@@ -273,17 +273,12 @@ fn launcher_of<'a>(bench: &'a Workbench, id: &str) -> Option<&'a LauncherInfo> {
 
 /// Signs the launcher's agent in: the core does it for the agents whose accounts it keeps,
 /// and the agent's own command runs in Settings › Agents for the rest.
-fn sign_in(
-    bench: &mut Workbench,
-    launcher: &str,
-    window: &mut Window,
-    cx: &mut Context<Workbench>,
-) {
+fn sign_in(bench: &mut Workbench, launcher: &str, cx: &mut Context<Workbench>) {
     let Some(provider) = launcher_of(bench, launcher).map(|known| known.provider.clone()) else {
         return;
     };
     // An agent with accounts is signed in by the core; the rest sign in with their own command,
-    // in the sheet Settings › Agents shows.
+    // in the box over the window.
     if bench
         .reads
         .catalog
@@ -297,7 +292,6 @@ fn sign_in(
             });
         return;
     }
-    bench.open_settings(crate::settings::Page::Agents, window, cx);
     let folder = bench
         .accounts
         .current(&provider)
@@ -314,13 +308,8 @@ fn sign_in(
     }
 }
 
-/// Runs the agent's installer in Settings › Agents, as the agent's own sign-in runs there.
-fn install(
-    bench: &mut Workbench,
-    launcher: &str,
-    window: &mut Window,
-    cx: &mut Context<Workbench>,
-) {
+/// Runs the agent's installer in the box over the window.
+fn install(bench: &mut Workbench, launcher: &str, cx: &mut Context<Workbench>) {
     let Some(launcher) = launcher_of(bench, launcher).cloned() else {
         return;
     };
@@ -333,7 +322,6 @@ fn install(
         return;
     };
     let sheet = crate::agents::setup::installer(&launcher.provider, &launcher.label, command);
-    bench.open_settings(crate::settings::Page::Agents, window, cx);
     crate::agents::setup::run(bench, sheet, cx);
 }
 

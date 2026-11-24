@@ -436,10 +436,10 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
             let failed = installing == Some(Some(Installing::Failed));
             let open = {
                 let (this, agent) = (this.clone(), agent.clone());
-                move |_: &gpui_kit::ClickEvent, window: &mut Window, cx: &mut gpui_kit::App| {
+                move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut gpui_kit::App| {
                     this.update(cx, |bench, cx| {
                         bench.overlays.adding_provider = None;
-                        setup::show_install(bench, &agent, window, cx)
+                        setup::show_install(bench, &agent, cx)
                     })
                 }
             };

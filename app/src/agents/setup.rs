@@ -1,13 +1,12 @@
 //! Every agent Sikemux can set up here, as the core lists them, and installs and
-//! sign-ins run with the agent's own command where the person can watch it: in a
-//! sheet over Settings, or under the list of agents in the first-run setup.
+//! sign-ins run with the agent's own command where the person can watch it, in a box
+//! over the window.
 
 use std::collections::HashMap;
 
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    anchored, deferred, div, point, px, AnchoredPositionMode, AnyElement, Context, Div, Entity,
-    FocusHandle, Hsla, InteractiveElement, IntoElement, ParentElement, Stateful, Styled, Window,
+    anchored, deferred, div, point, px, AnchoredPositionMode, AnyElement, Context, Entity,
+    FocusHandle, Hsla, InteractiveElement, IntoElement, ParentElement, Styled, Window,
 };
 use sikemux_agents::agent_accounts::status::AgentStatus;
 use sikemux_agents::agent_accounts::status::FREE_MODELS;
@@ -24,11 +23,15 @@ use tokio::sync::oneshot;
 
 use crate::core::{Ask, Target, TerminalAsk};
 use crate::hosts::Place;
-use crate::theme::{
-    self, Tokens, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM, TEXT_XS,
-};
+use crate::theme::{self, Tokens, SPACE_2};
 use crate::ui;
+use crate::ui::sign_in;
+use crate::ui::Clicks;
 use crate::workbench::Workbench;
+
+const BOX_WIDTH: f32 = 620.;
+const TERMINAL_WIDTH: f32 = 572.;
+const TERMINAL_HEIGHT: f32 = 220.;
 
 pub struct Found {
     pub kind: String,
@@ -102,6 +105,8 @@ pub struct Sheet {
     session: Option<SessionId>,
     /// The core has listed its session, so its leaving the list means it ended.
     seen: bool,
+    /// Its terminal has been handed the keys once.
+    focused: std::cell::Cell<bool>,
     phase: Phase,
 }
 
@@ -511,6 +516,7 @@ pub fn installer(kind: &str, label: &str, command: String) -> Sheet {
         command,
         session: None,
         seen: false,
+        focused: std::cell::Cell::new(false),
         phase: Phase::Running,
     }
 }
@@ -546,6 +552,7 @@ pub fn signing_in(agent: &Found, folder: Option<&str>) -> Option<Sheet> {
         command,
         session: None,
         seen: false,
+        focused: std::cell::Cell::new(false),
         phase: Phase::Running,
     })
 }
@@ -582,14 +589,9 @@ pub fn cancel_behind(bench: &mut Workbench, kind: &str, cx: &mut Context<Workben
     redraw(bench, cx);
 }
 
-/// Shows the install of `kind` that ran with no sheet in Settings › Agents, where its output
-/// says why it stopped.
-pub fn show_install(
-    bench: &mut Workbench,
-    kind: &str,
-    window: &mut Window,
-    cx: &mut Context<Workbench>,
-) {
+/// Shows the install of `kind` that ran with no sheet in the box over the window, where its
+/// output says why it stopped.
+pub fn show_install(bench: &mut Workbench, kind: &str, cx: &mut Context<Workbench>) {
     let Some(at) = bench
         .agent_setup
         .behind
@@ -600,7 +602,6 @@ pub fn show_install(
     };
     let sheet = bench.agent_setup.behind.remove(at);
     bench.agent_setup.sheet = Some(sheet);
-    bench.open_settings(crate::settings::Page::Agents, window, cx);
     redraw(bench, cx);
 }
 
@@ -816,6 +817,7 @@ fn again(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     };
     sheet.session = None;
     sheet.seen = false;
+    sheet.focused.set(false);
     sheet.phase = Phase::Running;
     run(bench, sheet, cx);
 }
@@ -866,144 +868,125 @@ fn state(sheet: &Sheet) -> String {
     }
 }
 
-/// The running command's title, terminal, state and buttons.
+/// The sign-in box's words, terminal, state and buttons for the running command.
 fn body(
     bench: &Workbench,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
-) -> Option<Stateful<Div>> {
+) -> Option<sign_in::Screen> {
     let sheet = bench.agent_setup.sheet.as_ref()?;
-    let t = Tokens::get(cx).clone();
-    let title = match sheet.install {
-        true => t!("Install {agent}", agent = sheet.label),
-        false => t!("Sign in to {agent}", agent = sheet.label),
-    };
-    let terminal: AnyElement = match sheet.session {
-        Some(session) => crate::terminal::pane(
-            bench,
-            this,
-            &crate::hosts::Place::This,
-            &session.to_string(),
-            cx,
+    let label = sheet.label.clone();
+    let (title, lede) = match sheet.install {
+        true => (
+            t!("Install {agent}", agent = label),
+            t!(
+                "Runs {agent}'s own installer on this computer.",
+                agent = label
+            ),
         ),
-        None => div().into_any_element(),
+        false => (
+            t!("Sign in to {agent}", agent = label),
+            t!(
+                "{agent} signs in with its own login. Sikemux runs it for you.",
+                agent = label
+            ),
+        ),
     };
-    let button = |id: &'static str,
-                  label: &'static str,
-                  run: fn(&mut Workbench, &mut Context<Workbench>)| {
+    let on = |run: fn(&mut Workbench, &mut Context<Workbench>)| {
         let this = this.clone();
-        ui::Button::new(id, label, ui::Variant::Outline)
-            .on_click(move |_, _, cx| this.update(cx, run))
+        move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut gpui_kit::App| this.update(cx, run)
     };
-    let failed = matches!(sheet.phase, Phase::Failed(_) | Phase::Refused(_));
-    let running = matches!(sheet.phase, Phase::Running);
-    let body = div()
-        .id("agent-sheet")
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(SPACE_3)
-                .px(SPACE_4)
-                .py(SPACE_2H)
-                .border_b(crate::theme::border())
-                .border_color(t.border)
-                .child(
-                    div()
-                        .text_size(crate::theme::ui_text(TEXT_SM))
-                        .text_color(t.text_primary)
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
-                        .font_family(theme::mono_font())
-                        .text_size(crate::theme::ui_text(TEXT_2XS_H))
-                        .text_color(t.text_tertiary)
-                        .child(sheet.shown.clone()),
-                ),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_h_0()
-                .bg(t.surface_sunken)
-                .child(terminal),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(SPACE_2)
-                .px(SPACE_4)
-                .py(SPACE_2H)
-                .border_t(crate::theme::border())
-                .border_color(t.border)
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(crate::theme::ui_text(TEXT_XS))
-                        .text_color(t.text_secondary)
-                        .child(state(sheet)),
-                )
-                .when(failed, |foot| {
-                    foot.child(button("agent-sheet-again", t!("Try again"), again))
-                })
-                .child(button(
-                    "agent-sheet-close",
-                    if running { t!("Cancel") } else { t!("Close") },
-                    close,
-                )),
-        );
-    Some(body)
-}
-
-/// Just the running command's terminal, for a page that says the rest itself.
-pub fn terminal_pane(
-    bench: &Workbench,
-    this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
-) -> Option<AnyElement> {
-    let session = bench.agent_setup.sheet.as_ref()?.session?;
-    Some(crate::terminal::pane(
-        bench,
-        this,
-        &crate::hosts::Place::This,
-        &session.to_string(),
-        cx,
-    ))
+    let t = Tokens::get(cx).clone();
+    let terminal = sheet.session.map(|session| {
+        div()
+            .flex_none()
+            .w(px(TERMINAL_WIDTH))
+            .h(px(TERMINAL_HEIGHT))
+            .p(SPACE_2)
+            .rounded(theme::radius_3())
+            .border(crate::theme::border())
+            .border_color(t.border)
+            .bg(t.surface_sunken)
+            .overflow_hidden()
+            .text_left()
+            .child(crate::terminal::pane(
+                bench,
+                this,
+                &Place::This,
+                &session.to_string(),
+                cx,
+            ))
+    });
+    let screen = sign_in::Screen::new("agent-sheet", ui::mark(&sheet.kind, 34.), title)
+        .lede(lede)
+        .children(terminal);
+    let screen = match &sheet.phase {
+        Phase::Running => screen.child(sign_in::waiting(
+            "agent-sheet-waiting",
+            match sheet.install {
+                true => t!("Installing…"),
+                false => t!("Finish signing in in your browser"),
+            },
+            on(close),
+            cx,
+        )),
+        Phase::Checking => screen.child(sign_in::waiting(
+            "agent-sheet-checking",
+            state(sheet),
+            on(close),
+            cx,
+        )),
+        Phase::Failed(_) | Phase::Refused(_) => screen
+            .child(sign_in::error(state(sheet), cx))
+            .child(
+                ui::Button::new("agent-sheet-again", t!("Try again"), ui::Variant::Primary)
+                    .wide()
+                    .on_click(on(again)),
+            )
+            .child(
+                sign_in::links()
+                    .child(sign_in::link("agent-sheet-close", t!("Close"), cx).clicks(on(close))),
+            ),
+        Phase::Done(_) => screen.child(sign_in::note(state(sheet), cx)).child(
+            ui::Button::new("agent-sheet-done", t!("Done"), ui::Variant::Primary)
+                .wide()
+                .on_click(on(close)),
+        ),
+    };
+    Some(screen)
 }
 
 /// What takes the keys in the running command's terminal, once it has been drawn.
-pub fn terminal_focus(bench: &Workbench) -> Option<FocusHandle> {
+fn terminal_focus(bench: &Workbench) -> Option<FocusHandle> {
     let session = bench.agent_setup.sheet.as_ref()?.session?;
-    bench
-        .terminals
-        .focus_of(&crate::hosts::Place::This, session)
+    bench.terminals.focus_of(&Place::This, session)
 }
 
+/// The install or sign-in box over the window while one shows, its terminal taking the keys
+/// once it is drawn.
 pub fn sheet(
     bench: &Workbench,
     this: &Entity<Workbench>,
-    window: &Window,
+    window: &mut Window,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
     let t = Tokens::get(cx).clone();
-    let card = body(bench, this, cx)?
-        .w(px(760.))
-        .h(px(520.))
+    let card = div()
+        .id("agent-sheet-box")
+        .w(px(BOX_WIDTH))
         .bg(t.surface_overlay)
         .border(crate::theme::border())
         .border_color(t.border)
         .rounded(theme::radius_4())
         .shadow(t.shadow_float())
-        .occlude();
+        .occlude()
+        .child(body(bench, this, cx)?);
+    if let Some(focus) = terminal_focus(bench) {
+        let sheet = bench.agent_setup.sheet.as_ref()?;
+        if !sheet.focused.replace(true) {
+            focus.focus(window, cx);
+        }
+    }
     let size = window.viewport_size();
     Some(
         deferred(

@@ -41,10 +41,6 @@ use crate::ui;
 use crate::ui::path::{this_home, tilde};
 use crate::workbench::Workbench;
 
-const TERMINAL_HEIGHT: f32 = 190.;
-const TERMINAL_HEIGHT_COMPACT: f32 = 104.;
-/// How often to look again for a starting terminal that can take the keys.
-const TERMINAL_WAIT: Duration = Duration::from_millis(50);
 const COMPACT_HEIGHT: f32 = 700.;
 const COMPACT_WIDTH: f32 = 1100.;
 const ROW_HEIGHT: f32 = 46.;
@@ -134,8 +130,6 @@ enum Stop {
     Field,
     Browse,
     Back,
-    Terminal,
-    SheetClose,
     Recheck,
 }
 
@@ -196,8 +190,6 @@ pub struct Welcome {
     /// The agent the person picked when they moved on to projects, which the first chat opens on.
     chosen: Option<String>,
     opening: bool,
-    /// The terminal of a command just started takes the keys once it has been drawn.
-    terminal_due: bool,
     /// A command was running as the last frame drew, so its ending can take the keys back.
     was_busy: bool,
     scan_failed: bool,
@@ -233,7 +225,6 @@ impl Welcome {
             agent: None,
             chosen: None,
             opening: false,
-            terminal_due: false,
             was_busy: false,
             scan_failed: false,
             filter: String::new(),
@@ -375,8 +366,8 @@ pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Wo
     if welcome_in(bench).is_none() {
         return;
     }
-    let terminal = setup::terminal_focus(bench);
     let busy = bench.agent_setup.busy();
+    let shown = bench.agent_setup.shown();
     let tile = welcome_in(bench).and_then(|welcome| pill_row(bench, welcome));
     let Some(welcome) = welcome_of(bench) else {
         return;
@@ -426,26 +417,9 @@ pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Wo
     let finished = std::mem::replace(&mut welcome.was_busy, busy) && !busy;
     if finished && welcome.stage == Stage::Agents {
         welcome.at = tile.map(Stop::Row);
-        welcome.terminal_due = false;
         welcome.root.focus(window, cx);
-    } else if welcome.terminal_due {
-        match terminal {
-            Some(terminal) => {
-                welcome.terminal_due = false;
-                welcome.at = Some(Stop::Terminal);
-                terminal.focus(window, cx);
-                return;
-            }
-            None if busy => cx
-                .spawn(async move |bench, cx| {
-                    cx.background_executor().timer(TERMINAL_WAIT).await;
-                    let _ = bench.update(cx, |bench, cx| redraw(bench, cx));
-                })
-                .detach(),
-            None => welcome.terminal_due = false,
-        }
     }
-    if !welcome.root.contains_focused(window, cx) {
+    if !shown && !welcome.root.contains_focused(window, cx) {
         welcome.root.focus(window, cx);
     }
     take_shortcut(bench, window, cx);
@@ -605,17 +579,11 @@ fn start_agent(bench: &Workbench) -> Option<&Found> {
 
 fn stops(bench: &Workbench, welcome: &Welcome) -> Vec<Stop> {
     match welcome.stage {
-        Stage::Agents => {
-            let progress = &bench.agent_setup;
-            let sheet = (progress.shown().then_some(Stop::Terminal).into_iter())
-                .chain(progress.shown().then_some(Stop::SheetClose));
-            (0..listed_agents(bench).len())
-                .map(Stop::Row)
-                .chain(sheet)
-                .chain(recheck_offered(bench).then_some(Stop::Recheck))
-                .chain(anyway_offered(bench).then_some(Stop::Anyway))
-                .collect()
-        }
+        Stage::Agents => (0..listed_agents(bench).len())
+            .map(Stop::Row)
+            .chain(recheck_offered(bench).then_some(Stop::Recheck))
+            .chain(anyway_offered(bench).then_some(Stop::Anyway))
+            .collect(),
         Stage::Projects => [Stop::Field, Stop::Browse]
             .into_iter()
             .chain(visible_rows(welcome).into_iter().map(Stop::Row))
@@ -631,7 +599,6 @@ fn go(bench: &mut Workbench, stop: Stop, window: &mut Window, cx: &mut Context<W
     welcome.at = Some(stop);
     match (stop, &welcome.path) {
         (Stop::Field, Some(path)) => path.update(cx, |path, cx| path.focus(window, cx)),
-        (Stop::Terminal, _) => welcome.terminal_due = true,
         _ => welcome.root.focus(window, cx),
     }
     if let Stop::Row(row) = stop {
@@ -653,12 +620,7 @@ fn step(bench: &mut Workbench, forward: bool, window: &mut Window, cx: &mut Cont
     let Some(welcome) = welcome_in(bench) else {
         return;
     };
-    let focused = |focus: Option<FocusHandle>| focus.is_some_and(|focus| focus.is_focused(window));
-    let in_terminal = focused(setup::terminal_focus(bench));
-    let here = match (welcome.stage, welcome.at) {
-        _ if in_terminal => Some(Stop::Terminal),
-        (_, at) => at,
-    };
+    let here = welcome.at;
     let stops = stops(bench, welcome);
     let Some(last) = stops.len().checked_sub(1) else {
         return;
@@ -746,15 +708,6 @@ fn run_step(bench: &mut Workbench, row: usize, cx: &mut Context<Workbench>) {
             welcome.agent = Some(kind);
         }
         setup::run(bench, sheet, cx);
-        hand_terminal_the_keys(bench);
-    }
-}
-
-/// The running command's terminal takes the keys once it has been drawn.
-fn hand_terminal_the_keys(bench: &mut Workbench) {
-    if let Some(welcome) = welcome_of(bench) {
-        welcome.at = Some(Stop::Terminal);
-        welcome.terminal_due = true;
     }
 }
 
@@ -793,14 +746,6 @@ fn activate(bench: &mut Workbench, space: bool, window: &mut Window, cx: &mut Co
     match (welcome.stage, welcome.at) {
         (_, Some(Stop::Anyway)) => show_stage(bench, Stage::Projects, window, cx),
         (_, Some(Stop::Recheck)) => setup::recheck(bench, cx),
-        (_, Some(Stop::SheetClose)) => {
-            let tile = pill_row(bench, welcome);
-            setup::close(bench, cx);
-            match tile {
-                Some(tile) => go(bench, Stop::Row(tile), window, cx),
-                None => redraw(bench, cx),
-            }
-        }
         (_, Some(Stop::Browse)) => browse(window, cx),
         (_, Some(Stop::Back)) => back(bench, window, cx),
         (Stage::Agents, Some(Stop::Row(row))) => {
@@ -1662,13 +1607,9 @@ fn agents_grid(
         .map(|(row, _)| row)
         .filter(|_| keyboard);
     let row_count = listed.len().div_ceil(TILES_ACROSS).max(1);
-    let below = match bench.agent_setup.shown() {
-        true => room.pick(TERMINAL_HEIGHT, TERMINAL_HEIGHT_COMPACT),
-        false => 0.,
-    };
     let size = (
         (room.pane_width() - 1.) / TILES_ACROSS as f32,
-        (room.height - below - (row_count - 1) as f32) / row_count as f32,
+        (room.height - (row_count - 1) as f32) / row_count as f32,
     );
     let mut grid = div()
         .flex_1()
@@ -1726,35 +1667,11 @@ fn agents_pane(
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Div {
-    let t = Tokens::get(cx).clone();
-    let grid = agents_grid(bench, welcome, keyboard, room, this, cx);
-    let terminal = setup::terminal_pane(bench, this, cx);
-    let shown = bench.agent_setup.shown();
     div()
         .size_full()
         .flex()
         .flex_col()
-        .child(grid)
-        .when(shown, |pane| {
-            pane.child(
-                div()
-                    .flex_none()
-                    .h(px(room.pick(TERMINAL_HEIGHT, TERMINAL_HEIGHT_COMPACT)))
-                    .border_t(crate::theme::border())
-                    .border_color(t.border)
-                    .bg(t.surface_sunken)
-                    .py(px(room.pick(20., 10.)))
-                    .px(px(room.list_edge()))
-                    .on_mouse_down(MouseButton::Left, keep_press)
-                    .child(
-                        div()
-                            .size_full()
-                            .ml(-theme::SPACE_2)
-                            .mt(-theme::SPACE_2)
-                            .children(terminal),
-                    ),
-            )
-        })
+        .child(agents_grid(bench, welcome, keyboard, room, this, cx))
 }
 
 fn tick(on: bool, t: &Tokens) -> Div {
@@ -2245,7 +2162,6 @@ fn agents_poster(
 ) -> Poster {
     let t = Tokens::get(cx).clone();
     let progress = &bench.agent_setup;
-    let busy = progress.busy();
     let (sentence, command) = agents_say(bench, welcome, keyboard, &t);
     let action = t!("Continue").to_owned();
     let enabled = usable_agents(bench) > 0;
@@ -2261,7 +2177,6 @@ fn agents_poster(
     } else {
         t!("Check again")
     };
-    let close_words = if busy { t!("Cancel") } else { t!("Close") };
     let mut quiet_lengths = Vec::new();
     let mut extras = Vec::new();
     if recheck_offered(bench) {
@@ -2270,18 +2185,6 @@ fn agents_poster(
             "welcome-check",
             check_words.to_owned(),
             Stop::Recheck,
-            lit,
-            room,
-            this,
-            &t,
-        ));
-    }
-    if progress.shown() {
-        quiet_lengths.push(close_words.chars().count());
-        extras.push(quiet(
-            "welcome-sheet-close",
-            close_words.to_owned(),
-            Stop::SheetClose,
             lit,
             room,
             this,

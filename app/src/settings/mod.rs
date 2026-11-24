@@ -328,7 +328,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         cx.set_global(rows::Shown(page.name()));
         cx.set_global(rows::Reveal(wanted));
         pages::prepare(bench, page, window, cx);
-        dialogs = pages::dialogs(bench, &this, window, cx);
+        dialogs = pages::dialogs(bench, &this, cx);
     }
     let Some(settings) = bench.settings.read(cx).open.as_ref() else {
         return div().into_any_element();

@@ -176,17 +176,13 @@ pub fn render(
     }
 }
 
-/// The install or sign-in sheet and a connector's sign-in, over
-/// whichever page is open.
+/// A connector's sign-in, over whichever page is open.
 pub fn dialogs(
     bench: &Workbench,
     this: &Entity<Workbench>,
-    window: &Window,
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
-    let mut open = agents::dialogs(bench, this, window, cx);
-    open.extend(connectors::dialog(bench, this, cx));
-    open
+    connectors::dialog(bench, this, cx).into_iter().collect()
 }
 
 /// Lists the model providers again while a page shows them, as after one is added.

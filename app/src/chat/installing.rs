@@ -110,11 +110,9 @@ pub(super) fn notice(
                 .into(),
                 Some((
                     t!("Show the installer's output").into(),
-                    Rc::new(move |window, cx| {
-                        this.update(cx, |bench, cx| {
-                            setup::show_install(bench, &kind, window, cx)
-                        })
-                        .ok();
+                    Rc::new(move |_, cx| {
+                        this.update(cx, |bench, cx| setup::show_install(bench, &kind, cx))
+                            .ok();
                     }),
                 )),
             )
