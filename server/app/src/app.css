@@ -621,6 +621,8 @@ canvas.dots {
   scrollbar-width: none;
 }
 .tb {
+  display: grid;
+  place-items: center;
   height: 34px;
   padding: 0 10px;
   border-radius: var(--r);
@@ -916,6 +918,10 @@ canvas.dots {
   align-items: center;
   min-height: 192px;
 }
+.head .tx {
+  align-self: start;
+  padding-top: 48px;
+}
 .head h1 {
   font-size: var(--h1);
   line-height: 1.2;
@@ -1005,6 +1011,7 @@ canvas.dots {
 .seats .s.f,
 .seats .s.h {
   background: var(--seat);
+  mask: var(--seat-mask) center / 100% 100%;
 }
 .seats .s.h {
   background: var(--tint);
@@ -1296,6 +1303,9 @@ canvas.dots {
     min-height: 148px;
     gap: 8px;
   }
+  .head .tx {
+    padding-top: 22px;
+  }
   .head .markbox {
     margin: 0 6px 0 0;
   }
@@ -1553,20 +1563,17 @@ canvas.dots {
 }
 
 .ending h1 {
-  font-size: 34px;
+  font-size: 28px;
+  font-weight: 600;
   line-height: 1.15;
   letter-spacing: -0.03em;
   text-wrap: balance;
 }
 
-.ending h1 {
-  font-weight: 600;
-}
-
 .ending p {
   color: var(--two);
   max-width: 420px;
-  font-size: 16px;
+  font-size: 14px;
   text-wrap: balance;
 }
 
@@ -1578,9 +1585,10 @@ canvas.dots {
   background: var(--ink);
   color: var(--ground);
   font-weight: 600;
-  height: 40px;
+  height: 36px;
   margin-top: 10px;
-  padding: 0 22px;
+  padding: 0 18px;
+  font-size: 13px;
   text-decoration: none;
   text-shadow: none;
   transition:

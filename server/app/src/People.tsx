@@ -11,13 +11,14 @@ import type {
 import { formatDay } from "@shared/lib/format";
 import {
   IconCopy,
+  IconExpandAll,
   IconLink,
   IconLogOut,
+  IconMore,
   IconPlus,
-  IconSort,
   IconStack,
 } from "@shared/ui/Icons";
-import { useState, type MouseEvent } from "react";
+import { useState, type CSSProperties, type MouseEvent } from "react";
 
 import { problemText } from "./api.ts";
 import { Avatar, PersonAvatar } from "./Avatar.tsx";
@@ -35,6 +36,7 @@ import {
   useLoad,
 } from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
+import { stippledDisc } from "./stipple.ts";
 import {
   Btn,
   btnClass,
@@ -461,7 +463,7 @@ function MemberRow({
             trigger={
               <>
                 {ROLE_WORDS[member.role]}
-                <IconSort size={12} />
+                <IconExpandAll size={12} />
               </>
             }
             options={[
@@ -549,6 +551,7 @@ function Seats({
   free: number;
 }) {
   const links = Math.max(0, org.seats.held - members.length);
+  const seats = { "--seat-mask": stippledDisc() } as CSSProperties;
   return (
     <Card label="Seats">
       <div className="seatw">
@@ -562,7 +565,7 @@ function Seats({
             out, {free} free
           </p>
         </div>
-        <div className="seats" aria-hidden="true">
+        <div className="seats" style={seats} aria-hidden="true">
           {members.map((member) => (
             <span className="s" key={member.id}>
               <MemberAvatar member={member} />
@@ -837,7 +840,7 @@ function GroupRow({
           {editable ? (
             <Popover
               label={`Change ${group.name}`}
-              trigger={<IconSort size={12} />}
+              trigger={<IconMore size={14} />}
               options={[
                 {
                   key: "people",
