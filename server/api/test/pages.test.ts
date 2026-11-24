@@ -7,14 +7,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { Database } from "../src/db.ts";
 import { removeDevice } from "../src/devices/removal.ts";
-import { bodySha256, requestMessage } from "../src/devices/signature.ts";
+import { bodySha256 } from "../src/devices/signature.ts";
 import { purgePages } from "../src/pages/store.ts";
 import { StashFiles } from "../src/stash/files.ts";
 import {
   emptyTables,
+  hostAuthorization,
   migratedDatabase,
   registered,
-  signText,
   type TestDevice,
 } from "./accounts.ts";
 import { log, testApp } from "./support.ts";
@@ -27,7 +27,6 @@ let database: Database;
 let drop: () => Promise<void>;
 let app: ReturnType<typeof testApp>;
 let host: TestDevice;
-let sent = 0;
 
 beforeAll(async () => {
   ({ database, drop } = await migratedDatabase());
@@ -58,14 +57,12 @@ function link() {
 function asHost(path: string, method: string, init: RequestInit = {}) {
   const body = typeof init.body === "string" ? init.body : "";
   const sha = bodySha256(new TextEncoder().encode(body));
-  const time = String(Math.floor(Date.now() / 1000) - (sent++ % 50));
-  const message = requestMessage("host", method, path, time, sha);
   return app.request(path, {
     ...init,
     method,
     headers: {
       ...(init.headers as Record<string, string>),
-      authorization: `SikemuxHost ${host.key}.${time}.${signText(host, message)}`,
+      authorization: hostAuthorization(host, method, path, body),
       ...(method === "PUT" ? { "x-body-sha256": sha } : {}),
     },
   });
@@ -120,10 +117,9 @@ describe("shared pages", () => {
   it("keeps nothing from a host removed while it uploads", async () => {
     const page = link();
     const path = `/v1/pages/${page.id}`;
-    const sealed = new TextEncoder().encode("c2VhbGVk");
+    const text = "c2VhbGVk";
+    const sealed = new TextEncoder().encode(text);
     const sha = bodySha256(sealed);
-    const time = String(Math.floor(Date.now() / 1000) - (sent++ % 50));
-    const message = requestMessage("host", "PUT", path, time, sha);
     const response = await app.request(path, {
       method: "PUT",
       body: new ReadableStream(
@@ -145,7 +141,7 @@ describe("shared pages", () => {
       ),
       duplex: "half",
       headers: {
-        authorization: `SikemuxHost ${host.key}.${time}.${signText(host, message)}`,
+        authorization: hostAuthorization(host, "PUT", path, text),
         "content-type": "application/octet-stream",
         "x-body-sha256": sha,
         "x-page-viewer-check": page.check,

@@ -1,13 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { Database } from "../src/db.ts";
-import { bodySha256, requestMessage } from "../src/devices/signature.ts";
 import { Presence } from "../src/live/hub.ts";
 import {
   emptyTables,
+  hostAuthorization,
   migratedDatabase,
   registered,
-  signText,
   type TestDevice,
 } from "./accounts.ts";
 import { teamPlan } from "./billing.ts";
@@ -45,8 +44,6 @@ beforeEach(async () => {
 
 afterAll(() => drop());
 
-let sent = 0;
-
 function signed(
   host: TestDevice,
   path: string,
@@ -54,18 +51,10 @@ function signed(
   json?: unknown,
 ) {
   const text = json === undefined ? "" : JSON.stringify(json);
-  const time = String(Math.floor(Date.now() / 1000) - (sent++ % 50));
-  const message = requestMessage(
-    "host",
-    method,
-    path,
-    time,
-    bodySha256(new TextEncoder().encode(text)),
-  );
   return app.request(path, {
     method,
     headers: {
-      authorization: `SikemuxHost ${host.key}.${time}.${signText(host, message)}`,
+      authorization: hostAuthorization(host, method, path, text),
       "content-type": "application/json",
     },
     ...(json === undefined ? {} : { body: text }),

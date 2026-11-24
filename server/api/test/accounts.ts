@@ -8,7 +8,12 @@ import type { Device, DeviceRegistration, DeviceRole } from "@sikemux/protocol";
 import { expect } from "vitest";
 
 import { openDatabase, type Database } from "../src/db.ts";
-import { liveMessage, registrationMessage } from "../src/devices/signature.ts";
+import {
+  bodySha256,
+  liveMessage,
+  registrationMessage,
+  requestMessage,
+} from "../src/devices/signature.ts";
 import { migrate, readMigrations } from "../src/migrations.ts";
 import { body, freshDatabase, log, macCodes } from "./support.ts";
 import { macToken, sessionToken } from "./tokens.ts";
@@ -35,6 +40,30 @@ export function signText(device: TestDevice, text: string): string {
 
 export function signLive(device: TestDevice, nonce: string): string {
   return signText(device, liveMessage(nonce, device.key));
+}
+
+const signedRequests = new Set<string>();
+
+/**
+ * A host's `authorization` for one request. The API takes a signed request once, so a repeat of one
+ * is signed for an earlier second.
+ */
+export function hostAuthorization(
+  host: TestDevice,
+  method: string,
+  path: string,
+  content = "",
+): string {
+  const sha = bodySha256(new TextEncoder().encode(content));
+  let second = Math.floor(Date.now() / 1000);
+  let signedRequest: string;
+  do {
+    const time = String(second--);
+    const message = requestMessage("host", method, path, time, sha);
+    signedRequest = `SikemuxHost ${host.key}.${time}.${signText(host, message)}`;
+  } while (signedRequests.has(signedRequest));
+  signedRequests.add(signedRequest);
+  return signedRequest;
 }
 
 /** A migrated database of its own for one test file. */

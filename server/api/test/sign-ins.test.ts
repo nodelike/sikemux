@@ -6,14 +6,11 @@ import { sweepClerk } from "../src/account/clerk-sweeper.ts";
 import { addressHash } from "../src/account/proofs.ts";
 import { stripWorkSignIns } from "../src/account/sign-ins.ts";
 import type { Database } from "../src/db.ts";
-import {
-  bodySha256,
-  registrationMessage,
-  requestMessage,
-} from "../src/devices/signature.ts";
+import { registrationMessage } from "../src/devices/signature.ts";
 import {
   caller,
   emptyTables,
+  hostAuthorization,
   migratedDatabase,
   newDevice,
   registered,
@@ -485,25 +482,15 @@ async function codeApprovedFromHost(
   return { host, finish };
 }
 
-let signed = 0;
-
 function signedAsHost(
   app: ReturnType<typeof testApp>,
   host: TestDevice,
   path = "/v1/devices/challenge",
 ) {
-  const time = String(Math.floor(Date.now() / 1000) - signed++);
-  const message = requestMessage(
-    "host",
-    "POST",
-    path,
-    time,
-    bodySha256(new Uint8Array()),
-  );
   return app.request(path, {
     method: "POST",
     headers: {
-      authorization: `SikemuxHost ${host.key}.${time}.${signText(host, message)}`,
+      authorization: hostAuthorization(host, "POST", path),
     },
   });
 }

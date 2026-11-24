@@ -4,15 +4,12 @@ import { sweepClerk } from "../src/account/clerk-sweeper.ts";
 import type { Database } from "../src/db.ts";
 import { registerDevice } from "../src/devices/register.ts";
 import { approveHost } from "../src/host/codes.ts";
-import {
-  bodySha256,
-  registrationMessage,
-  requestMessage,
-} from "../src/devices/signature.ts";
+import { registrationMessage } from "../src/devices/signature.ts";
 import {
   caller,
   challenge,
   emptyTables,
+  hostAuthorization,
   migratedDatabase,
   newDevice,
   registered,
@@ -54,26 +51,16 @@ const SIGN_IN = {
   redirectUri: "http://127.0.0.1:53682/callback",
 };
 
-let skew = 0;
-
 function signed(
   app: ReturnType<typeof testApp>,
   host: TestDevice,
   path: string,
   method = "GET",
 ) {
-  const time = String(Math.floor(Date.now() / 1000) - skew++);
-  const message = requestMessage(
-    "host",
-    method,
-    path,
-    time,
-    bodySha256(new Uint8Array()),
-  );
   return app.request(path, {
     method,
     headers: {
-      authorization: `SikemuxHost ${host.key}.${time}.${signText(host, message)}`,
+      authorization: hostAuthorization(host, method, path),
     },
   });
 }
