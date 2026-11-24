@@ -1,6 +1,6 @@
 import { drawDots } from "@shared/signin/dots.js";
 import { IconCheck, IconClose } from "@shared/ui/Icons";
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 import mark from "../../../brand/mark/mark-purple.svg?raw";
 import lockup from "../../../brand/wordmark/lockup-purple.svg";
@@ -13,7 +13,7 @@ export function SignedIn() {
   const place = useRef<HTMLDivElement>(null);
   const cancelled = new URLSearchParams(location.search).has("cancelled");
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!canvas.current || !place.current) return;
     return drawDots(canvas.current, place.current, {
       tint: getComputedStyle(place.current).color,

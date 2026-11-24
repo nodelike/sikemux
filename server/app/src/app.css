@@ -1124,7 +1124,7 @@ a.button {
   height: 100%;
 }
 
-.ending-mark > .drawn > svg {
+.ending-mark > div:not(.plain) > svg {
   visibility: hidden;
 }
 
@@ -1188,6 +1188,23 @@ a.button {
   padding: 0 22px;
   text-decoration: none;
   text-shadow: none;
+  transition:
+    background 180ms,
+    box-shadow 250ms;
+}
+
+.ending .button.primary:hover {
+  background: #fff;
+  border-color: #fff;
+  box-shadow:
+    0 0 0 4px rgb(231 229 239 / 0.14),
+    0 0 36px rgb(231 229 239 / 0.22);
+}
+
+.ending .button.primary:active {
+  background: #c9c6d6;
+  box-shadow: 0 0 0 2px rgb(231 229 239 / 0.3);
+  transition-duration: 50ms;
 }
 
 .ending small {
