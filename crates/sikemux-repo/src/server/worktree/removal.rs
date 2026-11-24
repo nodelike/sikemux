@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use super::AgentWorktree;
+use super::{published, AgentWorktree};
 use crate::git::Git;
 use crate::server::connection::blocking;
 use crate::server::ports;
@@ -278,6 +278,9 @@ pub async fn remove(core: &Arc<Core>, params: RemoveWorktreeParams) -> CoreResul
         agent.worktree = None;
         agent.cwd = outside(&worktree, &agent.cwd);
     })?;
+    if deleted {
+        published::clear_landed(core, &worktree.repo, &worktree.branch);
+    }
     Ok(WorktreeRemoved {
         branch_deleted: deleted,
     })
@@ -287,7 +290,7 @@ pub async fn remove(core: &Arc<Core>, params: RemoveWorktreeParams) -> CoreResul
 /// refuses while anything in it is uncommitted, so only build output and other ignored
 /// folders go with it.
 pub async fn remove_left(core: &Arc<Core>, repo: &Path, tree: &Path) {
-    let _removal = core.build_outputs().removal.lock().await;
+    let removal = core.build_outputs().removal.lock().await;
     if let Some(holder) = held_now(core, tree) {
         eprintln!(
             "sikemux core: kept the landed worktree {}, as {holder} works in it again",
@@ -296,27 +299,28 @@ pub async fn remove_left(core: &Arc<Core>, repo: &Path, tree: &Path) {
         return;
     }
     ports::checkout::removing(core, tree).await;
-    let (repo, tree) = (repo.to_owned(), tree.to_owned());
+    let (main, tree) = (repo.to_owned(), tree.to_owned());
     let removed = blocking(move || {
-        let branch = (Git::quick(&tree)
-            .trimmed(&["branch", "--show-current"])
-            .ok())
-        .filter(|branch| !branch.is_empty());
+        let branch = published::branch_of(&tree);
         let path = tree.to_string_lossy().into_owned();
-        Git::at(&repo)
+        Git::at(&main)
             .text(&["worktree", "remove", &path])
             .map_err(CoreError::from)?;
         if let Some(branch) = &branch {
-            Git::at(&repo)
+            Git::at(&main)
                 .text(&["branch", "-D", branch])
                 .map_err(CoreError::from)?;
         }
-        Ok(path)
+        Ok((path, branch))
     })
     .await;
+    drop(removal);
     match removed {
-        Ok(path) => {
-            eprintln!("sikemux core: removed the worktree {path}, as all its work is landed")
+        Ok((path, branch)) => {
+            eprintln!("sikemux core: removed the worktree {path}, as all its work is landed");
+            if let Some(branch) = branch {
+                published::clear_landed(core, repo, &branch);
+            }
         }
         Err(error) => eprintln!("sikemux core: kept a landed worktree: {error}"),
     }

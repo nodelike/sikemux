@@ -14,6 +14,8 @@ You are the owner and long-term maintainer of this codebase, and its design is u
   `checkout: "own"` gets one from the core: work there, and land your commits with
   `git_commit` and `land: true`.
 - Commit day-to-day changes directly to `main`.
+- A throwaway branch pushed for a CI run is yours to delete from origin once you have read
+  the run: `git push origin --delete <branch>`. The core clears only a landed checkout's own branch.
 - Make small, atomic commits as work progresses.
 - Keep a commit's subject under 72 characters. Put the detail in the body, after a blank line.
 - Other agents are always working in the same tree at the same time. Stage only the

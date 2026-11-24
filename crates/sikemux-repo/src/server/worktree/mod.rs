@@ -12,6 +12,7 @@ use crate::tasks::detect::PERSONAL_TASKS;
 
 pub mod agent;
 pub mod build_output;
+pub mod published;
 pub mod removal;
 mod stale_builds;
 mod warm;

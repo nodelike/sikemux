@@ -695,7 +695,11 @@ fn on_remote(top: &Path, remote: &str, branch: &str) -> Result<bool, String> {
 }
 
 /// The tip of `branch` on the remote, fetched.
-fn fetched_tip(top: &Path, remote: &str, branch: &str) -> Result<String, String> {
+pub(in crate::server) fn fetched_tip(
+    top: &Path,
+    remote: &str,
+    branch: &str,
+) -> Result<String, String> {
     let tracking = format!("refs/remotes/{remote}/{branch}");
     remote_git(
         top,
@@ -1068,6 +1072,12 @@ const MERGES_STAY_OFF: &str = "The unpushed commits include a merge, which git_c
 /// Whether `branch` is never to be force-pushed: `remote`'s default branch, `main` or
 /// `master`, or a release line.
 fn protected(top: &Path, remote: &str, branch: &str) -> bool {
+    shared(top, remote, branch) || release_line(top).is_some()
+}
+
+/// Whether `branch` is a line of the project's own: `remote`'s default branch, `main` or
+/// `master`, or a release line.
+pub(in crate::server) fn shared(top: &Path, remote: &str, branch: &str) -> bool {
     let default = git(
         top,
         &[
@@ -1082,7 +1092,6 @@ fn protected(top: &Path, remote: &str, branch: &str) -> bool {
     branch.starts_with(RELEASE_LINE)
         || ["main", "master"].contains(&branch)
         || default.as_deref() == Some(branch)
-        || release_line(top).is_some()
 }
 
 pub(super) fn on_release_line(dir: &Path) -> bool {

@@ -31,6 +31,7 @@ use super::push::{line, Signing};
 use crate::server::checks;
 use crate::server::connection::blocking;
 use crate::server::merge_queue::{self, Lane};
+use crate::server::worktree::published;
 use crate::server::Core;
 use crate::tasks::config::LandCheck;
 
@@ -921,6 +922,9 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
                 shorts(commits)
             );
             tell(core, &waiting.agent, format!("Your land of {on}{stays}"));
+            if let Some(branch) = waiting.checkout.as_deref().and_then(published::branch_of) {
+                published::clear_landed(core, &key.0, &branch);
+            }
             let landed = format!(
                 "Landed {} on {} and origin/{}.{said}",
                 titles(&key.0, commits),
