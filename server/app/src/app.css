@@ -1836,6 +1836,7 @@ canvas.dots {
   .hero .markbox {
     order: -1;
   }
+}
 
 /* The person's pages and billing */
 .box .do {
@@ -1994,34 +1995,4 @@ canvas.dots {
 }
 .row:has(> span:first-child:empty) {
   grid-template-columns: minmax(0, 1fr) auto;
-}
-.code {
-  position: relative;
-  display: inline-flex;
-  gap: 6px;
-  width: max-content;
-}
-.code input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  border: 0;
-  opacity: 0;
-}
-.code .tile {
-  width: 36px;
-  height: 42px;
-  background: var(--well);
-  color: var(--lit);
-  font-size: 18px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-.code .tile[data-current] {
-  box-shadow:
-    inset 0 0 0 1px var(--acc),
-    0 0 0 3px var(--acc-ring);
-}
-.code[data-failed] .tile {
-  box-shadow: inset 0 0 0 1px var(--bad);
 }
