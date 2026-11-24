@@ -19,7 +19,7 @@ Once a chat has started, it keeps its agent and provider, and the picker lists o
 
 ## Adding a provider
 
-Adding a provider opens a box over the window, the same one for an org's key. It asks for three things, as the provider's own dashboard gives them:
+Adding a provider opens a box over the window. It asks for three things, as the provider's own dashboard gives them:
 
 - **Base URL**, such as `https://api.lithosai.cloud/v1`. A URL copied with an endpoint on the end, such as `/chat/completions`, is cut back to its base.
 - **API key**, which the field hides as you type, or its [1Password reference](/agents/secrets/). A model server on this host needs none.
@@ -50,8 +50,6 @@ Settings lists the providers Sikemux knows on three pages:
 - **Coding plans**: monthly plans made for coding agents.
 - **API providers**: hosted models you pay for by the token. **Add provider** at the end opens the same paste as the model picker.
 - **Local models**: Ollama or LM Studio on this host. They need no key, and nothing leaves this host.
-
-When an org you belong to is on a paid plan and has saved model keys, **API providers** and **Coding plans** list them in a group of their own under the org's name, and the model picker, on the Mac and on your phone, lists the org's models under its name too, but only in projects shared with that org. Your agents use them there as they do your own keys; in any other project a chat or a board agent on an org's model moves to its agent's own model, and the chat says why. The keys are kept sealed in the org's vault, which opens on your computer once a host that has it, or an owner's or admin's, is online. **API providers** lists the org's computers that can open its vault, whose they are and when each was last online. When none of them is coming back, an owner or admin can **Make it again**. Sikemux refuses while one of those computers may still be online, and names it, and on a host the vault already opens on, where it says to keep the named host awake and wait. The org's log records **made the vault again** with what it dropped.
 
 The Chinese labs are there too: Alibaba Cloud Model Studio (its Coding Plan, Token Plan and pay-as-you-go keys), Volcengine Ark and its Coding Plan, Xiaomi MiMo, StepFun, Tencent, Z.ai, Kimi, Moonshot and MiniMax. A key from a mainland account works only on that account's own endpoints, so a provider with a mainland service is listed again with **(China)** after its name, and Xiaomi's Token Plan once for each of its Singapore, Europe and China clusters. Connect the one your key comes from.
 

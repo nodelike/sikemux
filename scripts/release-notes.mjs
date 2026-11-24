@@ -18,6 +18,8 @@ const UNSEEN_KINDS =
   /^(test|chore|docs|ci|build|refactor|style|film|shots|drive|deps|release|server|deploy)$| (test|check)s?$/;
 const UNSEEN_WORDS = /\b(tests?|unused|(byte|schema) budgets?|swift-format)\b/;
 const READABLE = 160;
+/** About Team, which stable doesn't have, and written before `Nightly:` lines could say so. */
+const TEAM = /^(3121cf74c|44a887d52)/;
 
 const args = process.argv.slice(2);
 const nightly = args.includes("--nightly");
@@ -91,7 +93,8 @@ function readable(text) {
     .replace(/^ios\b/, "iOS");
 }
 
-function notes({ subject, body, files }) {
+function notes({ sha, subject, body, files }) {
+  if (TEAM.test(sha)) return [];
   const docs = marked("Docs", body);
   const early = marked("Nightly", body);
   const said = [...docs, ...(nightly ? early : [])].filter(
