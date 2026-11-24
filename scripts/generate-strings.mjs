@@ -45,10 +45,38 @@ for (const shortcut of shortcuts) {
     if (said) used.add(said);
 }
 
+const checkOnly = process.argv.includes("--check");
+const listMissing = process.argv.includes("--list");
 const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
-const strings = {};
-for (const key of [...used].sort()) strings[key] = catalog.strings[key] ?? {};
-const next = `${JSON.stringify({ ...catalog, strings }, null, 2)}\n`;
-if (next !== readFileSync(catalogPath, "utf8"))
-  writeFileSync(catalogPath, next);
-console.log(`✓ strings: ${used.size} strings`);
+const languages = [
+  ...new Set(
+    Object.values(catalog.strings).flatMap((entry) =>
+      Object.keys(entry.localizations ?? {}),
+    ),
+  ),
+].sort();
+
+const untranslated = [];
+for (const key of [...used].sort()) {
+  const localizations = catalog.strings[key]?.localizations ?? {};
+  if (
+    languages.some((language) => !localizations[language]?.stringUnit?.value)
+  ) {
+    untranslated.push(key);
+  }
+}
+
+if (!checkOnly && !listMissing) {
+  const strings = {};
+  for (const key of [...used].sort()) strings[key] = catalog.strings[key] ?? {};
+  const next = `${JSON.stringify({ ...catalog, strings }, null, 2)}\n`;
+  if (next !== readFileSync(catalogPath, "utf8"))
+    writeFileSync(catalogPath, next);
+}
+
+if (listMissing) {
+  for (const key of untranslated) console.log(key);
+}
+console.log(
+  `✓ strings: ${used.size} strings, ${untranslated.length} untranslated`,
+);
