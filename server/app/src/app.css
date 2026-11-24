@@ -1671,11 +1671,22 @@ canvas.dots {
 .lit {
   color: var(--lit);
 }
-.hero .tx .ic,
+.hero .ch > .ic,
 .hero .back .ic {
   flex: none;
   width: 16px;
   height: 16px;
+}
+.hero .tx > .rows {
+  width: min(420px, 100%);
+  margin-top: 20px;
+}
+.hero .tx .row {
+  margin-inline: 0;
+  padding-inline: 0;
+}
+.hero .tx .row:hover {
+  background: none;
 }
 .hero .tx > .note {
   margin-top: 16px;
