@@ -2979,6 +2979,58 @@ fn an_answer_followed_by_a_wait_and_a_short_message_stays_out_of_the_fold() {
     );
 }
 
+/// @Saikawa's turn on 24 Nov: thinking, one message to the agent that asked, and a closing dash.
+#[test]
+fn a_turn_that_ends_on_a_message_to_another_agent_folds_around_it() {
+    let turn = |sends: &[&str], stop: &str| {
+        let mut chat = Chat::running();
+        chat.update(say(
+            "agent_thought_chunk",
+            "Here's the character count check for the draft: ",
+        ))
+        .update(say(
+            "agent_thought_chunk",
+            "Ranking focuses on performance and cost.",
+        ));
+        for (index, text) in sends.iter().enumerate() {
+            let id = format!("call_{index}");
+            let input = json!({ "text": text, "to": "agent-d05bd3a205564860ac6acba8dd6763df", "toolSummary": "Send ranking" });
+            chat.update(json!({ "sessionUpdate": "tool_call", "toolCallId": id, "name": "mcp_sikemux-tools_agent_send", "title": "mcp__sikemux-tools__agent_send", "kind": "other", "status": "in_progress", "args": input, "rawInput": input }))
+                .update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": id, "name": "mcp_sikemux-tools_agent_send", "title": "mcp__sikemux-tools__agent_send", "status": "completed", "args": input, "rawInput": input }))
+                .update(say("agent_thought_chunk", "Sent."));
+        }
+        chat.update(say("agent_message_chunk", "-"))
+            .turn_completed(Some(stop));
+        chat.rows()
+    };
+    let view = |rows: &[ChatMessage]| -> Vec<String> {
+        rows.iter()
+            .flat_map(|row| {
+                (row.parts.iter().enumerate()).filter(|(at, _)| {
+                    (row.fold.as_ref()).is_none_or(|fold| fold.shown.contains(&(*at as u64)))
+                })
+            })
+            .map(|(_, part)| match part {
+                ChatPart::Thought { .. } => "thought".into(),
+                ChatPart::Tool { sent, .. } => serde_json::to_string(sent).unwrap(),
+                other => panic!("unexpected part {other:?}"),
+            })
+            .collect()
+    };
+    let shown = view(&turn(
+        &["Ranking:\n1. Leading-edge quad", "Told Mira"],
+        "end_turn",
+    ));
+    assert_eq!(shown.len(), 2, "{shown:?}");
+    assert!(shown[0].contains("Leading-edge quad"), "{shown:?}");
+    assert!(shown[1].contains("Told Mira"), "{shown:?}");
+    let fold = turn(&["Ranking"], "end_turn")[0].fold.clone();
+    assert_eq!(fold.map(|fold| (fold.calls, fold.thought)), Some((0, true)));
+
+    assert_eq!(view(&turn(&[], "end_turn")), Vec::<String>::new());
+    assert_eq!(view(&turn(&[], "cancelled")), ["thought"]);
+}
+
 #[test]
 fn pages_a_worker_shows_between_turns_share_one_row() {
     let page = |id: &str, title: &str, agent: &str| {

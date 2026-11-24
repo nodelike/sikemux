@@ -4,7 +4,7 @@
 use super::*;
 use crate::ui::Clicks;
 use sikemux_view::chat::{
-    ChiefWeek, GoalMoment, PageRef, TaskNotice, TriggerFired, WorkerPage, REPLY_URI,
+    ChiefWeek, GoalMoment, PageRef, TaskNotice, ToolCall, TriggerFired, WorkerPage, REPLY_URI,
 };
 use sikemux_view::slice::SliceState;
 
@@ -134,7 +134,7 @@ pub(super) fn row(
     let mut parts: Vec<AnyElement> = Vec::new();
     for (at_segment, (tucked_away, shown)) in segments.into_iter().enumerate() {
         let first = shown.first().map(|part| part.id().to_owned());
-        let groups = runs(shown.into_iter());
+        let groups = runs(shown.into_iter(), fold.is_some() && !tucked_away);
         let count = groups.len();
         let live = live && at_segment == last_segment;
         let mut drawn = Vec::with_capacity(count);
@@ -154,6 +154,9 @@ pub(super) fn row(
                     .into_any_element(),
                 Shown::Part(part) => self::part(row, part, user, pen, looks, window, cx),
                 Shown::Run(calls) => tools::run(&calls, live && at + 1 == count, looks, window, cx),
+                Shown::Sent(part, call) => {
+                    sent_letter(row, part.id(), call, pen, looks, window, cx)
+                }
                 Shown::Tabs(pages) => self::page::tabs(&pages, looks, window, cx),
                 Shown::WorkerPages(pages) => worker_pages(&pages, looks, window, cx),
             });
@@ -405,18 +408,7 @@ fn trigger_letter(
             .into_any_element(),
     ];
     let line = fold_toggle(&key, open, says, looks).min_w_0();
-    let shown = motion::follow(
-        SharedString::from(format!("{key}:shown")),
-        if open { 1. } else { 0. },
-        if open {
-            motion::UNFOLD
-        } else {
-            motion::FOLD_AWAY
-        },
-        window,
-        cx,
-    );
-    let opened = (shown > 0.).then(|| {
+    let opened = unfolding(&key, open, window, cx, |window, cx| {
         let prompt = row.doc(&letter_doc(ix)).map(|doc| {
             let look = looks.styles.borrow().user.clone();
             sent_bubble(
@@ -432,19 +424,101 @@ fn trigger_letter(
             });
             fired_request(&format!("request:{id}"), request, body, looks, &t)
         });
-        let body = div()
+        div()
             .flex()
             .flex_col()
             .items_start()
             .gap(SPACE_1H)
             .children(prompt)
-            .children(request);
-        match open {
-            true => motion::folded(SharedString::from(key.clone()), shown, body, window, cx),
-            false => motion::folding_away(SharedString::from(key.clone()), shown, body, window, cx),
-        }
+            .children(request)
     });
     from(line, row, None, looks)
+        .children(opened)
+        .into_any_element()
+}
+
+/// What a line the reader opens by `key` holds, while any of it shows.
+fn unfolding(
+    key: &str,
+    open: bool,
+    window: &mut Window,
+    cx: &mut App,
+    body: impl FnOnce(&mut Window, &mut App) -> Div,
+) -> Option<AnyElement> {
+    let shown = motion::follow(
+        SharedString::from(format!("{key}:shown")),
+        if open { 1. } else { 0. },
+        if open {
+            motion::UNFOLD
+        } else {
+            motion::FOLD_AWAY
+        },
+        window,
+        cx,
+    );
+    (shown > 0.).then(|| {
+        let body = body(window, cx);
+        let key = SharedString::from(key.to_owned());
+        match open {
+            true => motion::folded(key, shown, body, window, cx),
+            false => motion::folding_away(key, shown, body, window, cx),
+        }
+    })
+}
+
+/// A message a turn came to, folded to a line saying who it went to, which opens onto it in a
+/// bubble.
+fn sent_letter(
+    row: &ChatRow,
+    part: &str,
+    call: &ToolCall,
+    pen: &Pen,
+    looks: &Drawn,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let id = SharedString::from(format!("{}:{part}", row.message.id));
+    let key = format!("sent:{id}");
+    let open = looks.reading.opened.contains(&key);
+    let (toggle, toggled) = (team::holding(looks), key.clone());
+    let to = tools::agents_reached(&call.row, TEXT_XS_H, looks, cx).unwrap_or_else(|| {
+        let to = div().flex_none().child(call.row.target.clone());
+        vec![to.into_any_element()]
+    });
+    let line = team::line(&key, open, looks)
+        .clicks(move |_, _, cx| toggle(cx, &|reading| reading.toggle(&toggled)))
+        .child(
+            div()
+                .flex_none()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(looks.ink)
+                .child(t!("Sent to")),
+        )
+        .children(to)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_color(looks.quiet)
+                .children(call.row.detail.clone()),
+        );
+    let opened = unfolding(&key, open, window, cx, |window, cx| {
+        let text = row.doc(part).map(|doc| {
+            let look = looks.styles.borrow().user.clone();
+            pen.markdown_with(&look, id.clone(), &doc.markdown, window, cx)
+        });
+        div()
+            .flex()
+            .max_w(relative(0.78))
+            .pt(SPACE_1H)
+            .children(text.map(|text| sent_bubble(text, looks)))
+    });
+    div()
+        .flex()
+        .flex_col()
+        .min_w_0()
+        .child(line)
         .children(opened)
         .into_any_element()
 }
@@ -718,16 +792,26 @@ fn answer_thread(
 pub(super) enum Shown<'a> {
     Part(&'a ChatPart),
     Run(Vec<&'a ChatPart>),
+    Sent(&'a ChatPart, &'a ToolCall),
     Tabs(Vec<&'a PageRef>),
     WorkerPages(Vec<&'a WorkerPage>),
 }
 
 /// A message's parts with each run of tool calls together, and pages shown one after another,
-/// the agent's or one worker's, in one frame.
-pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'a>> {
+/// the agent's or one worker's, in one frame. With `apart`, a message sent to another agent
+/// stands out of its run.
+fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>, apart: bool) -> Vec<Shown<'a>> {
     let mut shown = Vec::new();
     for part in parts {
         match (part, shown.last_mut()) {
+            (
+                ChatPart::Tool {
+                    tool,
+                    sent: Some(_),
+                    ..
+                },
+                _,
+            ) if apart => shown.push(Shown::Sent(part, tool)),
             (
                 ChatPart::Tool {
                     page: Some(page), ..
@@ -1482,11 +1566,14 @@ pub(super) fn subagent(
         let live = card.state == SubagentState::Running;
         let mut drawn = Vec::new();
         for (ix, row) in rows.iter().enumerate() {
-            let groups = runs(row.message.parts.iter());
+            let groups = runs(row.message.parts.iter(), false);
             let count = groups.len();
             for (at, group) in groups.into_iter().enumerate() {
                 drawn.push(match group {
                     Shown::Part(part) => self::part(row, part, false, pen, looks, window, cx),
+                    Shown::Sent(part, call) => {
+                        sent_letter(row, part.id(), call, pen, looks, window, cx)
+                    }
                     Shown::Tabs(pages) => self::page::tabs(&pages, looks, window, cx),
                     Shown::WorkerPages(pages) => worker_pages(&pages, looks, window, cx),
                     Shown::Run(calls) => tools::run(

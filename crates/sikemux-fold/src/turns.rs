@@ -21,6 +21,22 @@ fn is_reply(part: &ChatPart) -> bool {
     ) || matches!(part, ChatPart::AgentNotice { notice, .. } if notice.goal.is_some() || notice.decided.is_some())
 }
 
+/// A message that went to another agent, which is what a turn that wrote nothing at its end came to.
+fn is_sent(part: &ChatPart) -> bool {
+    matches!(
+        part,
+        ChatPart::Tool {
+            sent: Some(_),
+            failure: None,
+            ..
+        }
+    )
+}
+
+fn is_reply_or_sent(part: &ChatPart) -> bool {
+    is_reply(part) || is_sent(part)
+}
+
 /// A page the agent or one of its workers showed, an MCP app a call opened, a GIF it sent, where a goal began or ended, a rule kept from the
 /// person's words, a decision or its Overrule, a week's count, a subagent still at work and the line of background
 /// tasks that ended stay in view when the turn around them folds.
@@ -59,7 +75,11 @@ fn turn_parts(rows: &[Row], start: usize, end: usize) -> Vec<(usize, usize, &Cha
 }
 
 /// Where the run of reply parts ending at `end` starts.
-fn run_start(parts: &[(usize, usize, &ChatPart)], end: usize) -> usize {
+fn run_start(
+    parts: &[(usize, usize, &ChatPart)],
+    end: usize,
+    is_reply: fn(&ChatPart) -> bool,
+) -> usize {
     let replies = (parts.iter().take(end).rev())
         .take_while(|(_, _, part)| is_reply(part))
         .count();
@@ -69,6 +89,9 @@ fn run_start(parts: &[(usize, usize, &ChatPart)], end: usize) -> usize {
 fn written(part: &ChatPart) -> u64 {
     match part {
         ChatPart::Text { text, .. } => text.encode_utf16().count() as u64,
+        ChatPart::Tool {
+            sent: Some(sent), ..
+        } => sent.n,
         _ => 0,
     }
 }
@@ -77,8 +100,8 @@ fn written(part: &ChatPart) -> u64 {
 /// stopping a server, and closes with a line about them, often in a message
 /// of its own. A stretch of writing longer than everything written after it
 /// is still the reply, so the reply starts at the earliest such stretch.
-fn reply_from(parts: &[(usize, usize, &ChatPart)]) -> usize {
-    let mut from = run_start(parts, parts.len());
+fn reply_from(parts: &[(usize, usize, &ChatPart)], is_reply: fn(&ChatPart) -> bool) -> usize {
+    let mut from = run_start(parts, parts.len(), is_reply);
     let mut after: u64 = (parts.iter().skip(from))
         .map(|(_, _, part)| written(part))
         .sum();
@@ -87,7 +110,7 @@ fn reply_from(parts: &[(usize, usize, &ChatPart)]) -> usize {
         end -= (parts.iter().take(end).rev())
             .take_while(|(_, _, part)| !is_reply(part))
             .count();
-        let start = run_start(parts, end);
+        let start = run_start(parts, end, is_reply);
         let run: u64 = (parts.iter().take(end).skip(start))
             .map(|(_, _, part)| written(part))
             .sum();
@@ -122,6 +145,8 @@ fn turn_span(rows: &[Row], start: usize, end: usize) -> Option<u64> {
 struct TurnFold {
     fold: WorkFold,
     reply: (usize, usize),
+    /// The turn wrote nothing at its end, so the messages it sent stay in view.
+    sent_shown: bool,
 }
 
 impl TurnFold {
@@ -136,7 +161,11 @@ impl TurnFold {
         let shown = parts
             .iter()
             .enumerate()
-            .filter(|(at, part)| outlives(part) || (*at >= from && is_reply(part)))
+            .filter(|(at, part)| {
+                outlives(part)
+                    || (*at >= from && is_reply(part))
+                    || (self.sent_shown && is_sent(part))
+            })
             .map(|(at, _)| at as u64)
             .collect();
         WorkFold {
@@ -148,20 +177,31 @@ impl TurnFold {
 }
 
 fn closes_with_writing(parts: &[(usize, usize, &ChatPart)]) -> bool {
-    let closing = run_start(parts, parts.len());
+    let closing = run_start(parts, parts.len(), is_reply);
     (parts.iter().skip(closing)).any(|(_, _, part)| matches!(part, ChatPart::Text { .. }))
 }
 
+/// A finished turn folds behind the writing it closed with, or the messages it sent when it
+/// closed with none. One that was stopped or failed before closing with any stays open.
 fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<TurnFold> {
     let parts = turn_parts(rows, start, end);
-    if !closes_with_writing(&parts) {
+    let wrote = closes_with_writing(&parts);
+    let finished = || {
+        rows.iter()
+            .take(end + 1)
+            .skip(start)
+            .any(|row| row.finished)
+    };
+    if !wrote && !finished() {
         return None;
     }
-    let from = reply_from(&parts);
-    let (first, last, reply) = (rows.get(start)?, rows.get(end)?, parts.get(from)?);
+    let is_reply: fn(&ChatPart) -> bool = if wrote { is_reply } else { is_reply_or_sent };
+    let from = reply_from(&parts, is_reply);
+    let (first, last) = (rows.get(start)?, rows.get(end)?);
+    let reply = (parts.get(from)).map_or((end + 1, 0), |(row, at, _)| (*row, *at));
     let (mut calls, mut worked, mut acted) = (0, false, false);
     for (index, (_, _, part)) in parts.iter().enumerate() {
-        if index >= from && is_reply(part) {
+        if (index >= from && is_reply(part)) || (!wrote && is_sent(part)) {
             continue;
         }
         if let ChatPart::Tool {
@@ -183,7 +223,8 @@ fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<TurnFold> {
             took: turn_span(rows, start, end),
             thought: !acted,
         },
-        reply: (reply.0, reply.1),
+        reply,
+        sent_shown: !wrote,
     })
 }
 

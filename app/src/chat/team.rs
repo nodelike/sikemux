@@ -62,6 +62,52 @@ fn said(line: &TeamLine) -> (Option<(&str, &str)>, String, Option<TeamNeedKind>)
     }
 }
 
+/// Changes what the reader opened, keeping the line they pressed where it is.
+pub(super) fn holding(looks: &Drawn) -> impl Fn(&mut App, &dyn Fn(&mut Reading)) + Clone {
+    let (reader, bench, agent) = (
+        looks.reader.clone(),
+        looks.bench.clone(),
+        looks.agent.clone(),
+    );
+    move |cx, change| {
+        bench
+            .update(cx, |bench, cx| {
+                if let Some(chat) = bench.chats.open.get(&agent) {
+                    chat.hold_place(cx);
+                }
+            })
+            .ok();
+        reader.update(cx, |reading, cx| {
+            change(reading);
+            cx.notify();
+        });
+    }
+}
+
+/// The line messages fold to, which its caller fills and opens.
+pub(super) fn line(id: &str, open: bool, looks: &Drawn) -> gpui::Stateful<Div> {
+    let hover = looks.hover;
+    div()
+        .id(SharedString::from(id.to_owned()))
+        .min_w_0()
+        .h(px(24.))
+        .ml(px(-6.))
+        .mr(px(-6.))
+        .px(SPACE_1H)
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .rounded(theme::radius_2())
+        .text_size(crate::theme::ui_text(TEXT_XS_H))
+        .hover(move |row| row.bg(hover))
+        .child(motion::turn(
+            format!("{id}:chevron"),
+            motion::fold_angle(open),
+            motion::DETAIL_FOLD,
+            ui::icon(Icon::Chevron, 10.).text_color(looks.quiet),
+        ))
+}
+
 /// The one line a run folds to, and while it is open and has more than it opens on, the way to
 /// the rest.
 pub(super) fn head(
@@ -111,51 +157,16 @@ pub(super) fn head(
         1 => t!("1 message").to_owned(),
         messages => t!("{messages} messages", messages = messages),
     };
-    let (reader, bench, agent, hover) = (
-        looks.reader.clone(),
-        looks.bench.clone(),
-        looks.agent.clone(),
-        looks.hover,
-    );
+    let hover = looks.hover;
     let toggled = id.to_owned();
-    let toggle = move |cx: &mut App, change: &dyn Fn(&mut Reading)| {
-        bench
-            .update(cx, |bench, cx| {
-                if let Some(chat) = bench.chats.open.get(&agent) {
-                    chat.hold_place(cx);
-                }
-            })
-            .ok();
-        reader.update(cx, |reading, cx| {
-            change(reading);
-            cx.notify();
-        });
-    };
+    let toggle = holding(looks);
     let row = {
         let (toggle, toggled) = (toggle.clone(), toggled.clone());
-        div()
-            .id(SharedString::from(format!("team:{id}")))
-            .min_w_0()
-            .h(px(24.))
-            .ml(px(-6.))
-            .mr(px(-6.))
-            .px(SPACE_1H)
-            .flex()
-            .items_center()
-            .gap(SPACE_1H)
-            .rounded(theme::radius_2())
-            .text_size(crate::theme::ui_text(TEXT_XS_H))
-            .hover(move |row| row.bg(hover))
+        self::line(&format!("team:{id}"), open, looks)
             .clicks(move |_, _, cx| {
                 let id = toggled.clone();
                 toggle(cx, &move |reading| reading.toggle_team(&id));
             })
-            .child(motion::turn(
-                format!("team-chevron:{id}"),
-                motion::fold_angle(open),
-                motion::DETAIL_FOLD,
-                ui::icon(Icon::Chevron, 10.).text_color(looks.quiet),
-            ))
             .child(
                 div()
                     .flex_none()

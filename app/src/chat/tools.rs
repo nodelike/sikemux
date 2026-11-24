@@ -670,22 +670,30 @@ fn row(
     node.into_any_element()
 }
 
-/// The agents the call reached, each as the chip prose draws it, then what it said of them:
-/// for an agent it started, the task in full ink and the model it runs on.
-fn agent_pills(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Option<Div> {
+/// A pill for each agent a call reached, when every one is an agent the core knows.
+pub(super) fn agents_reached(
+    row: &ToolRow,
+    size: f32,
+    looks: &Drawn,
+    cx: &App,
+) -> Option<Vec<AnyElement>> {
     if row.agents.is_empty() {
         return None;
     }
     let bench = looks.bench.upgrade()?;
     let from = bench.read(cx).chat_target(&looks.agent);
-    let names = row
-        .target
-        .split(", ")
-        .map(|name| name.trim_start_matches('@'));
+    let names = (row.target.split(", ")).map(|name| name.trim_start_matches('@'));
     let pills = (row.agents.iter().zip(names)).map(|(agent, name)| {
-        let mark = looks.mark_of(agent, &looks.provider, TEXT_2XS + 1., cx);
-        super::agent_pill_of(agent, name, mark, TEXT_2XS, from.clone(), &looks.bench, cx)
+        let mark = looks.mark_of(agent, &looks.provider, size + 1., cx);
+        super::agent_pill_of(agent, name, mark, size, from.clone(), &looks.bench, cx)
     });
+    Some(pills.collect())
+}
+
+/// The agents the call reached, each as the chip prose draws it, then what it said of them:
+/// for an agent it started, the task in full ink and the model it runs on.
+fn agent_pills(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Option<Div> {
+    let pills = agents_reached(row, TEXT_2XS, looks, cx)?;
     let started = row.intent == ToolIntent::Start;
     let words = |said: Div| match started {
         true => said

@@ -150,6 +150,8 @@ struct Row {
     raw: Vec<ChatPart>,
     sent_context: Vec<SentContext>,
     stream: Option<Stream>,
+    /// The agent's turn ended with it, rather than being stopped or failing.
+    finished: bool,
     sides: Vec<Side>,
     /// Opened since the last flush, so it goes out whole.
     fresh: bool,
@@ -188,6 +190,7 @@ impl Row {
             raw: Vec::new(),
             sent_context: Vec::new(),
             stream: None,
+            finished: false,
             sides: Vec::new(),
             fresh: true,
             parts: Vec::new(),
@@ -1917,6 +1920,7 @@ impl Fold {
                     page: None,
                     app: None,
                     gif: None,
+                    sent: None,
                     failure: None,
                     started_at: (!ended).then_some(at),
                     ended_at: None,
@@ -1997,6 +2001,7 @@ impl Fold {
                 page: None,
                 app: None,
                 gif: Some(gif),
+                sent: None,
                 failure: None,
                 started_at: None,
                 ended_at: None,
@@ -2176,6 +2181,7 @@ impl Fold {
                 output,
                 page,
                 app,
+                sent,
                 failure,
                 ended_at,
                 ..
@@ -2186,6 +2192,7 @@ impl Fold {
                 *output = settled.output.as_ref().map(tools::output_summary);
                 *page = settled.page;
                 *app = settled.app;
+                *sent = settled.sent;
                 *failure = settled.failure;
                 ended_at.get_or_insert(at);
             }
@@ -3084,6 +3091,7 @@ impl Fold {
             {
                 last.drop_said_nothing();
                 last.msg.ended_at = Some(at);
+                last.finished = stop_reason == Some(StopReason::EndTurn);
                 last.set("endedAt");
                 let position = self.main.rows.len() - 1;
                 self.main.touch(position);

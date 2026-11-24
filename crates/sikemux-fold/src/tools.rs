@@ -7,8 +7,8 @@ use std::borrow::Cow;
 use serde_json::{Map, Value};
 
 use sikemux_view::chat::{
-    DiffLine, DiffSummary, McpAppRef, OutputImage, OutputPage, OutputSummary, PageRef, ToolCall,
-    ToolDetail, ToolDiff, ToolOutput,
+    DiffLine, DiffSummary, McpAppRef, OutputImage, OutputPage, OutputSummary, PageRef, PartTree,
+    ToolCall, ToolDetail, ToolDiff, ToolOutput,
 };
 
 use super::tool_rows::FAMILIES;
@@ -667,6 +667,7 @@ pub(super) struct Settled {
     pub output: Option<ToolOutput>,
     pub page: Option<PageRef>,
     pub app: Option<McpAppRef>,
+    pub sent: Option<PartTree>,
     pub failure: Option<String>,
 }
 
@@ -690,7 +691,16 @@ pub(super) fn settle(raw: &Map<String, Value>) -> Settled {
         output: page.is_none().then_some(output).flatten(),
         page,
         app: tool_app(raw),
+        sent: (!matches!(status, Some("failed")))
+            .then(|| sent(title, raw_input))
+            .flatten(),
     }
+}
+
+fn sent(title: &str, input: Option<&Value>) -> Option<PartTree> {
+    let args = super::row::arguments(input);
+    let message = text(args.get("text")).filter(|message| !message.trim().is_empty())?;
+    (sikemux_tool(title, &args) == "agent_send").then(|| super::send::read(message))
 }
 
 /// The MCP app the core kept for a finished call, which it names on the call's last update.

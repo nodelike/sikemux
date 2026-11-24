@@ -452,7 +452,7 @@ fn fits(text: &str, most: usize) -> bool {
 }
 
 /// Some agents hand over the server and tool beside the arguments rather than the arguments alone.
-fn arguments(input: Option<&Value>) -> Map<String, Value> {
+pub(super) fn arguments(input: Option<&Value>) -> Map<String, Value> {
     let Some(input) = input.and_then(Value::as_object) else {
         return Map::new();
     };

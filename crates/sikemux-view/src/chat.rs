@@ -1348,6 +1348,9 @@ pub enum ChatPart {
         /// A GIF the agent sent, which shows in place of the call.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         gif: Option<GifRef>,
+        /// The message the call sent another agent, once it went.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sent: Option<PartTree>,
         /// What a failed call left behind, short enough to sit under it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         failure: Option<String>,

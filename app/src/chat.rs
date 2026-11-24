@@ -210,6 +210,16 @@ fn text_of(part: &ChatPart) -> Option<(&str, Option<&PartTree>)> {
     }
 }
 
+fn doc_of(part: &ChatPart) -> Option<Doc> {
+    if let ChatPart::Tool {
+        sent: Some(sent), ..
+    } = part
+    {
+        return Some(Doc::of_tree(part.id(), sent));
+    }
+    text_of(part).map(|(text, md)| Doc::new(part.id(), text, md))
+}
+
 impl ChatRow {
     /// The chat event that opened the row, which pages are asked from.
     fn first_event(&self) -> Option<u64> {
@@ -232,13 +242,9 @@ impl ChatRow {
         row
     }
 
-    /// The markdown of each text part, and of each message another agent sent, which the row draws in place of its text.
+    /// The markdown of each text part, and of each message the agent or another one sent, which the row draws in place of its text.
     fn read_docs(&mut self) {
-        let parts = self
-            .message
-            .parts
-            .iter()
-            .filter_map(|part| text_of(part).map(|(text, md)| Doc::new(part.id(), text, md)));
+        let parts = self.message.parts.iter().filter_map(doc_of);
         let letters = self
             .message
             .letters
@@ -292,8 +298,7 @@ impl ChatRow {
     }
 
     fn put_part(&mut self, part: ChatPart) {
-        if let Some((text, md)) = text_of(&part) {
-            let doc = Doc::new(part.id(), text, md);
+        if let Some(doc) = doc_of(&part) {
             match self.docs.iter_mut().find(|held| held.part == doc.part) {
                 Some(held) => *held = doc,
                 None => self.docs.push(doc),
