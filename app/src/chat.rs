@@ -32,7 +32,7 @@ use sikemux_view::catalog::ChatDriver;
 use sikemux_view::chat::{
     AgentLetter, AgentNotice, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole,
     ChatView, FiredRequest, LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree,
-    PermissionAsk, SubagentCard, SubagentState, TeamLine, ToolDetail, WorkFold,
+    PermissionAsk, SubagentCard, SubagentState, TeamFold, TeamLine, ToolDetail, WorkFold,
 };
 use sikemux_view::layout::PaneKind;
 use sikemux_view::questions::{AgentQuestion, QuestionState};
@@ -138,6 +138,18 @@ pub struct ChatRow {
     /// The reader asked to see what was left out, so the row is drawn, and selected and copied
     /// from, with `restored` in place of those parts.
     left_out_shown: std::cell::Cell<bool>,
+    /// The parts that left the row, or lost their card, and are drawn until the transcript lets
+    /// them go.
+    leaving: Vec<String>,
+    /// The folds as the core sent them, which count none of the parts that left, while some are
+    /// `leaving`.
+    folds: Option<Folds>,
+}
+
+#[derive(Clone)]
+struct Folds {
+    work: Option<WorkFold>,
+    team: Option<TeamFold>,
 }
 
 /// A text part's markdown, and its text's length in UTF-16 units, which the core's patches count.
@@ -237,6 +249,8 @@ impl ChatRow {
             docs: Vec::new(),
             restored: Vec::new(),
             left_out_shown: std::cell::Cell::new(false),
+            leaving: Vec::new(),
+            folds: None,
         };
         row.read_docs();
         row.read_restored();
@@ -298,22 +312,30 @@ impl ChatRow {
             .collect();
     }
 
-    fn put_part(&mut self, part: ChatPart) {
+    fn put_part(&mut self, mut part: ChatPart) {
         if let Some(doc) = doc_of(&part) {
             match self.docs.iter_mut().find(|held| held.part == doc.part) {
                 Some(held) => *held = doc,
                 None => self.docs.push(doc),
             }
         }
+        self.sent_folds();
         match self
             .message
             .parts
             .iter_mut()
             .find(|held| held.id() == part.id())
         {
-            Some(held) => *held = part,
+            Some(held) => {
+                self.leaving.retain(|left| left != part.id());
+                if keeps_card(held, &mut part) {
+                    self.leaving.push(part.id().to_owned());
+                }
+                *held = part;
+            }
             None => self.message.parts.push(part),
         }
+        self.keep_folds();
     }
 
     fn write(&mut self, part: &str, more: &str, md: Option<&Value>) {
@@ -331,10 +353,88 @@ impl ChatRow {
         }
     }
 
+    /// Puts back the parts of `was` that left, and the cards of those that lost one, until the
+    /// transcript says they can go.
+    fn keep_leaving(&mut self, was: Vec<ChatPart>) {
+        self.leaving.clear();
+        let mut before: Option<String> = None;
+        for mut part in was {
+            let id = part.id().to_owned();
+            let parts = &mut self.message.parts;
+            match parts.iter_mut().find(|held| held.id() == id) {
+                Some(held) => {
+                    if keeps_card(&mut part, held) {
+                        self.leaving.push(id.clone());
+                    }
+                }
+                None => {
+                    let at = (before.as_ref())
+                        .and_then(|before| parts.iter().position(|held| held.id() == before));
+                    parts.insert(at.map_or(0, |at| at + 1), part);
+                    self.leaving.push(id.clone());
+                }
+            }
+            before = Some(id);
+        }
+    }
+
+    /// Puts the folds back as the core sent them.
+    fn sent_folds(&mut self) {
+        if let Some(folds) = self.folds.take() {
+            self.message.fold = folds.work;
+            self.message.team = folds.team;
+        }
+    }
+
+    /// Counts the parts still `leaving` in the folds, as parts that stay in view.
+    fn keep_folds(&mut self) {
+        if self.leaving.is_empty() {
+            return;
+        }
+        let ChatMessage {
+            parts, fold, team, ..
+        } = &mut self.message;
+        self.folds = Some(Folds {
+            work: fold.clone(),
+            team: team.clone(),
+        });
+        let leaves = |part: &ChatPart| self.leaving.iter().any(|left| left == part.id());
+        let sent: Vec<u64> = (0..)
+            .zip(&*parts)
+            .filter(|(_, part)| !leaves(part) || matches!(part, ChatPart::Tool { .. }))
+            .map(|(at, _)| at)
+            .collect();
+        let place = |at: u64| {
+            let held = usize::try_from(at).ok().and_then(|at| sent.get(at));
+            held.copied().unwrap_or(parts.len() as u64)
+        };
+        let in_view = |shown: &[u64]| -> Vec<u64> {
+            let shown: Vec<u64> = shown.iter().map(|at| place(*at)).collect();
+            (0..)
+                .zip(&*parts)
+                .filter(|(at, part)| shown.contains(at) || leaves(part))
+                .map(|(at, _)| at)
+                .collect()
+        };
+        if let Some(fold) = fold {
+            fold.from = place(fold.from);
+            fold.shown = in_view(&fold.shown);
+        }
+        if let Some(team) = team {
+            team.shown = in_view(&team.shown);
+        }
+    }
+
     fn set(&mut self, fields: changes::Fields<ChatMessage>, docs: bool) {
+        self.sent_folds();
+        let was = docs.then(|| self.message.parts.clone());
         for field in fields {
             field(&mut self.message);
         }
+        if let Some(was) = was {
+            self.keep_leaving(was);
+        }
+        self.keep_folds();
         // A part's own tree is the one it arrived with; its text's later patches live only
         // in its doc, so the docs are read again only when the parts themselves changed.
         if docs {
@@ -384,6 +484,40 @@ impl Row for ChatRow {
     fn doc_named(&self, name: &str) -> Option<usize> {
         self.doc_parts().position(|part| part == name)
     }
+
+    fn letting_go(&self) -> bool {
+        !self.leaving.is_empty()
+    }
+
+    fn let_go(&mut self) {
+        self.sent_folds();
+        let leaving = std::mem::take(&mut self.leaving);
+        self.message.parts.retain_mut(|part| {
+            if !leaving.iter().any(|left| left == part.id()) {
+                return true;
+            }
+            match part {
+                ChatPart::Tool { page, .. } => {
+                    *page = None;
+                    true
+                }
+                _ => false,
+            }
+        });
+        self.read_docs();
+    }
+}
+
+/// Keeps the card `held` draws on `part`, which comes without it. Answers whether it had one.
+fn keeps_card(held: &mut ChatPart, part: &mut ChatPart) -> bool {
+    let (ChatPart::Tool { page: held, .. }, ChatPart::Tool { page, .. }) = (held, part) else {
+        return false;
+    };
+    let leaves = held.is_some() && page.is_none();
+    if leaves {
+        *page = held.take();
+    }
+    leaves
 }
 
 impl ChatRow {

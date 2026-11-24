@@ -3092,6 +3092,99 @@ fn pages_a_worker_shows_between_turns_share_one_row() {
     );
 }
 
+/// A client's copy of the rows after `changes`.
+fn take(held: &mut Vec<Value>, changes: &[ChatChange]) {
+    let at = |held: &[Value], id: &str| held.iter().position(|row| row["id"] == id);
+    for change in changes {
+        match change {
+            ChatChange::Row { row, .. } => match at(held, &row.id) {
+                Some(at) => held[at] = json!(row),
+                None => held.push(json!(row)),
+            },
+            ChatChange::Set { row, set, .. } => {
+                let at = at(held, row).expect("a held row");
+                for (field, value) in set.as_object().expect("fields") {
+                    held[at][field] = value.clone();
+                }
+            }
+            ChatChange::Part { row, part, .. } => {
+                let at = at(held, row).expect("a held row");
+                let parts = held[at]["parts"].as_array_mut().expect("parts");
+                match parts.iter().position(|held| held["id"] == part.id()) {
+                    Some(at) => parts[at] = json!(part),
+                    None => parts.push(json!(part)),
+                }
+            }
+            ChatChange::Text { .. } => panic!("the test writes no text on to a part"),
+            _ => {}
+        }
+    }
+}
+
+#[test]
+fn a_page_shown_again_keeps_one_card_where_it_was_last_shown() {
+    let page = "5dc71c02819c4ba09f523e337eb87c0b";
+    let showed = |agent: &str| {
+        crate::update::worker_page_notice(WorkerPage {
+            id: page.into(),
+            title: "Should we use BAML?".into(),
+            agent_id: agent.into(),
+            name: agent.into(),
+        })
+    };
+    let lead_shows = |chat: &mut Chat, call: &str| {
+        let shown = json!({ "page": { "id": page, "title": "Should we use BAML?" } });
+        chat.update(json!({ "sessionUpdate": "tool_call", "toolCallId": call, "title": "mcp__sikemux-tools__page_show", "status": "in_progress" }))
+            .update(json!({
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": call,
+                "status": "completed",
+                "rawOutput": shown.to_string(),
+            }));
+    };
+    let cards = |rows: &[Value]| -> Vec<String> {
+        (rows.iter())
+            .flat_map(|row| row["parts"].as_array().into_iter().flatten())
+            .filter(|part| !part["page"].is_null() || !part["notice"]["workerPage"].is_null())
+            .map(|part| part["id"].as_str().unwrap_or_default().to_owned())
+            .collect()
+    };
+    let mut chat = Chat::new();
+    let mut held = Vec::new();
+    let mut seen = Vec::new();
+    chat.prompt(json!({ "text": "should we use it?", "paths": [] }))
+        .turn_started()
+        .update(chunk("Asked @Shota.", "m1"));
+    take(&mut held, &chat.flush());
+    chat.update(showed("shota"))
+        .update(chunk("It is on it.", "m2"));
+    take(&mut held, &chat.flush());
+    seen.push(cards(&held));
+    chat.turn_completed(Some("end_turn"))
+        .update(showed("ogami"));
+    take(&mut held, &chat.flush());
+    seen.push(cards(&held));
+    for (turn, call) in ["page-1", "page-2"].into_iter().enumerate() {
+        chat.turn_started();
+        lead_shows(&mut chat, call);
+        chat.update(chunk("Here it is.", &format!("told-{turn}")))
+            .turn_completed(Some("end_turn"));
+        take(&mut held, &chat.flush());
+        seen.push(cards(&held));
+    }
+    for cards in &seen {
+        assert_eq!(cards.len(), 1, "{seen:?}");
+    }
+    assert!(
+        seen.is_sorted_by(|before, after| before != after),
+        "{seen:?}"
+    );
+    let rows: Vec<Value> = chat.rows().iter().map(|row| json!(row)).collect();
+    let parts =
+        |rows: &[Value]| -> Vec<Value> { rows.iter().map(|row| row["parts"].clone()).collect() };
+    assert_eq!(parts(&held), parts(&rows));
+}
+
 #[test]
 fn pages_shown_during_a_turn_stay_out_of_its_fold() {
     let page = json!({ "id": "0123456789abcdef0123456789abcdef", "title": "Revenue" });

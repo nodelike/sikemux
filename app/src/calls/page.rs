@@ -458,7 +458,9 @@ fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div 
         .collect();
     let link = (call.link.as_ref())
         .map(|link| div().mt(px(16.)).child(link_tile(call, link, through, &t)));
-    let page = linked_page(call, None, through, cx).map(|page| div().mt(px(16.)).child(page));
+    let pages = SharedString::from(format!("call-page-pages-{}", call.id));
+    let page =
+        linked_page(pages, call, None, through, cx).map(|page| div().mt(px(16.)).child(page));
     let context = context_words(call).map(|words| prose("context", words));
     let why: Vec<gpui_kit::Div> = (context.into_iter())
         .chain(

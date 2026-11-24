@@ -2000,10 +2000,16 @@ impl Workbench {
     /// Brings forward the tab on `agent`'s desk that shows the HTML file at `path` as a page,
     /// or opens one, as the person's.
     pub(crate) fn open_html_in_tab(&mut self, agent: &str, path: PathBuf, cx: &mut Context<Self>) {
-        self.bring_page_forward(agent, cx, move |engine| {
+        let opened = self.bring_page_forward(agent, cx, move |engine| {
             let url = engine.local_file_url(&path);
             async move { url }
         });
+        cx.spawn(async move |bench, cx| {
+            if let Err(error) = opened.await {
+                let _ = bench.update(cx, |bench, cx| bench.notify(toast::error(error), cx));
+            }
+        })
+        .detach();
     }
 
     pub(crate) fn bring_page_forward<Url>(
@@ -2011,11 +2017,12 @@ impl Workbench {
         agent: &str,
         cx: &mut Context<Self>,
         url: impl FnOnce(&BrowserManager) -> Url,
-    ) where
+    ) -> Task<Result<(), String>>
+    where
         Url: std::future::Future<Output = Result<String, String>> + Send + 'static,
     {
         let Some(engine) = self.desks.read(cx).engine.clone() else {
-            return;
+            return Task::ready(Err("this window has no browser".to_owned()));
         };
         self.bring_pages_forward(agent, cx);
         if !self.desk_open_anywhere(agent) {
@@ -2023,17 +2030,14 @@ impl Workbench {
         }
         cx.notify();
         let (agent, url) = (agent.to_owned(), url(&engine));
-        runtime().spawn(async move {
-            let shown = async {
-                let url = url.await?;
-                let tab = show_once(&engine, &agent, &url, true).await?;
-                engine.keep(&agent, &tab);
-                Ok::<_, String>(())
-            };
-            if let Err(error) = shown.await {
-                eprintln!("sikemux: the page could not open in a tab: {error}");
-            }
+        let shown = runtime().spawn(async move {
+            let url = url.await?;
+            let tab = show_once(&engine, &agent, &url, true).await?;
+            engine.keep(&agent, &tab);
+            Ok(())
         });
+        cx.background_executor()
+            .spawn(async move { shown.await.unwrap_or_else(|error| Err(error.to_string())) })
     }
 
     /// Opens `url` in a new page on `agent`'s desk, leaving the tab in front where it is.

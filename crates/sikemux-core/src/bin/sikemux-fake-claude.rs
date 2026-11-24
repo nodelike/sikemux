@@ -33,8 +33,8 @@
 //! `{ "ask": {...} }`, which asks the AskUserQuestion input given and waits for the answer. A tool step
 //! with `"call": "browser.navigate"` makes that call to Sikemux's own tools with
 //! its input, as the agent's tools server would, and answers with what they said; a relative
-//! `path` in it is the project's, and `"$page"` is the id of the page the reply last showed,
-//! `"$worker"` of the agent it last started. While
+//! `path` in it is the project's, and `"$page"` is the id of the page the session last showed, or
+//! found first with `page.list`, `"$worker"` of the agent it last started. While
 //! `FAKE_CLAUDE_CLOCK` names a file holding a time in milliseconds, those
 //! pauses follow that time rather than the real one, so a recording that
 //! draws slower than real time still sees the reply arrive at a steady pace.
@@ -107,6 +107,8 @@ struct Claude {
     interrupted: AtomicBool,
     /// What it predicts the person sends next, when a side question asks.
     next: Mutex<Option<String>>,
+    /// The page it last showed or found, and the agent it last started, by id.
+    named: Mutex<(String, String)>,
     /// How many times an app called `add_one`.
     added: AtomicUsize,
     session_id: String,
@@ -560,7 +562,7 @@ impl Claude {
     /// Plays a reply from `FAKE_CLAUDE_SCRIPT`, each step its own message.
     fn play(&self, uuid: &str, message_id: &str, steps: &[Value]) {
         let mut clock = Clock::start();
-        let (mut shown, mut started) = (String::new(), String::new());
+        let (mut shown, mut started) = self.named.locked().clone();
         for (at, step) in steps.iter().enumerate() {
             let id = format!("{message_id}-{at}");
             let per_second = step["perSecond"].as_f64().unwrap_or(30.).max(1.);
@@ -595,9 +597,11 @@ impl Claude {
                 };
                 match step["call"].as_str() {
                     Some("page.show") => shown = made("/page/id"),
+                    Some("page.list") => shown = made("/pages/0/id"),
                     Some("agent.spawn") => started = made("/agentId"),
                     _ => {}
                 }
+                *self.named.locked() = (shown.clone(), started.clone());
                 clock.wait(step["ms"].as_f64().unwrap_or(600.));
                 self.send(json!({
                     "type": "user", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
@@ -928,6 +932,7 @@ fn main() {
         waiting: Mutex::new(HashMap::new()),
         interrupted: AtomicBool::new(false),
         next: Mutex::new(None),
+        named: Mutex::new((String::new(), String::new())),
         added: AtomicUsize::new(0),
         session_id,
         transcript,

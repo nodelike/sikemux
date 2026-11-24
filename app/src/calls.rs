@@ -592,9 +592,10 @@ struct Through<'a> {
     bench: &'a WeakEntity<Workbench>,
 }
 
-/// The pages a call names, as the rows a chat shows for pages: a click opens one on its asker's
-/// desk and closes the popover that held the row, if `dismiss` is how.
+/// The pages a call names, as the rows a chat shows for pages, framed under `id`: a click opens
+/// one on its asker's desk and closes the popover that held the row, if `dismiss` is how.
 fn linked_page(
+    id: SharedString,
     call: &PersonCall,
     dismiss: Option<&crate::ui::list_picker::Dismiss>,
     through: Through,
@@ -627,7 +628,7 @@ fn linked_page(
             crate::chat::page::tab_row(&page, picture, place, at > 0, open, cx)
         })
         .collect();
-    (!rows.is_empty()).then(|| crate::chat::page::tab_frame(rows, cx))
+    (!rows.is_empty()).then(|| crate::chat::page::tab_frame(id, rows, cx))
 }
 
 /// The card of `call`: who asks, the question, its context and pictures, the options with the
@@ -666,8 +667,9 @@ fn card(
             SharedString::from(format!("call-question-{}", call.id)),
             call.question.clone(),
         ));
-    let page =
-        linked_page(call, Some(&dismiss), through, cx).map(|page| div().mt(SPACE_3_PX).child(page));
+    let pages = SharedString::from(format!("call-pages-{}", call.id));
+    let page = linked_page(pages, call, Some(&dismiss), through, cx)
+        .map(|page| div().mt(SPACE_3_PX).child(page));
     let prose = |part: &str, text: String| {
         div()
             .text_size(theme::ui_text(12.5))

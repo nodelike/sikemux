@@ -80,24 +80,28 @@ impl Workbench {
         });
         let id = id.to_owned();
         cx.spawn(async move |bench, cx| {
-            let read = asked.await;
-            let _ = bench.update(cx, |bench, cx| match read {
+            let opened = match asked.await {
                 Ok(page) => {
-                    bench.saw_page(&id, cx);
-                    let agent = page.desk.clone();
-                    let agent = agent.or_else(|| Some(bench.nearest_agent(cx)?.2));
-                    if let Some(agent) = agent {
+                    let opening = bench.update(cx, |bench, cx| {
+                        bench.saw_page(&id, cx);
+                        let agent = page.desk.clone();
+                        let agent = agent.or_else(|| Some(bench.nearest_agent(cx)?.2))?;
                         let files = bench.desks.read(cx).page_files.clone();
-                        bench.bring_page_forward(&agent, cx, move |_| async move {
+                        Some(bench.bring_page_forward(&agent, cx, move |_| async move {
                             files.kept_url(&id, &page)
-                        });
+                        }))
+                    });
+                    match opening {
+                        Ok(Some(opening)) => opening.await,
+                        _ => return,
                     }
                 }
-                Err(error) => {
-                    let note = t!("The artifact did not open: {error}", error = error);
-                    bench.notify(toast::error(note), cx);
-                }
-            });
+                Err(error) => Err(error.to_string()),
+            };
+            if let Err(error) = opened {
+                let note = t!("The artifact did not open: {error}", error = error);
+                let _ = bench.update(cx, |bench, cx| bench.notify(toast::error(note), cx));
+            }
         })
         .detach();
     }

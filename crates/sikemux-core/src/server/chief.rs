@@ -1143,17 +1143,23 @@ fn decided_line_moved(core: &Core, project: &str, goal: Option<u64>, id: u64, up
 
 /// `page` was shown: a row in the chat of the agent that started its worker names it, kept with
 /// that chat's other lines, in place of the row for a page it showed before under the same title.
+/// The chats hold one card of a page, so lines kept for another agent showing it go.
 pub(crate) fn page_shown(core: &Core, lead: Option<&str>, page: WorkerPage) {
     let at = epoch_ms();
     let feed = lead.and_then(|lead| core.chats().heard(lead));
     let key = format!("page|{}|{}", page.agent_id, page.title);
     let update = sikemux_fold::update::worker_page_notice(page.clone());
     core.chiefs().change(|saved| {
+        let id = page.id.clone();
+        if let Some(own) = saved.lines.get_mut(&page.agent_id) {
+            own.retain(|row| !holds_page(row, &id));
+        }
         (saved.last_pages).insert(page.agent_id.clone(), (page, at));
         let Some(lead) = lead else {
             return;
         };
         let lines = saved.lines.entry(lead.to_owned()).or_default();
+        lines.retain(|row| row.key == key || !holds_page(row, &id));
         let first = (lines.iter().position(|row| row.key == key)).map(|at| lines.remove(at).at);
         lines.push(Row {
             key,
@@ -1168,6 +1174,10 @@ pub(crate) fn page_shown(core: &Core, lead: Option<&str>, page: WorkerPage) {
     if let Some((feed, lead)) = feed.zip(lead) {
         emit_row(&feed, lead, update, at);
     }
+}
+
+fn holds_page(row: &Row, id: &str) -> bool {
+    row.update.pointer("/workerPage/id").and_then(Value::as_str) == Some(id)
 }
 
 /// `update` goes in `agent`'s chat as its line kept under `key`, in place of the one there, whose

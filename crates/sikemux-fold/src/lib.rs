@@ -166,6 +166,8 @@ struct Row {
     fresh: bool,
     /// Parts added or replaced since the last flush.
     parts: Vec<usize>,
+    /// How many parts left it, so no part takes the id of one that did.
+    left: usize,
     fields: BTreeSet<&'static str>,
 }
 
@@ -204,6 +206,7 @@ impl Row {
             sides: Vec::new(),
             fresh: true,
             parts: Vec::new(),
+            left: 0,
             fields: BTreeSet::new(),
         }
     }
@@ -232,7 +235,19 @@ impl Row {
     /// lone dash or blank there goes rather than draw as an empty bullet.
     fn open_part(&mut self) -> String {
         self.drop_said_nothing();
-        format!("{}.{}", self.msg.id, self.msg.parts.len())
+        format!("{}.{}", self.msg.id, self.msg.parts.len() + self.left)
+    }
+
+    /// Takes the part at `at` out, so those after it move up one place.
+    fn drop_part(&mut self, at: usize) {
+        self.msg.parts.remove(at);
+        self.sides.remove(at);
+        self.parts.retain(|part| *part != at);
+        for part in &mut self.parts {
+            *part -= usize::from(*part > at);
+        }
+        self.left += 1;
+        self.set("parts");
     }
 
     /// Antigravity says "-" between tool calls, and any agent whose answer goes to
@@ -402,6 +417,8 @@ pub struct Fold {
     notices: HashSet<String>,
     /// The line of ended tasks in the turn now running, by its row and part.
     turn_tasks: Option<(String, usize)>,
+    /// The worker that showed each page a notice named, by the page's id.
+    page_workers: HashMap<String, String>,
     /// The compactions already counted, as an agent may say one has finished more than once.
     compacted: HashSet<String>,
     suppress_user_echo: bool,
@@ -741,6 +758,7 @@ impl Fold {
             details: Details::default(),
             notices: HashSet::new(),
             turn_tasks: None,
+            page_workers: HashMap::new(),
             compacted: HashSet::new(),
             suppress_user_echo: false,
             head_dirty: BTreeSet::new(),
@@ -2189,6 +2207,7 @@ impl Fold {
         if let Some(place) = self.tools.get_mut(&(within.clone(), id)) {
             place.raw = None;
         }
+        let shown = (settled.page.clone()).filter(|_| within.is_none());
         self.replace_tool(within, row, part, |part| {
             if let ChatPart::Tool {
                 tool,
@@ -2212,6 +2231,10 @@ impl Fold {
                 ended_at.get_or_insert(at);
             }
         });
+        if let Some(page) = shown {
+            let worker = self.page_workers.get(&page.id).cloned();
+            self.earlier_cards_leave(&page.id, &page.title, worker.as_deref(), (row, part));
+        }
     }
 
     fn restate_tool(
@@ -2667,14 +2690,21 @@ impl Fold {
     }
 
     /// A row of its own between the turns, holding only `part`.
-    fn push_between(&mut self, index: u64, at: Option<u64>, part: impl FnOnce(String) -> ChatPart) {
+    fn push_between(
+        &mut self,
+        index: u64,
+        at: Option<u64>,
+        part: impl FnOnce(String) -> ChatPart,
+    ) -> Option<(String, usize)> {
         let id = self.row_id(index, &None);
         let mut row = Row::new(id, ChatRole::Assistant, index);
         row.msg.opens_turn = Some(TurnStart { at });
         let part_id = row.open_part();
         row.push_part(part(part_id));
+        let place = (row.msg.id.clone(), row.msg.parts.len() - 1);
         let position = self.main.push(row);
         self.note_main_change(&None, position);
+        Some(place)
     }
 
     /// Claude Code tells itself a background task ended in a tag the person
@@ -2780,6 +2810,7 @@ impl Fold {
             }
         }
         if let Some(page) = notice.worker_page.as_ref() {
+            (self.page_workers).insert(page.id.clone(), page.agent_id.clone());
             if self.worker_page_again(page) {
                 return;
             }
@@ -2836,21 +2867,13 @@ impl Fold {
             || notice.rule.as_ref().is_some_and(|rule| rule.undone)
             || notice.week.is_some()
             || notice.rule_change.is_some()
-            || notice.worker_page.is_some()
             || notice.closed_card.is_some()
             || notice.sign_in.is_some();
+        if let Some(page) = notice.worker_page.clone() {
+            self.add_worker_page(index, stamped_at(update), page, notice);
+            return;
+        }
         if own_line && !self.head.running {
-            if let Some(page) = notice.worker_page.as_ref() {
-                if self.worker_page_joins(page) {
-                    self.append_part(
-                        index,
-                        &None,
-                        |id| ChatPart::AgentNotice { id, notice },
-                        false,
-                    );
-                    return;
-                }
-            }
             let at = stamped_at(update);
             self.push_between(index, at, |id| ChatPart::AgentNotice { id, notice });
             return;
@@ -2861,6 +2884,27 @@ impl Fold {
             |id| ChatPart::AgentNotice { id, notice },
             false,
         );
+    }
+
+    /// A worker's page goes in the running turn, with the page that worker showed just before
+    /// it, or in a row of its own between the turns.
+    fn add_worker_page(
+        &mut self,
+        index: u64,
+        at: Option<u64>,
+        page: WorkerPage,
+        notice: AgentNotice,
+    ) {
+        let part = |id| ChatPart::AgentNotice { id, notice };
+        let place = if self.head.running || self.worker_page_joins(&page) {
+            self.append_part(index, &None, part, false)
+        } else {
+            self.push_between(index, at, part)
+        };
+        if let Some((row, part)) = place {
+            let worker = Some(page.agent_id.as_str());
+            self.earlier_cards_leave(&page.id, &page.title, worker, (&row, part));
+        }
     }
 
     fn push_letter(&mut self, index: u64, at: Option<u64>, mut letter: AgentLetter) {
@@ -2894,7 +2938,8 @@ impl Fold {
             let part = held.msg.parts.iter().position(|part| {
                 matches!(part, ChatPart::AgentNotice { notice, .. }
                 if notice.worker_page.as_ref().is_some_and(|shown| {
-                    shown.agent_id == page.agent_id && shown.title == page.title
+                    shown.agent_id == page.agent_id
+                        && (shown.title == page.title || shown.id == page.id)
                 }))
             })?;
             Some((position, part))
@@ -2909,9 +2954,93 @@ impl Fold {
             notice.worker_page = Some(page.clone());
         }
         held.touch_part(part);
+        let row = held.msg.id.clone();
         self.main.touch(position);
         self.note_main_change(&None, position);
+        self.earlier_cards_leave(&page.id, &page.title, Some(&page.agent_id), (&row, part));
         true
+    }
+
+    /// The chat shows one card of a page, its newest version, where it was last shown: every
+    /// other card of page `id`, or of one `worker` titled the same, leaves. A page the chat's
+    /// own agent made has no `worker`.
+    fn earlier_cards_leave(
+        &mut self,
+        id: &str,
+        title: &str,
+        worker: Option<&str>,
+        kept: (&str, usize),
+    ) {
+        let mut tools = Vec::new();
+        let mut notices = Vec::new();
+        for (position, row) in self.main.rows.iter().enumerate() {
+            for (at, part) in row.msg.parts.iter().enumerate() {
+                if (row.msg.id.as_str(), at) == kept {
+                    continue;
+                }
+                match part {
+                    ChatPart::Tool {
+                        page: Some(page), ..
+                    } => {
+                        let by = self.page_workers.get(&page.id).map(String::as_str);
+                        if page.id == id || page.title == title && by == worker {
+                            tools.push((position, at));
+                        }
+                    }
+                    ChatPart::AgentNotice { notice, .. } => {
+                        let same = notice.worker_page.as_ref().is_some_and(|page| {
+                            page.id == id
+                                || page.title == title && Some(page.agent_id.as_str()) == worker
+                        });
+                        if same {
+                            notices.push((position, at));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for &(position, at) in &tools {
+            let Some(row) = self.main.rows.get_mut(position) else {
+                continue;
+            };
+            if let Some(ChatPart::Tool { page, .. }) = row.msg.parts.get_mut(at) {
+                *page = None;
+            }
+            row.touch_part(at);
+            self.main.touch(position);
+            self.note_main_change(&None, position);
+        }
+        for &(position, at) in notices.iter().rev() {
+            self.drop_main_part(position, at);
+        }
+    }
+
+    fn drop_main_part(&mut self, position: usize, at: usize) {
+        let Some(row) = self.main.rows.get_mut(position) else {
+            return;
+        };
+        row.drop_part(at);
+        let id = row.msg.id.clone();
+        let moves =
+            |within: &Within, row: &str, part: usize| within.is_none() && row == id && part > at;
+        for place in self.tools.values_mut() {
+            if moves(&place.within, &place.row, place.part) {
+                place.part -= 1;
+            }
+        }
+        for place in self.cards.values_mut() {
+            if moves(&place.within, &place.row, place.part) {
+                place.part -= 1;
+            }
+        }
+        if let Some((row, part)) = self.turn_tasks.as_mut() {
+            if moves(&None, row, *part) {
+                *part -= 1;
+            }
+        }
+        self.main.touch(position);
+        self.note_main_change(&None, position);
     }
 
     /// A sign-in card moved on: the row that holds it shows it as it is now. Answers whether the
@@ -3086,7 +3215,9 @@ impl Fold {
                         false,
                     );
                 }
-                false => self.push_between(index, at, |id| ChatPart::AgentNotice { id, notice }),
+                false => {
+                    self.push_between(index, at, |id| ChatPart::AgentNotice { id, notice });
+                }
             }
         }
     }

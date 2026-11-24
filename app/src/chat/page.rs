@@ -61,6 +61,7 @@ fn shown<'a>(page: &PageRef, looks: &Looks, window: &mut Window, cx: &'a mut App
 /// Pages the agent showed, one row each in a shared frame: the top of the page, its title, and
 /// Open, which opens it on the agent's desk, as a click anywhere on the row does.
 pub(super) fn tabs(
+    first: &str,
     pages: &[&PageRef],
     looks: &Looks,
     window: &mut Window,
@@ -80,12 +81,13 @@ pub(super) fn tabs(
             tab_row(page, picture, place, at > 0, open, cx)
         })
         .collect();
-    tab_frame(rows, cx)
+    tab_frame(frame_id(first, looks), rows, cx)
 }
 
 /// Pages one of the agent's workers showed, as rows like the agent's own pages, named as the
 /// worker's.
 pub(super) fn worker_pages(
+    first: &str,
     pages: &[&WorkerPage],
     looks: &Looks,
     window: &mut Window,
@@ -103,13 +105,20 @@ pub(super) fn worker_pages(
             tab_row(&page_ref, picture, place, at > 0, open, cx)
         })
         .collect();
-    tab_frame(rows, cx)
+    tab_frame(frame_id(first, looks), rows, cx)
 }
 
-/// The shared frame page rows sit in.
-pub(crate) fn tab_frame(rows: Vec<AnyElement>, cx: &App) -> AnyElement {
+/// The frame of the pages a chat's part `first` starts.
+fn frame_id(first: &str, looks: &Looks) -> SharedString {
+    format!("pages-{}-{first}", looks.agent).into()
+}
+
+/// The shared frame page rows sit in. Two frames drawn at once need an `id` each: rows of one
+/// page in both would share a press, and only one of them would hear a click.
+pub(crate) fn tab_frame(id: SharedString, rows: Vec<AnyElement>, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     div()
+        .id(id)
         .w_full()
         .flex()
         .flex_col()
@@ -281,18 +290,53 @@ mod tests {
     use gpui::{point, Modifiers, Render, TestAppContext};
     use std::cell::Cell;
 
+    const PAGE: &str = "caa94d955d1b41af97d9ce4ccf0daba9";
+
+    fn card(opened: &Rc<Cell<u32>>, cx: &App) -> AnyElement {
+        let page = PageRef {
+            id: PAGE.into(),
+            title: "Mockup".into(),
+        };
+        let opened = opened.clone();
+        let open: Opens = Rc::new(move |_, _| opened.set(opened.get() + 1));
+        tab_row(&page, None, "In a tab".into(), false, open, cx)
+    }
+
     struct Card(Rc<Cell<u32>>);
 
     impl Render for Card {
         fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-            let page = PageRef {
-                id: "caa94d955d1b41af97d9ce4ccf0daba9".into(),
-                title: "Mockup".into(),
-            };
-            let opened = self.0.clone();
-            let open: Opens = Rc::new(move |_, _| opened.set(opened.get() + 1));
-            let row = tab_row(&page, None, "In a tab".into(), false, open, cx);
-            div().w(px(600.)).child(row)
+            div().w(px(600.)).child(card(&self.0, cx))
+        }
+    }
+
+    struct Frames(Rc<Cell<u32>>);
+
+    impl Render for Frames {
+        fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            let frame = |id: &'static str| tab_frame(id.into(), vec![card(&self.0, cx)], cx);
+            div()
+                .w(px(600.))
+                .child(frame("above"))
+                .child(frame("below"))
+        }
+    }
+
+    #[gpui::test]
+    fn two_cards_of_one_page_both_open_it(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::install(cx);
+        });
+        let opened = Rc::new(Cell::new(0));
+        let frames = Frames(opened.clone());
+        let (_, cx) = cx.add_window_view(|_, _| frames);
+        for (clicked, y) in [0.5, 1.5].into_iter().enumerate() {
+            for (pressed, x) in [300., 566.].into_iter().enumerate() {
+                cx.simulate_click(point(px(x), px(ROW_HEIGHT * y)), Modifiers::none());
+                let clicks = u32::try_from(2 * clicked + pressed + 1).unwrap_or(0);
+                assert_eq!(opened.get(), clicks, "the card {clicked} down, at {x}");
+            }
         }
     }
 

@@ -5,10 +5,10 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    actions, div, list, px, AnyElement, AnyView, App, ClipboardItem, Context, ElementId,
-    EventEmitter, FocusHandle, FollowMode, InteractiveElement, IntoElement, KeyBinding,
-    ListAlignment, ListOffset, ListState, MouseButton, MouseDownEvent, MouseMoveEvent,
-    ParentElement, Pixels, Point, Render, SharedString, Styled, Window,
+    actions, canvas, div, list, px, AnyElement, AnyView, App, ClipboardItem, Context,
+    DispatchPhase, ElementId, EventEmitter, FocusHandle, FollowMode, InteractiveElement,
+    IntoElement, KeyBinding, ListAlignment, ListOffset, ListState, MouseButton, MouseDownEvent,
+    MouseMoveEvent, ParentElement, Pixels, Point, Render, SharedString, Styled, Window,
 };
 
 use crate::draw::{LayoutBudget, Pen, Style};
@@ -52,6 +52,13 @@ pub trait Row: 'static {
     fn doc_named(&self, _name: &str) -> Option<usize> {
         None
     }
+
+    /// Whether the row still draws something that has left it, until `let_go`.
+    fn letting_go(&self) -> bool {
+        false
+    }
+
+    fn let_go(&mut self) {}
 }
 
 /// One change to a transcript's rows, as a host maps its own feed onto them.
@@ -130,6 +137,8 @@ pub struct Transcript<R: Row> {
     rise: Option<Rc<dyn Fn(f32) -> f32>>,
     /// The rows that just arrived, and when.
     arrived: Vec<(SharedString, Instant)>,
+    /// The rows that draw something that left them, while the reader would see it go.
+    letting_go: Vec<SharedString>,
 }
 
 /// How long a row that just arrived takes to rise into place, and from how far below.
@@ -215,6 +224,7 @@ impl<R: Row> Transcript<R> {
             drawn: None,
             rise: None,
             arrived: Vec::new(),
+            letting_go: Vec::new(),
         }
     }
 
@@ -598,6 +608,9 @@ impl<R: Row> Transcript<R> {
                     if let Some(ix) = self.position(&id) {
                         if let Some(row) = self.rows.get_mut(ix) {
                             change(row);
+                            if row.letting_go() && !self.letting_go.contains(&id) {
+                                self.letting_go.push(id);
+                            }
                         }
                         self.list.remeasure_items(ix..ix + 1);
                         self.stale.row(ix);
@@ -680,6 +693,58 @@ impl<R: Row> Transcript<R> {
         }
     }
 
+    /// What has left row `ix` can go with nothing moving under the reader: the row is out of
+    /// view, or the reader is at the latest rows with the pointer off this one.
+    fn can_let_go(&self, ix: usize, pointer: Point<Pixels>) -> bool {
+        if !(self.drawn.as_ref()).is_some_and(|drawn| drawn.contains(&ix)) {
+            return true;
+        }
+        let view = self.list.viewport_bounds();
+        let top_of = |ix: usize| {
+            let row = self.rows.get(ix)?;
+            self.row_tops.borrow().get(row.id()).copied()
+        };
+        let Some(top) = top_of(ix) else {
+            return true;
+        };
+        let next = top_of(ix + 1).filter(|next| *next > top);
+        let bottom = next.unwrap_or(view.bottom());
+        if bottom <= view.top() || top >= view.bottom() {
+            return true;
+        }
+        let under = view.contains(&pointer) && (top..bottom).contains(&pointer.y);
+        !self.away && !under
+    }
+
+    /// The rows that can let go of what has left them at `pointer`.
+    fn can_go(&self, pointer: Point<Pixels>) -> Vec<usize> {
+        (self.letting_go.iter())
+            .filter_map(|id| self.position(id))
+            .filter(|ix| self.can_let_go(*ix, pointer))
+            .collect()
+    }
+
+    fn let_go(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.letting_go.is_empty() {
+            return;
+        }
+        for ix in self.can_go(window.mouse_position()) {
+            if let Some(row) = self.rows.get_mut(ix) {
+                row.let_go();
+            }
+            self.list.remeasure_items(ix..ix + 1);
+            self.stale.row(ix);
+            cx.emit(RowsChanged);
+        }
+        let mut letting_go = std::mem::take(&mut self.letting_go);
+        letting_go.retain(|id| {
+            (self.position(id))
+                .and_then(|ix| self.rows.get(ix))
+                .is_some_and(Row::letting_go)
+        });
+        self.letting_go = letting_go;
+    }
+
     fn scrolled(
         &mut self,
         visible: Range<usize>,
@@ -694,6 +759,9 @@ impl<R: Row> Transcript<R> {
         let near_top = visible.start < NEAR_TOP;
         let near_bottom = visible.end + NEAR_TOP > self.rows.len();
         self.visible = visible;
+        if !self.letting_go.is_empty() {
+            cx.notify();
+        }
         if !near_top {
             self.asked_earlier = false;
         }
@@ -842,6 +910,7 @@ impl<R: Row> Render for Transcript<R> {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.layout_budget.reset();
         self.apply(cx);
+        self.let_go(window, cx);
         if self.query.is_some() {
             self.find_again(cx);
             self.resolve_pending(cx);
@@ -854,6 +923,22 @@ impl<R: Row> Render for Transcript<R> {
         let span = self.span();
         let this = cx.entity();
         let moved = this.downgrade();
+        let watch = (!self.letting_go.is_empty()).then(|| {
+            let this = this.downgrade();
+            let moved =
+                move |event: &MouseMoveEvent, _: DispatchPhase, _: &mut Window, cx: &mut App| {
+                    let _ = this.update(cx, |this, cx| {
+                        if !this.can_go(event.position).is_empty() {
+                            cx.notify();
+                        }
+                    });
+                };
+            canvas(
+                |_, _, _| (),
+                move |_, _, window, _| window.on_mouse_event(moved),
+            )
+            .absolute()
+        });
         let rows = list(self.list.clone(), move |ix, window, cx| {
             this.update(cx, |this, cx| {
                 if ix == this.rows.len() {
@@ -961,6 +1046,7 @@ impl<R: Row> Render for Transcript<R> {
             .key_context(CONTEXT)
             .on_action(cx.listener(|this, _: &Copy, _, cx| this.copy(cx)))
             .child(rows.size_full())
+            .children(watch)
             .on_children_prepainted(move |_, window, cx| {
                 let moved = moved.clone();
                 window.defer(cx, move |window, cx| {

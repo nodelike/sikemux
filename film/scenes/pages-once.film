@@ -1,0 +1,29 @@
+# One artifact shown three times in a chat, by a worker and twice by its lead, with the worker
+# closed. The chat keeps one card for it, where it was last shown, and a click on it opens it.
+stage 1440 1400
+window 1440 1400
+prefer themeId aura-noir
+prefer starAsked true
+replies pages-once.json
+project storefront shop
+patch pages-notes.diff
+chat Wren
+title "Cache the product pages"
+say "Find a store for the product cache."
+settle 20
+front Wren
+settle 3
+snap once-worker
+say "What did the worker find?"
+settle 14
+snap once-lead
+say "Show it to me once more."
+settle 14
+snap once-again
+# With the desk shut, a click on the one card opens it again.
+click 678,69 0.1
+settle 4
+snap once-shut
+click 1029,1033 0.1
+settle 4
+snap once-opened

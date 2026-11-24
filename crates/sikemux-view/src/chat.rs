@@ -82,7 +82,8 @@ pub enum ChatChange {
         #[serde(default, rename = "in", skip_serializing_if = "Option::is_none")]
         within: Option<String>,
     },
-    /// These fields of the row change; its parts stay.
+    /// These fields of the row change. Its parts stay, unless `parts` is one of them, as when one
+    /// left the row.
     Set {
         row: String,
         set: Value,

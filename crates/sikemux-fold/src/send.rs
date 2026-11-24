@@ -294,6 +294,7 @@ fn field(row: &ChatMessage, name: &str) -> Value {
         "chips" => serde_json::to_value(&row.chips),
         "named" => serde_json::to_value(&row.named),
         "leftOut" => serde_json::to_value(&row.left_out),
+        "parts" => serde_json::to_value(&row.parts),
         _ => Ok(Value::Null),
     };
     value.unwrap_or_default()
@@ -319,7 +320,7 @@ fn row_changes(
         return;
     };
     let role = row.msg.role;
-    if row.fresh {
+    if row.fresh || row.fields.contains("parts") {
         let mut msg = row.msg.clone();
         for (at, (part, held)) in msg.parts.iter_mut().zip(&row.msg.parts).enumerate() {
             *part = shown(held, role, row.sides.get_mut(at), open == Some(at));
@@ -327,13 +328,21 @@ fn row_changes(
         for (side, part) in row.sides.iter_mut().zip(&row.msg.parts) {
             side.sent = text_len(part).unwrap_or(0);
         }
-        out.push(ChatChange::Row {
-            row: fit_frame(msg),
-            within: within.clone(),
-        });
-        row.fresh = false;
+        let msg = fit_frame(msg);
+        let names = std::mem::take(&mut row.fields);
         row.parts.clear();
-        row.fields.clear();
+        out.push(if std::mem::take(&mut row.fresh) {
+            ChatChange::Row {
+                row: msg,
+                within: within.clone(),
+            }
+        } else {
+            ChatChange::Set {
+                row: msg.id.clone(),
+                set: fields(&msg, names),
+                within: within.clone(),
+            }
+        });
         return;
     }
     let id = row.msg.id.clone();

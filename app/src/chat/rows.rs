@@ -157,8 +157,8 @@ pub(super) fn row(
                 Shown::Sent(part, call) => {
                     sent_letter(row, part.id(), call, pen, looks, window, cx)
                 }
-                Shown::Tabs(pages) => self::page::tabs(&pages, looks, window, cx),
-                Shown::WorkerPages(pages) => worker_pages(&pages, looks, window, cx),
+                Shown::Tabs(first, pages) => self::page::tabs(first, &pages, looks, window, cx),
+                Shown::WorkerPages(first, pages) => worker_pages(first, &pages, looks, window, cx),
             });
         }
         if !tucked_away || whole_row_tucked {
@@ -799,8 +799,9 @@ pub(super) enum Shown<'a> {
     Part(&'a ChatPart),
     Run(Vec<&'a ChatPart>),
     Sent(&'a ChatPart, &'a ToolCall),
-    Tabs(Vec<&'a PageRef>),
-    WorkerPages(Vec<&'a WorkerPage>),
+    /// Pages the agent showed, from the part named on.
+    Tabs(&'a str, Vec<&'a PageRef>),
+    WorkerPages(&'a str, Vec<&'a WorkerPage>),
 }
 
 /// A message's parts with each run of tool calls together, and pages shown one after another,
@@ -822,14 +823,14 @@ fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>, apart: bool) -> Vec<Shown
                 ChatPart::Tool {
                     page: Some(page), ..
                 },
-                Some(Shown::Tabs(pages)),
+                Some(Shown::Tabs(_, pages)),
             ) => pages.push(page),
             (
                 ChatPart::Tool {
                     page: Some(page), ..
                 },
                 _,
-            ) => shown.push(Shown::Tabs(vec![page])),
+            ) => shown.push(Shown::Tabs(part.id(), vec![page])),
             (
                 ChatPart::Tool {
                     page: None,
@@ -857,7 +858,7 @@ fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>, apart: bool) -> Vec<Shown
                         },
                     ..
                 },
-                Some(Shown::WorkerPages(pages)),
+                Some(Shown::WorkerPages(_, pages)),
             ) if pages
                 .first()
                 .is_some_and(|first| first.agent_id == page.agent_id) =>
@@ -874,7 +875,7 @@ fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>, apart: bool) -> Vec<Shown
                     ..
                 },
                 _,
-            ) => shown.push(Shown::WorkerPages(vec![page])),
+            ) => shown.push(Shown::WorkerPages(part.id(), vec![page])),
             _ => shown.push(Shown::Part(part)),
         }
     }
@@ -1169,6 +1170,7 @@ fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
 /// Pages one of the agent's workers showed one after another: a line naming the worker over
 /// their rows.
 fn worker_pages(
+    first: &str,
     pages: &[&WorkerPage],
     looks: &Drawn,
     window: &mut Window,
@@ -1191,7 +1193,13 @@ fn worker_pages(
                 .child(ui::icon(Icon::Presentation, 12.).text_color(looks.quiet))
                 .child(notice_name(said.to_string(), false, looks)),
         )
-        .child(self::page::worker_pages(pages, looks.looks, window, cx))
+        .child(self::page::worker_pages(
+            first,
+            pages,
+            looks.looks,
+            window,
+            cx,
+        ))
         .into_any_element()
 }
 
@@ -1584,8 +1592,10 @@ pub(super) fn subagent(
                     Shown::Sent(part, call) => {
                         sent_letter(row, part.id(), call, pen, looks, window, cx)
                     }
-                    Shown::Tabs(pages) => self::page::tabs(&pages, looks, window, cx),
-                    Shown::WorkerPages(pages) => worker_pages(&pages, looks, window, cx),
+                    Shown::Tabs(first, pages) => self::page::tabs(first, &pages, looks, window, cx),
+                    Shown::WorkerPages(first, pages) => {
+                        worker_pages(first, &pages, looks, window, cx)
+                    }
                     Shown::Run(calls) => tools::run(
                         &calls,
                         live && ix + 1 == rows.len() && at + 1 == count,
