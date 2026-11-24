@@ -1776,7 +1776,21 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
 /// The chat's turn ended by itself: what its reply offers, and what it says it waits on.
 pub(crate) fn reply_read(core: &Arc<Core>, agent_id: &str) {
     offers_in_reply(core, agent_id);
+    checks_in_reply(core, agent_id);
     waits_in_reply(core, agent_id);
+}
+
+/// Whether the reply to a repeating check's firing says the agent still waits on it. A firing
+/// still on its way in is for the turn it starts to answer.
+fn checks_in_reply(core: &Core, agent_id: &str) {
+    let Some(chat) = core.chats().get(agent_id) else {
+        return;
+    };
+    if core.harness().mailbox.has_waiting(agent_id) || chat.feed.has_queued() {
+        return;
+    }
+    let waits = (chat.feed.last_answer()).is_some_and(|reply| waits_in(&reply));
+    core.triggers().turn_ended(agent_id, waits);
 }
 
 /// An offer of more work in a reply, which a yes or a no answers, sends the agent back when a
@@ -1821,7 +1835,7 @@ fn waits_in_reply(core: &Arc<Core>, agent_id: &str) {
     drop(state);
     let lead = (core.names().name(&to)).map_or("your lead".to_owned(), |name| format!("@{name}"));
     let text = format!(
-        "Your turn ended saying you wait, but nothing is set to wake you, so you would sit until someone writes to you. If you wait on something, set trigger_add for it now: process, agent or ci when it is one, else every with a check that prints once it is ready, and a timeout. If it is not yours to wait on, say plainly what is left for {lead} and end your turn."
+        "Your turn ended saying you wait, but nothing is set to wake you, so you would sit until someone writes to you. If you wait on something, set trigger_add for it now: process, agent or ci when it is one, else every with a check that prints once it is ready, and a timeout. A repeating check that already fired is no wait unless the turn it prompted ended saying you still wait, so remove it and set it again. If it is not yours to wait on, say plainly what is left for {lead} and end your turn."
     );
     let (core, agent_id) = (core.clone(), agent_id.to_owned());
     tokio::spawn(async move {

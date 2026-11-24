@@ -456,6 +456,80 @@ async fn a_worker_that_ends_waiting_on_nothing_is_sent_back_and_its_lead_not_tol
     );
 }
 
+/// A worker's repeating check fired, its turn ended still waiting on it, and the worker was told
+/// nothing was set to wake it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_still_waiting_on_its_repeating_check_once_that_fired_is_not_sent_back() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    git(&project, &["init", "--quiet", "-b", "main"]);
+    commit_file(&project, "base.txt", "base\n", "base");
+    let says = root.join("says");
+    std::fs::write(&says, "busy, and a stray folder").expect("what the check says");
+    let socket: PathBuf = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({
+        "profiles": [{
+            "id": "fake",
+            "name": "Fake",
+            "provider": "omp",
+            "accent": "#a277ff",
+            "executablePath": FAKE_AGENT,
+        }],
+    });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    let added = json!({ "id": "widget", "name": "widget", "path": project });
+    app.call("addProject", added).await.expect("the project");
+    let (lead, _) = app
+        .start_chat("omp:fake".into(), "widget".into(), None)
+        .await
+        .expect("the lead starts");
+    let mut lead = Agent::open(&socket, &lead).await;
+    let spawned = lead
+        .tool(
+            "agent.spawn",
+            json!({ "cli": "omp", "title": "Say hello", "prompt": "hello" }),
+        )
+        .await
+        .expect("a worker");
+    let worker_id = spawned["agentId"].as_str().expect("its id");
+    let mut worker = Agent::open(&socket, worker_id).await;
+    worker.chat.until_said("hello").await;
+    worker
+        .tool(
+            "trigger.add",
+            json!({
+                "title": "checkout free",
+                "prompt": "Take the pictures.",
+                "every": 60,
+                "check": format!("cat '{}'", says.display()),
+            }),
+        )
+        .await
+        .expect("the trigger");
+    std::fs::write(&says, "I'm waiting for the other run to end.").expect("what the check says");
+
+    worker.chat.until_said("for the other run to end").await;
+    worker.chat.until(|chat| !chat.view.head.running).await;
+    reads(
+        &mut lead,
+        worker_id,
+        "waiting on a repeating check: checkout free",
+    )
+    .await;
+    let heard = folded::prompts(&worker.chat.view.rows);
+    assert!(
+        !(heard.iter()).any(|prompt| prompt.contains("nothing is set to wake you")),
+        "{heard:#?}"
+    );
+}
+
 /// A file a shell command wrote is credited to its agent only once the write settles, after the
 /// turn ended, and the turn read "done, no changes" for good.
 #[tokio::test(flavor = "multi_thread")]

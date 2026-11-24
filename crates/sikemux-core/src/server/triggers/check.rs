@@ -25,9 +25,12 @@ pub(super) struct Check {
     dir: String,
     /// The end of what it said the last time it ran.
     said: String,
-    /// Whether it has fired, after which its agent no longer waits on it.
+    /// Whether it has fired and its agent no longer waits on it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     fired: bool,
+    /// Whether the turn it last prompted has yet to end, which says if its agent still waits.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    prompted: bool,
 }
 
 impl Check {
@@ -39,6 +42,7 @@ impl Check {
             dir,
             said,
             fired: false,
+            prompted: false,
         })
     }
 
@@ -48,6 +52,17 @@ impl Check {
 
     pub(super) fn fired(&self) -> bool {
         self.fired
+    }
+
+    pub(super) fn prompted(&self) -> bool {
+        self.prompted
+    }
+
+    /// The turn it prompted ended, its agent still waiting on it or not.
+    pub(super) fn turn_ended(&mut self, waits: bool) {
+        if std::mem::take(&mut self.prompted) {
+            self.fired = !waits;
+        }
     }
 }
 
@@ -84,6 +99,7 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
         let trigger = state.triggers.iter_mut().find(|trigger| trigger.id == id)?;
         let check = trigger.check.as_mut()?;
         check.fired = true;
+        check.prompted = true;
         if let Ok(said) = &ran {
             check.said = said.clone();
         }

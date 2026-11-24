@@ -325,9 +325,9 @@ impl Triggers {
 
     /// What the agent's chat waits on of the wakes it set itself to carry its work on: CI first,
     /// else its soonest one-time timer, which it has waited on since `rested_at`, else a
-    /// repeating trigger with a check that has not fired yet. A repeating trigger without one,
-    /// or whose check has fired, is automation and a paused one waits on nothing, so neither is
-    /// a wait.
+    /// repeating trigger with a check that has not fired, or whose firing left it still waiting.
+    /// A repeating trigger without one, or whose check has fired, is automation and a paused one
+    /// waits on nothing, so neither is a wait.
     pub(crate) fn wait_of(
         &self,
         agent_id: &str,
@@ -397,6 +397,25 @@ impl Triggers {
             agent: None,
             agents: Vec::new(),
         })
+    }
+
+    /// A turn of the agent's ended, saying it waits or not: whether the repeating checks that
+    /// prompted it are still a wait.
+    pub(crate) fn turn_ended(&self, agent_id: &str, waits: bool) {
+        let prompted = |trigger: &Trigger| {
+            trigger.prompts(agent_id) && trigger.check.as_ref().is_some_and(check::Check::prompted)
+        };
+        if !self.state.locked().triggers.iter().any(prompted) {
+            return;
+        }
+        self.change(|state| {
+            let checks = (state.triggers.iter_mut())
+                .filter(|trigger| prompted(trigger))
+                .filter_map(|trigger| trigger.check.as_mut());
+            for check in checks {
+                check.turn_ended(waits);
+            }
+        });
     }
 
     /// How many triggers prompt the open chat `agent_id`.
