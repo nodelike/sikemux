@@ -1,8 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// A call as the Mac's call tab draws it, as the page's own content: who asks, the question, the choices as rows with
-/// Go under them, then why it came up. What the person writes goes in the page's composer.
+/// A call as the Mac's call tab draws it, as the page's own content: who asks, the question, why it came up, then
+/// the choices as rows with Go under them. What the person writes goes in the page's composer.
 struct CallBody: View {
     @Environment(\.palette) private var palette
     let core: String
@@ -50,9 +50,10 @@ struct CallBody: View {
                     .padding(.top, 14)
             }
             if let page = call.page {
-                PageCard(page: PageRef(id: page.id, title: page.title)).padding(.top, 6)
+                PageCard(pages: [PageRef(id: page.id, title: page.title)]).padding(.top, 6)
             }
             pictures
+            why
             if call.kind != .look { tiles }
             if let against = call.against {
                 (Text("\(CallWords.againstIt) ").foregroundStyle(palette.secondary)
@@ -67,7 +68,6 @@ struct CallBody: View {
                     .top, 10)
             }
             goRow.padding(.top, 14)
-            why
         }
         .task(id: "\(call.id)|\(Hub.shared.live(core).isOpen)") { await calls.see(call) }
     }
@@ -249,9 +249,7 @@ struct CallBody: View {
         switch call.kind {
         case .look: return CallWords.seen
         case .do: return label ?? CallWords.done
-        default:
-            guard seen else { return CallWords.connecting }
-            return label.map(CallWords.goWith) ?? CallWords.goWithThis
+        default: return seen ? CallWords.goWithThis : CallWords.connecting
         }
     }
 

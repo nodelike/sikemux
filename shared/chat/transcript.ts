@@ -38,13 +38,14 @@ export function decodedFenceName(info: string): string {
 
 export type PartGroup = { id: string; tools: Extract<ChatPart, { kind: "tool" }>[] } | { id: string; part: ChatPart };
 
-/* Consecutive calls share one group, except a page or GIF the agent showed, which draws in
-   the call's place and is part of its reply rather than a step towards it. */
-export function groupParts(parts: ChatPart[]): PartGroup[] {
+/* Consecutive calls share one group, except a page or GIF the agent showed, or a message it
+   sent in `apart`, which draws in the call's place and is part of its reply rather than a
+   step towards it. */
+export function groupParts(parts: ChatPart[], apart?: ReadonlySet<string>): PartGroup[] {
     const groups: PartGroup[] = [];
     for (const part of parts) {
         const last = groups.at(-1);
-        if (part.kind !== "tool" || part.page || part.gif) groups.push({ id: part.id, part });
+        if (part.kind !== "tool" || part.page || part.gif || (part.sent && apart?.has(part.id))) groups.push({ id: part.id, part });
         else if (last && "tools" in last) last.tools.push(part);
         else groups.push({ id: part.id, tools: [part] });
     }

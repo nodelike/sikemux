@@ -46,7 +46,7 @@ const thousands = (tokens: number) => Math.ceil(tokens / 1000);
 export function handoffTitle(handoff: Handoff, provider: string, say: Say = english): string {
   return handoff.forkedFrom === undefined
     ? say('Hands over to {agent}', { agent: agentLabel(provider) })
-    : say('Forked from a {agent} chat', { agent: agentLabel(handoff.from) });
+    : say('Forked from a chat with {agent}', { agent: agentLabel(handoff.from) });
 }
 
 /** What a handoff holds, as the Mac's dock line says it. */

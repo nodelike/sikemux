@@ -24,6 +24,7 @@
     "createAgentWorktree",
     "discardFailed",
     "dismissGuestMessage",
+    "dismissSignIn",
     "dropHandoff",
     "dropQueued",
     "editMessage",

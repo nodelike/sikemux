@@ -8,6 +8,7 @@ import type { MdElement } from '@shared/markdown/types';
 import {
   attachmentName,
   groupParts,
+  type PartGroup,
   shownParts,
   SUBAGENT_MARKS,
   SUBAGENT_WORDS,
@@ -17,7 +18,7 @@ import {
 } from '@shared/chat/transcript';
 import { teamCount, teamTook, teamWords } from '@shared/chat/team';
 import { callsLabel, workedLabel } from '@shared/chat/toolView';
-import type { ChatMessage, ChatPart, ContentBlock, SubagentCard, TaskNotice as Notice, TeamLine } from '@shared/wire.generated';
+import type { ChatMessage, ChatPart, ContentBlock, SubagentCard, TaskNotice as Notice, TeamLine, WorkerPage } from '@shared/wire.generated';
 import { CopyButton } from '@/ui/CopyButton';
 import { haptics } from '@/ui/haptics';
 import { useT } from '@/i18n';
@@ -36,12 +37,12 @@ import { ImageViewer } from './ImageViewer';
 import type { Strip as StripMeta } from './messageMeta';
 import type { Unsent } from './outbox';
 import type { Attachment } from './uploads';
-import { ToolGroup } from './Tools';
+import { AgentPills, ToolGroup } from './Tools';
 import { AnsweredQuestions } from './Question';
-import { Bubble, From, makeBubbleStyles } from './Bubble';
+import { Bubble, From, makeBubbleStyles, TheirBubble } from './Bubble';
 import { AgentContext, ChiefContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { OwnMark } from '@/devices/Crew';
-import { AccountLine, AgentNoticeLine, ContextHandoffLine, PageCard, TaskNotice } from '@/chat/Notices';
+import { AccountLine, AgentNoticeLine, ContextHandoffLine, PageCard, type PageRef, TaskNotice, WorkerPageLine } from '@/chat/Notices';
 import { EndedTasksLine } from '@/chat/EndedTasks';
 import { ContextChips } from '@/chat/ContextChips';
 import { Editing, MessageEditor } from '@/chat/MessageEditor';
@@ -142,14 +143,49 @@ function TaskNoticeOrCard({ id, notice }: { id: string; notice: Notice }) {
   return <TaskNotice id={id} notice={notice} />;
 }
 
-function Parts({ id, parts, live, restored = null }: { id: string; parts: ChatPart[]; live: boolean; restored?: Restored | null }) {
+type RowGroup = PartGroup | { id: string; pages: PageRef[] } | { id: string; workerPages: WorkerPage[] };
+
+/** A message's parts as they draw: its calls in groups, and the pages the agent or one worker showed in a row together. */
+function rowGroups(parts: ChatPart[], apart?: ReadonlySet<string>): RowGroup[] {
+  const groups: RowGroup[] = [];
+  for (const group of groupParts(parts, apart)) {
+    const last = groups.at(-1);
+    const part = 'part' in group ? group.part : undefined;
+    const page = part?.kind === 'tool' ? part.page : undefined;
+    const workerPage = part?.kind === 'agent_notice' ? part.notice.workerPage : undefined;
+    if (page) {
+      if (last && 'pages' in last) last.pages.push(page);
+      else groups.push({ id: group.id, pages: [page] });
+    } else if (workerPage) {
+      if (last && 'workerPages' in last && last.workerPages[0].agentId === workerPage.agentId) last.workerPages.push(workerPage);
+      else groups.push({ id: group.id, workerPages: [workerPage] });
+    } else groups.push(group);
+  }
+  return groups;
+}
+
+function Parts({
+  id,
+  parts,
+  apart,
+  live,
+  restored = null,
+}: {
+  id: string;
+  parts: ChatPart[];
+  apart?: ReadonlySet<string>;
+  live: boolean;
+  restored?: Restored | null;
+}) {
   const styles = useStyles(makeStyles);
-  const groups = groupParts(parts);
+  const groups = rowGroups(parts, apart);
   return (
     <>
       {groups.map((group, index) => {
         const last = live && index === groups.length - 1;
         if ('tools' in group) return <ToolGroup key={group.id} id={`${id}/${group.id}`} parts={group.tools} live={last} />;
+        if ('pages' in group) return <PageCard key={group.id} pages={group.pages} />;
+        if ('workerPages' in group) return <WorkerPageLine key={group.id} pages={group.workerPages} />;
         const run = group.part;
         switch (run.kind) {
           case 'text':
@@ -180,12 +216,61 @@ function Parts({ id, parts, live, restored = null }: { id: string; parts: ChatPa
           case 'context_handoff':
             return <ContextHandoffLine key={run.id} handoff={run.handoff} />;
           case 'tool':
-            return run.page ? <PageCard key={run.id} page={run.page} /> : null;
+            return run.sent ? <SentLine key={run.id} id={run.id} row={run.tool.row} sent={run.sent} /> : null;
           default:
             return <View key={index} />;
         }
       })}
     </>
+  );
+}
+
+type ToolPart = Extract<ChatPart, { kind: 'tool' }>;
+
+/** A message an agent sent others at the end of its turn, as on the Mac: one line a tap opens onto what it said. */
+function SentLine({ id, row, sent }: { id: string; row: ToolPart['tool']['row']; sent: NonNullable<ToolPart['sent']> }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const bubbleText = useStyles(makeBubbleStyles);
+  const t = useT();
+  const [open, setOpen] = useFold(`sent/${id}`, false);
+  return (
+    <View style={styles.team}>
+      <Pressable
+        onPress={() => {
+          haptics.select();
+          setOpen(!open);
+        }}
+        style={({ pressed }) => [styles.teamRow, pressed && styles.workPressed]}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={`${t('Sent to')} ${row.target}${row.detail ? `. ${row.detail}` : ''}`}
+        accessibilityState={{ expanded: open }}>
+        <View style={[styles.workChevron, open && { transform: [{ rotate: '90deg' }] }]}>
+          <Icon name="IconChevron" size={10} color={mixed(colors.ink, colors.inkDim, 0.6)} />
+        </View>
+        <Text style={styles.teamCount}>{t('Sent to')}</Text>
+        {row.agents?.length ? (
+          <View style={styles.sentTo}>
+            <AgentPills row={row} agents={row.agents} />
+          </View>
+        ) : (
+          <Text style={[styles.sentTo, styles.sentName]} numberOfLines={1}>
+            {row.target}
+          </Text>
+        )}
+        <Text style={styles.teamWords} numberOfLines={1}>
+          {row.detail ?? ''}
+        </Text>
+      </Pressable>
+      {open ? (
+        <View style={[bubbleText.from, styles.sentBody]}>
+          <TheirBubble>
+            <LongText id={id} text="" md={sent} live={false} style={bubbleText.text} />
+          </TheirBubble>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -362,6 +447,10 @@ export function Message({
         onTap(message);
       }
     : undefined;
+  const apart = useMemo(() => {
+    const shown = message.team ? null : message.fold?.shown;
+    return shown ? new Set(shownParts(message.parts, shown).map((part) => part.id)) : undefined;
+  }, [message]);
   const letters = message.letters;
   if (letters?.length) {
     return (
@@ -477,7 +566,7 @@ export function Message({
     <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? t('Tap for copy and how long it took') : undefined}>
       <Grow id={message.id} live={live}>
         <WhyChipsContext.Provider value={message.chips}>
-          <Parts id={message.id} parts={shownParts(message.parts, kept)} live={live} restored={restored} />
+          <Parts id={message.id} parts={shownParts(message.parts, kept)} apart={apart} live={live} restored={restored} />
         </WhyChipsContext.Provider>
         {live ? null : <LeftOut message={message} />}
         {strip ? <Strip meta={strip} mine={false} /> : null}
@@ -673,6 +762,9 @@ const makeStyles = (colors: Palette) => {
     teamMore: { fontFamily: fonts.ui, fontSize: 11, color: colors.inkDim, marginLeft: 2 },
     teamCount: { fontFamily: fonts.uiSemibold, fontSize: 12.5, color: colors.ink },
     teamWords: { flex: 1, minWidth: 0, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
+    sentTo: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, minWidth: 0 },
+    sentName: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.ink },
+    sentBody: { marginTop: 6 },
     teamTook: { fontFamily: fonts.ui, fontSize: 12, fontVariant: ['tabular-nums'], color: colors.inkDim },
     teamEarlier: {
       alignSelf: 'flex-start',

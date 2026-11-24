@@ -2,23 +2,37 @@ import SwiftUI
 
 typealias ToolPart = ChatPart.Tool
 
-/// Groups a message's parts: consecutive calls share one group, except a page or GIF the agent showed, which draws in
-/// the call's place and is part of its reply.
+/// Groups a message's parts: consecutive calls share one group, and so do consecutive pages the agent, or one of its
+/// workers, showed. A page, a GIF or a message in `apart` draws in its call's place and is part of the reply.
 enum PartGroup: Identifiable {
     case tools(String, [ToolPart])
+    case pages(String, [PageRef])
+    case workerPages(String, [WorkerPage])
     case part(ChatPart)
 
     var id: String {
         switch self {
-        case .tools(let id, _): id
+        case .tools(let id, _), .pages(let id, _), .workerPages(let id, _): id
         case .part(let part): part.id
         }
     }
 
-    static func of(_ parts: [ChatPart]) -> [PartGroup] {
+    static func of(_ parts: [ChatPart], apart: Set<String>) -> [PartGroup] {
         var groups: [PartGroup] = []
         for part in parts {
-            if case .tool(let tool) = part, tool.page == nil, tool.gif == nil {
+            if case .tool(let tool) = part, let page = tool.page {
+                if case .pages(let id, let pages) = groups.last {
+                    groups[groups.count - 1] = .pages(id, pages + [page])
+                } else {
+                    groups.append(.pages(tool.id, [page]))
+                }
+            } else if case .agentNotice(let notice) = part, let page = notice.notice.workerPage {
+                if case .workerPages(let id, let pages) = groups.last, pages.last?.agentId == page.agentId {
+                    groups[groups.count - 1] = .workerPages(id, pages + [page])
+                } else {
+                    groups.append(.workerPages(notice.id, [page]))
+                }
+            } else if case .tool(let tool) = part, tool.gif == nil, tool.sent == nil || !apart.contains(tool.id) {
                 if case .tools(let id, var tools) = groups.last {
                     tools.append(tool)
                     groups[groups.count - 1] = .tools(id, tools)
@@ -297,20 +311,15 @@ private struct ToolRowView: View {
     }
 }
 
-/// The agents a call reached, each as its pill, then what it said of them: for an agent it started, the task in full ink
-/// and the model it runs on.
-private struct AgentTargets: View {
-    @Environment(\.palette) private var palette
+/// The agents a call reached, each as its pill.
+struct AgentPills: View {
     @Environment(\.crew) private var crew
     @Environment(TranscriptContext.self) private var context
     let row: ToolRow
     let agents: [String]
-    let running: Bool
 
     var body: some View {
         let names = row.target.components(separatedBy: ", ").map { name in name.drop(while: { $0 == "@" }) }
-        let started = row.intent == .start
-        let font = started ? Theme.ui(12.5) : Theme.mono(11.5)
         HStack(spacing: 4) {
             ForEach(Array(agents.enumerated()), id: \.offset) { at, id in
                 AgentPill(
@@ -320,6 +329,23 @@ private struct AgentTargets: View {
                             provider: context.provider, face: nil, project: nil),
                     size: 11)
             }
+        }
+    }
+}
+
+/// The agents a call reached, then what it said of them: for an agent it started, the task in full ink and the model it
+/// runs on.
+private struct AgentTargets: View {
+    @Environment(\.palette) private var palette
+    let row: ToolRow
+    let agents: [String]
+    let running: Bool
+
+    var body: some View {
+        let started = row.intent == .start
+        let font = started ? Theme.ui(12.5) : Theme.mono(11.5)
+        HStack(spacing: 4) {
+            AgentPills(row: row, agents: agents)
             if let detail = row.detail {
                 Group {
                     if started && running {

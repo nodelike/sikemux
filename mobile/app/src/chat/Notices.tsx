@@ -15,6 +15,7 @@ import { AgentIcon, Icon, MakerIcon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useFold } from './folds';
 import { GoalLine } from './GoalLine';
+import { SignInNotice } from './SignInNotice';
 import { ClosedCardLine, DecidedLineRow, OverruledLine, RuleLine, WeekLine } from './ChiefLines';
 
 function stateWord(state: Notice['state'], t: Translate): string {
@@ -67,7 +68,7 @@ export function AgentNoticeLine({ notice }: { notice: AgentNotice }) {
   if (notice.decided) return <DecidedLineRow decided={notice.decided} />;
   if (notice.week) return <WeekLine week={notice.week} />;
   if (notice.ruleChange) return <RuleLine line={notice.ruleChange} />;
-  if (notice.workerPage) return <WorkerPageLine page={notice.workerPage} />;
+  if (notice.signIn) return <SignInNotice card={notice.signIn} />;
   if (notice.closedCard) return <ClosedCardLine closed={notice.closedCard} />;
   const tint = notice.severity === 'error' ? colors.danger : notice.severity === 'warning' ? colors.warn : colors.inkDim;
   return (
@@ -85,23 +86,25 @@ export function AgentNoticeLine({ notice }: { notice: AgentNotice }) {
   );
 }
 
-/** A page one of the agent's workers showed: a line naming the worker over the page's card. */
-function WorkerPageLine({ page }: { page: WorkerPage }) {
+/** The pages one of the agent's workers showed in a row: a line naming the worker over the pages' card. */
+export function WorkerPageLine({ pages }: { pages: WorkerPage[] }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const t = useT();
-  const said = t('@{name} showed a page', { name: page.name });
+  const name = pages[0].name;
+  const said =
+    pages.length === 1 ? t('@{name} showed an artifact', { name }) : t('@{name} showed {count} artifacts', { name, count: pages.length });
   return (
     <View>
       <View style={styles.notice} accessible accessibilityLabel={said}>
         <View style={styles.noticeHead}>
-          <Icon name="IconTabs" size={12} color={colors.inkDim} />
+          <Icon name="IconPresentation" size={12} color={colors.inkDim} />
           <Text style={styles.noticeInline} numberOfLines={1}>
             {said}
           </Text>
         </View>
       </View>
-      <PageCard page={page} />
+      <PageCard pages={pages} by={name} />
     </View>
   );
 }
@@ -190,45 +193,54 @@ export function SmartPick({ move, provider }: { move: AccountMove; provider: str
   );
 }
 
-type PageRef = NonNullable<Extract<ChatPart, { kind: 'tool' }>['page']>;
+export type PageRef = NonNullable<Extract<ChatPart, { kind: 'tool' }>['page']>;
 
-/** A page the agent showed, open in a tab on its desk. The phone has no web view to draw it in, so it names the page and where it is. */
-export function PageCard({ page }: { page: PageRef }) {
+/**
+ * Pages the agent showed, or the worker it names, one row each in a shared frame. The phone has no web view to draw them
+ * in, so a row names the page and where it is.
+ */
+export function PageCard({ pages, by }: { pages: Pick<PageRef, 'id' | 'title'>[]; by?: string }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const t = useT();
+  const place = by ? t("@{name}'s artifact", { name: by }) : t('In Artifacts');
   return (
-    <View style={styles.page} accessible accessibilityLabel={t('Page {title}, in a tab on the desk', { title: page.title })}>
-      <Icon name="IconTabs" size={14} color={colors.inkDim} />
-      <View style={styles.pageWords}>
-        <Text style={styles.pageTitle} numberOfLines={2} ellipsizeMode="tail">
-          {page.title}
-        </Text>
-        <Text style={styles.pageWhere} numberOfLines={1}>
-          {t('In a tab on the desk')}
-        </Text>
-      </View>
+    <View style={styles.pages}>
+      {pages.map((page, at) => (
+        <View
+          key={at}
+          style={[styles.page, at > 0 && styles.pageDivided]}
+          accessible
+          accessibilityLabel={t('Artifact {title}, {place}', { title: page.title, place })}>
+          <Icon name="IconPresentation" size={14} color={colors.inkDim} />
+          <View style={styles.pageWords}>
+            <Text style={styles.pageTitle} numberOfLines={2} ellipsizeMode="tail">
+              {page.title}
+            </Text>
+            <Text style={styles.pageWhere} numberOfLines={1}>
+              {place}
+            </Text>
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
 
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
-    page: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
+    pages: {
       alignSelf: 'stretch',
       marginVertical: 6,
-      paddingVertical: 8,
-      paddingHorizontal: 10,
-      borderRadius: 8,
+      borderRadius: 10,
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.raised,
     },
+    page: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 10 },
+    pageDivided: { borderTopWidth: 1, borderTopColor: colors.border },
     pageWords: { flex: 1, gap: 2 },
-    pageTitle: { fontFamily: fonts.uiMedium, fontSize: 13, color: colors.ink },
+    pageTitle: { fontFamily: fonts.uiMedium, fontSize: 14, color: colors.ink },
     pageWhere: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
     notice: { gap: 2, marginVertical: 2, paddingVertical: 4, paddingLeft: 12 },
     handoff: { flexDirection: 'row', alignItems: 'center', gap: 6, marginVertical: 6, minHeight: 18 },

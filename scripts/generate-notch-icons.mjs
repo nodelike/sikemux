@@ -422,6 +422,7 @@ const PHONE_ICONS = [
   "IconPlus",
   "IconPointer",
   "IconPower",
+  "IconPresentation",
   "IconPullRequest",
   "IconPush",
   "IconRecord",

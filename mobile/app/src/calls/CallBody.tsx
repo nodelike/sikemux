@@ -12,7 +12,6 @@ import {
   DO_NOT_DOING,
   DONE,
   GO_WITH_THIS,
-  goWith,
   headline as headlineOf,
   kept,
   LOOK_SEEN,
@@ -54,8 +53,8 @@ export function readyOf(call: PersonCall, draft: Draft, canAnswer: boolean, seen
 }
 
 /**
- * A call drawn as its own page, as the Mac draws a call's tab: who asked, the question, the choices as full-width
- * tiles, Go, and why it came up. The words that go with the answer are typed in the composer under the page.
+ * A call drawn as its own page, as the Mac draws a call's tab: who asked, the question, why it came up, the choices as full-width
+ * tiles, and Go. The words that go with the answer are typed in the composer under the page.
  */
 export const CallBody = memo(function CallBody({
   core,
@@ -92,18 +91,13 @@ export const CallBody = memo(function CallBody({
   const notDoing = call.kind === 'do' && chosen.includes(DO_NOT_DOING);
   const ready = readyOf(call, draft, canAnswer, seen);
   const headline = headlineOf(call, t);
-  const chosenLabel = call.options.find((option) => option.id === chosen[0])?.label;
   const hasGo = call.kind === 'look' || call.kind === 'do' || call.options.length > 0;
   const goWords =
     call.kind === 'look'
       ? t(SEEN)
       : call.kind === 'do'
-        ? (chosenLabel ?? t(DONE))
-        : !seen
-          ? t(CONNECTING)
-          : chosenLabel
-            ? goWith(chosenLabel, t)
-            : t(GO_WITH_THIS);
+        ? (call.options.find((option) => option.id === chosen[0])?.label ?? t(DONE))
+        : t(seen ? GO_WITH_THIS : CONNECTING);
 
   // Tells the host this phone drew the call, again whenever the connection changes.
   useEffect(() => {
@@ -156,8 +150,9 @@ export const CallBody = memo(function CallBody({
           }}
         />
       ) : null}
-      {call.page ? <PageCard page={call.page} /> : null}
+      {call.page ? <PageCard pages={[call.page]} /> : null}
       {pictured ? <Strip call={call} chosen={chosen} onChoose={(option) => choose(store, call, option)} /> : <Evidence call={call} />}
+      <Why call={call} />
       {call.kind === 'look' ? null : (
         <View style={styles.tiles}>
           {call.options.map((option) => (
@@ -232,12 +227,11 @@ export const CallBody = memo(function CallBody({
           ) : null}
         </View>
       ) : null}
-      <Why call={call} />
     </View>
   );
 });
 
-/** What the call rests on, read whole under the answer as on the Mac's page. */
+/** What the call rests on, read whole over the choices as on the Mac's page. */
 function Why({ call }: { call: PersonCall }) {
   const styles = useStyles(makeStyles);
   const t = useT();

@@ -306,20 +306,25 @@ function Target({ tool, target }: { tool: ToolCall; target: string }) {
   );
 }
 
-/** The agents a call reached, each as its pill, then what it said of them: for an agent it started, the task in full ink and its model. */
-function AgentTargets({ row, agents, running }: { row: ToolCall['row']; agents: string[]; running: boolean }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
+/** The agents a call reached, each as its pill. */
+export function AgentPills({ row, agents }: { row: ToolCall['row']; agents: string[] }) {
   const crew = useCrew();
   const provider = useContext(ProviderContext);
   const names = row.target.split(', ').map((name) => name.replace(/^@+/, ''));
+  return agents.map((id, at) => (
+    <AgentPill key={id} agent={namedAgent(crew, id) ?? { id, written: `@${names[at] ?? ''}`, chief: false, provider }} size={11} />
+  ));
+}
+
+/** The agents a call reached, then what it said of them: for an agent it started, the task in full ink and its model. */
+function AgentTargets({ row, agents, running }: { row: ToolCall['row']; agents: string[]; running: boolean }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
   const started = row.intent === 'start';
   const words = started ? styles.task : styles.mono;
   return (
     <View style={styles.agents}>
-      {agents.map((id, at) => (
-        <AgentPill key={id} agent={namedAgent(crew, id) ?? { id, written: `@${names[at] ?? ''}`, chief: false, provider }} size={11} />
-      ))}
+      <AgentPills row={row} agents={agents} />
       {row.detail ? (
         started && running ? (
           <Shimmer style={[words, { color: colors.inkDim }]} layout={styles.agentDetail}>

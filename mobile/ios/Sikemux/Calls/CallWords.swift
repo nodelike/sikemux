@@ -45,7 +45,8 @@ enum CallWords {
             return Said(word: String(localized: "Done"), phase: .done, parts: parts)
         case .stopped:
             var parts = turn.stopped?.left.map { [lowered($0)] } ?? []
-            parts.append(String(localized: "nothing set to wake it"))
+            parts.append(
+                turn.stopped?.by.map { String(localized: "by @\($0)") } ?? String(localized: "nothing set to wake it"))
             return Said(word: String(localized: "Stopped"), phase: .stopped, parts: parts)
         case .failed:
             guard let failed = turn.failed else { return nil }
@@ -70,7 +71,7 @@ enum CallWords {
     /// more than one does, and how long.
     static func docked(_ said: Said, waiting: Int) -> Said {
         guard said.phase == .needsYou else { return said }
-        let more = waiting > 1 ? [String(localized: "\(waiting) calls")] : []
+        let more = waiting > 1 ? [String(localized: "\(waiting) asks")] : []
         return Said(word: said.word, phase: said.phase, parts: more + Array(said.parts.suffix(1)))
     }
 
@@ -244,13 +245,15 @@ enum CallWords {
     static let againstIt = String(localized: "Against it:")
     static let about = String(localized: "about")
     /// The line over a page one of a lead's workers showed.
-    static func showedPage(_ name: String) -> String { String(localized: "@\(name) showed a page") }
+    static func showedPage(_ name: String) -> String { String(localized: "@\(name) showed an artifact") }
+    static func showedPages(_ name: String, _ count: Int) -> String {
+        String(localized: "@\(name) showed \(count) artifacts")
+    }
     static let addNote = String(localized: "Add a note…")
     static let secretField = String(localized: "Type or paste it…")
     static let goWithThis = String(localized: "Go with this")
-    static func goWith(_ option: String) -> String { String(localized: "Go with \(option)") }
     static let openChat = String(localized: "Open chat")
-    static let nextCall = String(localized: "Next call")
+    static let nextCall = String(localized: "Next ask")
     static let whyItCameUp = String(localized: "Why it came up")
     /// A call's page goes by its short title, or by who asks it.
     static func pageTitle(_ call: PersonCall) -> String {
@@ -279,7 +282,7 @@ enum CallWords {
     static let seen = String(localized: "Seen")
     /// The field under Not doing on a do call.
     static let whyNotDoing = String(localized: "Say why you're not doing it…")
-    static func waiting(_ count: Int) -> String { String(localized: "\(count) calls") }
+    static func waiting(_ count: Int) -> String { String(localized: "\(count) asks") }
     static func newest(_ question: String) -> String { String(localized: "Newest: \(question)") }
     /// A do or look call goes by its kind and short title, `Do · Test purchase`; any other by its question.
     static func headline(_ call: PersonCall) -> String {
@@ -393,14 +396,14 @@ enum CallWords {
         if answered == 0 { return first }
         let second =
             answered == 1
-            ? String(localized: "You answered \(picked) of 1 call as I picked.")
-            : String(localized: "You answered \(picked) of \(answered) calls as I picked.")
+            ? String(localized: "You answered \(picked) of 1 ask as I picked.")
+            : String(localized: "You answered \(picked) of \(answered) asks as I picked.")
         return String(localized: "\(first) \(second)")
     }
 
     // MARK: The calls tab
 
-    static let calls = String(localized: "Calls")
+    static let calls = String(localized: "Asks")
     static let answered = String(localized: "Answered")
     static let noCalls = String(localized: "Nothing waits on you.")
 

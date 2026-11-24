@@ -94,8 +94,11 @@ struct TranscriptMessage: View {
             UserMessage(message: message, look: look, tap: tap)
         } else {
             VStack(alignment: .leading, spacing: 0) {
-                Parts(id: message.id, parts: shownParts, live: look.live, restored: context.leftOut[message.id])
-                    .environment(\.whyChips, WhyLink.chips(message.chips ?? [], here: context.agentId))
+                Parts(
+                    id: message.id, parts: shownParts, apart: apart, live: look.live,
+                    restored: context.leftOut[message.id]
+                )
+                .environment(\.whyChips, WhyLink.chips(message.chips ?? [], here: context.agentId))
                 if !look.live { LeftOutLine(message: message) }
                 if let strip = look.strip { StripView(strip: strip, mine: false) }
             }
@@ -108,6 +111,12 @@ struct TranscriptMessage: View {
     private var shownParts: [ChatPart] {
         guard let kept = look.kept else { return message.parts }
         return message.parts.enumerated().filter { kept.contains($0.offset) }.map(\.element)
+    }
+
+    /// The parts a closed turn's reply draws apart from its calls, as the messages it sent are.
+    private var apart: Set<String> {
+        guard message.team == nil, let fold = message.fold else { return [] }
+        return Set(message.parts.enumerated().filter { fold.shown.contains($0.offset) }.map(\.element.id))
     }
 
     private func tap() {
@@ -323,18 +332,23 @@ private struct LetterGroup {
 struct Parts: View {
     let id: String
     let parts: [ChatPart]
+    var apart: Set<String> = []
     let live: Bool
     /// Text parts' trees with what was left out of them back in place, by part, while the reader shows it.
     var restored: [String: PartTree]? = nil
 
     var body: some View {
-        let groups = PartGroup.of(parts)
+        let groups = PartGroup.of(parts, apart: apart)
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                 let last = live && index == groups.count - 1
                 switch group {
                 case .tools(let first, let tools):
                     ToolGroup(id: "\(id)/\(first)", parts: tools, live: last)
+                case .pages(_, let pages):
+                    PageCard(pages: pages)
+                case .workerPages(_, let pages):
+                    WorkerPageLine(pages: pages)
                 case .part(let part):
                     PartView(part: part, last: last, restored: restored)
                         .padding(.top, index > 0 && part.isText ? 10 : 0)
@@ -388,7 +402,7 @@ private struct PartView: View {
         case .rotation:
             EmptyView()
         case .tool(let tool):
-            if let page = tool.page { PageCard(page: page) }
+            if let sent = tool.sent { SentLine(id: tool.id, row: tool.tool.row, sent: sent) }
         case .unknown:
             EmptyView()
         }
@@ -510,6 +524,70 @@ struct WorkSummary: View {
     }
 }
 
+/// A message an agent sent others at the end of its turn, as on the Mac: one line a tap opens onto what it said.
+private struct SentLine: View {
+    @Environment(\.palette) private var palette
+    @Environment(TranscriptContext.self) private var context
+    let id: String
+    let row: ToolRow
+    let sent: PartTree
+
+    var body: some View {
+        let open = context.folds.isOpen("sent/\(id)", false)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                Haptics.select()
+                context.folds.set("sent/\(id)", !open)
+            } label: {
+                HStack(spacing: 6) {
+                    FoldChevron(open: open)
+                    Text("Sent to").font(Theme.ui(12.5, .semibold)).foregroundStyle(palette.ink).fixedSize()
+                    if let agents = row.agents, !agents.isEmpty {
+                        AgentPills(row: row, agents: agents)
+                    } else {
+                        Text(row.target).font(Theme.ui(12.5)).foregroundStyle(palette.ink).lineLimit(1)
+                    }
+                    Text(row.detail ?? "").font(Theme.ui(12.5)).foregroundStyle(palette.inkDim).lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .layoutPriority(-1)
+                }
+                .frame(height: 28)
+                .padding(.horizontal, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(ActiveFill(radius: 6))
+            .padding(.horizontal, -6)
+            .accessibilityLabel(
+                String(localized: "Sent to \(row.target)") + (row.detail.map { ". \($0)" } ?? "")
+            )
+            .accessibilityValue(open ? "expanded" : "collapsed")
+            if open {
+                LongText(
+                    id: id, text: "", md: sent, live: false,
+                    style: ProseStyle(size: 14, lineHeight: 22, color: palette.ink)
+                )
+                .theirBubble(palette)
+                .sentWidth(0.86, alignment: .leading)
+                .padding(.top, 6)
+            }
+        }
+        .padding(.top, 6)
+        .padding(.bottom, 2)
+    }
+}
+
+private struct FoldChevron: View {
+    @Environment(\.palette) private var palette
+    let open: Bool
+
+    var body: some View {
+        IconView(icon: Icons.chevron, size: 10)
+            .foregroundStyle(palette.ink.mixed(with: palette.inkDim, 0.6))
+            .opacity(0.7)
+            .rotationEffect(.degrees(open ? 90 : 0))
+    }
+}
+
 /// The one line a run of messages between agents folds to, as on the Mac: a tap opens it where it is.
 struct TeamFoldLine: View {
     @Environment(\.palette) private var palette
@@ -544,10 +622,7 @@ struct TeamFoldLine: View {
                 onToggle()
             } label: {
                 HStack(spacing: 6) {
-                    IconView(icon: Icons.chevron, size: 10)
-                        .foregroundStyle(palette.ink.mixed(with: palette.inkDim, 0.6))
-                        .opacity(0.7)
-                        .rotationEffect(.degrees(open ? 90 : 0))
+                    FoldChevron(open: open)
                     HStack(spacing: 2) {
                         ForEach(Array(line.agents.enumerated()), id: \.offset) { _, agent in
                             AgentFaceView(agentId: agent.agentId, provider: agent.cli, size: 16)

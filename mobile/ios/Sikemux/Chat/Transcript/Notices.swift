@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A notice as a plain line: its icon, then its words, at the transcript's left with a little room around.
-private struct NoticeLine<Content: View>: View {
+struct NoticeLine<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -101,8 +101,8 @@ struct AgentNoticeLine: View {
             WeekLine(week: week)
         } else if let rule = notice.ruleChange {
             RuleLine(line: rule)
-        } else if let page = notice.workerPage {
-            WorkerPageLine(page: page)
+        } else if let card = notice.signIn {
+            SignInNotice(card: card)
         } else if let closed = notice.closedCard {
             ClosedCardLine(closed: closed)
         } else {
@@ -126,24 +126,25 @@ struct AgentNoticeLine: View {
     }
 }
 
-/// A page one of the agent's workers showed: a line naming the worker over the page's card.
+/// The pages one of the agent's workers showed in a row: a line naming the worker over the pages' card.
 struct WorkerPageLine: View {
     @Environment(\.palette) private var palette
-    let page: WorkerPage
+    let pages: [WorkerPage]
 
     var body: some View {
-        let said = CallWords.showedPage(page.name)
+        let name = pages.first?.name ?? ""
+        let said = pages.count == 1 ? CallWords.showedPage(name) : CallWords.showedPages(name, pages.count)
         VStack(alignment: .leading, spacing: 0) {
             NoticeLine {
                 HStack(spacing: 8) {
-                    IconView(icon: Icons.tabs, size: 12).foregroundStyle(palette.inkDim)
+                    IconView(icon: Icons.presentation, size: 12).foregroundStyle(palette.inkDim)
                     Text(said).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim).lineLimit(1)
                 }
                 .frame(minHeight: 18)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(said)
-            PageCard(page: PageRef(id: page.id, title: page.title))
+            PageCard(pages: pages.map { PageRef(id: $0.id, title: $0.title) }, by: name)
         }
     }
 }
@@ -252,29 +253,41 @@ struct ResourceChip: View {
     }
 }
 
-/// A page the agent showed, open in a tab on its desk. The phone has no web view to draw it in, so it names the page
-/// and where it is.
+/// Pages the agent showed, or the worker it names, one row each in a shared frame. The phone has no web view to draw
+/// them in, so a row names the page and where it is.
 struct PageCard: View {
     @Environment(\.palette) private var palette
-    let page: PageRef
+    let pages: [PageRef]
+    var by: String?
 
     var body: some View {
-        HStack(spacing: 10) {
-            IconView(icon: Icons.tabs, size: 14).foregroundStyle(palette.inkDim)
+        let shape = RoundedRectangle(cornerRadius: 10)
+        VStack(spacing: 0) {
+            ForEach(Array(pages.enumerated()), id: \.offset) { at, page in
+                if at > 0 { Rectangle().fill(palette.border).frame(height: 1) }
+                row(page)
+            }
+        }
+        .background(shape.fill(palette.raised))
+        .overlay(shape.strokeBorder(palette.border, lineWidth: 1))
+        .padding(.vertical, 6)
+    }
+
+    private func row(_ page: PageRef) -> some View {
+        let place = by.map { String(localized: "@\($0)'s artifact") } ?? String(localized: "In Artifacts")
+        return HStack(spacing: 10) {
+            IconView(icon: Icons.presentation, size: 14).foregroundStyle(palette.inkDim)
             VStack(alignment: .leading, spacing: 2) {
-                Text(page.title).font(Theme.ui(13, .medium)).foregroundStyle(palette.ink).lineLimit(2)
+                Text(page.title).font(Theme.ui(14, .medium)).foregroundStyle(palette.ink).lineLimit(2)
                     .truncationMode(.tail).fixedSize(horizontal: false, vertical: true)
-                Text("In a tab on the desk").font(Theme.ui(12)).foregroundStyle(palette.inkFaint).lineLimit(1)
+                Text(place).font(Theme.ui(12)).foregroundStyle(palette.inkFaint).lineLimit(1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 8)
         .padding(.horizontal, 10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(palette.raised))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.border, lineWidth: 1))
-        .padding(.vertical, 6)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Page \(page.title), in a tab on the desk")
+        .accessibilityLabel("Artifact \(page.title), \(place)")
     }
 }
 

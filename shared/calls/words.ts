@@ -47,7 +47,7 @@ export function said(turn: TurnState, maker: string, now = Date.now(), say: Say 
         }
         case "stopped": {
             const parts = turn.stopped?.left ? [lowered(turn.stopped.left)] : [];
-            parts.push(say("nothing set to wake it"));
+            parts.push(turn.stopped?.by ? say("by @{name}", { name: turn.stopped.by }) : say("nothing set to wake it"));
             return { word: say("Stopped"), phase: "stopped", parts };
         }
         case "failed": {
@@ -77,7 +77,7 @@ export function said(turn: TurnState, maker: string, now = Date.now(), say: Say 
  */
 export function docked(line: Said, waiting: number, say: Say = english): Said {
     if (line.phase !== "needsYou") return line;
-    return { ...line, parts: [...(waiting > 1 ? [say("{count} calls", { count: waiting })] : []), ...line.parts.slice(-1)] };
+    return { ...line, parts: [...(waiting > 1 ? [say("{count} asks", { count: waiting })] : []), ...line.parts.slice(-1)] };
 }
 
 /** The agent a wait names first, with how many more it waits on: `@Otter +14`. */
@@ -339,8 +339,8 @@ export function weekCount(week: { decided: number; overruled: number; answered: 
     if (!week.answered) return first;
     const second =
         week.answered === 1
-            ? say("You answered {picked} of 1 call as I picked.", { picked: week.asPicked })
-            : say("You answered {picked} of {answered} calls as I picked.", { picked: week.asPicked, answered: week.answered });
+            ? say("You answered {picked} of 1 ask as I picked.", { picked: week.asPicked })
+            : say("You answered {picked} of {answered} asks as I picked.", { picked: week.asPicked, answered: week.answered });
     return say("{first} {second}", { first, second });
 }
 
@@ -351,9 +351,8 @@ export const AGAINST_IT = "Against it:";
 export const ADD_NOTE = "Add a note…";
 export const SECRET_FIELD = "Type or paste it…";
 export const GO_WITH_THIS = "Go with this";
-export const goWith = (option: string, say: Say = english) => say("Go with {option}", { option });
 export const OPEN_CHAT = "Open chat";
-export const NEXT_CALL = "Next call";
+export const NEXT_CALL = "Next ask";
 export const WHY_IT_CAME_UP = "Why it came up";
 export const WHAT_RUNS = "What runs";
 export const kept = (name: string, say: Say = english) => say("Kept private: @{name} reads it, and it never shows in the chat.", { name });
@@ -382,7 +381,7 @@ export function composerHint(call: PersonCall, chosen: boolean, say: Say = engli
 }
 
 /** In a chat, the calls its agent waits on folded into one row. */
-export const waitingCalls = (count: number, say: Say = english) => say("{count} calls", { count });
+export const waitingCalls = (count: number, say: Say = english) => say("{count} asks", { count });
 export const newest = (question: string, say: Say = english) => say("Newest: {question}", { question });
 
 /** A do or look call goes by its kind and short title, `Do · Test purchase`; any other by its question. */
@@ -418,7 +417,7 @@ export function context(call: PersonCall): string | undefined {
 
 // The calls tab
 
-export const CALLS = "Calls";
+export const CALLS = "Asks";
 export const ANSWERED = "Answered";
 export const NO_CALLS = "Nothing waits on you.";
 
