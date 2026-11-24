@@ -11,6 +11,7 @@ use crate::error::{Linear, LinearResult};
 const REVOKE_URL: &str = "https://api.linear.app/oauth/revoke";
 
 pub static APP: OAuthApp = OAuthApp {
+    icon: include_str!("../../../app/assets/icons/linear.svg"),
     callback: "/linear/callback",
     client_id: "a597de542170c3976bde9c670f879ee7",
     secret: Secret::None,

@@ -1,0 +1,28 @@
+*{box-sizing:border-box;margin:0}
+html{color-scheme:dark}
+body{min-height:100vh;overflow-x:hidden;display:grid;grid-template-rows:1fr auto;font:14px/1.5 Figtree,system-ui,sans-serif;color:#e7e5ef;background:#0b0b0e;-webkit-font-smoothing:antialiased}
+svg{display:block}
+canvas{position:fixed;inset:0;width:100%;height:100%}
+main{position:relative;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:40px 24px 24px;text-align:center}
+.mark{position:relative;width:264px;height:264px;margin-bottom:18px}
+.mark>svg{width:100%;height:100%}
+.mark.drawn>svg{visibility:hidden}
+.badge{position:absolute;right:14px;bottom:14px;width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:#78dca1;color:#08130c;box-shadow:0 0 0 7px #0b0b0e;animation:pop .22s .5s cubic-bezier(.2,.9,.3,1.2) backwards}
+.badge svg{width:26px;height:26px;stroke-width:2.8}
+.failed .badge{background:#ff6767;color:#1c0606;left:14px;right:auto}
+h1{max-width:100%;font-size:34px;line-height:1.15;font-weight:600;letter-spacing:-.03em;text-wrap:balance;overflow-wrap:anywhere}
+p{font-size:16px;color:#acabb4;max-width:420px;text-wrap:balance}
+h1,p,small{text-shadow:0 0 12px #0b0b0e,0 0 6px #0b0b0e}
+.why{max-width:min(440px,100%);padding:10px 16px;border:1px solid rgb(255 103 103/.34);border-radius:8px;background:#1b1013;color:#ffb1b1;overflow-wrap:anywhere}
+.why b{display:block;font-size:12px;font-weight:600;color:#ff6767}
+.code{font:600 36px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.24em;padding:14px 18px 14px 26px;border:1px solid #37363c;border-radius:10px;background:#0f0f13}
+.go{height:40px;padding:0 22px;margin-top:10px;border:0;border-radius:8px;display:grid;place-items:center;background:#e7e5ef;color:#0b0b0e;font:600 14px Figtree,system-ui,sans-serif;text-decoration:none;cursor:pointer}
+.go:hover{background:#fff}
+.go:focus-visible{outline:2px solid #a277ff;outline-offset:3px}
+small{font-size:13px;color:#8b8898}
+footer{position:relative;padding:0 0 26px;display:grid;place-items:center}
+footer svg{height:18px;width:auto}
+@keyframes pop{from{transform:scale(.3);opacity:0}}
+@media(prefers-reduced-motion:reduce){.badge{animation:none}}
+@media(max-height:640px){.mark{scale:.8;margin:-26px 0 -8px}}
+@media(max-width:480px){h1{font-size:28px}}

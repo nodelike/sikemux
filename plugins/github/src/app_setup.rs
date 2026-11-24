@@ -9,7 +9,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sikemux_plugin_api::http::Read;
-use sikemux_plugin_api::oauth::{ended, new_state, Callback};
+use sikemux_plugin_api::oauth::{ended, new_state, Callback, Endings, Page, Words};
 use sikemux_plugin_api::store::Accounts;
 use sikemux_plugin_api::StreamSink;
 
@@ -23,6 +23,18 @@ const START: &str = "/github/app/new";
 /// The manifest's code lasts an hour on GitHub's side.
 const BROWSER_WAIT: Duration = Duration::from_secs(30 * 60);
 const MAX_NAME: usize = 34;
+const ENDINGS: Endings = Endings {
+    service: "GitHub",
+    icon: include_str!("../../../app/assets/icons/github.svg"),
+    worked: Words {
+        title: "GitHub App created",
+        line: "GitHub opens next, so you can pick its repositories.",
+    },
+    failed: Words {
+        title: "Couldn't create the GitHub App",
+        line: "Sikemux didn't get the App. Try again from Sikemux.",
+    },
+};
 
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -104,7 +116,7 @@ pub async fn create(data_dir: &Path, ask: Create, sink: &StreamSink) -> GithubRe
     let host = config.host_of(None);
     let login = config.account(None).map(|account| account.login.clone());
     let state = new_state().map_err(|error| GithubError::Auth(error.0))?;
-    let callback = Callback::bind(CALLBACK, "GitHub")
+    let callback = Callback::bind(CALLBACK, ENDINGS)
         .await
         .map_err(|error| GithubError::Auth(error.0))?;
     let target = match &ask.organization {
@@ -115,7 +127,14 @@ pub async fn create(data_dir: &Path, ask: Create, sink: &StreamSink) -> GithubRe
         &proposed_name(ask.organization.as_deref().or(login.as_deref())),
         callback.redirect_uri(),
     );
-    let page = posting_page(&format!("{target}?state={state}"), &manifest.to_string());
+    let page = Page::posting(
+        ENDINGS.icon,
+        "Taking you to GitHub",
+        "Create the GitHub App there.",
+        "Continue to GitHub",
+        &format!("{target}?state={state}"),
+        ("manifest", &manifest.to_string()),
+    );
     let callback = callback.serving(START, page);
     sink.send(json!({ "url": callback.address_of(START) }))
         .map_err(|_| GithubError::Auth("making the App was closed".into()))?;
@@ -189,26 +208,6 @@ fn manifest(name: &str, redirect: &str) -> serde_json::Value {
             "workflows": "write",
         },
     })
-}
-
-fn escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-fn posting_page(action: &str, manifest: &str) -> String {
-    format!(
-        "<!doctype html><meta charset=utf-8><title>Sikemux</title>\
-         <body style=\"font:15px -apple-system,sans-serif;padding:48px\">\
-         <form method=post action=\"{}\"><input type=hidden name=manifest value=\"{}\">\
-         <p>Taking you to GitHub to create the GitHub App.</p>\
-         <button type=submit>Continue to GitHub</button></form>\
-         <script>document.forms[0].submit()</script>",
-        escape(action),
-        escape(manifest)
-    )
 }
 
 #[derive(Deserialize)]

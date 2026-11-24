@@ -21,6 +21,7 @@ const SCOPES: &str = "read:jira-work write:jira-work read:jira-user \
     read:issue-details:jira read:jql:jira read:filter:jira offline_access";
 
 pub static APP: OAuthApp = OAuthApp {
+    icon: include_str!("../../../app/assets/icons/jira.svg"),
     callback: "/jira/callback",
     client_id: match option_env!("JIRA_OAUTH_KEY") {
         Some(key) => key,

@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sikemux_loopback::{challenge, redirect_uri, LoopbackError};
 
-pub use sikemux_loopback::{new_state, Callback};
+pub use sikemux_loopback::{new_state, Callback, Endings, Page, Words};
 
 use crate::http::{read_body, Http};
 use crate::service::{Service, ServiceError};
@@ -52,6 +52,8 @@ pub enum TokenRequest {
 
 /// An app registered with a service, and how that service wants to be asked.
 pub struct OAuthApp {
+    /// An SVG of the service's mark, shown on the browser's page.
+    pub icon: &'static str,
     /// Registered as the app's callback, so it cannot move without changing it there too.
     pub callback: &'static str,
     pub client_id: &'static str,
@@ -162,7 +164,7 @@ impl OAuthApp {
         Fut: Future<Output = Result<R, ServiceError<S>>>,
     {
         self.secret()?;
-        let callback = Callback::bind(self.callback, S::NAME)
+        let callback = Callback::bind(self.callback, Endings::sign_in(S::NAME, self.icon))
             .await
             .map_err(refused)?;
         let state = new_state().map_err(refused)?;

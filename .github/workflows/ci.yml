@@ -125,7 +125,7 @@ jobs:
               echo "Skipped $name: nothing it checks changed, and it passed last run" >>"$GITHUB_STEP_SUMMARY"
             fi
           }
-          area rust '^(app/|crates/|plugins/|packaging/linux/build-packages\.txt$|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|rust-toolchain\.toml$|mobile/ios/Sikemux/UI/BackdropKinds\.generated\.h$|shared/backdrop/kinds\.generated\.ts$)'
+          area rust '^(app/|crates/|plugins/|packaging/linux/build-packages\.txt$|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|rust-toolchain\.toml$|mobile/ios/Sikemux/UI/BackdropKinds\.generated\.h$|shared/signin/|shared/backdrop/kinds\.generated\.ts$)'
           area simulator '^(helpers/sim/|crates/sikemux-simulator/|crates/helper_build\.rs$|scripts/build-sim-(helper|fixture)\.mjs$|scripts/lib/build\.mjs$|rust-toolchain\.toml$)'
           area helpers '^(helpers/(notch|voice)/|scripts/build-(notch|voice)-helper\.mjs$|scripts/generate-(notch-icons|notch-sources|wire-types)\.mjs$|crates/sikemux-(wire|view)/src/|shared/(ui|buddies|assets/agent-logos)/|brand/mark/|app/assets/icons/|crates/sikemux-core/src/assets/agent-catalog\.json$|scripts/lib/build\.mjs$|scripts/app-metadata\.mjs$)'
           area packaging '^(scripts/build-linux\.sh$|scripts/build-core\.mjs$|scripts/smoke-core\.mjs$|scripts/app-metadata\.mjs$|scripts/lib/build\.mjs$|scripts/install\.sh$|scripts/package-host\.sh$|scripts/smoke-host-install\.sh$|brand/linux/|packaging/linux/|crates/sikemux-agents/resources/sikemux_pi_tools\.ts$)'

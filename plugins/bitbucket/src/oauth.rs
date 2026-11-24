@@ -9,6 +9,7 @@ use crate::config;
 use crate::error::Bitbucket;
 
 pub static APP: OAuthApp = OAuthApp {
+    icon: include_str!("../../../app/assets/icons/bitbucket.svg"),
     callback: "/bitbucket/callback",
     client_id: match option_env!("BITBUCKET_OAUTH_KEY") {
         Some(key) => key,

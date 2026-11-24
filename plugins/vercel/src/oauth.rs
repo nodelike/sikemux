@@ -8,6 +8,7 @@ use sikemux_plugin_api::oauth::{Authorize, OAuthApp, Secret, TokenRequest};
 use crate::client;
 
 pub static APP: OAuthApp = OAuthApp {
+    icon: include_str!("../../../app/assets/icons/vercel.svg"),
     callback: "/vercel/callback",
     client_id: "oac_ShIPirtpIwfcsyfvCWka3qNU",
     secret: Secret::Compiled(option_env!("VERCEL_OAUTH_SECRET")),

@@ -4,6 +4,8 @@
 // on another machine comes back to its own localhost instead, and the address it
 // landed on is handed in with `relay`.
 
+mod page;
+
 use std::fmt;
 use std::io::ErrorKind;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,6 +18,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::watch;
+
+pub use page::{Endings, Page, Words, DONE, SIKEMUX_MARK};
 
 /// Registered with each service as part of its callback, so it cannot move without changing them too.
 pub const PORT: u16 = 47123;
@@ -64,10 +68,19 @@ pub fn challenge(verifier: &str) -> String {
 /// What the browser is shown once it came back.
 #[derive(Clone)]
 pub enum Finish {
-    /// A page saying how the sign-in to this service ended.
-    Page(&'static str),
+    /// A page saying how the sign-in ended.
+    Page(Endings),
     /// Sent on to `done`, or to `refused` when the sign-in was turned down.
     Redirect { done: String, refused: String },
+}
+
+impl Finish {
+    fn endings(&self) -> Endings {
+        match self {
+            Self::Page(endings) => *endings,
+            Self::Redirect { .. } => Endings::sign_in("Sikemux", SIKEMUX_MARK),
+        }
+    }
 }
 
 /// A browser that came back with a code. It is kept waiting until `answer` says how the
@@ -108,23 +121,13 @@ impl Drop for Landed {
 
 impl Browser {
     async fn answer(mut self, ended: Result<(), String>) {
-        let stream = &mut self.stream;
         match (&self.finish, ended) {
-            (Finish::Redirect { done, .. }, Ok(())) => redirect(stream, done).await,
-            (Finish::Page(service), Ok(())) => {
-                let message = format!(
-                    "Signed in to {service}. You can close this tab and go back to Sikemux."
-                );
-                respond(stream, "200 OK", &message).await;
+            (Finish::Redirect { done, .. }, Ok(())) => redirect(&mut self.stream, done).await,
+            (finish, Ok(())) => {
+                let page = finish.endings().worked_page();
+                respond(&mut self.stream, "200 OK", &page).await;
             }
-            (Finish::Page(service), Err(reason)) => {
-                let message = format!("Couldn't sign in to {service}: {reason}");
-                respond(stream, "400 Bad Request", &message).await;
-            }
-            (Finish::Redirect { .. }, Err(reason)) => {
-                let message = format!("Couldn't sign in to Sikemux: {reason}");
-                respond(stream, "400 Bad Request", &message).await;
-            }
+            (_, Err(reason)) => self.fail("What happened", &reason).await,
         }
     }
 
@@ -132,8 +135,16 @@ impl Browser {
     async fn refuse(mut self, reason: &str) {
         match &self.finish {
             Finish::Redirect { refused, .. } => redirect(&mut self.stream, refused).await,
-            Finish::Page(_) => self.answer(Err(reason.to_owned())).await,
+            Finish::Page(endings) => {
+                let label = format!("{} said", endings.service);
+                self.fail(&label, reason).await;
+            }
         }
+    }
+
+    async fn fail(mut self, label: &str, reason: &str) {
+        let page = self.finish.endings().failed_page().because(label, reason);
+        respond(&mut self.stream, "400 Bad Request", &page).await;
     }
 }
 
@@ -145,7 +156,7 @@ pub struct Callback {
     finish: Finish,
     /// A page this machine serves the browser first, at its own path, such as one that posts a
     /// form to the service.
-    start: Option<(&'static str, String)>,
+    start: Option<(&'static str, Page)>,
     relayed: Mutex<Option<UnboundedReceiver<String>>>,
     id: u64,
     replaced: watch::Receiver<bool>,
@@ -199,11 +210,11 @@ impl Callback {
     /// opened, so no other program can be listening on one of them for the code.
     /// A sign-in still waiting on the port, such as one the person gave up on in
     /// the browser, is stopped so this one can start.
-    pub async fn bind(path: &'static str, service: &'static str) -> LoopbackResult<Self> {
-        Self::bind_at(PORT, path, service).await
+    pub async fn bind(path: &'static str, endings: Endings) -> LoopbackResult<Self> {
+        Self::bind_at(PORT, path, endings).await
     }
 
-    async fn bind_at(port: u16, path: &'static str, service: &'static str) -> LoopbackResult<Self> {
+    async fn bind_at(port: u16, path: &'static str, endings: Endings) -> LoopbackResult<Self> {
         let replacing = replace_shared_port_sign_ins();
         let deadline = Instant::now() + TAKEOVER_WAIT;
         let (v4, v6) = loop {
@@ -220,7 +231,7 @@ impl Callback {
             v6,
             redirect_uri(path),
             path,
-            Finish::Page(service),
+            Finish::Page(endings),
             true,
         ))
     }
@@ -270,8 +281,8 @@ impl Callback {
         }
     }
 
-    /// Serves `page` as it is at `path`, for the browser to open before it goes to the service.
-    pub fn serving(mut self, path: &'static str, page: String) -> Self {
+    /// Serves `page` at `path`, for the browser to open before it goes to the service.
+    pub fn serving(mut self, path: &'static str, page: Page) -> Self {
         self.start = Some((path, page));
         self
     }
@@ -319,6 +330,7 @@ impl Callback {
                     Some(Answer::Done(answer)) => {
                         return answer.map(|code| Landed { code, browser: None });
                     }
+                    Some(Answer::NoCode) => return Err(no_code()),
                     Some(Answer::Stray) => return Err(not_this_sign_in()),
                     None => continue,
                 },
@@ -332,31 +344,36 @@ impl Callback {
                 continue;
             };
             if let Some((_, page)) = self.start.as_ref().filter(|(at, _)| is_path(&target, at)) {
-                respond_page(&mut stream, page).await;
+                respond(&mut stream, "200 OK", page).await;
                 continue;
             }
             match answer_of(&target, self.path, state) {
-                None => respond(&mut stream, "404 Not Found", "Nothing here.").await,
+                None => respond(&mut stream, "404 Not Found", &Page::unknown()).await,
                 Some(Answer::Stray) => {
-                    respond(&mut stream, "400 Bad Request", &not_this_sign_in().0).await
+                    respond(&mut stream, "400 Bad Request", &Page::unknown()).await
                 }
-                Some(Answer::Done(answer)) => {
-                    let browser = Browser {
-                        stream,
-                        finish: self.finish.clone(),
-                    };
-                    return match answer {
-                        Ok(code) => Ok(Landed {
-                            code,
-                            browser: Some(browser),
-                        }),
-                        Err(error) => {
-                            browser.refuse(&error.0).await;
-                            Err(error)
-                        }
-                    };
+                Some(Answer::NoCode) => {
+                    self.browser(stream).answer(Err(no_code().0)).await;
+                    return Err(no_code());
+                }
+                Some(Answer::Done(Err(error))) => {
+                    self.browser(stream).refuse(&error.0).await;
+                    return Err(error);
+                }
+                Some(Answer::Done(Ok(code))) => {
+                    return Ok(Landed {
+                        code,
+                        browser: Some(self.browser(stream)),
+                    });
                 }
             }
+        }
+    }
+
+    fn browser(&self, stream: TcpStream) -> Browser {
+        Browser {
+            stream,
+            finish: self.finish.clone(),
         }
     }
 }
@@ -417,9 +434,15 @@ async fn request_target(stream: &mut TcpStream) -> std::io::Result<String> {
 
 #[derive(Debug, PartialEq)]
 enum Answer {
+    /// The code, or what the service said instead.
     Done(LoopbackResult<String>),
+    NoCode,
     /// Any page can send the browser here, so a callback without this sign-in's state changes nothing.
     Stray,
+}
+
+fn no_code() -> LoopbackError {
+    LoopbackError("the browser came back without a code".into())
 }
 
 fn not_this_sign_in() -> LoopbackError {
@@ -445,39 +468,33 @@ fn answer_of(target: &str, path: &str, state: &str) -> Option<Answer> {
             value("error_description").unwrap_or(error),
         ))));
     }
-    Some(Answer::Done(value("code").ok_or_else(|| {
-        LoopbackError("the browser came back without a code".into())
-    })))
+    Some(value("code").map_or(Answer::NoCode, |code| Answer::Done(Ok(code))))
 }
 
 async fn redirect(stream: &mut TcpStream, location: &str) {
-    let reply = format!(
-        "HTTP/1.1 303 See Other\r\nlocation: {location}\r\ncontent-length: 0\r\ncache-control: no-store\r\nconnection: close\r\n\r\n"
-    );
-    stream.write_all(reply.as_bytes()).await.ok();
-    stream.shutdown().await.ok();
+    let headers = [
+        ("location", location.to_owned()),
+        ("cache-control", "no-store".to_owned()),
+        ("referrer-policy", "no-referrer".to_owned()),
+    ];
+    write(stream, "303 See Other", &headers, "").await;
 }
 
 fn is_path(target: &str, path: &str) -> bool {
     target.split('?').next() == Some(path)
 }
 
-async fn respond_page(stream: &mut TcpStream, page: &str) {
-    let reply = format!(
-        "HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n{page}",
-        page.len()
-    );
-    stream.write_all(reply.as_bytes()).await.ok();
-    stream.shutdown().await.ok();
+async fn respond(stream: &mut TcpStream, status: &str, page: &Page) {
+    write(stream, status, &page.headers(), &page.html()).await;
 }
 
-async fn respond(stream: &mut TcpStream, status: &str, message: &str) {
-    let body = format!(
-        "<!doctype html><meta charset=utf-8><title>Sikemux</title><body style=\"font:15px -apple-system,sans-serif;padding:48px\">{}</body>",
-        message.replace('&', "&amp;").replace('<', "&lt;")
-    );
+async fn write(stream: &mut TcpStream, status: &str, headers: &[(&str, String)], body: &str) {
+    let headers: String = headers
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect();
     let reply = format!(
-        "HTTP/1.1 {status}\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\n{headers}content-length: {}\r\nconnection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(reply.as_bytes()).await.ok();
@@ -487,6 +504,8 @@ async fn respond(stream: &mut TcpStream, status: &str, message: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ENDINGS: Endings = Endings::sign_in("GitHub", SIKEMUX_MARK);
 
     #[test]
     fn the_callback_carries_the_code_when_the_state_matches() {
@@ -540,7 +559,7 @@ mod tests {
             .local_addr()
             .unwrap()
             .port();
-        let first = Callback::bind_at(port, "/github/app/callback", "GitHub")
+        let first = Callback::bind_at(port, "/github/app/callback", ENDINGS)
             .await
             .unwrap();
         let abandoned = tokio::spawn(async move {
@@ -549,7 +568,7 @@ mod tests {
             answer
         });
         tokio::task::yield_now().await;
-        let second = Callback::bind_at(port, "/jira/callback", "Jira")
+        let second = Callback::bind_at(port, "/jira/callback", ENDINGS)
             .await
             .expect("the second sign-in gets the port");
         assert_eq!(
