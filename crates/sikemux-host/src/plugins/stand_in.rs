@@ -47,6 +47,13 @@ impl Plugins for StandIn {
             "status" if signed_in => Box::pin(async {
                 Ok(json!({ "configured": true, "ok": true, "authFailed": false, "message": null }))
             }),
+            "status" => Box::pin(async move {
+                let mut status = Plugins::call(&self.host, plugin, method, params).await?;
+                if let Some(offered) = status.get_mut("browserSignIn") {
+                    *offered = Value::Bool(true);
+                }
+                Ok(status)
+            }),
             _ => Plugins::call(&self.host, plugin, method, params),
         }
     }

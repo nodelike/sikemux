@@ -43,12 +43,14 @@ click "Dismiss"
 settle 2
 snap sign-in-dismissed
 front Wren
+settle 2
 click "Sign in"
 settle 1
 snap sign-in-browser
 settle 6
 snap sign-in-folded
 front Kaguya
+settle 2
 click "Sign in"
 settle 6
 snap sign-in-ticked
