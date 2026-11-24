@@ -7,7 +7,6 @@ on:
     paths-ignore:
       - "docs/**"
       - AGENTS.md
-      - CLA.md
       - CLAUDE.md
       - DESIGN.md
       - RELEASE_NOTES.md

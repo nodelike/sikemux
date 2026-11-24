@@ -150,4 +150,4 @@ For questions, or to talk an idea through before opening an issue, ask in the [S
 
 ## License
 
-Before your first pull request can be merged, you sign the [Contributor License Agreement](CLA.md). A bot comments on the pull request with the one line to post. You keep the copyright in your work; the agreement lets nodelike license it under the project's [license](LICENSE) and under other terms, including commercial ones.
+What you send is licensed under the project's [MIT license](LICENSE), and you keep your copyright.
