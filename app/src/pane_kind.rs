@@ -96,26 +96,30 @@ pub const SURFACES: [Surface; 5] = [
 ];
 
 /// The tab rail's pages in the order they sit, left to right.
-pub const PAGES: [TabRailPage; 4] = [
+pub const PAGES: [TabRailPage; 5] = [
     TabRailPage::Agents,
     TabRailPage::Terminals,
     TabRailPage::Files,
     TabRailPage::Pages,
+    TabRailPage::Mods,
 ];
 
-/// The kind whose views a tab rail page lists.
-pub fn listed_on(page: TabRailPage) -> PaneKind {
-    match page {
+/// The kind whose views a tab rail page lists; none for the mods, which open on the desk.
+pub fn listed_on(page: TabRailPage) -> Option<PaneKind> {
+    Some(match page {
         TabRailPage::Agents => PaneKind::Agent,
         TabRailPage::Terminals => PaneKind::Terminal,
         TabRailPage::Files => PaneKind::Files,
         TabRailPage::Pages => PaneKind::Pages,
-    }
+        TabRailPage::Mods => return None,
+    })
 }
 
 /// The tab rail's page that lists views of `kind`.
 pub fn page_of(kind: PaneKind) -> Option<TabRailPage> {
-    PAGES.into_iter().find(|page| listed_on(*page) == kind)
+    PAGES
+        .into_iter()
+        .find(|page| listed_on(*page) == Some(kind))
 }
 
 /// The colour of its icon on a tab: a terminal's is lit, as it runs something.

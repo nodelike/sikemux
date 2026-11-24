@@ -22,6 +22,8 @@ const MAKE: &str = "mods:make";
 const EXAMPLE: &str = "example:";
 
 /// The icon a mod's `mod.json` names, or the one every mod without one wears.
+pub(crate) mod list;
+
 pub fn icon(shown: &ModInfo) -> Icon {
     icon_named(shown.icon.as_deref())
 }

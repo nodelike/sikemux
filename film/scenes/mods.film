@@ -1,4 +1,5 @@
-# The tab rail's Mods section on the Agents and Pages pages, then a mod open on the desk.
+# The tab rail's Mods page with no mods, the mark on its icon from the Agents and Artifacts pages,
+# the page with six mods, then a mod open on the desk.
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir
@@ -7,6 +8,11 @@ project storefront line-shop
 project handbook mods-book
 chat Juniper
 title "Set up the mods"
+key cmd-alt-9
+settle 2
+snap mods-none
+key cmd-alt-4
+settle 1
 say "shell sh mods.sh"
 settle 3
 chat Maple
@@ -15,6 +21,7 @@ chat Otter
 title "Check the refund totals"
 chat Wren
 title "Cache the product pages"
+core pinMod "{\"id\":\"refunds\",\"project\":\"$project\"}"
 core setModBadge "{\"id\":\"posts\",\"badge\":\"2 to post\"}"
 core setModBadge "{\"id\":\"ci-board\",\"badge\":\"3 failing\"}"
 settle 4
@@ -22,8 +29,9 @@ snap mods
 key cmd-alt-8
 settle 2
 snap mods-pages
-key cmd-alt-4
-settle 1
+key cmd-alt-9
+settle 2
+snap mods-page
 click "Posts"
 settle 4
 snap mods-desk

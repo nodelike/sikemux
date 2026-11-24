@@ -524,6 +524,14 @@
         "other": "Ctrl+Alt+Digit8"
     },
     {
+        "id": "window.mods",
+        "label": "Mods",
+        "detail": "Open the mods that show in the project on the tab rail, to open one or ask an agent for a new one",
+        "category": "Navigation",
+        "mac": "Meta+Alt+Digit9",
+        "other": "Ctrl+Alt+Digit9"
+    },
+    {
         "id": "window.tasks",
         "label": "Tasks",
         "detail": "Open the project's tasks on the nearest agent's desk: what waits on you, what finished and what is moving",

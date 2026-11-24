@@ -95,6 +95,8 @@ pub struct Workbench {
     /// Playbook tab and its chats; none while the first read is out.
     pub(crate) playbooks: HashMap<String, Option<sikemux_view::playbook::Playbook>>,
     pub(crate) pages: crate::pages::Pages,
+    /// The search over the tab rail's mods.
+    pub(crate) mod_search: crate::agents::searched::Search,
     pub shown: crate::screens::experience::Shown,
     pub(crate) picture: crate::picture::AccountPicture,
     /// From asking the core to sign in until the browser is done or gives up.
@@ -368,6 +370,7 @@ impl Workbench {
             project_settings: HashMap::new(),
             playbooks: HashMap::new(),
             pages: crate::pages::Pages::new(window, cx),
+            mod_search: crate::agents::searched::Search::new(t!("Find a mod"), window, cx),
             kept_running_told: false,
             open_waits: Vec::new(),
             pairing: crate::pairing::RemotePairing::new(cx),

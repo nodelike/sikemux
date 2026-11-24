@@ -115,6 +115,8 @@ commands! {
     FocusPlaybook = "window.playbook" opens |bench, _, _| bench.open_playbook();
     /// The pages agents showed in the project in front.
     FocusPages = "window.pages" opens |bench, _, cx| bench.open_pages(cx);
+    /// The mods that show in the project in front, on the tab rail.
+    FocusMods = "window.mods" opens |bench, _, cx| bench.open_rail_on(sikemux_view::prefs::TabRailPage::Mods, cx);
     /// The project's tasks on the nearest agent's desk.
     FocusTasks = "window.tasks" opens |bench, _, cx| bench.front_tasks(cx);
     /// Moves the keys to the next of the window's areas: the rails and the view in front.

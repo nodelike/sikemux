@@ -1,18 +1,15 @@
 //! The tab rail's list of a project's pages.
 
-use gpui_kit::prelude::FluentBuilder;
-use gpui_kit::{
-    div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled,
-};
+use gpui_kit::{AnyElement, Context, IntoElement, ParentElement, SharedString, Styled};
 use sikemux_calls::harness::{ListedPage, PageLife};
 use sikemux_view::layout::PaneKind;
 
 use super::{folder_of, life_words};
-use crate::agents::{faded, page_body, page_header, rail_empty, EDGE_FADE};
+use crate::agents::searched;
+use crate::agents::{page_body, page_header, rail_empty};
 use crate::icons::Icon;
-use crate::theme::{Tokens, SPACE_0, SPACE_2H, SPACE_3, TEXT_2XS};
-use crate::ui::{self, Field, Group, Row};
+use crate::theme::{Tokens, TEXT_2XS};
+use crate::ui::{self, Row};
 use crate::workbench::{actions, Workbench};
 
 pub(crate) fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
@@ -38,9 +35,9 @@ pub(crate) fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
             });
         });
     }
-    let words = bench.pages.filter.read(cx).value().trim().to_lowercase();
+    let words = bench.pages.search.words(cx);
     let found: Vec<&ListedPage> = (listed.into_iter().flatten())
-        .filter(|page| matches(page, &words))
+        .filter(|page| searched::holds(&format!("{} {}", page.title, page.agent), &words))
         .collect();
     let empty = (listed.is_some() && found.is_empty()).then(|| match words.is_empty() {
         true => rail_empty(Icon::Presentation, t!("No artifacts yet"), None, cx),
@@ -56,49 +53,28 @@ pub(crate) fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
         (found.into_iter()).partition(|page| page.shared.is_some());
     let (kept, going): (Vec<&ListedPage>, Vec<&ListedPage>) =
         (rest.into_iter()).partition(|page| page.life == PageLife::Kept);
-    let mut sections: Vec<AnyElement> = Vec::new();
-    for (name, pages) in [
-        (t!("Shared"), shared),
-        (t!("Expiring"), going),
-        (t!("Kept"), kept),
-    ] {
-        if pages.is_empty() {
-            continue;
-        }
-        let rows: Vec<AnyElement> = (pages.into_iter())
+    let mut rows = |pages: Vec<&ListedPage>| {
+        (pages.into_iter())
             .map(|page| {
-                row(
-                    bench,
-                    page,
-                    reading.as_deref() == Some(page.id.as_str()),
-                    cx,
-                )
+                let chosen = reading.as_deref() == Some(page.id.as_str());
+                row(bench, page, chosen, cx)
             })
-            .collect();
-        let group = Group::new(name, "").when(sections.is_empty(), Group::first);
-        sections.push(group.children(rows).into_any_element());
-    }
-    body.child(
-        div()
-            .flex_none()
-            .mt(SPACE_2H)
-            .mx(SPACE_3)
-            .mb(SPACE_0)
-            .child(Field::new(&bench.pages.filter).icon(Icon::Search)),
-    )
-    .child(faded(
-        div()
-            .id("pages-scroll")
-            .size_full()
-            .pt(px(EDGE_FADE))
-            .px(SPACE_2H)
-            .pb(px(EDGE_FADE))
-            .overflow_y_scroll()
-            .children(empty)
-            .children(sections),
+            .collect()
+    };
+    let sections = [
+        (t!("Shared").into(), rows(shared)),
+        (t!("Expiring").into(), rows(going)),
+        (t!("Kept").into(), rows(kept)),
+    ];
+    searched::list(
+        body,
+        "pages-scroll",
+        &bench.pages.search,
+        None,
+        empty,
+        sections,
         cx,
-    ))
-    .into_any_element()
+    )
 }
 
 fn row(

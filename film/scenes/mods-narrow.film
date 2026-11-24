@@ -1,0 +1,25 @@
+# The tab rail at its narrowest, with six mods.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+prefer tabRailWidth 240
+project storefront line-shop
+project handbook mods-book
+chat Juniper
+title "Set up the mods"
+say "shell sh mods.sh"
+settle 3
+chat Maple
+title "Bundle the storefront"
+chat Otter
+title "Check the refund totals"
+chat Wren
+title "Cache the product pages"
+core pinMod "{\"id\":\"refunds\",\"project\":\"$project\"}"
+core setModBadge "{\"id\":\"posts\",\"badge\":\"2 to post\"}"
+core setModBadge "{\"id\":\"ci-board\",\"badge\":\"3 failing\"}"
+settle 4
+key cmd-alt-9
+settle 2
+snap mods-narrow

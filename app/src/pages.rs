@@ -9,17 +9,14 @@ pub(crate) use reader::Reader;
 use std::collections::HashMap;
 use std::path::Path;
 
-use gpui_kit::component::input::{InputEvent, InputState};
-use gpui_kit::{
-    div, AnyElement, AppContext, Context, Entity, IntoElement, ParentElement, Styled, Subscription,
-    Window,
-};
+use gpui_kit::{div, AnyElement, Context, Entity, IntoElement, ParentElement, Styled, Window};
 use sikemux_calls::call;
 use sikemux_calls::harness::{KeepPageParams, ListedPage, PageLife, PageShare, PagesParams};
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_view::prefs::TabRailPage;
 use sikemux_view::workspace::ProjectInfo;
 
+use crate::agents::searched::Search;
 use crate::core::Target;
 use crate::hosts::{HostChoice, Place};
 use crate::rail::Rail;
@@ -31,23 +28,15 @@ use crate::workbench::{Strip, Workbench};
 pub(crate) struct Pages {
     listed: HashMap<String, Option<Vec<ListedPage>>>,
     readers: HashMap<String, Entity<Reader>>,
-    filter: Entity<InputState>,
-    _filtering: Subscription,
+    search: Search,
 }
 
 impl Pages {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Workbench>) -> Self {
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Find an artifact")));
-        let filtering = cx.subscribe(&filter, |bench, _, event: &InputEvent, cx| {
-            if let InputEvent::Change = event {
-                bench.redraw_rail(Rail::Agents, cx);
-            }
-        });
         Self {
             listed: HashMap::new(),
             readers: HashMap::new(),
-            filter,
-            _filtering: filtering,
+            search: Search::new(t!("Find an artifact"), window, cx),
         }
     }
 

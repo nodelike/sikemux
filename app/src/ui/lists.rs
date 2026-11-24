@@ -346,7 +346,7 @@ impl RenderOnce for Row {
 /// or what it says when it has none.
 #[derive(IntoElement)]
 pub struct Group {
-    label: &'static str,
+    label: SharedString,
     actions: Option<AnyElement>,
     toolbar: Option<AnyElement>,
     empty: SharedString,
@@ -358,9 +358,9 @@ pub struct Group {
 }
 
 impl Group {
-    pub fn new(label: &'static str, empty: impl Into<SharedString>) -> Self {
+    pub fn new(label: impl Into<SharedString>, empty: impl Into<SharedString>) -> Self {
         Self {
-            label,
+            label: label.into(),
             actions: None,
             toolbar: None,
             empty: empty.into(),
@@ -429,7 +429,7 @@ impl RenderOnce for Group {
             .pb(SPACE_1H)
             .pl(SPACE_2)
             .rounded(radius_2())
-            .child(caps(self.label, cx).flex_none())
+            .child(caps(&self.label, cx).flex_none())
             .when((folded || self.counted) && count > 0, |heading| {
                 heading.child(
                     mono(count.to_string(), TEXT_2XS, cx)

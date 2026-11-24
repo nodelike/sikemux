@@ -983,8 +983,8 @@ fn project_tree(
     })
 }
 
-/// The surface the project tree lights: the tab rail's page while it is open, unless the
-/// tab in front is a surface the tab rail has no page for, such as Git.
+/// The surface the project tree lights: the tab rail's page while it is open, unless it
+/// lists no surface or the tab in front is a surface the tab rail has no page for, such as Git.
 fn lit_surface(bench: &Workbench) -> Option<PaneKind> {
     let front = bench
         .tab()
@@ -994,7 +994,7 @@ fn lit_surface(bench: &Workbench) -> Option<PaneKind> {
     if !(bench.rails.tab_open && paged) {
         return front;
     }
-    Some(crate::pane_kind::listed_on(bench.rails.page))
+    crate::pane_kind::listed_on(bench.rails.page).or(front)
 }
 
 /// The hover group of a project's row, whose × shows on hover.

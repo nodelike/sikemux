@@ -328,6 +328,7 @@ pub enum TabRailPage {
     Terminals,
     Files,
     Pages,
+    Mods,
 }
 
 /// The order projects are listed in: last worked in first, first added first, or as the

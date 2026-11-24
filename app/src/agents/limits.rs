@@ -441,11 +441,7 @@ fn floating(cx: &App) -> Div {
         .shadow(t.shadow_float())
 }
 
-pub(crate) fn small_button(
-    id: impl Into<gpui_kit::ElementId>,
-    icon: Icon,
-    label: String,
-) -> IconButton {
+fn small_button(id: impl Into<gpui_kit::ElementId>, icon: Icon, label: String) -> IconButton {
     IconButton::new(id, icon, label)
         .small()
         .width(20.)
@@ -457,14 +453,6 @@ fn header(view: &View, agents: &[Agent], cx: &App) -> Div {
     let add = (agents.first())
         .filter(|_| view.solo)
         .map(|agent| add_button(view, agent));
-    section_header(t!("LIMITS"), cx)
-        .children(resets_badge(view, agents, cx))
-        .child(refresh_button(view, agents, cx))
-        .children(add)
-}
-
-/// The head of a section at the rail's foot, which its buttons follow.
-pub(crate) fn section_header(label: impl Into<SharedString>, cx: &App) -> Div {
     div()
         .h(px(20.))
         .mb(SPACE_1)
@@ -472,8 +460,11 @@ pub(crate) fn section_header(label: impl Into<SharedString>, cx: &App) -> Div {
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .child(spaced(label, TEXT_2XS, cx))
+        .child(spaced(t!("LIMITS"), TEXT_2XS, cx))
         .child(div().flex_1().h(px(1.)).bg(Tokens::get(cx).border))
+        .children(resets_badge(view, agents, cx))
+        .child(refresh_button(view, agents, cx))
+        .children(add)
 }
 
 /// A section's spaced capitals, ahead of the hairline that runs to the section's buttons.

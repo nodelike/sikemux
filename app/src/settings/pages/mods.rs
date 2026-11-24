@@ -119,7 +119,7 @@ pub fn render(
     let mods = list.map(|list| list.mods.as_slice()).unwrap_or_default();
     let body = match mods.is_empty() {
         true => rows::note(
-            t!("No mods yet. Ask an agent for one with the + beside Mods in the rail."),
+            t!("No mods yet. Ask an agent for one with New mod on the Mods page of the tab rail."),
             cx,
         ),
         false => div()

@@ -52,11 +52,11 @@ pub mod card;
 pub(crate) mod limits;
 pub(crate) mod marble;
 pub mod menu;
-mod mods;
 pub mod palette;
 pub(crate) mod retitle;
 pub mod review;
 pub mod rows;
+pub(crate) mod searched;
 pub mod settled;
 pub mod setup;
 pub(crate) mod tags;
@@ -97,37 +97,24 @@ pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         .into_any_element()
 }
 
-/// The frame of a page's list, over the Mods section at the page's foot.
+/// What one of the rail's pages holds; the rail's frame and its page switch stay put while
+/// the pages slide inside it.
 pub(crate) fn page_body() -> gpui_kit::Div {
     div().size_full().flex().flex_col().overflow_hidden()
 }
 
-/// A page of the rail: its list, with the Mods section and the Agents page's limits at its foot.
 fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>) -> AnyElement {
-    let (list, limits) = match (page, bench.chosen_host()) {
-        (TabRailPage::Files, _) => {
-            let files = page_body()
-                .child(files_header(bench, cx))
-                .child(crate::files::page(bench, cx));
-            (files.into_any_element(), None)
-        }
-        (TabRailPage::Terminals, _) => (terminals_page(bench, cx), None),
-        (TabRailPage::Pages, _) => (crate::pages::list::page(bench, cx), None),
-        (TabRailPage::Agents, crate::hosts::HostChoice::Ssh(alias)) => {
-            (ssh_page(bench, alias, cx), None)
-        }
-        (TabRailPage::Agents, _) => (agents_page(bench, cx), limits(bench, cx)),
-    };
-    div()
-        .id(SharedString::from(format!("rail-page-{page:?}")))
-        .size_full()
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .child(div().flex_1().min_h_0().child(list))
-        .child(mods::mods(bench, cx))
-        .children(limits)
-        .into_any_element()
+    match (page, bench.chosen_host()) {
+        (TabRailPage::Files, _) => page_body()
+            .child(files_header(bench, cx))
+            .child(crate::files::page(bench, cx))
+            .into_any_element(),
+        (TabRailPage::Terminals, _) => terminals_page(bench, cx),
+        (TabRailPage::Pages, _) => crate::pages::list::page(bench, cx),
+        (TabRailPage::Mods, _) => crate::mods::list::page(bench, cx),
+        (TabRailPage::Agents, crate::hosts::HostChoice::Ssh(alias)) => ssh_page(bench, alias, cx),
+        (TabRailPage::Agents, _) => agents_page(bench, cx),
+    }
 }
 
 fn agents_page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
@@ -408,6 +395,7 @@ fn agents_page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .children(unseen.chip(true, cx))
             .children(unseen.chip(false, cx)),
         )
+        .children(limits(bench, cx))
         .into_any_element()
 }
 
@@ -913,11 +901,11 @@ fn elsewhere_chip(
         .map(|chip| div().pr(SPACE_1).child(chip).into_any_element())
 }
 
-fn new_row(
+pub(crate) fn new_row(
     id: &'static str,
     glyph: Icon,
     label: &'static str,
-    command: CommandId,
+    command: impl Into<Option<CommandId>>,
     cx: &App,
 ) -> Row {
     let t = Tokens::get(cx).clone();
@@ -929,7 +917,11 @@ fn new_row(
                 .group_hover(ui::ROW, move |style| style.text_color(t.text_primary)),
         )
         .quiet()
-        .children(crate::keymap::hint(command, cx).map(|keys| ui::kbd(keys, cx)))
+        .children(
+            (command.into())
+                .and_then(|command| crate::keymap::hint(command, cx))
+                .map(|keys| ui::kbd(keys, cx)),
+        )
 }
 
 /// The agent rows the rail drew last, for telling those that have just come and gone.
@@ -1760,10 +1752,18 @@ pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
 }
 
 fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
-    let border = Tokens::get(cx).border;
+    let t = Tokens::get(cx);
+    let (border, marked) = (t.border, t.warn);
+    let badges: Vec<String> = (bench.mods_here())
+        .filter_map(|shown| Some(format!("{} {}", shown.name, shown.badge.as_ref()?)))
+        .collect();
+    let mods = std::iter::once(t!("Mods").to_owned())
+        .chain(badges.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" · ");
     let page = |id: &'static str,
                 glyph: Icon,
-                label: &'static str,
+                label: SharedString,
                 shown: TabRailPage,
                 cx: &mut Context<Workbench>| {
         IconButton::new(id, glyph, label)
@@ -1786,31 +1786,45 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .child(page(
             "page-agents",
             Icon::Agent,
-            t!("Agents"),
+            t!("Agents").into(),
             TabRailPage::Agents,
             cx,
         ))
         .child(page(
             "page-terminals",
             Icon::Terminal,
-            t!("Terminals"),
+            t!("Terminals").into(),
             TabRailPage::Terminals,
             cx,
         ))
         .child(page(
             "page-files",
             Icon::File,
-            t!("Files"),
+            t!("Files").into(),
             TabRailPage::Files,
             cx,
         ))
         .child(page(
             "page-pages",
             Icon::Presentation,
-            t!("Artifacts"),
+            t!("Artifacts").into(),
             TabRailPage::Pages,
             cx,
         ))
+        .child(
+            div()
+                .relative()
+                .child(page(
+                    "page-mods",
+                    Icon::Puzzle,
+                    mods.into(),
+                    TabRailPage::Mods,
+                    cx,
+                ))
+                .when(!badges.is_empty(), |tab| {
+                    tab.child(ui::corner_dot(marked, cx))
+                }),
+        )
 }
 
 /// The Files page's head, with the copy switch while the project has more than one copy.
