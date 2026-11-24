@@ -2,7 +2,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -159,6 +159,8 @@ startNode(
     BILLING_PROVIDER: "stand-in",
     PRESENCE_LIVE_ONLY: "1",
     ADDRESS_PROOF_KEY: "0".repeat(64),
+    STASH_DIR: join(resolve(folder), "stash"),
+    STASH_KEY: "0".repeat(64),
     GOOGLE_WORK_ADDRESS_CLIENT_ID: "stand-in-work-address",
     GOOGLE_WORK_ADDRESS_CLIENT_SECRET: "stand-in",
     LOG_LEVEL: "warn",

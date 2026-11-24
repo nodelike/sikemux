@@ -1,0 +1,26 @@
+# A page shared from its reader on a local accounts API: the Share dialog, its link, then the page
+# in the tab rail's Shared section.
+stage 1440 900
+window 1440 900
+signed-in
+prefer themeId aura-noir
+prefer starAsked true
+replies pages.json
+project storefront shop
+patch pages-notes.diff
+chat Wren
+title "Cache the product pages"
+say "Plan the product page cache and show me the numbers."
+settle 10
+key cmd-alt-8
+settle 3
+click 1057,69
+settle 1
+snap pages-share-dialog
+key enter
+hold 3
+settle 1
+snap pages-share-link
+key escape
+settle 1
+snap pages-share-rail
