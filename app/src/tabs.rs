@@ -1,7 +1,6 @@
 use crate::battery::battery_chip;
 use crate::core::Target;
 use crate::tabs;
-use crate::ui::Clicks;
 use crate::workbench::actions;
 use sikemux_calls::call;
 use sikemux_calls::layout::TabParams;
@@ -31,9 +30,7 @@ use sikemux_wire::pty::shell_protocol::SshLink;
 use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
 use crate::motion;
-use crate::theme::{
-    Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS, TEXT_3XS, TEXT_XS,
-};
+use crate::theme::{Tokens, SPACE_1, SPACE_2, SPACE_2H, SPACE_4, TEXT_3XS, TEXT_XS};
 use crate::toast;
 use crate::ui::{self, IconButton, Tab};
 use crate::workbench::{Strip, StripRef, Workbench};
@@ -197,15 +194,10 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
                 .children(crate::tasks::cards(bench, cx))
                 .children(crate::hosts::bar::set_up_offer(bench, cx))
                 .children(crate::calls::chip(bench, cx))
+                .child(crate::hosts::bar::devices(bench, cx))
                 .children(crate::overload::chip(bench, roomy, cx))
-                .children(
-                    git_chip(bench, cx).map(|chip| {
-                        crate::settings::leaves(div().child(chip), cx).into_any_element()
-                    }),
-                )
                 .children(battery_chip(bench, cx))
                 .child(clock(cx))
-                .child(crate::hosts::bar::devices(bench, cx))
                 .child(
                     glyph_chip(
                         "focus",
@@ -364,73 +356,6 @@ fn strip_area(bench: &Workbench, strip: &Strip, cx: &mut Context<Workbench>) -> 
             .size_full(),
         )
         .into_any_element()
-}
-
-/// Where the project's repository stands: its branch, and how far it is from its upstream.
-fn git_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
-    let t = Tokens::get(cx).clone();
-    let project = bench.project()?;
-    let git = project.git.as_ref()?;
-    let host = project.code_host.as_ref();
-    let mark = match host {
-        Some(host) if let Some(mark) = Icon::named(&host.host) => {
-            ui::picture(mark, 12., t.text_primary)
-        }
-        _ => ui::picture(Icon::Git, 12., if git.dirty { t.warn } else { t.live }),
-    };
-    let mut about: Vec<String> = host
-        .map(|host| vec![host.label.clone(), host.repo.clone()])
-        .unwrap_or_default();
-    about.push(git.branch.clone());
-    about.push(if git.dirty {
-        t!("changed").into()
-    } else {
-        t!("clean").into()
-    });
-    about.extend((git.ahead > 0).then(|| t!("ahead {count}", count = git.ahead)));
-    about.extend((git.behind > 0).then(|| t!("behind {count}", count = git.behind)));
-    let count = |arrow: &str, count: u32, color| {
-        (count > 0).then(|| {
-            ui::text(format!("{arrow}{count}"), TEXT_3XS, FontWeight::NORMAL).text_color(color)
-        })
-    };
-    Some(
-        div()
-            .id("git-chip")
-            .h(px(24.))
-            .max_w(px(200.))
-            .px(px(CHIP_INSET))
-            .flex()
-            .items_center()
-            .gap(SPACE_1H)
-            .rounded(crate::theme::radius_1())
-            .font_family(crate::theme::mono_font())
-            .text_size(crate::theme::ui_text(TEXT_2XS))
-            .text_color(t.text_tertiary)
-            .hover(move |style| style.text_color(t.text_primary))
-            .tooltip(ui::tooltip(about.join(" · ")))
-            .clicks(|_, window, cx| crate::keymap::dispatch(actions::FocusGit::ID, window, cx))
-            .child(mark)
-            .child(
-                div()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .whitespace_nowrap()
-                    .text_color(t.text_primary)
-                    .child(git.branch.clone()),
-            )
-            .when(git.ahead > 0 || git.behind > 0, |chip| {
-                chip.child(
-                    div()
-                        .flex()
-                        .gap(SPACE_1)
-                        .children(count("↑", git.ahead, t.live))
-                        .children(count("↓", git.behind, t.warn)),
-                )
-            })
-            .into_any_element(),
-    )
 }
 
 /// What the strip remembers between draws to move its tabs: those drawn last, for telling
