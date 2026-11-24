@@ -1270,7 +1270,6 @@ impl Reader {
             TurnEnd::Completed(turn_answer(stop_reason(result)))
         };
         self.data.offline_retries = false;
-        let finished = !turn.cancelled && matches!(end, TurnEnd::Completed(_));
         self.sink.end_turn(turn.number, end);
     }
 
