@@ -28,9 +28,10 @@ use crate::accounts::orgvault::{
     OrgVault as Remote, OrgVaultCreate, OrgVaultEntry, OrgVaultEntryPut, OrgVaultEntryRead,
     OrgVaultHolder, OrgVaultKeysAdd, OrgVaultRemake, OrgVaultRotate, OrgVaultState, OrgWrappedKey,
 };
+use crate::accounts::protocol::DeviceList;
 use crate::accounts::vault::VaultEntryReseal;
 
-use super::super::account::api::{host_request, host_send_any};
+use super::super::account::api::{as_host, host_request, host_send_any};
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
 use super::floor;
 use super::seal::{self, Key};
@@ -76,7 +77,7 @@ struct Opened {
 /// is refused anything older than this: an earlier generation of the key, or an earlier revision
 /// of an entry held.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-struct Held {
+pub(super) struct Held {
     generation: i64,
     key: Option<Key>,
     entries: BTreeMap<String, Opened>,
@@ -806,9 +807,22 @@ fn wrap_for(
     })
 }
 
+/// The account's own hosts the key is not sealed for, since the person asked this host to have
+/// each new one approved. What other members' hosts may open is the org's to say.
+async fn withheld(core: &Core) -> CoreResult<BTreeSet<String>> {
+    if !core.remote().requires_approval() {
+        return Ok(BTreeSet::new());
+    }
+    let own: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
+    Ok((own.devices.into_iter())
+        .map(|host| host.key)
+        .filter(|host| !core.remote().vault_open_to(host))
+        .collect())
+}
+
 /// Every host of every member gets the key: the org taking the person in is its admins
 /// letting their hosts in. A member's host lets in only its own account's hosts.
-async fn add_keys(
+pub(super) async fn add_keys(
     core: &Core,
     org: &AccountOrg,
     secret: &Key,
@@ -816,10 +830,17 @@ async fn add_keys(
     key: &Key,
 ) -> CoreResult<()> {
     let own = (!manages(org)).then(|| core.vault().state.locked().hosts.clone());
+    let withheld = match own {
+        Some(_) => BTreeSet::new(),
+        None => withheld(core).await?,
+    };
     let keys: Vec<OrgWrappedKey> = vault
         .waiting
         .iter()
-        .filter(|host| own.as_ref().is_none_or(|own| own.contains_key(*host)))
+        .filter(|host| match &own {
+            Some(own) => own.contains_key(*host) && core.remote().vault_open_to(host),
+            None => !withheld.contains(*host),
+        })
         .filter_map(|host| wrap_for(key, secret, &org.id, vault.generation, host))
         .collect();
     if keys.is_empty() {
@@ -839,7 +860,7 @@ async fn add_keys(
 /// A host that held the key left the org, so the key is replaced for the members' hosts that
 /// are left, and every entry sealed again under the new one. Past the most one request takes,
 /// the other hosts wait, and the next round lets them in.
-async fn rotate(
+pub(super) async fn rotate(
     core: &Core,
     org: &str,
     me: &str,
@@ -860,6 +881,7 @@ async fn rotate(
     }
     let next = seal::random_key().ok_or_else(|| CoreError::from("no randomness for the key"))?;
     let generation = vault.generation + 1;
+    let withheld = withheld(core).await?;
     let mut hosts: Vec<&str> = Vec::new();
     for host in std::iter::once(me).chain(
         vault
@@ -868,7 +890,7 @@ async fn rotate(
             .chain(&vault.waiting)
             .map(String::as_str),
     ) {
-        if !hosts.contains(&host) {
+        if !hosts.contains(&host) && !withheld.contains(host) {
             hosts.push(host);
         }
     }

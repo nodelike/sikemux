@@ -133,6 +133,9 @@ pub struct Stored {
     /// with approval off.
     #[serde(default)]
     pub removed_here: BTreeMap<String, DeviceAccess>,
+    /// Keys of hosts the person here let in that this host is not linked with yet.
+    #[serde(default)]
+    pub approved_hosts: BTreeSet<String>,
     /// Devices that see and drive this host but never sign for the person, by id. Unpairing
     /// one keeps it here, so its key never comes back as one that signs.
     #[serde(default)]
@@ -262,6 +265,7 @@ fn trusted_in_file(file: &serde_json::Value) -> CoreResult<String> {
     trusted.insert("require_approval".into(), field("requireApproval"));
     trusted.insert("removed_here".into(), field("removedHere"));
     trusted.insert("hands_only".into(), field("handsOnly"));
+    trusted.insert("approved_hosts".into(), field("approvedHosts"));
     let canonical = without_defaults(Value::Object(trusted)).unwrap_or_default();
     Ok(sha256_hex(&serde_json::to_vec(&canonical)?))
 }
@@ -343,6 +347,7 @@ impl Stored {
             require_approval: bool,
             removed_here: &'a BTreeMap<String, DeviceAccess>,
             hands_only: &'a BTreeSet<String>,
+            approved_hosts: &'a BTreeSet<String>,
         }
         let trusted = Trusted {
             owner: &self.owner,
@@ -369,6 +374,7 @@ impl Stored {
             require_approval: self.require_approval,
             removed_here: &self.removed_here,
             hands_only: &self.hands_only,
+            approved_hosts: &self.approved_hosts,
         };
         let canonical = without_defaults(serde_json::to_value(&trusted)?).unwrap_or_default();
         Ok(sha256_hex(&serde_json::to_vec(&canonical)?))
@@ -380,6 +386,7 @@ impl Stored {
         self.devices.clear();
         self.joined_through.clear();
         self.hands_only.clear();
+        self.approved_hosts.clear();
         self.links.clear();
         self.shares.clear();
         self.notifications.clear();
@@ -389,9 +396,44 @@ impl Stored {
         self.account_event_id = 0;
     }
 
+    /// Whether the person here approved the key `id` for what it asks to be. A phone's key is
+    /// not an approved host, nor a host's an approved device.
+    fn approved(&self, id: &str, joining: Joining) -> bool {
+        match joining {
+            Joining::Device => self.devices.iter().any(|device| device.id == id),
+            Joining::Host => {
+                self.approved_hosts.contains(id) || self.links.iter().any(|link| link.id == id)
+            }
+        }
+    }
+
+    /// Whether the key `id` may join without the person here being asked.
+    fn admits(&self, id: &str, joining: Joining) -> bool {
+        self.approved(id, joining) || !(self.require_approval || self.removed_here.contains_key(id))
+    }
+
+    /// Notes that the person here let the host with this key in.
+    fn approve_host(&mut self, id: &str) {
+        self.declined_links.remove(id);
+        self.approved_hosts.insert(id.to_owned());
+    }
+
+    /// Keeps a host this one is now linked with, replacing what it knew of it.
+    fn link(&mut self, link: StoredLink) -> CoreResult<()> {
+        if !self.admits(&link.id, Joining::Host) {
+            return Err("the person here has not allowed that host".into());
+        }
+        self.forget(&link.id);
+        self.declined_links.remove(&link.id);
+        self.removed_here.remove(&link.id);
+        self.links.push(link);
+        Ok(())
+    }
+
     /// Drops a device and everything kept for it, answering with the device.
     fn forget(&mut self, id: &str) -> Option<DeviceInfo> {
         self.links.retain(|link| link.id != id);
+        self.approved_hosts.remove(id);
         self.notifications.remove(id);
         self.joined_through.remove(id);
         let index = self.devices.iter().position(|device| device.id == id)?;
@@ -437,14 +479,47 @@ pub struct Running {
     accept: JoinHandle<()>,
 }
 
+/// What a key joins this host as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Joining {
+    Device,
+    Host,
+}
+
+/// Who waits for the person here.
+#[derive(Clone, Debug)]
+pub enum Asking {
+    /// A phone or another app, and the host whose own app it is when it came through one.
+    Device { via: Option<String> },
+    /// A host that reached this one, from these addresses, to link with it.
+    Linking { addresses: Vec<String> },
+    /// A host the account lists, which this host would link with and share the vault's key with.
+    Listed,
+}
+
+impl Asking {
+    fn joining(&self) -> Joining {
+        match self {
+            Self::Device { .. } => Joining::Device,
+            Self::Linking { .. } | Self::Listed => Joining::Host,
+        }
+    }
+}
+
 pub struct Pending {
     device: PendingDevice,
     account: String,
-    /// The host whose own app is asking, for an app that came through it.
-    via: Option<String>,
-    /// Where a host asking to link was reached; none for a phone.
-    host: Option<Vec<String>>,
+    asking: Asking,
     answer: oneshot::Sender<Option<DeviceAccess>>,
+}
+
+/// A request the person is being asked to answer.
+pub struct Asked {
+    /// It as they see it, which may be one they saw already.
+    pub request: PendingDevice,
+    new: bool,
+    joining: Joining,
+    answered: oneshot::Receiver<Option<DeviceAccess>>,
 }
 
 #[derive(Default)]
@@ -487,6 +562,8 @@ pub struct Inner {
     /// Each host on the account that failed to link lately: how many times
     /// in a row, and not before when it is asked again.
     pub relink_failures: HashMap<String, (u32, u64)>,
+    /// When the person was last asked about each host, by its key.
+    pub asked_about: HashMap<String, u64>,
     #[cfg(any(test, feature = "testing"))]
     pub join_keys: Option<TrustedKeys>,
     /// What a test's stand-in for the core's own window answers, so none opens.
@@ -657,7 +734,7 @@ impl Remote {
             pending: inner
                 .pending
                 .iter()
-                .filter(|pending| pending.host.is_none())
+                .filter(|pending| pending.asking.joining() == Joining::Device)
                 .map(|pending| pending.device.clone())
                 .collect(),
             owner: inner.stored.owner.clone(),
@@ -819,24 +896,55 @@ impl Remote {
             .map(|secret| secret.public().to_string())
     }
 
-    /// Waits for someone to answer `device`, which came with a ticket from
-    /// `account`: a phone, or a host asking to link, reached at `host`.
-    pub fn ask(
-        &self,
-        device: PendingDevice,
-        account: String,
-        host: Option<Vec<String>>,
-        via: Option<String>,
-    ) -> oneshot::Receiver<Option<DeviceAccess>> {
+    /// Waits for someone to answer `device`, which `account` signed in. The person sees one
+    /// request for each key: a phone asking again replaces its request, and a host takes over the
+    /// one already there for its key, whose earlier asker stops waiting.
+    pub fn ask(&self, device: PendingDevice, account: String, asking: Asking) -> Asked {
         let (answer, answered) = oneshot::channel();
-        self.inner.locked().pending.push(Pending {
-            device,
-            account,
-            via,
-            host,
-            answer,
+        let joining = asking.joining();
+        let mut inner = self.inner.locked();
+        if joining == Joining::Host {
+            let now = epoch_ms();
+            inner.asked_about.insert(device.device_id.clone(), now);
+        }
+        let known = inner.pending.iter_mut().find(|pending| {
+            pending.device.device_id == device.device_id
+                && pending.asking.joining() == Joining::Host
+                && joining == Joining::Host
+                && pending.device.expires_at > epoch_ms()
         });
-        answered
+        let (request, new) = match known {
+            Some(pending) => {
+                pending.account = account;
+                pending.asking = asking;
+                pending.answer = answer;
+                (pending.device.clone(), false)
+            }
+            None => {
+                inner
+                    .pending
+                    .retain(|pending| pending.device.device_id != device.device_id);
+                inner.pending.push(Pending {
+                    device: device.clone(),
+                    account,
+                    asking,
+                    answer,
+                });
+                (device, true)
+            }
+        };
+        Asked {
+            request,
+            new,
+            joining,
+            answered,
+        }
+    }
+
+    /// Whether the person is still being asked `id`.
+    pub fn is_pending(&self, id: &str) -> bool {
+        let inner = self.inner.locked();
+        inner.pending.iter().any(|pending| pending.device.id == id)
     }
 
     /// Adds an allowed device before telling it, so the answer the app gets
@@ -851,35 +959,37 @@ impl Remote {
                 .ok_or_else(|| CoreError::from("that device is no longer waiting"))?;
             inner.pending.remove(index)
         };
-        if let (Some(_), Some(addresses)) = (access, pending.host.clone()) {
-            let device = &pending.device;
-            let added = StoredLink {
-                id: device.device_id.clone(),
-                name: device.name.clone(),
-                platform: device.platform.clone(),
-                linked_at: epoch_ms(),
-                last_seen: Some(epoch_ms()),
-                addresses,
-            };
-            if let Err(error) = self.add_link(added) {
-                drop(pending.answer);
-                return Err(error);
-            }
-        } else if let Some(access) = access {
-            let device = &pending.device;
-            let added = DeviceInfo {
-                id: device.device_id.clone(),
-                name: device.name.clone(),
-                platform: device.platform.clone(),
-                access,
-                paired_at: epoch_ms(),
-                last_seen: None,
-                via: pending.via.clone(),
-            };
-            if let Err(error) = self.add_device(added, Some(pending.account.clone())) {
-                drop(pending.answer);
-                return Err(error);
-            }
+        let device = pending.device;
+        match (pending.asking, access) {
+            (Asking::Device { via }, Some(access)) => self.add_device(
+                DeviceInfo {
+                    id: device.device_id,
+                    name: device.name,
+                    platform: device.platform,
+                    access,
+                    paired_at: epoch_ms(),
+                    last_seen: None,
+                    via,
+                },
+                Some(pending.account),
+            )?,
+            (Asking::Device { .. }, None) => {}
+            (Asking::Linking { addresses }, Some(_)) => self.change(|stored| {
+                stored.approve_host(&device.device_id);
+                stored.link(StoredLink {
+                    id: device.device_id,
+                    name: device.name,
+                    platform: device.platform,
+                    linked_at: epoch_ms(),
+                    last_seen: Some(epoch_ms()),
+                    addresses,
+                })
+            })?,
+            (Asking::Listed, Some(_)) => self.approve_host(&device.device_id)?,
+            (Asking::Linking { .. } | Asking::Listed, None) => self.change(|stored| {
+                stored.declined_links.insert(device.device_id);
+                Ok(())
+            })?,
         }
         let _ = pending.answer.send(access);
         Ok(())
@@ -898,7 +1008,8 @@ impl Remote {
             let waiting = {
                 let mut inner = self.inner.locked();
                 let index = inner.pending.iter().position(|pending| {
-                    pending.host.is_none() && pending.device.device_id == device.id
+                    pending.asking.joining() == Joining::Device
+                        && pending.device.device_id == device.id
                 });
                 index.map(|index| inner.pending.remove(index))
             };
@@ -911,7 +1022,10 @@ impl Remote {
                     access: device.access,
                     paired_at: epoch_ms(),
                     last_seen: None,
-                    via: waiting.as_ref().and_then(|waiting| waiting.via.clone()),
+                    via: waiting.as_ref().and_then(|waiting| match &waiting.asking {
+                        Asking::Device { via } => via.clone(),
+                        _ => None,
+                    }),
                 },
                 owner,
             )?;

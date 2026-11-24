@@ -404,9 +404,11 @@ pub fn apply_events(core: &Core, events: &[AccountEvent]) {
 /// A host off its account is linked with none of the account's hosts; it
 /// links with them again by itself once it signs in.
 pub fn unlink_all(core: &Core) {
-    let links = core
-        .remote()
-        .change(|stored| Ok(std::mem::take(&mut stored.links)));
+    let links = core.remote().change(|stored| {
+        stored.approved_hosts.clear();
+        Ok(std::mem::take(&mut stored.links))
+    });
+    core.remote().inner.locked().asked_about.clear();
     for link in links.unwrap_or_default() {
         (core.remote_above().hosts_unlinked)(core, &link.id, "this host left your account");
     }

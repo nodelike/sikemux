@@ -369,12 +369,19 @@ fn wrap_for(key: &Key, account: &str, generation: i64, host: &str) -> Option<Wra
     })
 }
 
-/// Every host the account adds gets the key: signing a host in to the account is the person
-/// letting it in (ADR 0018), and it uses every entry from then on.
-async fn add_keys(core: &Arc<Core>, account: &str, vault: &Remote, key: &Key) -> CoreResult<()> {
+/// Every host the account adds gets the key, and uses every entry from then on: signing a host in
+/// to the account is the person letting it in, unless they asked this host to have each approved
+/// (ADR 0018).
+pub(super) async fn add_keys(
+    core: &Arc<Core>,
+    account: &str,
+    vault: &Remote,
+    key: &Key,
+) -> CoreResult<()> {
     let keys: Vec<WrappedKey> = vault
         .waiting
         .iter()
+        .filter(|host| core.remote().vault_open_to(host))
         .filter_map(|host| wrap_for(key, account, vault.generation, host))
         .collect();
     if keys.is_empty() {
@@ -392,7 +399,7 @@ async fn add_keys(core: &Arc<Core>, account: &str, vault: &Remote, key: &Key) ->
 /// A host left, so the key it held is replaced. The entries it refreshed pass to this host.
 /// Not while the vault hands back an entry older than this host's copy, since its reseal would
 /// carry that copy past every floor.
-async fn rotate(
+pub(super) async fn rotate(
     core: &Arc<Core>,
     account: &str,
     me: &str,
@@ -416,7 +423,9 @@ async fn rotate(
     }
     let next = seal::random_key().ok_or_else(|| CoreError::from("no randomness for the key"))?;
     let generation = vault.generation + 1;
-    let hosts: BTreeSet<&String> = vault.holders.iter().chain(&vault.waiting).collect();
+    let hosts: BTreeSet<&String> = (vault.holders.iter().chain(&vault.waiting))
+        .filter(|host| core.remote().vault_open_to(host))
+        .collect();
     let keys = hosts
         .iter()
         .filter_map(|host| wrap_for(&next, account, generation, host))

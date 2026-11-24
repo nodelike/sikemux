@@ -3,6 +3,7 @@
 use super::*;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
+use crate::server::notify::Signal;
 use crate::server::remote_state::RemoteParts;
 pub use sikemux_calls::remote::ApprovalSetting;
 pub use sikemux_calls::remote::{DeviceChange, PairingAnswer, RemotePairing};
@@ -49,6 +50,60 @@ pub fn answer_pairing(core: &Core, answer: PairingAnswer) -> CoreResult<RemotePa
     Ok(pairing(core))
 }
 
+/// What the person here said to a device or host asking to be let in.
+pub enum Answer {
+    Allowed(DeviceAccess),
+    Denied,
+    /// No answer in time, or the account took it off meanwhile.
+    None,
+    /// The same host asked again, and that request has the person's answer.
+    TakenOver,
+}
+
+/// Asks the person here to let `device` in, as a card and a notification on every device acting
+/// as them.
+pub fn ask_person(core: &Core, device: PendingDevice, account: String, asking: Asking) -> Asked {
+    let asked = core.remote().ask(device, account, asking);
+    if asked.new {
+        announce(core);
+        core.notify().send(Signal::Pairing(asked.request.clone()));
+    }
+    asked
+}
+
+/// Waits for what the person says to `asked`.
+pub async fn answer_to(core: &Core, asked: Asked) -> Answer {
+    let Asked {
+        request,
+        joining,
+        answered,
+        ..
+    } = asked;
+    let left = Duration::from_millis(request.expires_at.saturating_sub(epoch_ms()));
+    let answer = match tokio::time::timeout(left, answered).await {
+        Ok(Ok(Some(access))) => Answer::Allowed(access),
+        Ok(Ok(None)) => Answer::Denied,
+        Ok(Err(_)) if core.remote().is_pending(&request.id) => return Answer::TakenOver,
+        _ => Answer::None,
+    };
+    core.remote().forget_pending(&request.id);
+    announce(core);
+    core.notify()
+        .send(Signal::PairingSettled { id: request.id });
+    if joining == Joining::Host {
+        look_again(core);
+    }
+    answer
+}
+
+/// Links with the account's other hosts and seals the vaults' keys for them again, after a
+/// change to which of them the person approved.
+fn look_again(core: &Core) {
+    (core.remote_above().hosts_relink)(core);
+    core.vault().wake();
+    core.vault().orgs().wake();
+}
+
 /// Turns the lock of ADR 0018 on or off: whether each new device and host
 /// waits for the person rather than being let in on its account's word.
 pub fn set_require_approval(core: &Core, setting: ApprovalSetting) -> CoreResult<RemoteStatus> {
@@ -56,6 +111,9 @@ pub fn set_require_approval(core: &Core, setting: ApprovalSetting) -> CoreResult
         stored.require_approval = setting.require_approval;
         Ok(())
     })?;
+    core.remote().inner.locked().asked_about.clear();
+    core.remote().settle_listed();
+    look_again(core);
     Ok(announce(core))
 }
 
@@ -142,11 +200,10 @@ impl Remote {
         self.inner.locked().stored.require_approval
     }
 
-    /// Whether the device `id` with a good ticket waits for the person: it
-    /// does when they asked to approve each one, or removed this one before.
-    pub fn requires_approval_of(&self, id: &str) -> bool {
-        let inner = self.inner.locked();
-        inner.stored.require_approval || inner.stored.removed_here.contains_key(id)
+    /// Whether the key `id` may join without the person being asked. One they have not approved
+    /// waits for them when they asked to approve each, or removed this one before.
+    pub fn admits(&self, id: &str, joining: Joining) -> bool {
+        self.inner.locked().stored.admits(id, joining)
     }
 
     /// A host with this key, signed in to `owner`, with these phones paired.

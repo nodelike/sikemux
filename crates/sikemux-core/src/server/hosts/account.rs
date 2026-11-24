@@ -12,10 +12,14 @@ use reqwest::Method;
 use serde_json::json;
 use sikemux_process::clock::epoch_ms;
 
-use crate::accounts::protocol::{DeviceList, DeviceRole};
+use crate::accounts::protocol::{Device, DeviceList, DeviceRole};
+use sikemux_client::join::APPROVAL_TIMEOUT;
 use sikemux_wire::accounts::protocol::JoinTicket;
+use sikemux_wire::protocol::PendingDevice;
 
 use super::super::account::api::{as_host, host_send_any, retry_after, Upload};
+use super::super::join::{clean, NAME_LIMIT};
+use super::super::remote::{answer_to, ask_person, Asking, Joining};
 use super::super::{Core, CoreError, CoreResult};
 use super::join::{link_with, LinkParams, Linking};
 
@@ -107,6 +111,14 @@ async fn link_all(core: &Arc<Core>) -> CoreResult<()> {
         {
             continue;
         }
+        if !core.remote().admits(&host.key, Joining::Host) {
+            match core.remote().may_ask_about(&host.key) {
+                Some(at) if at > now => next = sooner(next, at),
+                Some(_) => ask_about(core, &host),
+                None => {}
+            }
+            continue;
+        }
         if let Some(due) = core.remote().relink_due(&host.key).filter(|due| *due > now) {
             next = sooner(next, due);
             continue;
@@ -129,10 +141,7 @@ async fn link_all(core: &Arc<Core>) -> CoreResult<()> {
         let params = LinkParams {
             ticket,
             name: host.name.clone(),
-            platform: serde_json::to_value(host.platform)?
-                .as_str()
-                .unwrap_or_default()
-                .to_owned(),
+            platform: platform_of(&host),
             addresses: Vec::new(),
         };
         let core = core.clone();
@@ -174,6 +183,31 @@ async fn link_all(core: &Arc<Core>) -> CoreResult<()> {
         core.hosts().relink.at(next);
     }
     Ok(())
+}
+
+/// Asks the person here about a host the account lists, while they have each approved. Waits
+/// apart from the pass that found it, and their answer starts another.
+fn ask_about(core: &Arc<Core>, host: &Device) {
+    let Some(account) = core.remote().owner() else {
+        return;
+    };
+    let name = clean(&host.name, NAME_LIMIT);
+    let request = PendingDevice {
+        id: uuid::Uuid::new_v4().to_string(),
+        device_id: host.key.clone(),
+        name: if name.is_empty() { "Host".into() } else { name },
+        platform: platform_of(host),
+        from_account: true,
+        expires_at: epoch_ms() + APPROVAL_TIMEOUT.as_millis() as u64,
+    };
+    let asked = ask_person(core, request, account, Asking::Listed);
+    let core = core.clone();
+    tokio::spawn(async move { answer_to(&core, asked).await });
+}
+
+fn platform_of(host: &Device) -> String {
+    let platform = serde_json::to_value(host.platform).unwrap_or_default();
+    platform.as_str().unwrap_or_default().to_owned()
 }
 
 fn sooner(next: Option<u64>, at: u64) -> Option<u64> {

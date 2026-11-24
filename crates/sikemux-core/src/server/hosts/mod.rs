@@ -150,7 +150,7 @@ pub(crate) struct Hosts {
     pub(crate) wake: Wake,
     /// Links with the account's other hosts, when it may have one not linked.
     pub(crate) relink: Wake,
-    linking: AtomicBool,
+    pub(super) linking: AtomicBool,
     /// A client lists the hosts, so every linked one is kept in reach to say
     /// how it is reached.
     listed: AtomicBool,

@@ -20,8 +20,9 @@ use sikemux_wire::accounts::protocol::JoinTicket;
 use sikemux_wire::protocol::PendingDevice;
 
 use super::super::join::{clean, NAME_LIMIT, PLATFORM_LIMIT};
-use super::super::notify::Signal;
-use super::super::remote::{self, RemotePairing, StoredLink};
+use super::super::remote::{
+    self, answer_to, ask_person, Answer, Asking, Joining, RemotePairing, StoredLink,
+};
 use super::super::{Core, CoreError, CoreResult};
 use super::{addresses_of, adopt, dial, introduction, link};
 
@@ -45,11 +46,14 @@ pub(crate) struct LinkParams {
     pub addresses: Vec<String>,
 }
 
-/// Links this host with the one `params` names, and answers with this host's
-/// devices and links.
+/// Links this host with the one `params` names, which the person chose, and answers with this
+/// host's devices and links.
 pub(crate) async fn link_host(core: &Arc<Core>, params: LinkParams) -> CoreResult<RemotePairing> {
     let name = clean(&params.name, NAME_LIMIT);
-    core.remote().undecline_link(&params.ticket.host);
+    if core.remote().core_id().as_ref() != Some(&params.ticket.phone) {
+        return Err("that ticket is for another host".into());
+    }
+    core.remote().approve_host(&params.ticket.host)?;
     if let Linking::Declined = link_with(core, params).await? {
         return Err(format!("{name} did not allow the link").into());
     }
@@ -202,8 +206,7 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
     let name = clean(&hello.name, NAME_LIMIT);
     let platform = clean(&hello.platform, PLATFORM_LIMIT);
     let addresses = addresses_of(&hello.addresses);
-    if core.remote().requires_approval_of(&host) {
-        core.remote().forget_device_requests(&host);
+    if !core.remote().admits(&host, Joining::Host) {
         let request = PendingDevice {
             id: uuid::Uuid::new_v4().to_string(),
             device_id: host.clone(),
@@ -212,24 +215,13 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
             from_account: true,
             expires_at: epoch_ms() + APPROVAL_TIMEOUT.as_millis() as u64,
         };
-        let answered = core.remote().ask(
-            request.clone(),
-            hello.ticket.account.clone(),
-            Some(addresses),
-            None,
-        );
-        remote::announce(&core);
-        core.notify().send(Signal::Pairing(request.clone()));
         // The person may answer after the other host gave up waiting; the
         // link is kept, and either host uses it the next time.
-        let answer = tokio::time::timeout(APPROVAL_TIMEOUT, answered).await;
-        core.remote().forget_pending(&request.id);
-        remote::announce(&core);
-        core.notify()
-            .send(Signal::PairingSettled { id: request.id });
-        match answer {
-            Ok(Ok(Some(_))) => {}
-            Ok(Ok(None)) => {
+        let asking = Asking::Linking { addresses };
+        let asked = ask_person(&core, request, hello.ticket.account.clone(), asking);
+        match answer_to(&core, asked).await {
+            Answer::Allowed(_) => {}
+            Answer::Denied => {
                 let declined = json!({ "result": "denied", "declined": true });
                 finish(incoming, &connection, declined).await;
                 return;

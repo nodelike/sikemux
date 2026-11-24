@@ -6,7 +6,8 @@
 - Amended: 2026-11-18, after a review against a hostile server: wraps name their sealer, a wrap
   is never overwritten, only an owner's or admin's host hands the key to another account's host,
   hosts refuse what is older than they hold, and a missing or untrusted answer no longer erases a
-  host's copy
+  host's copy; 2026-11-25, to say a host that requires approval wraps the key for none of its own
+  account's hosts the person has not let in
 
 ## Context
 
@@ -113,7 +114,9 @@ What still rests on the server:
   host's copy. The lie outlasts itself: the host then refuses the honest server's lower
   generation, keeps any entry the server forged at a high revision and hands it to agents, and
   an admin's host writes under a key no other host has. Only signing out clears it. This is the
-  gap ADR 0016 records for the account vault, and the same step would close it.
+  gap ADR 0016 records for the account vault, and the same step would close it. A host that
+  requires approval for new devices wraps the key for none of its own account's hosts the person
+  has not let in; which hosts the other members have is still the server's word.
 - **A host that holds nothing takes what the server gives.** A host that is waiting has only its
   generation to compare against. One answer with a higher generation and no wrap for the host
   empties the copy it keeps, and pins that generation until it signs out; a 404 or a sign-out

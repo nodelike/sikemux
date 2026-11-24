@@ -346,3 +346,59 @@ pub fn waits(core: &Core) -> Vec<Wait> {
         since: state.opened_at,
     }]
 }
+
+/// Handing out and replacing the vaults' keys by themselves, without the Keychain a whole round
+/// reads.
+#[cfg(any(test, feature = "testing"))]
+pub mod keys {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    use sikemux_view::device::AccountOrg;
+
+    use super::{org, seal, sync, Core, Key};
+    use crate::accounts::orgvault::OrgVault;
+    use crate::accounts::vault::Vault;
+    use crate::server::CoreResult;
+
+    pub async fn hand_out(
+        core: &Arc<Core>,
+        account: &str,
+        vault: &Vault,
+        key: &Key,
+    ) -> CoreResult<()> {
+        sync::add_keys(core, account, vault, key).await
+    }
+
+    pub async fn replace(
+        core: &Arc<Core>,
+        account: &str,
+        me: &str,
+        vault: &Vault,
+        key: &Key,
+    ) -> CoreResult<bool> {
+        sync::rotate(core, account, me, vault, key, Default::default()).await
+    }
+
+    pub async fn hand_out_in_org(
+        core: &Core,
+        org: &AccountOrg,
+        host: &iroh::SecretKey,
+        vault: &OrgVault,
+        key: &Key,
+    ) -> CoreResult<()> {
+        org::add_keys(core, org, &seal::host_secret(host), vault, key).await
+    }
+
+    pub async fn replace_in_org(
+        core: &Core,
+        org: &AccountOrg,
+        host: &iroh::SecretKey,
+        vault: &OrgVault,
+        key: &Key,
+    ) -> CoreResult<()> {
+        let (me, secret) = (host.public().to_string(), seal::host_secret(host));
+        org::rotate(core, &org.id, &me, &secret, vault, key, BTreeMap::new()).await?;
+        Ok(())
+    }
+}

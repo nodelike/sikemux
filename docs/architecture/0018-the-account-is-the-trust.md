@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Decision date: 2026-10-21
+- Amended: 2026-11-25, so the lock also covers the links this host makes and the vault keys it
+  seals, not only what asks it
 
 ## Context
 
@@ -42,6 +44,13 @@ for whoever is signed in to the GitHub account.
   ADR 0009 described, and the request reaches the person as a notification and a card on every
   device acting as them, and waits ten minutes for an answer. The setting lives on the host, not
   the account, and only the person changes it, so a broken-into server cannot turn it off.
+  It asks one thing everywhere: has the person let this key in? Until they have, a locked host
+  takes no join from the key, makes no link to a host the account lists, and seals no vault key
+  for it. It asks them itself about a host the account newly lists, at most once a day for each
+  and four at a time, and after a no it does not ask by itself again. Their yes is kept on the
+  host, beside its links, and goes when the host is removed or this one leaves the account. Hosts
+  already linked when the lock goes on count as let in. The lock is each host's own: a vault key
+  can still reach a new host from another host on the account that has no lock.
 - **Hosts are one group in the rail.** The rail's SSH group becomes Hosts: this host, every host
   on the account, and each SSH host while the person has it open, one row each, with its state,
   and the account's host matched to its SSH entry when one installed the other. Any host in

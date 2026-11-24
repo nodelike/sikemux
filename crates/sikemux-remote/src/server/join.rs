@@ -11,8 +11,7 @@ use crate::join::{joiner_name, Refusal};
 use sikemux_client::join::{self, JoinHello, JoinReply, APPROVAL_TIMEOUT};
 use sikemux_wire::protocol::{DeviceAccess, PendingDevice};
 
-use super::notify::Signal;
-use super::remote;
+use super::remote::{self, Asking, Joining};
 use super::Core;
 
 /// A phone sends its ticket as soon as it connects, so reading one gets only
@@ -115,7 +114,7 @@ pub async fn serve(core: Arc<Core>, connection: Connection) {
         from_account: true,
         expires_at: sikemux_process::clock::epoch_ms() + APPROVAL_TIMEOUT.as_millis() as u64,
     };
-    if !core.remote().requires_approval_of(&request.device_id) {
+    if core.remote().admits(&request.device_id, Joining::Device) {
         let reply = match core.remote().admit(
             &request,
             hello.ticket.account.clone(),
@@ -136,29 +135,15 @@ pub async fn serve(core: Arc<Core>, connection: Connection) {
         connection.close(0u32.into(), b"busy");
         return;
     };
-    core.remote().forget_device_requests(&request.device_id);
-    let answered = core.remote().ask(
-        request.clone(),
-        hello.ticket.account.clone(),
-        None,
-        hello.ticket.via.clone(),
-    );
-    remote::announce(&core);
-    core.notify().send(Signal::Pairing(request.clone()));
     // The person may answer after the device gave up waiting; it is let in
     // the next time it comes.
-    let access = tokio::time::timeout(APPROVAL_TIMEOUT, answered)
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .flatten();
-    core.remote().forget_pending(&request.id);
-    remote::announce(&core);
-    core.notify()
-        .send(Signal::PairingSettled { id: request.id });
-    let reply = match access {
-        Some(access) => JoinReply::Allowed { access },
-        None => JoinReply::Denied,
+    let asking = Asking::Device {
+        via: hello.ticket.via.clone(),
+    };
+    let asked = remote::ask_person(&core, request, hello.ticket.account.clone(), asking);
+    let reply = match remote::answer_to(&core, asked).await {
+        remote::Answer::Allowed(access) => JoinReply::Allowed { access },
+        _ => JoinReply::Denied,
     };
     finish(&mut writer, &connection, &reply).await;
 }

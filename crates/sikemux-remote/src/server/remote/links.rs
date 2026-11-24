@@ -8,7 +8,7 @@ impl Remote {
             .locked()
             .pending
             .iter()
-            .filter(|pending| pending.host.is_some())
+            .filter(|pending| pending.asking.joining() == Joining::Host)
             .map(|pending| pending.device.clone())
             .collect()
     }
@@ -64,19 +64,67 @@ impl Remote {
             for id in &gone {
                 stored.forget(id);
             }
+            stored.approved_hosts.retain(|host| account.contains(host));
             Ok(gone)
         })
     }
 
-    /// Keeps a host this one is now linked with, replacing what it knew of it.
+    /// Keeps a host this one is now linked with, unless it has to wait for the person first.
     pub fn add_link(&self, link: StoredLink) -> CoreResult<()> {
+        self.change(|stored| stored.link(link))?;
+        self.settle_listed();
+        Ok(())
+    }
+
+    /// Takes back each question about a host the account lists that no longer needs an answer.
+    pub(super) fn settle_listed(&self) {
+        let mut inner = self.inner.locked();
+        let Inner {
+            pending, stored, ..
+        } = &mut *inner;
+        pending.retain(|asked| {
+            !matches!(asked.asking, Asking::Listed)
+                || !stored.admits(&asked.device.device_id, Joining::Host)
+        });
+    }
+
+    /// Notes that the person here let the host with this key in.
+    pub fn approve_host(&self, id: &str) -> CoreResult<()> {
         self.change(|stored| {
-            stored.forget(&link.id);
-            stored.declined_links.remove(&link.id);
-            stored.removed_here.remove(&link.id);
-            stored.links.push(link);
+            stored.approve_host(id);
             Ok(())
-        })
+        })?;
+        self.settle_listed();
+        Ok(())
+    }
+
+    /// Whether a vault's key is sealed for the host with this key: this host's own, any the
+    /// person here approved, and while they did not ask to approve each, any the account lists.
+    pub fn vault_open_to(&self, id: &str) -> bool {
+        let inner = self.inner.locked();
+        let own = inner.secret.as_ref().map(SecretKey::public);
+        own.is_some_and(|own| own.to_string() == id)
+            || !inner.stored.require_approval
+            || inner.stored.approved(id, Joining::Host)
+    }
+
+    /// When the person may next be asked about a host the account lists: at most once a day for
+    /// each. None while they are being asked about it, or about as many as they are at once.
+    pub fn may_ask_about(&self, id: &str) -> Option<u64> {
+        const AGAIN_MS: u64 = 24 * 60 * 60 * 1000;
+        const AT_ONCE: usize = 4;
+        let inner = self.inner.locked();
+        let mut listed = 0;
+        for pending in &inner.pending {
+            if pending.asking.joining() == Joining::Host && pending.device.device_id == id {
+                return None;
+            }
+            listed += usize::from(matches!(pending.asking, Asking::Listed));
+        }
+        match inner.asked_about.get(id) {
+            Some(at) if at + AGAIN_MS > epoch_ms() => Some(at + AGAIN_MS),
+            _ => (listed < AT_ONCE).then(epoch_ms),
+        }
     }
 
     /// The hosts on the account whose person turned down linking with this
@@ -93,13 +141,6 @@ impl Remote {
             stored.declined_links.retain(|host| account.contains(host));
             Ok(())
         })
-    }
-
-    pub fn undecline_link(&self, id: &str) {
-        let undeclined = self.change(|stored| Ok(stored.declined_links.remove(id)));
-        if let Err(error) = undeclined {
-            eprintln!("sikemux core: could not save asking a host to link again: {error}");
-        }
     }
 
     /// Whether the person removed the host `id` from this one, which then
@@ -136,6 +177,7 @@ impl Remote {
     pub fn forget_link(&self, id: &str) -> bool {
         let forgotten = self.change(|stored| {
             let before = stored.links.len();
+            stored.approved_hosts.remove(id);
             stored.links.retain(|link| link.id != id);
             Ok(stored.links.len() != before)
         });

@@ -11,7 +11,8 @@
   does not take it in, and the first host on the list to reach it writes it again without the list;
   2026-11-17, by [ADR 0026](./0026-an-org-has-a-vault-of-its-own.md): an org's secrets go in a vault
   of the org's own, never in a member's account vault; 2026-11-22, to say hosts refuse a vault
-  older than they last read, and read a key wrapped in a form that names its sealer
+  older than they last read, and read a key wrapped in a form that names its sealer; 2026-11-25,
+  to say a host that requires approval wraps the key only for hosts the person let in
 
 ## Context
 
@@ -117,8 +118,10 @@ when its home goes away.
   hosts wrap the vault key for every host the account lists, since nothing yet lets them tell a
   real one apart, so such a server could read the vault from then on. Once that key is listed as
   holding, it can name it among the holders, raise the generation and wrap a new key from it, and
-  a host takes that key in place of its own. Wrapping the key only for hosts whose join another
-  host saw would close both.
+  a host takes that key in place of its own. A host that requires approval for new
+  devices ([ADR 0018](./0018-the-account-is-the-trust.md)) wraps the key only for hosts the person
+  let in, when it hands the key out and when it replaces it. It still takes a key another host
+  wrapped, so this narrows the gap rather than closing it.
 - **Mods' data is kept the same way.** Each host keeps every mod's documents in its own store and
   writes there first. The account holds the latest copy of each document, sealed under the vault
   key with its collection and id inside. Its id on the server is an HMAC of the mod, collection and

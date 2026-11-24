@@ -160,6 +160,7 @@ fn the_devices_survive_a_write_and_read() {
         removed_here: BTreeMap::new(),
         declined_links: BTreeSet::new(),
         hands_only: BTreeSet::new(),
+        approved_hosts: BTreeSet::from([SecretKey::generate().public().to_string()]),
         devices: vec![DeviceInfo {
             id: SecretKey::generate().public().to_string(),
             name: "Phone".into(),
@@ -174,6 +175,7 @@ fn the_devices_survive_a_write_and_read() {
     let read = read_stored(&path).unwrap();
     assert!(read.enabled);
     assert_eq!(read.devices, stored.devices);
+    assert_eq!(read.approved_hosts, stored.approved_hosts);
     assert_eq!(read.owner.as_deref(), Some("user_2abc"));
     assert_eq!(read.account_event_id, 7);
     assert_eq!(read.pending_leave.as_deref(), Some("user_2old"));
@@ -295,8 +297,7 @@ async fn a_phone_the_account_revoked_is_forgotten_and_its_request_dropped() {
             expires_at: epoch_ms() + 120_000,
         },
         "user_2abc".into(),
-        None,
-        None,
+        Asking::Device { via: None },
     );
     let events = [
         event(4, "device.revoked", Some(&gone.id), "client", "removed"),
