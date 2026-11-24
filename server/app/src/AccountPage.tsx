@@ -1,3 +1,4 @@
+import type { TeamAccess } from "@sikemux/protocol";
 import { useClerk, useSession, useUser } from "@clerk/react";
 import { formatDay } from "@shared/lib/format";
 import { IconLogOut, IconMail, IconTrash } from "@shared/ui/Icons";
@@ -24,8 +25,10 @@ export function useSignInWays() {
 const COUNTED = ["No", "One", "Two", "Three", "Four", "Five", "Six"];
 
 export function AccountPage({
+  team,
   onDelete,
 }: {
+  team: TeamAccess;
   onDelete: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const { user } = useUser();
@@ -48,7 +51,7 @@ export function AccountPage({
     >
       <SignInWaysCard />
       <Column w={5} side>
-        <WorkAddressesCard />
+        <WorkAddressesCard team={team} />
         <ThisBrowser onDelete={onDelete} />
       </Column>
     </Page>

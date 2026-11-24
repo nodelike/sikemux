@@ -1,5 +1,6 @@
 import type {
   OrgOffer,
+  TeamAccess,
   WorkAddress,
   WorkAddressProven,
 } from "@sikemux/protocol";
@@ -25,7 +26,7 @@ import {
 } from "./ui.tsx";
 
 /** Addresses the person proved through Google are theirs at a domain an org verified, so they can join it. */
-export function WorkAddressesCard() {
+export function WorkAddressesCard({ team }: { team: TeamAccess }) {
   const client = useClient();
   const action = useAction();
   const { run } = action;
@@ -35,6 +36,7 @@ export function WorkAddressesCard() {
   const [verifying, setVerifying] = useState(false);
   const [proven, setProven] = useState<WorkAddressProven>();
   const returned = useRef(false);
+  const open = verifying && (team === "sold" || team === "preview");
 
   useEffect(() => {
     void (async () => {
@@ -88,7 +90,7 @@ export function WorkAddressesCard() {
     }, problemText);
   };
 
-  if (!addresses || (addresses.length === 0 && !verifying && !action.problem))
+  if (!addresses || (addresses.length === 0 && !open && !action.problem))
     return null;
 
   return (
@@ -129,7 +131,7 @@ export function WorkAddressesCard() {
             }
           />
         ))}
-        {proven?.offer ? (
+        {open && proven?.offer ? (
           <OfferRow
             offer={proven.offer}
             sitting={proven.sitting}
@@ -140,7 +142,7 @@ export function WorkAddressesCard() {
           />
         ) : null}
       </Rows>
-      {verifying ? (
+      {open ? (
         <p>
           <Btn
             small

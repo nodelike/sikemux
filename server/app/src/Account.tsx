@@ -260,7 +260,7 @@ export function Account({
   ) : page === CONNECTORS ? (
     <ConnectorsPage signIns={signIns.load} />
   ) : (
-    <AccountPage onDelete={follow(DELETE_ACCOUNT)} />
+    <AccountPage team={team} onDelete={follow(DELETE_ACCOUNT)} />
   );
 
   return (
