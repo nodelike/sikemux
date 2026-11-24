@@ -1,8 +1,6 @@
 use crate::ui::keyed::{self, KeyedRows};
 use crate::ui::Clicks;
 use crate::workbench::actions;
-use sikemux_view::layout::At;
-use sikemux_view::layout::OpenTab;
 use sikemux_view::prefs::PreferenceChange;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -308,20 +306,6 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                             cx,
                         ))
                         .children(mods(bench, cx)),
-                )
-                .child(
-                    Group::new(t!("Terminals"), t!("no terminals"))
-                        .actions(actions(
-                            None,
-                            [
-                                IconButton::new("add-terminal", Icon::Plus, t!("New terminal"))
-                                    .on_click(
-                                        cx.listener(|bench, _, _, cx| bench.new_loose_terminal(cx)),
-                                    ),
-                            ],
-                            cx,
-                        ))
-                        .children(terminals(bench, cx)),
                 ),
         )
         .children(crate::updates::rail_chip(bench, cx))
@@ -875,37 +859,6 @@ fn mods(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 row,
                 cx,
             )
-        })
-        .collect()
-}
-
-/// Terminals started outside every project, each opening in the terminals' strip.
-fn terminals(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
-    let live = Tokens::get(cx).live;
-    let front = (bench.strip() == Some(Strip::Terminals))
-        .then(|| bench.tab().and_then(|tab| tabs::first_view(&tab.pane)))
-        .flatten()
-        .filter(|(kind, _)| *kind == PaneKind::Terminal)
-        .map(|(_, target)| target.clone());
-    bench
-        .loose_terminals()
-        .into_iter()
-        .map(|session| {
-            let id = session.id.to_string();
-            let name = session.rail_name.clone().unwrap_or_default();
-            let row = Row::new(SharedString::from(format!("terminal-{id}")), name.clone())
-                .chosen(!bench.settings.read(cx).is_open() && front.as_ref() == Some(&id))
-                .on_click(cx.listener(move |bench, _, _, _| {
-                    bench.open_here(OpenTab::new(
-                        At::terminals(),
-                        PaneKind::Terminal,
-                        id.clone(),
-                    ));
-                }))
-                .mark(16., ui::icon(Icon::Terminal, 13.).text_color(live))
-                .quiet();
-            let keyed = bench.rails.keyed(Rail::Side);
-            keyed.row(format!("terminal-{}", session.id), name, row, cx)
         })
         .collect()
 }
