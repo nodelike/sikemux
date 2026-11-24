@@ -30,7 +30,7 @@ import { AccountPage } from "./AccountPage.tsx";
 import { Backdrop } from "./Backdrop.tsx";
 import { ConnectorsPage } from "./Connectors.tsx";
 import { BillingPage, useBillingShown } from "./Billing.tsx";
-import { Consent, Panel, SIGNED_IN, SignedIn } from "./Consent.tsx";
+import { Consent, Panel } from "./Consent.tsx";
 import {
   AccountDeleted,
   DeleteAccount,
@@ -51,6 +51,7 @@ import {
   TeamsPage,
   useOffers,
 } from "./OrgPages.tsx";
+import { SIGNED_IN, SignedIn } from "./SignedIn.tsx";
 import { JoinPage, TeamPage } from "./Team.tsx";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
@@ -164,7 +165,7 @@ export function App() {
 
   return (
     <>
-      <Backdrop />
+      {path === SIGNED_IN ? null : <Backdrop />}
       <div className="page">
         {appReturning ? (
           <main className="center">
@@ -189,9 +190,7 @@ export function App() {
             <Pay />
           </main>
         ) : path === SIGNED_IN ? (
-          <main className="center">
-            <SignedIn />
-          </main>
+          <SignedIn />
         ) : path === CONSENT ? (
           <main className="center">
             {signedIn ? <Consent /> : <SignIn ready={isLoaded} />}

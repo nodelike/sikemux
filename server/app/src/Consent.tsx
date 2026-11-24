@@ -4,8 +4,6 @@ import { useState, type ReactNode } from "react";
 import { Avatar } from "./Avatar.tsx";
 import { Logo } from "./icons.tsx";
 
-export const SIGNED_IN = "/signed-in";
-
 /** Where Clerk sends a sign-in an app started, such as the Mac's, to ask the person first. */
 export function Consent() {
   const clerk = useClerk();
@@ -111,22 +109,6 @@ export function Consent() {
           Allow
         </button>
       </form>
-    </Panel>
-  );
-}
-
-/** Where Sikemux on the computer sends the browser once it has the answer. */
-export function SignedIn() {
-  const cancelled = new URLSearchParams(location.search).has("cancelled");
-  return (
-    <Panel>
-      <h1>{cancelled ? "Sign-in cancelled" : "You're signed in"}</h1>
-      <p className="lede">
-        {cancelled
-          ? "Sikemux on this computer was not signed in."
-          : "Sikemux on this computer is signed in to your account."}{" "}
-        You can close this tab.
-      </p>
     </Panel>
   );
 }
