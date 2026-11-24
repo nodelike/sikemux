@@ -294,16 +294,6 @@ pub(crate) fn life_words(life: PageLife, shown_at: u64) -> String {
     match life {
         PageLife::Kept => ui::time::age(shown_at),
         PageLife::WithCall => t!("with its ask").into(),
-        PageLife::Goes { at } => t!("{left} left", left = left(at)),
-    }
-}
-
-/// The time until `at`, in Unix milliseconds: `40m`, `5h`, `6d`.
-fn left(at: u64) -> String {
-    let seconds = at.saturating_sub(ui::time::now_ms()) / 1000;
-    match seconds {
-        0..3600 => t!("{count}m", count = (seconds / 60).max(1)),
-        3600..86_400 => t!("{count}h", count = seconds / 3600),
-        _ => t!("{count}d", count = seconds / 86_400),
+        PageLife::Goes { at } => t!("{left} left", left = ui::time::left_short(at)),
     }
 }

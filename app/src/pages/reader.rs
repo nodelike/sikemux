@@ -219,6 +219,6 @@ fn stays(life: PageLife) -> String {
     match life {
         PageLife::Kept => t!("Kept until you let it go").into(),
         PageLife::WithCall => t!("Goes a day after its ask settles").into(),
-        PageLife::Goes { at } => t!("Goes in {left}", left = super::left(at)),
+        PageLife::Goes { at } => t!("Goes in {left}", left = ui::time::left_short(at)),
     }
 }

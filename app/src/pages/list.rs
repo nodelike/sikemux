@@ -8,7 +8,7 @@ use gpui_kit::{
 use sikemux_calls::harness::{ListedPage, PageLife};
 use sikemux_view::layout::PaneKind;
 
-use super::{folder_of, left, life_words};
+use super::{folder_of, life_words};
 use crate::agents::{faded, page_body, page_header, rail_empty, EDGE_FADE};
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_0, SPACE_2H, SPACE_3, TEXT_2XS};
@@ -109,7 +109,7 @@ fn row(
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let stays = match &page.shared {
-        Some(share) => t!("{left} left", left = left(share.expires_at)),
+        Some(share) => t!("{left} left", left = ui::time::left_short(share.expires_at)),
         None => life_words(page.life, page.shown_at),
     };
     let (id, title) = (page.id.clone(), page.title.clone());

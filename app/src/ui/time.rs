@@ -225,17 +225,40 @@ pub fn countdown(reset: Option<chrono::DateTime<chrono::Utc>>) -> String {
     }
 }
 
+/// Time left, in the one unit it is said in.
+enum Left {
+    Minutes(u64),
+    Hours(u64),
+    Days(u64),
+}
+
+fn left_until(until: u64) -> Left {
+    let minutes = (until.saturating_sub(now_ms()) as f64 / 60_000.)
+        .round()
+        .max(1.) as u64;
+    let hours = (minutes as f64 / 60.).round() as u64;
+    match (minutes, hours) {
+        (..60, _) => Left::Minutes(minutes),
+        (_, ..48) => Left::Hours(hours),
+        _ => Left::Days((hours as f64 / 24.).round() as u64),
+    }
+}
+
 /// How long until `until` (Unix milliseconds) in words, as a dialog says it: `5 min`, `3 hours`, `2 days`.
 pub fn left(until: u64) -> String {
-    let now = now_ms();
-    let minutes = (until.saturating_sub(now) as f64 / 60_000.).round().max(1.) as u64;
-    if minutes < 60 {
-        return t!("{count} min", count = minutes);
+    match left_until(until) {
+        Left::Minutes(count) => t!("{count} min", count = count),
+        Left::Hours(1) => t!("1 hour").to_owned(),
+        Left::Hours(count) => t!("{count} hours", count = count),
+        Left::Days(count) => t!("{count} days", count = count),
     }
-    let hours = (minutes as f64 / 60.).round() as u64;
-    match hours {
-        1 => t!("1 hour").to_owned(),
-        hours if hours < 48 => t!("{count} hours", count = hours),
-        hours => t!("{count} days", count = (hours as f64 / 24.).round() as u64),
+}
+
+/// The time [`left`] says, in a list's tight column: `5m`, `3h`, `2d`.
+pub fn left_short(until: u64) -> String {
+    match left_until(until) {
+        Left::Minutes(count) => t!("{count}m", count = count),
+        Left::Hours(count) => t!("{count}h", count = count),
+        Left::Days(count) => t!("{count}d", count = count),
     }
 }
