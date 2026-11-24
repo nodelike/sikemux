@@ -130,7 +130,6 @@ async fn loopback_device(key: SecretKey) -> Device {
             endpoint,
             Vec::new(),
         )),
-        relays: Vec::new(),
     }
 }
 
@@ -456,5 +455,78 @@ fn a_host_reached_before_comes_back_in_one_try_when_the_endpoint_has_gone_stale(
             "took {:?}",
             started.elapsed()
         );
+    });
+}
+
+#[test]
+fn frozen_phone_whose_connection_died_unseen_recovers_with_refresh_and_direct_paths() {
+    let core_key = SecretKey::generate();
+    let phone_key = SecretKey::generate();
+    let core = start_core(&core_key, Some(&phone_key));
+    block_on(async {
+        let (app, _events) = CoreClient::connect(&core.socket).await.expect("app");
+        let addr = core_addr(&app).await;
+        let host = core_key.public();
+
+        // 1. A fresh device (empty `reached`, as right after goOffline/Doze) whose socket died
+        // before ever reaching the host still recovers in one try via endpoint renewal.
+        let fresh = loopback_device(phone_key.clone()).await;
+        let dead = fresh.online.endpoint().expect("online").0;
+        dead.close().await;
+        let first = fresh
+            .connect_to(addr.clone(), Arc::new(Views::default()))
+            .await
+            .expect("a fresh device with a dead socket renews and connects in one try");
+        assert!(first.is_open());
+        assert_eq!(fresh.online.generation(), 1);
+
+        // 1b. While a live host is open on the shared endpoint, dialing an unreachable second
+        // host must NOT renew the endpoint or cut the healthy host.
+        let sleeping = SecretKey::generate().public();
+        let dead_addr = EndpointAddr::new(sleeping);
+        let dial_err = fresh
+            .connect_to(dead_addr, Arc::new(Views::default()))
+            .await;
+        assert!(dial_err.is_err());
+        assert_eq!(fresh.online.generation(), 1);
+        assert!(first.is_open());
+
+        // 2. Direct IP paths observed on the connection are remembered across refresh() and
+        // even across close() + new Device::bind() (ordinary 10s away return), so after an
+        // unseen disconnect while frozen, refresh + dial reaches the host directly.
+        let remembered = fresh.online.addr(host);
+        assert!(
+            remembered.ip_addrs().next().is_some(),
+            "observed direct IP addresses should be kept for reconnects"
+        );
+        // Closing releases the live count synchronously so an immediate refresh() succeeds with zero race.
+        first.close();
+        fresh.refresh(Vec::new()).await;
+        assert_eq!(fresh.online.generation(), 2);
+        let after_refresh = fresh.online.addr(host);
+        assert!(
+            after_refresh.ip_addrs().next().is_some(),
+            "direct IP addresses must survive endpoint refresh"
+        );
+        let started = Instant::now();
+        let recovered = fresh
+            .connect_to(after_refresh, Arc::new(Views::default()))
+            .await
+            .expect("refreshed device reconnects using remembered direct address");
+        assert!(recovered.is_open());
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "reconnect took {:?}",
+            started.elapsed()
+        );
+        fresh.close().await;
+
+        // 3. Even a brand-new Device bound after goOffline() inherits remembered direct IPs.
+        let after_away = loopback_device(phone_key).await;
+        assert!(
+            after_away.online.addr(host).ip_addrs().next().is_some(),
+            "remembered direct IP addresses must survive goOffline + fresh Device bind"
+        );
+        after_away.close().await;
     });
 }

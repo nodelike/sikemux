@@ -161,7 +161,6 @@ fn relays_from(settings: Vec<RelaySetting>) -> Vec<Relay> {
 #[derive(uniffi::Object)]
 pub struct Device {
     online: Arc<sikemux_client::device::Device>,
-    relays: Vec<Relay>,
 }
 
 fn sign_registration(key: &SecretKey, nonce: &str, user_id: &str) -> Result<String, MobileError> {
@@ -253,13 +252,11 @@ impl Device {
         android::ensure_context().map_err(|message| MobileError::Connection { message })?;
         let key = identity.key.clone();
         let relays = sikemux_client::device::usable(relays_from(relays));
-        let bound = relays.clone();
         let online =
-            on_runtime(async move { sikemux_client::device::Device::bind(key, bound).await })
+            on_runtime(async move { sikemux_client::device::Device::bind(key, relays).await })
                 .await??;
         Ok(Arc::new(Self {
             online: Arc::new(online),
-            relays,
         }))
     }
 
@@ -279,7 +276,7 @@ impl Device {
         platform: String,
     ) -> Result<JoinAnswer, MobileError> {
         let ticket = read_ticket(&ticket, &self.id(), &core)?;
-        let addr = sikemux_client::device::host_addr(host_key(&core)?, &self.relays);
+        let addr = self.online.addr(host_key(&core)?);
         let hello = JoinHello {
             ticket,
             name,
@@ -294,8 +291,23 @@ impl Device {
         core: String,
         listener: Arc<dyn CoreListener>,
     ) -> Result<Arc<Connection>, MobileError> {
-        let addr = sikemux_client::device::host_addr(host_key(&core)?, &self.relays);
+        let addr = self.online.addr(host_key(&core)?);
         self.connect_to(addr, listener).await
+    }
+
+    /// Tells the underlying iroh endpoint that the OS network changed.
+    pub async fn network_changed(&self) {
+        let online = self.online.clone();
+        let _ = on_runtime(async move { online.network_changed().await }).await;
+    }
+
+    /// Replaces the underlying endpoint cleanly on the same key using `relays`
+    /// when non-empty, while keeping remembered direct host addresses.
+    pub async fn refresh(&self, relays: Vec<RelaySetting>) {
+        let online = self.online.clone();
+        let next = relays_from(relays);
+        let relays = (!next.is_empty()).then_some(next);
+        let _ = on_runtime(async move { online.refresh(relays).await }).await;
     }
 
     /// Takes the phone off the network until the app makes a new device. Open
@@ -342,6 +354,7 @@ impl Device {
         Ok(Arc::new(Connection {
             client: Mutex::new(Some(Arc::new(client))),
             link,
+            device: self.online.clone(),
             open,
         }))
     }
@@ -487,7 +500,14 @@ fn flush(listener: &dyn CoreListener, events: &mut Vec<CoreEvent>) {
 pub struct Connection {
     client: Mutex<Option<Arc<CoreClient>>>,
     link: iroh::endpoint::Connection,
+    device: Arc<sikemux_client::device::Device>,
     open: Arc<AtomicBool>,
+}
+
+impl Drop for Connection {
+    fn drop(&mut self) {
+        self.device.note_closed(&self.link);
+    }
 }
 
 fn not_answered() -> MobileError {
@@ -867,6 +887,7 @@ impl Connection {
     /// hears nothing more, not even that it closed.
     pub fn close(&self) {
         self.open.store(false, Ordering::Release);
+        self.device.note_closed(&self.link);
         if let Ok(mut client) = self.client.lock() {
             client.take();
         }

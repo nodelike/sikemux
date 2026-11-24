@@ -12,6 +12,8 @@ enum OutboxStore {
         var context: [ChatContext]
         var at: Int
         var steers: Bool
+        var state: String?
+        var problem: String?
     }
 
     private static var folder: URL {
@@ -57,6 +59,18 @@ enum OutboxStore {
         }
         return agents
     }
+
+    static func forgetHost(_ core: String) {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        else { return }
+        let prefix = "\(core):"
+        for url in files where url.pathExtension == "json" {
+            let encoded = url.deletingPathExtension().lastPathComponent
+            if let decoded = encoded.removingPercentEncoding, decoded.hasPrefix(prefix) {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
 }
 
 /// What this phone sent that the host does not show yet, sent in order however long each one's files take.
@@ -75,6 +89,8 @@ final class Outbox {
         var state: State = .sending
         var problem: String?
         var waiting = false
+        /// Kept on disk until the host acknowledges or settles it, so kills mid-upload or on failure never lose it.
+        var kept = false
         var steers = false
     }
 
@@ -88,46 +104,65 @@ final class Outbox {
     private(set) var sentFiles: [String: Attachment] = [:]
     private var entries: [Outgoing] = []
     private var holding: [Holding] = []
+    /// Bumped when the host is forgotten or unpaired so in-flight rejections never re-persist or re-watch.
+    @ObservationIgnored private var epoch = 0
     /// Messages reach the host in the order they were sent, however long their files take.
     @ObservationIgnored private var line: Task<Void, Never>?
 
     @ObservationIgnored private let core: String
     @ObservationIgnored private let agentId: String
     @ObservationIgnored private let connection: () -> Connection?
+    @ObservationIgnored private let attached: () -> Bool
     @ObservationIgnored private let chat: () -> ChatRows
     @ObservationIgnored private let emit: () -> Void
     @ObservationIgnored private let onPending: (Bool) -> Void
 
     init(
-        core: String, agentId: String, connection: @escaping () -> Connection?, chat: @escaping () -> ChatRows,
+        core: String, agentId: String, connection: @escaping () -> Connection?,
+        attached: @escaping () -> Bool = { true }, chat: @escaping () -> ChatRows,
         emit: @escaping () -> Void, onPending: @escaping (Bool) -> Void = { _ in }
     ) {
         self.core = core
         self.agentId = agentId
         self.connection = connection
+        self.attached = attached
         self.chat = chat
         self.emit = emit
         self.onPending = onPending
         let saved = OutboxStore.load(core: core, agentId: agentId)
         if !saved.isEmpty {
             entries = saved.map {
-                Outgoing(
+                let failed = $0.state == "failed"
+                return Outgoing(
                     messageId: $0.messageId, text: $0.text, files: $0.files,
                     named: Named(paths: $0.paths, context: $0.context), at: $0.at,
-                    state: .sending, waiting: true, steers: $0.steers)
+                    state: failed ? .failed : .sending, problem: failed ? $0.problem : nil,
+                    waiting: !failed, kept: true, steers: $0.steers)
             }
             for entry in saved { show(entry.files) }
         }
     }
 
     private func persistWaiting() {
-        let saved = entries.filter(\.waiting).map {
+        let saved = entries.filter { ($0.waiting || $0.kept) && $0.state != .sent }.map {
             OutboxStore.Saved(
                 messageId: $0.messageId, text: $0.text, files: $0.files,
-                paths: $0.named.paths, context: $0.named.context, at: $0.at, steers: $0.steers)
+                paths: $0.named.paths, context: $0.named.context, at: $0.at, steers: $0.steers,
+                state: $0.state == .failed ? "failed" : "waiting",
+                problem: $0.state == .failed ? $0.problem : nil)
         }
         OutboxStore.save(core: core, agentId: agentId, entries: saved)
         onPending(waiting || sending)
+    }
+
+    /// Drops all in-memory and on-disk pending messages (used when a host is forgotten or unpaired).
+    func clearAll() {
+        epoch &+= 1
+        entries.removeAll()
+        holding.removeAll()
+        OutboxStore.save(core: core, agentId: agentId, entries: [])
+        onPending(false)
+        emit()
     }
 
     /// Some message is still on its way.
@@ -165,7 +200,7 @@ final class Outbox {
         show(files)
         let entry = Outgoing(
             messageId: UUID().uuidString.lowercased(), text: text, files: files, named: named,
-            at: Self.now, waiting: waiting, steers: steers
+            at: Self.now, waiting: waiting, kept: waiting, steers: steers
         )
         entries.append(entry)
         if waiting { persistWaiting() }
@@ -221,10 +256,13 @@ final class Outbox {
         holding.append(Holding(message: QueuedMessage(id: id, text: text, paths: shown, context: context)))
         emit()
         let connection = connection()
+        let generation = epoch
         do {
             try await inOrder {
+                guard self.epoch == generation else { return }
                 guard let connection, connection.isOpen() else { throw ChatProblem.notConnected }
                 let sent = try await self.put(connection, files) { _, _ in }
+                guard self.epoch == generation else { return }
                 let paths = Uploads.paths(sent) + named.paths
                 if !steers { return try await self.prompt(connection, id, text, paths, named.context) }
                 let ids = self.onHostQueue(self.chat().queued.map(\.id))
@@ -234,17 +272,22 @@ final class Outbox {
             }
         } catch {
             holding.removeAll { $0.message.id == id }
-            if connection?.isOpen() != true {
+            if epoch != generation { return }
+            if !steers, connection?.isOpen() != true {
                 entries.append(
                     Outgoing(
                         messageId: id, text: text, files: files, named: named,
-                        at: Self.now, state: .sending, waiting: true, steers: steers))
+                        at: Self.now, state: .sending, waiting: true, kept: true, steers: false))
                 persistWaiting()
                 emit()
+                if let current = self.connection(), current !== connection, current.isOpen(), attached() {
+                    pushWaiting()
+                }
                 return
             }
             throw error
         }
+        guard epoch == generation else { return }
         if let held = holding.first(where: { $0.message.id == id }),
             steers || notQueued([held], chat().queued).isEmpty
         {
@@ -279,9 +322,9 @@ final class Outbox {
             return true
         }
         if kept.count != entries.count {
-            let hadWaiting = waiting
+            let hadPersisted = entries.contains { $0.waiting || $0.kept }
             entries = kept
-            if hadWaiting { persistWaiting() } else { onPending(waiting || sending) }
+            if hadPersisted { persistWaiting() } else { onPending(waiting || sending) }
         }
     }
 
@@ -337,9 +380,12 @@ final class Outbox {
     private func push(_ entry: Outgoing) {
         let connection = connection()
         let id = entry.messageId
+        let generation = epoch
         Task {
+            var steered = false
             do {
                 try await inOrder {
+                    guard self.epoch == generation else { return }
                     guard let connection, connection.isOpen() else { throw ChatProblem.notConnected }
                     let files = self.entries.first(where: { $0.messageId == id })?.files ?? entry.files
                     let sent = try await self.put(connection, files) { fileId, change in
@@ -349,8 +395,13 @@ final class Outbox {
                             }
                         }
                     }
+                    guard self.epoch == generation else { return }
                     let paths = Uploads.paths(sent) + entry.named.paths
                     if entry.steers && self.chat().running {
+                        steered = true
+                        // Clear disk copy before putting a non-deduplicable steer on the wire.
+                        self.update(id) { $0.kept = false }
+                        self.persistWaiting()
                         let ids = self.onHostQueue(self.chat().queued.map(\.id))
                         let message = QueuedMessageParams(text: entry.text, paths: paths, context: entry.named.context)
                         _ = try await connection.call(
@@ -360,25 +411,38 @@ final class Outbox {
                         try await self.prompt(connection, id, entry.text, paths, entry.named.context)
                     }
                 }
-                update(id) { $0.state = .sent }
-                settle()
-                onPending(waiting || sending)
+                guard epoch == generation else { return }
+                if steered {
+                    entries.removeAll { $0.messageId == id }
+                } else {
+                    update(id) {
+                        $0.state = .sent
+                        $0.kept = false
+                    }
+                    settle()
+                }
+                persistWaiting()
                 emit()
             } catch {
-                if connection?.isOpen() != true {
+                guard epoch == generation else { return }
+                if !entry.steers, connection?.isOpen() != true {
                     update(id) {
                         $0.waiting = true
+                        $0.kept = true
                         $0.state = .sending
                         $0.problem = nil
                     }
                     persistWaiting()
+                    if let current = self.connection(), current !== connection, current.isOpen(), attached() {
+                        pushWaiting()
+                    }
                     return
                 }
                 update(id) {
                     $0.state = .failed
                     $0.problem = problem(error)
                 }
-                onPending(waiting || sending)
+                persistWaiting()
             }
         }
     }

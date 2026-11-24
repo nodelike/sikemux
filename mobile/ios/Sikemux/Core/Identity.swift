@@ -14,7 +14,9 @@ final class Identity {
 
     private var identity: DeviceIdentity?
     private var online: Task<Device, Error>?
+    private var ready: Device?
     private var closing: Task<Void, Never>?
+    private var refreshing: Task<Void, Never>?
     private var generation: UInt64 = 0
     private var joining = 0
 
@@ -33,7 +35,10 @@ final class Identity {
 
     /// This phone on the network. A failure is not kept, so the next call tries again.
     func device() async throws -> Device {
-        if let online { return try await online.value }
+        if let online {
+            await refreshing?.value
+            return try await online.value
+        }
         let me = try deviceIdentity()
         let gen = generation
         let previousClose = closing
@@ -59,12 +64,18 @@ final class Identity {
             try? await Task.sleep(for: Self.onlineWait)
             guard let self, online == coming, !ended.set else { return }
             online = nil
+            ready = nil
             Task { await (try? coming.value)?.close() }
         }
         do {
-            return try await coming.value
+            let made = try await coming.value
+            if online == coming { ready = made }
+            return made
         } catch {
-            if online == coming { online = nil }
+            if online == coming {
+                online = nil
+                ready = nil
+            }
             throw error
         }
     }
@@ -82,8 +93,10 @@ final class Identity {
     func goOffline() -> Task<Void, Never>? {
         guard joining == 0 else { return closing }
         generation &+= 1
-        guard let going = online else { return closing }
+        let going = online
         online = nil
+        ready = nil
+        guard let going else { return closing }
         let prior = closing
         let next = Task {
             await prior?.value
@@ -94,6 +107,31 @@ final class Identity {
         }
         closing = next
         return next
+    }
+
+    /// Tells a live endpoint that the OS network changed so iroh re-probes routes and relay links.
+    func notifyNetworkChange() {
+        Network.shared.askAgain()
+        guard let device = ready else { return }
+        Task { await device.networkChanged() }
+    }
+
+    /// Refreshes the underlying endpoint in place on the same key using current relays while keeping remembered direct host addresses.
+    @discardableResult
+    func refreshDevice() -> Task<Void, Never>? {
+        Network.shared.askAgain()
+        guard joining == 0 else { return closing }
+        if let device = ready {
+            let prior = refreshing
+            let next = Task {
+                await prior?.value
+                let relays = await Network.shared.relaySettings()
+                _ = await raceTimeout(for: .seconds(3)) { await device.refresh(relays: relays) }
+            }
+            refreshing = next
+            return next
+        }
+        return goOffline()
     }
 
     /// Makes this phone a new device: the account may still hold the old key, and anything it signed for that

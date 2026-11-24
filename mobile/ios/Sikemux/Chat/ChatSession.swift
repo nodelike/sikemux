@@ -11,8 +11,9 @@ final class ChatSession {
 
     /// Every chat this phone opened since it started, so going back to one finds it as it was left.
     @ObservationIgnored private static var sessions: [String: ChatSession] = [:]
-    /// Temporary holds for closed chats that have waiting offline messages to flush on reconnect.
+    /// Temporary holds and host watches for closed chats that have waiting offline messages to flush on reconnect.
     @ObservationIgnored private static var pendingHolds: [String: () -> Void] = [:]
+    @ObservationIgnored private static var pendingWatches: [String: HostWatch] = [:]
 
     static func of(core: String, agentId: String) -> ChatSession {
         let key = "\(core):\(agentId)"
@@ -20,6 +21,35 @@ final class ChatSession {
         let made = ChatSession(core: core, agentId: agentId)
         sessions[key] = made
         return made
+    }
+
+    /// Watches any host that has saved waiting messages on disk so it connects and flushes even if no chat screen opens.
+    static func resumePending(for core: String) {
+        let agents = OutboxStore.listPending(for: core)
+        for agentId in agents {
+            let waiting = OutboxStore.load(core: core, agentId: agentId).contains { $0.state != "failed" }
+            guard waiting else { continue }
+            let key = "\(core):\(agentId)"
+            if pendingWatches[key] == nil {
+                pendingWatches[key] = Hub.shared.watch(core)
+            }
+        }
+    }
+
+    /// Drops all holds, watches, and saved outbox entries for a forgotten or unpaired host.
+    /// Sessions stay in `sessions` so an open `ChatScreen` holding one stays consistent if re-paired.
+    static func forgetHost(_ core: String) {
+        let prefix = "\(core):"
+        for key in Array(pendingHolds.keys) where key.hasPrefix(prefix) {
+            pendingHolds.removeValue(forKey: key)?()
+        }
+        for key in Array(pendingWatches.keys) where key.hasPrefix(prefix) {
+            pendingWatches.removeValue(forKey: key)?.cancel()
+        }
+        for (key, session) in sessions where key.hasPrefix(prefix) {
+            session.outbox.clearAll()
+        }
+        OutboxStore.forgetHost(core)
     }
 
     /// Flushes waiting messages for any chat on `core` (even if its screen is closed or after a restart).
@@ -30,7 +60,8 @@ final class ChatSession {
             agentIds.insert(session.agentId)
         }
         let infoByAgent = Dictionary(
-            uniqueKeysWithValues: (Hub.shared.live(core).view?.chats ?? []).map { ($0.agentId, $0) })
+            (Hub.shared.live(core).view?.chats ?? []).map { ($0.agentId, $0) },
+            uniquingKeysWith: { first, _ in first })
         for agentId in agentIds {
             let session = Self.of(core: core, agentId: agentId)
             guard session.outbox.waiting || session.outbox.sending else { continue }
@@ -82,6 +113,8 @@ final class ChatSession {
     @ObservationIgnored private(set) var outbox: Outbox!
     @ObservationIgnored private(set) var connection: Connection?
     @ObservationIgnored private var holders = 0
+    /// True only once the current connection's attach answer has applied fresh rows.
+    @ObservationIgnored private var synced = false
     /// Counts attaches, so an answer that comes back after the chat was taken up again is dropped.
     @ObservationIgnored private var run = 0
     /// Reading the chat this phone kept, which the first attach waits for so it asks only for what came after.
@@ -106,13 +139,20 @@ final class ChatSession {
             emit: { [unowned self] in emit() })
         outbox = Outbox(
             core: core, agentId: agentId,
-            connection: { [unowned self] in connection },
-            chat: { [unowned self] in feed.chat },
-            emit: { [unowned self] in emit() },
+            connection: { [weak self] in self?.connection },
+            attached: { [weak self] in self?.synced ?? false },
+            chat: { [weak self] in self?.feed.chat ?? .empty },
+            emit: { [weak self] in self?.emit() },
             onPending: { [core, agentId] pending in
-                guard !pending else { return }
                 let key = "\(core):\(agentId)"
+                if pending {
+                    if Self.pendingWatches[key] == nil {
+                        Self.pendingWatches[key] = Hub.shared.watch(core)
+                    }
+                    return
+                }
                 Self.pendingHolds.removeValue(forKey: key)?()
+                Self.pendingWatches.removeValue(forKey: key)?.cancel()
             })
         restoring = Task { [weak self] in
             guard let self, await feed.restore() else { return }
@@ -229,6 +269,7 @@ final class ChatSession {
 
     private func stop() {
         run += 1
+        synced = false
         stopRun?()
         stopRun = nil
         feed.cut()
@@ -239,6 +280,7 @@ final class ChatSession {
         guard let connection else { return }
         run += 1
         let run = run
+        synced = false
         if feed.mark == nil || attached == .missing { attached = .attaching }
         problem = nil
         emit()
@@ -349,8 +391,10 @@ final class ChatSession {
         }
         hostUp = true
         attached = .live
+        synced = true
         feed.take(held)
-        outbox.pushWaiting()
+        feed.applyPending()
+        if synced { outbox.pushWaiting() }
         Task { await draft.save() }
         emit()
     }

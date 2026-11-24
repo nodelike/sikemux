@@ -382,6 +382,7 @@ pub async fn serve_device(core: Arc<Core>, incoming: Incoming) {
         return;
     }
     let id = connection.remote_id().to_string();
+    let short_id = id.get(..8).unwrap_or(&id);
     if !core.remote().is_paired(&id) {
         connection.close(
             sikemux_client::remote::NOT_PAIRED.into(),
@@ -389,9 +390,15 @@ pub async fn serve_device(core: Arc<Core>, incoming: Incoming) {
         );
         return;
     }
-    let Ok((send, recv)) = connection.accept_bi().await else {
-        return;
+    let (send, recv) = match connection.accept_bi().await {
+        Ok(streams) => streams,
+        Err(error) => {
+            eprintln!("sikemux core: device {short_id} stream failed: {error}");
+            return;
+        }
     };
+    let connected_at = std::time::Instant::now();
+    eprintln!("sikemux core: device {short_id} connected");
     core.remote().note_connected(&id, true);
     announce(&core);
     serve_client(
@@ -402,6 +409,14 @@ pub async fn serve_device(core: Arc<Core>, incoming: Incoming) {
         Box::new(send),
     )
     .await;
+    let reason = connection
+        .close_reason()
+        .map(|why| why.to_string())
+        .unwrap_or_else(|| "eof".into());
+    eprintln!(
+        "sikemux core: device {short_id} disconnected after {}s ({reason})",
+        connected_at.elapsed().as_secs()
+    );
     core.remote().note_connected(&id, false);
     announce(&core);
     if !core.remote().is_paired(&id) {
