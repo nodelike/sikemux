@@ -443,4 +443,112 @@ describe('a chat session', () => {
     expect(connection.attachChat).toHaveBeenCalledTimes(2);
     expect(connection.detachChat).toHaveBeenCalledTimes(1);
   });
+
+  it('saves a message sent while reconnecting before clearing the draft, and sends it once with its id and steer choice', async () => {
+    const order: string[] = [];
+    let savedOutbox: import('./kept').SavedOutboxEntry[] = [];
+    const persisted = new ChatSession('agent', {
+      read: async () => new ArrayBuffer(4),
+      listen: () => () => {},
+      frame: (run) => {
+        run();
+        return () => {};
+      },
+      drafts: {
+        load: () => undefined,
+        save: () => order.push('draft-save'),
+        clear: () => order.push('draft-clear'),
+      },
+      outbox: {
+        load: () => savedOutbox,
+        save: (entries) => {
+          order.push('outbox-save');
+          savedOutbox = entries;
+        },
+        clear: () => {
+          order.push('outbox-clear');
+          savedOutbox = [];
+        },
+      },
+    });
+    persisted.setDraft('steer this');
+    expect(await persisted.send('steer this', true)).toBe(true);
+    expect(order[0]).toBe('outbox-save');
+    expect(savedOutbox).toHaveLength(1);
+    expect(savedOutbox[0]).toMatchObject({ text: 'steer this', steers: true });
+
+    // Simulate kill / reload: a fresh ChatSession restores the saved waiting entry and delivers once on reconnect.
+    const reloaded = new ChatSession('agent', {
+      read: async () => new ArrayBuffer(4),
+      listen: () => () => {},
+      frame: (run) => {
+        run();
+        return () => {};
+      },
+      outbox: {
+        load: () => savedOutbox,
+        save: (entries) => {
+          savedOutbox = entries;
+        },
+        clear: () => {
+          savedOutbox = [];
+        },
+      },
+    });
+    expect(reloaded.hasWaiting()).toBe(true);
+    const connection = fakeConnection(live([], 3, { running: true }));
+    reloaded.hold(connection as unknown as ConnectionLike);
+    await settle();
+    expect(connection.call).toHaveBeenCalledWith(
+      'steerQueued',
+      JSON.stringify({ agentId: 'agent', ids: [], message: { text: 'steer this', paths: [], context: [] } }),
+    );
+    expect(savedOutbox).toEqual([]);
+  });
+
+  it('keeps the same messageId waiting on disk if the connection closes mid-queue, avoiding duplicate sends', async () => {
+    let savedOutbox: import('./kept').SavedOutboxEntry[] = [];
+    const session = new ChatSession('agent', {
+      read: async () => new ArrayBuffer(4),
+      listen: () => () => {},
+      frame: (run) => {
+        run();
+        return () => {};
+      },
+      outbox: {
+        load: () => savedOutbox,
+        save: (entries) => {
+          savedOutbox = entries;
+        },
+        clear: () => {
+          savedOutbox = [];
+        },
+      },
+    });
+    let open = true;
+    const first = fakeConnection(live([], 3, { running: true }));
+    first.isOpen = () => open;
+    first.prompt.mockImplementationOnce(async () => {
+      open = false;
+      throw new Error('closed');
+    });
+    session.hold(first as unknown as ConnectionLike);
+    await settle();
+
+    expect(await session.send('queued while slow')).toBe(true);
+    await settle();
+    const sentId = first.prompt.mock.calls[0][1] as string;
+    expect(session.draftText()).toBe('');
+    expect(savedOutbox).toHaveLength(1);
+    expect(savedOutbox[0].messageId).toBe(sentId);
+
+    // If the host actually took it before the socket dropped, reconnect deduplicates by messageId and does not resend.
+    const second = fakeConnection(
+      live([], 4, { running: true, queued: [{ id: sentId, text: 'queued while slow', paths: [], context: [] }] }),
+    );
+    session.hold(second as unknown as ConnectionLike);
+    await settle();
+    expect(second.prompt).not.toHaveBeenCalled();
+    expect(savedOutbox).toEqual([]);
+  });
 });

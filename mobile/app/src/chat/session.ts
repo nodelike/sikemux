@@ -20,7 +20,7 @@ import type { ChatDelivery } from '@/devices/hub';
 import { Draft } from './draft';
 import { Feed } from './feed';
 import { Folds } from './folds';
-import type { ChatStore, DraftStore } from './kept';
+import type { ChatStore, DraftStore, OutboxStore } from './kept';
 import type { DraftToken } from './mentions';
 import { Outbox, type Unsent } from './outbox';
 import type { Attachment } from './uploads';
@@ -77,6 +77,10 @@ type Options = {
   store?: ChatStore;
   /** Where writing not saved on the host yet is kept, so it outlives the app quitting. */
   drafts?: DraftStore;
+  /** Where messages sent while reconnecting are kept until delivered. */
+  outbox?: OutboxStore;
+  /** Called when whether this chat has messages waiting for reconnect changes. */
+  onWaiting?: (hasWaiting: boolean) => void;
   /** Told how long each step of taking the chat up took, to measure it. */
   timed?: (took: OpenTimes) => void;
   /** Says what went wrong in the person's language. */
@@ -160,6 +164,8 @@ export class ChatSession {
     });
     this.outbox = new Outbox(agentId, {
       say: this.say,
+      store: options.outbox,
+      onWaiting: options.onWaiting,
       connection: () => this.connection,
       chat: () => this.feed.chat,
       read: options.read ?? readFile,
@@ -293,6 +299,9 @@ export class ChatSession {
     if (this.draft.removeAttachment(id)) this.emit();
   };
 
+  /** Whether any message waits to be sent or is still in flight on reconnect. */
+  hasWaiting = () => this.outbox.waiting() || this.outbox.sending();
+
   /**
    * Shows the message at once, behind the running turn when there is one or into it when `steers`, and puts
    * its files on the host before sending it. Answers whether the composer can let it go.
@@ -300,11 +309,17 @@ export class ChatSession {
   send = async (text: string, steers = false): Promise<boolean> => {
     if (this.draft.uploading()) return false;
     this.notice = null;
-    const message = this.draft.takeOut(text);
     const waiting = this.outbox.waiting() || !this.connection?.isOpen() || this.attached !== 'live';
-    if (waiting) this.outbox.deliver(message.text, message.files, true, message.named);
-    else if (this.busy()) this.queue(message.text, message.files, steers && this.feed.chat.running, message.named);
-    else this.outbox.deliver(message.text, message.files, false, message.named);
+    if (waiting) {
+      // Save the waiting message to disk before clearing the draft so a kill or reload loses neither.
+      const message = this.draft.peekOut(text);
+      this.outbox.deliver(message.text, message.files, true, message.named, steers);
+      this.draft.clearTaken();
+      return true;
+    }
+    const message = this.draft.takeOut(text);
+    if (this.busy()) this.queue(message.text, message.files, steers && this.feed.chat.running, message.named);
+    else this.outbox.deliver(message.text, message.files, false, message.named, steers);
     return true;
   };
 

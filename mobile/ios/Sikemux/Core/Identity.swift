@@ -76,7 +76,8 @@ final class Identity {
         return try await work(try await device())
     }
 
-    /// Takes the phone off the network while the app is away; the next call to `device` waits for close and brings it back.
+    /// Takes the phone off the network while the app is away; the next call to `device` waits for close (bounded)
+    /// and brings it back.
     @discardableResult
     func goOffline() -> Task<Void, Never>? {
         guard joining == 0 else { return closing }
@@ -86,12 +87,9 @@ final class Identity {
         let prior = closing
         let next = Task {
             await prior?.value
-            guard let device = try? await going.value else { return }
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await device.close() }
-                group.addTask { try? await Task.sleep(for: Self.closeWait) }
-                await group.next()
-                group.cancelAll()
+            _ = await raceTimeout(for: Self.closeWait) {
+                guard let device = try? await going.value else { return }
+                await device.close()
             }
         }
         closing = next

@@ -177,18 +177,28 @@ final class ComposerDraft {
         emit()
     }
 
-    /// Takes the files and chips out for the message `text`, answering it with its text chips written in.
-    func takeOut(_ message: String) -> (text: String, files: [Attachment], named: Named) {
-        let files = attachments
-        attachments = []
+    /// Builds the outgoing payload for `message` without clearing the draft, so a waiting send can persist first.
+    func peekOut(_ message: String) -> (text: String, files: [Attachment], named: Named) {
         var named = Mentions.outgoing(text, tokens, tracked)
         named.context += chips.filter { $0.text.isEmpty }
         let written = Self.withContext(message, chips.filter { !$0.text.isEmpty })
+        return (written, attachments, named)
+    }
+
+    /// Clears the files and chips taken out by `peekOut`.
+    func clearTaken() {
+        attachments = []
         chips = []
         tokens = []
         tracked = [:]
         edited()
-        return (written, files, named)
+    }
+
+    /// Takes the files and chips out for the message `text`, answering it with its text chips written in.
+    func takeOut(_ message: String) -> (text: String, files: [Attachment], named: Named) {
+        let taken = peekOut(message)
+        clearTaken()
+        return taken
     }
 
     /// Puts `texts` and `files` back before what the composer holds now.

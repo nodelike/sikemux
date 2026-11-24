@@ -9,6 +9,7 @@ import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';
 import type { ContextChip } from '@/stash/words';
 import type { Named } from './draft';
+import type { OutboxStore, SavedOutboxEntry } from './kept';
 import { pathsOf, uploadEach, type Attachment } from './uploads';
 
 /** A message this phone wrote that the host has not taken yet. */
@@ -33,6 +34,7 @@ type Outgoing = {
   state: Unsent['state'] | 'sent';
   problem?: string;
   waiting?: boolean;
+  steers?: boolean;
 };
 
 /** A message sent behind the running turn, shown in the queue until the host's own queue holds it. */
@@ -61,6 +63,8 @@ function ownRow(outgoing: Outgoing): ChatMessage {
 
 type Host = {
   say: Say;
+  store?: OutboxStore;
+  onWaiting?: (hasWaiting: boolean) => void;
   connection: () => ConnectionLike | undefined;
   /** The chat as the host last folded it. */
   chat: () => ChatRows;
@@ -84,7 +88,44 @@ export class Outbox {
   constructor(
     private readonly agentId: string,
     private readonly host: Host,
-  ) {}
+  ) {
+    const saved = host.store?.load() ?? [];
+    if (saved.length) {
+      this.entries = saved.map((entry) => ({
+        messageId: entry.messageId,
+        text: entry.text,
+        files: entry.files,
+        paths: entry.paths,
+        context: entry.context,
+        at: entry.at,
+        state: 'sending',
+        waiting: true,
+        steers: entry.steers,
+      }));
+      saved.forEach((entry) => this.show(entry.files));
+    }
+  }
+
+  private notifyPending() {
+    this.host.onWaiting?.(this.waiting() || this.sending());
+  }
+
+  private persistWaiting() {
+    const saved: SavedOutboxEntry[] = this.entries
+      .filter((entry) => entry.waiting)
+      .map(({ messageId, text, files, paths, context, at, steers }) => ({
+        messageId,
+        text,
+        files,
+        paths,
+        context,
+        at,
+        ...(steers ? { steers } : {}),
+      }));
+    if (saved.length) this.host.store?.save(saved);
+    else this.host.store?.clear();
+    this.notifyPending();
+  }
 
   /** Some message is still on its way. */
   sending() {
@@ -127,10 +168,20 @@ export class Outbox {
     return this.unsentOf.unsent;
   }
 
-  deliver(text: string, files: Attachment[], waiting = false, named: Named = NAMED_NONE) {
+  deliver(text: string, files: Attachment[], waiting = false, named: Named = NAMED_NONE, steers = false) {
     this.show(files);
-    const entry: Outgoing = { messageId: randomUUID(), text, files, ...named, at: this.host.now(), state: 'sending', waiting };
+    const entry: Outgoing = {
+      messageId: randomUUID(),
+      text,
+      files,
+      ...named,
+      at: this.host.now(),
+      state: 'sending',
+      waiting,
+      ...(steers ? { steers } : {}),
+    };
     this.entries = [...this.entries, entry];
+    if (waiting) this.persistWaiting();
     this.host.emit();
     if (!waiting) this.push(entry);
   }
@@ -153,6 +204,7 @@ export class Outbox {
     this.entries = this.entries
       .filter((outgoing) => !(outgoing.waiting && alreadyLanded(outgoing.messageId)))
       .map((outgoing) => (outgoing.waiting ? { ...outgoing, waiting: false } : outgoing));
+    this.persistWaiting();
     const toSend = waiting.filter((entry) => !alreadyLanded(entry.messageId));
     if (!toSend.length) {
       this.host.emit();
@@ -166,6 +218,7 @@ export class Outbox {
     this.entries = this.entries.map((outgoing) =>
       outgoing.waiting ? { ...outgoing, waiting: false, state: 'failed', problem } : outgoing,
     );
+    this.persistWaiting();
   }
 
   /**
@@ -198,6 +251,26 @@ export class Outbox {
       })
       .catch((error: unknown) => {
         this.holding = this.holding.filter((holding) => holding.id !== id);
+        if (!connection?.isOpen()) {
+          // Connection closed while queuing (e.g. probe cut a slow link); keep the same id waiting on disk so
+          // reconnect deduplicates if the host took it, or sends it once if not.
+          this.entries = [
+            ...this.entries,
+            {
+              messageId: id,
+              text,
+              files,
+              ...named,
+              at: this.host.now(),
+              state: 'sending',
+              waiting: true,
+              ...(steers ? { steers } : {}),
+            },
+          ];
+          this.persistWaiting();
+          this.host.emit();
+          return;
+        }
         throw error;
       });
   }
@@ -225,7 +298,12 @@ export class Outbox {
       if (turnEnded && outgoing.state === 'sent') return false;
       return true;
     });
-    if (kept.length !== this.entries.length) this.entries = kept;
+    if (kept.length !== this.entries.length) {
+      const hadWaiting = this.waiting();
+      this.entries = kept;
+      if (hadWaiting) this.persistWaiting();
+      else this.notifyPending();
+    }
   }
 
   /** Puts each of `files` the host does not have yet on it, answering them all with their paths or throwing why one did not get there. */
@@ -283,15 +361,30 @@ export class Outbox {
             : outgoing,
         );
       });
-      await this.prompt(connection, id, entry.text, [...pathsOf(sent), ...entry.paths], entry.context);
+      const paths = [...pathsOf(sent), ...entry.paths];
+      if (entry.steers && this.host.chat().running) {
+        const ids = this.onHostQueue(this.host.chat().queued.map((held) => held.id));
+        const message = { text: entry.text, paths, context: entry.context };
+        await callHost(connection, 'steerQueued', { agentId: this.agentId, ids, message });
+      } else {
+        await this.prompt(connection, id, entry.text, paths, entry.context);
+      }
     })
       .then(() => {
         this.update(id, { state: 'sent' });
         this.settle();
+        this.notifyPending();
         this.host.emit();
       })
       .catch((error: unknown) => {
+        if (!connection?.isOpen()) {
+          // Connection dropped while sending; keep waiting on disk so reconnect delivers with the same id.
+          this.update(id, { waiting: true, state: 'sending', problem: undefined });
+          this.persistWaiting();
+          return;
+        }
         this.update(id, { state: 'failed', problem: problemOf(error) });
+        this.notifyPending();
       });
   }
 

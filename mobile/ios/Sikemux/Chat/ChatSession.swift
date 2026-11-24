@@ -11,6 +11,8 @@ final class ChatSession {
 
     /// Every chat this phone opened since it started, so going back to one finds it as it was left.
     @ObservationIgnored private static var sessions: [String: ChatSession] = [:]
+    /// Temporary holds for closed chats that have waiting offline messages to flush on reconnect.
+    @ObservationIgnored private static var pendingHolds: [String: () -> Void] = [:]
 
     static func of(core: String, agentId: String) -> ChatSession {
         let key = "\(core):\(agentId)"
@@ -18,6 +20,25 @@ final class ChatSession {
         let made = ChatSession(core: core, agentId: agentId)
         sessions[key] = made
         return made
+    }
+
+    /// Flushes waiting messages for any chat on `core` (even if its screen is closed or after a restart).
+    static func hostOpened(core: String, connection: Connection) {
+        var agentIds = Set(OutboxStore.listPending(for: core))
+        for session in sessions.values where session.core == core && (session.outbox.waiting || session.outbox.sending)
+        {
+            agentIds.insert(session.agentId)
+        }
+        let infoByAgent = Dictionary(
+            uniqueKeysWithValues: (Hub.shared.live(core).view?.chats ?? []).map { ($0.agentId, $0) })
+        for agentId in agentIds {
+            let session = Self.of(core: core, agentId: agentId)
+            guard session.outbox.waiting || session.outbox.sending else { continue }
+            if let info = infoByAgent[agentId] { session.hostSaw(info) }
+            let key = "\(core):\(agentId)"
+            pendingHolds[key]?()
+            pendingHolds[key] = session.hold(connection)
+        }
     }
 
     let core: String
@@ -84,10 +105,15 @@ final class ChatSession {
             live: { [unowned self] in connection?.isOpen() == true && attached == .live ? connection : nil },
             emit: { [unowned self] in emit() })
         outbox = Outbox(
-            agentId: agentId,
+            core: core, agentId: agentId,
             connection: { [unowned self] in connection },
             chat: { [unowned self] in feed.chat },
-            emit: { [unowned self] in emit() })
+            emit: { [unowned self] in emit() },
+            onPending: { [core, agentId] pending in
+                guard !pending else { return }
+                let key = "\(core):\(agentId)"
+                Self.pendingHolds.removeValue(forKey: key)?()
+            })
         restoring = Task { [weak self] in
             guard let self, await feed.restore() else { return }
             attached = .live

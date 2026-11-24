@@ -111,7 +111,7 @@ export async function whileJoining<T>(work: (device: DeviceLike) => Promise<T>):
   }
 }
 
-/** Takes the phone off the network while the app is away; the next call to `thisDevice` waits for close and brings it back. */
+/** Takes the phone off the network while the app is away; the next call to `thisDevice` waits for close (bounded) and brings it back. */
 export function goOffline(): Promise<void> {
   if (joining > 0) return closing;
   generation += 1;
@@ -119,10 +119,11 @@ export function goOffline(): Promise<void> {
   online = undefined;
   ready = undefined;
   if (!going) return closing;
-  const stop = going
-    .catch(() => undefined)
-    .then((device) => (device ? Promise.race([device.close().catch(() => {}), after(CLOSE_WAIT_MS)]) : undefined));
-  closing = closing.then(() => stop);
+  const stop = going.then(
+    (device) => device.close().catch(() => {}),
+    () => {},
+  );
+  closing = closing.then(() => Promise.race([stop, after(CLOSE_WAIT_MS)]));
   return closing;
 }
 

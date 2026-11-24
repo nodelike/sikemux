@@ -42,8 +42,8 @@ const UNPAIR_WAIT_MS = 3000;
 const AWAY_MS = 10_000;
 /** Back in front or after a network change, a connection that cannot answer in this time is replaced. */
 const PROBE_MS = 1000;
-/** A try that has not ended by now is given up, the endpoint refreshed, and tried again. */
-const ATTEMPT_MS = 12_000;
+/** A try that has not ended by now is given up and tried again; sits above the core's 15s dial. */
+const ATTEMPT_MS = 22_000;
 
 type Entry = {
   live: Live;
@@ -55,6 +55,8 @@ type Entry = {
   lastActivityAt?: number;
   /** When the current stretch of trying to reach this host began. */
   tryingSince?: number;
+  /** True while a liveness probe is in flight on this host's open connection. */
+  probing?: boolean;
   /** Why the last try failed, until one succeeds or the connection is let go on purpose. */
   failure?: string;
   /** The connection being made or held; a listener of any other is ignored. */
@@ -186,9 +188,18 @@ function inGrace(found: Entry): boolean {
   return found.tryingSince !== undefined && Date.now() - found.tryingSince < REACH_GRACE_MS;
 }
 
+/** The shared endpoint may only be torn down when no host on it is live or waiting on its own probe. */
+function canRefreshEndpoint(): boolean {
+  for (const found of entries.values()) {
+    if (found.live.status === 'open' || found.probing) return false;
+  }
+  return true;
+}
+
 function release(core: string, found: Entry) {
   stopTimers(found);
   found.current = undefined;
+  found.probing = false;
   if (found.live.status === 'open') {
     found.live.connection.close();
     // "Seen 5m ago" means when the host was last heard alive, never when a frozen socket was torn down.
@@ -207,14 +218,14 @@ function drop(core: string, reason: string, error?: unknown) {
   if (wasOpen) found.tryingSince = Date.now();
   const unpaired = MobileError.Unpaired.instanceOf(error);
   const outdatedBy = outdated(error);
+  if (unpaired) forgetKeptView(core);
+  const snapshot = unpaired ? undefined : found.live.snapshot;
   found.failure = reason;
   const holding = !unpaired && !outdatedBy && found.watchers > 0 && !away && !backgrounded && inGrace(found);
   set(
     core,
     found,
-    holding
-      ? { status: 'connecting', snapshot: found.live.snapshot }
-      : { status: 'closed', problem: reason, outdated: outdatedBy, unpaired, snapshot: found.live.snapshot },
+    holding ? { status: 'connecting', snapshot } : { status: 'closed', problem: reason, outdated: outdatedBy, unpaired, snapshot },
   );
   if (!settled(found)) scheduleRetry(core, found);
 }
@@ -276,9 +287,9 @@ async function connect(core: string, found: Entry) {
   found.current = attempt;
   const late = setTimeout(() => {
     if (found.current !== attempt) return;
-    console.info(`sikemux: host ${core.slice(0, 8)} dial stalled after ${ATTEMPT_MS}ms; refreshing endpoint`);
-    void refreshDevice();
+    console.info(`sikemux: host ${core.slice(0, 8)} dial stalled after ${ATTEMPT_MS}ms`);
     drop(core, translate('The host did not answer in time.'));
+    if (canRefreshEndpoint()) void refreshDevice();
   }, ATTEMPT_MS);
   let connection: ConnectionLike;
   try {
@@ -345,9 +356,9 @@ function close(core: string, found: Entry, reason: string) {
 }
 
 /** Drops a connection that may be dead and makes a new one now, as on a fresh start. */
-function reconnect(core: string, found: Entry, reason: string, refresh = false) {
+function reconnect(core: string, found: Entry, reason: string) {
   close(core, found, reason);
-  if (refresh) void refreshDevice();
+  if (canRefreshEndpoint()) void refreshDevice();
   found.attempt = 0;
   found.tryingSince = Date.now();
   open(core, true);
@@ -426,39 +437,48 @@ AppState.addEventListener('change', (state) => {
   away = false;
   console.info(`sikemux: resume after ${elapsed}ms (away=${wasAway})`);
   if (wasAway) {
+    entries.forEach((found, core) => {
+      if (found.live.status === 'open') close(core, found, translate('Reconnecting.'));
+    });
     void refreshDevice();
-  } else {
-    tellForeground(true);
-    void notifyNetworkChange();
+    entries.forEach((found, core) => {
+      if (found.watchers === 0) return;
+      if (found.live.status === 'closed' && found.live.unpaired) return;
+      found.attempt = 0;
+      found.tryingSince = Date.now();
+      open(core, true);
+    });
+    return;
   }
-  let refreshed = wasAway;
+  tellForeground(true);
+  void notifyNetworkChange();
+  const toOpen: [string, Entry][] = [];
   entries.forEach((found, core) => {
     if (found.live.status === 'open') {
-      if (!wasAway) {
-        check(core, found, found.live.connection, PROBE_MS);
-        return;
-      }
-      close(core, found, translate('Reconnecting.'));
+      check(core, found, found.live.connection, PROBE_MS);
+      return;
     }
     if (found.watchers === 0) return;
     if (found.live.status === 'closed' && found.live.unpaired) return;
-    if (!refreshed && found.current) {
-      void refreshDevice();
-      refreshed = true;
-    }
+    toOpen.push([core, found]);
+  });
+  if (toOpen.some(([, found]) => found.current) && canRefreshEndpoint()) void refreshDevice();
+  toOpen.forEach(([core, found]) => {
     found.attempt = 0;
     found.tryingSince = Date.now();
     open(core, true);
   });
 });
 
-/** Asks a connection to answer after resume or network change, and replaces it with a fresh endpoint when it cannot. */
+/** Asks a connection to answer after resume or network change, and replaces it when it cannot. */
 function check(core: string, found: Entry, connection: ConnectionLike, wait = PROBE_MS) {
   const stillThis = () => found.live.status === 'open' && found.live.connection === connection;
   if (!connection.isOpen()) {
-    reconnect(core, found, translate('The network changed.'), true);
+    reconnect(core, found, translate('The network changed.'));
     return;
   }
+  found.probing = true;
+  const startedAt = Date.now();
   const abort = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, fail) => {
@@ -470,13 +490,18 @@ function check(core: string, found: Entry, connection: ConnectionLike, wait = PR
   Promise.race([connection.host({ signal: abort.signal }), late])
     .then(
       () => {
-        if (stillThis()) found.lastActivityAt = Date.now();
+        if (stillThis()) {
+          found.probing = false;
+          found.lastActivityAt = Date.now();
+        }
       },
       () => {
-        if (stillThis()) {
-          console.info(`sikemux: host ${core.slice(0, 8)} probe failed within ${wait}ms; refreshing endpoint`);
-          reconnect(core, found, translate('The network changed.'), true);
-        }
+        if (!stillThis()) return;
+        found.probing = false;
+        // Live view or chat traffic arrived while the probe was out, so the connection is healthy.
+        if (found.lastActivityAt !== undefined && found.lastActivityAt >= startedAt) return;
+        console.info(`sikemux: host ${core.slice(0, 8)} probe failed within ${wait}ms`);
+        reconnect(core, found, translate('The network changed.'));
       },
     )
     .finally(() => clearTimeout(timer));
@@ -486,19 +511,18 @@ onNetworkChange((change) => {
   if (away || backgrounded) return;
   console.info(`sikemux: network ${change}`);
   void notifyNetworkChange();
-  let refreshed = false;
+  const toOpen: [string, Entry][] = [];
   entries.forEach((found, core) => {
     if (found.live.status === 'open') {
       check(core, found, found.live.connection, PROBE_MS);
       return;
     }
     if (found.watchers === 0 || settled(found)) return;
-    if (!refreshed) {
-      void refreshDevice();
-      refreshed = true;
-    }
+    toOpen.push([core, found]);
+  });
+  if (toOpen.length > 0 && canRefreshEndpoint()) void refreshDevice();
+  toOpen.forEach(([core, found]) => {
     found.attempt = 0;
-    found.tryingSince = Date.now();
     open(core, true);
   });
 });
@@ -588,7 +612,7 @@ export function retry(core: string) {
   clearTimeout(found.retrying);
   found.attempt = 0;
   found.tryingSince = Date.now();
-  if (!openConnections().length) void refreshDevice();
+  if (canRefreshEndpoint()) void refreshDevice();
   open(core, true);
 }
 

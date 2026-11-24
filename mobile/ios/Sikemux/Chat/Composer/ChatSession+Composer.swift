@@ -66,14 +66,18 @@ extension ChatSession {
     func send(_ text: String, steers: Bool = false) -> Bool {
         if draft.uploading { return false }
         notice = nil
-        let message = draft.takeOut(text)
         let waiting = outbox.waiting || connection?.isOpen() != true || attached != .live
         if waiting {
-            outbox.deliver(message.text, message.files, waiting: true, named: message.named)
-        } else if busy || outbox.sending {
+            let message = draft.peekOut(text)
+            outbox.deliver(message.text, message.files, waiting: true, named: message.named, steers: steers)
+            draft.clearTaken()
+            return true
+        }
+        let message = draft.takeOut(text)
+        if busy || outbox.sending {
             queue(message.text, message.files, steers: steers && feed.chat.running, named: message.named)
         } else {
-            outbox.deliver(message.text, message.files, named: message.named)
+            outbox.deliver(message.text, message.files, named: message.named, steers: steers)
         }
         return true
     }

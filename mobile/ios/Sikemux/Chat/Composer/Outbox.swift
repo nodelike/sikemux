@@ -2,6 +2,63 @@ import Foundation
 import Observation
 import SikemuxCore
 
+/// Waiting offline messages kept on disk so they outlive app kills and send once on reconnect.
+enum OutboxStore {
+    struct Saved: Codable {
+        var messageId: String
+        var text: String
+        var files: [Attachment]
+        var paths: [String]
+        var context: [ChatContext]
+        var at: Int
+        var steers: Bool
+    }
+
+    private static var folder: URL {
+        URL.applicationSupportDirectory.appending(path: "outbox", directoryHint: .isDirectory)
+    }
+
+    private static func file(core: String, agentId: String) -> URL {
+        let key = "\(core):\(agentId)"
+        return folder.appending(path: "\(key.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? key).json")
+    }
+
+    static func load(core: String, agentId: String) -> [Saved] {
+        let url = file(core: core, agentId: agentId)
+        guard FileManager.default.fileExists(atPath: url.path),
+            let data = try? Data(contentsOf: url),
+            let entries = try? JSONDecoder().decode([Saved].self, from: data)
+        else { return [] }
+        return entries
+    }
+
+    static func save(core: String, agentId: String, entries: [Saved]) {
+        let url = file(core: core, agentId: agentId)
+        if entries.isEmpty {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? JSONEncoder().encode(entries).write(to: url, options: .atomic)
+    }
+
+    static func listPending(for core: String) -> [String] {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        else { return [] }
+        var agents: [String] = []
+        for url in files where url.pathExtension == "json" {
+            let encoded = url.deletingPathExtension().lastPathComponent
+            guard let decoded = encoded.removingPercentEncoding,
+                let sep = decoded.firstIndex(of: ":")
+            else { continue }
+            if String(decoded[..<sep]) == core {
+                agents.append(String(decoded[decoded.index(after: sep)...]))
+            }
+        }
+        return agents
+    }
+}
+
 /// What this phone sent that the host does not show yet, sent in order however long each one's files take.
 @MainActor @Observable
 final class Outbox {
@@ -18,6 +75,7 @@ final class Outbox {
         var state: State = .sending
         var problem: String?
         var waiting = false
+        var steers = false
     }
 
     /// A message sent behind the running turn, shown in the queue until the host's own queue holds it.
@@ -33,19 +91,43 @@ final class Outbox {
     /// Messages reach the host in the order they were sent, however long their files take.
     @ObservationIgnored private var line: Task<Void, Never>?
 
+    @ObservationIgnored private let core: String
     @ObservationIgnored private let agentId: String
     @ObservationIgnored private let connection: () -> Connection?
     @ObservationIgnored private let chat: () -> ChatRows
     @ObservationIgnored private let emit: () -> Void
+    @ObservationIgnored private let onPending: (Bool) -> Void
 
     init(
-        agentId: String, connection: @escaping () -> Connection?, chat: @escaping () -> ChatRows,
-        emit: @escaping () -> Void
+        core: String, agentId: String, connection: @escaping () -> Connection?, chat: @escaping () -> ChatRows,
+        emit: @escaping () -> Void, onPending: @escaping (Bool) -> Void = { _ in }
     ) {
+        self.core = core
         self.agentId = agentId
         self.connection = connection
         self.chat = chat
         self.emit = emit
+        self.onPending = onPending
+        let saved = OutboxStore.load(core: core, agentId: agentId)
+        if !saved.isEmpty {
+            entries = saved.map {
+                Outgoing(
+                    messageId: $0.messageId, text: $0.text, files: $0.files,
+                    named: Named(paths: $0.paths, context: $0.context), at: $0.at,
+                    state: .sending, waiting: true, steers: $0.steers)
+            }
+            for entry in saved { show(entry.files) }
+        }
+    }
+
+    private func persistWaiting() {
+        let saved = entries.filter(\.waiting).map {
+            OutboxStore.Saved(
+                messageId: $0.messageId, text: $0.text, files: $0.files,
+                paths: $0.named.paths, context: $0.named.context, at: $0.at, steers: $0.steers)
+        }
+        OutboxStore.save(core: core, agentId: agentId, entries: saved)
+        onPending(waiting || sending)
     }
 
     /// Some message is still on its way.
@@ -77,13 +159,16 @@ final class Outbox {
         return unsent
     }
 
-    func deliver(_ text: String, _ files: [Attachment], waiting: Bool = false, named: Named = Named()) {
+    func deliver(
+        _ text: String, _ files: [Attachment], waiting: Bool = false, named: Named = Named(), steers: Bool = false
+    ) {
         show(files)
         let entry = Outgoing(
             messageId: UUID().uuidString.lowercased(), text: text, files: files, named: named,
-            at: Self.now, waiting: waiting
+            at: Self.now, waiting: waiting, steers: steers
         )
         entries.append(entry)
+        if waiting { persistWaiting() }
         emit()
         if !waiting { push(entry) }
     }
@@ -107,6 +192,7 @@ final class Outbox {
         let alreadyLanded: (String) -> Bool = { shown.contains($0) || queued.contains($0) }
         entries.removeAll { $0.waiting && alreadyLanded($0.messageId) }
         for at in entries.indices { entries[at].waiting = false }
+        persistWaiting()
         let toSend = waiting.filter { !alreadyLanded($0.messageId) }
         guard !toSend.isEmpty else {
             emit()
@@ -122,6 +208,7 @@ final class Outbox {
             entries[at].state = .failed
             entries[at].problem = problem
         }
+        persistWaiting()
     }
 
     /// Sends the message behind the running turn, or into it when it `steers`, showing it queued at once. Throws when
@@ -147,6 +234,15 @@ final class Outbox {
             }
         } catch {
             holding.removeAll { $0.message.id == id }
+            if connection?.isOpen() != true {
+                entries.append(
+                    Outgoing(
+                        messageId: id, text: text, files: files, named: named,
+                        at: Self.now, state: .sending, waiting: true, steers: steers))
+                persistWaiting()
+                emit()
+                return
+            }
             throw error
         }
         if let held = holding.first(where: { $0.message.id == id }),
@@ -182,7 +278,11 @@ final class Outbox {
             if turnEnded && entry.state == .sent { return false }
             return true
         }
-        if kept.count != entries.count { entries = kept }
+        if kept.count != entries.count {
+            let hadWaiting = waiting
+            entries = kept
+            if hadWaiting { persistWaiting() } else { onPending(waiting || sending) }
+        }
     }
 
     /// Puts each of `files` the host does not have yet on it, answering them all with their paths or throwing why one
@@ -249,17 +349,36 @@ final class Outbox {
                             }
                         }
                     }
-                    try await self.prompt(
-                        connection, id, entry.text, Uploads.paths(sent) + entry.named.paths, entry.named.context)
+                    let paths = Uploads.paths(sent) + entry.named.paths
+                    if entry.steers && self.chat().running {
+                        let ids = self.onHostQueue(self.chat().queued.map(\.id))
+                        let message = QueuedMessageParams(text: entry.text, paths: paths, context: entry.named.context)
+                        _ = try await connection.call(
+                            PhoneCall.SteerQueued.self,
+                            QueuedParams(agentId: self.agentId, ids: ids, message: message))
+                    } else {
+                        try await self.prompt(connection, id, entry.text, paths, entry.named.context)
+                    }
                 }
                 update(id) { $0.state = .sent }
                 settle()
+                onPending(waiting || sending)
                 emit()
             } catch {
+                if connection?.isOpen() != true {
+                    update(id) {
+                        $0.waiting = true
+                        $0.state = .sending
+                        $0.problem = nil
+                    }
+                    persistWaiting()
+                    return
+                }
                 update(id) {
                     $0.state = .failed
                     $0.problem = problem(error)
                 }
+                onPending(waiting || sending)
             }
         }
     }

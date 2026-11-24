@@ -151,21 +151,32 @@ export class Draft {
     this.host.emit();
   }
 
-  /** Takes the files and chips out for the message `text`, answering it with its text chips written in. */
-  takeOut(text: string): { text: string; files: Attachment[]; named: Named } {
+  /** Builds the outgoing payload for `text` without clearing the draft, so a waiting send can persist first. */
+  peekOut(text: string): { text: string; files: Attachment[]; named: Named } {
     const files = this.attachments;
-    this.attachments = [];
     const named = outgoing(this.text, this.tokens, this.tracked);
     named.context.push(...this.chips.filter((chip) => !chip.text));
     const written = withContext(
       text,
       this.chips.filter((chip) => chip.text),
     );
+    return { text: written, files, named };
+  }
+
+  /** Clears the files and chips taken out by `peekOut`. */
+  clearTaken() {
+    this.attachments = [];
     this.chips = [];
     this.tokens = [];
     this.tracked = {};
     this.edited();
-    return { text: written, files, named };
+  }
+
+  /** Takes the files and chips out for the message `text`, answering it with its text chips written in. */
+  takeOut(text: string): { text: string; files: Attachment[]; named: Named } {
+    const taken = this.peekOut(text);
+    this.clearTaken();
+    return taken;
   }
 
   /** Puts `texts` and `files` back before what the composer holds now. */

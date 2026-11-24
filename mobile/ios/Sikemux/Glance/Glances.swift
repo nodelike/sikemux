@@ -87,10 +87,11 @@ enum Glances {
         await hand()
     }
 
-    /// Each host's agents at a glance, as the host sends them.
+    /// Each host's agents at a glance, as the host sends them. Only live connections publish to widgets/Live Activities.
     private static func hosts() -> [HostGlance] {
         Hub.shared.devices.compactMap { device in
-            guard let agents = Hub.shared.live(device.core).view?.inbox.glance else { return nil }
+            let live = Hub.shared.live(device.core)
+            guard live.isOpen, let agents = live.view?.inbox.glance else { return nil }
             return HostGlance(host: device.core, hostName: device.displayName, agents: agents)
         }
     }

@@ -10,6 +10,7 @@ import { Avatar } from '@/account/Avatar';
 import { providerName } from '@/account/providers';
 import { retryHosts, useAccountHosts } from '@/account/session';
 import { reloadDevices, retry, useHostStatus, useLive } from '@/devices/hub';
+import { resumePendingOutboxes } from '@/chat/useChat';
 import { ASKING_AFTER_MS, retryJoin, useHostJoin } from '@/devices/hostJoins';
 import { channelLabel, deviceKind, deviceName, type PairedDevice } from '@/devices/paired';
 import { summary } from '@/devices/status';
@@ -27,6 +28,7 @@ function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; o
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const t = useT();
+
   // Every host on the list streams its view while the list shows; one opened keeps its own connection.
   const showing = useIsFocused();
   const live = useLive(device.core, showing);
@@ -276,6 +278,10 @@ export function DevicesList({ devices }: { devices: PairedDevice[] }) {
   const list = useRef<ScrollView>(null);
   const reveal = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    resumePendingOutboxes();
+  }, []);
 
   const add = () => {
     haptics.tap();

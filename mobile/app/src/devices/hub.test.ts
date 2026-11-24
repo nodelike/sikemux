@@ -279,7 +279,7 @@ describe('the hub', () => {
     NetInfo.emit('none');
     NetInfo.emit('wifi', '10.0.0.2');
     await vi.waitFor(() => expect(connects()).toBe(2));
-    expect(hub.liveOf('host')).toMatchObject({ status: 'connecting' });
+    expect(hub.liveOf('host')).toMatchObject({ status: 'connecting', problem: 'no route' });
   });
 
   it('replaces a connection that cannot answer after the phone moves to another network', async () => {
@@ -325,7 +325,7 @@ describe('the hub', () => {
     hub.retry('host');
     await vi.waitFor(() => expect(connects()).toBe(2));
     vi.setSystemTime(Date.now() + 16_000);
-    await vi.advanceTimersByTimeAsync(12_000);
+    await vi.advanceTimersByTimeAsync(22_000);
     expect(hub.liveOf('host')).toMatchObject({ status: 'closed', problem: 'The host did not answer in time.' });
     await vi.advanceTimersByTimeAsync(400);
     expect(connects()).toBe(3);
@@ -334,6 +334,42 @@ describe('the hub', () => {
     fake.calls[2].settle(new FakeConnection());
     await vi.waitFor(() => expect(hub.liveOf('host').status).toBe('open'));
     expect(abandoned.closed).toBe(true);
+  });
+
+  it('never tears down the shared endpoint while another host is live or probing', async () => {
+    NetInfo.emit('wifi', '10.0.0.2');
+    const healthy = await opened('mac');
+    hub.watch('asleep');
+    await vi.waitFor(() => expect(connects('asleep')).toBe(1));
+
+    // A stalled dial on the sleeping host never refreshes the shared endpoint while Mac is open.
+    await vi.advanceTimersByTimeAsync(22_000);
+    expect(healthy.closed).toBe(false);
+    expect(identity.refreshDevice).not.toHaveBeenCalled();
+
+    // Moving networks while the sleeping host is closed probes Mac without tearing down the endpoint first.
+    NetInfo.emit('cellular');
+    expect(identity.refreshDevice).not.toHaveBeenCalled();
+    expect(healthy.closed).toBe(false);
+
+    // Quick return with a slow probe on Mac and a stuck dial on asleep never cuts Mac.
+    AppState.emit('background');
+    await vi.advanceTimersByTimeAsync(2_000);
+    AppState.emit('active');
+    expect(identity.refreshDevice).not.toHaveBeenCalled();
+    expect(healthy.closed).toBe(false);
+  });
+
+  it('deletes the cached view when a host turns this phone away as unpaired', async () => {
+    await opened('host');
+    fake.calls[0].listener.events([CoreEvent.View.new({ viewJson: JSON.stringify(VIEW) })] as never);
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(hub.liveOf('host').snapshot).toEqual(VIEW);
+    fake.calls[0].listener.closed();
+    await vi.advanceTimersByTimeAsync(400);
+    fake.calls.at(-1)!.fail(MobileError.Unpaired.new());
+    await vi.waitFor(() => expect(hub.liveOf('host')).toMatchObject({ status: 'closed', unpaired: true }));
+    expect(hub.liveOf('host').snapshot).toBeUndefined();
   });
 
   it('keeps a connection that answers after the phone moves to another network', async () => {

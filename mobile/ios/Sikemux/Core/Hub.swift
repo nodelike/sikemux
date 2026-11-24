@@ -51,6 +51,8 @@ final class HostLive {
     @ObservationIgnored fileprivate var lastActivityAt: Date?
     /// When the current stretch of trying to reach this host began.
     @ObservationIgnored fileprivate var tryingSince: Date?
+    /// True while a liveness probe is in flight on this host's open connection.
+    @ObservationIgnored fileprivate var probing = false
     @ObservationIgnored fileprivate var failure: String?
     @ObservationIgnored fileprivate var current: ListenerBox?
     @ObservationIgnored fileprivate var retrying: Task<Void, Never>?
@@ -90,8 +92,8 @@ final class Hub {
     private static let awayAfter: TimeInterval = 10
     /// Back in front or after a network change, a connection that cannot answer in this time is replaced.
     private static let probeWait: Duration = .seconds(1)
-    /// A try that has not ended by now is given up, the endpoint refreshed, and tried again.
-    private static let attemptWait: Duration = .seconds(12)
+    /// A try that has not ended by now is given up and tried again; sits above the core's 15s dial.
+    private static let attemptWait: Duration = .seconds(22)
     private static let damagedProblem =
         String(
             localized: "The list of paired hosts couldn't be read, so it was started again. Connect your hosts again.")
@@ -203,13 +205,18 @@ final class Hub {
         }
     }
 
+    /// The shared endpoint may only be torn down when no host on it is live or waiting on its own probe.
+    private var canRefreshEndpoint: Bool {
+        !hosts.values.contains { $0.status == .open || $0.probing }
+    }
+
     /// Gives up any try under way and starts a fresh one now.
     func retry(_ core: String) {
         let found = live(core)
         found.retrying?.cancel()
         found.attempt = 0
         found.tryingSince = Date()
-        if openConnections.isEmpty { Identity.shared.goOffline() }
+        if canRefreshEndpoint { Identity.shared.goOffline() }
         open(core, again: true)
     }
 
@@ -281,9 +288,9 @@ final class Hub {
         Task { [weak self] in
             try? await Task.sleep(for: Self.attemptWait)
             guard let self, found.current === box, found.connection == nil else { return }
-            Self.log.info("host \(String(found.core.prefix(8)), privacy: .public) dial stalled; refreshing endpoint")
-            Identity.shared.goOffline()
+            Self.log.info("host \(String(found.core.prefix(8)), privacy: .public) dial stalled")
             drop(found, reason: String(localized: "The host did not answer in time."))
+            if canRefreshEndpoint { Identity.shared.goOffline() }
         }
         Task { [weak self] in await self?.connect(found, box) }
     }
@@ -320,6 +327,7 @@ final class Hub {
         found.connection = connection
         found.status = .open
         found.awaitingView = true
+        ChatSession.hostOpened(core: found.core, connection: connection)
         Task { await Notify.shared.shareKey(found.core, connection) }
         if UIApplication.shared.applicationState != .active {
             Task { try? await connection.setForeground(foreground: false) }
@@ -388,6 +396,7 @@ final class Hub {
         found.retrying?.cancel()
         found.lingering?.cancel()
         found.current = nil
+        found.probing = false
         if let connection = found.connection {
             connection.close()
             found.connection = nil
@@ -411,6 +420,10 @@ final class Hub {
             case .Outdated(let macIsOlder): .outdated(macIsOlder ? .host : .phone)
             default: nil
             }
+        if blocked == .unpaired {
+            KeptView.shared.forget(found.core)
+            found.view = nil
+        }
         found.failure = reason
         let holding = blocked == nil && found.watchers > 0 && !away && !backgrounded && inGrace(found)
         found.status = holding ? .connecting(problem: nil) : .closed(problem: reason, blocked: blocked)
@@ -436,9 +449,9 @@ final class Hub {
     }
 
     /// Drops a connection that may be dead and makes a new one now, as on a fresh start.
-    private func reconnect(_ found: HostLive, reason: String, refresh: Bool = false) {
+    private func reconnect(_ found: HostLive, reason: String) {
         close(found, reason: reason)
-        if refresh { Identity.shared.goOffline() }
+        if canRefreshEndpoint { Identity.shared.goOffline() }
         found.attempt = 0
         found.tryingSince = Date()
         open(found.core, again: true)
@@ -480,25 +493,34 @@ final class Hub {
         Self.log.info("resume after \(Int(elapsed * 1000))ms (away=\(wasAway))")
         Network.shared.askAgain()
         if wasAway {
+            for found in hosts.values where found.connection != nil {
+                close(found, reason: String(localized: "Reconnecting."))
+            }
             Identity.shared.goOffline()
-        } else {
-            tellForeground(true)
+            for found in hosts.values {
+                guard found.watchers > 0 else { continue }
+                if case .closed(_, .unpaired) = found.status { continue }
+                found.attempt = 0
+                found.tryingSince = Date()
+                open(found.core, again: true)
+            }
+            return
         }
-        var refreshed = wasAway
+        tellForeground(true)
+        var toOpen: [HostLive] = []
         for found in hosts.values {
             if let connection = found.connection {
-                if !wasAway {
-                    check(found, connection, wait: Self.probeWait)
-                    continue
-                }
-                close(found, reason: String(localized: "Reconnecting."))
+                check(found, connection, wait: Self.probeWait)
+                continue
             }
             guard found.watchers > 0 else { continue }
             if case .closed(_, .unpaired) = found.status { continue }
-            if !refreshed && found.current != nil {
-                Identity.shared.goOffline()
-                refreshed = true
-            }
+            toOpen.append(found)
+        }
+        if toOpen.contains(where: { $0.current != nil }), canRefreshEndpoint {
+            Identity.shared.goOffline()
+        }
+        for found in toOpen {
             found.attempt = 0
             found.tryingSince = Date()
             open(found.core, again: true)
@@ -510,45 +532,41 @@ final class Hub {
         guard lastPath != nil, key != lastPath, status == .satisfied, !away, !backgrounded else { return }
         Self.log.info("network changed (\(key, privacy: .public))")
         Network.shared.askAgain()
-        var refreshed = false
+        var toOpen: [HostLive] = []
         for found in hosts.values {
             if let connection = found.connection {
                 check(found, connection, wait: Self.probeWait)
             } else if found.watchers > 0, !found.settled {
-                if !refreshed {
-                    Identity.shared.goOffline()
-                    refreshed = true
-                }
-                found.attempt = 0
-                found.tryingSince = Date()
-                open(found.core, again: true)
+                toOpen.append(found)
             }
+        }
+        if !toOpen.isEmpty, canRefreshEndpoint { Identity.shared.goOffline() }
+        for found in toOpen {
+            found.attempt = 0
+            open(found.core, again: true)
         }
     }
 
-    /// Asks a connection to answer after resume or network change, and replaces it with a fresh endpoint when it cannot.
+    /// Asks a connection to answer after resume or network change, and replaces it when it cannot.
     private func check(_ found: HostLive, _ connection: Connection, wait: Duration = Hub.probeWait) {
         guard connection.isOpen() else {
-            reconnect(found, reason: String(localized: "The network changed."), refresh: true)
+            reconnect(found, reason: String(localized: "The network changed."))
             return
         }
+        found.probing = true
+        let startedAt = Date()
         Task {
-            let answered = await withTaskGroup(of: Bool.self) { group in
-                group.addTask { (try? await connection.host()) != nil }
-                group.addTask {
-                    try? await Task.sleep(for: wait)
-                    return false
-                }
-                let first = await group.next() ?? false
-                group.cancelAll()
-                return first
-            }
+            let answered = await raceTimeout(for: wait) { (try? await connection.host()) != nil } ?? false
+            guard found.connection === connection else { return }
+            found.probing = false
             if answered {
-                if found.connection === connection { found.lastActivityAt = Date() }
-            } else if found.connection === connection {
-                Self.log.info(
-                    "host \(String(found.core.prefix(8)), privacy: .public) probe failed; refreshing endpoint")
-                reconnect(found, reason: String(localized: "The network changed."), refresh: true)
+                found.lastActivityAt = Date()
+            } else if let activity = found.lastActivityAt, activity >= startedAt {
+                return
+            } else {
+                let prefix = String(found.core.prefix(8))
+                Self.log.info("host \(prefix, privacy: .public) probe failed")
+                reconnect(found, reason: String(localized: "The network changed."))
             }
         }
     }
