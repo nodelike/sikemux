@@ -92,10 +92,6 @@ impl Listing for App {
     fn identity(&self) -> Option<String> {
         Some(format!("{IDENTITY_PREFIX}{}", self.key_account()))
     }
-
-    fn starts_kept(&self) -> bool {
-        self.organization
-    }
 }
 
 static APP_BOOK: Listed<App> = Listed::new(APPS_FILE, "apps", "id", None, KEYS);

@@ -961,6 +961,16 @@ impl Method {
             params,
         }
     }
+
+    /// The params, when this is the call `C`.
+    #[cfg(test)]
+    pub(crate) fn params_of<C: Call>(&self) -> Option<C::Params>
+    where
+        C::Params: DeserializeOwned,
+    {
+        let params = (self.name == C::METHOD).then(|| self.params.clone())?;
+        serde_json::from_value(params).ok()
+    }
 }
 
 /// The call `C`, which nothing waits on the answer of.

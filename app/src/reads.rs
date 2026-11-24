@@ -324,6 +324,7 @@ impl Workbench {
             }
             Read::Plugins => {
                 crate::settings::providers_changed(self, cx);
+                crate::settings::vault_changed(self, cx);
                 if !keep_decoded(&mut self.reads.plugins.0, value, "plugins") {
                     return;
                 }

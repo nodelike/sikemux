@@ -249,7 +249,7 @@ pub fn before_shortcut(
     }
 }
 
-pub use pages::{devices_changed, plugins_changed, providers_changed, week_read};
+pub use pages::{devices_changed, plugins_changed, providers_changed, vault_changed, week_read};
 
 pub(crate) fn set(bench: &Workbench, change: PreferenceChange) {
     Target::here(&bench.asks).call_typed::<call::SetPreference>(change);

@@ -52,9 +52,16 @@ pub async fn run(core: Weak<Core>) {
             tokio::time::sleep(SETTLE).await;
         }
         let Some(core) = core.upgrade() else { return };
-        match round(&core).await {
-            Ok(()) => core.vault().state.locked().failures = 0,
-            Err(error) => failed(&core, &error),
+        let awaiting = std::mem::take(&mut *core.vault().awaiting.locked());
+        let ended = match round(&core).await {
+            Ok(()) => {
+                core.vault().state.locked().failures = 0;
+                Ok(())
+            }
+            Err(error) => Err(failed(&core, &error)),
+        };
+        for waiter in awaiting {
+            let _ = waiter.send(ended);
         }
     }
 }
@@ -63,16 +70,16 @@ pub async fn run(core: Weak<Core>) {
 /// when the Mac wakes, comes right on the next.
 const FAILURES_SHOWN: u32 = 3;
 
-fn failed(core: &Core, error: &CoreError) {
+fn failed(core: &Core, error: &CoreError) -> &'static str {
     eprintln!("sikemux core: the account vault did not sync: {error}");
+    let said = if error.is_unreachable() {
+        "Can't reach Sikemux's server. Trying again."
+    } else {
+        "The account vault could not sync. Trying again."
+    };
     let changed = {
         let mut state = core.vault().state.locked();
         state.failures = state.failures.saturating_add(1);
-        let said = if error.is_unreachable() {
-            "Can't reach Sikemux's server. Trying again."
-        } else {
-            "The account vault could not sync. Trying again."
-        };
         let failed = Status::Failed(said.to_owned());
         let shown = state.failures >= FAILURES_SHOWN
             && state.status != failed
@@ -85,6 +92,7 @@ fn failed(core: &Core, error: &CoreError) {
     if changed {
         announce(core);
     }
+    said
 }
 
 fn books(core: &Core) -> Vec<(String, PathBuf, &'static dyn Book)> {
@@ -571,7 +579,7 @@ fn plan(
                 Some(mark) => mark.kept,
                 None => {
                     let new_here = found.is_none_or(|(id, _)| !local.applied.contains_key(id));
-                    new_here && (sign_in.starts_kept || marks.keep_new)
+                    new_here && marks.keep_new
                 }
             };
             seen.push(Mark {

@@ -5,7 +5,7 @@
 use gpui_kit::component::input::InputState;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::{
-    div, px, AnyElement, App, AppContext, ClipboardItem, Context, Div, Entity, IntoElement,
+    div, px, AnyElement, App, AppContext, ClipboardItem, Context, Entity, IntoElement,
     ParentElement, SharedString, Styled, Window,
 };
 use sikemux_calls::call;
@@ -33,6 +33,8 @@ pub struct Fields {
     recovery: Option<Entity<InputState>>,
     refused: Option<SharedString>,
     busy: bool,
+    /// The core told of a change that `shown` doesn't hold yet.
+    pub(super) stale: bool,
 }
 
 fn change(
@@ -45,6 +47,7 @@ fn change(
 
 /// Reads the vault.
 pub(super) fn read(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    change(bench, cx, |fields, _| fields.stale = false);
     let asked = Target::here(&bench.asks).request_typed::<call::Vault>(NoParams {});
     cx.spawn_in(window, async move |bench, cx| {
         let Ok(shown) = asked.await else { return };
@@ -339,18 +342,16 @@ fn of_plugin<'a>(
     held.iter().filter(move |sign_in| sign_in.plugin == plugin)
 }
 
-/// Keep here only, on a connector signed in from the vault.
-pub(super) fn keep_button(
-    plugin: &str,
-    fields: &Fields,
-    this: &Entity<Workbench>,
-) -> Option<ui::Button> {
-    let shown = open_vault(fields)?;
-    of_plugin(&shown.sign_ins, plugin).next()?;
+/// Keep here only for a connector's sign-ins in the vault, Move into vault for those kept on
+/// this host. A connector with some of each offers both.
+pub(super) fn choices(plugin: &str, fields: &Fields, this: &Entity<Workbench>) -> Vec<ui::Button> {
+    let Some(shown) = open_vault(fields) else {
+        return Vec::new();
+    };
     let others = shown.holders > 1;
-    let acting = this.clone();
-    let id = plugin.to_owned();
-    Some(
+    let keeping = of_plugin(&shown.sign_ins, plugin).next().map(|_| {
+        let acting = this.clone();
+        let id = plugin.to_owned();
         ui::Button::new(
             SharedString::from(format!("vault-keep-{plugin}")),
             t!("Keep here only"),
@@ -361,41 +362,47 @@ pub(super) fn keep_button(
                 true => confirm(bench, Some(id.clone()), cx),
                 false => keep(bench, &id, true, cx),
             })
-        }),
-    )
+        })
+    });
+    let moving = of_plugin(&shown.kept, plugin).next().map(|_| {
+        let acting = this.clone();
+        let id = plugin.to_owned();
+        ui::Button::new(
+            SharedString::from(format!("vault-share-{plugin}")),
+            t!("Move into vault"),
+            ui::Variant::Ghost,
+        )
+        .on_click(move |_, _, cx| acting.update(cx, |bench, cx| keep(bench, &id, false, cx)))
+    });
+    keeping.into_iter().chain(moving).collect()
 }
 
-fn under_row(cx: &App) -> Div {
-    let t = Tokens::get(cx);
-    div()
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .pl(px(60.))
-        .pr(SPACE_4)
-        .py(SPACE_2)
-        .border_b(crate::theme::border())
-        .border_color(t.line_soft)
-        .text_size(theme::ui_text(TEXT_XS))
-}
-
-/// Under a connector: the ask before its sign-ins leave the vault, and each one kept on this
-/// host with the way to move it back in.
-pub(super) fn under(
+/// The ask under a connector before its sign-ins leave the vault.
+pub(super) fn asking(
     plugin: &str,
     fields: &Fields,
     this: &Entity<Workbench>,
     cx: &App,
-) -> Vec<AnyElement> {
-    let Some(shown) = open_vault(fields) else {
-        return Vec::new();
-    };
+) -> Option<AnyElement> {
+    open_vault(fields)?;
+    if fields.confirming.as_deref() != Some(plugin) {
+        return None;
+    }
     let t = Tokens::get(cx);
-    let asking = (fields.confirming.as_deref() == Some(plugin)).then(|| {
-        let acting = this.clone();
-        let cancelling = this.clone();
-        let id = plugin.to_owned();
-        under_row(cx)
+    let acting = this.clone();
+    let cancelling = this.clone();
+    let id = plugin.to_owned();
+    Some(
+        div()
+            .flex()
+            .items_center()
+            .gap(SPACE_2)
+            .pl(px(60.))
+            .pr(SPACE_4)
+            .py(SPACE_2)
+            .border_b(crate::theme::border())
+            .border_color(t.line_soft)
+            .text_size(theme::ui_text(TEXT_XS))
             .child(
                 div()
                     .flex_1()
@@ -419,32 +426,173 @@ pub(super) fn under(
                 )
                 .on_click(move |_, _, cx| acting.update(cx, |bench, cx| keep(bench, &id, true, cx))),
             )
-            .into_any_element()
-    });
-    let kept = of_plugin(&shown.kept, plugin).take(1).map(|_| {
-        let moving = this.clone();
-        let id = plugin.to_owned();
-        under_row(cx)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_color(t.text_secondary)
-                    .child(t!(
-                        "Kept on this host by choice, so your other hosts don't get it"
-                    )),
-            )
-            .child(
-                ui::Button::new(
-                    SharedString::from(format!("vault-share-{plugin}")),
-                    t!("Move into vault"),
-                    ui::Variant::Outline,
-                )
-                .on_click(move |_, _, cx| {
-                    moving.update(cx, |bench, cx| keep(bench, &id, false, cx))
-                }),
-            )
-            .into_any_element()
-    });
-    asking.into_iter().chain(kept).collect()
+            .into_any_element(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{size, Bounds, Modifiers, Pixels, Render, TestAppContext, VisualTestContext};
+    use serde_json::{json, Value};
+    use tokio::sync::mpsc;
+
+    use super::*;
+    use crate::core::{Ask, Link, Update};
+    use crate::hosts::Place;
+    use crate::reads::Read;
+    use crate::settings::Page;
+
+    /// Settings, drawn as the window draws them.
+    struct Shown(Entity<Workbench>);
+
+    impl Render for Shown {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            self.0
+                .update(cx, |bench, cx| crate::settings::view(bench, window, cx))
+        }
+    }
+
+    fn held(plugin: &str) -> ShownSignIn {
+        ShownSignIn {
+            plugin: plugin.into(),
+            identity: "one".into(),
+            label: "one".into(),
+        }
+    }
+
+    /// A core that holds the vault, so far as the page asks of it.
+    struct Vaulted {
+        vault: ShownVault,
+        asks: mpsc::UnboundedReceiver<Ask>,
+        updates: mpsc::UnboundedSender<Update>,
+    }
+
+    impl Vaulted {
+        /// Sends the connectors, as the core does when they or the vault change.
+        fn tell(&self) {
+            let listed: Vec<Value> = ["kept", "shared", "last"]
+                .map(|id| json!({ "id": id, "name": id, "enabled": true, "signedIn": true }))
+                .into();
+            let read = Update::Read(Place::This, Read::Plugins, json!(listed));
+            self.updates.send(read).expect("the window listens");
+        }
+
+        /// Answers what the page asked, and says how each sign-in it moved is now kept.
+        fn answer(&mut self) -> Vec<(String, bool)> {
+            let mut moved = Vec::new();
+            while let Ok(ask) = self.asks.try_recv() {
+                let Ask::Request(method, reply) = ask else {
+                    continue;
+                };
+                if method.params_of::<call::Vault>().is_some() {
+                    let _ = reply.send(Ok(json!(self.vault)));
+                } else if let Some(keep) = method.params_of::<call::VaultKeep>() {
+                    self.vault.kept.retain(|kept| kept.plugin != keep.plugin);
+                    self.vault
+                        .sign_ins
+                        .retain(|kept| kept.plugin != keep.plugin);
+                    match keep.kept {
+                        true => self.vault.kept.push(held(&keep.plugin)),
+                        false => self.vault.sign_ins.push(held(&keep.plugin)),
+                    }
+                    moved.push((keep.plugin, keep.kept));
+                    let _ = reply.send(Ok(Value::Null));
+                }
+            }
+            moved
+        }
+    }
+
+    /// Draws the page until neither it nor the core has more to say, and gives what it moved.
+    fn settle(core: &mut Vaulted, window: &mut VisualTestContext) -> Vec<(String, bool)> {
+        let mut moved = Vec::new();
+        for _ in 0..4 {
+            window.update(|window, _| window.refresh());
+            window.run_until_parked();
+            let asked = core.answer();
+            if !asked.is_empty() {
+                core.tell();
+            }
+            moved.extend(asked);
+        }
+        moved
+    }
+
+    /// Where each control with this name is drawn, top to bottom.
+    fn drawn(window: &mut VisualTestContext, id: &str) -> Vec<Bounds<Pixels>> {
+        window.update(|window, _| {
+            let mut found: Vec<_> = gpui_base::test_support::snapshots(window)
+                .into_iter()
+                .filter(|element| element.visible())
+                .filter(|element| {
+                    (element.path().iter()).any(|part| part.to_string().starts_with(id))
+                })
+                .map(|element| element.bounds())
+                .collect();
+            found.sort_by(|one, other| {
+                f32::from(one.origin.y).total_cmp(&f32::from(other.origin.y))
+            });
+            found.dedup_by_key(|bounds| bounds.origin.y);
+            found
+        })
+    }
+
+    #[gpui::test]
+    fn moving_a_kept_sign_in_redraws_its_one_line_row(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            theme::install(cx);
+        });
+        let (updates, from_core) = mpsc::unbounded_channel();
+        let (asks, asked) = mpsc::unbounded_channel();
+        let link = Link {
+            updates: from_core,
+            asks,
+        };
+        let mut core = Vaulted {
+            vault: ShownVault {
+                status: ShownStatus::Open,
+                holders: 1,
+                kept: vec![held("kept")],
+                sign_ins: vec![held("shared"), held("last")],
+                ..ShownVault::default()
+            },
+            asks: asked,
+            updates,
+        };
+        let (_, window) = cx.add_window_view(|window, cx| {
+            let bench = cx.new(|cx| Workbench::new(link, window, cx));
+            bench.update(cx, |bench, cx| {
+                crate::settings::open(bench, Page::Connectors, window, cx)
+            });
+            let shown = cx.new(|_| Shown(bench));
+            gpui_kit::base::Root::new(shown, window, cx)
+        });
+        window.simulate_resize(size(px(1400.), px(1000.)));
+        core.tell();
+        settle(&mut core, window);
+
+        let rows: Vec<Pixels> = drawn(window, "plugin-on-")
+            .iter()
+            .map(|switch| switch.origin.y)
+            .collect();
+        assert_eq!(rows.len(), 3, "a row for each connector");
+        assert_eq!(
+            rows[1] - rows[0],
+            rows[2] - rows[1],
+            "the kept sign-in's row is as tall as the others'"
+        );
+        let moving = drawn(window, "vault-share-kept");
+        assert_eq!(moving.len(), 1, "the kept sign-in offers Move into vault");
+        assert!(drawn(window, "vault-keep-kept").is_empty());
+
+        window.simulate_click(moving[0].center(), Modifiers::none());
+        let moved = settle(&mut core, window);
+        assert_eq!(moved, [("kept".to_owned(), false)]);
+        assert!(
+            drawn(window, "vault-share-").is_empty(),
+            "the row still offers the move it made"
+        );
+        assert_eq!(drawn(window, "vault-keep-kept").len(), 1);
+    }
 }

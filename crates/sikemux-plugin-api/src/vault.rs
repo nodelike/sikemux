@@ -136,9 +136,6 @@ pub struct SignIn {
     pub label: String,
     pub secrets: Vec<Kept>,
     pub records: Value,
-    /// It stays on the host it was made on unless the person moves it into the vault.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub starts_kept: bool,
 }
 
 /// Renews a sign-in's access token now, for the host that refreshes it.
@@ -188,11 +185,6 @@ pub trait Listing: DeserializeOwned {
     /// the same identity make one sign-in.
     fn identity(&self) -> Option<String> {
         self.secret_account()
-    }
-    /// It stays on the host it was made on unless the person moves it into the vault, whatever
-    /// that host does with new sign-ins.
-    fn starts_kept(&self) -> bool {
-        false
     }
 }
 
@@ -290,7 +282,7 @@ impl<A: Listing> Listed<A> {
 impl<A: Listing> Book for Listed<A> {
     fn sign_ins(&self, data_dir: &Path) -> Result<Vec<SignIn>, String> {
         let settings = read_settings(&data_dir.join(self.file))?;
-        let mut grouped: Vec<(String, String, bool, Vec<Value>)> = Vec::new();
+        let mut grouped: Vec<(String, String, Vec<Value>)> = Vec::new();
         for record in Self::records(&settings, self.list) {
             let Some(read) = Self::read(&record) else {
                 continue;
@@ -300,11 +292,11 @@ impl<A: Listing> Book for Listed<A> {
             };
             match grouped.iter_mut().find(|(kept, ..)| *kept == identity) {
                 Some((.., records)) => records.push(record),
-                None => grouped.push((identity, read.label(), read.starts_kept(), vec![record])),
+                None => grouped.push((identity, read.label(), vec![record])),
             }
         }
         let mut found = Vec::new();
-        for (identity, label, starts_kept, records) in grouped {
+        for (identity, label, records) in grouped {
             let mut secrets = Vec::new();
             for account in Self::secrets_of(&settings, self.list, &identity) {
                 if let Some(secret) = read_raw(self.secrets, &account)? {
@@ -323,7 +315,6 @@ impl<A: Listing> Book for Listed<A> {
                 label,
                 secrets,
                 records: Value::Array(records),
-                starts_kept,
             });
         }
         Ok(found)
@@ -388,11 +379,6 @@ pub trait Whole: DeserializeOwned {
     fn label(&self) -> String;
     /// Every secret the sign-in keeps, by service and account.
     fn secrets(&self) -> Vec<(Secrets, String)>;
-    /// It stays on the host it was made on unless the person moves it into the vault, whatever
-    /// that host does with new sign-ins.
-    fn starts_kept(&self) -> bool {
-        false
-    }
 }
 
 /// A plugin whose settings file is one sign-in. A sign-in taken in from the vault replaces it.
@@ -442,7 +428,6 @@ impl<C: Whole> Book for Single<C> {
         Ok(vec![SignIn {
             identity,
             label: read.label(),
-            starts_kept: read.starts_kept(),
             secrets,
             records: settings,
         }])

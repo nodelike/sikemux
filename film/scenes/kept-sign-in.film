@@ -1,0 +1,16 @@
+# Settings → Connectors with a database sign-in kept on this host, before and after it is moved.
+stage 1440 900
+window 1440 900
+signed-in
+project storefront shop
+settle 5
+core plugin "{\"plugin\":\"sikemux.database\",\"method\":\"agentAdd\",\"params\":{\"name\":\"Storefront\",\"url\":\"postgres://shop:stand-in@db.example.com/storefront\"}}"
+settle 4
+core vaultKeep "{\"plugin\":\"sikemux.database\",\"identity\":\"postgres:shop@db.example.com:5432\",\"kept\":true}"
+settings Connectors
+settle 3
+snap kept-sign-in
+click "Move into vault"
+hold 2
+settle 3
+snap kept-sign-in-moved

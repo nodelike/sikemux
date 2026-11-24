@@ -3,7 +3,7 @@
 - Status: Accepted
 - Decision date: 2026-11-15
 - Amended: 2026-11-15, to cover repositories where no App can be used, more than one App, and
-  keys that stay on one computer
+  keys that stay on one computer; 2026-11-24, so an organization's App no longer starts out kept
 - Builds on: [ADR 0010](./0010-phone-links-only-the-wire-and-client.md), [ADR 0016](./0016-the-account-vault.md)
 
 ## Context
@@ -30,8 +30,8 @@ tokens from a key kept there, and something the person physically does.
 The first decision tied the core's push to an App. A repository with no App fell back to agents
 holding the person's token. Two kinds of repository were left there. One belongs to an
 organization, which needs an App of its own. The other can have no App at all, because the
-organization refuses Apps or the host is not GitHub. A key for work also must not ride the
-person's own account vault to the computers they keep at home.
+organization refuses Apps or the host is not GitHub. A person may also not want a
+key they use for work to ride their own account vault to the computers they keep at home.
 
 ## Decision
 
@@ -74,8 +74,9 @@ person's own account vault to the computers they keep at home.
   connector's tools, which the core runs. Fetching stays on the person's own git setup.
 - **A key can stay on one computer.** A sign-in marked as kept on this computer never enters
   the account vault, and one already in it leaves. A computer can make that the rule for every
-  new sign-in. An App an organization owns starts out kept. The mark is the person's to set,
-  since Sikemux cannot tell which sign-ins are for work.
+  new sign-in. Every other sign-in goes into the vault, an organization's App included. Neither
+  Sikemux nor an agent sets the mark. It is the person's alone, since a connector does not say
+  whether a sign-in is for work.
 - **The person stays the author.** The App's bot is the committer and the pusher. Rules look
   at the pusher, so they apply to agents.
 - **The core alone pushes workflow changes, and asks only about ones that can reach

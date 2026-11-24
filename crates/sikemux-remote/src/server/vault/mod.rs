@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_plugin_api::vault::{Caller, Keeper, Refresh, SharedAccess, SignIn};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use tokio::sync::Notify;
+use tokio::sync::{oneshot, Notify};
 
 use super::changed::{Topic, What};
 use super::Core;
@@ -177,9 +177,19 @@ pub struct Vault {
     /// A use was logged that the disk does not hold yet.
     used: Arc<Notify>,
     orgs: org::OrgVaults,
+    /// Who waits for the next round to end, each told why when it failed.
+    awaiting: Mutex<Vec<oneshot::Sender<Result<(), &'static str>>>>,
 }
 
 impl Vault {
+    /// Starts a round and waits for it to end.
+    async fn next_round(&self) -> Result<(), &'static str> {
+        let (ended, end) = oneshot::channel();
+        self.awaiting.locked().push(ended);
+        self.wake();
+        end.await.unwrap_or(Err("Sikemux is closing."))
+    }
+
     pub fn wake(&self) {
         self.wake.notify_one();
     }

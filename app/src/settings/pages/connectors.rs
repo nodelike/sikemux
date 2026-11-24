@@ -55,7 +55,7 @@ pub struct Fields {
     organization: Option<Entity<InputState>>,
     /// GitHub's page for making an App is open, which dropping stops.
     making_app: Option<Task<()>>,
-    vault: super::vault::Fields,
+    pub(super) vault: super::vault::Fields,
 }
 
 /// The GitHub Apps agents act as, as the GitHub connector last said.
@@ -377,7 +377,12 @@ pub fn render(
                     cx,
                 )
                 .into_any_element();
-                std::iter::once(row).chain(super::vault::under(&plugin.id, &fields.vault, this, cx))
+                std::iter::once(row).chain(super::vault::asking(
+                    &plugin.id,
+                    &fields.vault,
+                    this,
+                    cx,
+                ))
             }))
             .into_any_element(),
     };
@@ -398,7 +403,8 @@ fn has_settings(plugin: &Listed, fields: &Fields) -> bool {
         }
 }
 
-/// The connector's settings button, Sign in or Sign out, and its switch.
+/// The connector's settings button, where its sign-ins are kept, Sign in or Sign out, and its
+/// switch.
 fn controls(plugin: &Listed, fields: &Fields, this: &Entity<Workbench>) -> AnyElement {
     let id = plugin.id.clone();
     let configure = has_settings(plugin, fields).then(|| {
@@ -457,7 +463,7 @@ fn controls(plugin: &Listed, fields: &Fields, this: &Entity<Workbench>) -> AnyEl
         .items_center()
         .gap(SPACE_2)
         .children(configure)
-        .children(super::vault::keep_button(&plugin.id, &fields.vault, this))
+        .children(super::vault::choices(&plugin.id, &fields.vault, this))
         .children(button)
         .child(toggle)
         .into_any_element()

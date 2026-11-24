@@ -102,6 +102,7 @@ pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<
     let connectors: Option<Make> = match &pages.connectors {
         None => Some(connectors::make),
         Some(fields) if fields.stale => Some(connectors::read),
+        Some(fields) if fields.vault.stale => Some(vault::read),
         Some(_) => None,
     };
     let missing = |made: bool, make: Make| (!made).then_some(make);
@@ -214,4 +215,10 @@ pub fn plugins_changed(bench: &Workbench, cx: &mut App) {
         |pages| pages.connectors.as_mut(),
         |fields, _| fields.stale = true,
     );
+}
+
+/// Reads the account vault again while the Connectors page shows it, once it next draws. The
+/// core tells of it with the plugins, whose list need not differ.
+pub fn vault_changed(bench: &Workbench, cx: &mut App) {
+    connectors::change_vault(bench, cx, |fields, _| fields.stale = true);
 }

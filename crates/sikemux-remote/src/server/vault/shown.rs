@@ -79,8 +79,8 @@ pub fn vault(core: &Core) -> ShownVault {
     }
 }
 
-/// Keeps a sign-in on this host and out of the vault, or puts it back in. The next round
-/// takes it out of the vault, or puts it in as a new sign-in for every host.
+/// Keeps a sign-in on this host and out of the vault, or puts it back in as a new sign-in for
+/// every host, and answers once the vault has followed.
 pub async fn keep(core: &Arc<Core>, params: KeepParams) -> CoreResult<()> {
     let label = {
         let state = core.vault().state.locked();
@@ -93,15 +93,23 @@ pub async fn keep(core: &Arc<Core>, params: KeepParams) -> CoreResult<()> {
     let Some(label) = label else {
         return Err("this host does not hold that sign-in".into());
     };
-    change_marks(core, move |marks| {
-        marks.set(local::Mark {
-            plugin: params.plugin,
-            identity: params.identity,
-            label,
-            kept: params.kept,
-        });
-    })
-    .await
+    let mark = local::Mark {
+        plugin: params.plugin,
+        identity: params.identity,
+        label,
+        kept: params.kept,
+    };
+    let marked = mark.clone();
+    change_marks(core, move |marks| marks.set(marked)).await?;
+    core.vault().next_round().await?;
+    let state = core.vault().state.locked();
+    let in_vault = state.entries.values().any(|entry| {
+        entry.body.plugin == mark.plugin && entry.body.sign_in.identity == mark.identity
+    });
+    if in_vault == mark.kept {
+        return Err("The account vault hasn't taken that change yet.".into());
+    }
+    Ok(())
 }
 
 /// Whether sign-ins first seen on this host from now on stay here.
