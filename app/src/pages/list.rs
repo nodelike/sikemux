@@ -107,9 +107,3 @@ fn row(
     .on_click(cx.listener(move |bench, _, _, cx| bench.open_page(&id, &title, cx)))
     .into_any_element()
 }
-
-/// Whether `page` holds every word of `words` in its title or its agent's name.
-fn matches(page: &ListedPage, words: &str) -> bool {
-    let named = format!("{} {}", page.title, page.agent).to_lowercase();
-    (words.split_whitespace()).all(|word| named.contains(word.trim_start_matches('@')))
-}
