@@ -487,8 +487,13 @@ pub async fn move_to_account(core: &Arc<Core>, agent_id: &str, account_id: &str)
 pub fn cancel(core: &Core, agent_id: &str) -> CoreResult<()> {
     let chat = core.chats().running(agent_id)?;
     chat.feed.clear_queue();
-    super::cap::stop_summarising(&chat);
     chat.stop_asked();
+    stop_turn(&chat)
+}
+
+/// Stops the chat's running turn, whoever asked.
+pub fn stop_turn(chat: &Chat) -> CoreResult<()> {
+    super::cap::stop_summarising(chat);
     chat.let_waiting_message_go();
     chat.send(ChatCommand::Cancel)
 }

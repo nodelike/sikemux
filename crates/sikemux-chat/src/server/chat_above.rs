@@ -184,6 +184,8 @@ pub struct ChatAbove {
     pub inbox_failed: fn(&Core, &str, &str, Fault, Option<FailureKind>),
     /// A letter the agent did not read goes back to wait for it.
     pub letter_returned: fn(&Core, &str, String),
+    /// Whether an agent stopped this one, which waits since for someone that may start it.
+    pub stopped_by_agent: fn(&Core, &str) -> bool,
     /// A tool call of the chat moved on: the line, collisions and edits hear of it.
     pub tool_updated: fn(&Core, &Chat, &Value),
     /// What a new chat keeps of its tool calls' edits that have not finished, for `tool_updated`.

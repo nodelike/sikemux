@@ -87,9 +87,14 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
             (t!("Done").into(), parts)
         }
         TurnPhase::Stopped => {
-            let left = (turn.stopped.as_ref()).and_then(|stopped| stopped.left.as_deref());
+            let stopped = turn.stopped.as_ref();
+            let left = stopped.and_then(|stopped| stopped.left.as_deref());
+            let by = stopped.and_then(|stopped| stopped.by.as_deref());
             let mut parts: Vec<String> = left.map(lowered).into_iter().collect();
-            parts.push(t!("nothing set to wake it").into());
+            parts.push(match by {
+                Some(by) => t!("by @{name}", name = by),
+                None => t!("nothing set to wake it").into(),
+            });
             (t!("Stopped").into(), parts)
         }
         TurnPhase::Failed => {

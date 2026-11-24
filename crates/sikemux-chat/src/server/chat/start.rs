@@ -526,8 +526,10 @@ pub fn carry_on(
 ) {
     // The kept record is written after the feed, so it may still say a turn is at work
     // whose end the feed has on disk.
-    let working = kept.working && !chat.feed.settled();
-    let waited_on = (chat.feed.running_task()).filter(|_| !working && kept.offline.is_none());
+    let stopped = (core.chat_above().stopped_by_agent)(core, chat.agent_id());
+    let working = kept.working && !chat.feed.settled() && !stopped;
+    let waited_on =
+        (chat.feed.running_task()).filter(|_| !working && !stopped && kept.offline.is_none());
     chat.feed.agent_gone();
     chat.cut_turn();
     let resumes = kept.reloadable && launch_spec.resume_id.is_some();

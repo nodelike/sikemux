@@ -1135,6 +1135,8 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
     let Some(lead) = core.names().reports_to(agent_id) else {
         return;
     };
+    let stopped_by =
+        (core.inbox().stopped_by(agent_id)).filter(|_| matches!(ending, Ending::Stopped { .. }));
     let chat_answer = core
         .chats()
         .get(agent_id)
@@ -1170,7 +1172,8 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
                 turn.answer
             }
         };
-        if wrote_nothing || quiet(&core, &worker, &ending, answer.as_ref(), sent_back) {
+        let own_stop = stopped_by.as_ref() == Some(&lead);
+        if wrote_nothing || own_stop || quiet(&core, &worker, &ending, answer.as_ref(), sent_back) {
             elsewhere::send_commits(&core, &worker).await;
             return;
         }
@@ -1187,7 +1190,8 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
             messages::report_calm(&core, worker, lead, line).await;
             return;
         }
-        let mut text = report(&core, &worker, ending, answer);
+        let stopped_by = stopped_by.map(|by| core.names().name_or_id(&by));
+        let mut text = report(&core, &worker, ending, stopped_by, answer);
         if unwoken {
             text.push_str("\n\nIt says it waits, but nothing is set to wake it, and Sikemux already sent it back once to set a wake. Wake it with what it needs, take over what it waits on, or close it.");
         }
@@ -1297,7 +1301,13 @@ pub(crate) fn terminal_turn_ended(core: &Core, agent_id: &str, ending: Ending) {
     }
 }
 
-fn report(core: &Core, worker: &str, ending: Ending, answer: Option<TerminalAnswer>) -> String {
+fn report(
+    core: &Core,
+    worker: &str,
+    ending: Ending,
+    stopped_by: Option<String>,
+    answer: Option<TerminalAnswer>,
+) -> String {
     let at_limit = |answer: &Option<TerminalAnswer>| matches!(answer, Some(TerminalAnswer::Said(said)) if out_of_usage(said));
     let paused = match &ending {
         Ending::Failed(reason) => reason == PAUSED_FOR_AGENTS || at_limit(&answer),
@@ -1330,6 +1340,13 @@ fn report(core: &Core, worker: &str, ending: Ending, answer: Option<TerminalAnsw
         },
         Ending::Stopped { by_person: true } => (
             "The person stopped it before it finished its turn.".to_owned(),
+            answer,
+        ),
+        Ending::Stopped { by_person: false } if stopped_by.is_some() => (
+            format!(
+                "@{} stopped it before it finished its turn.",
+                stopped_by.unwrap_or_default()
+            ),
             answer,
         ),
         Ending::Stopped { by_person: false } => (

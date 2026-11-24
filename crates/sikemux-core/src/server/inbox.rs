@@ -316,6 +316,9 @@ struct Turn {
     /// Whoever hears of the agent was told of the work this turn left behind.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     told_left: bool,
+    /// The agent that stopped it, until the next turn begins or one that may start it writes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stop_by: Option<String>,
 }
 
 pub(crate) struct Turns {
@@ -407,6 +410,9 @@ impl Turns {
             let turn = turn(turns, agent_id);
             turn.ended_at = Some(epoch_ms());
             turn.left = left;
+            if problem.is_none() {
+                turn.stop_by = None;
+            }
             if let Some(said) = problem {
                 match &mut turn.problem {
                     Some(problem) => said.clone_into(&mut problem.said),
@@ -518,6 +524,7 @@ impl Turns {
                 kind: problem.kind,
             }),
             work: turn.work.clone(),
+            stop_by: turn.stop_by.clone(),
         })
     }
 
@@ -596,6 +603,25 @@ impl Turns {
                 turn.ended_at = None;
             }
         });
+    }
+
+    /// The agent `by` stops the agent, which then waits until one that may start it writes.
+    pub(crate) fn stop_by(&self, agent_id: &str, by: &str) {
+        self.change(|turns| turn(turns, agent_id).stop_by = Some(by.to_owned()));
+    }
+
+    /// The agent that stopped the agent, which waits since.
+    pub(crate) fn stopped_by(&self, agent_id: &str) -> Option<String> {
+        (self.turns.locked().get(agent_id)).and_then(|turn| turn.stop_by.clone())
+    }
+
+    /// The agent may start again. Answers whether an agent had stopped it.
+    pub(crate) fn may_start(&self, agent_id: &str) -> bool {
+        let held = self.stopped_by(agent_id).is_some();
+        if held {
+            self.change(|turns| turn(turns, agent_id).stop_by = None);
+        }
+        held
     }
 
     fn snapshot(

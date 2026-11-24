@@ -713,6 +713,17 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "agent_stop",
+        Spec {
+            verb: "stop",
+            kind: "edit",
+            icon: "stop",
+            target: &["{agents}"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
         "agent_account",
         Spec {
             verb: "move",

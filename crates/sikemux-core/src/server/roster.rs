@@ -82,7 +82,8 @@ pub(crate) fn hears_of(core: &Core, agent_id: &str) -> Hears {
 pub(crate) fn standing(agent: &Listed, core: &Core) -> AgentStatus {
     let unstarted = agent.status == AgentStatus::Starting
         && (core.chats().get(&agent.agent_id)).is_some_and(|chat| chat.unstarted());
-    let has_mail = core.harness().mailbox.has_waiting(&agent.agent_id);
+    let has_mail = core.harness().mailbox.has_waiting(&agent.agent_id)
+        && core.inbox().stopped_by(&agent.agent_id).is_none();
     stands(agent.status, unstarted, has_mail)
 }
 
@@ -388,6 +389,26 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
         .collect()
 }
 
+/// The agents the call lists, as it names them.
+pub(crate) fn wanted(request: &HarnessRequest, to: &str) -> Result<Vec<String>, String> {
+    match request.params.get("agents") {
+        Some(Value::Array(agents)) if !agents.is_empty() => agents
+            .iter()
+            .map(|agent| agent.as_str().map(str::to_owned))
+            .collect::<Option<_>>()
+            .ok_or_else(|| "agents must be names or ids".into()),
+        _ => Err(format!("agents must list the agents to {to}")),
+    }
+}
+
+/// Whether `caller` started the agent, directly or down the line.
+pub(crate) fn started_by(core: &Core, agent_id: &str, caller: &str) -> bool {
+    core.names()
+        .leads_of(agent_id)
+        .iter()
+        .any(|lead| lead == caller)
+}
+
 /// Closes agents the caller started, or that one of its workers started, or one that no open agent
 /// leads, as the person closing their tabs would, on whichever host each runs. A project's chief may
 /// also close any finished agent of its project. Their chats stay in Recent. Each agent it may not
@@ -397,14 +418,7 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         .agent_id
         .clone()
         .ok_or("agent_close needs the calling agent's id")?;
-    let wanted: Vec<String> = match request.params.get("agents") {
-        Some(Value::Array(agents)) if !agents.is_empty() => agents
-            .iter()
-            .map(|agent| agent.as_str().map(str::to_owned))
-            .collect::<Option<_>>()
-            .ok_or("agents must be names or ids")?,
-        _ => return Err("agents must list the agents to close".into()),
-    };
+    let wanted = wanted(request, "close")?;
     let (here, request, caller_id) = (core.clone(), request.clone(), caller.clone());
     let (mut closed, left, remote, mut refused) = blocking(move || {
         let (core, caller) = (here, caller_id);
@@ -468,14 +482,7 @@ pub(crate) async fn move_account(
         .filter(|account| !account.is_empty())
         .ok_or("account must name the account to move to")?
         .to_owned();
-    let wanted: Vec<String> = match request.params.get("agents") {
-        Some(Value::Array(agents)) if !agents.is_empty() => agents
-            .iter()
-            .map(|agent| agent.as_str().map(str::to_owned))
-            .collect::<Option<_>>()
-            .ok_or("agents must be names or ids")?,
-        _ => return Err("agents must list the agents to move".into()),
-    };
+    let wanted = wanted(request, "move")?;
     let (here, request) = (core.clone(), request.clone());
     let (moving, mut refused) = blocking(move || {
         let project = super::caller::project_of(&here, &request);
@@ -557,10 +564,10 @@ fn closable(
             "@{waiter} is waiting on {name}, so closing it is not yours to do yet"
         ));
     }
-    let led = core.names().leads_of(&target.agent_id);
-    if led.iter().any(|lead| lead == caller) {
+    if started_by(core, &target.agent_id, caller) {
         return Ok(target);
     }
+    let led = core.names().leads_of(&target.agent_id);
     let orphan = !led.is_empty() && !led.iter().any(|lead| core.agent_now(lead).open());
     if orphan {
         return Ok(target);

@@ -869,6 +869,18 @@ question within 2 minutes gets the first answer. Claude chats on this host only.
 `done`, `needs_you` or does `any` thing; pass back its `cursor`. For longer,
 `trigger_add` with `agent` and `until`, and end your turn.
 
+### Stopping agents
+
+`agent_stop` ends the turns of agents you started, or theirs, as the person's
+Stop does, when work must hold now; for anything else `agent_send`, which is
+read at the next step. It answers once they have `stopped`, or lists them as
+`stillStopping`; the rest are `refused` with why, such as one the person is
+talking to. The chat and checkout stay, and half-written files too. A commit or
+land already queued goes on, as does a command a Codex agent is running. It
+starts again only when you, a lead above you or the person write to it; other
+messages and its triggers wait and go in then. Its own workers keep going: list
+them too.
+
 ### Closing agents
 
 Sikemux closes an agent by itself once it is finished: its work is on the

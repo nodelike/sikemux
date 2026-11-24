@@ -9,6 +9,7 @@ pub use sikemux_workspace::server::activity_log;
 pub mod agent_accounts;
 pub(crate) use sikemux_repo::server::agent_now;
 pub mod agent_sign_in;
+pub(crate) mod agent_stop;
 pub mod agent_updates;
 pub mod agent_view;
 mod approvals;

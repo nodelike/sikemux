@@ -62,7 +62,9 @@ impl ActivityCore for Core {
                 self.ship().turn_started(agent_id);
                 self.seen().started(agent_id);
                 super::settling::turn_started(self, agent_id);
+                let stopped_by = self.inbox().stopped_by(agent_id);
                 self.inbox().started(agent_id);
+                super::agent_stop::began_unasked(self, agent_id, stopped_by);
                 super::pins::turn_started(self, agent_id);
                 self.boards().wake.now();
                 let open = self.person_calls().open_questions();

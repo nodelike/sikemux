@@ -232,7 +232,7 @@ impl Manifest {
              - Skills: only through the skills tool.\n\
              - Other agents, named like Otter: agent_list, agent_sessions, agent_send, agent_spawn and agent_read, never your CLI's SendMessage; load them together and read the agents topic of {guide} first. Uncommitted lines you didn't write in a file you'd change: another agent is on it. Pass the request to its owner with agent_send instead of editing. Another agent's commit, build or test in your way is its owner's to fix: message or resume it.\n\
              - A local page differs from the code: workspace_inspect shows which checkout serves it.\n\
-             - Hand a change the person calls big or long, or one over a few minutes, to a teammate with agent_spawn (they can watch, pause and resume it) and tell them; a long command is a process; subagents are for short pieces.\n\
+             - Hand a change the person calls big or long, or one over a few minutes, to a teammate with agent_spawn (they can watch and stop it) and tell them; a long command is a process; subagents are for short pieces.\n\
              - When a request fits more than one place in the code, ask which before changing any.\n\
              - who_wrote, before git log, gh or a CI's API: who broke or wrote something.\n\
              - A tool refuses: do what its error says, such as messaging an agent, or tell the person; never get around it another way, such as raw git or a cd in a command.\n\

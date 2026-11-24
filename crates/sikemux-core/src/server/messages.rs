@@ -104,7 +104,8 @@ struct Letter {
     /// It waits for an agent that has stopped, as an answer does, rather than being refused.
     waits: bool,
     /// It carries something the person just did, such as a click on a step or an answer to a
-    /// call, so the agent reads it soon after its turn, as it would the person's own words.
+    /// call, or starts an agent its lead stopped, so the agent reads it soon after its turn, as
+    /// it would the person's own words.
     awaited: bool,
     /// When a worker's turn that ended with nothing for its lead to act on may start a lead's
     /// turn; until then it waits as one line for the lead's next turn.
@@ -566,9 +567,9 @@ impl Mailbox {
         // Answers, reports and questions each stand for an event of their own,
         // however alike they read, and so do a board note, a trigger's firing
         // and Sikemux's word of what the person allowed.
-        if let Some(repeat) =
-            repeat.filter(|_| letter.kind == MessageKind::Message && !letter.by_sikemux())
-        {
+        if let Some(repeat) = repeat.filter(|_| {
+            letter.kind == MessageKind::Message && !letter.by_sikemux() && !letter.awaited
+        }) {
             return Ok(Admitted::Repeat {
                 seconds_ago: now.saturating_sub(repeat.at) / 1000,
             });
@@ -751,6 +752,13 @@ impl Mailbox {
                 paths: Vec::new(),
             },
         );
+    }
+
+    /// Whether something the person wrote waits for the agent.
+    pub(crate) fn person_waiting(&self, agent_id: &str) -> bool {
+        let state = self.state.locked();
+        (state.waiting.get(agent_id))
+            .is_some_and(|waiting| waiting.iter().any(|queued| by_person([queued])))
     }
 
     /// Whether something besides calm reports waits for the agent.
@@ -2290,12 +2298,13 @@ async fn deliver(core: &Arc<Core>, target: &Listed, mut letter: Letter) -> Resul
 async fn deliver_as(
     core: &Arc<Core>,
     target: &Listed,
-    letter: Letter,
+    mut letter: Letter,
     text: String,
 ) -> Result<Value, String> {
     if target.reach == Reach::Remote {
         return carry(core, target, letter, None).await;
     }
+    letter.awaited |= super::agent_stop::may_start(core, &letter.from_id, &target.agent_id);
     let queued = Queued {
         text,
         origin: Some(Origin {
@@ -2356,7 +2365,10 @@ async fn handed(
     }
     if Sender::of(&letter.from_id) == Some(Sender::Person) {
         person_wrote(core, &target.agent_id);
-    } else if in_charge(core, &letter.from_id, &target.agent_id) {
+    } else if super::agent_stop::may_start(core, &letter.from_id, &target.agent_id) {
+        core.inbox().may_start(&target.agent_id);
+    }
+    if in_charge(core, &letter.from_id, &target.agent_id) {
         let_go(core, &target.agent_id);
     }
     if letter.kind == MessageKind::Report {
@@ -2367,8 +2379,16 @@ async fn handed(
     let not_woken;
     let mut held = None;
     let mut reach = target.reach;
-    let notice = letter.kind == MessageKind::Notice;
+    let stopped_by = core.inbox().stopped_by(&target.agent_id);
+    let notice = letter.kind == MessageKind::Notice && stopped_by.is_none();
+    let halted = stopped_by.map(|by| {
+        let by = core.names().name_or_id(&by);
+        format!("was stopped by @{by} and starts again only for it, a lead above it or the person")
+    });
     match target.reach {
+        Reach::Chat | Reach::Terminal | Reach::Asleep if halted.is_some() => {
+            held = halted.as_deref()
+        }
         Reach::Chat | Reach::Terminal | Reach::Asleep if stopped => held = Some(STOPPED_NOTE),
         Reach::Chat | Reach::Terminal | Reach::Asleep if letter.calm.is_some() => {
             held = Some("reads calm reports with its next turn")
@@ -2699,6 +2719,7 @@ fn took_turn(core: &Core, agent_id: &str, queued: &[Queued]) {
 /// them goes on.
 pub(crate) fn person_wrote(core: &Core, agent_id: &str) {
     core.seen().person_wrote(agent_id);
+    core.inbox().may_start(agent_id);
     core.harness().questions.steered(agent_id);
     let_go(core, agent_id);
 }
@@ -2889,6 +2910,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
     }
     let mut next = None;
     for agent_id in due {
+        if core.inbox().stopped_by(&agent_id).is_some() && !core.workspaces().closed(&agent_id) {
+            continue;
+        }
         if let Some(until) = mailbox
             .calm_until(&agent_id)
             .filter(|until| *until > epoch_ms())

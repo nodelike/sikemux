@@ -191,6 +191,9 @@ pub struct TurnStopped {
     /// What is left open, in the agent's own words, when it said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub left: Option<String>,
+    /// The name of the agent that stopped it, when one did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

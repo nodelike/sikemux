@@ -816,10 +816,12 @@ impl Chat {
             if giving_up {
                 chat.feed.give_up_subagents();
             }
-            chat.tell_of_ending(
-                Activity::Finished { cancelled: false },
-                Some(Ending::Finished),
-            );
+            let cancelled = (core.chat_above().stopped_by_agent)(&core, &agent_id);
+            let ending = match cancelled {
+                true => Ending::Stopped { by_person: false },
+                false => Ending::Finished,
+            };
+            chat.tell_of_ending(Activity::Finished { cancelled }, Some(ending));
         });
     }
 

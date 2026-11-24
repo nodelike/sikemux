@@ -63,7 +63,7 @@ fn is_zero(count: &usize) -> bool {
 
 /// How the agent's latest turn ended, as [`inbox::Turns`] keeps it.
 pub(crate) struct Ended {
-    /// None while it runs, and once the person stopped it.
+    /// None while it runs, and once it was stopped.
     pub at: Option<u64>,
     pub started_at: u64,
     /// When the ask it works on began, once the person or its own lead started a turn of its.
@@ -74,6 +74,8 @@ pub(crate) struct Ended {
     pub staged: Option<String>,
     pub problem: Option<Problem>,
     pub work: Option<Work>,
+    /// The agent that stopped it, and that it waits for since.
+    pub stop_by: Option<String>,
 }
 
 pub(crate) struct Problem {
@@ -339,6 +341,14 @@ pub(crate) fn of(
         state.failed = Some(failed);
         return Some(state);
     }
+    if let Some(by) = ended.as_ref().and_then(|ended| ended.stop_by.as_deref()) {
+        let mut state = standing(TurnPhase::Stopped, rested_at);
+        state.stopped = Some(TurnStopped {
+            left: None,
+            by: Some(core.names().name_or_id(by)),
+        });
+        return Some(state);
+    }
     if let Some(wait) = wait_of(core, gathered, agent_id, rested_at) {
         let mut state = standing(TurnPhase::Waiting, wait.started_at);
         state.wait = Some(wait);
@@ -347,13 +357,17 @@ pub(crate) fn of(
     let ended = ended?;
     let Some(at) = ended.at else {
         let mut state = standing(TurnPhase::Stopped, rested_at);
-        state.stopped = Some(TurnStopped { left: None });
+        state.stopped = Some(TurnStopped {
+            left: None,
+            by: None,
+        });
         return Some(state);
     };
     if let Some(left) = &ended.left {
         let mut state = standing(TurnPhase::Stopped, at);
         state.stopped = Some(TurnStopped {
             left: Some(left.clone()),
+            by: None,
         });
         return Some(state);
     }
@@ -829,7 +843,13 @@ pub(crate) fn line(turn: &TurnState) -> Option<String> {
             format!("done, {changes}, {checks}")
         }
         TurnPhase::Stopped => {
-            match (turn.stopped.as_ref()).and_then(|stopped| stopped.left.as_ref()) {
+            let stopped = turn.stopped.as_ref();
+            if let Some(by) = stopped.and_then(|stopped| stopped.by.as_ref()) {
+                return Some(format!(
+                    "stopped by @{by}; a message from it, a lead above it or the person starts it again"
+                ));
+            }
+            match stopped.and_then(|stopped| stopped.left.as_ref()) {
                 Some(left) => format!(
                     "stopped with this left open: {}; nothing is set to wake it",
                     clipped_line(left, MAX_TOLD_CHARS)

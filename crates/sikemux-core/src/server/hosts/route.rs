@@ -25,6 +25,7 @@ use sikemux_process::sync::Locked;
 use sikemux_view::inbox::InboxKind;
 use sikemux_wire::protocol::AgentStatus;
 
+use super::super::agent_stop;
 use super::super::connection::blocking;
 use super::super::follow::{self, Happened};
 use super::super::messages::{self, Carried, MessageKind};
@@ -794,31 +795,46 @@ pub(crate) async fn close(
     caller: &str,
     agent_id: &str,
 ) -> Result<String, String> {
+    let (name, _) = ask_about::<asks::Close>(core, caller, agent_id, "closed").await?;
+    Ok(name)
+}
+
+/// Stops the turn of `agent_id`, an agent on another host that `caller` leads. Answers the agent
+/// as the caller knows it, and whether its turn is over.
+pub(crate) async fn halt(
+    core: &Arc<Core>,
+    caller: &str,
+    agent_id: &str,
+) -> Result<(String, bool), String> {
+    let (name, over) = ask_about::<asks::Halt>(core, caller, agent_id, "stopped").await?;
+    Ok((name, over.as_bool().unwrap_or(false)))
+}
+
+/// Asks the host `agent_id` runs on to have it `done`, for its lead `caller` here.
+async fn ask_about<A: HostAsk<Params = CloseParams>>(
+    core: &Arc<Core>,
+    caller: &str,
+    agent_id: &str,
+    done: &str,
+) -> Result<(String, Value), String> {
     let foreign = core
         .hosts()
         .team
         .get(agent_id)
         .ok_or("Sikemux no longer knows which host that agent runs on")?;
-    let params = params_of::<asks::Close>(&CloseParams {
+    let params = params_of::<A>(&CloseParams {
         caller: caller.to_owned(),
         agent_id: agent_id.to_owned(),
     });
-    ask(
-        core,
-        &foreign.host,
-        asks::Close::METHOD,
-        params,
-        None,
-        ASK_WAIT,
-    )
-    .await
-    .map_err(|error| match error {
-        Failed::Unreachable(why) | Failed::Unknown(why) | Failed::Retry(why) => {
-            format!("{} cannot be closed now: {why}", shown(&foreign, core))
-        }
-        Failed::Refused(why) | Failed::NotLinked(why) => why,
-    })?;
-    Ok(shown(&foreign, core))
+    let answer = ask(core, &foreign.host, A::METHOD, params, None, ASK_WAIT)
+        .await
+        .map_err(|error| match error {
+            Failed::Unreachable(why) | Failed::Unknown(why) | Failed::Retry(why) => {
+                format!("{} cannot be {done} now: {why}", shown(&foreign, core))
+            }
+            Failed::Refused(why) | Failed::NotLinked(why) => why,
+        })?;
+    Ok((shown(&foreign, core), answer))
 }
 
 #[derive(Serialize, Deserialize)]
@@ -829,21 +845,30 @@ pub(super) struct CloseParams {
 }
 
 pub(super) fn close_here(core: &Core, host: &str, params: CloseParams) -> CoreResult<Value> {
-    let from_there = core
-        .hosts()
-        .team
-        .get(&params.caller)
-        .is_some_and(|foreign| foreign.host == host);
-    if !from_there
-        || !core
-            .names()
-            .leads_of(&params.agent_id)
-            .contains(&params.caller)
-    {
+    if !led_from(core, host, &params) {
         return Err("only the agent's lead may close it".into());
     }
     super::super::workspace::close(core, &[params.agent_id])?;
     Ok(Value::Null)
+}
+
+pub(super) async fn halt_here(
+    core: &Arc<Core>,
+    host: &str,
+    params: CloseParams,
+) -> Result<Value, String> {
+    if !led_from(core, host, &params) {
+        return Err("only the agent's lead may stop it".into());
+    }
+    let over = agent_stop::stop_here(core, &params.agent_id, &params.caller).await?;
+    Ok(over.into())
+}
+
+/// Whether the caller is an agent on `host` that started this one, directly or down the line.
+fn led_from(core: &Core, host: &str, params: &CloseParams) -> bool {
+    let from_there =
+        (core.hosts().team.get(&params.caller)).is_some_and(|foreign| foreign.host == host);
+    from_there && roster::started_by(core, &params.agent_id, &params.caller)
 }
 
 /// Asks the host a team's lead runs on to name a worker `lead` starts here,

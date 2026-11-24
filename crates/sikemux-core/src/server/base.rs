@@ -244,6 +244,7 @@ pub(super) fn chat_above() -> ChatAbove {
             core.inbox().failed(agent_id, said, fault, kind)
         },
         letter_returned: |core, agent_id, text| core.harness().mailbox.returned(agent_id, text),
+        stopped_by_agent: |core, agent_id| core.inbox().stopped_by(agent_id).is_some(),
         tool_updated,
         new_token: tools::new_token,
         new_edits: || Box::<edits::Open>::default(),
@@ -609,11 +610,12 @@ fn agent_moved(
     typed: bool,
     last_output_ms: u64,
 ) {
+    let cancelled = core.inbox().stopped_by(agent_id).is_some();
     let activity = match next {
         AgentState::Working if busy => Some(Activity::Working),
         AgentState::Working => Some(Activity::Started),
         AgentState::Blocked => Some(Activity::NeedsYou),
-        AgentState::Idle if busy => Some(Activity::Finished { cancelled: false }),
+        AgentState::Idle if busy => Some(Activity::Finished { cancelled }),
         _ => None,
     };
     if let Some(activity) = activity {
@@ -628,7 +630,11 @@ fn agent_moved(
         _ => {}
     }
     if next == AgentState::Idle && busy {
-        spawn::terminal_turn_ended(core, agent_id, Ending::Finished);
+        let ending = match cancelled {
+            true => Ending::Stopped { by_person: false },
+            false => Ending::Finished,
+        };
+        spawn::terminal_turn_ended(core, agent_id, ending);
     }
 }
 

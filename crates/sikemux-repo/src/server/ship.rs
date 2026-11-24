@@ -261,6 +261,10 @@ impl Ships {
         (self.state.locked().spoke).insert(agent_id.to_owned(), epoch_ms());
     }
 
+    pub fn spoke_at(&self, agent_id: &str) -> Option<u64> {
+        self.state.locked().spoke.get(agent_id).copied()
+    }
+
     /// Takes the yes of `call` for one action: once only for an action it covers once, so two
     /// tries at the same moment can't both pass. A check that `follows` the action to its end
     /// shortly after one that doesn't is the same run checked twice, by the hook and the shim.
@@ -780,7 +784,7 @@ fn gate(
     let Asking { place, key, once } = asking;
     if let Some(no) = person_calls::find_key(core, project, &key).filter(refused) {
         let answered = no.answer.as_ref().map_or(0, |answer| answer.at);
-        let spoke = core.ship().state.locked().spoke.get(agent_id).copied();
+        let spoke = core.ship().spoke_at(agent_id);
         let yes_since = person_calls::find_keys(core, project, |held| same_place(held, &key))
             .into_iter()
             .filter_map(|(_, call)| call.answer)

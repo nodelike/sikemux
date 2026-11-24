@@ -501,7 +501,7 @@
       "name": "browser_viewport",
       "row": {"verb": "resize", "kind": "edit", "icon": "resize", "target": ["{width}×{height}", "{preset}"]},
       "method": "browser.viewport",
-      "description": "Set this tab's viewport size or preset.",
+      "description": "Set this tab's viewport.",
       "properties": {
         "width": {
           "type": "integer",
@@ -615,7 +615,7 @@
           "minimum": 1
         },
         "since": {
-          "description": "Only since the last page load",
+          "description": "Since the last page load",
           "type": "string",
           "enum": [
             "navigation"
@@ -723,7 +723,7 @@
           "type": "boolean"
         },
         "path": {
-          "description": "Absolute .mp4 path; default Movies/Sikemux",
+          "description": ".mp4 path; default Movies/Sikemux",
           "type": "string",
           "maxLength": 4096
         }
@@ -1468,7 +1468,7 @@
         },
         "mod": {
           "type": "string",
-          "description": "With kind mod: its id, its folder's name"
+          "description": "With kind mod: its folder's name"
         },
         "line": {
           "type": "integer",
@@ -1569,7 +1569,7 @@
           "maximum": 1600
         },
         "script": {
-          "description": "Runs in the page with its theme, as browser_evaluate; returns its result",
+          "description": "Runs in the page with its theme; returns its result",
           "type": "string",
           "minLength": 1,
           "maxLength": 20000
@@ -1771,7 +1771,7 @@
           "maxLength": 64
         },
         "title": {
-          "description": "Task in a few words, e.g. Fix cart total",
+          "description": "Few words, e.g. Fix cart total",
           "type": "string",
           "minLength": 1,
           "maxLength": 80
@@ -1792,13 +1792,13 @@
           "maxLength": 32
         },
         "provider": {
-          "description": "A connected model provider to pay for it",
+          "description": "Connected model provider to pay",
           "type": "string",
           "minLength": 1,
           "maxLength": 64
         },
         "report": {
-          "description": "false: it does not report back",
+          "description": "false: no reports",
           "type": "boolean"
         },
         "mode": {
@@ -1841,7 +1841,7 @@
           "maxLength": 200
         },
         "uncommitted": {
-          "description": "With host: carry uncommitted changes too",
+          "description": "With host: carry uncommitted work",
           "type": "boolean"
         }
       },
@@ -1988,7 +1988,28 @@
       "name": "agent_close",
       "row": {"verb": "close", "kind": "edit", "icon": "close", "target": ["{agents}"]},
       "method": "agent.close",
-      "description": "Close agents; lists refusals.",
+      "description": "Close agents.",
+      "properties": {
+        "agents": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "required": [
+        "agents"
+      ]
+    },
+    {
+      "name": "agent_stop",
+      "row": {"verb": "stop", "kind": "edit", "icon": "stop", "target": ["{agents}"]},
+      "method": "agent.stop",
+      "description": "Stop your agents' turns now.",
       "properties": {
         "agents": {
           "type": "array",
@@ -2230,7 +2251,7 @@
           }
         },
         "parent": {
-          "description": "0 takes it out from under one",
+          "description": "0: none",
           "type": "integer",
           "minimum": 0
         },
@@ -2450,13 +2471,13 @@
       "description": "Prompt this chat later.",
       "properties": {
         "title": {
-          "description": "What it is for, shown to the person",
+          "description": "Shown to the person",
           "type": "string",
           "minLength": 1,
           "maxLength": 120
         },
         "prompt": {
-          "description": "What this chat is sent when it fires",
+          "description": "Sent to this chat when it fires",
           "type": "string",
           "minLength": 1,
           "maxLength": 8192
@@ -2467,7 +2488,7 @@
           "minimum": 60
         },
         "at": {
-          "description": "Once, at a time with offset: 2026-10-28T09:30:00+05:30",
+          "description": "Once, with offset: 2026-10-28T09:30:00+05:30",
           "type": "string",
           "maxLength": 64
         },
@@ -2477,7 +2498,7 @@
           "minimum": 60
         },
         "daily": {
-          "description": "HH:MM on this host's clock, each day",
+          "description": "HH:MM, this host's clock",
           "type": "string",
           "maxLength": 5
         },
@@ -2514,7 +2535,7 @@
           "type": "string"
         },
         "mod": {
-          "description": "Fire when others add or change documents in this mod/collection",
+          "description": "Fire when others change this mod/collection",
           "type": "string"
         },
         "where": {
@@ -2635,13 +2656,13 @@
           "type": "string"
         },
         "source": {
-          "description": "Folder path or git URL to install from",
+          "description": "Folder path or git URL",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
         },
         "subfolder": {
-          "description": "The skill's folder in that repository",
+          "description": "Skill's folder in it",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
