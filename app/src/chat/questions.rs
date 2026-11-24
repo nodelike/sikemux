@@ -394,7 +394,7 @@ pub(super) fn asking(
         let agent = agent.to_owned();
         let hover = t.surface_hover;
         BaseButton::new("questions-fold")
-            .accessibility_label(t!("Fold the questions away"))
+            .accessibility_label(t!("Fold the asks away"))
             .size(px(22.))
             .flex()
             .items_center()
