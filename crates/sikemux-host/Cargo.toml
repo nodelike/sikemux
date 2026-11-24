@@ -13,6 +13,8 @@ path = "src/main.rs"
 
 [features]
 default = ["aws", "bitbucket", "database", "forgejo", "github", "gitlab", "googleplay", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
+# Films and pictures only: browser sign-ins end by themselves, with no browser and no Keychain.
+stand-in-sign-ins = []
 aws = ["dep:sikemux-plugin-aws"]
 bitbucket = ["dep:sikemux-plugin-bitbucket"]
 forgejo = ["dep:sikemux-plugin-forgejo"]

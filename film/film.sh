@@ -40,7 +40,7 @@ say "building the core, the stand-in agents and the film"
 cargo build --quiet --manifest-path "$ROOT/Cargo.toml" \
   -p sikemux-host -p sikemux-core --bin sikemux-host --bin sikemux-fake-claude \
   --bin sikemux-fake-acp-agent --bin sikemux-fake-codex \
-  --features sikemux-core/host-addresses-file
+  --features sikemux-core/host-addresses-file,sikemux-host/stand-in-sign-ins
 cargo build --quiet --manifest-path "$GPUI/Cargo.toml" --example film --features drive
 if grep -qE '^(signed-in|host)\b' "$ROOT/film/scenes/$scene.film"; then
   pnpm install --silent --frozen-lockfile --prefer-offline --dir "$ROOT/server"

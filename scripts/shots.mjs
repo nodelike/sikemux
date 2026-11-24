@@ -161,7 +161,7 @@ function shootMac(side) {
         "--bin",
         "sikemux-fake-codex",
         "--features",
-        "sikemux-core/host-addresses-file",
+        "sikemux-core/host-addresses-file,sikemux-host/stand-in-sign-ins",
       ],
       checkout,
       cargoPath,

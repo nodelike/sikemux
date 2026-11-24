@@ -148,6 +148,8 @@ pub fn provide_to_core(data_dir: &Path) -> Option<Provided> {
     let plugins = match PluginHost::with_builtins(&data_dir.join("plugins")) {
         Ok(host) => {
             let _ = SHELL_VARIABLES.set(host.shell_variables());
+            #[cfg(feature = "stand-in-sign-ins")]
+            let host = super::stand_in::StandIn::over(host);
             let plugins: Box<dyn Plugins> = Box::new(host);
             Some(Provided(Box::leak(plugins)))
         }

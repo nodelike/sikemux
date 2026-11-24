@@ -1,5 +1,37 @@
 [
   {
+    "when": "signed in to linear and jira again",
+    "steps": [
+      { "say": "Linear and Jira answer again. Three checkout bugs are open, and the double charge is the worst.", "perSecond": 60 }
+    ]
+  },
+  {
+    "when": "signed in to linear again",
+    "steps": [
+      { "say": "Linear answers again. Four shipped issues are closed.", "perSecond": 40 }
+    ]
+  },
+  {
+    "when": "signed in to jira and vercel again",
+    "steps": [
+      { "say": "Both answer again. The notes cover eleven tickets and the last deploy.", "perSecond": 40 }
+    ]
+  },
+  {
+    "when": "you are the owner",
+    "steps": [
+      { "say": "Linear refuses the read until the person signs in.", "perSecond": 60 },
+      { "tool": "mcp__sikemux-tools__sign_in", "call": "plugins.signin", "input": { "connectors": ["linear", "jira"], "why": "to list the checkout bugs still open" }, "ms": 400 }
+    ]
+  },
+  {
+    "when": "triage the checkout bugs",
+    "steps": [
+      { "say": "I'll put a worker on it.", "perSecond": 60 },
+      { "tool": "mcp__sikemux-tools__agent_spawn", "call": "agent.spawn", "input": { "cli": "claude", "model": "claude-opus-5-5", "title": "Triage the checkout bugs", "prompt": "You are the owner and long-term maintainer of this codebase, and its design is up to you.\n\nSort the open checkout bugs in Linear and Jira by how often they happen." }, "ms": 1500 }
+    ]
+  },
+  {
     "when": "linear issues",
     "steps": [
       { "say": "Linear says the sign-in has expired, so I can't read the issues.", "perSecond": 40 },

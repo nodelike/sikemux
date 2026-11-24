@@ -1,10 +1,15 @@
-# An agent's sign-in card: one chat needs Linear again, another needs Jira and Vercel.
+# An agent's sign-in card: what it asks, each row as its sign-in goes, the line it folds to, and
+# the card dismissed or held in a lead's chat.
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir
 prefer starAsked true
 replies sign-in-card.json
 project storefront shop
+chat Nausicaa
+title "Checkout bugs"
+say "Triage the checkout bugs"
+settle 20
 chat Wren
 title "Close the shipped issues"
 say "Close the Linear issues we shipped this week"
@@ -17,6 +22,9 @@ chat Osono
 title "Checkout errors"
 say "Find what broke checkout last night"
 settle 6
+front Nausicaa
+settle 2
+snap sign-in-lead
 front Wren
 settle 2
 snap sign-in-one
@@ -29,3 +37,29 @@ snap sign-in-key
 click "Sign in"
 settle 2
 snap sign-in-box
+click "Cancel"
+settle 1
+click "Dismiss"
+settle 2
+snap sign-in-dismissed
+front Wren
+click "Sign in"
+settle 1
+snap sign-in-browser
+settle 6
+snap sign-in-folded
+front Kaguya
+click "Sign in"
+settle 6
+snap sign-in-ticked
+click "Sign in"
+settle 6
+click "Cancel"
+settle 1
+snap sign-in-again
+click "Try again"
+settle 8
+snap sign-in-carried-on
+front Nausicaa
+settle 4
+snap sign-in-lead-folded
