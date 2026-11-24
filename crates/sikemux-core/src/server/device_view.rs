@@ -262,6 +262,7 @@ impl DeviceViewCore for Core {
             (project.code_host, project.git) = self.git().shown(&folder);
             project.cloning = self.clones().of(&project.id);
         }
+        (self.workspaces().reaches).follow(&mut workspace.projects, &preferences.project_roots);
         workspace::sort_projects(
             &mut workspace.projects,
             preferences.project_sort,

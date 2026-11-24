@@ -44,6 +44,7 @@ use sikemux_wire::protocol::{ChatAccount, ChatInfo, ChatLaunch, ChatState, Sessi
 
 use super::changed::Topic;
 use super::connection::blocking;
+use super::followed_spaces::Reaches;
 use super::kept;
 use super::model_providers::checks::Checks;
 use super::wake::Wake;
@@ -465,6 +466,8 @@ pub struct Workspaces {
     providers: Option<Providers>,
     /// Whether models on each provider call tools the way agents need.
     pub model_checks: Checks,
+    /// How far the person's project folders carry a space.
+    pub reaches: Reaches,
     /// The data folder, which holds the skills library.
     data_dir: Option<PathBuf>,
     /// Counts the looks over the agents, so one that took longer never replaces a newer one.
@@ -538,6 +541,7 @@ impl Workspaces {
             file,
             providers: data_dir.map(Providers::new),
             model_checks: Checks::new(data_dir),
+            reaches: Reaches::default(),
             data_dir: data_dir.map(Path::to_path_buf),
             asked: AtomicU64::new(0),
             applied: AtomicU64::new(0),
@@ -605,6 +609,8 @@ impl Workspaces {
                 pinned: false,
                 added_at: epoch_ms(),
                 space: None,
+                space_parent: None,
+                space_followed: false,
                 code_hosts: Default::default(),
                 identity: None,
                 copies: Vec::new(),
@@ -688,7 +694,16 @@ impl Workspaces {
                 current,
                 patch,
                 &[
-                    "id", "path", "identity", "copies", "chief", "agents", "standing", "calls",
+                    "id",
+                    "path",
+                    "identity",
+                    "copies",
+                    "chief",
+                    "agents",
+                    "standing",
+                    "calls",
+                    "spaceParent",
+                    "spaceFollowed",
                 ],
             )?;
             check_project(&project, saved)?;
@@ -770,7 +785,7 @@ impl Workspaces {
         })
     }
 
-    /// Replaces the spaces; a project in one that is gone is shown in every space.
+    /// Replaces the spaces; a project in one that is gone has none of its own.
     fn set_spaces(&self, spaces: Vec<SpaceInfo>) -> CoreResult<()> {
         let oversized = spaces.iter().any(|space| {
             too_long(&space.id, MAX_FIELD_CHARS)
@@ -1832,6 +1847,8 @@ mod tests {
             pinned: false,
             added_at: 0,
             space: None,
+            space_parent: None,
+            space_followed: false,
             code_hosts: Default::default(),
             identity: None,
             copies: Vec::new(),

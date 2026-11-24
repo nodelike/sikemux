@@ -5,6 +5,7 @@ pub mod cli_install;
 pub mod diagrams;
 pub mod drafts;
 pub mod faces;
+pub mod followed_spaces;
 pub mod gifs;
 pub mod model_providers;
 pub mod names;

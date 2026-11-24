@@ -177,6 +177,8 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 id: text(session, "id")?,
                 name: text(session, "name").unwrap_or_else(|| cwd.clone()),
                 space: space_of(&cwd),
+                space_parent: None,
+                space_followed: false,
                 code_hosts: code_hosts_of(&cwd),
                 path: cwd.into(),
                 pinned: session["pinned"].as_bool().unwrap_or(false),

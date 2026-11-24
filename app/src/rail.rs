@@ -1102,7 +1102,16 @@ fn project_menu(
         .map(|project| project.id.clone())
         .collect();
     let identity = folded.identity.clone();
-    let current = bench.space_of(folded).map(str::to_owned);
+    let chosen = (bench.space_of(folded))
+        .filter(|_| {
+            folded.own.is_none()
+                || (folded.here()).any(|project| project.space.is_some() && !project.space_followed)
+        })
+        .map(str::to_owned);
+    let unchosen = bench.this_view().map_or_else(
+        || t!("No Space").into(),
+        |view| crate::space_editor::unchosen_label(&view.workspace, folded.here()),
+    );
     let copies = crate::copies::copy_menu(bench, folded, cx);
     let spaces: Vec<(String, String, Option<Icon>)> =
         bench.this_view().map_or(Vec::new(), |view| {

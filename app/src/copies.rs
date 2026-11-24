@@ -107,6 +107,11 @@ impl Folded {
         self.identity.clone().unwrap_or_else(|| self.key())
     }
 
+    /// This host's copies, the one its row stands for first.
+    pub fn here(&self) -> impl Iterator<Item = &ProjectInfo> {
+        self.own.iter().chain(&self.clones)
+    }
+
     /// What tells its rows apart: this host's project, else the first copy's.
     pub fn key(&self) -> String {
         match (&self.own, self.copies.first()) {
@@ -357,12 +362,16 @@ impl Workbench {
         }
     }
 
-    /// The space `folded` is listed in: this host's project's, else the one the person put the
-    /// repository in while only other hosts held it.
+    /// The space `folded` is listed in: the one the person put any of this host's copies in,
+    /// else the one a copy has from its parent, else, while only other hosts hold it, the one
+    /// the person put the repository in.
     pub fn space_of<'a>(&'a self, folded: &'a Folded) -> Option<&'a str> {
         match &folded.own {
-            Some(own) => (std::iter::once(own).chain(&folded.clones))
-                .find_map(|project| project.space.as_deref()),
+            Some(_) => {
+                let (followed, chosen): (Vec<_>, Vec<_>) =
+                    (folded.here()).partition(|project| project.space_followed);
+                (chosen.into_iter().chain(followed)).find_map(|project| project.space.as_deref())
+            }
             None => (folded.identity.as_ref())
                 .and_then(|identity| self.preferences().elsewhere_spaces.get(identity))
                 .map(String::as_str),

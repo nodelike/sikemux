@@ -14,7 +14,7 @@ use gpui_kit::{
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Subscription,
     WeakEntity, Window,
 };
-use sikemux_view::workspace::{ProjectInfo, SpaceInfo};
+use sikemux_view::workspace::{ProjectInfo, SpaceInfo, Workspace};
 
 use crate::icons::Icon;
 use crate::theme::{radius_2, Tokens, SPACE_0, SPACE_1, SPACE_2, TEXT_3XS_H, TEXT_XS};
@@ -355,6 +355,27 @@ pub fn anchor(bench: &Workbench, width: f32, cx: &mut Context<Workbench>) -> imp
         })
 }
 
+/// What having no space of its own means for a project whose copies on one host are `copies`:
+/// its parent's space where it follows one, so nobody is offered a No Space that does nothing.
+pub fn unchosen_label<'a>(
+    workspace: &Workspace,
+    mut copies: impl Iterator<Item = &'a ProjectInfo>,
+) -> SharedString {
+    let followed = copies
+        .find_map(|copy| copy.space_parent.as_ref())
+        .and_then(|id| workspace.projects.iter().find(|project| project.id == *id))
+        .and_then(|parent| {
+            let id = parent.space.as_ref()?;
+            let space = workspace.spaces.iter().find(|space| space.id == *id)?;
+            Some(t!(
+                "Same as {parent} ({space})",
+                parent = parent.name,
+                space = space.name
+            ))
+        });
+    followed.unwrap_or_else(|| t!("No Space").into()).into()
+}
+
 impl Workbench {
     /// The space the rail shows, while it still exists.
     pub fn space(&self) -> Option<&SpaceInfo> {
@@ -455,22 +476,6 @@ impl Workbench {
                     return;
                 }
                 bench.edit_spaces(|spaces| spaces.retain(|space| space.id != id));
-                let held: Vec<String> = bench
-                    .this_view()
-                    .map(|view| {
-                        view.workspace
-                            .projects
-                            .iter()
-                            .filter(|project| project.space.as_ref() == Some(&id))
-                            .map(|project| project.id.clone())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                for project in held {
-                    crate::core::Target::here(&bench.asks).call_typed::<call::UpdateProject>(
-                        UpdateProjectParams::space(project, None),
-                    );
-                }
                 if bench.space.as_ref() == Some(&id) {
                     bench.show_space(None, cx);
                 }

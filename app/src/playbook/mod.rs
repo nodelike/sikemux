@@ -107,8 +107,8 @@ pub struct PlaybookTab {
     check_filled: bool,
     filter: Entity<InputState>,
     space: rows::Choice,
-    /// The spaces the space choice was made with, so a new one remakes it.
-    spaces: Vec<String>,
+    /// What the space choice was made with, so it is remade when that changes.
+    spaces: SpaceOffer,
     /// The folders of found tasks the person opened.
     opened: HashSet<String>,
     new_trigger: Option<new_trigger::NewTrigger>,
@@ -392,43 +392,64 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
     bench.parts.redraw_stage(cx);
 }
 
-fn space_ids(bench: &Workbench) -> Vec<String> {
-    bench.shown().map_or(Vec::new(), |view| {
-        view.workspace
-            .spaces
-            .iter()
-            .map(|space| space.id.clone())
-            .collect()
-    })
+/// The spaces a project can be put in, and the one it is in; the first offer is none of its own.
+#[derive(PartialEq)]
+struct SpaceOffer {
+    labels: Vec<SharedString>,
+    spaces: Vec<String>,
+    chosen: usize,
 }
 
-/// The dropdown of spaces the project can be listed under, and the spaces it offers.
+impl SpaceOffer {
+    fn of(bench: &Workbench, folder: &str) -> Self {
+        let project = bench.project_at(folder);
+        let Some(workspace) = bench.shown().map(|view| &view.workspace) else {
+            return Self {
+                labels: vec![t!("No Space").into()],
+                spaces: Vec::new(),
+                chosen: 0,
+            };
+        };
+        let unchosen = crate::space_editor::unchosen_label(workspace, project.into_iter());
+        let chosen = project
+            .filter(|project| !project.space_followed)
+            .and_then(|project| project.space.as_ref())
+            .and_then(|chosen| {
+                workspace
+                    .spaces
+                    .iter()
+                    .position(|space| space.id == *chosen)
+            })
+            .map_or(0, |at| at + 1);
+        Self {
+            labels: std::iter::once(unchosen)
+                .chain(
+                    workspace
+                        .spaces
+                        .iter()
+                        .map(|space| space.name.clone().into()),
+                )
+                .collect(),
+            spaces: (workspace.spaces.iter())
+                .map(|space| space.id.clone())
+                .collect(),
+            chosen,
+        }
+    }
+}
+
+/// The dropdown of spaces the project can be listed under, and what it offers.
 fn space_choice(
     bench: &Workbench,
     folder: &str,
     window: &mut Window,
     cx: &mut Context<Workbench>,
-) -> (rows::Choice, Vec<String>) {
-    let spaces = space_ids(bench);
-    let mut labels = vec![SharedString::from(t!("No Space"))];
-    if let Some(view) = bench.shown() {
-        labels.extend(
-            view.workspace
-                .spaces
-                .iter()
-                .map(|space| SharedString::from(space.name.clone())),
-        );
-    }
-    let current = bench
-        .project_at(folder)
-        .and_then(|project| project.space.as_ref());
-    let chosen = current
-        .and_then(|current| spaces.iter().position(|space| space == current))
-        .map_or(0, |at| at + 1);
-    let (offered, folder) = (spaces.clone(), folder.to_owned());
+) -> (rows::Choice, SpaceOffer) {
+    let offer = SpaceOffer::of(bench, folder);
+    let (offered, folder) = (offer.spaces.clone(), folder.to_owned());
     let choice = rows::Choice::new(
-        labels,
-        chosen,
+        offer.labels.clone(),
+        offer.chosen,
         move |bench, at, _| {
             let Some(project) = bench.project_at(&folder).map(|project| project.id.clone()) else {
                 return;
@@ -441,7 +462,7 @@ fn space_choice(
         window,
         cx,
     );
-    (choice, spaces)
+    (choice, offer)
 }
 
 fn remake_space(
@@ -484,7 +505,7 @@ pub fn pane(
             }
         });
     }
-    if settings.spaces != space_ids(bench) {
+    if settings.spaces != SpaceOffer::of(bench, folder) {
         let folder = folder.to_owned();
         cx.defer_in(window, move |bench, window, cx| {
             remake_space(bench, folder, window, cx)

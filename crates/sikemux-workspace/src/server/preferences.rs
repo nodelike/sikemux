@@ -263,7 +263,7 @@ fn commands_within_limits(commands: Vec<CustomCommand>) -> Vec<CustomCommand> {
 /// The only way a running core changes a preference: sets it and does what follows from it.
 pub fn set(core: &Core, change: PreferenceChange) -> CoreResult<Preferences> {
     core.preferences().change(change.clone());
-    if let PreferenceChange::ProjectSort(_) = change {
+    if let PreferenceChange::ProjectSort(_) | PreferenceChange::ProjectRoots(_) = change {
         core.changed(What::ViewNow);
     }
     (core.workspace_above().preference_changed)(core, &change)?;

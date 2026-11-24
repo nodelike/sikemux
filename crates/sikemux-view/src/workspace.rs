@@ -21,9 +21,17 @@ pub struct ProjectInfo {
     /// When it was added to this host, in Unix milliseconds.
     #[serde(default)]
     pub added_at: u64,
-    /// The space it is shown in, by id; none shows it in every space.
+    /// The space it is in, by id: as the core keeps it, the one the person put it in; as
+    /// clients see it, its parent's where it has none of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub space: Option<String>,
+    /// The project above it, by id, whose space it takes while it has none of its own. The
+    /// core fills it in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub space_parent: Option<String>,
+    /// Its space is its parent's. The core fills it in.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub space_followed: bool,
     /// What the person picked by hand for it on each code host, by the
     /// host's plugin id, over what its remote and the host's accounts say.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
