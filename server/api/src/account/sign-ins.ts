@@ -155,10 +155,6 @@ export async function stripWorkSignIns(
     } catch (error) {
       if (!(error instanceof ClerkRefusal)) throw error;
       const window = { since: appeared, admittedAt };
-      const opened = (await clerk.sessions(userId)).filter(
-        (session) => session.createdAt >= appeared,
-      );
-      if (opened.length) await endSessions(db, clerk, userId, opened);
       await freeze(
         db,
         log,
@@ -166,6 +162,10 @@ export async function stripWorkSignIns(
         "Clerk refused to take off the work address",
         addedIn(signIns, window),
       );
+      const opened = (await clerk.sessions(userId)).filter(
+        (session) => session.createdAt >= appeared,
+      );
+      if (opened.length) await endSessions(db, clerk, userId, opened);
       await stopWaiting(db, userId, [clerkId]);
       continue;
     }
@@ -761,7 +761,7 @@ async function takeWaysAddedSince(
   );
 }
 
-/** Freezes the account when a session was made since `since`, after ending those sessions. */
+/** Freezes the account when a session was made since `since`, before ending those sessions. */
 async function freezeIfSignedInSince(
   db: Kysely<Tables>,
   clerk: ClerkBackend,
@@ -777,8 +777,8 @@ async function freezeIfSignedInSince(
     alertStaff(userId, STRANDED, { why });
     return;
   }
-  await endSessions(db, clerk, userId, opened);
   await freeze(db, log, userId, why, addedIn(signIns, window));
+  await endSessions(db, clerk, userId, opened);
 }
 
 /** Whether a fresh read shows the password changed since `signIns`, after asking Clerk to replace it. */

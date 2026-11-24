@@ -654,6 +654,43 @@ it("freezes the account when Clerk refuses to take off the Acme Google itself", 
   expect(removal.end_sessions_from).toBeNull();
 });
 
+it("freezes the account while Clerk fails to end the Acme session, when the Acme Google can't be taken off", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  clerk.removeExternalAccount = () =>
+    Promise.reject(new ClerkRefusal("Clerk answered 404"));
+  const revoke = clerk.revokeSession.bind(clerk);
+  clerk.revokeSession = () => Promise.reject(new Error("Clerk answered 500"));
+
+  await expect(
+    stripWorkSignIns(database.db, clerk, null, log, MAYA),
+  ).rejects.toThrow("Clerk answered 500");
+  expect(await frozenAt()).not.toBeNull();
+
+  clerk.revokeSession = revoke;
+  await stripWorkSignIns(database.db, clerk, null, log, MAYA);
+  expect(clerk.revoked).toEqual(["sess_work"]);
+});
+
+it("freezes the account while Clerk fails to end the Acme session, when the Acme address is the last way in", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  const maya = clerk.users.get(MAYA);
+  if (!maya) throw new Error("no Maya");
+  maya.addresses = maya.addresses.filter((a) => a.id !== "idn_own");
+  maya.primaryAddressId = "idn_work";
+  clerk.revokeSession = () => Promise.reject(new Error("Clerk answered 500"));
+
+  await expect(
+    stripWorkSignIns(database.db, clerk, PROOF_KEY, log, MAYA),
+  ).rejects.toThrow("Clerk answered 500");
+  expect(await frozenAt()).not.toBeNull();
+});
+
 it("tells staff when Clerk lists a connected account without the id it is removed by", async () => {
   const { clerk } = await mayaWithAcmeAddress();
   const maya = clerk.users.get(MAYA);
