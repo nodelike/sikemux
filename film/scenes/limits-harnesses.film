@@ -1,0 +1,19 @@
+# The Limits float with every harness on the rail: three Claude accounts, Codex and Antigravity.
+stage 1440 900
+window 1440 900
+project storefront line-shop
+prefer tabRailAllAgents true
+account "Edon Personal" 100 3
+account Studio 74 1
+core setFaceStyle {"on":false,"pack":"glow","shape":"mixed","motion":false}
+settle 6
+key cmd-w
+wait 1
+chat Vega antigravity gemini-4-neon-high
+title "Move checkout onto payment intents"
+say "hold 600000"
+settle 15
+# The Studio row under LIMITS at the rail's foot.
+move 1187,780
+settle 4
+snap limits-harnesses
