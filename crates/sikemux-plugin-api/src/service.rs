@@ -112,15 +112,15 @@ impl<S: Service> std::error::Error for ServiceError<S> {}
 /// be sent, such as a DNS or certificate failure, is further down the chain.
 impl<S: Service> From<reqwest::Error> for ServiceError<S> {
     fn from(error: reqwest::Error) -> Self {
+        let host = error
+            .url()
+            .and_then(|url| url.host_str())
+            .map(str::to_owned);
+        // An address can hold a sign-in's code.
+        let error = error.without_url();
         if let Some(kind) = unreachable(&error) {
             eprintln!("{}: {error}", S::ID);
-            return Self::Unreachable {
-                kind,
-                host: error
-                    .url()
-                    .and_then(|url| url.host_str())
-                    .map(str::to_owned),
-            };
+            return Self::Unreachable { kind, host };
         }
         let mut message = error.to_string();
         let mut cause = std::error::Error::source(&error);
