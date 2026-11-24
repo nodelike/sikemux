@@ -1,12 +1,8 @@
 import { useAuth } from "@clerk/react";
 import type { AccountEvent, VaultUseRow } from "@sikemux/protocol";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { formatAgo } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
-import { IconKey } from "@shared/ui/Icons";
-import { PluginMark } from "./PluginMark.tsx";
-import { ItemRow, Rows, Section } from "./old.tsx";
 
 const SERVICE_NAMES: Record<string, string> = {
   "sikemux.github": "GitHub",
@@ -22,6 +18,8 @@ const SERVICE_NAMES: Record<string, string> = {
   "sikemux.googleplay": "Google Play",
   "sikemux.database": "Database",
 };
+
+export const serviceName = (plugin: string) => SERVICE_NAMES[plugin] ?? plugin;
 
 export type Load =
   | { state: "loading" }
@@ -65,7 +63,7 @@ export function useSignIns(ready: boolean) {
   return { load, reload: () => void read(), apply };
 }
 
-interface SignIn {
+export interface SignIn {
   entryId: string;
   plugin: string;
   count: number;
@@ -74,7 +72,7 @@ interface SignIn {
 }
 
 /** The rows come one for each entry, host and agent; a sign-in is one entry. */
-function bySignIn(uses: VaultUseRow[]): SignIn[] {
+export function bySignIn(uses: VaultUseRow[]): SignIn[] {
   const signIns = new Map<string, SignIn>();
   for (const use of uses) {
     const signIn = signIns.get(use.entryId);
@@ -95,88 +93,12 @@ function bySignIn(uses: VaultUseRow[]): SignIn[] {
   return [...signIns.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
 }
 
-const hostOf = (use: VaultUseRow) => use.hostName ?? "a host that left";
+export const hostOf = (use: VaultUseRow) => use.hostName ?? "a host that left";
 
-const times = (count: number) =>
+export const times = (count: number) =>
   count === 1 ? "once" : `${count.toLocaleString()} times`;
 
-function listed(names: string[]): string {
+export function listed(names: string[]): string {
   if (names.length <= 1) return names.join("");
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
-export function SignIns({ load }: { load: Load }) {
-  if (load.state === "failed") return <p className="problem">{load.message}</p>;
-  const signIns = load.state === "loaded" ? bySignIn(load.uses) : null;
-  return (
-    <div className="groups">
-      <Section label="Sign-ins" count={signIns?.length}>
-        {signIns === null ? (
-          <Rows busy />
-        ) : signIns.length === 0 ? (
-          <p className="empty">
-            No sign-in from your account's vault has been used in the last 30
-            days.
-          </p>
-        ) : (
-          <Rows>
-            {signIns.map((signIn) => (
-              <SignInRow key={signIn.entryId} signIn={signIn} />
-            ))}
-          </Rows>
-        )}
-      </Section>
-    </div>
-  );
-}
-
-function SignInRow({ signIn }: { signIn: SignIn }) {
-  const [open, setOpen] = useState(false);
-  const breakdownId = useId();
-  const actors = new Set(signIn.uses.map((use) => use.actor));
-  const agents = [...actors].filter((actor) => actor !== "Sikemux").length;
-  const by = [
-    ...(actors.has("Sikemux") ? ["Sikemux"] : []),
-    ...(agents > 0 ? [agents === 1 ? "1 agent" : `${agents} agents`] : []),
-  ];
-  const hosts = [...new Set(signIn.uses.map(hostOf))];
-  return (
-    <ItemRow
-      glyph={
-        <PluginMark
-          plugin={signIn.plugin}
-          size={18}
-          fallback={<IconKey size={18} />}
-        />
-      }
-      name={SERVICE_NAMES[signIn.plugin] ?? signIn.plugin}
-      detail={`used ${times(signIn.count)} by ${listed(by)} on ${listed(hosts)} · ${formatAgo(signIn.lastAt)}`}
-      end={
-        <button
-          type="button"
-          className="remove"
-          aria-expanded={open}
-          aria-controls={open ? breakdownId : undefined}
-          onClick={() => setOpen(!open)}
-        >
-          {open ? "Hide" : "Details"}
-        </button>
-      }
-    >
-      {open ? (
-        <ul id={breakdownId} className="signin-uses">
-          {signIn.uses.map((use) => (
-            <li key={`${use.hostKey}-${use.actor}`}>
-              <span>
-                {use.actor} on {hostOf(use)}
-              </span>
-              <span className="quiet">
-                {times(use.count)} · {formatAgo(use.lastAt)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </ItemRow>
-  );
 }

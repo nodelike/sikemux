@@ -6,6 +6,12 @@ const MARKS = import.meta.glob<string>(
   { query: "?raw", import: "default", eager: true },
 );
 
+export function pluginSvg(plugin: string): string | undefined {
+  return MARKS[
+    `../../../app/assets/icons/${plugin.replace(/^sikemux\./, "")}.svg`
+  ];
+}
+
 export function PluginMark({
   plugin,
   size,
@@ -15,12 +21,11 @@ export function PluginMark({
   size: number;
   fallback: ReactNode;
 }) {
-  const svg =
-    MARKS[`../../../app/assets/icons/${plugin.replace(/^sikemux\./, "")}.svg`];
+  const svg = pluginSvg(plugin);
   if (!svg) return fallback;
   return (
     <span
-      className="plugin-mark"
+      className="br"
       style={{ width: size, height: size }}
       aria-hidden="true"
       dangerouslySetInnerHTML={{ __html: svg }}

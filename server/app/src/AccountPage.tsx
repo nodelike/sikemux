@@ -1,12 +1,13 @@
-import { useUser } from "@clerk/react";
-import { IconMail, IconTrash } from "@shared/ui/Icons";
-import type { MouseEvent } from "react";
+import { useClerk, useSession, useUser } from "@clerk/react";
+import { formatDay } from "@shared/lib/format";
+import { IconLogOut, IconMail, IconTrash } from "@shared/ui/Icons";
+import { useState, type MouseEvent } from "react";
 
-import { Avatar } from "./Avatar.tsx";
+import { personSvg } from "./avatarSvg.ts";
 import { DELETE_ACCOUNT } from "./navigation.ts";
-import { PROVIDERS, SignInWaysSection } from "./SignInWays.tsx";
-import { ItemRow, PageHead, Row, Rows, Section } from "./old.tsx";
-import { WorkAddressesSection } from "./WorkAddresses.tsx";
+import { PROVIDERS, SignInWaysCard, waysOf } from "./SignInWays.tsx";
+import { Card, Column, Page, Row, Rows, Txt } from "./ui.tsx";
+import { WorkAddressesCard } from "./WorkAddresses.tsx";
 
 /** The ways the signed-in account can sign in, as the person knows them. */
 export function useSignInWays() {
@@ -20,50 +21,79 @@ export function useSignInWays() {
     : [{ name: "Email code", mark: <IconMail size={16} /> }];
 }
 
+const COUNTED = ["No", "One", "Two", "Three", "Four", "Five", "Six"];
+
 export function AccountPage({
   onDelete,
 }: {
   onDelete: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const { user } = useUser();
-  const email = user?.primaryEmailAddress?.emailAddress;
+  if (!user) return null;
+  const ways = waysOf(user);
+  const byCodeOnly = ways.length === 1 && ways[0]?.kind === "email";
 
   return (
-    <>
-      <PageHead title="Account">
-        Who you are on Sikemux, and the way out.
-      </PageHead>
-      <div className="groups">
-        <Section label="Profile">
-          <Rows>
-            <Row label="Name">
-              <Avatar size={28} />
-              <span>{user?.fullName || user?.username || "No name yet"}</span>
-            </Row>
-            {email ? <Row label="Email">{email}</Row> : null}
-          </Rows>
-        </Section>
-        <SignInWaysSection />
-        <WorkAddressesSection />
-        <Section label="Delete">
-          <Rows>
-            <ItemRow
-              glyph={<IconTrash size={16} />}
-              name="Delete account"
-              detail="Every host and client is signed out, and phones are removed from every host."
-              end={
-                <a
-                  className="button small quiet-danger"
-                  href={DELETE_ACCOUNT}
-                  onClick={onDelete}
-                >
-                  Delete account…
-                </a>
-              }
-            />
-          </Rows>
-        </Section>
-      </div>
-    </>
+    <Page
+      title={user.fullName || user.username || "Your account"}
+      lede={
+        byCodeOnly
+          ? "One way in: a code by email. Add another so you never get locked out."
+          : ways.length === 1
+            ? "One way to sign in. Add another so you never get locked out."
+            : `${COUNTED[ways.length] ?? ways.length} ways to sign in, all to this account.`
+      }
+      mark={{ svg: personSvg(user.id) }}
+      scene="you"
+    >
+      <SignInWaysCard />
+      <Column w={5} side>
+        <WorkAddressesCard />
+        <ThisBrowser onDelete={onDelete} />
+      </Column>
+    </Page>
+  );
+}
+
+function ThisBrowser({
+  onDelete,
+}: {
+  onDelete: (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  const { signOut } = useClerk();
+  const { session } = useSession();
+  const [leaving, setLeaving] = useState(false);
+  const leave = () => {
+    setLeaving(true);
+    signOut({ redirectUrl: "/" }).catch(() => setLeaving(false));
+  };
+  return (
+    <Card label="This browser">
+      <Rows>
+        <Row
+          lead={<IconLogOut size={16} />}
+          name={
+            session
+              ? `Signed in since ${formatDay(session.createdAt.toISOString(), "short")}`
+              : "Signed in"
+          }
+          end={
+            <Txt onClick={leave} disabled={leaving}>
+              {leaving ? "Signing out" : "Sign out"}
+            </Txt>
+          }
+        />
+        <Row
+          lead={<IconTrash size={16} />}
+          name="Delete account"
+          detail="Your hosts keep their files."
+          end={
+            <a className="txt bad" href={DELETE_ACCOUNT} onClick={onDelete}>
+              Delete
+            </a>
+          }
+        />
+      </Rows>
+    </Card>
   );
 }
