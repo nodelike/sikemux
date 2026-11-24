@@ -3,8 +3,8 @@
 python3 -I ci/linux-window.py --app APP --core CORE --agent FAKE_AGENT --seed FAKE_CHAT --out DIR [--browser [--input]]
 
 The arguments are desk-checks.py's, run under an X server and a window manager (DISPLAY set). L1 opens the app
-and checks it shows a window with the seeded chat. With --browser, L6 has the fake agent show a page with
-page_show, which must leave a card in the chat that opens the page in the project's Pages (L10, the page drawn there, waits for Linux), and L2 has it open a desk browser tab on a local page
+and checks it shows a window with the seeded chat. With --browser, the fake agent shows a page with
+page_show, which must leave a card in the chat that opens the page in the project's Pages (L6), where its page must be drawn (L10), and L2 has it open a desk browser tab on a local page
 through the agent browser tool, whose answer must report the desktop viewport an agent's tab is held at; with --input as well, L4 has it type into the page's field,
 press a key there and read the field back, L5 has the page ask a prompt the person sees in a dialog and the agent
 answers, L9 records the tab for a few seconds and checks the video with ffprobe, and L3 clicks a link there, all
@@ -104,7 +104,8 @@ def shown_in_chat(run):
     in_pages = desk.until(lambda: ((run.state() or {}).get("spots") or {}).get(reader), 10) if carded else None
     run.report("L6", said.startswith("tool answered") and bool(page) and bool(carded) and bool(in_pages),
                f"page_show answered {said[:120]!r}; {waited}; the chat's card {carded}; Pages' reader on it {in_pages}")
-    run.leave("L10", "waits for Pages' reader to draw its page on Linux, where it stays blank")
+    drawn, seen = page_drawn(run, "L10", lambda: ((run.state() or {}).get("spots") or {}).get(reader)) if in_pages else (False, "")
+    run.report("L10", drawn, seen)
 
 
 def page_from_tool(run):

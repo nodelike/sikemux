@@ -22,6 +22,10 @@ type Events = Arc<dyn Fn(PageEvent) + Send + Sync>;
 /// A box in the window: x, y, width and height, top-down.
 type Rect = (f64, f64, f64, f64);
 
+/// A view's size until it is placed. WebKitGTK never paints one made at 1×1, whatever size it
+/// gets later.
+const START: (f64, f64) = (800., 600.);
+
 impl PageView {
     /// Shows `html` in `room` in the app's window `parent`, out of sight until placed and on
     /// `ground` until its first frame, and tells `events` what the page's script reports. A
@@ -118,7 +122,7 @@ fn open(
         .with_visible(false)
         .with_bounds(wry::Rect {
             position: wry::dpi::LogicalPosition::new(0., 0.).into(),
-            size: wry::dpi::LogicalSize::new(1., 1.).into(),
+            size: wry::dpi::LogicalSize::new(START.0, START.1).into(),
         })
         .build_as_child(&X11Parent(clip.window))
         .map_err(|error| error.to_string())?;
