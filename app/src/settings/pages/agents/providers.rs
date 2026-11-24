@@ -81,10 +81,9 @@ pub struct Fields {
 
 struct OrgAdding {
     org: String,
-    /// The providers offered, in the order `choice` lists them.
-    offered: Vec<String>,
-    picked: usize,
-    choice: Choice,
+    /// The id and name of each provider offered.
+    offered: Vec<(String, String)>,
+    picked: String,
 }
 
 impl Fields {
@@ -688,27 +687,16 @@ fn start_org_add(
         .filter(|provider| !held.contains(&provider.id.as_str()))
         .map(|provider| (provider.id.clone(), provider.label.clone()))
         .collect();
-    let choice = Choice::new(
-        offered.iter().map(|(_, label)| label.clone()).collect(),
-        0,
-        |bench, at, cx| {
-            change_fields(bench, cx, |fields, _| {
-                if let Some(adding) = &mut fields.org_adding {
-                    adding.picked = at;
-                }
-            });
-        },
-        window,
-        cx,
-    );
     change_fields(bench, cx, |fields, cx| {
         fields.editing = None;
         fields.failure = None;
         fields.org_adding = Some(OrgAdding {
             org,
-            offered: offered.into_iter().map(|(id, _)| id).collect(),
-            picked: 0,
-            choice,
+            picked: offered
+                .first()
+                .map(|(id, _)| id.clone())
+                .unwrap_or_default(),
+            offered,
         });
         fields.key.update(cx, |key, cx| {
             key.set_value("", window, cx);
@@ -723,7 +711,7 @@ fn add_org_key(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         let key = fields.key.read(cx).value().trim().to_owned();
         Some(OrgModelKeyAdd {
             org: adding.org.clone(),
-            provider: adding.offered.get(adding.picked)?.clone(),
+            provider: Some(adding.picked.clone()).filter(|id| !id.is_empty())?,
             key,
         })
         .filter(|params| !params.key.is_empty())
@@ -852,12 +840,10 @@ pub(super) fn org_dialog(
         .filter(|(at, _)| *at == id)
         .map(|(_, message)| sign_in::error(message.clone(), cx));
     let empty = fields.key.read(cx).value().trim().is_empty() || adding.offered.is_empty();
-    let mark = (adding.offered.get(adding.picked))
-        .and_then(|provider| crate::icons::Icon::named(provider))
-        .map_or_else(
-            || ui::org_mark(&vault.name, &vault.org, 26.).into_any_element(),
-            |icon| ui::picture(icon, 26., t.text_primary).into_any_element(),
-        );
+    let mark = crate::icons::Icon::named(&adding.picked).map_or_else(
+        || ui::org_mark(&vault.name, &vault.org, 26.).into_any_element(),
+        |icon| ui::picture(icon, 26., t.text_primary).into_any_element(),
+    );
     let screen = sign_in::Screen::new(
         "org-key-add",
         mark,
@@ -867,7 +853,32 @@ pub(super) fn org_dialog(
         "Everyone in {org} can run agents on this key. Nobody sees it.",
         org = vault.name
     ))
-    .child(div().w_full().child(adding.choice.view().w_full()))
+    .child(sign_in::pick(
+        "org-key-provider",
+        (adding.offered.iter())
+            .find(|(id, _)| *id == adding.picked)
+            .map(|(_, name)| name.clone())
+            .unwrap_or_default(),
+        (adding.offered.iter())
+            .map(|(id, name)| ui::Pick::new(id.clone(), name.clone()))
+            .collect(),
+        Some(adding.picked.clone().into()),
+        busy,
+        {
+            let this = this.clone();
+            move |key, _, cx| {
+                let provider = key.to_string();
+                this.update(cx, |bench, cx| {
+                    change_fields(bench, cx, |fields, _| {
+                        if let Some(adding) = &mut fields.org_adding {
+                            adding.picked = provider;
+                        }
+                    });
+                })
+            }
+        },
+        cx,
+    ))
     .child(sign_in::Field::new(t!("API key"), &fields.key).mono())
     .children(failed)
     .child(
