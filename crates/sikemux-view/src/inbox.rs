@@ -88,6 +88,8 @@ pub enum InboxKind {
     Question,
     /// An agent in a terminal waits for the person to type.
     Input,
+    /// The agent's chat holds a card with the connectors the person signs in to.
+    SignIn,
     /// Auto handed the card back, Sikemux holds the messages two agents
     /// keep sending each other, two agents keep changing the same lines, the
     /// project's check keeps failing, a rule or knowledge Sikemux keeps no

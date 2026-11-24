@@ -72,6 +72,8 @@ enum Case {
         secret: bool,
     },
     Input,
+    /// Its chat holds a card with the connectors the person signs in to.
+    SignIn,
     /// An agent's action that leaves this machine waits for the person to allow it.
     Ship(ShipHold),
     /// An agent proposed the project's environments, for the person to accept.
@@ -120,6 +122,7 @@ impl Case {
             Case::Question { secret: false } => (InboxKind::Question, Wants::Person(Decide)),
             Case::Question { secret: true } => (InboxKind::Question, Wants::Person(Unblock)),
             Case::Input => (InboxKind::Input, Wants::Person(Unblock)),
+            Case::SignIn => (InboxKind::SignIn, Wants::Person(Unblock)),
             Case::Ship(_) => (InboxKind::Ship, Wants::Person(Decide)),
             Case::Stopped | Case::NoProgress => (InboxKind::Held, Wants::Person(Unblock)),
             Case::Looping | Case::CheckFailing | Case::StaleMemory => {
@@ -142,12 +145,16 @@ impl Case {
 }
 
 /// Kinds whose own signal tells the person as they happen, with what answers them: a
-/// permission, a question, a terminal waiting for input, a turn's problem. The inbox tells
-/// of every other item when it first needs the person.
+/// permission, a question, a terminal waiting for input, a turn's problem. A sign-in card shows
+/// in its chat alone. The inbox tells of every other item when it first needs the person.
 fn signalled(kind: InboxKind) -> bool {
     matches!(
         kind,
-        InboxKind::Permission | InboxKind::Question | InboxKind::Input | InboxKind::Failed
+        InboxKind::Permission
+            | InboxKind::Question
+            | InboxKind::Input
+            | InboxKind::SignIn
+            | InboxKind::Failed
     )
 }
 
@@ -155,7 +162,7 @@ fn signalled(kind: InboxKind) -> bool {
 fn pressing(kind: InboxKind) -> bool {
     matches!(
         kind,
-        InboxKind::Permission | InboxKind::Question | InboxKind::Input
+        InboxKind::Permission | InboxKind::Question | InboxKind::Input | InboxKind::SignIn
     )
 }
 
@@ -1102,6 +1109,20 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         item.question_id = Some(question.id.clone());
         item.answers.clone_from(&question.answers);
         item.pictures.clone_from(&question.pictures);
+        items.push(item);
+    }
+    for agent in agents {
+        let Some((card, at)) = super::sign_in_asks::waiting(core, &agent.id) else {
+            continue;
+        };
+        let mut item = item(
+            format!("sign-in:{}", card.id),
+            Case::SignIn,
+            super::sign_in_asks::words(&card),
+            at,
+        )
+        .by(&agent.id, Some(agent));
+        item.detail = Some(card.why);
         items.push(item);
     }
     for waiting in core.ship().waiting() {

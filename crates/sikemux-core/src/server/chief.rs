@@ -451,6 +451,7 @@ fn called(core: &Core, agent_id: &str) -> String {
 /// The person wrote to `agent_id` themselves. Written to a chief, they are with it; written to
 /// another agent, its chief's next digest reads that chat.
 pub(crate) fn person_wrote(core: &Core, agent_id: &str) {
+    super::sign_in_asks::moved_on(core, agent_id);
     if !is_chief(core, agent_id) {
         let Some(chief) = chief_over(core, agent_id) else {
             return;
@@ -1207,6 +1208,15 @@ pub(crate) fn lines_under(core: &Core, prefix: &str) -> Vec<(String, Value)> {
                 .filter(|line| line.key.starts_with(prefix))
                 .map(|line| (agent.clone(), line.update.clone()))
         })
+        .collect()
+}
+
+/// The lines kept in `agent`'s own chat under keys that start with `prefix`, with when each began.
+pub(crate) fn own_lines(core: &Core, agent: &str, prefix: &str) -> Vec<(Value, u64)> {
+    let saved = core.chiefs().state.locked();
+    (saved.lines.get(agent).into_iter().flatten())
+        .filter(|line| line.key.starts_with(prefix))
+        .map(|line| (line.update.clone(), line.at))
         .collect()
 }
 

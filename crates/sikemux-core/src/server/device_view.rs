@@ -180,6 +180,7 @@ impl DeviceViewCore for Core {
     fn needs_person(&self, agent_id: &str) -> bool {
         self.harness().questions.blocks_on_person(agent_id)
             || self.ship().holds(agent_id)
+            || super::sign_in_asks::waiting(self, agent_id).is_some()
             || self
                 .chats()
                 .heard(agent_id)

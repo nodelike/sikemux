@@ -24,6 +24,12 @@ pub struct StreamCall {
     pub call: PluginCall,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SignInCardParams {
+    /// The sign-in card, by id.
+    pub id: String,
+}
+
 /// How a plugin call failed, as the window shows it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PluginFailure {

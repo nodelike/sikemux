@@ -508,7 +508,10 @@ pub(super) fn board_above() -> BoardAbove {
                 messages::answer(core, overruled.asker_id, answers).await
             })
         },
-        questions_blocks_on_person: |core, agent| core.harness().questions.blocks_on_person(agent),
+        questions_blocks_on_person: |core, agent| {
+            core.harness().questions.blocks_on_person(agent)
+                || super::sign_in_asks::waiting(core, agent).is_some()
+        },
         questions_blocking: |core, agent| core.harness().questions.blocking(agent),
         questions_boards_changed: |core| core.harness().questions.boards_changed(),
         goal_title: |core, project, card| core.goal_summaries().title(project, card),

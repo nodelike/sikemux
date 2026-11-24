@@ -226,6 +226,7 @@ calls! { core, client, method, params;
         super::chat::tool_detail(&core, &params.agent_id, &params.tool_call_id)?
     },
     "sendGuestMessage" = SendGuestMessage: Full, counted => share::send_guest(&core, params).await?,
+    "dismissSignIn" = DismissSignIn: Full => super::sign_in_asks::dismiss(&core, &params),
     "dismissGuestMessage" = DismissGuestMessage: Full => share::dismiss_guest(&core, params),
     "chatLeftOut" = ChatLeftOut: Watch, counted => {
         let reading = core.clone();

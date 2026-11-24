@@ -65,6 +65,7 @@ crate::calls! {
     "snoozeAgents" SnoozeAgents (crate::settling::SnoozeParams) -> ();
     "settleAgents" SettleAgents (crate::settling::SettleParams) -> ();
     "sendGuestMessage" SendGuestMessage (crate::share::GuestMessageParams) -> ();
+    "dismissSignIn" DismissSignIn (crate::plugins::SignInCardParams) -> ();
     "dismissGuestMessage" DismissGuestMessage (crate::share::GuestMessageParams) -> ();
     "stopShare" StopShare (crate::share::StopShareParams) -> ();
     "allowShip" AllowShip (crate::ship::HoldParams) -> ();

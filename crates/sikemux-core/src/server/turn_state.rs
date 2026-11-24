@@ -156,28 +156,39 @@ impl Gathered {
     }
 }
 
-/// What the agent waits on the person for: its oldest permission or call, with how many wait.
+/// What the agent waits on the person for: its oldest permission, call or sign-in card, with how
+/// many wait.
 fn call_of(core: &Core, gathered: &Gathered, agent_id: &str) -> Option<TurnCall> {
     let asked = gathered.asks.get(agent_id).map_or(&[][..], Vec::as_slice);
     let call = core.person_calls().of_agent(agent_id);
-    let count = (asked.len() + call.as_ref().map_or(0, |call| call.count)) as u32;
-    let older = |ask: &&Ask| {
-        call.as_ref()
-            .is_none_or(|call| ask.at <= call.waiting_since)
-    };
-    let permission = asked.first().filter(older).map(|ask| TurnCall {
+    let card = super::sign_in_asks::waiting(core, agent_id);
+    let count =
+        asked.len() + call.as_ref().map_or(0, |call| call.count) + usize::from(card.is_some());
+    let permission = asked.first().map(|ask| TurnCall {
         id: ask.id.clone(),
         question: ask.question.clone(),
         waiting_since: ask.at,
-        count,
+        count: 0,
     });
-    permission.or_else(|| {
-        call.map(|call| TurnCall {
-            id: call.id,
-            question: call.question,
-            waiting_since: call.waiting_since,
-            count,
-        })
+    let call = call.map(|call| TurnCall {
+        id: call.id,
+        question: call.question,
+        waiting_since: call.waiting_since,
+        count: 0,
+    });
+    let card = card.map(|(card, since)| TurnCall {
+        question: super::sign_in_asks::words(&card),
+        id: card.id,
+        waiting_since: since,
+        count: 0,
+    });
+    let oldest = [permission, call, card]
+        .into_iter()
+        .flatten()
+        .min_by_key(|waiting| waiting.waiting_since)?;
+    Some(TurnCall {
+        count: count as u32,
+        ..oldest
     })
 }
 

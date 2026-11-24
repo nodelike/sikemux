@@ -102,7 +102,8 @@ pub enum TurnWaitKind {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnCall {
-    /// The question's or the permission request's id, which answering it names.
+    /// The question's or the permission request's id, which answering it names, or the sign-in
+    /// card's.
     pub id: String,
     pub question: String,
     pub waiting_since: u64,

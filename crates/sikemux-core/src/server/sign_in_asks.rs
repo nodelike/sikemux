@@ -8,11 +8,15 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use sikemux_view::chat::{SignInCard, SignInConnector, SignInState};
 
+use super::activity::{Activity, ActivityCore};
+use super::changed::{ChangedCore, What};
 use super::chief;
 use super::plugins::{manifests, PluginFailure};
 use super::workspace_state::WorkspaceParts;
 use super::Core;
 use crate::cli::protocol::HarnessRequest;
+use crate::server::board_state::BoardParts;
+use sikemux_calls::plugins::SignInCardParams;
 use sikemux_plugin_api::FailureCategory;
 
 const KEY: &str = "signin|";
@@ -69,6 +73,7 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         name,
         why: why.chars().take(200).collect(),
         connectors,
+        skipped: false,
     };
     let key = format!("{KEY}{}", card.id);
     let update = sikemux_fold::update::sign_in_notice(card.clone());
@@ -76,6 +81,8 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     if let Some(lead) = core.workspaces().agent_leads().remove(&agent) {
         chief::put_line(core, &lead, &key, update);
     }
+    core.note_activity(&agent, Activity::NeedsYou);
+    tell(core);
     Ok(json!({
         "shown": true,
         "note": "The person signs in from the card in your chat. End your turn now: Sikemux messages you once every connector on it is signed in."
@@ -117,7 +124,7 @@ pub(crate) fn moved(core: &Core, plugin: &str, failure: Option<&PluginFailure>) 
             let Some(mut card) = card_of(update) else {
                 return false;
             };
-            let was_done = card.done();
+            let was_open = card.open();
             let mut changed = false;
             for connector in &mut card.connectors {
                 if connector.id == plugin && connector.state != state {
@@ -125,7 +132,7 @@ pub(crate) fn moved(core: &Core, plugin: &str, failure: Option<&PluginFailure>) 
                     changed = true;
                 }
             }
-            if !changed || was_done {
+            if !changed || !was_open {
                 return false;
             }
             if card.done() && !back.iter().any(|done: &SignInCard| done.id == card.id) {
@@ -134,6 +141,7 @@ pub(crate) fn moved(core: &Core, plugin: &str, failure: Option<&PluginFailure>) 
             *update = sikemux_fold::update::sign_in_notice(card);
             true
         });
+        tell(&core);
         for card in back {
             let names: Vec<&str> = (card.connectors.iter())
                 .map(|connector| connector.name.as_str())
@@ -153,8 +161,51 @@ fn open_cards(core: &Core) -> Vec<(String, SignInCard)> {
     let mut seen = BTreeSet::new();
     (chief::lines_under(core, KEY).into_iter())
         .filter_map(|(agent, update)| Some((agent, card_of(&update)?)))
-        .filter(|(_, card)| !card.done() && seen.insert(card.id.clone()))
+        .filter(|(_, card)| card.open() && seen.insert(card.id.clone()))
         .collect()
+}
+
+/// The card `agent` waits on the person with, and since when.
+pub(crate) fn waiting(core: &Core, agent: &str) -> Option<(SignInCard, u64)> {
+    (chief::own_lines(core, agent, KEY).into_iter())
+        .filter_map(|(update, at)| Some((card_of(&update)?, at)))
+        .find(|(card, _)| card.agent_id == agent && card.open())
+}
+
+/// What `card` waits on the person for, in one line.
+pub(crate) fn words(card: &SignInCard) -> String {
+    let names: Vec<&str> = card.left().map(|left| left.name.as_str()).collect();
+    format!("Sign in to {}", names.join(", "))
+}
+
+pub(crate) fn dismiss(core: &Core, card: &SignInCardParams) {
+    skip(core, |held| held.id == card.id);
+}
+
+/// The person wrote to `agent` with its card still open.
+pub(crate) fn moved_on(core: &Core, agent: &str) {
+    if waiting(core, agent).is_some() {
+        skip(core, |held| held.agent_id == agent);
+    }
+}
+
+fn skip(core: &Core, which: impl Fn(&SignInCard) -> bool) {
+    chief::change_lines(core, KEY, |update| {
+        let Some(mut card) = card_of(update).filter(|card| card.open() && which(card)) else {
+            return false;
+        };
+        card.skipped = true;
+        *update = sikemux_fold::update::sign_in_notice(card);
+        true
+    });
+    tell(core);
+}
+
+/// An agent began or stopped waiting on the person.
+fn tell(core: &Core) {
+    core.boards().wake.now();
+    core.changed(What::Agents);
+    super::hosts::route::rows_moved(core);
 }
 
 fn card_of(update: &Value) -> Option<SignInCard> {

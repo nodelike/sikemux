@@ -1833,11 +1833,24 @@ pub struct SignInCard {
     /// What the agent needs them for, in its words.
     pub why: String,
     pub connectors: Vec<SignInConnector>,
+    /// The person dismissed it, or wrote to the agent about something else instead.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub skipped: bool,
 }
 
 impl SignInCard {
     pub fn done(&self) -> bool {
-        (self.connectors.iter()).all(|connector| connector.state == SignInState::SignedIn)
+        self.left().next().is_none()
+    }
+
+    /// Whether it still waits on the person.
+    pub fn open(&self) -> bool {
+        !self.skipped && !self.done()
+    }
+
+    /// The connectors not signed in to yet.
+    pub fn left(&self) -> impl Iterator<Item = &SignInConnector> {
+        (self.connectors.iter()).filter(|connector| connector.state != SignInState::SignedIn)
     }
 }
 

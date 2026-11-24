@@ -166,9 +166,10 @@ pub(super) fn tell_rows_soon(core: &Arc<Core>) {
 /// What an inbox holds about an agent that only the host it runs on can tell: what it waits
 /// on the person for there and how its turn went. Its questions and held actions reach its
 /// lead's host as calls of their own.
-const TOLD: [InboxKind; 6] = [
+const TOLD: [InboxKind; 7] = [
     InboxKind::Permission,
     InboxKind::Input,
+    InboxKind::SignIn,
     InboxKind::Changes,
     InboxKind::Failed,
     InboxKind::Finished,
