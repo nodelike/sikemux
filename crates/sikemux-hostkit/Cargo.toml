@@ -17,11 +17,17 @@ sikemux-process = { path = "../sikemux-process" }
 sikemux-pty = { path = "../sikemux-pty" }
 sikemux-client = { path = "../sikemux-client" }
 log = "0.4"
+minidump-common = "0.26"
+scroll = "0.12"
 sha2 = "0.11"
 sikemux-wire = { path = "../sikemux-wire" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(any(target_os = "linux", all(windows, target_arch = "x86_64")))'.dependencies]
+framehop = { version = "0.15", default-features = false, features = ["std", "pe"] }
+object = { version = "0.37", default-features = false, features = ["elf", "pe", "read_core", "std"] }
 
 [target.'cfg(windows)'.dependencies]
 backtrace = "0.3"

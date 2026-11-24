@@ -21,6 +21,7 @@ enum CrashReports {
             options.sendDefaultPii = false
             options.maxBreadcrumbs = 50
             options.enableAutoSessionTracking = false
+            options.enableMemoryIntrospection = false
             options.beforeSend = { event in
                 guard allowed() else { return nil }
                 event.serverName = nil
@@ -30,7 +31,7 @@ enum CrashReports {
                 event.tags = (event.tags ?? [:]).merging(
                     ["process": "notch", "channel": version.contains("-nightly.") ? "nightly" : "stable"]
                 ) { kept, _ in kept }
-                return withoutHome(event)
+                return withoutHome(withoutRegisters(event))
             }
         }
         SentrySDK.startSession()
@@ -65,6 +66,13 @@ enum CrashReports {
               let saved = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return false }
         return (saved["shareUsageData"] as? Bool ?? true) && (saved["onboardingComplete"] as? Bool ?? false)
+    }
+
+    /// What the registers held may be the person's own text.
+    private static func withoutRegisters(_ event: Sentry.Event) -> Sentry.Event {
+        for exception in event.exceptions ?? [] { exception.stacktrace?.registers = [:] }
+        for thread in event.threads ?? [] { thread.stacktrace?.registers = [:] }
+        return event
     }
 
     private static func withoutHome(_ event: Sentry.Event) -> Sentry.Event {

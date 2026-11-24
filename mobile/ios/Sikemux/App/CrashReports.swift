@@ -48,6 +48,8 @@ final class CrashReports {
             options.enableNetworkBreadcrumbs = false
             options.enableCaptureFailedRequests = false
             options.enableAutoPerformanceTracing = false
+            options.enableMemoryIntrospection = false
+            options.beforeSend = { event in CrashReports.withoutRegisters(event) }
             options.initialScope = { scope in
                 scope.setUser(CrashReports.anonymous())
                 scope.setTag(value: release.contains("-nightly.") ? "nightly" : "stable", key: "channel")
@@ -73,6 +75,13 @@ final class CrashReports {
         let user = CrashReports.anonymous()
         user.userId = account.map { SHA256.hash(data: Data("sikemux-usage|\($0)".utf8)).hex }
         SentrySDK.setUser(user)
+    }
+
+    /// What the registers held may be the person's own text.
+    nonisolated private static func withoutRegisters(_ event: Sentry.Event) -> Sentry.Event {
+        for exception in event.exceptions ?? [] { exception.stacktrace?.registers = [:] }
+        for thread in event.threads ?? [] { thread.stacktrace?.registers = [:] }
+        return event
     }
 
     /// Sentry works out a city from the sender's address unless the event names one, so every event names none.

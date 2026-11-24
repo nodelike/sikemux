@@ -2875,6 +2875,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "framehop"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78a7d65f75e837647bf8b1594ad3b559a929ee9a58d956d9f46999749957b6b9"
+dependencies = [
+ "arrayvec",
+ "cfg-if",
+ "fallible-iterator 0.3.0",
+ "gimli",
+ "pe-unwind-info",
+]
+
+[[package]]
 name = "freetype-sys"
 version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3236,6 +3249,10 @@ name = "gimli"
 version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
+dependencies = [
+ "fallible-iterator 0.3.0",
+ "stable_deref_trait",
+]
 
 [[package]]
 name = "gio"
@@ -7625,6 +7642,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pe-unwind-info"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e33c6dbf1a8fb7f71742cd70f5e9f0986e60b2d19dc0b28d9ca0d1323259274a"
+dependencies = [
+ "arrayvec",
+ "bitflags 2.13.2",
+ "thiserror 2.0.21",
+ "zerocopy",
+ "zerocopy-derive",
+]
+
+[[package]]
 name = "pem-rfc7468"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10261,10 +10291,14 @@ name = "sikemux-hostkit"
 version = "0.6.2"
 dependencies = [
  "backtrace",
+ "framehop",
  "libc",
  "log",
+ "minidump-common",
+ "object",
  "reqwest",
  "rustls",
+ "scroll",
  "sentry",
  "serde",
  "serde_json",

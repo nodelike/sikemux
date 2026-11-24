@@ -140,6 +140,12 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.minidumper-child]
 opt-level = "z"
+[profile.release.package.framehop]
+opt-level = "z"
+[profile.release.package.pe-unwind-info]
+opt-level = "z"
+[profile.release.package.object]
+opt-level = "z"
 # Phone simulators are driven at an agent's or the person's request, never per frame.
 [profile.release.package.sikemux-simulator]
 opt-level = "z"

@@ -5,6 +5,7 @@
 pub mod cli_paths;
 pub mod core_start;
 pub mod crash_reports;
+mod crash_stacks;
 pub mod environment;
 pub mod hang_reports;
 pub mod login_item;

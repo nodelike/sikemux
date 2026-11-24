@@ -1,9 +1,10 @@
 //! Sends panics, native crashes, release health and how long the app took to start to Sentry.
 //! Only builds the release workflow publishes know where to send, and they send only while the
 //! person shares usage data, has been shown that choice, and `DO_NOT_TRACK` is unset. Nothing a
-//! person wrote or opened goes along, their home folder is written `~`, and they are named only
+//! person wrote or opened goes along, nor any memory, their home folder is written `~`, and they are named only
 //! by the account hash the usage ping sends.
 
+use std::borrow::Cow;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -13,8 +14,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use sentry::integrations::contexts::ContextIntegration;
 use sentry::integrations::minidump::MinidumpIntegration;
 use sentry::protocol::{
-    Breadcrumb, DebugMeta, Event, Exception, Frame, IpAddress, Mechanism, SessionAttributes,
-    SessionStatus, SessionUpdate, SpanId, Stacktrace,
+    Breadcrumb, DebugImage, DebugMeta, EnvelopeItem, Event, Exception, Frame, IpAddress, Mechanism,
+    SessionAttributes, SessionStatus, SessionUpdate, SpanId, Stacktrace,
 };
 use sentry::transports::ReqwestHttpTransportOptions;
 use sentry::types::Uuid;
@@ -24,6 +25,7 @@ use sha2::{Digest, Sha256};
 use sikemux_corekit::usage::{self, Install, Sharing};
 use sikemux_process::sync::Locked;
 
+use crate::crash_stacks::{self, CrashStack};
 use crate::panic_reports::{self, PanicReport};
 
 const DSN: Option<&str> = if cfg!(debug_assertions) {
@@ -35,9 +37,10 @@ const REPORTER_VARIABLE: &str = "SIKEMUX_CRASH_REPORTER";
 const PARENT_VARIABLE: &str = "SIKEMUX_CRASH_REPORTER_PARENT";
 const SESSION_VARIABLE: &str = "SIKEMUX_CRASH_REPORTER_SESSION";
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
-/// The reporter deletes a native crash's dump once this runs out, sent or not, and a dump
-/// takes longer than a panic's few lines to upload.
-const MINIDUMP_FLUSH_TIMEOUT: Duration = Duration::from_secs(30);
+/// The crash reporter ends once this runs out, sent or not.
+const CRASH_FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
+/// By when a crash reporter that is still running has read and deleted its dump.
+const DUMP_LEFT_AFTER: Duration = Duration::from_secs(60);
 /// How often the core looks for panics that other processes left behind.
 const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
 /// How often a process that may not send looks whether it may now.
@@ -99,10 +102,13 @@ fn start_sending_to(
     let mut minidumps = MinidumpIntegration::new()
         .server_env_var(REPORTER_VARIABLE)
         .process_name(format!("sikemux {} crash reporter", process.name()))
-        .flush_timeout(MINIDUMP_FLUSH_TIMEOUT)
-        .before_capture(|_, _| {
+        .flush_timeout(CRASH_FLUSH_TIMEOUT)
+        .before_capture(|scope, dump| {
             SENDING_CRASH.store(true, Ordering::SeqCst);
             send_crashed_session();
+            scope.clear_attachments();
+            let stack = take_stack(dump);
+            scope.add_event_processor(move |event| Some(native_crash(event, stack.as_ref())));
         })
         .on_process(|command| {
             command.env(PARENT_VARIABLE, std::process::id().to_string());
@@ -112,8 +118,9 @@ fn start_sending_to(
                 }
             }
         });
-    if let Some(autopsies) = crate::hang_reports::autopsy_dir() {
-        minidumps = minidumps.crashes_dir(autopsies.join("minidumps"));
+    let dumps = dumps_dir();
+    if let Some(dumps) = &dumps {
+        minidumps = minidumps.crashes_dir(dumps);
     }
     if minidumps.is_crash_reporter_process() {
         if let Some(user) = crashed_session().and_then(|session| session.distinct_id) {
@@ -127,6 +134,9 @@ fn start_sending_to(
     let spawned = std::thread::Builder::new()
         .name("crash-reports".into())
         .spawn(move || {
+            if let Some(dumps) = dumps {
+                delete_left_dumps(&dumps);
+            }
             if !allowed() {
                 wait_until_allowed();
             }
@@ -156,6 +166,30 @@ fn start_sending_to(
     if let Err(error) = spawned {
         eprintln!("sikemux: crash reports could not start: {error}");
     }
+}
+
+fn dumps_dir() -> Option<PathBuf> {
+    Some(crate::hang_reports::autopsy_dir()?.join("minidumps"))
+}
+
+/// Deletes the dumps of crashes whose reporter ended before reading them.
+fn delete_left_dumps(dumps: &Path) {
+    let Ok(files) = std::fs::read_dir(dumps) else {
+        return;
+    };
+    for file in files.flatten() {
+        let written = file.metadata().and_then(|found| found.modified());
+        if written.is_ok_and(|at| at.elapsed().is_ok_and(|age| age > DUMP_LEFT_AFTER)) {
+            let _ = std::fs::remove_file(file.path());
+        }
+    }
+}
+
+/// Reads the stack out of a dump and deletes it.
+fn take_stack(dump: &Path) -> Option<CrashStack> {
+    let memory = std::fs::read(dump);
+    let _ = std::fs::remove_file(dump);
+    crash_stacks::read(&memory.ok()?)
 }
 
 /// Returns once this process may send. What happened before then is never sent.
@@ -388,12 +422,18 @@ fn options(dsn: &str, process: Process, minidumps: MinidumpIntegration) -> Clien
     options
 }
 
-/// Drops whatever is ready to leave once the person stops sharing, wherever it came from.
+/// Drops whatever is ready to leave once the person stops sharing, wherever it came from, and
+/// any attachment, which is where a crash's memory would be.
 struct WhileAllowed<T>(T);
 
 impl<T: Transport> Transport for WhileAllowed<T> {
     fn send_envelope(&self, envelope: sentry::Envelope) {
-        if allowed() {
+        if !allowed() {
+            return;
+        }
+        let envelope =
+            envelope.filter(|item: &EnvelopeItem| !matches!(item, EnvelopeItem::Attachment(_)));
+        if let Some(envelope) = envelope {
             self.0.send_envelope(envelope);
         }
     }
@@ -559,16 +599,8 @@ fn sent(report: &PanicReport) -> PanicReport {
 /// The report as Sentry reads a native crash, so it names the frames from the release's debug
 /// files. The same report always makes the same event, which Sentry keeps once.
 fn event(report: &PanicReport) -> Event<'static> {
-    let frames = report
-        .frames
-        .iter()
-        .rev()
-        .filter_map(|frame| u64::from_str_radix(frame.trim_start_matches("0x"), 16).ok())
-        .map(|address| Frame {
-            instruction_addr: Some(address.into()),
-            ..Default::default()
-        })
-        .collect();
+    let frames = (report.frames.iter())
+        .filter_map(|frame| u64::from_str_radix(frame.trim_start_matches("0x"), 16).ok());
     let identity = Sha256::digest(format!(
         "{}|{}|{}|{}",
         report.process, report.captured_at_ms, report.thread, report.message
@@ -589,17 +621,11 @@ fn event(report: &PanicReport) -> Event<'static> {
                 handled: Some(false),
                 ..Default::default()
             }),
-            stacktrace: Some(Stacktrace {
-                frames,
-                ..Default::default()
-            }),
+            stacktrace: Some(stacktrace(frames)),
             ..Default::default()
         }]
         .into(),
-        debug_meta: std::borrow::Cow::Owned(DebugMeta {
-            images: report.images.clone(),
-            ..Default::default()
-        }),
+        debug_meta: debug_meta(&report.images),
         ..Default::default()
     };
     event.tags.insert("process".into(), report.process.clone());
@@ -619,6 +645,50 @@ fn event(report: &PanicReport) -> Event<'static> {
     // Sentry files every such panic under one issue.
     event.fingerprint = vec!["{{ default }}".into(), panic_site(&report.location).into()].into();
     event
+}
+
+/// A native crash as the addresses its thread was at, which Sentry names from the release's debug
+/// files.
+fn native_crash(mut event: Event<'static>, stack: Option<&CrashStack>) -> Event<'static> {
+    event.platform = "native".into();
+    event.exception = vec![Exception {
+        ty: stack
+            .map_or("native crash", |stack| &stack.reason)
+            .to_owned(),
+        mechanism: Some(Mechanism {
+            // Sentry leaves an event of type "minidump" unread when no dump comes with it.
+            ty: "signalhandler".into(),
+            handled: Some(false),
+            ..Default::default()
+        }),
+        stacktrace: stack.map(|stack| stacktrace(stack.addresses.iter().copied())),
+        ..Default::default()
+    }]
+    .into();
+    if let Some(stack) = stack {
+        event.debug_meta = debug_meta(&stack.images);
+    }
+    event
+}
+
+fn stacktrace(innermost_first: impl DoubleEndedIterator<Item = u64>) -> Stacktrace {
+    Stacktrace {
+        frames: innermost_first
+            .rev()
+            .map(|address| Frame {
+                instruction_addr: Some(address.into()),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+fn debug_meta(images: &[DebugImage]) -> Cow<'static, DebugMeta> {
+    Cow::Owned(DebugMeta {
+        images: images.to_vec(),
+        ..Default::default()
+    })
 }
 
 /// Where a panic was raised, from its crate on, so the same line groups alike across machines and
@@ -670,9 +740,10 @@ mod tests {
     const TEST: &str = "crash_reports::tests::crashes_under_the_crash_handler_end";
     const ROLE: &str = "SIKEMUX_TEST_CRASH_ROLE";
     const PORT: &str = "SIKEMUX_TEST_CRASH_PORT";
+    const IN_MEMORY: &[u8] = b"what the memory held when it crashed";
 
     /// A core with crash reports on, and the programs it starts, which inherit its handler. Each
-    /// crash must end its process: the core's own after writing its minidump. Reports go to a
+    /// crash must end its process: the core's own after sending its stack and none of its memory. Reports go to a
     /// listener in this test, never to Sentry.
     #[test]
     fn crashes_under_the_crash_handler_end() {
@@ -719,16 +790,23 @@ mod tests {
             "the core did not end of its own stack overflow: {ended:?}\n{printed}"
         );
 
-        let minidump_sent = || {
-            envelopes.locked().iter().any(|body| {
-                contains(body, b"event.minidump") && contains(body, b"\"process\":\"core\"")
-            })
+        let crash_sent = || {
+            let crash = |body: &&Vec<u8>| {
+                contains(body, b"instruction_addr") && contains(body, b"\"process\":\"core\"")
+            };
+            envelopes.locked().iter().any(|body| crash(&body))
         };
         let deadline = Instant::now() + Duration::from_secs(15);
-        while !minidump_sent() && Instant::now() < deadline {
+        while !crash_sent() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(100));
         }
-        assert!(minidump_sent(), "the core's crash sent no minidump");
+        assert!(crash_sent(), "the core's crash sent no stack");
+        for memory in [IN_MEMORY, b"MDMP", b"event.minidump"] {
+            assert!(
+                !envelopes.locked().iter().any(|body| contains(body, memory)),
+                "the core's crash sent its memory"
+            );
+        }
     }
 
     fn core() -> ! {
@@ -802,7 +880,9 @@ mod tests {
 
     #[inline(never)]
     fn deep(depth: u64) -> u64 {
-        let frame = std::hint::black_box([depth as u8; 8192]);
+        let mut frame = [depth as u8; 8192];
+        frame[8..][..IN_MEMORY.len()].copy_from_slice(IN_MEMORY);
+        let frame = std::hint::black_box(frame);
         if depth == 0 {
             0
         } else {
