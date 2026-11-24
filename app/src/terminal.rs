@@ -839,6 +839,32 @@ fn shell_chip(shell: &ShellMetadataSnapshot, cx: &App) -> impl IntoElement {
 
 const CHIP_GROUP: &str = "terminal";
 
+/// The cell every terminal is drawn in, at the font and scale of now.
+fn metrics(bench: &mut Workbench, window: &Window) -> Metrics {
+    let size = px(font_size(bench) as f32);
+    if bench.terminals.metrics.as_ref().is_some_and(|metrics| {
+        metrics.font_size != size
+            || metrics.scale != window.scale_factor()
+            || *metrics.family() != theme::mono_font()
+    }) {
+        bench.terminals.metrics = None;
+    }
+    bench
+        .terminals
+        .metrics
+        .get_or_insert_with(|| {
+            let mono = theme::mono();
+            Metrics::new(mono, size, LINE_HEIGHT, window)
+        })
+        .clone()
+}
+
+/// The columns and rows a terminal drawn in `room` has.
+pub fn fit(bench: &mut Workbench, room: gpui_kit::Size<Pixels>, window: &Window) -> (u16, u16) {
+    let grid = room.map(|length| length - SPACE_2 * 2.);
+    metrics(bench, window).fit(grid)
+}
+
 /// Attaches the terminal the first time, fits it to its bounds, acknowledges
 /// the frame about to be drawn, asks for history lines scrolled into view,
 /// and shapes the grid.
@@ -849,22 +875,7 @@ fn layout(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) -> (Layout, FocusHandle) {
-    let size = px(font_size(bench) as f32);
-    if bench.terminals.metrics.as_ref().is_some_and(|metrics| {
-        metrics.font_size != size
-            || metrics.scale != window.scale_factor()
-            || *metrics.family() != theme::mono_font()
-    }) {
-        bench.terminals.metrics = None;
-    }
-    let metrics = bench
-        .terminals
-        .metrics
-        .get_or_insert_with(|| {
-            let mono = theme::mono();
-            Metrics::new(mono, size, LINE_HEIGHT, window)
-        })
-        .clone();
+    let metrics = metrics(bench, window);
     let asks = bench.asks.clone();
     if !bench.terminals.open.contains_key(&id) && bench.claims_keys(TakesKeys::Terminal) {
         cx.defer_in(window, move |bench, window, cx| {

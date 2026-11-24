@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui_kit::{
-    div, px, AnyElement, Context, Entity, FocusHandle, IntoElement, ParentElement, Styled, Window,
+    div, px, size, AnyElement, Context, Entity, FocusHandle, IntoElement, ParentElement, Pixels,
+    Size, Styled, Window,
 };
 use sikemux_agents::agent_accounts::status::AgentStatus;
 use sikemux_agents::agent_accounts::status::FREE_MODELS;
@@ -636,20 +637,37 @@ fn sheet_startup(command: &str) -> (String, HashMap<String, String>) {
     (format!("{command}\nexit $?"), HashMap::new())
 }
 
+/// What the box leaves its terminal, inside its edge.
+fn terminal_room() -> Size<Pixels> {
+    let edge = (theme::border() + SPACE_2) * 2.;
+    size(px(TERMINAL_WIDTH) - edge, px(TERMINAL_HEIGHT) - edge)
+}
+
 fn start(bench: &mut Workbench, sheet: Sheet, cx: &mut Context<Workbench>) {
     let (startup, env) = sheet_startup(&sheet.command);
     let spawn = TerminalSpawn {
-        cols: 100,
-        rows: 26,
         cwd: sikemux_process::paths::home().map(|home| home.to_string_lossy().into_owned()),
         startup: Some(startup),
         env,
         ..TerminalSpawn::default()
     };
     let (started, session) = oneshot::channel();
-    let _ = bench.asks.send(Ask::Spawn {
-        spawn: Box::new(spawn),
-        started,
+    let (window, this) = (bench.window, cx.weak_entity());
+    cx.defer(move |cx| {
+        let _ = window.update(cx, |_, window, cx| {
+            this.update(cx, |bench, _| {
+                // Output already printed at another width would wrap again, its top out of sight.
+                let (cols, rows) = crate::terminal::fit(bench, terminal_room(), window);
+                let _ = bench.asks.send(Ask::Spawn {
+                    spawn: Box::new(TerminalSpawn {
+                        cols,
+                        rows,
+                        ..spawn
+                    }),
+                    started,
+                });
+            })
+        });
     });
     let kind = sheet.kind;
     cx.spawn(async move |bench, cx| {
