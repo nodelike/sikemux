@@ -42,6 +42,7 @@ const LINE_ICONS = {
   clock: "IconClock",
   message: "IconMessage",
   window: "IconWindow",
+  laptop: "IconLaptop",
 };
 
 /** The grid and stroke of every line icon in shared/ui/Icons.tsx, which are Lucide's. */
@@ -700,6 +701,10 @@ for (const name of PHONE_ICONS) {
 }
 
 for (const [name, markup] of Object.entries(DRAWN_ICONS)) {
+  if (LINE_ICONS[name]) {
+    named.push(`        case ${swiftString(name)}: return ${name}`);
+    continue;
+  }
   const element = {
     type: "svg",
     props: {
