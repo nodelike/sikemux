@@ -74,7 +74,7 @@ impl CoreProcess {
             .join("project");
         std::fs::create_dir(&project).expect("project");
         let child = Self::spawn(program, dir.path(), &socket, &endpoint, build);
-        let core = Self {
+        let mut core = Self {
             child,
             dir,
             socket,
@@ -118,10 +118,20 @@ impl CoreProcess {
             .expect("start the core")
     }
 
-    fn until_answering(&self) {
+    fn until_answering(&mut self) {
         let deadline = Instant::now() + WAIT;
-        while probe(&self.socket, Duration::from_secs(1)).is_err() || !self.endpoint.exists() {
-            assert!(Instant::now() < deadline, "the core never answered");
+        loop {
+            let answer = probe(&self.socket, Duration::from_secs(1));
+            if answer.is_ok() && self.endpoint.exists() {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the core never answered: {answer:?}, tools ready: {}, ended: {:?}\n{}",
+                self.endpoint.exists(),
+                self.child.try_wait(),
+                self.log()
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
     }
