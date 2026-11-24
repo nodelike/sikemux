@@ -1,5 +1,6 @@
 import { useClerk, useUser } from "@clerk/react";
 import type { Org } from "@sikemux/protocol";
+import { IconBack } from "@shared/ui/Icons";
 import { type MouseEvent, useEffect, useState } from "react";
 
 import { useSignInWays } from "./AccountPage.tsx";
@@ -147,7 +148,7 @@ function PasteLink({
       tone={problem ? "failed" : undefined}
       back={
         <a className="txt" href={HOSTS} onClick={follow(HOSTS)}>
-          Back
+          <IconBack className="ic" /> Back
         </a>
       }
       foot={<Foot />}

@@ -1832,3 +1832,8 @@ canvas.dots {
   font-weight: 600;
   letter-spacing: -0.01em;
 }
+@media (max-width: 860px) {
+  .hero .markbox {
+    order: -1;
+  }
+}
