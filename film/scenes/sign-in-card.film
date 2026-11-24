@@ -37,7 +37,7 @@ snap sign-in-key
 click "Sign in"
 settle 2
 snap sign-in-box
-click "Cancel"
+key escape
 settle 1
 click "Dismiss"
 settle 2
@@ -54,7 +54,7 @@ settle 6
 snap sign-in-ticked
 click "Sign in"
 settle 6
-click "Cancel"
+key escape
 settle 1
 snap sign-in-again
 click "Try again"
