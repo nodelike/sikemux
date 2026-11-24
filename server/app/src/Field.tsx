@@ -31,8 +31,10 @@ const FieldContext = createContext<FieldHandle | null>(null);
 
 const LEAVE_MS = 380;
 
-const plainOf = (picture: Picture) =>
-  "svg" in picture ? picture.svg : `<b>${picture.letter}</b>`;
+/** Puts the picture itself in the spot, for a window without dots. */
+function drawPlain(spot: HTMLElement, picture: Picture) {
+  spot.innerHTML = "svg" in picture ? picture.svg : `<b>${picture.letter}</b>`;
+}
 
 /** One canvas of dots behind every page. It outlives them, so a page's mark turns into the next one's. */
 export function Field({ children }: { children: ReactNode }) {
@@ -48,19 +50,21 @@ export function Field({ children }: { children: ReactNode }) {
 
   const handle = useMemo<FieldHandle>(() => {
     const paint = (picture: Picture, name: SceneName) => {
-      const { tint, deep, bright } = sceneOf(name);
+      const { tint, alt, deep, bright } = sceneOf(name);
       const on = stage.current;
       dots.current?.look({
         tint,
+        alt,
         deep,
         bright,
+        glow: on?.hero ? 0.16 : 0.3,
         tone: on?.tone ?? "worked",
         reach: on?.hero ? 0.62 : 0.85,
         rich: on?.hero ? 1 : 0.92,
         clearing: 0.5,
       });
       dots.current?.show(picture);
-      spot.innerHTML = plainOf(picture);
+      drawPlain(spot, picture);
     };
     const settle = () => {
       const on = stage.current;
