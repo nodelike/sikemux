@@ -139,5 +139,9 @@ export class Relay {
   readonly rooms = new Map<string, Room>();
   readonly hosts = new Map<string, HostLink>();
   /** Every open connection, hosts and viewers alike. */
-  readonly sockets = new Set<{ bye(reconnectAfterMs: number): void }>();
+  readonly sockets = new Set<{
+    bye(reconnectAfterMs: number): void;
+    /** The share now asks viewers to sign in: close the connection if it watches it without. */
+    needsSignIn(share: string): void;
+  }>();
 }

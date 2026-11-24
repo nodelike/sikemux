@@ -155,6 +155,8 @@ export class ShareSocket
   userId = "";
   private role: ShareHello["role"] = "viewer";
   private room: Room | null = null;
+  /** The share a viewer joins or watches, known before its row is read. */
+  private watches: string | null = null;
 
   private readonly context: ShareContext;
 
@@ -190,6 +192,10 @@ export class ShareSocket
 
   removed() {
     this.close(ShareCloseCode.unauthenticated, "no longer signed in");
+  }
+
+  needsSignIn(share: string) {
+    if (this.watches === share && !this.userId) this.removed();
   }
 
   bye(reconnectAfterMs: number) {
@@ -362,6 +368,9 @@ export class ShareSocket
     const { db, options } = this.context;
     if (!hello.share) throw new HelloRefused("a viewer names the share");
     const viewer = await this.viewer(hello);
+    this.key = viewer.key;
+    this.userId = viewer.userId;
+    this.watches = hello.share;
     const row = await db
       .selectFrom("shares")
       .select([
@@ -385,8 +394,6 @@ export class ShareSocket
       this.close(ShareCloseCode.unauthenticated, "sign in to watch this share");
       return undefined;
     }
-    this.key = viewer.key;
-    this.userId = viewer.userId;
     if (row.ended_at || row.expires_at.getTime() <= Date.now()) {
       this.send({
         type: "ended",
@@ -453,10 +460,8 @@ export class ShareSocket
           .set({ anyone })
           .where("id", "=", message.share)
           .execute();
-        const viewers = relay.rooms.get(message.share)?.viewers.values();
         if (!anyone)
-          for (const viewer of viewers ?? [])
-            if (!viewer.userId) viewer.removed();
+          for (const socket of relay.sockets) socket.needsSignIn(message.share);
       }
     } else {
       const open = await db
