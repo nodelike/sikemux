@@ -256,6 +256,7 @@ impl Question {
             shown_in: Vec::new(),
             link: self.link.clone(),
             question: self.text.clone(),
+            headline: String::new(),
             context: None,
             assumption: None,
             options,

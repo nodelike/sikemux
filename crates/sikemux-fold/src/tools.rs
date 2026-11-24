@@ -634,13 +634,26 @@ pub(super) fn short_input(input: Option<&Value>) -> Option<Value> {
 /// said of it.
 pub(super) fn call(raw: &Map<String, Value>) -> ToolCall {
     let kind = text(raw.get("kind")).map(str::to_owned);
+    let title = text(raw.get("title")).unwrap_or_default().to_owned();
+    let mut input = short_input(raw.get("rawInput"));
+    if let Some(sent) = message(&title, raw.get("rawInput")) {
+        let kept = input
+            .as_mut()
+            .and_then(|input| match input.get("arguments") {
+                Some(Value::Object(_)) => input.pointer_mut("/arguments/text"),
+                _ => input.get_mut("text"),
+            });
+        if let Some(kept) = kept {
+            *kept = Value::from(super::first_words(sent));
+        }
+    }
     ToolCall {
         tool_call_id: text(raw.get("toolCallId")).unwrap_or_default().to_owned(),
-        title: text(raw.get("title")).unwrap_or_default().to_owned(),
+        title,
         status: raw
             .get("status")
             .and_then(|status| serde_json::from_value(status.clone()).ok()),
-        raw_input: short_input(raw.get("rawInput")),
+        raw_input: input,
         path: location(raw.get("locations")),
         description: description(kind.as_deref(), raw.get("rawInput")),
         kind,
@@ -698,9 +711,14 @@ pub(super) fn settle(raw: &Map<String, Value>) -> Settled {
 }
 
 fn sent(title: &str, input: Option<&Value>) -> Option<PartTree> {
-    let args = super::row::arguments(input);
+    message(title, input).map(super::send::read)
+}
+
+/// What an agent sends another with this call.
+fn message<'a>(title: &str, input: Option<&'a Value>) -> Option<&'a str> {
+    let args = super::row::arguments_in(input)?;
     let message = text(args.get("text")).filter(|message| !message.trim().is_empty())?;
-    (sikemux_tool(title, &args) == "agent_send").then(|| super::send::read(message))
+    (sikemux_tool(title, args) == "agent_send").then_some(message)
 }
 
 /// The MCP app the core kept for a finished call, which it names on the call's last update.

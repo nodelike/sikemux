@@ -52,7 +52,7 @@ pub use event::{ChatEvent, ChatEventKind};
 pub use find::{found_in, matches, searchable, Found, Query};
 pub use left_out::restored_parts;
 pub use send::{with_trees, PageOf, PAGE_BYTES, TAIL_TURNS};
-pub use team::REPORT_OPENING;
+pub use team::{first_words, REPORT_OPENING};
 pub use update::UpdateKind;
 use update::{finished_compaction, stamped_at};
 

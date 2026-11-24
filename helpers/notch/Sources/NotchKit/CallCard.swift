@@ -502,7 +502,7 @@ private struct CallsLine: View {
                 Circle().fill(Theme.warn).frame(width: 7, height: 7).frame(width: 20, height: 20)
                 Text(count == 1 ? "1 ask" : "\(count) asks")
                     .font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink).fixedSize()
-                Text(open ? "" : newest.question)
+                Text(open ? "" : newest.headline ?? newest.question)
                     .font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !open {
@@ -559,10 +559,11 @@ private struct CallRow: View {
 
     var body: some View {
         let entry = store.entries.first { $0.agentId == call.asker.agentId }
+        let headline = call.headline ?? call.question
         Button(action: choose) {
             HStack(spacing: 10) {
                 AskerLook(call: call, face: entry?.agent?.face)
-                Text(open ? entry?.title ?? call.question : call.question)
+                Text(open ? entry?.title ?? headline : headline)
                     .font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink).lineLimit(1)
                 Spacer(minLength: 8)
                 if open, let project = store.projectName(call.project) {

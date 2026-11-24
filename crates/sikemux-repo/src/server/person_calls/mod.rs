@@ -142,6 +142,7 @@ impl Raise {
             shown_in: Vec::new(),
             link: None,
             question: self.question,
+            headline: String::new(),
             context: self.context,
             assumption: None,
             options: self.options,
@@ -586,7 +587,7 @@ impl PersonCalls {
         let top = open.iter().min_by_key(|call| call.raised_at)?;
         Some(AgentCall {
             id: top.id.clone(),
-            question: top.question.clone(),
+            question: sikemux_fold::first_words(&top.question),
             waiting_since: top.raised_at,
             count: open.len(),
         })
@@ -1705,11 +1706,13 @@ pub fn answered_since(core: &Core, project: &str, from: u64, to: u64) -> Vec<boo
         .collect()
 }
 
-/// Every call the device view shows, each asker marked when it is a project's chief.
+/// Every call the device view shows, with its headline, each asker marked when it is a project's
+/// chief.
 pub fn shown(core: &Core) -> Vec<PersonCall> {
     let chiefs = (core.repo_above().chief_all)(core);
     let mut calls = core.person_calls().shown();
     for call in &mut calls {
+        call.headline = sikemux_fold::first_words(&call.question);
         for asker in std::iter::once(&mut call.asker).chain(call.joined.iter_mut()) {
             asker.chief = chiefs.contains(&asker.agent_id);
         }

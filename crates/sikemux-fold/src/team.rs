@@ -40,7 +40,7 @@ fn read_from(rows: &[Row], from: usize) -> usize {
 
 /// The first words of a message, without what marks them up. A report opens on words of
 /// Sikemux's own, so its first words are the answer's.
-fn first_words(text: &str) -> String {
+pub fn first_words(text: &str) -> String {
     let text = text.strip_prefix(REPORT_OPENING).unwrap_or(text);
     let words = sikemux_markdown::words(text);
     let line = (words.lines().map(str::trim))

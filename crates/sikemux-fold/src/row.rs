@@ -451,16 +451,14 @@ fn fits(text: &str, most: usize) -> bool {
     text.encode_utf16().count() <= most
 }
 
-/// Some agents hand over the server and tool beside the arguments rather than the arguments alone.
 pub(super) fn arguments(input: Option<&Value>) -> Map<String, Value> {
-    let Some(input) = input.and_then(Value::as_object) else {
-        return Map::new();
-    };
-    input
-        .get("arguments")
-        .and_then(Value::as_object)
-        .unwrap_or(input)
-        .clone()
+    arguments_in(input).cloned().unwrap_or_default()
+}
+
+/// Some agents hand over the server and tool beside the arguments rather than the arguments alone.
+pub(super) fn arguments_in(input: Option<&Value>) -> Option<&Map<String, Value>> {
+    let input = input?.as_object()?;
+    Some((input.get("arguments").and_then(Value::as_object)).unwrap_or(input))
 }
 
 pub(super) fn first_short_argument(args: &Map<String, Value>) -> Option<String> {

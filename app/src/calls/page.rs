@@ -1214,10 +1214,7 @@ pub(super) fn chat_fold(
                 .min_w_0()
                 .truncate()
                 .text_color(t.text_secondary)
-                .child(t!(
-                    "Newest: {question}",
-                    question = headline(&newest.question)
-                ))
+                .child(t!("Newest: {question}", question = newest.headline))
                 .into_any_element(),
             div()
                 .text_size(theme::ui_text(11.5))
@@ -1349,7 +1346,7 @@ pub(super) fn chat_row(
             .into_any_element(),
     };
     BaseButton::new(SharedString::from(format!("call-chat-row-{}", call.id)))
-        .accessibility_label(SharedString::from(headline(&call.question).to_owned()))
+        .accessibility_label(SharedString::from(call.headline.clone()))
         .group(CHAT_ROW)
         .w_full()
         .h(px(36.))
@@ -1386,7 +1383,7 @@ pub(super) fn chat_row(
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .child(headline(&call.question).to_owned()),
+                .child(call.headline.clone()),
         )
         .child(
             div()

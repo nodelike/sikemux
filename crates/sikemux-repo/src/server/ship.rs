@@ -1965,6 +1965,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         shown_in: Vec::new(),
         link: None,
         question,
+        headline: String::new(),
         context: hold.why.clone(),
         assumption: None,
         options,

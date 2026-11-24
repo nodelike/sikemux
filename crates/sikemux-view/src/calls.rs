@@ -280,6 +280,9 @@ pub struct PersonCall {
     pub link: Option<CallLink>,
     /// The decision, in one line; on a do call, what to do; on a look call, what to look at.
     pub question: String,
+    /// The question where one line shows: its first words, without what marks them up.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub headline: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
     /// What the asker goes on with until the person answers, in its own words, one line; none

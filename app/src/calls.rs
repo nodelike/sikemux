@@ -65,11 +65,11 @@ pub(crate) fn kind_mark(kind: CallKind, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// What a call's tab reads: its short title, else its question's first line.
+/// What a call's tab reads: its short title, else its headline.
 pub(crate) fn tab_title(call: &PersonCall) -> String {
     match &call.title {
         Some(title) if !title.trim().is_empty() => title.clone(),
-        _ => call.question.lines().next().unwrap_or_default().to_owned(),
+        _ => call.headline.clone(),
     }
 }
 
@@ -848,13 +848,6 @@ fn who(
                 ))
         })
         .children(tail)
-}
-
-/// A question's first line, which names its call where one line shows.
-fn headline(question: &str) -> &str {
-    (question.lines().map(str::trim))
-        .find(|line| !line.is_empty())
-        .unwrap_or_default()
 }
 
 /// Why the call came up, in the asker's words.
@@ -1664,7 +1657,7 @@ fn folded(
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .child(headline(&call.question).to_owned()),
+                .child(call.headline.clone()),
         )
         .children(elsewhere.map(|named| named.tag(11.5, cx).flex_none().max_w(px(140.))))
         .child(
