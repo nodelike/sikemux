@@ -478,7 +478,7 @@ fn response_head(
     extra: &[(&str, &str)],
 ) -> String {
     let mut head = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {kind}\r\nContent-Length: {length}\r\nCache-Control: no-store\r\nAccept-Ranges: bytes\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n"
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {kind}\r\nContent-Length: {length}\r\nCache-Control: no-store\r\nAccept-Ranges: bytes\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n"
     );
     for (name, value) in extra {
         head.push_str(&format!("{name}: {value}\r\n"));
