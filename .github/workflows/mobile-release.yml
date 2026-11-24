@@ -86,6 +86,31 @@ jobs:
           VERSION: ${{ steps.plan.outputs.version }}
         run: node mobile/app/scripts/play-release.mjs notes "$VERSION"
 
+  # GitHub refuses the publish job's token a tag on a commit whose workflow files no branch has, and
+  # main's can change while the nightly builds, so this branch has them until the tag is made. A
+  # commit main's workflows have already moved past is refused here, before it builds.
+  keep-workflows:
+    name: Keep the nightly's workflow files on a branch
+    needs: plan
+    if: needs.plan.outputs.version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Move mobile-nightly-build to the commit
+        if: needs.plan.outputs.channel == 'nightly'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          refs="repos/$GITHUB_REPOSITORY/git/refs"
+          gh api --silent -X PATCH "$refs/heads/mobile-nightly-build" -f "sha=$SHA" -F force=true ||
+            gh api --silent -X POST "$refs" -f "ref=refs/heads/mobile-nightly-build" -f "sha=$SHA" || {
+              echo "::error::GitHub refused mobile-nightly-build on $SHA, so it would refuse this nightly's tag; the next commit that passes CI gets one"
+              exit 1
+            }
+
   # No job that installs or builds the dependencies holds a signing key, and no job that holds one
   # runs them or anything they built: the builds come out unsigned, and the jobs on the release
   # environment sign and upload them with the Android SDK, the JDK and Xcode alone.
@@ -93,7 +118,7 @@ jobs:
     name: Build Android
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    needs: plan
+    needs: [plan, keep-workflows]
     if: needs.plan.outputs.version != ''
     env:
       APP_VARIANT: production
@@ -361,7 +386,7 @@ jobs:
     name: Build iOS
     runs-on: macos-26
     timeout-minutes: 90
-    needs: plan
+    needs: [plan, keep-workflows]
     if: needs.plan.outputs.channel == 'nightly'
     steps:
       - name: Checkout

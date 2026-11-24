@@ -170,6 +170,26 @@ jobs:
             RELEASE_NOTES.md
             RELEASE_CHANGES.md
 
+  # GitHub refuses Publish's token a tag on a commit whose workflow files no branch has, and main's
+  # can change while the nightly builds, so this branch has them until the tag is made.
+  keep-workflows:
+    name: Keep the nightly's workflow files on a branch
+    needs: plan
+    if: ${{ needs.plan.outputs.channel == 'nightly' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Move nightly-build to the commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          refs="repos/$GITHUB_REPOSITORY/git/refs"
+          gh api --silent -X PATCH "$refs/heads/nightly-build" -f "sha=$RELEASE_SHA" -F force=true ||
+            gh api --silent -X POST "$refs" -f "ref=refs/heads/nightly-build" -f "sha=$RELEASE_SHA" ||
+            echo "::warning::nightly-build was not moved to $RELEASE_SHA; a workflow change on main can stop this nightly's tag"
+
   # Nothing that builds holds signing material, and nothing that signs runs the
   # build's dependencies or what it signs. The app is compiled with the hashes of
   # the voice and simulator helpers it downloads, so they are signed first.

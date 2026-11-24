@@ -9,6 +9,7 @@ The root `AGENTS.md` applies here too.
 - About once an hour, the newest commit of `main` that passed CI becomes a nightly, tagged on that commit.
   The Nightly workflow starts it: never start Release by hand. Stable releases and hotfixes are tagged on
   `release/<major.minor>`, and their version bump and notes go only there.
+- Branch cleanups leave `nightly-build` and `mobile-nightly-build` alone: GitHub refuses a nightly its tag without them.
 - Never check out `release/*` in this shared checkout. Commit to it from objects with a
   temporary index, as `docs/releasing.md` shows.
 - After a stable `0.x.y`, `main`'s nightlies build toward the next release:
