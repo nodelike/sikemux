@@ -294,7 +294,8 @@ fn file_in(top: &Path, dir: &Path, path: &str) -> Option<String> {
     if !full.is_file() {
         return None;
     }
-    Some(full.strip_prefix(top).ok()?.to_string_lossy().into_owned())
+    let path = full.strip_prefix(top).ok()?.to_string_lossy();
+    Some(path.replace(std::path::MAIN_SEPARATOR, "/"))
 }
 
 fn resolve(dir: &Path, top: &Path, target: &str) -> Result<Found, String> {
