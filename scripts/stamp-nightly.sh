@@ -25,7 +25,7 @@ scripts/set-version.sh "$version"
   printf 'Built from [`%s`](https://github.com/%s/commit/%s) on main.\n' "$(git rev-parse --short HEAD)" "$REPO" "$(git rev-parse HEAD)"
   if [[ -n "$last" ]]; then
     printf '\n## New since %s\n\n' "${last#v}"
-    news="$(node scripts/release-notes.mjs app "$last" HEAD)"
+    news="$(node scripts/release-notes.mjs app "$last" HEAD --nightly)"
     nothing="Nothing you'd notice in the app changed."
     printf '%s\n' "${news:-$nothing}"
     printf "\nFor the complete patch history, compare [\`%s...v%s\`](https://github.com/%s/compare/%s...v%s).\n" \
@@ -43,7 +43,7 @@ base="$(git merge-base HEAD "$stable")"
     name="$tag"
     [[ "$tag" == HEAD ]] && name="v$version"
     printf '\n## %s · %s commits\n\n' "$name" "$(git rev-list --count "$from..$tag")"
-    node scripts/release-notes.mjs app "$from" "$tag"
+    node scripts/release-notes.mjs app "$from" "$tag" --nightly
     from="$tag"
   done
 } >RELEASE_CHANGES.md

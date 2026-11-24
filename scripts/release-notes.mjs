@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Lists what the commits after <from>, up to <to>, changed for people, one bullet a change,
 // oldest first: a commit's `Docs:` lines, or its subject when it has none. Prints nothing
-// when nobody would notice any of them.
+// when nobody would notice any of them. What only people on nightly can see yet, in a commit's
+// `Nightly:` lines, is listed with --nightly alone, and says nothing anywhere else.
 import { execFileSync } from "node:child_process";
 
 const CODE = {
@@ -18,9 +19,11 @@ const UNSEEN_KINDS =
 const UNSEEN_WORDS = /\b(tests?|unused|(byte|schema) budgets?|swift-format)\b/;
 const READABLE = 160;
 
-const [audience, from, to] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const nightly = args.includes("--nightly");
+const [audience, from, to] = args.filter((arg) => arg !== "--nightly");
 if (!CODE[audience] || !to) {
-  console.error("Usage: release-notes.mjs app|phone <from> <to>");
+  console.error("Usage: release-notes.mjs app|phone <from> <to> [--nightly]");
   process.exit(2);
 }
 
@@ -47,13 +50,13 @@ function commits() {
     });
 }
 
-/** What each `Docs:` line says, its wrapped lines joined. */
-function docsLines(body) {
+/** What each line of the body marked `label:` says, its wrapped lines joined. */
+function marked(label, body) {
   const said = [];
   let open = false;
   for (const line of body.split("\n")) {
-    if (line.startsWith("Docs: ")) {
-      said.push(line.slice("Docs: ".length).trim());
+    if (line.startsWith(`${label}: `)) {
+      said.push(line.slice(label.length + 2).trim());
       open = true;
     } else if (!line.trim() || /^[A-Z][A-Za-z-]*: /.test(line)) open = false;
     else if (open) said[said.length - 1] += ` ${line.trim()}`;
@@ -89,8 +92,11 @@ function readable(text) {
 }
 
 function notes({ subject, body, files }) {
-  const docs = docsLines(body);
-  const said = docs.filter((line) => !/^none\b/i.test(line));
+  const docs = marked("Docs", body);
+  const early = marked("Nightly", body);
+  const said = [...docs, ...(nightly ? early : [])].filter(
+    (line) => !/^none\b/i.test(line),
+  );
   const code = files.some(
     (file) => CODE[audience].test(file) && !UNSEEN_FILES.test(file),
   );
@@ -102,7 +108,8 @@ function notes({ subject, body, files }) {
     }
     return files.every((file) => PHONES.test(file)) ? [] : said.map(readable);
   }
-  if (!code || docs.some((line) => /^none\.?$/i.test(line))) return [];
+  if (!code || early.length || docs.some((line) => /^none\.?$/i.test(line)))
+    return [];
   const { kind, area, words } = parts(subject);
   if ([kind, area].some((it) => it && UNSEEN_KINDS.test(it))) return [];
   if (UNSEEN_WORDS.test(words)) return [];
