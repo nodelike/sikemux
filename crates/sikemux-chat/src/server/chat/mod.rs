@@ -927,6 +927,12 @@ impl Chat {
         self.turn_over.notify_waiters();
     }
 
+    /// Every process the chat's agent started that still runs.
+    fn processes(&self) -> Vec<u32> {
+        let agent = *self.agent.locked();
+        agent.map(KeptAgent::processes).unwrap_or_default()
+    }
+
     pub fn note_agent(&self, pid: u32) {
         let mut agent = self.agent.locked();
         *agent = KeptAgent::of(pid);

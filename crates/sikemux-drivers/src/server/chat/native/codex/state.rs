@@ -20,6 +20,7 @@ use super::super::turns::{Ended, Prompted, Started, Turns};
 use super::approvals::{self, Question};
 use super::items::{self, Items};
 use super::notifications::{self, EndedTurn, Notification};
+use super::running::Running;
 use super::subagents::{Route, Subagents};
 
 pub type Effect = rpc_driver::Effect<Infallible>;
@@ -60,6 +61,8 @@ pub struct Session {
     #[serde(with = "super::super::json::pairs")]
     tool_calls: HashMap<(String, String), Vec<String>>,
     pub subagents: Subagents,
+    #[serde(default)]
+    pub(super) running: Running,
     pub token_usage: Option<Value>,
     /// The newest turn of the thread the chat has been told of.
     pub latest_turn: Option<String>,
@@ -173,6 +176,7 @@ impl Session {
             items: Items::default(),
             edits: HashMap::new(),
             tool_calls: HashMap::new(),
+            running: Running::default(),
             token_usage: None,
             latest_turn: None,
             starting_servers: HashSet::new(),
@@ -216,6 +220,7 @@ impl Session {
         let mut out = Vec::new();
         let mut replay = Vec::new();
         let place = notifications::place(method, params);
+        self.running.notice(&self.thread_id, method, &place, params);
         let route = self
             .subagents
             .route(method, place.thread_id, params, &mut out, &mut replay);

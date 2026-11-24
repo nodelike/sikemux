@@ -8,6 +8,7 @@ mod config;
 mod history;
 mod items;
 mod notifications;
+mod running;
 mod state;
 mod subagents;
 
@@ -38,6 +39,7 @@ use super::session::{self, Backend, Opened, Prompt, Sink, Steered};
 use crate::sessions::for_agent::context_text;
 use approvals::Question;
 use commands::Command;
+use running::Left;
 use state::{user_input_told, Reply, Session};
 
 type Driver = rpc_driver::Driver<Session>;
@@ -90,6 +92,24 @@ impl RpcAgent for Session {
                 driver
                     .sink
                     .ask(request, reply, |reply| driver.responder(reply));
+            }
+        }
+    }
+
+    fn end_left_running(driver: &Driver, turn_id: &str) {
+        let left = driver.session.locked().running.interrupted(turn_id);
+        for left in left {
+            match left {
+                Left::Command(params) => drop(
+                    driver
+                        .rpc
+                        .start("thread/backgroundTerminals/terminate", params),
+                ),
+                Left::Subagent(turn, params) => drop(driver.rpc.send_for(
+                    "turn/interrupt",
+                    params,
+                    Purpose::Interrupt(turn),
+                )),
             }
         }
     }

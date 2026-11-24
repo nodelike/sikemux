@@ -433,11 +433,15 @@ impl Chats {
         Some(task)
     }
 
-    /// Ends the agent's chat, which the person closed, keeping its history to show when it
-    /// is opened again.
+    /// Ends the agent's chat, which the person closed, and every command it runs, keeping its
+    /// history to show when it is opened again.
     pub fn close(&self, agent_id: &str) {
         if let Some(chat) = self.take(agent_id) {
+            let processes = chat.processes();
             Self::halt(&chat);
+            for pid in processes {
+                sikemux_process::terminate_tree(pid, true);
+            }
             self.shelve(&chat);
             // The workspace saves the close soon after, so the history must be findable first.
             self.shelf.flush();

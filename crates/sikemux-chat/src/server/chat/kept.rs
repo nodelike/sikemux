@@ -67,6 +67,18 @@ impl KeptAgent {
             super::native::kill_group(self.pid);
         }
     }
+
+    /// Every process below the agent. One that leads a process group of its own, as a command
+    /// Codex runs does, outlives the agent's group.
+    pub fn processes(self) -> Vec<u32> {
+        if cfg!(unix) && sikemux_process::procs::started(self.pid) == Some(self.started) {
+            sikemux_process::procs::descendants(self.pid)
+                .into_keys()
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 impl KeptChat {

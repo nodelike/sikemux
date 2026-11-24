@@ -152,6 +152,9 @@ pub trait RpcAgent:
     fn notification(driver: &Driver<Self>, method: &str, params: Value);
     fn request(driver: &Driver<Self>, id: Value, method: &str, params: &Value);
 
+    /// Ends what the agent leaves going when it interrupts turn `turn_id`.
+    fn end_left_running(_: &Driver<Self>, _turn_id: &str) {}
+
     /// The answer to a request sent with a `purpose` only this agent has.
     fn purpose_answered(driver: &Driver<Self>, purpose: Purpose, result: Answered);
 
@@ -370,6 +373,7 @@ impl<S: RpcAgent> Reads for Driver<S> {
                 (Purpose::Interrupt(turn_id), Ok(_)) => {
                     let effects = self.session.locked().interrupted(&turn_id);
                     self.apply(effects);
+                    S::end_left_running(self, &turn_id);
                 }
                 (
                     Purpose::Steer {
