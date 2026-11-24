@@ -1,7 +1,9 @@
 import { type ComponentType, useEffect } from 'react';
 import * as Sentry from '@sentry/react-native';
+import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 import { nativeApplicationVersion, nativeBuildVersion } from 'expo-application';
 import * as Crypto from 'expo-crypto';
+import { File, Paths } from 'expo-file-system';
 import * as Updates from 'expo-updates';
 
 import { versionFromBuild } from '@/network/versions';
@@ -10,6 +12,10 @@ const DSN = 'https://76804485378be914417f459fe482c276@o4512409824919552.ingest.d
 
 /** Only builds the release workflows make, which set EXPO_PUBLIC_SENTRY, send crash reports. */
 export const reporting = !__DEV__ && process.env.EXPO_PUBLIC_SENTRY === '1';
+
+/** There while the person has turned crash reports off. */
+const declined = reporting ? new File(Paths.document, 'crash-reports-off') : undefined;
+const shared = externalValue(!declined?.exists);
 
 /** Console lines and touched labels can hold what the person typed or read, so neither leaves the phone. */
 /** Sentry works out a city from the sender's address unless the event names one, so every event names none. */
@@ -24,7 +30,7 @@ function keepBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb | null
   return breadcrumb;
 }
 
-if (reporting) {
+function start() {
   Sentry.init({
     dsn: DSN,
     release: `sikemux-mobile@${versionFromBuild(nativeBuildVersion) ?? nativeApplicationVersion}+${nativeBuildVersion}`,
@@ -42,6 +48,24 @@ if (reporting) {
       tags: { channel: Updates.channel ?? 'none', commit: process.env.EXPO_PUBLIC_COMMIT ?? 'none' },
     },
   });
+}
+
+if (reporting && shared.get()) start();
+
+export function useCrashReportsShared(): boolean {
+  return useExternalValue(shared);
+}
+
+export function shareCrashReports(next: boolean) {
+  shared.set(next);
+  if (!declined) return;
+  if (next) {
+    if (declined.exists) declined.delete();
+    start();
+  } else {
+    if (!declined.exists) declined.create();
+    void Sentry.close();
+  }
 }
 
 /** The root screen, wrapped so app start is measured from the first frame it draws. */

@@ -9,8 +9,8 @@ use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::usage::Step;
-use sikemux_corekit::usage::account_hash;
-pub use sikemux_corekit::usage::{do_not_track, signed_in_user, Install};
+use sikemux_corekit::usage::{account_hash, Sharing};
+pub use sikemux_corekit::usage::{signed_in_user, Install};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -25,7 +25,7 @@ use tokio::sync::Mutex;
 
 use super::activity_log::{ReportedAgent, ReportedAnswers, ReportedDay, ReportedTokens};
 use super::Core;
-use sikemux_view::prefs::{Preferences, UpdateChannel};
+use sikemux_view::prefs::UpdateChannel;
 use sikemux_wire::protocol::BuildChannel;
 
 const CAPTURE_ENDPOINT: &str = "https://eu.i.posthog.com/i/v0/e/";
@@ -33,9 +33,9 @@ const BATCH_ENDPOINT: &str = "https://eu.i.posthog.com/batch/";
 const PROJECT_TOKEN: &str = "phc_yGaffnPw38wHvQKgusATcKtYmkyDCbNNGpTo3sK9pQoD";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const SECONDS_PER_DAY: u64 = 86_400;
+/// How long someone just shown the choice has to turn it off before the first report.
+const TIME_TO_REFUSE: Duration = Duration::from_secs(60);
 const HOST_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
-/// How far back an install's first report reaches into the activity it kept before.
-const FIRST_REPORT_DAYS: u64 = 400;
 
 #[derive(Clone, Copy)]
 pub struct Active<'a> {
@@ -54,8 +54,8 @@ pub struct Active<'a> {
 struct UsageRecord {
     install_id: String,
     last_reported_day: Option<u64>,
-    /// The last whole day whose activity was reported, or passed over while
-    /// the person did not share usage.
+    /// The last day whose activity was reported, or passed over because the person did not
+    /// share usage for some of it.
     last_activity_day: Option<u64>,
     #[serde(default)]
     funnel: Vec<Reached>,
@@ -137,10 +137,12 @@ async fn report_activity(
     let path = data_dir.join("usage.json");
     let mut record = load_record(&path)?;
     let today = utc_day(SystemTime::now());
-    let first = record
-        .last_activity_day
-        .map_or(today.saturating_sub(FIRST_REPORT_DAYS), |day| day + 1);
+    let first = record.last_activity_day.map_or(today, |day| day + 1);
     if first >= today {
+        if record.last_activity_day.is_none() {
+            record.last_activity_day = today.checked_sub(1);
+            save_record(&path, &record)?;
+        }
         return Ok(());
     }
     let days = tokio::task::spawn_blocking(move || days(first, today))
@@ -165,26 +167,31 @@ async fn report_activity(
     save_record(&path, &record)
 }
 
-/// Days the person did not share stay unreported, even once they share again.
-async fn pass_over_activity(data_dir: &Path) -> Result<(), String> {
+/// What happens while the person does not share, today included, stays unreported even once
+/// they share again.
+async fn pass_over(data_dir: &Path) -> Result<(), String> {
     let _one_at_a_time = IN_FLIGHT.lock().await;
     let path = data_dir.join("usage.json");
     let mut record = load_record(&path)?;
-    let yesterday = utc_day(SystemTime::now()).checked_sub(1);
-    if record.last_activity_day >= yesterday {
+    let today = Some(utc_day(SystemTime::now()));
+    if record.last_activity_day >= today && record.funnel.iter().all(|reached| reached.sent) {
         return Ok(());
     }
-    record.last_activity_day = yesterday;
+    record.last_activity_day = record.last_activity_day.max(today);
+    record.funnel.retain(|reached| reached.sent);
     save_record(&path, &record)
 }
 
 /// Notes that this install took `step`, the first time it does, for the next report to send.
 pub(crate) fn reach(core: &Arc<Core>, step: Step) {
     let bit = step.bit();
-    if TAKEN.fetch_or(bit, Ordering::Relaxed) & bit != 0 || reporting_install().is_none() {
+    if TAKEN.fetch_or(bit, Ordering::Relaxed) & bit != 0 {
         return;
     }
-    if do_not_track() || !core.preferences().get().share_usage_data {
+    let Some(install) = reporting_install() else {
+        return;
+    };
+    if sharing(core, install) == Sharing::Off {
         return;
     }
     let Some(data_dir) = core.config().data_dir.clone() else {
@@ -294,32 +301,46 @@ fn reporting_install() -> Option<Install> {
 
 /// Counts this install active once a UTC day while the person shares usage: an
 /// app's core on a day one of its windows is open, a host's core on a day it
-/// runs. `DO_NOT_TRACK` or `CI` in the core's environment turns it off as well.
+/// runs. `DO_NOT_TRACK` or `CI` in the core's environment turns it off as well, and nothing is
+/// sent until the person has been shown the choice.
 pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
     let Some(install) = reporting_install() else {
         return;
     };
-    if do_not_track() {
-        return;
-    }
     let host = super::host::info();
     let mut every_hour = tokio::time::interval(HOST_CHECK_INTERVAL);
+    let mut unasked = false;
     loop {
         tokio::select! {
             _ = every_hour.tick() => {}
             _ = core.usage_wake().notified() => {}
         }
-        let preferences = core.preferences().get();
-        if !preferences.share_usage_data {
-            if let Err(error) = pass_over_activity(&data_dir).await {
-                eprintln!("sikemux core: {error}");
+        match sharing(&core, install) {
+            Sharing::On if std::mem::take(&mut unasked) => {
+                tokio::time::sleep(TIME_TO_REFUSE).await;
+                core.usage_wake().notify_one();
+                continue;
+            }
+            Sharing::On => {}
+            Sharing::Unasked => {
+                unasked = true;
+                continue;
+            }
+            Sharing::Off => {
+                if let Err(error) = pass_over(&data_dir).await {
+                    eprintln!("sikemux core: {error}");
+                }
+                continue;
             }
         }
-        let Some(channel) =
-            reported_channel(install, &preferences, core.window().is_open(), host.channel)
-        else {
+        if install == Install::App && !core.window().is_open() {
             continue;
-        };
+        }
+        let channel = reported_channel(
+            install,
+            core.preferences().get().update_channel,
+            host.channel,
+        );
         let account = core.remote().owner();
         let staff = core.account().shown().is_some_and(|shown| shown.staff);
         sentry_core::Hub::main().configure_scope(|scope| {
@@ -349,22 +370,27 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
     }
 }
 
-/// The channel today's use counts under, or none when nothing may be sent: the person
-/// does not share usage, or no window of the app is open.
+fn sharing(core: &Core, install: Install) -> Sharing {
+    let preferences = core.preferences().get();
+    Sharing::of(
+        install,
+        preferences.share_usage_data,
+        preferences.onboarding_complete,
+        core.remote().owner().is_some(),
+    )
+}
+
+/// The channel today's use counts under.
 fn reported_channel(
     install: Install,
-    preferences: &Preferences,
-    window_open: bool,
+    chosen: UpdateChannel,
     host_channel: BuildChannel,
-) -> Option<BuildChannel> {
-    if !preferences.share_usage_data || (install == Install::App && !window_open) {
-        return None;
-    }
-    Some(match (install, preferences.update_channel) {
+) -> BuildChannel {
+    match (install, chosen) {
         (Install::Host, _) => host_channel,
         (Install::App, UpdateChannel::Stable) => BuildChannel::Stable,
         (Install::App, UpdateChannel::Nightly | UpdateChannel::Staff) => BuildChannel::Nightly,
-    })
+    }
 }
 
 fn load_record(path: &Path) -> Result<UsageRecord, String> {
@@ -608,15 +634,8 @@ mod tests {
 
     #[test]
     fn nothing_is_sent_once_the_person_opts_out() {
-        let opted_out = Preferences {
-            share_usage_data: false,
-            ..Preferences::default()
-        };
         for install in [Install::App, Install::Host] {
-            assert_eq!(
-                reported_channel(install, &opted_out, true, BuildChannel::Stable),
-                None
-            );
+            assert_eq!(Sharing::of(install, false, true, true), Sharing::Off);
         }
     }
 

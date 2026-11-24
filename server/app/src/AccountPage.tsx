@@ -1,13 +1,18 @@
 import type { TeamAccess } from "@sikemux/protocol";
 import { useClerk, useSession, useUser } from "@clerk/react";
 import { formatDay } from "@shared/lib/format";
-import { IconLogOut, IconMail, IconTrash } from "@shared/ui/Icons";
+import { IconLogOut, IconMail, IconShield, IconTrash } from "@shared/ui/Icons";
 import { useState, type MouseEvent } from "react";
 
 import { personSvg } from "./avatarSvg.ts";
 import { DELETE_ACCOUNT } from "./navigation.ts";
+import {
+  reporting,
+  shareCrashReports,
+  useCrashReportsShared,
+} from "./reporting.ts";
 import { PROVIDERS, SignInWaysCard, waysOf } from "./SignInWays.tsx";
-import { Card, Column, Page, Row, Rows, Txt } from "./ui.tsx";
+import { Card, Column, Page, Row, Rows, Switch, Txt } from "./ui.tsx";
 import { WorkAddressesCard } from "./WorkAddresses.tsx";
 
 /** The ways the signed-in account can sign in, as the person knows them. */
@@ -65,6 +70,7 @@ function ThisBrowser({
 }) {
   const { signOut } = useClerk();
   const { session } = useSession();
+  const sharing = useCrashReportsShared();
   const [leaving, setLeaving] = useState(false);
   const leave = () => {
     setLeaving(true);
@@ -86,6 +92,20 @@ function ThisBrowser({
             </Txt>
           }
         />
+        {reporting ? (
+          <Row
+            lead={<IconShield size={16} />}
+            name="Share crash reports"
+            detail="Errors and page speed, without what you typed."
+            end={
+              <Switch
+                label="Share crash reports"
+                on={sharing}
+                onChange={shareCrashReports}
+              />
+            }
+          />
+        ) : null}
         <Row
           lead={<IconTrash size={16} />}
           name="Delete account"

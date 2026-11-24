@@ -369,6 +369,9 @@ async fn login(core: &CoreClient) -> Result<(), String> {
     style::note(
         "Your devices and hosts on this account reach it now: it shows in Sikemux on each of them.",
     );
+    style::note(
+        "This host sends anonymous usage and crash reports. To turn that off, set DO_NOT_TRACK=1 in the core's environment.",
+    );
     Ok(())
 }
 

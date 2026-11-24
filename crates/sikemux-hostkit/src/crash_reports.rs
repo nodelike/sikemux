@@ -1,8 +1,8 @@
 //! Sends panics, native crashes, release health and how long the app took to start to Sentry.
 //! Only builds the release workflow publishes know where to send, and they send only while the
-//! person shares usage data and `DO_NOT_TRACK` is unset. Nothing a person wrote or opened goes
-//! along, their home folder is written `~`, and they are named only by the account hash the
-//! usage ping sends.
+//! person shares usage data, has been shown that choice, and `DO_NOT_TRACK` is unset. Nothing a
+//! person wrote or opened goes along, their home folder is written `~`, and they are named only
+//! by the account hash the usage ping sends.
 
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
@@ -19,10 +19,9 @@ use sentry::protocol::{
 use sentry::transports::ReqwestHttpTransportOptions;
 use sentry::types::Uuid;
 use sentry::{Client, ClientOptions, Hub, Level, TransactionContext, Transport};
-use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sikemux_corekit::usage::{self, Install};
+use sikemux_corekit::usage::{self, Install, Sharing};
 use sikemux_process::sync::Locked;
 
 use crate::panic_reports::{self, PanicReport};
@@ -41,6 +40,8 @@ const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
 const MINIDUMP_FLUSH_TIMEOUT: Duration = Duration::from_secs(30);
 /// How often the core looks for panics that other processes left behind.
 const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
+/// How often a process that may not send looks whether it may now.
+const ASK_AGAIN_EVERY: Duration = Duration::from_secs(5 * 60);
 const STARTUP_SAMPLE_RATE: f32 = 0.1;
 const MAX_BREADCRUMBS: usize = 50;
 const BREADCRUMBS_PER_SECOND: u64 = 10;
@@ -62,6 +63,7 @@ impl Process {
 }
 
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+static SOCKET: OnceLock<PathBuf> = OnceLock::new();
 static USER: OnceLock<String> = OnceLock::new();
 static SENDING_CRASH: AtomicBool = AtomicBool::new(false);
 static STARTUP: Mutex<Option<Startup>> = Mutex::new(None);
@@ -91,6 +93,9 @@ fn start_sending_to(
     if let Some(data_dir) = data_dir {
         let _ = DATA_DIR.set(data_dir);
     }
+    if let Some(socket) = socket {
+        let _ = SOCKET.set(socket);
+    }
     let mut minidumps = MinidumpIntegration::new()
         .server_env_var(REPORTER_VARIABLE)
         .process_name(format!("sikemux {} crash reporter", process.name()))
@@ -119,39 +124,16 @@ fn start_sending_to(
         Client::with_options(options(dsn, process, minidumps));
         std::process::exit(0);
     }
-    if !allowed() {
-        return;
-    }
-    *SESSION.locked() = Some(SessionUpdate {
-        session_id: Uuid::new_v4(),
-        distinct_id: None,
-        sequence: None,
-        timestamp: None,
-        started: SystemTime::now(),
-        init: true,
-        duration: None,
-        status: SessionStatus::Ok,
-        errors: 0,
-        attributes: SessionAttributes {
-            release: release(env!("CARGO_PKG_VERSION")).into(),
-            environment: Some(environment().into()),
-            ip_address: None,
-            user_agent: None,
-        },
-    });
     let spawned = std::thread::Builder::new()
         .name("crash-reports".into())
         .spawn(move || {
-            if let Some(user) = socket
-                .or_else(sikemux_corekit::default_socket_path)
-                .as_deref()
-                .and_then(usage::signed_in_user)
-            {
-                if let Some(session) = SESSION.locked().as_mut() {
-                    session.distinct_id = Some(user.clone());
-                }
+            if !allowed() {
+                wait_until_allowed();
+            }
+            if let Some(user) = socket_path().as_deref().and_then(usage::signed_in_user) {
                 let _ = USER.set(user);
             }
+            *SESSION.locked() = Some(new_session());
             let hub = Hub::main();
             hub.bind_client(Some(Arc::new(Client::with_options(options(
                 dsn, process, minidumps,
@@ -173,6 +155,38 @@ fn start_sending_to(
         });
     if let Err(error) = spawned {
         eprintln!("sikemux: crash reports could not start: {error}");
+    }
+}
+
+/// Returns once this process may send. What happened before then is never sent.
+fn wait_until_allowed() {
+    while !allowed() {
+        let left = left_panics();
+        for (file, report) in &left {
+            panic_reports::save(file, &sent(report));
+        }
+        std::thread::sleep(ASK_AGAIN_EVERY);
+    }
+    STARTUP.locked().take();
+}
+
+fn new_session() -> SessionUpdate<'static> {
+    SessionUpdate {
+        session_id: Uuid::new_v4(),
+        distinct_id: USER.get().cloned(),
+        sequence: None,
+        timestamp: None,
+        started: SystemTime::now(),
+        init: true,
+        duration: None,
+        status: SessionStatus::Ok,
+        errors: 0,
+        attributes: SessionAttributes {
+            release: release(env!("CARGO_PKG_VERSION")).into(),
+            environment: Some(environment().into()),
+            ip_address: None,
+            user_agent: None,
+        },
     }
 }
 
@@ -299,7 +313,7 @@ fn breadcrumb(category: &str, level: Level, text: &str) {
     if SECOND.swap(now, Ordering::Relaxed) != now {
         IN_SECOND.store(0, Ordering::Relaxed);
     }
-    if IN_SECOND.fetch_add(1, Ordering::Relaxed) >= BREADCRUMBS_PER_SECOND {
+    if IN_SECOND.fetch_add(1, Ordering::Relaxed) >= BREADCRUMBS_PER_SECOND || !allowed() {
         return;
     }
     let message = without_paths(text)
@@ -369,9 +383,28 @@ fn options(dsn: &str, process: Process, minidumps: MinidumpIntegration) -> Clien
             Ok(client) => transport.with_client(client),
             Err(_) => transport,
         };
-        Arc::new(transport.build())
+        Arc::new(WhileAllowed(transport.build()))
     }));
     options
+}
+
+/// Drops whatever is ready to leave once the person stops sharing, wherever it came from.
+struct WhileAllowed<T>(T);
+
+impl<T: Transport> Transport for WhileAllowed<T> {
+    fn send_envelope(&self, envelope: sentry::Envelope) {
+        if allowed() {
+            self.0.send_envelope(envelope);
+        }
+    }
+
+    fn flush(&self, timeout: Duration) -> bool {
+        self.0.flush(timeout)
+    }
+
+    fn shutdown(&self, timeout: Duration) -> bool {
+        self.0.shutdown(timeout)
+    }
 }
 
 struct Discard;
@@ -381,9 +414,6 @@ impl Transport for Discard {
 }
 
 fn before_send(mut event: Event<'static>, process: Process) -> Option<Event<'static>> {
-    if !allowed() {
-        return None;
-    }
     event.server_name = None;
     let user = event.user.get_or_insert_with(Default::default);
     // An address of its own stops Sentry placing the person by the one the report came from.
@@ -395,7 +425,7 @@ fn before_send(mut event: Event<'static>, process: Process) -> Option<Event<'sta
     for (tag, value) in [
         ("process", process.name()),
         ("channel", channel),
-        ("install", install()),
+        ("install", install().name()),
     ] {
         event
             .tags
@@ -447,30 +477,15 @@ fn without_paths(text: &str) -> String {
 }
 
 fn allowed() -> bool {
-    !usage::do_not_track() && shares_usage()
+    (DATA_DIR.get().cloned())
+        .or_else(crate::login_item::data_dir)
+        .is_some_and(|data_dir| {
+            Sharing::saved(install(), &data_dir, socket_path().as_deref()) == Sharing::On
+        })
 }
 
-fn shares_usage() -> bool {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase", default)]
-    struct Shared {
-        share_usage_data: bool,
-    }
-    impl Default for Shared {
-        fn default() -> Self {
-            Self {
-                share_usage_data: true,
-            }
-        }
-    }
-    let Some(data_dir) = DATA_DIR.get().cloned().or_else(crate::login_item::data_dir) else {
-        return true;
-    };
-    match std::fs::read(data_dir.join("preferences.json")) {
-        Ok(bytes) => serde_json::from_slice::<Shared>(&bytes)
-            .is_ok_and(|preferences| preferences.share_usage_data),
-        Err(_) => true,
-    }
+fn socket_path() -> Option<PathBuf> {
+    (SOCKET.get().cloned()).or_else(sikemux_corekit::default_socket_path)
 }
 
 fn environment() -> &'static str {
@@ -484,11 +499,11 @@ fn environment() -> &'static str {
     }
 }
 
-fn install() -> &'static str {
+fn install() -> Install {
     if Install::Host.published() {
-        "host"
+        Install::Host
     } else {
-        "app"
+        Install::App
     }
 }
 
@@ -504,19 +519,23 @@ fn channel(release: &str) -> &'static str {
     }
 }
 
-/// Sends the panics no process has sent yet: those the core and the CLI died of, and any whose
+/// The panics no process has sent yet: those the core and the CLI died of, and any whose
 /// sending did not finish.
+fn left_panics() -> Vec<(PathBuf, PanicReport)> {
+    let Some(directory) = crate::hang_reports::autopsy_dir() else {
+        return Vec::new();
+    };
+    panic_reports::list_reports(&directory)
+        .into_iter()
+        .filter(|(_, report)| report.pending)
+        .collect()
+}
+
 fn send_left_panics() {
     let Some(client) = Hub::main().client() else {
         return;
     };
-    let Some(directory) = crate::hang_reports::autopsy_dir() else {
-        return;
-    };
-    let left: Vec<(PathBuf, PanicReport)> = panic_reports::list_reports(&directory)
-        .into_iter()
-        .filter(|(_, report)| report.pending)
-        .collect();
+    let left = left_panics();
     if left.is_empty() {
         return;
     }
@@ -715,6 +734,12 @@ mod tests {
     fn core() -> ! {
         clear_inherited_handlers();
         let home = sikemux_process::paths::home().unwrap();
+        std::fs::create_dir_all(home.join("data")).unwrap();
+        std::fs::write(
+            home.join("data/preferences.json"),
+            r#"{"onboardingComplete":true}"#,
+        )
+        .unwrap();
         let dsn = format!("http://public@127.0.0.1:{}/1", std::env::var(PORT).unwrap());
         start_sending_to(
             dsn.leak(),

@@ -13,6 +13,7 @@ use sikemux_wire::protocol::{AgentState, Event, SessionId};
 use super::above::Above;
 use super::access::Rule;
 use super::activity::{Activity, ActivityCore};
+use super::changed::{Topic, What};
 use super::device_view::DeviceViewCore;
 use super::notify::Signal;
 use super::parts::Parts;
@@ -166,7 +167,12 @@ fn preference_changed(core: &Core, change: &PreferenceChange) -> CoreResult<()> 
             themes::follow_omarchy_background(core);
             backdrop::follow(core);
         }
-        PreferenceChange::OnboardingComplete(_) => about::introduced(core)?,
+        PreferenceChange::OnboardingComplete(_) => {
+            about::introduced(core)?;
+            core.usage_wake().notify_one();
+            core.changed(What::Read(Topic::Plugins));
+        }
+        PreferenceChange::ShareUsageData(_) => core.usage_wake().notify_one(),
         _ => {}
     }
     if change.belongs() == Belongs::Person
@@ -425,7 +431,7 @@ pub(super) fn repo_above() -> RepoAbove {
         },
         inbox_staged: |core, agent, head| {
             core.inbox().staged(agent, head);
-            core.changed(super::changed::What::View);
+            core.changed(What::View);
         },
         questions_waits_on_answer: |core, agent| core.harness().questions.waits_on_answer(agent),
         mail_waiting: |core, agent| core.harness().mailbox.has_waiting(agent),

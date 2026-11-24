@@ -62,6 +62,12 @@ export function startSentry(dsn: string) {
   });
 }
 
+/** Closing the client would send what it still holds, so it is switched off instead. */
+export function send(on: boolean) {
+  const client = Sentry.getClient();
+  if (client) client.getOptions().enabled = on;
+}
+
 export const reportReactError = Sentry.reactErrorHandler();
 
 /** The pseudonym the apps' usage pings give an account, so Sentry counts people without knowing who they are. */
