@@ -17,11 +17,6 @@ use sikemux_base::cli::protocol::{HarnessRequest, SIM_CANCEL_METHOD, SIM_OFFERED
 const BOOT_MARGIN: Duration = Duration::from_secs(12);
 /// Time kept back for reading the screen once an action is done.
 const SETTLE_MARGIN: Duration = Duration::from_secs(4);
-const SETTLE_STEP: Duration = if cfg!(test) {
-    Duration::from_millis(10)
-} else {
-    Duration::from_millis(300)
-};
 /// How often an agent waiting for a simulator looks again.
 const WAIT_STEP: Duration = Duration::from_secs(2);
 /// A device reports itself booted a little before its screen can be read; this waits up to 30 s.
@@ -48,11 +43,27 @@ const HOME_READS: usize = 20;
 const KEYBOARD_READS: usize = 20;
 /// How many pictures, a step apart, to wait for a turn to come round: three seconds.
 const TURN_READS: usize = 20;
-const TURN_STEP: Duration = if cfg!(test) {
-    Duration::from_millis(10)
-} else {
-    Duration::from_millis(150)
-};
+
+/// How long to wait between two looks at a device.
+#[derive(Clone, Copy)]
+pub(crate) struct Steps {
+    pub settle: Duration,
+    pub turn: Duration,
+}
+
+impl Steps {
+    pub const DEVICE: Self = Self {
+        settle: Duration::from_millis(300),
+        turn: Duration::from_millis(150),
+    };
+    /// For a stand-in helper in tests, whose screen never moves.
+    #[cfg(all(test, unix))]
+    pub const STAND_IN: Self = Self {
+        settle: Duration::from_millis(10),
+        turn: Duration::from_millis(10),
+    };
+}
+
 /// A swipe that starts this close to an edge is sent as a system gesture, as the helper decides.
 const EDGE: f64 = 10.0;
 const MAX_ELEMENTS: usize = 200;
@@ -249,7 +260,7 @@ pub(super) async fn run(
                     if near_deadline() || read_screen(manager, &device).await?.app == HOME_SCREEN {
                         break;
                     }
-                    pause(SETTLE_STEP).await?;
+                    pause(manager.steps().settle).await?;
                 }
             }
             settled_state(manager, agent_id, Some(before), report(params)?).await
@@ -1060,7 +1071,7 @@ async fn wait_for_front(
         if drawn {
             return Ok(true);
         }
-        pause(SETTLE_STEP).await?;
+        pause(manager.steps().settle).await?;
     }
     Ok(false)
 }
@@ -1175,7 +1186,7 @@ async fn read_screen(manager: &SimulatorManager, device: &Device) -> Result<Read
                     && started.elapsed() < NO_APP_WAIT
                     && !near_deadline() =>
             {
-                pause(SETTLE_STEP).await?;
+                pause(manager.steps().settle).await?;
             }
             reply => break reply?,
         }
@@ -1222,7 +1233,7 @@ async fn turned(
             if near_deadline() || size.is_some_and(|(width, height)| (width > height) == wide) {
                 break;
             }
-            pause(TURN_STEP).await?;
+            pause(manager.steps().turn).await?;
         }
     }
     let mut last = None;
@@ -1241,7 +1252,7 @@ async fn turned(
             break;
         }
         last = Some(picture);
-        pause(TURN_STEP).await?;
+        pause(manager.steps().turn).await?;
     }
     Ok(())
 }
@@ -1281,7 +1292,7 @@ async fn keyboard_gone(
         if !latest.keyboard || near_deadline() {
             break;
         }
-        pause(SETTLE_STEP).await?;
+        pause(manager.steps().settle).await?;
         latest = read_screen(manager, device).await?;
     }
     Ok(latest)
@@ -1307,13 +1318,13 @@ async fn settled_state(
             if latest != before || near_deadline() {
                 break;
             }
-            pause(SETTLE_STEP).await?;
+            pause(manager.steps().settle).await?;
             latest = read_screen(manager, &device).await?;
         }
     }
     let mut reads = 1;
     while !near_deadline() {
-        pause(SETTLE_STEP).await?;
+        pause(manager.steps().settle).await?;
         let next = read_screen(manager, &device).await?;
         let opening = launching(&(next.app.clone(), next.elements.clone()));
         let settled = next == latest && !opening;

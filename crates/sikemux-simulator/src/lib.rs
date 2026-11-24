@@ -182,6 +182,7 @@ pub struct SimulatorManager {
     host: Arc<dyn Host>,
     /// The helper tests run in place of the app's own, which is downloaded if it must be.
     helper: Option<PathBuf>,
+    steps: tools::Steps,
     claims: Claims,
     enabled: AtomicBool,
     shared: Mutex<Shared>,
@@ -236,26 +237,33 @@ pub(crate) async fn pause(duration: Duration) -> Result<(), String> {
 
 impl SimulatorManager {
     pub fn new(host: Arc<dyn Host>) -> Arc<Self> {
-        Self::made(host, None, Claims::shared())
+        Self::made(host, None, tools::Steps::DEVICE, Claims::shared())
     }
 
     #[cfg(test)]
     #[cfg(unix)]
-    pub(crate) fn with_helper(path: PathBuf) -> Arc<Self> {
+    pub(crate) fn with_helper(path: PathBuf, steps: tools::Steps) -> Arc<Self> {
         let claims = tempfile::tempdir().expect("a claims folder").keep();
         Self::made(
             Arc::new(NoHost),
             Some(path),
+            steps,
             Claims::at(claims, std::process::id()),
         )
     }
 
-    fn made(host: Arc<dyn Host>, helper: Option<PathBuf>, claims: Claims) -> Arc<Self> {
+    fn made(
+        host: Arc<dyn Host>,
+        helper: Option<PathBuf>,
+        steps: tools::Steps,
+        claims: Claims,
+    ) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             sim: SimManager::default(),
             android: android::Android::new(host.data_dir()),
             host,
             helper,
+            steps,
             claims,
             enabled: AtomicBool::new(true),
             shared: Mutex::default(),
@@ -272,6 +280,10 @@ impl SimulatorManager {
 
     pub fn host(&self) -> &Arc<dyn Host> {
         &self.host
+    }
+
+    pub(crate) fn steps(&self) -> tools::Steps {
+        self.steps
     }
 
     /// The person turned the simulator tools on or off in Settings; the app says so as it starts too.

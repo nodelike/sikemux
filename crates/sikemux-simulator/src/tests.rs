@@ -4,6 +4,7 @@ use std::sync::Arc;
 use sikemux_process::sync::Locked;
 use tempfile::TempDir;
 
+use super::tools::Steps;
 use super::SimulatorManager;
 
 /// Tests that drive a real simulator share it, so they take turns.
@@ -14,7 +15,7 @@ fn helper(script: &str) -> (TempDir, Arc<SimulatorManager>) {
     let path = dir.path().join("sikemux-sim");
     std::fs::write(&path, script).expect("write helper");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-    (dir, SimulatorManager::with_helper(path))
+    (dir, SimulatorManager::with_helper(path, Steps::STAND_IN))
 }
 
 /// The helper built beside the tests, as `SIKEMUX_SIM_EXECUTABLE` names it. The manager throws
@@ -32,7 +33,10 @@ fn real_helper() -> (HelperErrors, Arc<SimulatorManager>) {
     );
     std::fs::write(&path, script).expect("write helper");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-    (HelperErrors(dir), SimulatorManager::with_helper(path))
+    (
+        HelperErrors(dir),
+        SimulatorManager::with_helper(path, Steps::DEVICE),
+    )
 }
 
 const HELPER_ERRORS: &str = "helper-stderr.log";
@@ -71,7 +75,7 @@ fn an_agents_calls_run_one_at_a_time_and_a_cancel_stops_them() {
     use std::sync::Mutex;
     use std::time::Duration;
 
-    let manager = SimulatorManager::with_helper("/nonexistent".into());
+    let manager = SimulatorManager::with_helper("/nonexistent".into(), Steps::STAND_IN);
     let order = Arc::new(Mutex::new(Vec::new()));
     let call = |name: &'static str, agent: &'static str| {
         let (manager, order) = (Arc::clone(&manager), Arc::clone(&order));
@@ -874,7 +878,12 @@ done
         assert!(shows(&opened, "Count: 0"), "{opened}");
 
         let tapped = call("sim.tap", json!({ "label": "Add one" }));
-        assert!(shows(&tapped, "Count: 1"), "{tapped}");
+        assert!(
+            shows(&tapped, "Count: 1"),
+            "{tapped}, then {} and the app logged {}",
+            call("sim.state", json!({})),
+            call("sim.logs", json!({ "process": "SimFixture" }))["lines"]
+        );
 
         call("sim.tap", json!({ "label": "field" }));
         let typed = call("sim.type", json!({ "text": "Hi there 42" }));
