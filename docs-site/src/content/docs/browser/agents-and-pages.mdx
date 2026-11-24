@@ -1,6 +1,6 @@
 ---
 title: How agents use pages
-description: "What an agent can do with a tab, the pages it makes for you, and pages that need a password."
+description: "What an agent can do with a tab, the artifacts it makes for you, and pages that need a password."
 ---
 
 An agent drives its desk tabs through Sikemux's `browser_*` tools. It can:
@@ -14,11 +14,18 @@ An agent drives its desk tabs through Sikemux's `browser_*` tools. It can:
 
 You see each of these happen on the desk.
 
-## Pages agents make for you
+## Artifacts
 
-When an agent has something to show you, such as a report, a comparison or a mockup, it writes it as a web page. It checks the page off screen first with `page_preview`, then opens it with `page_show` in a tab on its desk, and its reply carries a card with the top of the page and its title; click the card to bring the tab forward. A page loads the pictures, frames, stylesheets and scripts it names by a relative address from the folder it was written in, unless that folder is your home folder, Downloads or the like.
+When an agent has something to show you, such as a report, a comparison or a mockup, it writes it as a web page. It checks the page off screen first with `page_preview`, then shows it with `page_show`, and its reply carries a card with the top of the page and its title; click the card to read it. A page loads the pictures, frames, stylesheets and scripts it names by a relative address from the folder it was written in, unless that folder is your home folder, Downloads or the like, and holds up to 25 MiB.
 
-Sikemux keeps every page shown. Showing the same title again makes a new version. Ask an agent for a page you saw before and it finds it with `page_list` and opens it again rather than making it anew. Older versions go after 30 days, unless a call or one of your asks links them.
+**Artifacts** on the tab rail (`⌘⌥8`, or `Ctrl+Alt+8` on Linux and Windows), beside **Agents**, **Terminals** and **Files**, lists what agents showed in the project, one line each with its title and the time it has left. Search finds one by title or by its agent. They sit in **Shared**, **Expiring** and **Kept**. The view in the middle shows the one you pick, or the newest.
+
+- **Keep** holds an artifact until you let it go. One you don't keep goes 7 days after it was shown, or a day after its ask settles. An agent can show one already kept.
+- **Share** makes a link, for 1 hour to 30 days, that anyone with it can open or only people signed in to Sikemux, at `app.sikemux.com/p/`. Sharing keeps the artifact, and the link shows its latest version.
+
+Showing the same title again makes a new version. Ask an agent for one you saw before and it finds it with `page_list` and shows it again rather than making it anew.
+
+On a Mac, pinch or double-tap with two fingers to zoom an artifact or an HTML file's preview, and move around it with two fingers. The next one opens at its own size.
 
 ## Pages that need a password
 

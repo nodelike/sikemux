@@ -13,14 +13,12 @@ The top of the page counts how many hosts are online and how many agents are run
 
 **All** shows every host and **Needs you** shows only those with an alert or out of reach. The hosts that need you come first.
 
-**Cards** shows each host as a card:
+**Table**, which the page opens in, shows one row per host. **Cards** shows each as a card, with the same things:
 
 - its maker's logo, its name and its model
 - how it stands: an alert such as **Memory 98%** with how long it has lasted, **Out of reach** with how long since this Mac lost it, **Updating** while its core updates itself, or **Healthy**
 - CPU (cores in use out of all of them), memory and disk (used out of the total), each with a meter that turns amber or red near full. Memory counts as Activity Monitor does and disk as Finder does, so space macOS can free on its own counts as free
 - how many of its agents are running, idle or stopped, and how many the system stopped lately to free memory
-
-**Table** puts the same on one row per host.
 
 A host set up only for SSH, without Sikemux, isn't listed here. It stays in the rail.
 

@@ -20,7 +20,7 @@ When an update is out, the foot of the side rail says so, then shows how its dow
 - **Ask me**, the default on stable: click the rail's note for the release's notes and **Install**. Nothing downloads or installs, and Sikemux never restarts, until you click it.
 - **Automatically when idle**, the default on nightly and staff: Sikemux installs the update as soon as it is found, and restarts into it once you have left the keys for 10 minutes. Agents in the middle of a turn don't hold it up: their terminals and chats carry over the restart. The rail's note shows **Restart to update** while it waits for you, so you can restart sooner. On Windows, where the installer replaces the whole app, an update that goes in by itself still waits until no agent is in a turn.
 
-After a stable release installs, What's New opens with its notes. After a nightly or staff build, it waits: a quiet **What's new** row above the account in the side rail opens it, listing every change since the build you last read. What's New credits everyone who worked on a release, with how many of its commits each made.
+After a stable release installs, What's New opens with its notes. After a nightly or staff build, it waits: a quiet **What's new** row above the account in the side rail opens it, listing every change you'd notice since the build you last read, or **Nothing you'd notice changed** when there is none. What's New credits everyone who worked on a release, with how many of its commits each made.
 
 Terminals and chats carry on through an update. When you click **Install**, a chat in the middle of a request holds the update up for at most two minutes. After that, the update goes ahead, and that chat stops and picks up again on its session. Once the update is in place, the windows restart to load it, waiting until you pause typing. Hover the rail's note to see which version you run and when it took over.
 
@@ -28,11 +28,11 @@ Sikemux looks for an update every half hour, every five minutes on the nightly c
 
 On a Mac, Sikemux keeps the version it replaced until the new one has run for half a minute. If the new core stops before then, Sikemux puts the previous version back by itself and opens it again. Chats pick up again on their sessions; terminals and tasks that were running stop. A notice says which update was undone and why, and that release is not offered again; the next one is.
 
-If Sikemux's servers stop working with the version you have, **Update Sikemux** covers the window. Remote access and your account stay off until you update; you can also quit from there.
+If Sikemux's servers stop working with the version you have, **Update Sikemux** covers the window. Remote access and your account stay off until you update; you can also quit from there. A Mac on Sikemux 0.6.2 or older has to update before it can sign in.
 
 ## Windows
 
-The Windows app updates from its channel's feed, as the Mac app does. The Sikemux service installs each update in the background, with no administrator prompt, and opens the app again.
+The Windows app updates from its channel's feed, as the Mac app does. The Sikemux service installs each update in the background, with no administrator prompt, and opens the app again. Other programs that have its files open stay open.
 
 ## Linux
 

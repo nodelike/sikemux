@@ -3,17 +3,19 @@ title: Mods
 description: "Panels you or your agents make as a web page: a pull request queue, CI status, an agent usage meter, anything Sikemux or your connectors know."
 ---
 
-A **mod** is a panel you make yourself, as a web page, that opens in a tab like any other. It can show what Sikemux knows, such as your agents, the project's tasks, your processes and Git, and what your signed-in connectors read, such as pull requests, CI runs, Jira issues or logs. Mods live on your host, outside the app, so they cost the download nothing.
+A **mod** is a panel you make yourself, as a web page, that opens in a tab on an agent's desk. It can show what Sikemux knows, such as your agents, the project's tasks, your processes and Git, and what your signed-in connectors read, such as pull requests, CI runs, Jira issues or logs. Mods live on your host, outside the app, so they cost the download nothing.
 
 ## Making one
 
-The easiest way is to ask an agent. Click **+** beside **Mods** in the side rail, or pick **Make a mod with an agent** in **Open mod…**, and say what it should show, such as "my open pull requests with their CI status". An agent starts in the project in front, writes the mod and opens it.
+The easiest way is to ask an agent. Click **New mod** on the **Mods** page of the tab rail, or pick **Make a mod with an agent** in **Open mod…**, and say what it should show, such as "my open pull requests with their CI status". An agent starts in the project in front, writes the mod and opens it.
 
 To change a mod, right-click it in the rail and pick **Edit with an agent**.
 
 ## Opening one
 
-Each mod has a row under **Mods** in the side rail, with its icon, its name and a few words it may show beside them, such as "3 failing". Click it to open the mod, or to bring its tab forward if it is open. **Open mod…** in the command palette and **Mod** under **New…** list them too.
+**Mods** is the tab rail's last page, after **Artifacts** (`⌘⌥9`, or `Ctrl+Alt+9` on Linux and Windows). It lists the mods that show in every project, then those only in the one in front, with a search. Each row has the mod's icon, its name and a few words it may show beside them, such as "3 failing"; the page's icon wears a dot while any mod has some. Click a row to open the mod on the desk. The desk's **+**, **Open mod…** in the command palette and **New…** list mods too, and an agent can put one on its own desk with `ui_open`.
+
+A mod has one live page. A second desk in sight with the same mod says it is on the desk beside it, and **Show it here** moves it.
 
 Right-click a mod's row to:
 

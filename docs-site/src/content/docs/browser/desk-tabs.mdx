@@ -5,21 +5,21 @@ description: "Each agent's browser tabs, beside its chat."
 
 Every agent has a **desk**: the pane beside its chat where it opens pages, files and process terminals for you. `⌘J` shows or hides the desk of the agent in front.
 
-The switch at the desk's top left picks what it shows: **Calls**, the bell that comes first, then **Browser**, **Files**, **Terminals** or, on a Mac, **Simulators**. The bell counts the calls the agent has waiting on you; **Calls** shows each as a tab named by its title, where you answer it. The strip lists that kind's tabs only, and a kind you go back to shows the tab it last showed. **Files** and **Terminals** are greyed while the agent has opened none, and **Browser** takes the agent's colour while the agent works in a page and you look at something else.
+Its tabs, web pages, files, terminals, mods and a simulator, sit in one strip in the order they arrived. **+** at its end opens **Browser**, **File**, **Terminal**, **Simulator** (on a Mac) or **Artifacts**, and **Show desk alone** (`⌘K`) gives the desk the whole view. Tabs keep a title you can read, and when many are open the strip scrolls. **Asks**, behind the bell, and **Tasks** stay in the corner. The bell counts the asks the agent has waiting on you; **Asks** shows each as a tab named by its title, where you answer it.
 
-**Simulators** shows the iOS simulator or Android device the agent attached. Before it attaches one, the desk shows a device already running, else an iPhone, else an Android device; click the device's name to pick another, and **Start** to boot one that is off. Beside Home, Lock and Turn (and Back on Android), its bar saves a screenshot to the Desktop and shuts the device down, asking first while an agent is using it. The agent's device tools then use the device you picked.
+**Simulator**, under **+**, shows the iOS simulator or Android device the agent attached. Before it attaches one, the desk shows a device already running, else an iPhone, else an Android device; click the device's name to pick another, and **Start** to boot one that is off. Beside Home, Lock and Turn (and Back on Android), its bar saves a screenshot to the Desktop and shuts the device down, asking first while an agent is using it. The agent's device tools then use the device you picked.
 
 An agent that asks for a simulator without naming one takes the warmest free device: one already running, else one booted before, else its project's own. How many simulators run at once follows your Mac, counting every one that runs, whoever started it: about one for every three cores, fewer when free memory would not hold another, and none more while the Mac is busy. A device that was never booted boots alone, since a first boot is the heaviest. When there is no room, the agent waits in line and is told its place, for up to five minutes; an agent that has not used its device for ten minutes gives it up to one waiting.
 
 Android emulators run with no window of their own and show only on the desk. Phones plugged in with USB debugging on are listed too. With no Android SDK on your computer, the device menu offers **Set up Android Emulator**: Sikemux downloads Google's platform tools, emulator and one Google Play system image, about 2.6 GB, into its own folder, makes a Pixel to run them on and starts it, with no Android Studio or Java. An SDK you already have, such as Android Studio's, is used instead. Settings, on its **Simulators** page, shows the same setup in an Android Emulator section.
 
-A page's tab shows a spinner in place of its site icon while it loads. The bar over the page has back, forward and reload (`⌘[`, `⌘]`, `⌘R`) and the page's address. **Open in default browser**, beside the snip button, opens the page in your own browser, a local page as its file. **+** beside the tabs (`⌘⇧T`) opens a new one. Right-click a tab to close it, copy a page's link, or copy a file's path or relative path, or reveal it in Finder.
+A page's tab shows a spinner in place of its site icon while it loads, and a globe when the site has no icon. The bar over the page has back, forward and reload (`⌘[`, `⌘]`, `⌘R`) and the page's address. **Open in default browser**, beside the snip button, opens the page in your own browser, a local page as its file. `⌘⇧T` opens a new page. Right-click a tab to close it, copy a page's link, or copy a file's path or relative path, or reveal it in Finder.
 
 `⌘L` opens an address field over the middle of the page, which dims under it. As you type, it finishes a site you have visited before and lists the pages that match, with a Google search when what you typed reads as one. With nothing typed it lists the sites you visit most. The arrow keys pick a row, Return opens it, and Escape or a click anywhere else closes the field.
 
 When you ask an agent to open, show or preview a page, it opens the page on its desk rather than in your own browser, so you watch the same page it reads.
 
-A link in an agent's reply opens on its desk too, as a web page among the Browser tabs; `⌘`-click opens it in your own browser instead.
+A link in an agent's reply opens on its desk too, as a tab of its own; `⌘`-click opens it in your own browser instead.
 
 ## Snips
 
@@ -35,7 +35,7 @@ A pin says where and what to change. It tests nothing: the agent still has to dr
 
 ## Tabs agents leave behind
 
-An agent goes back to its own tab on a site rather than opening another. When its turn ends, Sikemux closes the agent's tabs but the one in front and those showing a page or file from your Mac, such as pages it made for you; the one in front stays open until a later turn moves on from it, and closing the chat or teammate closes them all. Tabs you opened, clicked or typed in are yours: the agent can still use them, but they stay open until you close them or the agent takes one to another site. An agent holding six tabs of its own closes the one it used least recently before opening another. `⌘⌥T` opens the tab closed last on the desk in front again.
+An agent goes back to its own tab on a site rather than opening another. When its turn ends, Sikemux closes the agent's tabs but the one in front and those showing a page or file from your Mac, such as artifacts; the one in front stays open until a later turn moves on from it, and closing the chat or teammate closes them all. Tabs you opened, clicked or typed in are yours: the agent can still use them, but they stay open until you close them or the agent takes one to another site. An agent holding six tabs of its own closes the one it used least recently before opening another. `⌘⌥T` opens the tab closed last on the desk in front again.
 
 ## What tabs open
 
