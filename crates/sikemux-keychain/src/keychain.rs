@@ -62,7 +62,7 @@ pub(crate) fn delete(service: &str, account: &str) -> KeychainResult<()> {
 /// Builds before 0.5.3 kept secrets in the login keychain through the
 /// `security` tool, where any program the person runs could read them. Each
 /// moves here the first time it is read, and any copy left there goes when
-/// it is written or deleted.
+/// it is written or deleted. An entry another program keeps is only ever read there.
 mod legacy {
     use super::{HashSet, Mutex};
     use crate::{KeychainError, KeychainResult};
@@ -77,6 +77,10 @@ mod legacy {
 
     /// Entries already looked for in the login keychain by this process.
     static LOOKED: Mutex<Option<HashSet<(String, String)>>> = Mutex::new(None);
+
+    fn ours(service: &str) -> bool {
+        service.starts_with("sikemux")
+    }
 
     fn first_look(service: &str, account: &str) -> bool {
         LOOKED
@@ -97,7 +101,7 @@ mod legacy {
     }
 
     pub(super) fn take(service: &str, account: &str) -> KeychainResult<Option<String>> {
-        if !first_look(service, account) {
+        if ours(service) && !first_look(service, account) {
             return Ok(None);
         }
         let output = security(&["find-generic-password", "-s", service, "-a", account, "-w"])?;
@@ -114,13 +118,15 @@ mod legacy {
         if secret.is_empty() {
             return Ok(None);
         }
-        super::write(service, account, &secret)?;
-        remove(service, account)?;
+        if ours(service) {
+            super::write(service, account, &secret)?;
+            remove(service, account)?;
+        }
         Ok(Some(secret))
     }
 
     pub(super) fn forget(service: &str, account: &str) -> KeychainResult<()> {
-        if first_look(service, account) {
+        if ours(service) && first_look(service, account) {
             remove(service, account)
         } else {
             Ok(())

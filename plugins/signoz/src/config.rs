@@ -1,7 +1,7 @@
 // Where SigNoz lives, how this machine signs in to it, and the Keychain
-// entries that hold the secret. An API key sits under the same Keychain
-// service the `signoz` shell CLI reads, so either can use a key the other
-// saved. A signed-in session keeps its access and refresh tokens there.
+// entries that hold the secret. An API key is looked for under the Keychain
+// service the `signoz` shell CLI uses, so a key that CLI saved works here and
+// stays in place. A signed-in session keeps its access and refresh tokens there.
 
 use std::path::Path;
 
@@ -21,7 +21,7 @@ pub enum AuthMode {
     ApiKey,
 }
 
-/// The signoz CLI's own entry, which every build shares with it.
+/// The signoz CLI's own service, which every build reads.
 pub const API_KEYS: Secrets = Secrets::new("signoz-api");
 pub const SESSIONS: Secrets = Secrets::new(keychain_service!("sikemux-signoz-session"));
 
