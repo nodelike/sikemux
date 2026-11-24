@@ -316,15 +316,41 @@ impl Workbench {
         })
     }
 
-    /// Opens artifact `page` of call `id` on its asker's desk, with the call's choices at its foot.
+    /// Opens artifact `page` of call `id` on the desk of the agent in front, with the call's
+    /// choices at its foot; with none in front on the call's core, on its asker's.
     pub(crate) fn open_call_page(&mut self, id: &str, page: &str, cx: &mut Context<Self>) {
         let Some((place, call)) = self.call_at(id) else {
             return;
         };
+        let front = self.front_agent().filter(|_| place == self.place());
+        let agent = match front {
+            Some((.., agent)) => agent,
+            None => call.asker.agent_id.clone(),
+        };
+        self.open_call_page_on(&agent, id, page, place, cx);
+    }
+
+    /// Opens artifact `page` of call `id` on its asker's desk, as when the person comes from
+    /// outside the window.
+    pub(crate) fn open_call_page_of_asker(&mut self, id: &str, page: &str, cx: &mut Context<Self>) {
+        let Some((place, call)) = self.call_at(id) else {
+            return;
+        };
         let asker = call.asker.agent_id.clone();
+        self.open_call_page_on(&asker, id, page, place, cx);
+    }
+
+    fn open_call_page_on(
+        &mut self,
+        agent: &str,
+        id: &str,
+        page: &str,
+        place: Place,
+        cx: &mut Context<Self>,
+    ) {
         self.calls.update(cx, |cards, cx| cards.open(id, cx));
         let at = Target::new(&self.asks, place);
-        self.open_page(page, Some(&asker), at, cx);
+        self.open_page(page, Some(agent), at, cx);
     }
 
     /// Opens what a notification about agent `agent` of this core told of: the artifact of the
@@ -334,7 +360,7 @@ impl Workbench {
             .filter(|call| call.kind != CallKind::Look)
             .and_then(|call| Some((call.id.clone(), call.page.as_ref()?.id.clone())));
         match asked {
-            Some((call, page)) => self.open_call_page(&call, &page, cx),
+            Some((call, page)) => self.open_call_page_of_asker(&call, &page, cx),
             None => self.open_agent(agent, cx),
         }
     }
@@ -593,7 +619,7 @@ struct Through<'a> {
 }
 
 /// The pages a call names, as the rows a chat shows for pages, framed under `id`: a click opens
-/// one on its asker's desk and closes the popover that held the row, if `dismiss` is how.
+/// one on the desk in front and closes the popover that held the row, if `dismiss` is how.
 fn linked_page(
     id: SharedString,
     call: &PersonCall,

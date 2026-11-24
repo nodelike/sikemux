@@ -77,7 +77,7 @@ pub(super) fn tabs(
                 Some(failed) => t!("Could not show it: {failed}", failed = failed).into(),
                 None => t!("In a tab on the desk").into(),
             };
-            let open = opens_page(&page.id, &looks.agent, looks);
+            let open = opens_page(&page.id, looks);
             tab_row(page, picture, place, at > 0, open, cx)
         })
         .collect();
@@ -101,7 +101,7 @@ pub(super) fn worker_pages(
             };
             let picture = shown(&page_ref, looks, window, cx).picture.clone();
             let place = t!("@{name}'s artifact", name = page.name).into();
-            let open = opens_page(&page_ref.id, &page.agent_id, looks);
+            let open = opens_page(&page_ref.id, looks);
             tab_row(&page_ref, picture, place, at > 0, open, cx)
         })
         .collect();
@@ -217,13 +217,13 @@ pub(crate) fn tab_row(
         .into_any_element()
 }
 
-/// Opens page `id` on `agent`'s desk, from the chat that `looks` draws.
-pub(super) fn opens_page(id: &str, agent: &str, looks: &Looks) -> Opens {
-    let (id, agent) = (id.to_owned(), agent.to_owned());
-    let (bench, chat) = (looks.bench.clone(), looks.agent.clone());
+/// Opens page `id` on the desk of the chat that `looks` draws.
+pub(super) fn opens_page(id: &str, looks: &Looks) -> Opens {
+    let id = id.to_owned();
+    let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
     Rc::new(move |_, cx| {
         let _ = bench.update(cx, |bench, cx| {
-            let at = bench.chat_target(&chat);
+            let at = bench.chat_target(&agent);
             bench.open_page(&id, Some(&agent), at, cx)
         });
     })

@@ -192,20 +192,19 @@ impl Foot {
 }
 
 impl Workbench {
-    /// The ask of `agent` the artifact in front of its desk belongs to: the one picked, else the
-    /// latest.
+    /// The ask the artifact in front of `agent`'s desk belongs to: the one picked, whoever asked
+    /// it, else the agent's latest.
     pub(crate) fn asked_on_desk(&self, agent: &str, cx: &App) -> Option<PersonCall> {
         let page = self.page_on_desk(agent, cx)?;
-        let mut links: Vec<PersonCall> = on_desk(self, agent);
-        links.retain(|call| {
+        let asks = |call: &PersonCall| {
             call.kind != CallKind::Look && call.pages().any(|linked| linked.id == page)
-        });
-        let picked = self.calls.read(cx).opened.clone();
-        let picked = (links.iter()).position(|call| Some(&call.id) == picked.as_ref());
-        match picked {
-            Some(at) => Some(links.swap_remove(at)),
-            None => links.pop(),
-        }
+        };
+        let place = self.place();
+        let picked = (self.calls.read(cx).opened.as_deref())
+            .and_then(|id| self.call_at(id))
+            .filter(|(at, call)| *at == place && call.state == CallState::Open && asks(call))
+            .map(|(_, call)| call.clone());
+        picked.or_else(|| on_desk(self, agent).into_iter().rfind(asks))
     }
 }
 

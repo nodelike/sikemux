@@ -65,8 +65,8 @@ impl Pages {
 }
 
 impl Workbench {
-    /// Opens artifact `id`, which the core `at` keeps, as a tab on the desk it belongs on: that of
-    /// `agent`, such as the one whose ask links it, else of the one that showed it.
+    /// Opens artifact `id`, which the core `at` keeps, as a tab on the desk of `agent`, such as
+    /// the one whose chat links it, else of the one that showed it.
     pub(crate) fn open_page(
         &mut self,
         id: &str,

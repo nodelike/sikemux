@@ -99,8 +99,9 @@ fn row(
             .whitespace_nowrap(),
     )
     .on_click(cx.listener(move |bench, _, _, cx| {
-        let at = bench.target();
-        bench.open_page(&id, None, at, cx)
+        let (at, front) = (bench.target(), bench.front_agent());
+        let agent = front.as_ref().map(|(.., agent)| agent.as_str());
+        bench.open_page(&id, agent, at, cx)
     }))
     .into_any_element()
 }

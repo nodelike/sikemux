@@ -228,7 +228,7 @@ pub(super) fn row(
                         message,
                         open,
                         looks.file_pressed(),
-                        |id| super::page::opens_page(id, &looks.agent, looks),
+                        |id| super::page::opens_page(id, looks),
                         cx,
                     ))
                     .when(!parts.is_empty(), |column| {

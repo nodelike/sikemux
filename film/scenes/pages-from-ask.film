@@ -1,0 +1,31 @@
+# An artifact opens on the desk of the chat it is opened from: a worker's, from its card in the
+# lead's chat, and another agent's, from its ask in the bell with the lead in front.
+stage 1440 1000
+window 1440 1000
+prefer themeId aura-noir
+prefer starAsked true
+replies pages-from-ask.json
+project storefront shop
+patch pages-notes.diff
+chat Wren
+title "Cache the product pages"
+say "Find a store for the product cache."
+settle 20
+chat Juno
+title "Speed up checkout"
+say "Show me the checkout numbers."
+settle 10
+front Wren
+settle 3
+snap ask-front
+click "Asks"
+settle 2
+snap ask-bell
+click 1080,186
+settle 5
+snap ask-other
+front Wren
+settle 2
+click 625,486
+settle 5
+snap card-worker
