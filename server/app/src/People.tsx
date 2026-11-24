@@ -558,11 +558,11 @@ function Seats({
         <div>
           <div className="big">
             {org.seats.held}
-            <small>of {org.seats.limit}</small>
+            <small>{frozen(org) ? "taken" : `of ${org.seats.limit}`}</small>
           </div>
           <p className="note">
             {people(members.length)}, {links} {links === 1 ? "link" : "links"}{" "}
-            out, {free} free
+            out{frozen(org) ? "" : `, ${free} free`}
           </p>
         </div>
         <div className="seats" style={seats} aria-hidden="true">

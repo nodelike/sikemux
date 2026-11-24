@@ -104,7 +104,7 @@ export function DomainsPage({ org, team }: { org: Org; team: TeamAccess }) {
     form ??
     (domains && open ? (
       <Btn onClick={() => setAdding(true)}>Add a domain</Btn>
-    ) : domains ? (
+    ) : domains?.length ? (
       <p className="note">
         {frozen(org)
           ? "The org is frozen. You can still remove a domain."
@@ -115,14 +115,24 @@ export function DomainsPage({ org, team }: { org: Org; team: TeamAccess }) {
   if (domains?.length === 0)
     return (
       <Page
-        title="Let colleagues in"
-        lede="Prove your domain and people with an address there find the org by themselves."
+        title={open ? "Let colleagues in" : "Domains"}
+        lede={
+          open
+            ? "Prove your domain and people with an address there find the org by themselves."
+            : frozen(org)
+              ? "The org is frozen. Domains come back when an owner renews Team."
+              : "Team isn't open to your account now."
+        }
         actions={add}
         mark={mark}
         scene={scene}
       >
         <Card label="Domains">
-          <Empty>No domains yet. Invite links work without one.</Empty>
+          <Empty>
+            {open
+              ? "No domains yet. Invite links work without one."
+              : "No domains."}
+          </Empty>
         </Card>
       </Page>
     );
