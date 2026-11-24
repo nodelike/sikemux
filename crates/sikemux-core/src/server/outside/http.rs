@@ -14,11 +14,12 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde_json::{json, Value};
+use sikemux_loopback::{Page, SIKEMUX_MARK};
 use tokio::net::{TcpListener, TcpStream};
 use url::Url;
 
 use super::oauth::{authorize_query, Refusal};
-use super::{changed, chats, Caller, ANSWER_WITHIN};
+use super::{changed, chats, Answer, Caller, ANSWER_WITHIN};
 use crate::server::Core;
 
 /// Fixed, so the address an app was given keeps working. A dev build has its own.
@@ -103,6 +104,17 @@ fn reply(status: StatusCode, content_type: &str, body: impl Into<Body>) -> Respo
     response
 }
 
+fn page_reply(status: StatusCode, page: &Page) -> Response<Body> {
+    let mut response = Response::new(page.html().into());
+    *response.status_mut() = status;
+    for (name, value) in page.headers() {
+        if let Ok(value) = HeaderValue::from_str(&value) {
+            response.headers_mut().insert(name, value);
+        }
+    }
+    response
+}
+
 fn json_reply(status: StatusCode, body: &Value) -> Response<Body> {
     reply(status, "application/json", body.to_string())
 }
@@ -112,6 +124,9 @@ fn see_other(to: &str) -> Response<Body> {
     if let Ok(value) = HeaderValue::from_str(to) {
         response.headers_mut().insert(LOCATION, value);
     }
+    response
+        .headers_mut()
+        .insert("referrer-policy", HeaderValue::from_static("no-referrer"));
     response
 }
 
@@ -245,37 +260,67 @@ async fn answer(core: Weak<Core>, port: u16, request: Request<Incoming>) -> Resp
                     changed(&core);
                     see_other(&format!("/authorize/wait?id={waiting}"))
                 }
-                Err(refusal) => reply(
+                Err(refusal) => page_reply(
                     StatusCode::BAD_REQUEST,
-                    "text/html; charset=utf-8",
-                    page(
+                    &Page::failed(
+                        SIKEMUX_MARK,
                         "Sikemux could not start this sign-in",
-                        &refusal.description,
-                        None,
-                    ),
+                        "Start it again from the app.",
+                    )
+                    .because("What happened", &refusal.description),
                 ),
             }
         }
+        (Method::GET, "/authorize/state") => {
+            let state = match core.outside().answer_of(id_in(&query)) {
+                Answer::Waiting => "waiting",
+                Answer::Allowed(_) | Answer::Declined | Answer::TimedOut => "answered",
+            };
+            reply(StatusCode::OK, "text/plain", state)
+        }
         (Method::GET, "/authorize/wait") => {
-            let id = query
-                .iter()
-                .find(|(key, _)| key == "id")
-                .map(|(_, id)| id.clone())
-                .unwrap_or_default();
-            match core.outside().back_to_client(&id) {
+            let id = id_in(&query);
+            match core.outside().back_to_client(id) {
                 Ok(Some(back)) => {
                     changed(&core);
                     see_other(&back)
                 }
-                Ok(None) => match core.outside().waiting_shown(&id) {
-                    Some(shown) => reply(StatusCode::OK, "text/html; charset=utf-8", page(
-                        &format!("Allow {} in Sikemux", shown.name),
-                        &format!("Sikemux asks whether {} may use your chats. Check that it shows {} there, then choose what it may do. This page goes on by itself.", shown.name, shown.check),
-                        Some(&shown.check),
-                    )),
-                    None => reply(StatusCode::GONE, "text/html; charset=utf-8", page("This sign-in is over", "Start it again from the app.", None)),
+                Ok(None) => match core.outside().waiting_shown(id) {
+                    Some(shown) => page_reply(
+                        StatusCode::OK,
+                        &Page::comparing(
+                            icon_of(&shown.name),
+                            &format!("Allow {} in Sikemux", shown.name),
+                            &format!(
+                                "Check that Sikemux shows this code, then choose what {} may do.",
+                                shown.name
+                            ),
+                            &shown.check,
+                            &format!("/authorize/state?id={id}"),
+                            &format!(
+                                "This page goes on by itself. It waits {} minutes.",
+                                ANSWER_WITHIN.as_secs() / 60
+                            ),
+                        ),
+                    ),
+                    None => page_reply(
+                        StatusCode::GONE,
+                        &Page::failed(
+                            SIKEMUX_MARK,
+                            "This sign-in is over",
+                            "Start it again from the app.",
+                        ),
+                    ),
                 },
-                Err(error) => reply(StatusCode::INTERNAL_SERVER_ERROR, "text/html; charset=utf-8", page("Sikemux could not finish this sign-in", &error.to_string(), None)),
+                Err(error) => page_reply(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &Page::failed(
+                        SIKEMUX_MARK,
+                        "Sikemux could not finish this sign-in",
+                        "Start it again from the app.",
+                    )
+                    .because("What happened", &error.to_string()),
+                ),
             }
         }
         (Method::POST, "/token") if not_from_a_page(&request) => {
@@ -423,27 +468,39 @@ fn rpc_error(id: Value, code: i32, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
-fn escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+fn id_in(query: &[(String, String)]) -> &str {
+    query
+        .iter()
+        .find(|(key, _)| key == "id")
+        .map_or("", |(_, id)| id)
 }
 
-/// The page the browser shows while the person answers in the app. It reloads itself until
-/// they do, and gives up with the wait.
-fn page(title: &str, body: &str, check: Option<&str>) -> String {
-    let refresh = match check {
-        Some(_) => "<meta http-equiv=\"refresh\" content=\"2\">",
-        None => "",
-    };
-    let check = check.map_or_else(String::new, |check| {
-        format!("<p class=\"check\">{}</p>", escape(check))
-    });
-    let minutes = ANSWER_WITHIN.as_secs() / 60;
-    format!(
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">{refresh}<title>{title}</title><style>:root{{color-scheme:dark;}}body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#0d0d10;color:#ececf1;font:14px/1.5 -apple-system,BlinkMacSystemFont,\"Figtree\",sans-serif;}}main{{max-width:380px;padding:24px;}}h1{{font-size:16px;font-weight:600;margin:0 0 8px;}}p{{margin:0 0 12px;color:#a6a6b0;}}.check{{font:600 24px/1 ui-monospace,monospace;letter-spacing:.2em;color:#a277ff;margin:16px 0;}}small{{color:#6e6e78;}}</style></head><body><main><h1>{title}</h1><p>{body}</p>{check}<small>A sign-in waits {minutes} minutes for an answer.</small></main></body></html>",
-        title = escape(title),
-        body = escape(body),
-    )
+/// The mark of the app a program says it is, or Sikemux's own for one it has none for.
+fn icon_of(name: &str) -> &'static str {
+    let name = name.to_lowercase();
+    [
+        (
+            "claude",
+            include_str!("../../../../../app/assets/icons/claude.svg"),
+        ),
+        (
+            "codex",
+            include_str!("../../../../../app/assets/icons/codex.svg"),
+        ),
+        (
+            "gemini",
+            include_str!("../../../../../app/assets/icons/gemini.svg"),
+        ),
+        (
+            "opencode",
+            include_str!("../../../../../app/assets/icons/opencode.svg"),
+        ),
+        (
+            "grok",
+            include_str!("../../../../../app/assets/icons/grok.svg"),
+        ),
+    ]
+    .into_iter()
+    .find(|(app, _)| name.contains(app))
+    .map_or(SIKEMUX_MARK, |(_, icon)| icon)
 }

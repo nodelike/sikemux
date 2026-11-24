@@ -9995,6 +9995,7 @@ dependencies = [
  "sikemux-grid",
  "sikemux-kernel",
  "sikemux-keychain",
+ "sikemux-loopback",
  "sikemux-markdown",
  "sikemux-plugin-api",
  "sikemux-process",
