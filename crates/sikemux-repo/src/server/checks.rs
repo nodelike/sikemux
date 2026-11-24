@@ -13,6 +13,7 @@ mod report;
 
 use crate::server::changed::ChangedCore;
 use crate::server::repo_state::RepoParts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -1112,7 +1113,8 @@ fn someone(core: &Core, agent: &str) -> String {
 
 /// Tells who should mend a failing check: the agent holding its CI card, else the one already
 /// mending it, else the agent whose commit broke it when that is known, else one agent of those
-/// it failed after, reopened when it had closed; and the others one line saying who has it.
+/// it failed after, reopened when it had closed, else the project's chief while its chat is open;
+/// and the others one line saying who has it.
 async fn blame(
     core: &Arc<Core>,
     project: &str,
@@ -1166,6 +1168,11 @@ async fn blame(
         .get(project)
         .and_then(|failing| failing.owner.clone());
     let owner = match owner {
+        Some(owner) if core.workspaces().is_chief(&owner) => {
+            (core.repo_above().messages_reachable)(core, &owner)
+                .await
+                .then_some(owner)
+        }
         Some(owner) => (core.repo_above().messages_reopened)(core, &owner).await,
         None => None,
     };
@@ -1197,15 +1204,24 @@ async fn blame(
         }
     }
     let Some((author, owner)) = elected else {
+        let Some(chief) = open_chief(core, project) else {
+            return;
+        };
+        owns(core, project, &chief);
+        let broke = match hunted {
+            Hunted::Found { sha, subject, .. } => format!(
+                " Commit {} ({subject}) broke it: the commit before it passes.",
+                crate::git::short(sha)
+            ),
+            _ => String::new(),
+        };
+        let text = format!(
+            "{failed}{broke} No agent that wrote what it failed on can be reached, so it comes to you as the project's chief: hand it to a worker.{claim}\n{digest}"
+        );
+        send_work(core, chief, text).await;
         return;
     };
-    {
-        let mut state = core.checks().state.locked();
-        if let Some(failing) = state.failing.get_mut(project) {
-            failing.owner = Some(owner.clone());
-            failing.told.insert(owner.clone());
-        }
-    }
+    owns(core, project, &owner);
     let why = match hunted {
         Hunted::Found { sha, subject, agents, .. } if agents.contains(&author) => format!(
             "Your commit {} ({subject}) broke it: the commit before it passes. Mend it with a commit.",
@@ -1225,6 +1241,22 @@ async fn blame(
     if !matches!(hunted, Hunted::Found { agents, .. } if agents.contains(&author)) {
         tell_others(core, project, &failed, &owner, &authors).await;
     }
+}
+
+fn owns(core: &Core, project: &str, agent: &str) {
+    let mut state = core.checks().state.locked();
+    if let Some(failing) = state.failing.get_mut(project) {
+        failing.owner = Some(agent.to_owned());
+        failing.told.insert(agent.to_owned());
+    }
+}
+
+/// `project`'s chief, while its chat is open.
+fn open_chief(core: &Core, project: &str) -> Option<String> {
+    (core.workspaces().projects().into_iter())
+        .find(|kept| kept.path.to_string_lossy() == project)
+        .and_then(|kept| kept.chief)
+        .filter(|chief| core.workspaces().agent(chief).is_some())
 }
 
 async fn tell_others(

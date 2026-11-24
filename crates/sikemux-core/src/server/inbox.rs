@@ -1286,10 +1286,13 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         let mut item = item(
             format!("check:{}", failing.project),
             Case::CheckFailing,
-            format!(
-                "The project's check keeps failing after {}'s commits",
-                names.join(", ")
-            ),
+            match names.is_empty() {
+                true => "The project's check keeps failing".to_owned(),
+                false => format!(
+                    "The project's check keeps failing after {}'s commits",
+                    names.join(", ")
+                ),
+            },
             failing.since,
         );
         if let Some(agent) = failing.agents.last() {
