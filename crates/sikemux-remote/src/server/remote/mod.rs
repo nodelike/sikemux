@@ -1117,15 +1117,6 @@ impl Remote {
         self.inner.locked().join_keys = Some(keys);
     }
 
-    /// Withdraws whatever `device_id` asked before, so a phone that tries
-    /// again waits on one request.
-    pub fn forget_device_requests(&self, device_id: &str) {
-        self.inner
-            .locked()
-            .pending
-            .retain(|pending| pending.device.device_id != device_id);
-    }
-
     pub fn forget_pending(&self, id: &str) {
         self.inner
             .locked()
