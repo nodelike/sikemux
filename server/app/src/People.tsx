@@ -1,3 +1,4 @@
+import { useUser } from "@clerk/react";
 import type {
   Org,
   OrgInvite,
@@ -19,7 +20,7 @@ import {
 import { useState, type MouseEvent } from "react";
 
 import { problemText } from "./api.ts";
-import { PersonAvatar } from "./Avatar.tsx";
+import { Avatar, PersonAvatar } from "./Avatar.tsx";
 import { orgSvg, personSvg } from "./avatarSvg.ts";
 import { useClient } from "./Billing.tsx";
 import { useCheer } from "./Field.tsx";
@@ -63,6 +64,14 @@ const ROLE_DETAIL: Record<OrgRole, string> = {
   admin: "People, domains and policy",
   user: "Works in the org",
 };
+
+function MemberAvatar({ member, size }: { member: OrgMember; size?: number }) {
+  return member.you ? (
+    <Avatar size={size} />
+  ) : (
+    <PersonAvatar id={member.id} imageUrl={member.imageUrl} size={size} />
+  );
+}
 
 const nameOf = (member: OrgMember) => member.name ?? "Someone";
 
@@ -401,6 +410,7 @@ function MemberRow({
   const action = useAction();
   const [asking, setAsking] = useState<"owner" | "remove">();
   const name = nameOf(member);
+  const { user } = useUser();
   const canManage = !member.you && manages(org.role, member.role);
 
   const put = async (role: OrgRole) => {
@@ -429,17 +439,20 @@ function MemberRow({
 
   return (
     <Row
-      lead={<PersonAvatar id={member.id} imageUrl={member.imageUrl} />}
-      hot={{ picture: { svg: personSvg(member.id) } }}
+      lead={<MemberAvatar member={member} />}
+      hot={{
+        picture: { svg: personSvg(member.you ? (user?.id ?? "") : member.id) },
+      }}
       name={
         <>
           {name}
           {member.you ? <Chip tone="you">You</Chip> : null}
         </>
       }
-      detail={[...groups, `joined ${formatDay(member.joinedAt, "short")}`].join(
-        " · ",
-      )}
+      detail={[
+        ...groups,
+        `${groups.length > 0 ? "joined" : "Joined"} ${formatDay(member.joinedAt, "short")}`,
+      ].join(" · ")}
       end={
         canManage ? (
           <Popover
@@ -552,7 +565,7 @@ function Seats({
         <div className="seats" aria-hidden="true">
           {members.map((member) => (
             <span className="s" key={member.id}>
-              <PersonAvatar id={member.id} imageUrl={member.imageUrl} />
+              <MemberAvatar member={member} />
             </span>
           ))}
           {Array.from({ length: links }, (_, at) => (
@@ -625,7 +638,6 @@ function InviteRow({
   const [copied, setCopied] = useState(false);
   return (
     <Row
-      wrap={!!link}
       lead={
         <Tile>
           <IconLink size={14} />
@@ -819,11 +831,7 @@ function GroupRow({
         <>
           <span className="stack" aria-hidden="true">
             {inside.slice(0, 3).map((each) => (
-              <PersonAvatar
-                key={each.id}
-                id={each.id}
-                imageUrl={each.imageUrl}
-              />
+              <MemberAvatar key={each.id} member={each} />
             ))}
           </span>
           {editable ? (
@@ -944,7 +952,7 @@ function GroupPick({
   return (
     <>
       <div className="line">
-        <PersonAvatar id={member.id} imageUrl={member.imageUrl} size={20} />
+        <MemberAvatar member={member} size={20} />
         <span>{name}</span>
         <Switch
           label={`${name} in ${group.name}`}
