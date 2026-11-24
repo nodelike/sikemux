@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use sikemux_process::files::write_atomic_unsynced;
 
 /// Files bigger than this are neither kept nor told line by line.
-pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
+pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_FILES: usize = 512;
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
 /// Changed files that could not be kept, remembered so their next change is

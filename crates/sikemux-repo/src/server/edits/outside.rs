@@ -839,3 +839,26 @@ fn learn_ignored<'a>(
     } = &mut *seen;
     changed.retain(|path, _| !ignored.iter().any(|ignored| path.starts_with(ignored)));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// @Ashborn's script rewrote the 4.5 MB app/locales/Localizable.xcstrings. A file over 1 MB
+    /// had no record, so its commit left the catalog out as no agent's.
+    #[test]
+    fn a_script_changing_the_string_catalog_is_told_line_by_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let top = dir.path().join("checkout");
+        std::fs::create_dir(&top).unwrap();
+        let path = top.join("Localizable.xcstrings");
+        let catalog = (0..130_000)
+            .map(|n| format!("      \"value\": \"translated words {n}\"\n"))
+            .collect::<String>();
+        std::fs::write(&path, catalog.replace("words 70000\"", "asks\"")).unwrap();
+        let mut priors = Priors::load(Some(dir.path().join("kept")), &top);
+
+        let (edit, _) = told(&mut priors, &path, Some(Some(&catalog))).unwrap();
+        assert_eq!(edit.lines, vec![[70_001, 1, 1]]);
+    }
+}
