@@ -1,0 +1,21 @@
+# An agent's sign-in card: one chat needs Linear again, another needs Jira and Vercel.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies sign-in-card.json
+project storefront shop
+chat Wren
+title "Close the shipped issues"
+say "Close the Linear issues we shipped this week"
+settle 6
+chat Kaguya
+title "Release notes"
+say "Write the release notes from Jira and the last Vercel deploy"
+settle 6
+front Wren
+settle 2
+snap sign-in-one
+front Kaguya
+settle 2
+snap sign-in-two
