@@ -2,6 +2,7 @@
 //! acts on the agent's own tabs, the same ones the person sees in the pane.
 
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::{Duration, Instant};
 
@@ -374,7 +375,7 @@ async fn run(
                     if !path.is_file() {
                         return Err(format!("{} is not a file", path.display()));
                     }
-                    Ok(path)
+                    uploadable(manager, path, &params["uploadFrom"])
                 })
                 .collect::<Result<Vec<_>, String>>()?;
             if paths.is_empty() || paths.len() > MAX_UPLOAD_FILES {
@@ -1267,6 +1268,39 @@ fn script_failure(error: &str, limit: Duration) -> String {
         "the page navigated or reloaded while the script ran, so its result was lost; to reload, use browser_navigate with go reload".into()
     } else {
         error.to_owned()
+    }
+}
+
+/// `path` with links followed, when a page may be given it: a file in the folders of the agent's
+/// project, named in `from`, or where agents and their tools make files. Null in `from` allows
+/// any file.
+fn uploadable(manager: &BrowserManager, path: PathBuf, from: &Value) -> Result<PathBuf, String> {
+    let Some(project) = from.as_array() else {
+        return Ok(path);
+    };
+    let real = sikemux_process::files::real_path(&path)
+        .map_err(|error| format!("{} could not be read: {error}", path.display()))?;
+    let home = sikemux_process::paths::home()
+        .and_then(|home| sikemux_process::files::real_path(home).ok());
+    let made_by_tools = [
+        Some(std::env::temp_dir()),
+        cfg!(unix).then(|| PathBuf::from("/tmp")),
+        manager.held_downloads_dir(),
+        crate::recording::folder(manager),
+    ];
+    let allowed = (project.iter().filter_map(Value::as_str))
+        .map(PathBuf::from)
+        .chain(made_by_tools.into_iter().flatten())
+        .filter_map(|folder| sikemux_process::files::real_path(folder).ok())
+        .filter(|folder| !(home.as_ref()).is_some_and(|home| home.starts_with(folder)))
+        .any(|folder| real.starts_with(folder));
+    if allowed {
+        Ok(real)
+    } else {
+        Err(format!(
+            "{} is outside this project and the temporary folders, so it can't be given to a page; ask the person to add it themselves",
+            path.display()
+        ))
     }
 }
 

@@ -91,11 +91,7 @@ pub async fn start(
             path
         }
         None => {
-            let folder = manager
-                .host()
-                .videos_dir()
-                .ok_or("there is no folder for videos")?
-                .join("Sikemux");
+            let folder = folder(manager).ok_or("there is no folder for videos")?;
             let title = manager.page(agent_id, &tab_id).unwrap_or_default().title;
             default_path(&folder, &title)
         }
@@ -216,6 +212,11 @@ fn open(path: &Path, width: usize, height: usize) -> Result<Encoder, String> {
 /// Video encoders want even sides.
 fn even(side: f64) -> usize {
     ((side.round() as usize).max(2) / 2) * 2
+}
+
+/// Where recordings go when the agent names no path.
+pub(crate) fn folder(manager: &BrowserManager) -> Option<PathBuf> {
+    Some(manager.host().videos_dir()?.join("Sikemux"))
 }
 
 fn default_path(folder: &Path, title: &str) -> PathBuf {

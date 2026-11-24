@@ -42,6 +42,7 @@ use super::questions::{self, Questions};
 use super::window::Call;
 use super::{board, follow, saved, spawn};
 use super::{session, Core};
+use crate::launch::PermissionMode;
 use crate::skills;
 
 mod inspect;
@@ -673,6 +674,19 @@ async fn dispatch(
             .map_err(|error| error.to_string())?;
             if let Value::Object(params) = &mut request.params {
                 params.insert("allowedSites".to_owned(), json!(sites));
+            }
+            forward(core, request).await
+        }
+        "browser.upload" => {
+            let agent = (request.agent_id.as_deref())
+                .and_then(|agent_id| core.workspaces().agent(agent_id));
+            let from = match &agent {
+                Some(agent) if agent.permission_mode == PermissionMode::Bypass => Value::Null,
+                Some(agent) => json!([agent.project, agent.cwd, core.config().attachment_dir]),
+                None => json!([request.project]),
+            };
+            if let Value::Object(params) = &mut request.params {
+                params.insert("uploadFrom".to_owned(), from);
             }
             forward(core, request).await
         }

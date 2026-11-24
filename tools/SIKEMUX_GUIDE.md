@@ -410,8 +410,10 @@ act on the page; other command chords never reach Sikemux.
 `browser_drag` and `browser_scroll` take the same targets as a click;
 `browser_scroll` with a target alone brings it into view.
 
-`browser_upload` takes absolute `paths`. With no target it uses the page's
-only file input, and it fails when no file input took the files.
+`browser_upload` takes absolute `paths`: files in the project or a temporary
+folder, or sent to the chat, unless the chat bypasses permissions. With no
+target it uses the page's only file input, and it fails when no file input took
+the files.
 
 An open alert, confirm or prompt shows under `dialog` and freezes the page:
 other browser tools refuse until `browser_dialog` answers it. The person may
