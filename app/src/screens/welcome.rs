@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use gpui_kit::base::{ScrollbarMode, ScrollbarThumbStyle};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::scroll::Scrollbar;
+use gpui_kit::component::switch::Switch;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::Role;
 use gpui_kit::{
@@ -94,6 +95,7 @@ const DOTS_WIDTH: f32 = 60.;
 /// A character's average width, as a share of the text's size.
 const SAID_CHAR: f32 = 0.5;
 const MONO_CHAR: f32 = 0.6;
+const PRIVACY_LINE: f32 = 1.4;
 const BACK_LINE: f32 = 1.2;
 /// The most of a row a project's name takes before its path.
 const NAME_SHARE: f32 = 0.62;
@@ -131,6 +133,7 @@ enum Stop {
     Browse,
     Back,
     Recheck,
+    Share,
 }
 
 struct Candidate {
@@ -583,11 +586,12 @@ fn stops(bench: &Workbench, welcome: &Welcome) -> Vec<Stop> {
             .map(Stop::Row)
             .chain(recheck_offered(bench).then_some(Stop::Recheck))
             .chain(anyway_offered(bench).then_some(Stop::Anyway))
+            .chain([Stop::Share])
             .collect(),
         Stage::Projects => [Stop::Field, Stop::Browse]
             .into_iter()
             .chain(visible_rows(welcome).into_iter().map(Stop::Row))
-            .chain([Stop::Back])
+            .chain([Stop::Back, Stop::Share])
             .collect(),
     }
 }
@@ -738,6 +742,10 @@ fn primary(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbenc
     }
 }
 
+fn share(bench: &mut Workbench, on: bool) {
+    crate::settings::set(bench, PreferenceChange::ShareUsageData(on));
+}
+
 /// Space does what a row offers; Return presses a button or moves the setup on.
 fn activate(bench: &mut Workbench, space: bool, window: &mut Window, cx: &mut Context<Workbench>) {
     let Some(welcome) = welcome_in(bench) else {
@@ -748,6 +756,7 @@ fn activate(bench: &mut Workbench, space: bool, window: &mut Window, cx: &mut Co
         (_, Some(Stop::Recheck)) => setup::recheck(bench, cx),
         (_, Some(Stop::Browse)) => browse(window, cx),
         (_, Some(Stop::Back)) => back(bench, window, cx),
+        (_, Some(Stop::Share)) => share(bench, !bench.preferences().share_usage_data),
         (Stage::Agents, Some(Stop::Row(row))) => {
             let pill = listed_agents(bench)
                 .get(row)
@@ -962,7 +971,12 @@ fn finish(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
                 Target::here(&bench.asks)
                     .call_quietly::<call::FirstRunStep>(Step::SetupFinished { skipped });
             }
+            let unseen = welcome_in(bench)
+                .is_some_and(|welcome| welcome.required && welcome.shortcut == Shortcut::Taken);
             leave(bench, cx);
+            if unseen {
+                tell_what_is_shared(bench, cx);
+            }
             if let Some(agent) = opened {
                 bench.open_here(OpenTab::new(At::project(&project), PaneKind::Agent, agent));
             }
@@ -970,6 +984,22 @@ fn finish(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
         });
     })
     .detach();
+}
+
+/// Says what the setup's own row would have, after a setup that finished by itself.
+fn tell_what_is_shared(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    if !bench.preferences().share_usage_data {
+        return;
+    }
+    let this = cx.weak_entity();
+    let note = crate::toast::acting(
+        t!("Sikemux shares anonymous usage and crash reports, and reads plan limits with each agent's own sign-in."),
+        t!("Turn off sharing"),
+        move |_, cx| {
+            let _ = this.update(cx, |bench, _| share(bench, false));
+        },
+    );
+    bench.notify(note, cx);
 }
 
 fn keep_press(_: &MouseDownEvent, _: &mut Window, cx: &mut App) {
@@ -1064,11 +1094,25 @@ impl Room {
         self.fit(96., 66.) + warning
     }
 
-    /// The welcome, what it says and the row with the button: always this tall.
+    fn privacy_top(self) -> f32 {
+        self.fit(12., 4.)
+    }
+
+    fn privacy_size(self) -> f32 {
+        self.fit(14., 11.5)
+    }
+
+    fn privacy_height(self) -> f32 {
+        (self.privacy_size() * PRIVACY_LINE * self.fit(2., 4.)).ceil()
+    }
+
+    /// The welcome, what it says, what is sent and the row with the button: always this tall.
     fn words_height(self, git_missing: bool) -> f32 {
         self.title_size() * 2.
             + self.copy_top()
             + self.copy_height(git_missing)
+            + self.privacy_top()
+            + self.privacy_height()
             + self.foot_top()
             + self.primary_height()
     }
@@ -1207,6 +1251,54 @@ fn sized_mark(kind: &str, target: f32) -> (Div, f32, f32) {
     (slot, box_width, box_height)
 }
 
+/// What Sikemux sends and reads with nobody asking, with the switch for what it sends.
+fn privacy(
+    shares: bool,
+    lit: Option<Stop>,
+    room: Room,
+    this: &Entity<Workbench>,
+    t: &Tokens,
+) -> Div {
+    let this = this.clone();
+    let on = lit == Some(Stop::Share);
+    div()
+        .flex_none()
+        .mt(px(room.privacy_top()))
+        .h(px(room.privacy_height()))
+        .flex()
+        .items_start()
+        .justify_between()
+        .gap(px(room.fit(24., 14.)))
+        .text_size(theme::ui_text(room.privacy_size()))
+        .line_height(relative(PRIVACY_LINE))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_color(t.text_tertiary)
+                .child(
+                    div()
+                        .text_color(if on { t.text_primary } else { t.text_secondary })
+                        .child(t!("Share anonymous usage and crash reports")),
+                )
+                .child(t!("Plan limits are read with each agent's own sign-in.")),
+        )
+        .child(
+            div()
+                .flex_none()
+                .on_mouse_down(MouseButton::Left, keep_press)
+                .child(Switch::new("welcome-share").checked(shares).on_change(
+                    move |on: &bool, window, cx| {
+                        let on = *on;
+                        this.update(cx, |bench, cx| {
+                            go(bench, Stop::Share, window, cx);
+                            share(bench, on);
+                        })
+                    },
+                )),
+        )
+}
+
 /// What the poster says and offers under the mark on a step.
 struct Poster {
     back: Option<AnyElement>,
@@ -1290,6 +1382,7 @@ fn poster(
     poster: Poster,
     resolved: f32,
     welcome: &Welcome,
+    sharing: Div,
     room: Room,
     this: &Entity<Workbench>,
     cx: &App,
@@ -1400,6 +1493,7 @@ fn poster(
                             copy.child(div().flex().gap(px(room.fit(14., 10.))).children(above))
                         }),
                 )
+                .child(sharing)
                 .child(
                     div()
                         .flex_none()
@@ -2299,6 +2393,8 @@ pub fn render(
             projects_pane(welcome, lit, room, this, cx),
         ),
     };
+    let shares = bench.preferences().share_usage_data;
+    let sharing = privacy(shares, lit, room, this, &t);
     let keys = this.clone();
     let next = this.clone();
     let previous = this.clone();
@@ -2331,7 +2427,7 @@ pub fn render(
         .on_key_down(move |event, window, cx| {
             keys.update(cx, |bench, cx| key_down(bench, event, window, cx))
         })
-        .child(poster(left, resolved, welcome, room, this, cx))
+        .child(poster(left, resolved, welcome, sharing, room, this, cx))
         .child(
             div()
                 .flex_1()
