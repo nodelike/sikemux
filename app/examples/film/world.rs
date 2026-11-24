@@ -775,6 +775,7 @@ impl World {
             }
             "core" => {
                 let (_, path) = self.project()?.clone();
+                let path = sikemux_process::files::real_path(&path).unwrap_or(path);
                 let params = match step.text(1)? {
                     file if file.ends_with(".json") => {
                         std::fs::read_to_string(self.scenes.join(file))?

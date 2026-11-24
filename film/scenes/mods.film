@@ -8,6 +8,7 @@ project storefront line-shop
 project handbook mods-book
 chat Juniper
 title "Set up the mods"
+settle 4
 key cmd-alt-9
 settle 2
 snap mods-none
