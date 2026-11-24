@@ -14,7 +14,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::build_output::LEFT_UNTOUCHED_FOR;
-use super::{branch_exists, left, published, take_folder, AgentWorktree};
+use super::{branch_exists, left, own, published, take_folder, AgentWorktree};
 use crate::git::Git;
 use crate::server::connection::blocking;
 use crate::server::ports;
@@ -308,11 +308,38 @@ pub enum Work {
     Left,
 }
 
-/// Removes the worktree at `tree` that no agent works in any more. Git refuses while anything
-/// in it is uncommitted, which [`left::keep`] commits first, so only build output and other
-/// ignored folders go with it.
+/// Removes the worktree at `tree` that no agent works in any more, when Sikemux made it and it is
+/// still there. Git refuses while anything in it is uncommitted, which [`left::keep`] commits
+/// first, and one with an ignored file only it has stays, so what goes can be made again.
 pub async fn remove_left(core: &Arc<Core>, repo: &Path, tree: &Path, work: Work) {
     let removal = core.build_outputs().removal.lock().await;
+    let (main, path) = (repo.to_owned(), tree.to_owned());
+    let kept_for = blocking(move || {
+        if !own::made_here(&path) {
+            return Ok(None);
+        }
+        Ok(Some(own::only_here(&main, &path)?))
+    })
+    .await;
+    match kept_for {
+        Ok(None) => return,
+        Ok(Some(None)) => {}
+        Ok(Some(Some(file))) => {
+            eprintln!(
+                "sikemux core: kept the worktree {}, as Git ignores {} and only it has that",
+                tree.display(),
+                file.display()
+            );
+            return;
+        }
+        Err(error) => {
+            eprintln!(
+                "sikemux core: kept the worktree {}: {error}",
+                tree.display()
+            );
+            return;
+        }
+    }
     if let Some(holder) = held_now(core, tree, work) {
         eprintln!(
             "sikemux core: kept the worktree {}, as {holder} works in it again",

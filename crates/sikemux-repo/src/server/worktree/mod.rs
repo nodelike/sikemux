@@ -13,6 +13,7 @@ use crate::tasks::detect::PERSONAL_TASKS;
 pub mod agent;
 pub mod build_output;
 mod left;
+mod own;
 pub mod published;
 pub mod removal;
 mod stale_builds;
@@ -136,6 +137,7 @@ pub fn cut(repo: &Path, branch: &str, start: &str) -> Result<(String, PathBuf), 
         &target,
         start,
     ])?;
+    own::mark(&path)?;
     Ok((branch, path))
 }
 
@@ -361,6 +363,7 @@ pub fn add_again(repo: &Path, path: &Path, branch: &str, start: &str) -> Result<
         &target,
         start,
     ])?;
+    own::mark(path)?;
     copy_included(repo, path);
     warm::seed_in_background(repo, path);
     Ok(())

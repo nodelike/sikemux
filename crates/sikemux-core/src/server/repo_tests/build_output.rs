@@ -1,7 +1,10 @@
 #![cfg(any(target_os = "macos", target_os = "linux"))]
 
 use crate::git::Git;
-use crate::server::worktree::build_output::{clear, Outcome, SET_ASIDE};
+use crate::server::workspace_state::WorkspaceParts;
+use crate::server::worktree::build_output::{clear, left, Outcome, SET_ASIDE};
+use crate::server::worktree::cut;
+use crate::server::worktree::removal::remove_left;
 use crate::server::Core;
 use crate::server::ServerCore;
 use sikemux_process::command::Child;
@@ -9,7 +12,7 @@ use sikemux_process::user_environment::command;
 use sikemux_view::host_stats::ClearedFor;
 use sikemux_wire::protocol::BuildIdentity;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 const STAND_IN: &str = "SIKEMUX_TEST_STAND_IN";
 
@@ -114,4 +117,56 @@ fn a_process_running_from_an_idle_worktree_keeps_its_build_output() {
         .unwrap()
         .flatten()
         .all(|entry| !entry.file_name().to_string_lossy().starts_with(SET_ASIDE)));
+}
+
+fn committed(dir: &Path) {
+    git(dir, &["config", "user.name", "t"]);
+    git(dir, &["config", "user.email", "t@t"]);
+    git(dir, &["commit", "-q", "--allow-empty", "-m", "work"]);
+}
+
+fn untouched_for_days(tree: &Path) {
+    let days_ago = SystemTime::now() - Duration::from_secs(4 * 24 * 60 * 60);
+    let record = Git::quick(tree)
+        .trimmed(&["rev-parse", "--absolute-git-dir"])
+        .unwrap();
+    for file in [Path::new(&record).join("logs/HEAD"), tree.join(".git")] {
+        let file = std::fs::OpenOptions::new().write(true).open(file).unwrap();
+        file.set_modified(days_ago).unwrap();
+    }
+}
+
+/// The first sweep of checkouts with work left in them took every idle worktree beside a project,
+/// and most of those in two projects had been added with `git worktree add`.
+#[tokio::test]
+async fn a_worktree_sikemux_did_not_make_stays_however_long_it_is_untouched() {
+    let parent = tempfile::tempdir().unwrap();
+    let main = sikemux_process::files::real_path(parent.path())
+        .unwrap()
+        .join("app");
+    std::fs::create_dir(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    committed(&main);
+    let by_hand = main.with_file_name("app.worktrees").join("by-hand");
+    let target = by_hand.to_str().unwrap();
+    git(&main, &["worktree", "add", "-q", "-b", "by-hand", target]);
+    let (_, made_here) = cut(&main, "feat/made-here", "HEAD").unwrap();
+    for tree in [&by_hand, &made_here] {
+        committed(tree);
+        untouched_for_days(tree);
+    }
+    let core = Core::new(BuildIdentity::default(), None).unwrap();
+    core.workspaces().project_for(&main).unwrap();
+
+    let taken = left(&core);
+    for (repo, tree, work) in &taken {
+        remove_left(&core, repo, tree, *work).await;
+    }
+    assert!(!made_here.exists());
+    assert!(taken.iter().all(|(_, tree, _)| *tree != by_hand));
+
+    if let Some((repo, _, work)) = taken.first() {
+        remove_left(&core, repo, &by_hand, *work).await;
+    }
+    assert!(by_hand.join(".git").is_file());
 }

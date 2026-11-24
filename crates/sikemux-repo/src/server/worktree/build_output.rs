@@ -2,12 +2,12 @@
 //! `target` starts as a copy-on-write clone of the main checkout's and drifts from it with each
 //! build, and that disk comes back only when the whole folder goes. So it goes whole: once the
 //! worktree's agent has closed, once its agent has landed everything and gone to sleep, and,
-//! least recently built first, while free space is low. A worktree no agent holds whose work is
-//! all on its base branch goes whole, as its agent closes or on an hourly sweep; one with work
-//! left in it goes on the sweep once untouched for days, its work kept on a branch. One whose work
-//! is all on its base branch also goes on the sweep after days untouched when only agents that
-//! finished and slept for as long hold it, and waking one makes it again. The main checkout's is
-//! never touched,
+//! least recently built first, while free space is low. A worktree Sikemux made that no agent
+//! holds and whose work is all on its base branch goes whole, as its agent closes or on an hourly
+//! sweep; one with work left in it goes on the sweep once untouched for days, its work kept on a
+//! branch. One whose work is all on its base branch also goes on the sweep after days untouched
+//! when only agents that finished and slept for as long hold it, and waking one makes it again.
+//! The main checkout's is never touched,
 //! nor a worktree's while an agent is at work in it or any process runs from it. A worktree that
 //! settles, as its agent closes or has landed everything and gone to sleep, also runs the
 //! project's `worktree.onSettle`.
@@ -31,7 +31,7 @@ use sikemux_view::host_stats::{ClearedFor, HostEventKind};
 use super::left::last_changed;
 use super::removal::{busy, rests, works_in, Work};
 use super::warm::{hold_builds, ignored_folders, is_cargo_output};
-use super::{worktrees_folder, AgentWorktree};
+use super::{own, worktrees_folder, AgentWorktree};
 use crate::git::{main_checkout, Git};
 use crate::server::changed::What;
 use crate::server::Core;
@@ -241,9 +241,9 @@ pub fn sweep_landed(core: &Core) {
     });
 }
 
-/// The worktrees, with the main checkout each belongs to, that only agents at rest hold, nothing
-/// runs from and nothing touched for as long as their work calls for.
-fn left(core: &Core) -> Vec<(PathBuf, PathBuf, Work)> {
+/// The worktrees Sikemux made, with the main checkout each belongs to, that only agents at rest
+/// hold, nothing runs from and nothing touched for as long as their work calls for.
+pub fn left(core: &Core) -> Vec<(PathBuf, PathBuf, Work)> {
     let Some(places) = procs::places() else {
         return Vec::new();
     };
@@ -262,6 +262,9 @@ fn left(core: &Core) -> Vec<(PathBuf, PathBuf, Work)> {
             continue;
         };
         for tree in worktrees_of(std::slice::from_ref(&main)) {
+            if !own::made_here(&tree) {
+                continue;
+            }
             let in_use = projects.iter().any(|project| project.starts_with(&tree))
                 || holding.iter().any(|agent| works_in(agent, &tree))
                 || sikemux_process::files::real_path(&tree)
