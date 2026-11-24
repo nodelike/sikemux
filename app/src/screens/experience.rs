@@ -48,11 +48,24 @@ pub fn preferences_read(
 
 /// A release the person has not read the notes of opens them, once the welcome is done.
 pub fn whats_new_read(bench: &mut Workbench, unseen: bool, cx: &mut Context<Workbench>) {
+    let unseen = unseen || test_unseen();
     if !unseen || bench.shown.news || bench.overlays.experience.is_some() {
         return;
     }
     bench.shown.news = true;
     open_whats_new(bench, cx);
+}
+
+/// The test bundle never updates by itself, so `SIKEMUX_GPUI_DRIVE_WHATS_NEW` "unseen" opens the
+/// notes as an update that went in by itself would.
+#[cfg(feature = "drive")]
+fn test_unseen() -> bool {
+    std::env::var("SIKEMUX_GPUI_DRIVE_WHATS_NEW").is_ok_and(|notes| notes == "unseen")
+}
+
+#[cfg(not(feature = "drive"))]
+fn test_unseen() -> bool {
+    false
 }
 
 pub fn open_welcome(bench: &mut Workbench, cx: &mut Context<Workbench>) {

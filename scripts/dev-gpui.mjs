@@ -223,6 +223,7 @@ const CALLER_OPTIONS = [
   "SIKEMUX_GPUI_DRIVE",
   "SIKEMUX_GPUI_DRIVE_BEHIND",
   "SIKEMUX_GPUI_DRIVE_MOTION",
+  "SIKEMUX_GPUI_DRIVE_WHATS_NEW",
 ];
 
 // What the build compiles in when it is given them, which a checkout keeps in .env.

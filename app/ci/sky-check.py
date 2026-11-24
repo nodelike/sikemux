@@ -2,9 +2,9 @@
 
 python3 -I ci/sky-check.py --app APP --core CORE --agent FAKE_AGENT --seed FAKE_CHAT --out DIR [--behind]
 
-The arguments are desk-checks.py's. Each case starts the app on a throwaway core with a release
-the person has not read, so What's New opens before the person's preferences are read, with
-the panes' grain on and off, and once more asking for less motion. It counts the frames that
+The arguments are desk-checks.py's. Each case starts the app on a throwaway core, told that its
+release is one the person has not read, so What's New opens before the person's preferences are
+read, with the panes' grain on and off, and once more asking for less motion. It counts the frames that
 move the sky on over a few seconds and compares two captures of the sky half a second apart: a
 sky that moves changes many of its dots between them, and one held still changes none. Exits 1
 when any case fails.
@@ -65,13 +65,14 @@ def main():
     out = Path(options.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     results = []
+    desk.os.environ["SIKEMUX_GPUI_DRIVE_WHATS_NEW"] = "unseen"
     for name, preferences, moves in CASES:
         desk.os.environ["SIKEMUX_GPUI_DRIVE_MOTION"] = "on" if moves else "off"
         options.out = str(out / name)
         options.only = ""
         options.window = None
         run = desk.Run(options)
-        run.preferences = {"lastSeenVersion": "0.0.1", **preferences}
+        run.preferences = preferences
         try:
             run.set_up()
             frame = desk.until(lambda: desk.spot(run, "whats-new-sky"), 15)
