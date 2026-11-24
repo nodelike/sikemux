@@ -794,18 +794,14 @@ pub(crate) fn account_host_menu(
 /// own, with the few words its page shows beside its name.
 fn mods(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
     let ink = Tokens::get(cx).text_secondary;
-    let front = bench
-        .tab()
-        .and_then(|tab| tabs::first_view(&tab.pane))
-        .filter(|(kind, _)| *kind == PaneKind::Mod)
-        .map(|(_, target)| target.clone());
+    let front = bench.front_mod(cx);
     let settings_open = bench.settings.read(cx).is_open();
     let project = bench.project().map(|project| project.name.clone());
     bench
         .mods_here()
         .map(|shown| {
-            let (id, name) = (shown.id.clone(), shown.name.clone());
-            let row = Row::new(SharedString::from(format!("mod-{id}")), name.clone())
+            let id = shown.id.clone();
+            let row = Row::new(SharedString::from(format!("mod-{id}")), shown.name.clone())
                 .mark(16., ui::picture(crate::mods::icon(shown), 13., ink))
                 .quiet()
                 .chosen(!settings_open && front.as_ref() == Some(&id))
@@ -816,7 +812,7 @@ fn mods(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 .when(shown.problem.is_none() && shown.note.is_some(), |row| {
                     row.status(Some(ui::dot(Tone::Pending, cx)))
                 })
-                .on_click(cx.listener(move |bench, _, _, _| bench.open_mod(&id, &name)));
+                .on_click(cx.listener(move |bench, _, _, cx| bench.open_mod(&id, cx)));
             let (bench, shown, project) = (cx.weak_entity(), shown.clone(), project.clone());
             with_menu(
                 SharedString::from(format!("mod-{}-menu", shown.id)),

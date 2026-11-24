@@ -86,7 +86,7 @@ impl Workbench {
                     Ok(id) => {
                         let done = t!("{name} is installed", name = found.name);
                         bench.notify(toast::success(done), cx);
-                        bench.open_mod(&id, &found.name);
+                        bench.open_mod(&id, cx);
                     }
                     Err(error) => bench.notify(
                         toast::error(t!(

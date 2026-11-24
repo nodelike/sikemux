@@ -1,10 +1,10 @@
-//! A mod's pane: the page of a panel the person or an agent made, read from the core, filling
-//! the pane on the app's ground, and read again whenever the mod's files move. Its page reaches
+//! A mod's page on a desk: the page of a panel the person or an agent made, read from the core,
+//! filling the desk on the app's ground, and read again whenever the mod's files move. Its page reaches
 //! the core through `window.sikemux`, the bridge in `bridge.js`: what it reads and writes is the
-//! core's to allow, and a watch reads again only when what it reads moves, while the pane shows.
+//! core's to allow, and a watch reads again only when what it reads moves, while the page shows.
 //! A page out of sight a while is thrown away and drawn again from its data when it shows.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::{Duration, Instant};
 
@@ -70,15 +70,17 @@ pub struct ModPane {
     /// The mod's id, its folder's name.
     pub id: String,
     pub core: Target,
-    /// The folder of the project whose strip holds the pane.
+    /// The folder of the project of the agent whose desk the page last showed on.
     project: Option<String>,
+    /// The agent whose desk the page last showed on.
+    desk: Option<String>,
     bench: WeakEntity<Workbench>,
     page: Option<page_view::View>,
     problem: Option<SharedString>,
     reading: bool,
-    /// Whether the pane's tab is in front.
+    /// Whether a desk in sight shows the page.
     shown: bool,
-    /// When the pane's tab last went to the back, while it is there.
+    /// When the page last went out of sight, while it is.
     hidden_since: Option<Instant>,
     kept: Kept,
     /// The mod's data changed while the pane was not shown, so who changed it is read on showing.
@@ -99,22 +101,17 @@ pub struct ModPane {
 }
 
 impl ModPane {
-    pub fn new(
-        id: String,
-        core: Target,
-        project: Option<String>,
-        shown: bool,
-        bench: WeakEntity<Workbench>,
-    ) -> Self {
+    pub fn new(id: String, core: Target, bench: WeakEntity<Workbench>) -> Self {
         Self {
             id,
             core,
-            project,
+            project: None,
+            desk: None,
             bench,
             page: None,
             problem: None,
             reading: false,
-            shown,
+            shown: false,
             hidden_since: None,
             kept: Kept::default(),
             change_stale: false,
@@ -128,7 +125,31 @@ impl ModPane {
         }
     }
 
-    pub fn show(&mut self, cx: &mut Context<Self>) {
+    /// Whether the page shows on the desk of `agent`.
+    pub fn shows_on(&self, agent: &str) -> bool {
+        self.shown && self.desk.as_deref() == Some(agent)
+    }
+
+    /// Shows the page on the desk of `agent`, of the others in sight with the same mod.
+    pub fn move_to(&mut self, agent: &str) {
+        self.desk = Some(agent.to_owned());
+    }
+
+    /// Shows the page on the desk of `agent`, for the project at `project`, which its watches read
+    /// again when it changed.
+    fn show_on(&mut self, agent: &str, project: Option<String>, cx: &mut Context<Self>) {
+        self.move_to(agent);
+        if self.project != project {
+            self.project = project;
+            for watch in self.watches.values_mut() {
+                watch.dirty = true;
+            }
+            self.gather(cx);
+        }
+        self.show(cx);
+    }
+
+    fn show(&mut self, cx: &mut Context<Self>) {
         if std::mem::replace(&mut self.shown, true) {
             return;
         }
@@ -179,7 +200,7 @@ impl ModPane {
         self.stale = true;
     }
 
-    /// The mod's files moved: reads its page again now, or once its tab comes to the front.
+    /// The mod's files moved: reads its page again now, or once it shows.
     pub fn files_moved(&mut self, cx: &mut Context<Self>) {
         self.stale = true;
         if self.shown {
@@ -794,63 +815,68 @@ impl Render for ModPane {
 }
 
 impl Workbench {
-    /// Keeps a pane for each mod view of every strip, showing those of the tab in front and
-    /// pausing the rest, and lets go of those whose tab closed.
+    /// Keeps a page for each mod on a desk of the host in front, showing those the desks in sight
+    /// show and pausing the rest, and lets go of those no desk holds.
     pub(crate) fn mod_panes(&mut self, cx: &mut Context<Self>) {
-        let views_in = |pane: &sikemux_view::layout::Pane| -> Vec<(String, String)> {
-            crate::panes::views(pane)
-                .filter(|view| view.kind == PaneKind::Mod)
-                .map(|view| (view.id.clone(), view.target.clone()))
-                .collect()
-        };
-        let mut open: Vec<(String, String, Option<String>)> = Vec::new();
-        if let Some(view) = self.shown() {
-            let layout = &view.layout;
-            let folder = |project: &str| {
-                (self.projects().iter())
-                    .find(|known| known.id == project)
-                    .map(|known| known.path.to_string_lossy().into_owned())
-            };
-            let strips = (layout.projects.iter())
-                .map(|(project, tabs)| (tabs, folder(project)))
-                .chain(layout.hosts.values().map(|tabs| (tabs, None)))
-                .chain([(&layout.terminals, None)]);
-            for (tabs, project) in strips {
-                for tab in &tabs.tabs {
-                    for (view, id) in views_in(&tab.pane) {
-                        open.push((view, id, project.clone()));
-                    }
+        let open: BTreeSet<String> = (self.shown().into_iter())
+            .flat_map(|view| view.layout.mods.values().flatten().cloned())
+            .collect();
+        let core = self.target();
+        self.mod_panes
+            .retain(|id, pane| open.contains(id) && pane.read(cx).core.place() == core.place());
+        let showing = self.mods_in_sight(cx);
+        let mut hid = false;
+        for id in open {
+            let bench = cx.weak_entity();
+            let pane = (self.mod_panes.entry(id.clone()))
+                .or_insert_with(|| cx.new(|_| ModPane::new(id.clone(), core.clone(), bench)))
+                .clone();
+            let desks: Vec<&String> = (showing.iter())
+                .filter(|(_, shown)| *shown == id)
+                .map(|(agent, _)| agent)
+                .collect();
+            let kept = (pane.read(cx).desk.as_ref()).filter(|desk| desks.contains(desk));
+            match kept.or(desks.first().copied()).cloned() {
+                Some(agent) => {
+                    let project = self.project_folder_of(&agent);
+                    pane.update(cx, |pane, cx| pane.show_on(&agent, project, cx));
                 }
+                None => hid |= pane.update(cx, |pane, cx| pane.hide(cx)),
             }
         }
-        let in_front = self
-            .tab()
-            .map(|tab| views_in(&tab.pane))
-            .unwrap_or_default();
-        let core = self.target();
-        let mut hid = false;
-        self.mod_panes.retain(|view, pane| {
-            let kept = open.iter().any(|(id, target, _)| {
-                let pane = pane.read(cx);
-                id == view && &pane.id == target && pane.core.place() == core.place()
-            });
-            match kept && in_front.iter().any(|(id, _)| id == view) {
-                true => pane.update(cx, |pane, cx| pane.show(cx)),
-                false => hid |= pane.update(cx, |pane, cx| pane.hide(cx)),
-            }
-            kept
-        });
         if hid {
             self.drop_mod_pages(cx);
         }
-        for (view, id, project) in open {
-            if let std::collections::hash_map::Entry::Vacant(slot) = self.mod_panes.entry(view) {
-                let shown = in_front.iter().any(|(front, _)| front == slot.key());
-                let bench = cx.weak_entity();
-                let pane = ModPane::new(id, core.clone(), project, shown, bench);
-                slot.insert(cx.new(|_| pane));
-            }
-        }
+    }
+
+    /// The agents whose desks are in the tab in front and show a mod, each with the mod's id, the
+    /// agent in front first.
+    fn mods_in_sight(&self, cx: &Context<Self>) -> Vec<(String, String)> {
+        let Some(tab) = self.tab() else {
+            return Vec::new();
+        };
+        let front = self.front_agent().map(|(.., agent)| agent);
+        let desks = self.desks.read(cx);
+        let mut showing: Vec<(String, String)> = crate::panes::views(&tab.pane)
+            .filter(|view| view.kind == PaneKind::Desk)
+            .filter_map(|view| {
+                let shown = desks.mod_shown(&view.target)?;
+                Some((view.target.clone(), shown.to_owned()))
+            })
+            .collect();
+        showing.sort_by_key(|(agent, _)| Some(agent) != front.as_ref());
+        showing
+    }
+
+    /// The mod the desk of the agent in front shows, while that desk is in sight.
+    pub(crate) fn front_mod(&self, cx: &Context<Self>) -> Option<String> {
+        self.mods_in_sight(cx).into_iter().next().map(|(_, id)| id)
+    }
+
+    fn project_folder_of(&self, agent: &str) -> Option<String> {
+        let project = self.agent_by_id(agent)?.project;
+        let known = self.projects().iter().find(|known| known.id == project)?;
+        Some(known.path.to_string_lossy().into_owned())
     }
 
     /// Lets go of the pages of mod panes out of sight, but for the latest few put there, once they

@@ -11,8 +11,8 @@ use crate::server::serving::ServeCore;
 use crate::server::workspace::AddProjectParamsExt;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::layout::{
-    ActivateProjectParams, HostParams, OpenPaths, PaneParams, PathOpened, ResizeSplit, TabParams,
-    TabsParams,
+    ActivateProjectParams, DeskModParams, HostParams, OpenPaths, PaneParams, PathOpened,
+    ResizeSplit, TabParams, TabsParams,
 };
 pub use sikemux_calls::layout::{Side, SplitPane};
 use sikemux_view::layout::At;
@@ -21,6 +21,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+
+use serde_json::{json, Value};
 
 use sikemux_process::sync::Locked;
 
@@ -115,11 +117,106 @@ impl Layouts {
     pub(crate) fn new(data_dir: Option<&std::path::Path>) -> Self {
         let kept = Kept::new(data_dir, FILE);
         Self {
-            layout: Mutex::new(kept.load()),
+            layout: Mutex::new(load(&kept)),
             kept,
             fronts: Mutex::default(),
         }
     }
+}
+
+/// The layout last kept, carried over from how earlier cores wrote it.
+fn load(kept: &Kept) -> Layout {
+    let Some(saved) = kept.load::<Option<Value>>() else {
+        return Layout::default();
+    };
+    serde_json::from_value(mods_onto_desks(saved)).unwrap_or_else(|error| {
+        kept.set_aside(&error.to_string());
+        Layout::default()
+    })
+}
+
+/// Moves the mods earlier cores showed as tabs onto the desk of an agent: the one in the same
+/// tab, else the one in front in the mod's strip, else the strip's first. A mod in a strip
+/// without an agent is let go.
+fn mods_onto_desks(mut saved: Value) -> Value {
+    let mut moved: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let groups = ["projects", "hosts"];
+    for group in groups {
+        for strip in saved
+            .get_mut(group)
+            .and_then(Value::as_object_mut)
+            .into_iter()
+            .flat_map(|strips| strips.values_mut())
+        {
+            take_mods(strip, &mut moved);
+        }
+    }
+    if let Some(strip) = saved.get_mut("terminals") {
+        take_mods(strip, &mut moved);
+    }
+    if moved.is_empty() {
+        return saved;
+    }
+    if let Some(layout) = saved.as_object_mut() {
+        layout.insert("mods".into(), json!(moved));
+    }
+    saved
+}
+
+/// Drops the mod views of a saved strip, adding each to the desk of the agent it moves to.
+fn take_mods(strip: &mut Value, moved: &mut BTreeMap<String, Vec<String>>) {
+    let active = strip.get("active").cloned();
+    let Some(tabs) = strip.get_mut("tabs").and_then(Value::as_array_mut) else {
+        return;
+    };
+    let agent_in = |tab: &Value| saved_targets(tab.get("pane"), "agent").into_iter().next();
+    let nearest = (tabs.iter())
+        .filter(|tab| tab.get("id") == active.as_ref())
+        .chain(tabs.iter())
+        .find_map(agent_in);
+    tabs.retain_mut(|tab| {
+        let mods = saved_targets(tab.get("pane"), "mod");
+        if mods.is_empty() {
+            return true;
+        }
+        if let Some(agent) = agent_in(tab).or_else(|| nearest.clone()) {
+            let desk = moved.entry(agent).or_default();
+            for id in mods {
+                if !desk.contains(&id) {
+                    desk.push(id);
+                }
+            }
+        }
+        tab.get_mut("pane").is_some_and(keep_saved)
+    });
+}
+
+/// What the views of `kind` in a saved pane show.
+fn saved_targets(pane: Option<&Value>, kind: &str) -> Vec<String> {
+    let Some(pane) = pane else {
+        return Vec::new();
+    };
+    if let Some(panes) = pane.get("panes").and_then(Value::as_array) {
+        return (panes.iter())
+            .flat_map(|pane| saved_targets(Some(pane), kind))
+            .collect();
+    }
+    let held = pane.get("kind").and_then(Value::as_str) == Some(kind);
+    (pane.get("target").and_then(Value::as_str))
+        .filter(|_| held)
+        .map(str::to_owned)
+        .into_iter()
+        .collect()
+}
+
+/// Drops the mod views inside a saved pane, answering whether anything remains.
+fn keep_saved(pane: &mut Value) -> bool {
+    let Ok(mut kept) = serde_json::from_value::<Pane>(pane.take()) else {
+        return false;
+    };
+    let remains = keep_shown(&mut kept, &|kind, _| kind != PaneKind::Unknown);
+    *pane = json!(kept);
+    remains
 }
 
 impl super::part::Part for Layouts {
@@ -184,10 +281,12 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
         | PaneKind::Pages
         | PaneKind::InstallSikemux
         | PaneKind::Stash
-        | PaneKind::Hosts
-        | PaneKind::Mod => true,
+        | PaneKind::Hosts => true,
     };
     let shown = |kind: PaneKind, target: &str| shown_in(None, kind, target);
+    layout
+        .mods
+        .retain(|agent, mods| agents.contains_key(agent.as_str()) && !mods.is_empty());
     layout
         .projects
         .retain(|id, _| workspace.projects.iter().any(|project| &project.id == id));
@@ -692,6 +791,30 @@ pub(crate) fn open_tab(core: &Core, params: OpenTab) -> CoreResult<String> {
     })
 }
 
+/// Puts a mod on an agent's desk, last, unless it is there already.
+pub(crate) fn open_desk_mod(core: &Core, params: DeskModParams) -> CoreResult<()> {
+    if !(core.workspaces().agent_projects()).contains_key(&params.agent) {
+        return Err("that agent is not on this host".into());
+    }
+    edit(core, |layout| {
+        let mods = layout.mods.entry(params.agent).or_default();
+        if !mods.contains(&params.id) {
+            mods.push(params.id);
+        }
+        Ok(())
+    })
+}
+
+pub(crate) fn close_desk_mod(core: &Core, params: DeskModParams) -> CoreResult<()> {
+    edit(core, |layout| {
+        if let Some(mods) = layout.mods.get_mut(&params.agent) {
+            mods.retain(|id| *id != params.id);
+        }
+        layout.mods.retain(|_, mods| !mods.is_empty());
+        Ok(())
+    })
+}
+
 fn strip_at<'a>(
     layout: &'a mut Layout,
     at: &At,
@@ -965,8 +1088,7 @@ pub(crate) async fn lay_out_carried(
         | PaneKind::ProjectSettings
         | PaneKind::Pages
         | PaneKind::Stash
-        | PaneKind::Hosts
-        | PaneKind::Mod => true,
+        | PaneKind::Hosts => true,
     };
     let mut carried = Vec::new();
     for mut tab in tabs {

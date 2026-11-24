@@ -305,28 +305,13 @@ impl Workbench {
                 .detach();
             }
             "mod" => {
-                let Some(project) = self.project_here(&request.project) else {
-                    return answer(Err("That project is not open in Sikemux".into()));
+                let Some(agent) = request.agent_id else {
+                    return answer(Err("only an agent opens a mod on its desk".into()));
                 };
-                let tab = OpenTab::new(
-                    At::project(&project),
-                    PaneKind::Mod,
-                    params["mod"].as_str().unwrap_or_default(),
-                );
-                let tab = OpenTab {
-                    title: params["title"].as_str().map(str::to_owned),
-                    ..tab
-                };
-                let opened = crate::core::Target::here(&self.asks)
-                    .request_typed::<call::OpenTab>(tab.behind(!focus));
-                cx.background_spawn(async move {
-                    answer(
-                        opened
-                            .await
-                            .map(|tab| json!({ "kind": kind, "windowId": tab })),
-                    );
-                })
-                .detach();
+                let id = params["mod"].as_str().unwrap_or_default().to_owned();
+                let front = focus || !self.desk_in_front(&agent);
+                self.open_mod_on(&agent, &id, front, cx);
+                answer(Ok(json!({ "kind": kind, "agentId": agent, "mod": id })));
             }
             "preview" => {
                 let (Some(agent), Some(url)) =

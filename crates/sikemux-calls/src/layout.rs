@@ -75,6 +75,14 @@ pub struct PaneParams {
     pub pane: String,
 }
 
+/// A mod on an agent's desk.
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeskModParams {
+    pub agent: String,
+    pub id: String,
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResizeSplit {

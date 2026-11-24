@@ -1101,6 +1101,98 @@ impl Workbench {
         }
     }
 
+    /// Opens the mod `id` on the agent's desk, in front of what is there when `front`, bringing
+    /// the desk out if it is closed.
+    pub(crate) fn open_mod_on(
+        &mut self,
+        agent: &str,
+        id: &str,
+        front: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((core, view)) = self.home_of(agent) else {
+            return;
+        };
+        let item = DeskItem::Mod(id.to_owned());
+        let listed =
+            (view.layout.mods.get(agent)).is_some_and(|mods| mods.iter().any(|it| it == id));
+        if listed && self.desks.read(cx).holds(agent, &item) {
+            return self.put_out_mod(agent, item, front, cx);
+        }
+        core.call_typed::<call::OpenDeskMod>(DeskModParams {
+            agent: agent.to_owned(),
+            id: id.to_owned(),
+        });
+        self.desks.update(cx, |desks, _| {
+            desks.mod_wanted = Some(WantedMod {
+                agent: agent.to_owned(),
+                id: id.to_owned(),
+                front,
+            })
+        });
+    }
+
+    fn put_out_mod(&mut self, agent: &str, item: DeskItem, front: bool, cx: &mut Context<Self>) {
+        self.desks
+            .update(cx, |desks, cx| desks.put(agent, item, front, cx));
+        if !self.desk_open_anywhere(agent) {
+            self.reveal_desk(agent);
+        }
+        self.parts.redraw_stage(cx);
+        self.parts.redraw(&self.parts.agents, cx);
+    }
+
+    /// Puts on the desks of the host at `place` the mods its core lists on each, and takes off
+    /// those it no longer does.
+    pub(crate) fn keep_desk_mods(&mut self, place: &crate::hosts::Place, cx: &mut Context<Self>) {
+        let Some(view) = self.view_at(place) else {
+            return;
+        };
+        let listed = &view.layout.mods;
+        let desks = self.desks.read(cx);
+        let mut came: Vec<(String, DeskItem)> = Vec::new();
+        let mut gone: Vec<(String, DeskItem)> = Vec::new();
+        for (agent, mods) in listed {
+            let items = mods.iter().map(|id| DeskItem::Mod(id.clone()));
+            came.extend(
+                items
+                    .filter(|item| !desks.holds(agent, item))
+                    .map(|item| (agent.clone(), item)),
+            );
+        }
+        for agent in desks.items.keys() {
+            let listed = listed.get(agent).map_or(&[][..], Vec::as_slice);
+            let gone_here = (desks.mods_on(agent))
+                .filter(|id| !listed.iter().any(|it| it == id))
+                .map(|id| (agent.clone(), DeskItem::Mod(id.to_owned())));
+            let lives_here = agent_place_in(view, agent).is_some();
+            gone.extend(gone_here.filter(|_| lives_here));
+        }
+        let wanted = (desks.mod_wanted.as_ref()).is_some_and(|wanted| {
+            (listed.get(&wanted.agent)).is_some_and(|mods| mods.contains(&wanted.id))
+        });
+        if came.is_empty() && gone.is_empty() && !wanted {
+            return;
+        }
+        let wanted = self.desks.update(cx, |desks, cx| {
+            for (agent, item) in came {
+                desks.put(&agent, item, false, cx);
+            }
+            for (agent, item) in &gone {
+                desks.take_off(agent, item, cx);
+            }
+            wanted.then(|| desks.mod_wanted.take()).flatten()
+        });
+        for (agent, _) in gone {
+            self.shut_empty_desk(&agent, cx);
+        }
+        if let Some(WantedMod { agent, id, front }) = wanted {
+            self.put_out_mod(&agent, DeskItem::Mod(id), front, cx);
+        }
+        self.parts.redraw_stage(cx);
+        self.parts.redraw(&self.parts.agents, cx);
+    }
+
     /// Turns the agent's desk to its simulator, bringing the desk out if it is closed.
     pub(crate) fn show_simulator(&mut self, agent: &str, cx: &mut Context<Self>) {
         self.desks.update(cx, |desks, cx| {
@@ -1475,20 +1567,43 @@ impl Workbench {
         if let Some(front) = self.front_agent() {
             return Some(front);
         }
-        let project = self.project().map(|project| project.id.clone());
-        let placed = project
-            .map(|project| self.agents_of(&project))
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|agent| {
-                Some((
-                    agent.active_at,
-                    agent.id.clone(),
-                    agent_place_in(self.shown()?, &agent.id)?,
-                ))
-            })
-            .max_by_key(|(active_at, ..)| *active_at);
-        let Some((_, agent, (strip, tab, view))) = placed else {
+        self.bring_latest(self.latest_here(), cx)
+    }
+
+    /// The nearest agent, or with none in the project, the one of any project that worked last.
+    fn nearest_agent_anywhere(&self, cx: &mut Context<Self>) -> Option<(String, String, String)> {
+        if let Some(front) = self.front_agent() {
+            return Some(front);
+        }
+        let latest = self.latest_here().or_else(|| {
+            let projects = self.projects().iter();
+            self.latest_agent(projects.flat_map(|project| self.agents_of(&project.id)))
+        });
+        self.bring_latest(latest, cx)
+    }
+
+    fn latest_here(&self) -> Option<PlacedAgent> {
+        self.latest_agent(self.agents_of(&self.project()?.id))
+    }
+
+    /// The one of `agents` that worked last and has a tab, and where that is.
+    fn latest_agent(&self, agents: impl IntoIterator<Item = AgentRow>) -> Option<PlacedAgent> {
+        let view = self.shown()?;
+        let placed = agents.into_iter().filter_map(|agent| {
+            let place = agent_place_in(view, &agent.id)?;
+            Some((agent.active_at, agent.id, place))
+        });
+        let (_, agent, place) = placed.max_by_key(|(active_at, ..)| *active_at)?;
+        Some((agent, place))
+    }
+
+    /// Brings `agent` to the front, or says a desk belongs to one when there is none.
+    fn bring_latest(
+        &self,
+        agent: Option<PlacedAgent>,
+        cx: &mut Context<Self>,
+    ) -> Option<(String, String, String)> {
+        let Some((agent, (strip, tab, view))) = agent else {
             self.notify(
                 toast::info(t!(
                     "Start an agent first — the desk and its browser belong to one"
@@ -2521,6 +2636,22 @@ fn add_menu(agent: &str, cx: &Context<Workbench>) -> impl IntoElement {
                                 .update(cx, |bench, cx| opening.open(bench, &agent, window, cx));
                         }),
                 )
+            });
+            let popup = match here && !mods.is_empty() {
+                true => popup.separator(),
+                false => popup,
+            };
+            mods.into_iter().fold(popup, |popup, (id, name, icon)| {
+                let (bench, agent) = (bench.clone(), agent.clone());
+                popup.item(
+                    ui::MenuRow::new(name)
+                        .icon(icon)
+                        .item(cx)
+                        .on_click(move |_, _, cx| {
+                            let _ = bench
+                                .update(cx, |bench, cx| bench.open_mod_on(&agent, &id, true, cx));
+                        }),
+                )
             })
         },
     )
@@ -2707,6 +2838,43 @@ fn pages_desk(
         .flex_col()
         .when(!no_pages, |content| content.child(bar))
         .child(body)
+        .into_any_element()
+}
+
+/// A mod on the agent's desk. Its one page shows in one desk at a time, so another desk in sight
+/// with the same mod offers to take it.
+fn mod_pane(bench: &Workbench, agent: &str, id: &str, cx: &mut Context<Workbench>) -> AnyElement {
+    let Some(pane) = bench.mod_panes.get(id) else {
+        return div().into_any_element();
+    };
+    if pane.read(cx).shows_on(agent) {
+        return div()
+            .size_full()
+            .mx(px(1.))
+            .mb(px(1.))
+            .child(pane.clone())
+            .into_any_element();
+    }
+    let (pane, agent) = (pane.clone(), agent.to_owned());
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap(SPACE_2)
+        .child(ui::meta(t!("Open on the desk beside this one"), cx))
+        .child(
+            ui::Button::new(
+                SharedString::from(format!("mod-here-{id}")),
+                t!("Show it here"),
+                ui::Variant::Outline,
+            )
+            .on_click(cx.listener(move |bench, _, _, cx| {
+                pane.update(cx, |pane, _| pane.move_to(&agent));
+                bench.parts.redraw_stage(cx);
+            })),
+        )
         .into_any_element()
 }
 

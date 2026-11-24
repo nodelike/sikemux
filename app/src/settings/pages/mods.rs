@@ -63,13 +63,13 @@ fn controls(shown: &ModInfo, this: &Entity<Workbench>) -> AnyElement {
             ui::Variant::Outline,
         )
     };
-    let (opening, open) = (this.clone(), (shown.id.clone(), shown.name.clone()));
+    let (opening, open) = (this.clone(), shown.id.clone());
     let open = button("open", t!("Open"))
         .disabled(shown.off || shown.problem.is_some())
         .on_click(move |_, window, cx| {
             opening.update(cx, |bench, cx| {
                 crate::settings::close(bench, window, cx);
-                bench.open_mod(&open.0, &open.1);
+                bench.open_mod(&open, cx);
             })
         });
     let (taking, taken) = (this.clone(), shown.id.clone());
@@ -149,7 +149,7 @@ pub fn render(
         .map(|list| list.examples.as_slice())
         .unwrap_or_default();
     let examples = div().children(examples.iter().map(|example| {
-        let (adding, id, name) = (this.clone(), example.id.clone(), example.name.clone());
+        let (adding, id) = (this.clone(), example.id.clone());
         let add = ui::Button::new(
             SharedString::from(format!("mod-example-{}", example.id)),
             if example.added {
@@ -163,7 +163,7 @@ pub fn render(
         .on_click(move |_, window, cx| {
             adding.update(cx, |bench, cx| {
                 crate::settings::close(bench, window, cx);
-                bench.add_example_mod(&id, &name, cx);
+                bench.add_example_mod(&id, cx);
             })
         });
         rows::row_with(

@@ -439,6 +439,7 @@ impl Workbench {
             DeskItem::Terminal { session, title } => {
                 json!({ "terminal": title, "session": session })
             }
+            DeskItem::Mod(id) => json!({ "mod": id }),
         };
         let desk = |agent: &String| {
             let page = desks.pages.get(agent);

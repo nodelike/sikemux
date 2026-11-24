@@ -88,12 +88,13 @@ fn choices() -> [Choice; 9] {
             t!("Hosts and paired phones"),
             false,
         ),
-        Choice::of(
-            PaneKind::Mod,
-            actions::OpenMod::ID,
-            t!("A panel you or an agent made"),
-            false,
-        ),
+        Choice {
+            command: actions::OpenMod::ID,
+            label: t!("Mod"),
+            detail: t!("A panel you or an agent made"),
+            icon: Icon::Dashboard,
+            in_project: false,
+        },
     ]
 }
 

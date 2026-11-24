@@ -35,6 +35,9 @@ pub struct Layout {
     /// brings back the one they were on before it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recent: Vec<String>,
+    /// The mods open on each agent's desk, by the agent's id, in the order they were opened.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub mods: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,8 +112,6 @@ pub enum PaneKind {
     /// Every host on the account, how busy each is, and one host's detail; `target` is the
     /// host chosen, by its key as the app names it.
     Hosts,
-    /// A panel the person made as a web page; `target` is the mod's id.
-    Mod,
     /// A kind a newer core shows, which this build does not know and leaves out.
     #[serde(other)]
     Unknown,

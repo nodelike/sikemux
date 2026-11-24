@@ -162,7 +162,7 @@ pub struct Workbench {
     pub editors: Entity<crate::editor::Editors>,
     /// The Search pane of the project whose Search tab was last in front.
     pub search: Option<Entity<SearchPane>>,
-    /// The mod panes of the strip in front, by view.
+    /// The pages of the mods on the desks of the host in front, by mod.
     pub mod_panes: HashMap<String, Entity<crate::mod_pane::ModPane>>,
     /// Settings, while they take the stage's place.
     pub settings: Entity<crate::settings::Settings>,

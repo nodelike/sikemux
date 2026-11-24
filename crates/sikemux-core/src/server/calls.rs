@@ -349,6 +349,8 @@ calls! { core, client, method, params;
     "splitPane" = SplitPane: Full, counted => super::layout::split_pane(&core, params)?,
     "closePane" = ClosePane: Full => super::layout::close_pane(&core, params)?,
     "separatePane" = SeparatePane: Full, counted => super::layout::separate_pane(&core, params)?,
+    "openDeskMod" = OpenDeskMod: Full, counted => super::layout::open_desk_mod(&core, params)?,
+    "closeDeskMod" = CloseDeskMod: Full => super::layout::close_desk_mod(&core, params)?,
     "resizeSplit" = ResizeSplit: Full => super::layout::resize_split(&core, params)?,
     "account": Watch => answer(core.account().shown()),
     "remoteImage" = RemoteImage: Watch => super::remote_image::fetch(core.remote_images(), params).await?,

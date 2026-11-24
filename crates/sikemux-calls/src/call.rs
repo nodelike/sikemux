@@ -178,6 +178,8 @@ crate::calls! {
     "chooseHost" ChooseHost (crate::layout::HostParams) -> ();
     "closePane" ClosePane (crate::layout::PaneParams) -> ();
     "separatePane" SeparatePane (crate::layout::PaneParams) -> String;
+    "openDeskMod" OpenDeskMod (crate::layout::DeskModParams) -> ();
+    "closeDeskMod" CloseDeskMod (crate::layout::DeskModParams) -> ();
     "resizeSplit" ResizeSplit (crate::layout::ResizeSplit) -> ();
     "accountSignIn" AccountSignIn (crate::params::NoParams) -> crate::account::SignInPage;
     "accountSignInByCode" AccountSignInByCode (crate::params::NoParams) -> crate::account::SignInCode;

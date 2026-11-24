@@ -3,8 +3,6 @@
 
 use gpui_kit::{Context, Window};
 use sikemux_calls::mods::ModInfo;
-use sikemux_view::layout::OpenTab;
-use sikemux_view::layout::PaneKind;
 use tokio::sync::oneshot;
 
 use crate::icons::Icon;
@@ -68,15 +66,12 @@ impl Workbench {
             "palette.mods",
             t!("open a mod…"),
             rows,
-            |row, bench, _, cx| {
-                let name = row.title.to_string();
-                match row.key.as_ref() {
-                    MAKE => bench.ask_for_mod(None, cx),
-                    key => match key.strip_prefix(EXAMPLE) {
-                        Some(id) => bench.add_example_mod(id, &name, cx),
-                        None => bench.open_mod(key, &name),
-                    },
-                }
+            |row, bench, _, cx| match row.key.as_ref() {
+                MAKE => bench.ask_for_mod(None, cx),
+                key => match key.strip_prefix(EXAMPLE) {
+                    Some(id) => bench.add_example_mod(id, cx),
+                    None => bench.open_mod(key, cx),
+                },
             },
         )
         .width(440.);
@@ -102,21 +97,21 @@ impl Workbench {
             })
     }
 
-    pub fn open_mod(&self, id: &str, name: &str) {
-        if let Some(strip) = self.strip() {
-            self.open_in_front(OpenTab::new(strip.at(), PaneKind::Mod, id).titled(name));
-        }
+    /// What the host in front lists of the mod `id`.
+    pub fn mod_info(&self, id: &str) -> Option<&ModInfo> {
+        let list = self.feeds.in_front().mods.as_ref()?;
+        list.mods.iter().find(|shown| shown.id == id)
     }
 
-    pub fn add_example_mod(&self, id: &str, name: &str, cx: &mut Context<Self>) {
+    pub fn add_example_mod(&self, id: &str, cx: &mut Context<Self>) {
         let added = self
             .target()
             .request_typed::<call::AddExampleMod>(ModParams { id: id.to_owned() });
-        let (id, name) = (id.to_owned(), name.to_owned());
+        let id = id.to_owned();
         self.report(
             added,
             t!("The example mod was not added"),
-            move |bench, _, _| bench.open_mod(&id, &name),
+            move |bench, _, cx| bench.open_mod(&id, cx),
             cx,
         );
     }

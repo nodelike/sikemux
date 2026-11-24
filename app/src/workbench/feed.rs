@@ -223,6 +223,7 @@ impl Workbench {
             .as_ref()
             .and_then(|moment| self.celebrated_in(moment));
         crate::ui::grain::celebrate(moment.as_ref(), in_pane.as_deref(), cx);
+        self.keep_desk_mods(&place, cx);
         self.keep_cards(cx);
         // The chat's call cards draw inside the cached stage, which a new view alone leaves as it was.
         if calls_moved {
