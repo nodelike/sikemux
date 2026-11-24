@@ -1005,7 +1005,7 @@ fn team_rows(
         let own: Vec<AgentRow> = own.into_iter().map(|(row, _)| row.clone()).collect();
         let fold_id = format!("chief:{}", project.id);
         let shut = teams && !team.is_empty() && folded.contains(&fold_id);
-        let fold = (teams && !team.is_empty()).then(|| Fold {
+        let fold = (teams && !team.is_empty()).then_some(Fold {
             open: !shut,
             count: team.len(),
         });

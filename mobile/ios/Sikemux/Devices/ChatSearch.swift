@@ -68,34 +68,7 @@ struct ChatSearch: View {
                     ForEach([Array(named), Array(byWords)].filter { !$0.isEmpty }, id: \.first?.id) { group in
                         Rows {
                             ForEach(group, id: \.id) { hit in
-                                let line = hit.found.chat.flatMap { said[$0] }
-                                switch hit {
-                                case .agent(let agent, _):
-                                    Row(
-                                        title: agent.chief == true ? CallWords.chiefRole : agent.title,
-                                        name: agent.name,
-                                        underText: line.map { FoundLineText.of($0, palette) },
-                                        onPress: { open(agent.agentId, line) },
-                                        mark: {
-                                            OwnMark(
-                                                agentId: agent.agentId, provider: agent.cli, chief: agent.chief == true,
-                                                size: 20, still: true)
-                                        }, end: { EmptyView() })
-                                case .saved(let chat, _):
-                                    Row(
-                                        title: chat.title, underText: line.map { FoundLineText.of($0, palette) },
-                                        onPress: { resume(chat, line) },
-                                        mark: { AgentMark(provider: chat.provider, size: 20) },
-                                        end: {
-                                            if resuming == chat.id {
-                                                Working()
-                                            } else {
-                                                Text(Format.age(Format.date(millis: chat.activeAt), now: .now))
-                                                    .font(Theme.ui(12)).monospacedDigit().foregroundStyle(
-                                                        palette.tertiary)
-                                            }
-                                        })
-                                }
+                                hitRow(hit, line: hit.found.chat.flatMap { said[$0] })
                             }
                         }
                         .padding(.bottom, 14)
@@ -119,6 +92,37 @@ struct ChatSearch: View {
         }
         .onAppear { typing = true }
         .task(id: words) { await look(for: words) }
+    }
+
+    @ViewBuilder
+    private func hitRow(_ hit: Hit, line: FoundLine?) -> some View {
+        switch hit {
+        case .agent(let agent, _):
+            let title = agent.chief == true ? CallWords.chiefRole : agent.title
+            Row(
+                title: title,
+                name: agent.name,
+                underText: line.map { FoundLineText.of($0, palette) },
+                onPress: { open(agent.agentId, line) },
+                mark: {
+                    OwnMark(
+                        agentId: agent.agentId, provider: agent.cli, chief: agent.chief == true,
+                        size: 20, still: true)
+                }, end: { EmptyView() })
+        case .saved(let chat, _):
+            Row(
+                title: chat.title, underText: line.map { FoundLineText.of($0, palette) },
+                onPress: { resume(chat, line) },
+                mark: { AgentMark(provider: chat.provider, size: 20) },
+                end: {
+                    if resuming == chat.id {
+                        Working()
+                    } else {
+                        Text(Format.age(Format.date(millis: chat.activeAt), now: .now))
+                            .font(Theme.ui(12)).monospacedDigit().foregroundStyle(palette.tertiary)
+                    }
+                })
+        }
     }
 
     /// Asks the host at once for what its names and titles find, then once typing rests for what was said too,

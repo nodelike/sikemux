@@ -36,7 +36,9 @@ struct DeviceAgents: View {
                             let chiefFoldId = team.project.map { "chief:\($0.id)" }
                             let chiefShut = chiefFoldId.map { !led.isEmpty && folded.contains($0) } == true
                             let ledNeedsYou = led.contains { $0.agent?.group == .blocked }
-                            let placed = chiefShut ? [] : AgentTree.tree(led, id: \.id, lead: \.lead, root: 1, folded: folded)
+                            let placed =
+                                chiefShut
+                                ? [] : AgentTree.tree(led, id: \.id, lead: \.lead, root: 1, folded: folded)
                             if let project = team.project, let chiefFoldId {
                                 let shown = view.inbox.agents.first { $0.chief == true && $0.project == project.id }
                                 ChiefRow(
@@ -47,7 +49,9 @@ struct DeviceAgents: View {
                                 .modifier(TreeLines(open: !placed.isEmpty))
                                 .needsYou(chiefFoldId, shown?.group == .blocked || (chiefShut && ledNeedsYou))
                             }
-                            ForEach(placed, id: \.item.id) { row($0, folds: true, needingAbove: needingAbove, now: now) }
+                            ForEach(placed, id: \.item.id) {
+                                row($0, folds: true, needingAbove: needingAbove, now: now)
+                            }
                             let apart = AgentTree.tree(own, id: \.id, lead: \.lead, root: 0, folded: folded)
                             ForEach(apart, id: \.item.id) { row($0, folds: true, needingAbove: needingAbove, now: now) }
                         }
