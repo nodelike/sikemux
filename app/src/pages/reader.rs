@@ -202,6 +202,8 @@ impl Render for Reader {
                     .min_h_0()
                     .border_t(crate::theme::border())
                     .border_color(t.border)
+                    .relative()
+                    .children(ui::spot(|| format!("page-reader-{}", shown.id)))
                     .child(body),
             )
             .into_any_element()

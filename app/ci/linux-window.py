@@ -4,7 +4,7 @@ python3 -I ci/linux-window.py --app APP --core CORE --agent FAKE_AGENT --seed FA
 
 The arguments are desk-checks.py's, run under an X server and a window manager (DISPLAY set). L1 opens the app
 and checks it shows a window with the seeded chat. With --browser, L6 has the fake agent show a page with
-page_show, which must leave a card in the chat that brings its desk tab forward drawn, and L2 has it open a desk browser tab on a local page
+page_show, which must leave a card in the chat that opens the page drawn in the project's Pages, and L2 has it open a desk browser tab on a local page
 through the agent browser tool, whose answer must report the desktop viewport an agent's tab is held at; with --input as well, L4 has it type into the page's field,
 press a key there and read the field back, L5 has the page ask a prompt the person sees in a dialog and the agent
 answers, L9 records the tab for a few seconds and checks the video with ffprobe, and L3 clicks a link there, all
@@ -96,13 +96,15 @@ def shown_in_chat(run):
 
     # The reply's last lines can still push the card up after it first shows, so click it only once it holds still.
     carded = desk.until(settled_card, 10)
-    # The tab opens behind the chat, as a person reading it would; clicking the card brings it forward.
+    # Clicking the card opens the page in the project's Pages, in place of the chat.
     if carded:
         x, y, width, height = carded
         run.drive(f"click {x + width / 2:.0f} {y + height / 2:.0f}", "wait 1")
-    drawn, seen = page_drawn(run, "L6") if page and carded else (False, "")
+    reader = f"page-reader-{(desk.answered(said).get('page') or {}).get('id')}"
+    in_pages = lambda: ((run.state() or {}).get("spots") or {}).get(reader)
+    drawn, seen = page_drawn(run, "L6", in_pages) if page and carded else (False, "")
     run.say("L6", "PASS" if said.startswith("tool answered") and drawn and carded else "FAIL",
-            f"page_show answered {said[:120]!r}; {waited}; the chat's card {carded}; {seen}")
+            f"page_show answered {said[:120]!r}; {waited}; the chat's card {carded}; Pages' reader {in_pages()}; {seen}")
 
 
 def page_from_tool(run):
@@ -218,7 +220,6 @@ def main():
         run.set_up()
         launch(run)
         if options.browser:
-            shown_in_chat(run)
             page_from_tool(run)
         else:
             run.leave("L6", "waits for the Linux browser (pass --browser once it draws a page)")
@@ -233,6 +234,9 @@ def main():
             run.leave("L5", "waits for input in the Linux browser (pass --browser --input once dialogs reach the agent)")
             run.leave("L9", "waits for input in the Linux browser (pass --browser --input to record a tab)")
             run.leave("L3", "waits for input in the Linux browser (pass --browser --input once clicks reach a page)")
+        # Last of the browser checks, since the Pages it opens takes the place of the chat and its desk.
+        if options.browser:
+            shown_in_chat(run)
         link_handoff(run)
         follows_motion(run)
     finally:
