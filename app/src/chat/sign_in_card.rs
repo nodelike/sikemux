@@ -4,6 +4,8 @@
 use super::rows::{notice_box, Drawn};
 use super::*;
 use crate::connector_sign_in::{self, Stand};
+use sikemux_calls::call;
+use sikemux_calls::plugins::SignInCardParams;
 use sikemux_view::chat::{SignInCard, SignInConnector, SignInState};
 
 use crate::theme::{SPACE_2, SPACE_3, TEXT_XS_H};
@@ -13,6 +15,9 @@ const TILE: f32 = 28.;
 pub(super) fn card(card: &SignInCard, looks: &Drawn, cx: &App) -> AnyElement {
     if card.done() {
         return done(card, looks, cx);
+    }
+    if card.skipped {
+        return skipped(card, looks);
     }
     let t = Tokens::get(cx).clone();
     let bench = looks.bench.upgrade();
@@ -37,7 +42,9 @@ pub(super) fn card(card: &SignInCard, looks: &Drawn, cx: &App) -> AnyElement {
                 .truncate()
                 .text_color(looks.quiet)
                 .child(card.why.clone()),
-        );
+        )
+        .child(div().flex_1())
+        .child(dismiss(card, looks));
     let rows = card.connectors.iter().enumerate().map(|(at, connector)| {
         let stand = bench
             .as_ref()
@@ -55,6 +62,43 @@ pub(super) fn card(card: &SignInCard, looks: &Drawn, cx: &App) -> AnyElement {
         .bg(t.surface_raised)
         .child(head)
         .children(rows)
+        .into_any_element()
+}
+
+fn dismiss(card: &SignInCard, looks: &Drawn) -> ui::IconButton {
+    let bench = looks.bench.clone();
+    let agent = card.agent_id.clone();
+    let params = SignInCardParams {
+        id: card.id.clone(),
+    };
+    ui::IconButton::new(
+        SharedString::from(format!("sign-in-dismiss:{}", card.id)),
+        Icon::Close,
+        t!("Dismiss"),
+    )
+    .small()
+    .on_click(move |_, _, cx| {
+        cx.stop_propagation();
+        let _ = bench.update(cx, |bench, _| {
+            bench
+                .chat_target(&agent)
+                .call_typed::<call::DismissSignIn>(params.clone());
+        });
+    })
+}
+
+/// Dismissed, or left behind by a message: one line naming what stayed signed out.
+fn skipped(card: &SignInCard, looks: &Drawn) -> AnyElement {
+    let names: Vec<&str> = card.left().map(|left| left.name.as_str()).collect();
+    notice_box(looks)
+        .child(ui::icon(Icon::Lock, 12.).text_color(looks.quiet))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(looks.quiet)
+                .child(t!("Did not sign in to {names}", names = names.join(", "))),
+        )
         .into_any_element()
 }
 
