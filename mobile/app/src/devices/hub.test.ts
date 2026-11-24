@@ -5,7 +5,13 @@ import { File, clear as clearDisk } from '../../test/mocks/expo-file-system';
 import NetInfo from '../../test/mocks/react-native-community-netinfo';
 import { AppState } from '../../test/mocks/react-native';
 
-const identity = vi.hoisted(() => ({ thisDevice: vi.fn(), goOffline: vi.fn(), whileJoining: vi.fn() }));
+const identity = vi.hoisted(() => ({
+  thisDevice: vi.fn(),
+  goOffline: vi.fn(),
+  refreshDevice: vi.fn(),
+  notifyNetworkChange: vi.fn(),
+  whileJoining: vi.fn(),
+}));
 vi.mock('@/phone/identity', () => identity);
 
 const native = vi.hoisted(() => ({
@@ -85,6 +91,8 @@ beforeEach(async () => {
   fake = fakeDevice();
   identity.thisDevice.mockResolvedValue(fake.device);
   identity.goOffline.mockResolvedValue(undefined);
+  identity.refreshDevice.mockResolvedValue(undefined);
+  identity.notifyNetworkChange.mockResolvedValue(undefined);
   hub = await import('./hub');
 });
 
@@ -120,9 +128,9 @@ describe('the hub', () => {
     await vi.waitFor(() => expect(fake.calls).toHaveLength(2));
     fake.calls[0].fail(MobileError.Unpaired.new());
     fake.calls[1].fail(MobileError.Connection.new({ message: 'no route' }));
-    await vi.waitFor(() => expect(hub.liveOf('away').status).toBe('closed'));
-    expect(hub.liveOf('forgot')).toMatchObject({ status: 'closed', unpaired: true });
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(() => expect(hub.liveOf('forgot')).toMatchObject({ status: 'closed', unpaired: true }));
+    expect(hub.liveOf('away').status).toBe('connecting');
+    await vi.advanceTimersByTimeAsync(20_000);
     expect(fake.device.connect.mock.calls.filter(([core]) => core === 'forgot')).toHaveLength(1);
     expect(fake.device.connect.mock.calls.filter(([core]) => core === 'away').length).toBeGreaterThan(1);
   });
@@ -199,22 +207,22 @@ describe('the hub', () => {
       fake.calls.at(-1)!.listener.closed();
     };
     await flap();
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(250);
     await flap();
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(250);
     expect(connects()).toBe(2);
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(500);
     expect(connects()).toBe(3);
 
     fake.calls.at(-1)!.settle(new FakeConnection());
     await vi.waitFor(() => expect(hub.liveOf('host').status).toBe('open'));
     await vi.advanceTimersByTimeAsync(30_000);
     fake.calls.at(-1)!.listener.closed();
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(250);
     expect(connects()).toBe(4);
   });
 
-  it('reads as reconnecting while a dropped connection comes back, and as unreachable only after a few tries', async () => {
+  it('reads as reconnecting while a dropped connection comes back, and as unreachable only after 15 seconds', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
     const connection = await opened();
     fake.calls[0].listener.events([CoreEvent.View.new({ viewJson: JSON.stringify(VIEW) })] as never);
@@ -223,13 +231,13 @@ describe('the hub', () => {
     expect(connection.closed).toBe(true);
     expect(hub.liveOf('host')).toEqual({ status: 'connecting', snapshot: VIEW });
 
-    for (const wait of [1_000, 3_000]) {
+    for (const wait of [250, 750, 1500, 3000, 6000]) {
       await vi.advanceTimersByTimeAsync(wait);
       await vi.waitFor(() => expect(fake.calls).toHaveLength(connects()));
       fake.calls.at(-1)!.fail(MobileError.Connection.new({ message: 'this host did not answer in time' }));
       await vi.waitFor(() => expect(hub.liveOf('host')).toEqual({ status: 'connecting', snapshot: VIEW }));
     }
-    await vi.advanceTimersByTimeAsync(8_000);
+    await vi.advanceTimersByTimeAsync(12_000);
     await vi.waitFor(() => expect(fake.calls).toHaveLength(connects()));
     fake.calls.at(-1)!.fail(MobileError.Connection.new({ message: 'this host did not answer in time' }));
     await vi.waitFor(() => expect(hub.liveOf('host')).toMatchObject({ status: 'closed', problem: 'this host did not answer in time' }));
@@ -240,20 +248,24 @@ describe('the hub', () => {
     await opened();
     await vi.advanceTimersByTimeAsync(30_000);
     fake.calls[0].listener.closed();
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(250);
     await vi.waitFor(() => expect(connects()).toBe(2));
     fake.calls[1].fail(MobileError.Connection.new({ message: 'no route' }));
-    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(750);
     await vi.waitFor(() => expect(connects()).toBe(3));
     expect(hub.liveOf('host').status).toBe('connecting');
     fake.calls[2].settle(new FakeConnection());
     await vi.waitFor(() => expect(hub.liveOf('host').status).toBe('open'));
   });
 
-  it('shows a host it never reached as unreachable after the first failed try', async () => {
+  it('shows a host it never reached as unreachable only after the grace window', async () => {
     hub.watch('host');
     await vi.waitFor(() => expect(fake.calls).toHaveLength(1));
     fake.calls[0].fail(MobileError.Connection.new({ message: 'no route' }));
+    await vi.waitFor(() => expect(hub.liveOf('host')).toMatchObject({ status: 'connecting' }));
+    vi.setSystemTime(Date.now() + 16_000);
+    await vi.advanceTimersByTimeAsync(500);
+    fake.calls.at(-1)!.fail(MobileError.Connection.new({ message: 'no route' }));
     await vi.waitFor(() => expect(hub.liveOf('host')).toMatchObject({ status: 'closed', problem: 'no route' }));
   });
 
@@ -261,12 +273,13 @@ describe('the hub', () => {
     NetInfo.emit('wifi', '10.0.0.2');
     hub.watch('host');
     await vi.waitFor(() => expect(fake.calls).toHaveLength(1));
+    vi.setSystemTime(Date.now() + 16_000);
     fake.calls[0].fail(MobileError.Connection.new({ message: 'no route' }));
     await vi.waitFor(() => expect(hub.liveOf('host').status).toBe('closed'));
     NetInfo.emit('none');
     NetInfo.emit('wifi', '10.0.0.2');
     await vi.waitFor(() => expect(connects()).toBe(2));
-    expect(hub.liveOf('host')).toMatchObject({ status: 'connecting', problem: 'no route' });
+    expect(hub.liveOf('host')).toMatchObject({ status: 'connecting' });
   });
 
   it('replaces a connection that cannot answer after the phone moves to another network', async () => {
@@ -274,8 +287,9 @@ describe('the hub', () => {
     const connection = await opened();
     connection.host.mockImplementationOnce(() => new Promise(() => {}));
     NetInfo.emit('cellular');
-    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(connection.closed).toBe(true);
+    expect(identity.refreshDevice).toHaveBeenCalled();
     expect(connects()).toBe(2);
   });
 
@@ -287,7 +301,7 @@ describe('the hub', () => {
     // A suspended app runs no timers, so only the clock moves.
     vi.setSystemTime(Date.now() + 5 * 60_000);
     AppState.emit('active');
-    expect(identity.goOffline).toHaveBeenCalled();
+    expect(identity.refreshDevice).toHaveBeenCalled();
     expect(connection.closed).toBe(true);
     await vi.waitFor(() => expect(connects('awake')).toBe(2));
     await vi.waitFor(() => expect(connects('stuck')).toBe(2));
@@ -299,8 +313,9 @@ describe('the hub', () => {
     AppState.emit('background');
     await vi.advanceTimersByTimeAsync(2_000);
     AppState.emit('active');
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(connection.closed).toBe(true);
+    expect(identity.refreshDevice).toHaveBeenCalled();
     expect(connects()).toBe(2);
   });
 
@@ -309,9 +324,10 @@ describe('the hub', () => {
     await vi.waitFor(() => expect(connects()).toBe(1));
     hub.retry('host');
     await vi.waitFor(() => expect(connects()).toBe(2));
-    await vi.advanceTimersByTimeAsync(30_000);
+    vi.setSystemTime(Date.now() + 16_000);
+    await vi.advanceTimersByTimeAsync(12_000);
     expect(hub.liveOf('host')).toMatchObject({ status: 'closed', problem: 'The host did not answer in time.' });
-    await vi.advanceTimersByTimeAsync(1_500);
+    await vi.advanceTimersByTimeAsync(400);
     expect(connects()).toBe(3);
     const abandoned = new FakeConnection();
     fake.calls[0].settle(abandoned);

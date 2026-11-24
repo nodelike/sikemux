@@ -238,7 +238,7 @@ struct Composer: View {
                 }
                 send()
             } label: {
-                SendCircle(busy: uploading, dim: !sendable || offline)
+                SendCircle(busy: uploading, dim: !sendable)
             }
             .buttonStyle(PressFade())
             .disabled(uploading)
@@ -305,9 +305,13 @@ struct Composer: View {
         let text = session.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         let draft = session.draft!
         let sendable = !text.isEmpty || !draft.attachments.isEmpty || !draft.chips.isEmpty
-        guard sendable, !offline, !draft.uploading else { return }
+        guard sendable, !draft.uploading else { return }
         if Self.side(text) == nil, let unknown = Self.unknownCommand(text, session.rows.commands) {
             session.report(String(localized: "/\(unknown) is not available in this session"))
+            return
+        }
+        if Self.side(text) != nil && offline {
+            session.report(String(localized: "Waiting for \(hostName) to reconnect"))
             return
         }
         Haptics.tap()

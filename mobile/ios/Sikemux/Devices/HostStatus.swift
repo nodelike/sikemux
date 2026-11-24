@@ -24,10 +24,13 @@ struct HostStatus: Equatable {
         blocked = nil
         problem = nil
         connecting = false
-        let offline =
-            device?.lastSeen.map {
-                String(localized: "Asleep or offline · seen \(Format.ago(Format.date(millis: $0), now: now))")
-            } ?? String(localized: "Asleep or offline")
+        let offline: String = {
+            guard let lastSeen = device?.lastSeen, let seenAt = Format.date(millis: lastSeen) else {
+                return String(localized: "Asleep or offline")
+            }
+            if now.timeIntervalSince(seenAt) < 60 { return String(localized: "Asleep or offline") }
+            return String(localized: "Asleep or offline · seen \(Format.ago(seenAt, now: now))")
+        }()
         switch live.status {
         case .open:
             facts = [device?.channelLabel, live.view.map(Self.summary)].compactMap { $0 }.joined(separator: " · ")

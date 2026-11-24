@@ -270,6 +270,11 @@ final class ChatSession {
                 Self.logOpen(agentId, woke: woke, answered: answered, decoded, began)
             } catch {
                 guard let self, run == self.run else { return }
+                if self.connection !== connection || !connection.isOpen() {
+                    if feed.mark == nil { attached = .attaching }
+                    emit()
+                    return
+                }
                 problem = Sikemux.problem(error)
                 attached = .missing
                 outbox.failWaiting(problem ?? "")

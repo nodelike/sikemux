@@ -35,6 +35,9 @@ describe('a host status', () => {
     expect(closed.line).toBe('Asleep or offline · seen 5m ago');
     expect(trying.line).toBe(closed.line);
     expect(trying.problem).toBe('no route');
+    expect(hostStatus({ status: 'closed', problem: 'no route' }, { channel: 'nightly', lastSeen: NOW - 10_000 }, NOW).line).toBe(
+      'Asleep or offline',
+    );
   });
 
   it('says when the host no longer knows this phone, or one side needs updating', () => {

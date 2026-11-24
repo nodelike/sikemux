@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Device, DeviceIdentity, newDeviceKey, type DeviceLike } from '@sikemux/native';
 
 import { translate } from '@/i18n';
-import { currentRelays, relaySettings, updateRequired } from '@/network/network';
+import { askForRelaysAgain, currentRelays, relaySettings, updateRequired } from '@/network/network';
 
 const KEY_ITEM = 'sikemux.device-key';
 
@@ -29,8 +29,13 @@ async function deviceKey(): Promise<ArrayBuffer> {
   return key;
 }
 
+type NativeDevice = DeviceLike & { networkChanged?: () => Promise<void>; refresh?: () => Promise<void> };
+
 let identity: Promise<DeviceIdentity> | undefined;
 let online: Promise<DeviceLike> | undefined;
+let ready: NativeDevice | undefined;
+let closing: Promise<void> = Promise.resolve();
+let generation = 0;
 let joining = 0;
 
 /** This phone's key, for proving who it is to the accounts server; it never goes on the network. A failure is not kept. */
@@ -46,7 +51,13 @@ export async function deviceIdentity(): Promise<DeviceIdentity> {
 }
 
 /** Coming online takes a second; one that has not by now never will, and the next call starts again. */
-const ONLINE_MS = 15_000;
+const ONLINE_MS = 12_000;
+/** Cap endpoint close so a wedged socket after sleep never holds up the next bind. */
+const CLOSE_WAIT_MS = 200;
+
+function after(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function inTime(creating: Promise<DeviceLike>): Promise<DeviceLike> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -65,13 +76,26 @@ function inTime(creating: Promise<DeviceLike>): Promise<DeviceLike> {
 /** This phone on the network, unless the app is too old to use it. A failure is not kept, so the next call tries again. */
 export function thisDevice(): Promise<DeviceLike> {
   if (!online) {
-    const coming = Promise.all([deviceIdentity(), currentRelays()]).then(([me, relays]) => {
-      if (updateRequired()) throw new Error(translate('Update Sikemux to reach your hosts.'));
-      return inTime(Device.create(me, relaySettings(relays)));
-    });
+    const gen = generation;
+    const coming = closing
+      .then(() => Promise.all([deviceIdentity(), currentRelays()]))
+      .then(async ([me, relays]) => {
+        if (generation !== gen) throw new Error(translate('The network changed.'));
+        if (updateRequired()) throw new Error(translate('Update Sikemux to reach your hosts.'));
+        const device = await inTime(Device.create(me, relaySettings(relays)));
+        if (generation !== gen) {
+          void device.close().catch(() => {});
+          throw new Error(translate('The network changed.'));
+        }
+        ready = device as NativeDevice;
+        return device;
+      });
     online = coming;
     coming.catch(() => {
-      if (online === coming) online = undefined;
+      if (online === coming) {
+        online = undefined;
+        ready = undefined;
+      }
     });
   }
   return online;
@@ -87,13 +111,38 @@ export async function whileJoining<T>(work: (device: DeviceLike) => Promise<T>):
   }
 }
 
-/** Takes the phone off the network while the app is away; the next call to `thisDevice` brings it back. */
-export async function goOffline() {
+/** Takes the phone off the network while the app is away; the next call to `thisDevice` waits for close and brings it back. */
+export function goOffline(): Promise<void> {
+  if (joining > 0) return closing;
+  generation += 1;
   const going = online;
-  if (!going || joining > 0) return;
   online = undefined;
-  const device = await going.catch(() => undefined);
-  await device?.close();
+  ready = undefined;
+  if (!going) return closing;
+  const stop = going
+    .catch(() => undefined)
+    .then((device) => (device ? Promise.race([device.close().catch(() => {}), after(CLOSE_WAIT_MS)]) : undefined));
+  closing = closing.then(() => stop);
+  return closing;
+}
+
+/** Tells a live native endpoint that the OS network changed, when the native build supports it. */
+export function notifyNetworkChange(): Promise<void> {
+  askForRelaysAgain();
+  return ready?.networkChanged ? ready.networkChanged().catch(() => {}) : Promise.resolve();
+}
+
+/** Refreshes the underlying endpoint in place when supported, otherwise tears it down cleanly before the next bind. */
+export function refreshDevice(): Promise<void> {
+  askForRelaysAgain();
+  if (joining > 0) return closing;
+  const live = ready;
+  if (live?.refresh) {
+    const refreshing = live.refresh().catch(() => {});
+    closing = closing.then(() => refreshing);
+    return closing;
+  }
+  return goOffline();
 }
 
 /**

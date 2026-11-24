@@ -221,12 +221,16 @@ export const Composer = memo(function Composer({
   };
   const send = () => {
     const text = draft.trim();
-    if (!sendable || offline) return;
+    if (!sendable) return;
     if (uploading) return;
     const aside = sideQuestion(text);
     const unknown = aside === undefined ? unknownCommand(text, commands) : null;
     if (unknown) {
       session.report(t('/{command} is not available in this session', { command: unknown }));
+      return;
+    }
+    if (aside !== undefined && offline) {
+      session.report(t('Waiting for {host} to reconnect', { host: hostName }));
       return;
     }
     haptics.tap();
@@ -334,7 +338,7 @@ export const Composer = memo(function Composer({
             <Pressable
               onPress={send}
               onLongPress={sendable ? prompt.stash : undefined}
-              style={[styles.send, (!sendable || offline) && { opacity: 0.28 }]}
+              style={[styles.send, !sendable && { opacity: 0.28 }]}
               disabled={uploading}
               accessibilityRole="button"
               accessibilityLabel={
@@ -349,7 +353,7 @@ export const Composer = memo(function Composer({
                       : t('Send')
               }
               accessibilityHint={sendable ? t('Hold to stash this prompt') : undefined}
-              accessibilityState={{ disabled: offline || !sendable, busy: uploading }}>
+              accessibilityState={{ disabled: !sendable, busy: uploading }}>
               {uploading ? (
                 <ActivityIndicator size="small" color={colors.ground} />
               ) : (

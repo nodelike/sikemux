@@ -67,7 +67,8 @@ extension ChatSession {
         if draft.uploading { return false }
         notice = nil
         let message = draft.takeOut(text)
-        if outbox.waiting {
+        let waiting = outbox.waiting || connection?.isOpen() != true || attached != .live
+        if waiting {
             outbox.deliver(message.text, message.files, waiting: true, named: message.named)
         } else if busy || outbox.sending {
             queue(message.text, message.files, steers: steers && feed.chat.running, named: message.named)

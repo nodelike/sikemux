@@ -11,6 +11,8 @@ const identity = vi.hoisted(() => ({
   thisDevice: async () => device,
   whileJoining: vi.fn(async <T>(work: (held: typeof device) => Promise<T>) => work(device)),
   goOffline: vi.fn(async () => {}),
+  refreshDevice: vi.fn(async () => {}),
+  notifyNetworkChange: vi.fn(async () => {}),
 }));
 vi.mock('@/phone/identity', () => identity);
 

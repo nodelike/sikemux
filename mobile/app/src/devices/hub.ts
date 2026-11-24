@@ -9,10 +9,11 @@ import { forgetAgentCatalog, setAgentCatalog } from '@shared/agents/catalog';
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 import type { HostInfo } from '@shared/wire.generated';
 import { keepUnchanged, readHost, readView, type Snapshot } from '@/core/protocol';
-import { goOffline, thisDevice } from '@/phone/identity';
+import { goOffline, notifyNetworkChange, refreshDevice, thisDevice } from '@/phone/identity';
 import { onNetworkChange } from '@/network/connectivity';
 import { dismissHostCards, reconcileCards } from '@/notify/cards';
 import { shareKey, withdrawKey } from '@/notify/keys';
+import { flushKeptViews, forgetKeptView, loadKeptView, saveKeptView } from './keptView';
 import { forgetDevice, pairedDevices, pairedListDamaged, readAgain, updateDevice, type PairedDevice } from './paired';
 import { hostStatus, type HostStatus } from './status';
 
@@ -30,21 +31,19 @@ export type ChatDelivery = { agentId: string; seq: bigint; changesJson: string }
 
 /** A device nobody is looking at keeps its connection this long, for a quick return. */
 const LINGER_MS = 30_000;
-const RETRY_MS = [1000, 3000, 8000, 15_000, 30_000];
+const RETRY_MS = [250, 750, 1500, 3000, 6000, 12_000];
 /** A connection that lasted this long dropped by chance; one that drops sooner counts as another failed try. */
 const STEADY_MS = 20_000;
-/** Tries a dropped connection gets before the host is shown as unreachable; until then it reads as reconnecting. */
-const PATIENT_TRIES = 3;
+/** How long a host reads as connecting or reconnecting before showing as unreachable. */
+const REACH_GRACE_MS = 15_000;
 /** A host that does not answer the unpair in this time is forgotten on the phone anyway. */
 const UNPAIR_WAIT_MS = 3000;
 /** Glancing at another app keeps the connections; staying away longer lets them go. */
 const AWAY_MS = 10_000;
-/** After the phone changes network, a connection that cannot answer in this time is replaced. */
-const CHECK_MS = 5000;
-/** Back in front, a connection that cannot answer in this time is replaced. */
-const RETURN_CHECK_MS = 2000;
-/** A try that has not ended by now is given up and made again; the slowest dial ends well before. */
-const ATTEMPT_MS = 30_000;
+/** Back in front or after a network change, a connection that cannot answer in this time is replaced. */
+const PROBE_MS = 1000;
+/** A try that has not ended by now is given up, the endpoint refreshed, and tried again. */
+const ATTEMPT_MS = 12_000;
 
 type Entry = {
   live: Live;
@@ -52,20 +51,17 @@ type Entry = {
   /** Failed tries in a row, which sets how long the next one waits. */
   attempt: number;
   openedAt?: number;
+  /** Last time the host was confirmed alive on the open connection. */
+  lastActivityAt?: number;
+  /** When the current stretch of trying to reach this host began. */
+  tryingSince?: number;
   /** Why the last try failed, until one succeeds or the connection is let go on purpose. */
   failure?: string;
-  /** A connection that was up dropped without the phone asking, and it is being made again. */
-  recovering?: boolean;
   /** The connection being made or held; a listener of any other is ignored. */
   current?: object;
   retrying?: ReturnType<typeof setTimeout>;
   lingering?: ReturnType<typeof setTimeout>;
   chats: Set<(deliveries: ChatDelivery[]) => void>;
-  /** The host's agent catalog was read once, so its views can show. */
-  catalogRead?: boolean;
-  /** The view that arrived before the catalog, and what shows it once the catalog is in. */
-  heldView?: string;
-  takeView?: (viewJson: string) => void;
 };
 
 const CONNECTING: Live = { status: 'connecting' };
@@ -122,8 +118,9 @@ function subscribeHost(core: string, listener: () => void) {
 function entry(core: string): Entry {
   let found = entries.get(core);
   if (!found) {
+    const snapshot = forgotten.has(core) ? undefined : loadKeptView(core);
     found = {
-      live: forgotten.has(core) ? FORGOTTEN : CONNECTING,
+      live: forgotten.has(core) ? FORGOTTEN : snapshot ? { status: 'connecting', snapshot } : CONNECTING,
       watchers: 0,
       attempt: 0,
       chats: new Set(),
@@ -178,11 +175,15 @@ function stopTimers(found: Entry) {
 }
 
 function scheduleRetry(core: string, found: Entry) {
-  if (found.watchers === 0 || away) return;
+  if (found.watchers === 0 || away || backgrounded) return;
   const wait = RETRY_MS[Math.min(found.attempt, RETRY_MS.length - 1)];
   found.attempt += 1;
   // Spread out so several hosts, or a host and its relay, are not all asked at once.
   found.retrying = setTimeout(() => open(core), wait * (0.8 + Math.random() * 0.4));
+}
+
+function inGrace(found: Entry): boolean {
+  return found.tryingSince !== undefined && Date.now() - found.tryingSince < REACH_GRACE_MS;
 }
 
 function release(core: string, found: Entry) {
@@ -190,21 +191,24 @@ function release(core: string, found: Entry) {
   found.current = undefined;
   if (found.live.status === 'open') {
     found.live.connection.close();
-    // "Seen 5m ago" means when the phone last had the host, which is when a live connection ends.
-    if (!forgotten.has(core)) updateDevice(core, { lastSeen: Date.now() }).then(reloadDevices, () => {});
+    // "Seen 5m ago" means when the host was last heard alive, never when a frozen socket was torn down.
+    const seen = found.lastActivityAt ?? found.openedAt;
+    if (!forgotten.has(core) && seen !== undefined) updateDevice(core, { lastSeen: seen }).then(reloadDevices, () => {});
   }
   if (found.openedAt !== undefined && Date.now() - found.openedAt >= STEADY_MS) found.attempt = 0;
   found.openedAt = undefined;
+  found.lastActivityAt = undefined;
 }
 
 function drop(core: string, reason: string, error?: unknown) {
   const found = entry(core);
+  const wasOpen = found.live.status === 'open';
   release(core, found);
+  if (wasOpen) found.tryingSince = Date.now();
   const unpaired = MobileError.Unpaired.instanceOf(error);
   const outdatedBy = outdated(error);
   found.failure = reason;
-  const holding = !!found.recovering && !unpaired && !outdatedBy && found.attempt < PATIENT_TRIES && found.watchers > 0 && !away;
-  if (!holding) found.recovering = false;
+  const holding = !unpaired && !outdatedBy && found.watchers > 0 && !away && !backgrounded && inGrace(found);
   set(
     core,
     found,
@@ -222,15 +226,14 @@ function listener(core: string, found: Entry, attempt: object): CoreListener {
     const view = keepUnchanged(found.live.snapshot, readView(viewJson));
     // The host sends its view as soon as it lets the phone in, which can be before `connect` answers.
     set(core, found, { ...found.live, snapshot: view });
+    saveKeptView(core, view);
     reconcileCards(core, view, fresh);
     fresh = false;
-  };
-  found.takeView = (viewJson) => {
-    if (current()) take(viewJson);
   };
   return {
     events(events) {
       if (!current()) return;
+      found.lastActivityAt = Date.now();
       const chats: ChatDelivery[] = [];
       let viewJson: string | undefined;
       for (const event of events) {
@@ -247,13 +250,11 @@ function listener(core: string, found: Entry, attempt: object): CoreListener {
           }
         });
       }
-      if (viewJson === undefined) return;
-      if (found.catalogRead) take(viewJson);
-      else found.heldView = viewJson;
+      if (viewJson !== undefined) take(viewJson);
     },
     closed() {
       if (!current() || found.live.status !== 'open') return;
-      found.recovering = true;
+      console.info(`sikemux: host ${core.slice(0, 8)} connection closed`);
       drop(core, translate('The connection closed.'));
     },
   };
@@ -262,18 +263,22 @@ function listener(core: string, found: Entry, attempt: object): CoreListener {
 /** Starts a try unless one is under way; `again` gives up the one under way first. */
 function open(core: string, again = false) {
   const found = entry(core);
-  if (forgotten.has(core) || away || found.live.status === 'open') return;
+  if (forgotten.has(core) || away || backgrounded || found.live.status === 'open') return;
   if (found.current && !again) return;
+  if (found.tryingSince === undefined) found.tryingSince = Date.now();
   connect(core, found);
 }
 
 async function connect(core: string, found: Entry) {
   clearTimeout(found.retrying);
-  set(core, found, { status: 'connecting', problem: found.recovering ? undefined : found.failure, snapshot: found.live.snapshot });
+  set(core, found, { status: 'connecting', problem: inGrace(found) ? undefined : found.failure, snapshot: found.live.snapshot });
   const attempt = {};
   found.current = attempt;
   const late = setTimeout(() => {
-    if (found.current === attempt) drop(core, translate('The host did not answer in time.'));
+    if (found.current !== attempt) return;
+    console.info(`sikemux: host ${core.slice(0, 8)} dial stalled after ${ATTEMPT_MS}ms; refreshing endpoint`);
+    void refreshDevice();
+    drop(core, translate('The host did not answer in time.'));
   }, ATTEMPT_MS);
   let connection: ConnectionLike;
   try {
@@ -285,7 +290,7 @@ async function connect(core: string, found: Entry) {
   } finally {
     clearTimeout(late);
   }
-  if (found.current !== attempt || found.watchers === 0 || forgotten.has(core) || away) {
+  if (found.current !== attempt || found.watchers === 0 || forgotten.has(core) || away || backgrounded) {
     connection.close();
     if (found.current === attempt) {
       found.current = undefined;
@@ -293,13 +298,15 @@ async function connect(core: string, found: Entry) {
     }
     return;
   }
-  found.openedAt = Date.now();
+  const now = Date.now();
+  found.openedAt = now;
+  found.lastActivityAt = now;
+  found.tryingSince = undefined;
   found.failure = undefined;
-  found.recovering = false;
   set(core, found, { status: 'open', connection, snapshot: found.live.snapshot });
   if (AppState.currentState !== 'active') connection.setForeground(false).catch(() => {});
   shareKey(core, connection).then(() => withdrawIfForgotten(core));
-  readCatalog(core, found, connection);
+  readCatalog(core, connection);
   hostOf(connection)
     .then((host) => {
       const known = knownDevices().find((device) => device.core === core);
@@ -310,17 +317,11 @@ async function connect(core: string, found: Entry) {
     .catch((error: unknown) => console.warn('sikemux: could not keep what the host says it is', error));
 }
 
-/** Takes the agents the host can run, which every screen names and draws agents from, then shows the view that waited on them. */
-function readCatalog(core: string, found: Entry, connection: ConnectionLike) {
+/** Takes the agents the host can run, which every screen names and draws agents from. */
+function readCatalog(core: string, connection: ConnectionLike) {
   callHost(connection, 'agentCatalog', {})
     .then((catalog) => setAgentCatalog(core, catalog))
-    .catch((error: unknown) => console.warn("sikemux: could not read the host's agents", error))
-    .finally(() => {
-      found.catalogRead = true;
-      const held = found.heldView;
-      found.heldView = undefined;
-      if (held !== undefined) found.takeView?.(held);
-    });
+    .catch((error: unknown) => console.warn("sikemux: could not read the host's agents", error));
 }
 
 const hosts = new WeakMap<ConnectionLike, Promise<HostInfo>>();
@@ -339,16 +340,17 @@ function hostOf(connection: ConnectionLike): Promise<HostInfo> {
 function close(core: string, found: Entry, reason: string) {
   release(core, found);
   found.failure = undefined;
-  found.recovering = false;
+  found.tryingSince = undefined;
   set(core, found, { status: 'closed', problem: reason, snapshot: found.live.snapshot });
 }
 
 /** Drops a connection that may be dead and makes a new one now, as on a fresh start. */
-function reconnect(core: string, found: Entry, reason: string) {
+function reconnect(core: string, found: Entry, reason: string, refresh = false) {
   close(core, found, reason);
+  if (refresh) void refreshDevice();
   found.attempt = 0;
-  found.recovering = true;
-  open(core);
+  found.tryingSince = Date.now();
+  open(core, true);
 }
 
 /** Keeps a device connected until the returned function is called. */
@@ -356,7 +358,10 @@ export function watch(core: string) {
   const found = entry(core);
   found.watchers += 1;
   clearTimeout(found.lingering);
-  if (found.live.status !== 'open' && !settled(found)) open(core);
+  if (found.live.status !== 'open' && !settled(found)) {
+    if (found.tryingSince === undefined) found.tryingSince = Date.now();
+    open(core);
+  }
   return () => {
     found.watchers -= 1;
     if (found.watchers > 0) return;
@@ -397,17 +402,17 @@ let backgrounded = false;
 AppState.addEventListener('change', (state) => {
   if (state === 'background') {
     tellForeground(false);
+    flushKeptViews();
     backgrounded = true;
     leftAt = Date.now();
+    entries.forEach((found) => clearTimeout(found.retrying));
     clearTimeout(leaving);
     leaving = setTimeout(() => {
       away = true;
       entries.forEach((found, core) => {
-        const wasOpen = found.live.status === 'open';
         close(core, found, translate('Paused while the app is away.'));
-        found.recovering = wasOpen;
       });
-      goOffline();
+      void goOffline();
     }, AWAY_MS);
     return;
   }
@@ -415,33 +420,43 @@ AppState.addEventListener('change', (state) => {
   if (state !== 'active' || !backgrounded) return;
   backgrounded = false;
   clearTimeout(leaving);
-  tellForeground(true);
+  const elapsed = Date.now() - leftAt;
   // Timers do not run while the phone has the app suspended, so the time away is measured too.
-  const wasAway = away || Date.now() - leftAt > AWAY_MS;
+  const wasAway = away || elapsed > AWAY_MS;
   away = false;
-  // The phone's way onto the network went quiet while the app slept, and tries through it stall; a fresh one is up in a second.
-  if (wasAway) goOffline();
+  console.info(`sikemux: resume after ${elapsed}ms (away=${wasAway})`);
+  if (wasAway) {
+    void refreshDevice();
+  } else {
+    tellForeground(true);
+    void notifyNetworkChange();
+  }
+  let refreshed = wasAway;
   entries.forEach((found, core) => {
     if (found.live.status === 'open') {
       if (!wasAway) {
-        check(core, found, found.live.connection, RETURN_CHECK_MS);
+        check(core, found, found.live.connection, PROBE_MS);
         return;
       }
       close(core, found, translate('Reconnecting.'));
-      found.recovering = true;
     }
     if (found.watchers === 0) return;
     if (found.live.status === 'closed' && found.live.unpaired) return;
+    if (!refreshed && found.current) {
+      void refreshDevice();
+      refreshed = true;
+    }
     found.attempt = 0;
+    found.tryingSince = Date.now();
     open(core, true);
   });
 });
 
-/** Asks a connection to answer after the network changed under it, and replaces it when it cannot. */
-function check(core: string, found: Entry, connection: ConnectionLike, wait = CHECK_MS) {
+/** Asks a connection to answer after resume or network change, and replaces it with a fresh endpoint when it cannot. */
+function check(core: string, found: Entry, connection: ConnectionLike, wait = PROBE_MS) {
   const stillThis = () => found.live.status === 'open' && found.live.connection === connection;
   if (!connection.isOpen()) {
-    reconnect(core, found, translate('The network changed.'));
+    reconnect(core, found, translate('The network changed.'), true);
     return;
   }
   const abort = new AbortController();
@@ -453,22 +468,38 @@ function check(core: string, found: Entry, connection: ConnectionLike, wait = CH
     }, wait);
   });
   Promise.race([connection.host({ signal: abort.signal }), late])
-    .catch(() => {
-      if (stillThis()) reconnect(core, found, translate('The network changed.'));
-    })
+    .then(
+      () => {
+        if (stillThis()) found.lastActivityAt = Date.now();
+      },
+      () => {
+        if (stillThis()) {
+          console.info(`sikemux: host ${core.slice(0, 8)} probe failed within ${wait}ms; refreshing endpoint`);
+          reconnect(core, found, translate('The network changed.'), true);
+        }
+      },
+    )
     .finally(() => clearTimeout(timer));
 }
 
-onNetworkChange(() => {
-  if (away) return;
+onNetworkChange((change) => {
+  if (away || backgrounded) return;
+  console.info(`sikemux: network ${change}`);
+  void notifyNetworkChange();
+  let refreshed = false;
   entries.forEach((found, core) => {
     if (found.live.status === 'open') {
-      check(core, found, found.live.connection);
+      check(core, found, found.live.connection, PROBE_MS);
       return;
     }
     if (found.watchers === 0 || settled(found)) return;
+    if (!refreshed) {
+      void refreshDevice();
+      refreshed = true;
+    }
     found.attempt = 0;
-    open(core);
+    found.tryingSince = Date.now();
+    open(core, true);
   });
 });
 
@@ -529,6 +560,7 @@ export async function forget(core: string) {
   await Promise.race([goodbye, new Promise((settle) => setTimeout(settle, UNPAIR_WAIT_MS))]);
   dismissHostCards(core);
   forgetAgentCatalog(core);
+  forgetKeptView(core);
   if (found) {
     release(core, found);
     found.live = FORGOTTEN;
@@ -545,8 +577,9 @@ export function rejoined(core: string) {
   const found = entry(core);
   if (found.live.status === 'open') return;
   found.attempt = 0;
+  found.tryingSince = Date.now();
   if (found.watchers > 0) open(core);
-  else set(core, found, { status: 'connecting' });
+  else set(core, found, { status: 'connecting', snapshot: found.live.snapshot });
 }
 
 /** Gives up any try under way and starts a fresh one now. */
@@ -554,6 +587,8 @@ export function retry(core: string) {
   const found = entry(core);
   clearTimeout(found.retrying);
   found.attempt = 0;
+  found.tryingSince = Date.now();
+  if (!openConnections().length) void refreshDevice();
   open(core, true);
 }
 

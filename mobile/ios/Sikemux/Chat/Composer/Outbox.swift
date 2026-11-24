@@ -101,8 +101,18 @@ final class Outbox {
     func pushWaiting() {
         let waiting = entries.filter(\.waiting)
         guard !waiting.isEmpty else { return }
+        let chat = chat()
+        let shown = Set(chat.messages.compactMap(\.promptId))
+        let queued = Set(chat.queued.map(\.id))
+        let alreadyLanded: (String) -> Bool = { shown.contains($0) || queued.contains($0) }
+        entries.removeAll { $0.waiting && alreadyLanded($0.messageId) }
         for at in entries.indices { entries[at].waiting = false }
-        waiting.forEach(push)
+        let toSend = waiting.filter { !alreadyLanded($0.messageId) }
+        guard !toSend.isEmpty else {
+            emit()
+            return
+        }
+        toSend.forEach(push)
     }
 
     func failWaiting(_ problem: String) {
@@ -163,16 +173,14 @@ final class Outbox {
     /// The host shows a message as the row that carries its id; one that met a running turn waits in the host's
     /// queue under it instead. Once a turn has ended, nothing the host took is still to come.
     func settle(turnEnded: Bool = false) {
-        guard entries.contains(where: { $0.state == .sent }) else { return }
-        if turnEnded {
-            entries.removeAll { $0.state == .sent }
-            return
-        }
+        guard !entries.isEmpty else { return }
         let chat = chat()
         let shown = Set(chat.messages.compactMap(\.promptId))
         let queued = Set(chat.queued.map(\.id))
-        let kept = entries.filter {
-            $0.state != .sent || (!shown.contains($0.messageId) && !queued.contains($0.messageId))
+        let kept = entries.filter { entry in
+            if shown.contains(entry.messageId) || queued.contains(entry.messageId) { return false }
+            if turnEnded && entry.state == .sent { return false }
+            return true
         }
         if kept.count != entries.count { entries = kept }
     }

@@ -8,10 +8,14 @@ final class Identity {
 
     private static let keyItem = "sikemux.device-key"
     /// Coming online takes a second; one that has not by now never will, and the next call starts again.
-    private static let onlineWait: Duration = .seconds(15)
+    private static let onlineWait: Duration = .seconds(12)
+    /// Cap endpoint close so a wedged socket after sleep never holds up the next bind.
+    private static let closeWait: Duration = .milliseconds(200)
 
     private var identity: DeviceIdentity?
     private var online: Task<Device, Error>?
+    private var closing: Task<Void, Never>?
+    private var generation: UInt64 = 0
     private var joining = 0
 
     /// This phone's key, for proving who it is to the accounts server; it never goes on the network.
@@ -31,13 +35,24 @@ final class Identity {
     func device() async throws -> Device {
         if let online { return try await online.value }
         let me = try deviceIdentity()
+        let gen = generation
+        let previousClose = closing
         let ended = Ending()
         let coming = Task { () throws -> Device in
             defer { ended.set = true }
+            await previousClose?.value
+            if self.generation != gen {
+                throw MobileError.Connection(message: String(localized: "The network changed."))
+            }
             if Network.shared.updateRequired != nil {
                 throw MobileError.Outdated(macIsOlder: false)
             }
-            return try await Device.create(identity: me, relays: await Network.shared.relaySettings())
+            let made = try await Device.create(identity: me, relays: await Network.shared.relaySettings())
+            if self.generation != gen {
+                Task { await made.close() }
+                throw MobileError.Connection(message: String(localized: "The network changed."))
+            }
+            return made
         }
         online = coming
         Task { [weak self] in
@@ -61,12 +76,26 @@ final class Identity {
         return try await work(try await device())
     }
 
-    /// Takes the phone off the network while the app is away; the next call to `device` brings it back.
+    /// Takes the phone off the network while the app is away; the next call to `device` waits for close and brings it back.
     @discardableResult
     func goOffline() -> Task<Void, Never>? {
-        guard let going = online, joining == 0 else { return nil }
+        guard joining == 0 else { return closing }
+        generation &+= 1
+        guard let going = online else { return closing }
         online = nil
-        return Task { await (try? going.value)?.close() }
+        let prior = closing
+        let next = Task {
+            await prior?.value
+            guard let device = try? await going.value else { return }
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await device.close() }
+                group.addTask { try? await Task.sleep(for: Self.closeWait) }
+                await group.next()
+                group.cancelAll()
+            }
+        }
+        closing = next
+        return next
     }
 
     /// Makes this phone a new device: the account may still hold the old key, and anything it signed for that

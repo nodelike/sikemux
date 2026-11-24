@@ -146,8 +146,19 @@ export class Outbox {
   pushWaiting() {
     const waiting = this.entries.filter((outgoing) => outgoing.waiting);
     if (!waiting.length) return;
-    this.entries = this.entries.map((outgoing) => (outgoing.waiting ? { ...outgoing, waiting: false } : outgoing));
-    waiting.forEach((entry) => this.push(entry));
+    const chat = this.host.chat();
+    const shown = new Set(chat.messages.flatMap((row) => (row.promptId ? [row.promptId] : [])));
+    const queued = new Set(chat.queued.map((held) => held.id));
+    const alreadyLanded = (id: string) => shown.has(id) || queued.has(id);
+    this.entries = this.entries
+      .filter((outgoing) => !(outgoing.waiting && alreadyLanded(outgoing.messageId)))
+      .map((outgoing) => (outgoing.waiting ? { ...outgoing, waiting: false } : outgoing));
+    const toSend = waiting.filter((entry) => !alreadyLanded(entry.messageId));
+    if (!toSend.length) {
+      this.host.emit();
+      return;
+    }
+    toSend.forEach((entry) => this.push(entry));
   }
 
   failWaiting(problem: string) {
@@ -205,17 +216,15 @@ export class Outbox {
   /* The host shows a message as the row that carries its id; one that met a running turn waits in
      the host's queue under it instead. Once a turn has ended, nothing the host took is still to come. */
   settle(turnEnded = false) {
-    if (!this.entries.some((outgoing) => outgoing.state === 'sent')) return;
-    if (turnEnded) {
-      this.entries = this.entries.filter((outgoing) => outgoing.state !== 'sent');
-      return;
-    }
+    if (!this.entries.length) return;
     const chat = this.host.chat();
     const shown = new Set(chat.messages.flatMap((row) => (row.promptId ? [row.promptId] : [])));
-    const kept = this.entries.filter(
-      (outgoing) =>
-        outgoing.state !== 'sent' || (!shown.has(outgoing.messageId) && !chat.queued.some((held) => held.id === outgoing.messageId)),
-    );
+    const queued = new Set(chat.queued.map((held) => held.id));
+    const kept = this.entries.filter((outgoing) => {
+      if (shown.has(outgoing.messageId) || queued.has(outgoing.messageId)) return false;
+      if (turnEnded && outgoing.state === 'sent') return false;
+      return true;
+    });
     if (kept.length !== this.entries.length) this.entries = kept;
   }
 

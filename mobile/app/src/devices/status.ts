@@ -34,7 +34,8 @@ function outdatedLine(outdated: Outdated, say: Say): string {
 }
 
 function offline(device: Pick<PairedDevice, 'lastSeen'> | undefined, now: number, say: Say): string {
-  return device?.lastSeen ? say('Asleep or offline · seen {ago}', { ago: formatAgo(device.lastSeen, now, say) }) : say('Asleep or offline');
+  if (!device?.lastSeen || now - device.lastSeen < 60_000) return say('Asleep or offline');
+  return say('Asleep or offline · seen {ago}', { ago: formatAgo(device.lastSeen, now, say) });
 }
 
 export function hostStatus(

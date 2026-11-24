@@ -301,7 +301,8 @@ export class ChatSession {
     if (this.draft.uploading()) return false;
     this.notice = null;
     const message = this.draft.takeOut(text);
-    if (this.outbox.waiting()) this.outbox.deliver(message.text, message.files, true, message.named);
+    const waiting = this.outbox.waiting() || !this.connection?.isOpen() || this.attached !== 'live';
+    if (waiting) this.outbox.deliver(message.text, message.files, true, message.named);
     else if (this.busy()) this.queue(message.text, message.files, steers && this.feed.chat.running, message.named);
     else this.outbox.deliver(message.text, message.files, false, message.named);
     return true;
@@ -777,6 +778,11 @@ export class ChatSession {
       })
       .catch((error: unknown) => {
         if (run !== this.run) return;
+        if (this.connection !== connection || !connection.isOpen()) {
+          if (!feed.mark) this.attached = 'attaching';
+          this.emit();
+          return;
+        }
         this.problem = problemOf(error);
         this.attached = 'missing';
         this.outbox.failWaiting(this.problem);

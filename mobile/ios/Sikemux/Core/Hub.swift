@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import OSLog
 import Observation
 import SikemuxCore
 import UIKit
@@ -46,15 +47,15 @@ final class HostLive {
     /// Failed tries in a row, which sets how long the next one waits.
     @ObservationIgnored fileprivate var attempt = 0
     @ObservationIgnored fileprivate var openedAt: Date?
+    /// Last time the host was confirmed alive on the open connection.
+    @ObservationIgnored fileprivate var lastActivityAt: Date?
+    /// When the current stretch of trying to reach this host began.
+    @ObservationIgnored fileprivate var tryingSince: Date?
     @ObservationIgnored fileprivate var failure: String?
-    /// A connection that was up dropped without the phone asking, and it is being made again.
-    @ObservationIgnored fileprivate var recovering = false
     @ObservationIgnored fileprivate var current: ListenerBox?
     @ObservationIgnored fileprivate var retrying: Task<Void, Never>?
     @ObservationIgnored fileprivate var lingering: Task<Void, Never>?
     @ObservationIgnored fileprivate var chats: [UUID: @MainActor ([ChatDelivery]) -> Void] = [:]
-    @ObservationIgnored fileprivate var catalogRead = false
-    @ObservationIgnored fileprivate var heldView: DeviceView?
     /// No view has come on this connection yet; its first may settle cards that arrived while the phone was away.
     @ObservationIgnored fileprivate var awaitingView = true
 
@@ -75,23 +76,22 @@ final class HostLive {
 final class Hub {
     static let shared = Hub()
 
+    private static let log = Logger(subsystem: "com.nodelike.sikemux", category: "hub")
     /// A host nobody is looking at keeps its connection this long, for a quick return.
     private static let linger: Duration = .seconds(30)
-    private static let retryWaits: [Double] = [1, 3, 8, 15, 30]
+    private static let retryWaits: [Double] = [0.25, 0.75, 1.5, 3, 6, 12]
     /// A connection that lasted this long dropped by chance; one that drops sooner counts as another failed try.
     private static let steady: TimeInterval = 20
-    /// Tries a dropped connection gets before the host is shown as unreachable; until then it reads as reconnecting.
-    private static let patientTries = 3
+    /// How long a host reads as connecting or reconnecting before showing as unreachable.
+    private static let reachGrace: TimeInterval = 15
     /// A host that does not answer the unpair in this time is forgotten on the phone anyway.
     private static let unpairWait: Duration = .seconds(3)
     /// Glancing at another app keeps the connections; staying away longer lets them go.
     private static let awayAfter: TimeInterval = 10
-    /// After the phone changes network, a connection that cannot answer in this time is replaced.
-    private static let checkWait: Duration = .seconds(5)
-    /// Back in front, a connection that cannot answer in this time is replaced.
-    private static let returnCheckWait: Duration = .seconds(2)
-    /// A try that has not ended by now is given up and made again; the slowest dial ends well before.
-    private static let attemptWait: Duration = .seconds(30)
+    /// Back in front or after a network change, a connection that cannot answer in this time is replaced.
+    private static let probeWait: Duration = .seconds(1)
+    /// A try that has not ended by now is given up, the endpoint refreshed, and tried again.
+    private static let attemptWait: Duration = .seconds(12)
     private static let damagedProblem =
         String(
             localized: "The list of paired hosts couldn't be read, so it was started again. Connect your hosts again.")
@@ -108,7 +108,7 @@ final class Hub {
     private var leftAt = Date.distantPast
     private var leaving: Task<Void, Never>?
     private let path = NWPathMonitor()
-    private var lastPath: NWPath.Status?
+    private var lastPath: String?
 
     private init() {
         let center = NotificationCenter.default
@@ -120,7 +120,9 @@ final class Hub {
         }
         path.pathUpdateHandler = { update in
             let status = update.status
-            Task { @MainActor in Hub.shared.networkChanged(status) }
+            let interfaces = update.availableInterfaces.map(\.name).sorted().joined(separator: ",")
+            let key = "\(status):\(interfaces)"
+            Task { @MainActor in Hub.shared.networkChanged(status, key: key) }
         }
         path.start(queue: .global(qos: .utility))
     }
@@ -167,6 +169,7 @@ final class Hub {
         if forgotten.contains(core) {
             made.status = .closed(problem: String(localized: "Forgotten."))
         } else {
+            made.view = KeptView.shared.load(core)
             hosts[core] = made
         }
         return made
@@ -182,7 +185,10 @@ final class Hub {
         let found = live(core)
         found.watchers += 1
         found.lingering?.cancel()
-        if found.status != .open && !found.settled { open(core) }
+        if found.status != .open && !found.settled {
+            if found.tryingSince == nil { found.tryingSince = Date() }
+            open(core)
+        }
         return HostWatch { [weak self] in self?.unwatch(core) }
     }
 
@@ -202,6 +208,8 @@ final class Hub {
         let found = live(core)
         found.retrying?.cancel()
         found.attempt = 0
+        found.tryingSince = Date()
+        if openConnections.isEmpty { Identity.shared.goOffline() }
         open(core, again: true)
     }
 
@@ -211,6 +219,7 @@ final class Hub {
         let found = live(core)
         guard found.status != .open else { return }
         found.attempt = 0
+        found.tryingSince = Date()
         if found.watchers > 0 { open(core) } else { found.status = .connecting(problem: nil) }
     }
 
@@ -237,6 +246,7 @@ final class Hub {
             found.status = .closed(problem: String(localized: "Forgotten."))
         }
         hosts[core] = nil
+        KeptView.shared.forget(core)
         Keys().remove(host: core)
         Cards.dismiss(host: core)
         await PairedStore.shared.forget(core)
@@ -253,17 +263,25 @@ final class Hub {
 
     // MARK: Connecting
 
+    private func inGrace(_ found: HostLive) -> Bool {
+        guard let since = found.tryingSince else { return false }
+        return Date().timeIntervalSince(since) < Self.reachGrace
+    }
+
     /// Starts a try unless one is under way; `again` gives up the one under way first.
     private func open(_ core: String, again: Bool = false) {
         let found = live(core)
-        guard !forgotten.contains(core), !away, found.status != .open, found.current == nil || again else { return }
+        guard !forgotten.contains(core), !away, !backgrounded, found.status != .open, found.current == nil || again else { return }
         found.retrying?.cancel()
-        found.status = .connecting(problem: found.recovering ? nil : found.failure)
+        if found.tryingSince == nil { found.tryingSince = Date() }
+        found.status = .connecting(problem: inGrace(found) ? nil : found.failure)
         let box = ListenerBox(core: found.core)
         found.current = box
         Task { [weak self] in
             try? await Task.sleep(for: Self.attemptWait)
             guard let self, found.current === box, found.connection == nil else { return }
+            Self.log.info("host \(String(found.core.prefix(8)), privacy: .public) dial stalled; refreshing endpoint")
+            Identity.shared.goOffline()
             drop(found, reason: String(localized: "The host did not answer in time."))
         }
         Task { [weak self] in await self?.connect(found, box) }
@@ -285,7 +303,7 @@ final class Hub {
             if found.current === box { drop(found, reason: Sikemux.problem(error), error: error) }
             return
         }
-        guard found.current === box, found.watchers > 0, !forgotten.contains(found.core), !away else {
+        guard found.current === box, found.watchers > 0, !forgotten.contains(found.core), !away, !backgrounded else {
             connection.close()
             if found.current === box {
                 found.current = nil
@@ -293,9 +311,11 @@ final class Hub {
             }
             return
         }
-        found.openedAt = Date()
+        let now = Date()
+        found.openedAt = now
+        found.lastActivityAt = now
+        found.tryingSince = nil
         found.failure = nil
-        found.recovering = false
         found.connection = connection
         found.status = .open
         found.awaitingView = true
@@ -307,8 +327,7 @@ final class Hub {
         Task { await readHost(found, connection) }
     }
 
-    /// Takes the agents the host can run, then shows the view that waited on them. A failed read is tried again,
-    /// waiting longer each time, for as long as this connection is the host's.
+    /// Takes the agents the host can run. A failed read is tried again, waiting longer each time.
     private func readCatalog(_ found: HostLive, _ connection: Connection) {
         Task {
             var wait: Duration = .seconds(1)
@@ -319,20 +338,10 @@ final class Hub {
                 } catch {
                     print("sikemux: could not read the host's agents: \(error)")
                 }
-                showHeldView(found)
                 try? await Task.sleep(for: wait)
                 guard found.connection === connection else { return }
                 wait = min(wait * 2, .seconds(30))
             }
-            showHeldView(found)
-        }
-    }
-
-    private func showHeldView(_ found: HostLive) {
-        found.catalogRead = true
-        if let held = found.heldView {
-            found.heldView = nil
-            found.view = held
         }
     }
 
@@ -353,6 +362,7 @@ final class Hub {
 
     fileprivate func deliver(_ box: ListenerBox, chats: [ChatDelivery], view: DeviceView?) {
         guard let found = hosts[box.core], found.current === box else { return }
+        found.lastActivityAt = Date()
         if !chats.isEmpty {
             for listen in found.chats.values { listen(chats) }
         }
@@ -361,16 +371,15 @@ final class Hub {
         found.awaitingView = false
         ShareExtension.changed()
         Glances.changed()
-        if found.catalogRead {
-            if found.view != view { found.view = view }
-        } else {
-            found.heldView = view
+        if found.view != view {
+            found.view = view
+            KeptView.shared.save(found.core, view: view)
         }
     }
 
     fileprivate func closed(_ box: ListenerBox) {
         guard let found = hosts[box.core], found.current === box, found.status == .open else { return }
-        found.recovering = true
+        Self.log.info("host \(String(found.core.prefix(8)), privacy: .public) connection closed")
         drop(found, reason: String(localized: "The connection closed."))
     }
 
@@ -381,17 +390,20 @@ final class Hub {
         if let connection = found.connection {
             connection.close()
             found.connection = nil
-            if !forgotten.contains(found.core) {
-                let now = Date().timeIntervalSince1970 * 1000
-                Task { await update(found.core) { $0.lastSeen = now } }
+            if !forgotten.contains(found.core), let seen = found.lastActivityAt ?? found.openedAt {
+                let seenMs = seen.timeIntervalSince1970 * 1000
+                Task { await update(found.core) { $0.lastSeen = seenMs } }
             }
         }
         if let openedAt = found.openedAt, Date().timeIntervalSince(openedAt) >= Self.steady { found.attempt = 0 }
         found.openedAt = nil
+        found.lastActivityAt = nil
     }
 
     private func drop(_ found: HostLive, reason: String, error: Error? = nil) {
+        let wasOpen = found.status == .open
         release(found)
+        if wasOpen { found.tryingSince = Date() }
         let blocked: HostLive.Blocked? =
             switch error as? MobileError {
             case .Unpaired: .unpaired
@@ -399,15 +411,13 @@ final class Hub {
             default: nil
             }
         found.failure = reason
-        let holding =
-            found.recovering && blocked == nil && found.attempt < Self.patientTries && found.watchers > 0 && !away
-        if !holding { found.recovering = false }
+        let holding = blocked == nil && found.watchers > 0 && !away && !backgrounded && inGrace(found)
         found.status = holding ? .connecting(problem: nil) : .closed(problem: reason, blocked: blocked)
         if !found.settled { scheduleRetry(found) }
     }
 
     private func scheduleRetry(_ found: HostLive) {
-        guard found.watchers > 0, !away else { return }
+        guard found.watchers > 0, !away, !backgrounded else { return }
         let wait = Self.retryWaits[min(found.attempt, Self.retryWaits.count - 1)] * Double.random(in: 0.8...1.2)
         found.attempt += 1
         found.retrying = Task { [weak self] in
@@ -420,16 +430,17 @@ final class Hub {
     private func close(_ found: HostLive, reason: String) {
         release(found)
         found.failure = nil
-        found.recovering = false
+        found.tryingSince = nil
         found.status = .closed(problem: reason)
     }
 
     /// Drops a connection that may be dead and makes a new one now, as on a fresh start.
-    private func reconnect(_ found: HostLive, reason: String) {
+    private func reconnect(_ found: HostLive, reason: String, refresh: Bool = false) {
         close(found, reason: reason)
+        if refresh { Identity.shared.goOffline() }
         found.attempt = 0
-        found.recovering = true
-        open(found.core)
+        found.tryingSince = Date()
+        open(found.core, again: true)
     }
 
     // MARK: The app coming and going
@@ -442,17 +453,17 @@ final class Hub {
 
     private func wentAway() {
         tellForeground(false)
+        KeptView.shared.flush()
         backgrounded = true
         leftAt = Date()
+        for found in hosts.values { found.retrying?.cancel() }
         leaving?.cancel()
         leaving = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.awayAfter))
             guard let self, !Task.isCancelled else { return }
             away = true
             for found in hosts.values {
-                let wasOpen = found.status == .open
                 close(found, reason: String(localized: "Paused while the app is away."))
-                found.recovering = wasOpen
             }
             Identity.shared.goOffline()
         }
@@ -462,45 +473,62 @@ final class Hub {
         guard backgrounded else { return }
         backgrounded = false
         leaving?.cancel()
-        tellForeground(true)
-        let wasAway = away || Date().timeIntervalSince(leftAt) > Self.awayAfter
+        let elapsed = Date().timeIntervalSince(leftAt)
+        let wasAway = away || elapsed > Self.awayAfter
         away = false
-        // The phone's way onto the network went quiet while the app slept, and tries through it stall; a fresh one is up in a second.
-        if wasAway { Identity.shared.goOffline() }
+        Self.log.info("resume after \(Int(elapsed * 1000))ms (away=\(wasAway))")
+        Network.shared.askAgain()
+        if wasAway {
+            Identity.shared.goOffline()
+        } else {
+            tellForeground(true)
+        }
+        var refreshed = wasAway
         for found in hosts.values {
             if let connection = found.connection {
                 if !wasAway {
-                    check(found, connection, wait: Self.returnCheckWait)
+                    check(found, connection, wait: Self.probeWait)
                     continue
                 }
                 close(found, reason: String(localized: "Reconnecting."))
-                found.recovering = true
             }
             guard found.watchers > 0 else { continue }
             if case .closed(_, .unpaired) = found.status { continue }
+            if !refreshed && found.current != nil {
+                Identity.shared.goOffline()
+                refreshed = true
+            }
             found.attempt = 0
+            found.tryingSince = Date()
             open(found.core, again: true)
         }
     }
 
-    private func networkChanged(_ status: NWPath.Status) {
-        defer { lastPath = status }
-        guard lastPath != nil, status != lastPath || status == .satisfied, !away else { return }
-        if status == .satisfied { Network.shared.askAgain() }
+    private func networkChanged(_ status: NWPath.Status, key: String) {
+        defer { lastPath = key }
+        guard lastPath != nil, key != lastPath, status == .satisfied, !away, !backgrounded else { return }
+        Self.log.info("network changed (\(key, privacy: .public))")
+        Network.shared.askAgain()
+        var refreshed = false
         for found in hosts.values {
             if let connection = found.connection {
-                check(found, connection)
+                check(found, connection, wait: Self.probeWait)
             } else if found.watchers > 0, !found.settled {
+                if !refreshed {
+                    Identity.shared.goOffline()
+                    refreshed = true
+                }
                 found.attempt = 0
-                open(found.core)
+                found.tryingSince = Date()
+                open(found.core, again: true)
             }
         }
     }
 
-    /// Asks a connection to answer after the network changed under it, and replaces it when it cannot.
-    private func check(_ found: HostLive, _ connection: Connection, wait: Duration = Hub.checkWait) {
+    /// Asks a connection to answer after resume or network change, and replaces it with a fresh endpoint when it cannot.
+    private func check(_ found: HostLive, _ connection: Connection, wait: Duration = Hub.probeWait) {
         guard connection.isOpen() else {
-            reconnect(found, reason: String(localized: "The network changed."))
+            reconnect(found, reason: String(localized: "The network changed."), refresh: true)
             return
         }
         Task {
@@ -514,8 +542,11 @@ final class Hub {
                 group.cancelAll()
                 return first
             }
-            if !answered, found.connection === connection {
-                reconnect(found, reason: String(localized: "The network changed."))
+            if answered {
+                if found.connection === connection { found.lastActivityAt = Date() }
+            } else if found.connection === connection {
+                Self.log.info("host \(String(found.core.prefix(8)), privacy: .public) probe failed; refreshing endpoint")
+                reconnect(found, reason: String(localized: "The network changed."), refresh: true)
             }
         }
     }
