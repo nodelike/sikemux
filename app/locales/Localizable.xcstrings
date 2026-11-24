@@ -838,153 +838,153 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 question"
+            "value": "1 appel"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 decisión"
+            "value": "1 llamada"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 Entscheidung"
+            "value": "1 Aufruf"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 个决定"
+            "value": "1 次调用"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 件の判断"
+            "value": "1 回の呼び出し"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "결정 1개"
+            "value": "호출 1회"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 решение"
+            "value": "1 вызов"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 decisão"
+            "value": "1 chamada"
           }
         }
       }
     },
-    "1 call, answered against the pick": {
+    "1 ask, answered against the pick": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 question, tranchée contre le choix"
+            "value": "1 demande, tranchée contre le choix"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 decisión, respondida en contra de la elección"
+            "value": "1 petición, respondida en contra de la elección"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 Entscheidung, gegen die Wahl beantwortet"
+            "value": "1 Anfrage, gegen die Wahl beantwortet"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 个决定，回答与所选相反"
+            "value": "1 个请求，回答与所选相反"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 件の判断、選択とは逆に回答"
+            "value": "1 件の依頼、選択とは逆に回答"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "결정 1개, 선택과 다르게 답함"
+            "value": "요청 1개, 선택과 다르게 답함"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 решение, принятое вопреки выбору"
+            "value": "1 запрос, принят вопреки выбору"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 decisão, respondida contra a escolha"
+            "value": "1 pedido, respondido contra a escolha"
           }
         }
       }
     },
-    "1 call, answered as picked": {
+    "1 ask, answered as picked": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 question, tranchée comme choisie"
+            "value": "1 demande, tranchée comme choisie"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 decisión, respondida según la elección"
+            "value": "1 petición, respondida según la elección"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 Entscheidung, wie gewählt beantwortet"
+            "value": "1 Anfrage, wie gewählt beantwortet"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 个决定，按所选回答"
+            "value": "1 个请求，按所选回答"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 件の判断、選択どおりに回答"
+            "value": "1 件の依頼、選択どおりに回答"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "결정 1개, 선택대로 답함"
+            "value": "요청 1개, 선택대로 답함"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 решение, принятое как выбрано"
+            "value": "1 запрос, принят как выбрано"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 decisão, respondida como escolhida"
+            "value": "1 pedido, respondido como escolhido"
           }
         }
       }
@@ -9517,54 +9517,54 @@
         }
       }
     },
-    "Agents prepare it, and you say yes on a call": {
+    "Agents prepare it, and you say yes on an ask": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les agents le préparent, et vous dites oui sur une question"
+            "value": "Les agents le préparent, et vous dites oui sur une demande"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los agentes lo preparan y tú das el sí en una decisión"
+            "value": "Los agentes lo preparan y tú das el sí en una petición"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agents bereiten es vor, und du sagst Ja bei einer Entscheidung"
+            "value": "Agents bereiten es vor, und du sagst Ja bei einer Anfrage"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "智能体准备好，由你在决定中同意"
+            "value": "智能体准备好，由你在请求中同意"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントが準備し、あなたが判断で承認"
+            "value": "エージェントが準備し、あなたが依頼で承認"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트가 준비하고, 결정에서 내가 승인"
+            "value": "에이전트가 준비하고, 요청에서 내가 승인"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агенты готовят, а вы одобряете решением"
+            "value": "Агенты готовят, а вы одобряете запросом"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os agentes preparam, e você diz sim em uma decisão"
+            "value": "Os agentes preparam, e você diz sim em um pedido"
           }
         }
       }
@@ -9621,54 +9621,54 @@
         }
       }
     },
-    "Agents run everything else. A change to one of these waits for your yes on a call, unless its level says otherwise.": {
+    "Agents run everything else. A change to one of these waits for your yes on an ask, unless its level says otherwise.": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les agents gèrent tout le reste. Une modification de l'un de ces éléments attend votre oui sur une question, sauf si son niveau en décide autrement."
+            "value": "Les agents gèrent tout le reste. Une modification de l'un de ces éléments attend votre oui sur une demande, sauf si son niveau en décide autrement."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los agentes ejecutan todo lo demás. Un cambio en uno de estos espera tu sí en una decisión, salvo que su nivel diga lo contrario."
+            "value": "Los agentes ejecutan todo lo demás. Un cambio en uno de estos espera tu sí en una petición, salvo que su nivel diga lo contrario."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agents führen alles andere aus. Eine Änderung an einem davon wartet auf dein Ja bei einer Entscheidung, sofern seine Stufe nichts anderes sagt."
+            "value": "Agents führen alles andere aus. Eine Änderung an einem davon wartet auf dein Ja bei einer Anfrage, sofern seine Stufe nichts anderes sagt."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "其余一切由智能体运行。对其中任一项的更改需等你在决定中同意，除非其级别另有规定。"
+            "value": "其余一切由智能体运行。对其中任一项的更改需等你在请求中同意，除非其级别另有规定。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "それ以外はすべてエージェントが実行します。これらへの変更は、レベルで別途指定されていない限り、判断であなたの承認を待ちます。"
+            "value": "それ以外はすべてエージェントが実行します。これらへの変更は、レベルで別途指定されていない限り、依頼であなたの承認を待ちます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "나머지는 모두 에이전트가 실행합니다. 이 중 하나를 변경하려면 수준에서 달리 정하지 않는 한 결정에서 내 승인을 기다립니다."
+            "value": "나머지는 모두 에이전트가 실행합니다. 이 중 하나를 변경하려면 수준에서 달리 정하지 않는 한 요청에서 내 승인을 기다립니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Всё остальное выполняют агенты. Изменение одного из этих элементов ждёт вашего одобрения в решении, если его уровень не говорит иное."
+            "value": "Всё остальное выполняют агенты. Изменение одного из этих элементов ждёт вашего одобрения в запросе, если его уровень не говорит иное."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os agentes executam todo o resto. Uma mudança em um destes aguarda seu sim em uma decisão, a menos que o nível dele diga outra coisa."
+            "value": "Os agentes executam todo o resto. Uma mudança em um destes aguarda seu sim em um pedido, a menos que o nível dele diga outra coisa."
           }
         }
       }
@@ -16381,54 +16381,54 @@
         }
       }
     },
-    "Calls": {
+    "Asks": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questions"
+            "value": "Demandes"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Decisiones"
+            "value": "Peticiones"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Entscheidungen"
+            "value": "Anfragen"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "决定"
+            "value": "请求"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "判断"
+            "value": "依頼"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "결정"
+            "value": "요청"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Решения"
+            "value": "Запросы"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Decisões"
+            "value": "Pedidos"
           }
         }
       }
@@ -60789,54 +60789,54 @@
         }
       }
     },
-    "Next call": {
+    "Next ask": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Question suivante"
+            "value": "Demande suivante"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Siguiente decisión"
+            "value": "Siguiente petición"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nächste Entscheidung"
+            "value": "Nächste Anfrage"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "下一个决定"
+            "value": "下一个请求"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "次の判断"
+            "value": "次の依頼"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다음 결정"
+            "value": "다음 요청"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Следующее решение"
+            "value": "Следующий запрос"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Próxima decisão"
+            "value": "Próximo pedido"
           }
         }
       }
@@ -70721,54 +70721,54 @@
         }
       }
     },
-    "Open in Calls": {
+    "Open in Asks": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir dans Questions"
+            "value": "Ouvrir dans Demandes"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir en Decisiones"
+            "value": "Abrir en Peticiones"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "In Entscheidungen öffnen"
+            "value": "In Anfragen öffnen"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在“决定”中打开"
+            "value": "在“请求”中打开"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "判断で開く"
+            "value": "依頼で開く"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "결정에서 열기"
+            "value": "요청에서 열기"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открыть в «Решениях»"
+            "value": "Открыть в «Запросах»"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir em Decisões"
+            "value": "Abrir em Pedidos"
           }
         }
       }
@@ -126517,106 +126517,106 @@
         }
       }
     },
-    "You answered {picked} of 1 call as I picked.": {
+    "You answered {picked} of 1 ask as I picked.": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous avez répondu à {picked} question sur 1 comme je l'avais choisi."
+            "value": "Vous avez répondu à {picked} demande sur 1 comme je l'avais choisi."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Respondiste {picked} de 1 decisión como yo elegí."
+            "value": "Respondiste {picked} de 1 petición como yo elegí."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Du hast {picked} von 1 Entscheidung so beantwortet, wie ich gewählt hatte."
+            "value": "Du hast {picked} von 1 Anfrage so beantwortet, wie ich gewählt hatte."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你回答的 1 个决定中，{picked} 个与我的选择一致。"
+            "value": "你回答的 1 个请求中，{picked} 个与我的选择一致。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 件の判断のうち {picked} 件に私の選んだとおり答えました。"
+            "value": "1 件の依頼のうち {picked} 件に私の選んだとおり答えました。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "1건의 결정 중 {picked}건을 제가 고른 대로 답했습니다."
+            "value": "1건의 요청 중 {picked}건을 제가 고른 대로 답했습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вы ответили так, как выбрал я: {picked} из 1 решения."
+            "value": "Вы ответили так, как выбрал я: {picked} из 1 запроса."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Você respondeu {picked} de 1 decisão como eu escolhi."
+            "value": "Você respondeu {picked} de 1 pedido como eu escolhi."
           }
         }
       }
     },
-    "You answered {picked} of {answered} calls as I picked.": {
+    "You answered {picked} of {answered} asks as I picked.": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous avez répondu à {picked} questions sur {answered} comme je l'avais choisi."
+            "value": "Vous avez répondu à {picked} demandes sur {answered} comme je l'avais choisi."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Respondiste {picked} de {answered} decisiones como yo elegí."
+            "value": "Respondiste {picked} de {answered} peticiones como yo elegí."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Du hast {picked} von {answered} Entscheidungen so beantwortet, wie ich gewählt hatte."
+            "value": "Du hast {picked} von {answered} Anfragen so beantwortet, wie ich gewählt hatte."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你回答的 {answered} 个决定中，{picked} 个与我的选择一致。"
+            "value": "你回答的 {answered} 个请求中，{picked} 个与我的选择一致。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{answered} 件の判断のうち {picked} 件に私の選んだとおり答えました。"
+            "value": "{answered} 件の依頼のうち {picked} 件に私の選んだとおり答えました。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "{answered}건의 결정 중 {picked}건을 제가 고른 대로 답했습니다."
+            "value": "{answered}건의 요청 중 {picked}건을 제가 고른 대로 답했습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вы ответили так, как выбрал я: {picked} из {answered} решений."
+            "value": "Вы ответили так, как выбрал я: {picked} из {answered} запросов."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Você respondeu {picked} de {answered} decisões como eu escolhi."
+            "value": "Você respondeu {picked} de {answered} pedidos como eu escolhi."
           }
         }
       }
@@ -160525,106 +160525,106 @@
         }
       }
     },
-    "{asked} calls, all {asked} answered as picked": {
+    "{asked} asks, all {asked} answered as picked": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{asked} questions, toutes les {asked} tranchées comme choisi"
+            "value": "{asked} demandes, toutes les {asked} tranchées comme choisi"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "{asked} decisiones, las {asked} respondidas según la elección"
+            "value": "{asked} peticiones, las {asked} respondidas según la elección"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "{asked} Entscheidungen, alle {asked} wie gewählt beantwortet"
+            "value": "{asked} Anfragen, alle {asked} wie gewählt beantwortet"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "{asked} 个决定，全部 {asked} 个按所选回答"
+            "value": "{asked} 个请求，全部 {asked} 个按所选回答"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{asked} 件の判断、{asked} 件すべて選択どおりに回答"
+            "value": "{asked} 件の依頼、{asked} 件すべて選択どおりに回答"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "결정 {asked}개, {asked}개 모두 선택대로 답함"
+            "value": "요청 {asked}개, {asked}개 모두 선택대로 답함"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Решений: {asked}, все {asked} приняты как выбрано"
+            "value": "Запросов: {asked}, все {asked} приняты как выбрано"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "{asked} decisões, todas as {asked} respondidas como escolhidas"
+            "value": "{asked} pedidos, todos os {asked} respondidos como escolhido"
           }
         }
       }
     },
-    "{asked} calls, {picked} answered as picked": {
+    "{asked} asks, {picked} answered as picked": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{asked} questions, {picked} tranchées comme choisi"
+            "value": "{asked} demandes, {picked} tranchées comme choisi"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "{asked} decisiones, {picked} respondidas según la elección"
+            "value": "{asked} peticiones, {picked} respondidas según la elección"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "{asked} Entscheidungen, {picked} wie gewählt beantwortet"
+            "value": "{asked} Anfragen, {picked} wie gewählt beantwortet"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "{asked} 个决定，{picked} 个按所选回答"
+            "value": "{asked} 个请求，{picked} 个按所选回答"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{asked} 件の判断、{picked} 件が選択どおりに回答"
+            "value": "{asked} 件の依頼、{picked} 件が選択どおりに回答"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "결정 {asked}개, {picked}개 선택대로 답함"
+            "value": "요청 {asked}개, {picked}개 선택대로 답함"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Решений: {asked}, приняты как выбрано: {picked}"
+            "value": "Запросов: {asked}, приняты как выбрано: {picked}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "{asked} decisões, {picked} respondidas como escolhidas"
+            "value": "{asked} pedidos, {picked} respondidos como escolhido"
           }
         }
       }
@@ -160842,7 +160842,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{calls} questions"
+            "value": "{calls} appels"
           }
         },
         "es": {
@@ -160872,19 +160872,19 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "결정 {calls}개"
+            "value": "호출 {calls}회"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "решений: {calls}"
+            "value": "вызовов: {calls}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "{calls} decisões"
+            "value": "{calls} chamadas"
           }
         }
       }
@@ -161726,49 +161726,49 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} questions"
+            "value": "{count} appels"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} decisiones"
+            "value": "{count} llamadas"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} Entscheidungen"
+            "value": "{count} Aufrufe"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} 个决定"
+            "value": "{count} 次调用"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} 件の判断"
+            "value": "{count} 回の呼び出し"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "결정 {count}개"
+            "value": "호출 {count}회"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "решений: {count}"
+            "value": "вызовов: {count}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "{count} decisões"
+            "value": "{count} chamadas"
           }
         }
       }
@@ -171445,106 +171445,106 @@
         }
       }
     },
-    "{n} open call": {
+    "{n} open ask": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{n} question ouverte"
+            "value": "{n} demande ouverte"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "{n} decisión abierta"
+            "value": "{n} petición abierta"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "{n} offene Entscheidung"
+            "value": "{n} offene Anfrage"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "{n} 个待处理决定"
+            "value": "{n} 个待处理请求"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未回答の判断 {n} 件"
+            "value": "未回答の依頼 {n} 件"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "열린 결정 {n}건"
+            "value": "열린 요청 {n}건"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "открытое решение: {n}"
+            "value": "открытый запрос: {n}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "{n} decisão em aberto"
+            "value": "{n} pedido em aberto"
           }
         }
       }
     },
-    "{n} open calls": {
+    "{n} open asks": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "{n} questions ouvertes"
+            "value": "{n} demandes ouvertes"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "{n} decisiones abiertas"
+            "value": "{n} peticiones abiertas"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "{n} offene Entscheidungen"
+            "value": "{n} offene Anfragen"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "{n} 个待处理决定"
+            "value": "{n} 个待处理请求"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未回答の判断 {n} 件"
+            "value": "未回答の依頼 {n} 件"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "열린 결정 {n}건"
+            "value": "열린 요청 {n}건"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "открытых решений: {n}"
+            "value": "открытых запросов: {n}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "{n} decisões em aberto"
+            "value": "{n} pedidos em aberto"
           }
         }
       }
@@ -175965,6 +175965,266 @@
           "stringUnit": {
             "state": "translated",
             "value": "… Mais no chat"
+          }
+        }
+      }
+    },
+    "1 ask": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 demande"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 petición"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Anfrage"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 个请求"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 件の依頼"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청 1개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 запрос"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 pedido"
+          }
+        }
+      }
+    },
+    "{count} asks": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} demandes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} peticiones"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} Anfragen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} 个请求"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} 件の依頼"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청 {count}개"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "запросов: {count}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} pedidos"
+          }
+        }
+      }
+    },
+    "Back to ask": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retour à la demande"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a la petición"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurück zur Anfrage"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回请求"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼に戻る"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청으로 돌아가기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назад к запросу"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar ao pedido"
+          }
+        }
+      }
+    },
+    "with its ask": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "avec sa demande"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "con su petición"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mit seiner Anfrage"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随其请求"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼とともに"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청과 함께"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "вместе с запросом"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "com o pedido"
+          }
+        }
+      }
+    },
+    "Goes a day after its ask settles": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disparaît un jour après la clôture de sa demande"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se va un día después de que se resuelva su petición"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verschwindet einen Tag, nachdem seine Anfrage erledigt ist"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其请求处理完毕一天后移除"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依頼が済んだ 1 日後に消えます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청이 처리된 하루 뒤에 삭제됩니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удаляется через день после ответа на запрос"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sai um dia depois que o pedido é resolvido"
           }
         }
       }
