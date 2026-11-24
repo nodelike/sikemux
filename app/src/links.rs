@@ -4,7 +4,8 @@
 //! agrees. `sikemux://slice/<card>?repo=<owner/name>`, which a pull request's description
 //! holds, opens that slice in the project whose code host repository it names.
 //! `sikemux://hosts/<host>` opens the Hosts page on that host, as the notch's alerts do.
-//! `sikemux://artifact/<page>?ask=<ask>` opens an artifact an ask links, as its card does.
+//! `sikemux://artifact/<page>` opens an artifact, as its row in Artifacts does, and with
+//! `?ask=<ask>` the one that ask links, as its card does.
 //! `sikemux://ask/<number>` opens one of the person's asks, as its card on the board does.
 //! `sikemux://install-mod?repo=<owner>/<name>` asks the person to install a mod from GitHub.
 
@@ -75,15 +76,15 @@ fn hosts_link(link: &str) -> Option<String> {
     Some(host.unwrap_or_default())
 }
 
-/// The ask a `sikemux://artifact/<page>?ask=<ask>` link names, and the artifact of it.
-fn artifact_link(link: &str) -> Option<(String, String)> {
+/// The artifact a `sikemux://artifact/<page>` link names, and the ask it says links it.
+fn artifact_link(link: &str) -> Option<(String, Option<String>)> {
     let url = Url::parse(link).ok()?;
     if url.scheme() != "sikemux" || url.host_str() != Some("artifact") {
         return None;
     }
     let page = url.path_segments()?.find(|part| !part.is_empty())?;
-    let (_, ask) = url.query_pairs().find(|(key, _)| key == "ask")?;
-    Some((ask.into_owned(), page.to_owned()))
+    let ask = url.query_pairs().find(|(key, _)| key == "ask");
+    Some((page.to_owned(), ask.map(|(_, ask)| ask.into_owned())))
 }
 
 /// Takes what the system hands this app to open: each `sikemux://` link, such as one clicked
@@ -132,9 +133,11 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
     if let Some(host) = hosts_link(link) {
         return bench.open_hosts(Some(host).filter(|host| !host.is_empty()));
     }
-    let asked = artifact_link(link).filter(|(ask, _)| bench.call_at(ask).is_some());
-    if let Some((ask, page)) = asked {
-        return bench.open_call_page(&ask, &page, cx);
+    if let Some((page, ask)) = artifact_link(link) {
+        return match ask.filter(|ask| bench.call_at(ask).is_some()) {
+            Some(ask) => bench.open_call_page(&ask, &page, cx),
+            None => bench.open_page(&page, None, bench.target(), cx),
+        };
     }
     if let Some(repo) = crate::mod_install::link(link) {
         return bench.offer_repo_mod(repo, cx);

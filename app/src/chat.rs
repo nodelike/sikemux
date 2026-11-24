@@ -42,6 +42,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::agents::rows::AgentRow;
 use crate::agents::setup::Installing;
+use crate::calls::reply::About;
 use crate::chat::composer::{Act, Composer, Notice, Strip};
 use crate::core::{Ask, ChatAsk, ChatNews, Target};
 use crate::icons::Icon;
@@ -2027,9 +2028,12 @@ impl Workbench {
         if let Some(chat) = self.chats.open.get(agent) {
             return chat.target.clone();
         }
-        let place = crate::calls::reply::call_of(agent)
-            .and_then(|call| self.call_at(call))
-            .map_or_else(|| self.place(), |(place, _)| place);
+        let place = match About::of(agent) {
+            Some(About::Page { agent, .. }) => return self.chat_target(agent),
+            Some(About::Call(call)) => self.call_at(call).map(|(place, _)| place),
+            None => None,
+        };
+        let place = place.unwrap_or_else(|| self.place());
         Target::new(&self.asks, place)
     }
 

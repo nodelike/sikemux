@@ -265,7 +265,7 @@ impl Workbench {
     /// Keeps what is written in `agent`'s draft, and its files, as one prompt in the Stash, and
     /// empties the draft; the composer offers to put it back for a while.
     pub fn stash_prompt(&mut self, agent: &str, cx: &mut Context<Self>) {
-        if crate::calls::reply::call_of(agent).is_some() {
+        if crate::calls::reply::About::of(agent).is_some() {
             return;
         }
         self.keep_draft(agent, cx);

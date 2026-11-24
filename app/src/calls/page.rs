@@ -134,7 +134,6 @@ impl Render for Page {
             .map(|call| call.id.clone());
         let question = question(&open, through, cx);
         let answering = Answering::new(&open, next, through, window, cx);
-        let (choices, pinned) = (answering.choices, answering.with);
         let shown = div()
             .id(SharedString::from(format!("calls-page-{}", open.id)))
             .flex_1()
@@ -150,18 +149,24 @@ impl Render for Page {
                     .pt(px(SIDE))
                     .flex()
                     .flex_col()
-                    .child(ui::pinned_foot(question, choices)),
+                    .child(ui::pinned_foot(question, answering.choices)),
             );
         let page = div().size_full().relative().flex().flex_col();
-        let page = page.child(shown).child(composer_row(pinned));
-        match answering.composed {
-            true => answer_drops(page, &open, through, cx),
-            false => page.into_any_element(),
+        let page = page.child(shown);
+        match answering.with {
+            With::Composer(composer) => {
+                let words = t!("Drop files to send with your answer");
+                let page = page.child(composer_row(composer));
+                takes_files(page, &reply::owner(&open.id), words, &self.bench, cx)
+            }
+            With::Secret(field) => page.child(composer_row(field)).into_any_element(),
+            With::Nothing => page.into_any_element(),
         }
     }
 }
 
-/// What an ask linking the page in front of an agent's desk is answered with, at the desk's foot.
+/// The foot of an agent's desk while an artifact is in front of it: what an ask linking the
+/// artifact is answered with, else a composer that writes to the agent about it.
 pub struct Foot {
     bench: WeakEntity<Workbench>,
     cards: Entity<Cards>,
@@ -204,20 +209,59 @@ impl Workbench {
     }
 }
 
+impl Foot {
+    /// `foot` with the composer that writes to the desk's agent about artifact `page`.
+    fn about(
+        &self,
+        foot: gpui_kit::Div,
+        page: &str,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
+        let owner = reply::page_owner(page, &self.agent);
+        let made = self.bench.update(cx, |bench, cx| {
+            let name = bench.agent_by_id(&self.agent)?.name.unwrap_or_default();
+            let hint = t!("Message @{name} about this artifact", name = name);
+            bench.reply_view(&owner, hint.into(), window, cx)
+        });
+        let Some(view) = made.ok().flatten() else {
+            return foot.into_any_element();
+        };
+        let composer = view.into_element().isolated().into_any_element();
+        let foot = foot.child(composer_row(composer));
+        let words = t!("Drop files to send with your message");
+        takes_files(foot, &owner, words, &self.bench, cx)
+    }
+}
+
 impl Render for Foot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Tokens::get(cx).clone();
-        let asked = self.bench.upgrade().and_then(|bench| {
+        let Some(bench) = self.bench.upgrade() else {
+            return div().into_any_element();
+        };
+        let (page, asked, target) = {
             let bench = bench.read(cx);
-            Some((bench.asked_on_desk(&self.agent, cx)?, bench.target()))
-        });
-        let Some((open, target)) = asked else {
+            let page = bench.page_on_desk(&self.agent, cx);
+            (page, bench.asked_on_desk(&self.agent, cx), bench.target())
+        };
+        let Some(page) = page else {
             return div().into_any_element();
         };
         let through = Through {
             target: &target,
             cards: &self.cards,
             bench: &self.bench,
+        };
+        let foot = div()
+            .flex_none()
+            .relative()
+            .flex()
+            .flex_col()
+            .border_t(theme::border())
+            .border_color(t.border);
+        let Some(open) = asked else {
+            return self.about(foot, &page, window, cx);
         };
         let asks = div()
             .text_size(theme::ui_text(13.5))
@@ -227,44 +271,46 @@ impl Render for Foot {
             .line_clamp(2)
             .child(question_lines(&open).0);
         let answering = Answering::new(&open, None, through, window, cx);
-        let foot = div()
-            .flex_none()
-            .relative()
-            .flex()
-            .flex_col()
-            .border_t(theme::border())
-            .border_color(t.border)
-            .child(
-                div()
-                    .id(SharedString::from(format!("desk-foot-{}", open.id)))
-                    .max_h(px(FOOT_HEIGHT))
-                    .overflow_y_scroll()
-                    .child(
-                        div()
-                            .w_full()
-                            .max_w(px(COLUMN + 2. * SIDE))
-                            .mx_auto()
-                            .px(px(SIDE))
-                            .pt(SPACE_3_PX)
-                            .child(asks)
-                            .child(answering.choices),
-                    ),
-            )
-            .child(composer_row(answering.with));
-        match answering.composed {
-            true => answer_drops(foot, &open, through, cx),
-            false => foot.into_any_element(),
+        let foot = foot.child(
+            div()
+                .id(SharedString::from(format!("desk-foot-{}", open.id)))
+                .max_h(px(FOOT_HEIGHT))
+                .overflow_y_scroll()
+                .child(
+                    div()
+                        .w_full()
+                        .max_w(px(COLUMN + 2. * SIDE))
+                        .mx_auto()
+                        .px(px(SIDE))
+                        .pt(SPACE_3_PX)
+                        .child(asks)
+                        .child(answering.choices),
+                ),
+        );
+        match answering.with {
+            With::Composer(composer) => {
+                let foot = foot.child(composer_row(composer));
+                let words = t!("Drop files to send with your answer");
+                takes_files(foot, &reply::owner(&open.id), words, &self.bench, cx)
+            }
+            With::Secret(field) => foot.child(composer_row(field)).into_any_element(),
+            With::Nothing => self.about(foot, &page, window, cx),
         }
     }
 }
 
-/// What answers an open call: its choices, and under them its composer, or the field its secret
-/// is typed in.
+/// What answers an open call: its choices, and under them its composer, the field its secret
+/// is typed in, or neither.
 struct Answering {
     choices: gpui_kit::Div,
-    with: AnyElement,
-    /// Whether a composer answers it.
-    composed: bool,
+    with: With,
+}
+
+enum With {
+    Composer(AnyElement),
+    Secret(AnyElement),
+    /// Its choices alone answer it.
+    Nothing,
 }
 
 impl Answering {
@@ -285,29 +331,26 @@ impl Answering {
             false => {
                 let hint = reply_hint(open, &through.cards.read(cx).chosen(open)).into();
                 (through.bench)
-                    .update(cx, |bench, cx| bench.reply_view(open, hint, window, cx))
+                    .update(cx, |bench, cx| {
+                        bench.reply_view(&reply::owner(&open.id), hint, window, cx)
+                    })
                     .ok()
                     .flatten()
             }
         };
         let choices =
             choices(open, next, &field, through, cx).pb(if formed { px(SIDE) } else { SPACE_3_PX });
-        let composed = reply.is_some();
         let with = match reply {
-            Some(view) => view.into_element().isolated().into_any_element(),
-            None if formed => div().into_any_element(),
-            None => secret_field(open, &field, through, window, cx),
+            Some(view) => With::Composer(view.into_element().isolated().into_any_element()),
+            None if formed => With::Nothing,
+            None => With::Secret(secret_field(open, &field, through, window, cx)),
         };
-        Self {
-            choices,
-            with,
-            composed,
-        }
+        Self { choices, with }
     }
 }
 
-/// What a call is answered with, in line with the column above it: a composer keeps a margin of
-/// its own inside.
+/// A composer or a field in line with the column above it: a composer keeps a margin of its own
+/// inside.
 fn composer_row(answered_with: AnyElement) -> gpui_kit::Div {
     div().flex_none().px(px(SIDE) - theme::SPACE_4).child(
         div()
@@ -318,19 +361,20 @@ fn composer_row(answered_with: AnyElement) -> gpui_kit::Div {
     )
 }
 
-/// `area` taking files dropped on it into the composer of call `open`.
-fn answer_drops(
+/// `area` taking files dropped on it into the composer named `owner`, `words` saying so while
+/// they are dragged.
+fn takes_files(
     area: gpui_kit::Div,
-    open: &PersonCall,
-    through: Through,
+    owner: &str,
+    words: &'static str,
+    bench: &WeakEntity<Workbench>,
     cx: &mut App,
 ) -> AnyElement {
-    let owner = reply::owner(&open.id);
-    let area = crate::chat::takes_drops(area, &owner, through.bench.clone());
+    let area = crate::chat::takes_drops(area, owner, bench.clone());
     area.when(cx.has_active_drag(), |area| {
-        let words = t!("Drop files to send with your answer");
-        let hint = (through.bench.upgrade())
-            .map(|bench| crate::chat::drop_hint(words, &owner, bench.read(cx), cx));
+        let hint = bench
+            .upgrade()
+            .map(|bench| crate::chat::drop_hint(words, owner, bench.read(cx), cx));
         area.children(hint.map(gpui_kit::deferred))
     })
     .into_any_element()

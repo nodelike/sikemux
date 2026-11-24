@@ -2065,6 +2065,16 @@ impl Workbench {
         (strip.tabs.iter()).find(|tab| Some(&tab.id) == strip.active_tab_id.as_ref())
     }
 
+    /// The title of artifact `page` on the agent's desk.
+    pub(crate) fn page_title(&self, agent: &str, page: &str, cx: &App) -> Option<String> {
+        let desks = self.desks.read(cx);
+        let mut tabs = desks.strips.get(agent)?.tabs.iter();
+        let holds = |tab: &sikemux_browser::BrowserTab| {
+            (tab.local_file.as_deref()).and_then(page_id_of) == Some(page)
+        };
+        tabs.find(|tab| holds(tab)).map(|tab| tab.title.clone())
+    }
+
     /// The artifact in front of the agent's desk.
     pub(crate) fn page_on_desk(&self, agent: &str, cx: &App) -> Option<String> {
         let desks = self.desks.read(cx);
@@ -2845,7 +2855,7 @@ fn pages_desk(
         Some((id.to_owned(), tab.title.clone()))
     });
     let keeping = artifact.and_then(|(id, title)| keep_and_share(bench, agent, id, title, cx));
-    let foot = (bench.asked_on_desk(agent, cx)).map(|_| page_foot(bench, agent, cx));
+    let foot = (bench.page_on_desk(agent, cx)).map(|_| page_foot(bench, agent, cx));
     let page = bench.desks.read(cx).pages.get(agent);
     if let Some(page) = page {
         page.footed.store(foot.is_some(), Ordering::Relaxed);
@@ -3017,7 +3027,7 @@ fn keep_and_share(
     )
 }
 
-/// The foot of `agent`'s desk, made the first time an artifact of an ask shows on it.
+/// The foot of `agent`'s desk, made the first time an artifact shows on it.
 fn page_foot(
     bench: &Workbench,
     agent: &str,

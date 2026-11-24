@@ -532,9 +532,7 @@ impl Workbench {
     }
 
     fn mates(&self, agent: &str, needle: &str) -> Vec<Choice> {
-        let agent = (crate::calls::reply::call_of(agent))
-            .and_then(|call| self.call_at(call))
-            .map_or(agent, |(_, call)| call.asker.agent_id.as_str());
+        let agent = self.written_to(agent);
         (self.nameable_by(agent).into_iter())
             .filter_map(|(project, row)| {
                 let mate = (row.name.clone())
@@ -1012,10 +1010,10 @@ const SCOPES: [(char, Icon, &str); 5] = [
     ('&', Icon::Stash, n!("Stash")),
 ];
 
-/// Whether `owner`'s draft names things with `trigger`. A call's reply names agents and
-/// files alone: its answer carries no issue, and a command acts on a chat.
+/// Whether `owner`'s draft names things with `trigger`. A composer outside a chat names
+/// agents and files alone: a call's answer carries no issue, and a command acts on a chat.
 fn names(owner: &str, trigger: char) -> bool {
-    crate::calls::reply::call_of(owner).is_none() || matches!(trigger, '@' | '+')
+    crate::calls::reply::About::of(owner).is_none() || matches!(trigger, '@' | '+')
 }
 
 /// The menu over the draft of `agent`'s chat, while it offers anything, under a heading of the

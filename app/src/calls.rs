@@ -412,8 +412,8 @@ impl Workbench {
         answered_in_chat(open, opened.as_deref())
     }
 
-    /// Lets go of the cards and the composers of calls answered or gone, once a core's view
-    /// says so.
+    /// Lets go of the cards and the composers of calls answered or gone, and of the composers of
+    /// desks gone, once a core's view says so.
     pub(crate) fn keep_cards(&mut self, cx: &mut Context<Self>) {
         let open: HashSet<&str> = (self.views())
             .flat_map(|(_, view)| view.calls.iter())
@@ -422,7 +422,11 @@ impl Workbench {
             .collect();
         self.calls.update(cx, |cards, _| cards.keep(&open));
         let closed: Vec<String> = (self.chats.replies.keys())
-            .filter(|owner| !reply::call_of(owner).is_some_and(|id| open.contains(id)))
+            .filter(|owner| match reply::About::of(owner) {
+                Some(reply::About::Call(id)) => !open.contains(id),
+                Some(reply::About::Page { agent, .. }) => self.agent_by_id(agent).is_none(),
+                None => true,
+            })
             .cloned()
             .collect();
         for owner in closed {

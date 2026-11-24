@@ -224,7 +224,13 @@ pub(super) fn row(
                     .flex()
                     .flex_col()
                     .items_end()
-                    .children(attach::sent(message, open, looks.file_pressed(), cx))
+                    .children(attach::sent(
+                        message,
+                        open,
+                        looks.file_pressed(),
+                        |id| super::page::opens_page(id, &looks.agent, looks),
+                        cx,
+                    ))
                     .when(!parts.is_empty(), |column| {
                         column.child(bubble(looks).children(parts))
                     })

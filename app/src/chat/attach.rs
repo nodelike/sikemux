@@ -21,7 +21,7 @@ use gpui_transcript::FilePress;
 use sikemux_calls::chat::MAX_ATTACHMENTS;
 use sikemux_view::chat::{
     tracked_at, tracked_title, SentChip, SentChipKind, SentSpan, TrackedKind, AGENT_URI,
-    EARLIER_URI, REPLY_URI, SIDE_URI, STASH_URI, WOKEN_URI,
+    ARTIFACT_URI, EARLIER_URI, REPLY_URI, SIDE_URI, STASH_URI, WOKEN_URI,
 };
 use sikemux_view::chat::{ChatMessage, SentContext, WhyChip, WhyKind, WhyOpen, WHY_URI};
 use sikemux_wire::protocol::ChatContext;
@@ -528,7 +528,7 @@ impl Workbench {
     }
 
     /// Asks the core to keep a file that lives nowhere the agent can read, and hands where it
-    /// went to `kept`. A file for a call's reply is kept for the agent that asked.
+    /// went to `kept`. It is kept for the agent it is written to.
     #[allow(clippy::too_many_arguments)]
     fn keep(
         &self,
@@ -541,11 +541,8 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) {
         let (stored, answer) = oneshot::channel();
-        let keeper = (crate::calls::reply::call_of(agent))
-            .and_then(|call| self.call_at(call))
-            .map_or(agent, |(_, call)| call.asker.agent_id.as_str());
         let ask = ChatAsk::Keep {
-            agent: keeper.to_owned(),
+            agent: self.written_to(agent).to_owned(),
             name,
             mime: mime.to_owned(),
             bytes,
@@ -711,9 +708,9 @@ pub fn takes_drops(pane: Div, agent: &str, this: WeakEntity<Workbench>) -> Div {
 }
 
 /// Whether `agent`'s composer takes `chat` as context: any chat but its own that names an
-/// agent or a saved chat. A call's reply takes none, since its answer carries no context.
+/// agent or a saved chat. A composer outside a chat takes none.
 fn takes_chat(chat: &DraggedChat, agent: &str) -> bool {
-    crate::calls::reply::call_of(agent).is_none()
+    crate::calls::reply::About::of(agent).is_none()
         && (chat.agent.is_some() || chat.recent.is_some())
         && chat.agent.as_ref().is_none_or(|(id, _)| id != agent)
 }
@@ -1496,6 +1493,7 @@ pub(crate) fn context_chip(
                 .to_owned(),
         ),
         None if uri.starts_with(EARLIER_URI) => (Icon::Message, title.to_owned()),
+        None if uri.starts_with(ARTIFACT_URI) => (Icon::Presentation, title.to_owned()),
         None if uri.starts_with(STASH_URI) => (Icon::Text, title.to_owned()),
         None if uri.starts_with(SIDE_URI) => (Icon::Message, title.to_owned()),
         None if web => (
@@ -1505,10 +1503,14 @@ pub(crate) fn context_chip(
         None if title.is_empty() => (Icon::File, uri.to_owned()),
         None => (Icon::File, title.to_owned()),
     };
+    let tooltip = match uri.starts_with(ARTIFACT_URI) {
+        true => title.clone(),
+        false => uri.to_owned(),
+    };
     Attachment::new()
         .id(SharedString::from(id))
         .with_size(gpui_kit::component::Size::Small)
-        .tooltip(uri.to_owned())
+        .tooltip(tooltip)
         .media(AttachmentMedia::new().child(site_icon(uri, web, icon, asks, t)))
         .content(AttachmentContent::new().title(AttachmentTitle::new(title)))
 }
@@ -1558,6 +1560,7 @@ pub fn sent(
     message: &ChatMessage,
     open: impl Fn(PathBuf, &mut Window, &mut App) + Clone + 'static,
     file: super::files::FilePressed,
+    page: impl Fn(&str) -> super::page::Opens,
     cx: &App,
 ) -> Option<Div> {
     if message.attachments.is_empty() && message.context.is_empty() {
@@ -1596,13 +1599,20 @@ pub fn sent(
         .map(|(index, item)| {
             let quote = (item.quote.as_deref())
                 .map(|quote| quote.split_whitespace().collect::<Vec<_>>().join(" "));
-            context_chip(
+            let chip = context_chip(
                 format!("sent-context-{}-{index}", message.id),
                 &item.uri,
                 quote.as_deref().unwrap_or(&item.title),
                 None,
                 &t,
-            )
+            );
+            match item.uri.strip_prefix(ARTIFACT_URI) {
+                Some(id) => {
+                    let open = page(id);
+                    chip.on_click(move |_, window, cx| open(window, cx))
+                }
+                None => chip,
+            }
         })
         .collect();
     let files: Vec<_> = files.collect();

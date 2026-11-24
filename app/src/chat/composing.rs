@@ -21,6 +21,7 @@ use sikemux_view::prefs::MidTurnSend;
 use sikemux_wire::protocol::PermissionMode;
 
 use super::*;
+use crate::calls::reply::About;
 use crate::chat::{Answering, Chat, Question};
 use crate::core::ChatAsk;
 use crate::ui::list_picker::{Choose, Close, Next, Previous};
@@ -45,7 +46,7 @@ fn append(draft: &Entity<TextareaState>, text: &str, window: &mut Window, cx: &m
 }
 
 impl Workbench {
-    /// The composer of the chat of agent `owner`, or the one a call is answered with.
+    /// The composer of the chat of agent `owner`, or the one outside a chat `owner` names.
     pub fn composing(&self, owner: &str) -> Option<&Composing> {
         match self.chats.open.get(owner) {
             Some(chat) => chat.composer.as_ref(),
@@ -322,7 +323,7 @@ pub struct ComposerView {
     pub bench: WeakEntity<Workbench>,
     /// The composer it draws, as [`Workbench::composing`] names it.
     pub owner: String,
-    /// The chat's agent as the stage last drew it; a call's reply has none.
+    /// The chat's agent as the stage last drew it; a composer outside a chat has none.
     pub agent: Option<AgentRow>,
 }
 
@@ -1253,8 +1254,8 @@ impl Workbench {
                     InputEvent::PressEnter {
                         shift: false,
                         secondary,
-                    } => match crate::calls::reply::call_of(&owner) {
-                        Some(call) if *secondary => bench.follow_up(call, window, cx),
+                    } => match About::of(&owner) {
+                        Some(About::Call(call)) if *secondary => bench.follow_up(call, window, cx),
                         _ => bench.send(&owner, *secondary, window, cx),
                     },
                     InputEvent::Change => {
@@ -1532,12 +1533,12 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(call) = crate::calls::reply::call_of(agent) {
+        match About::of(agent) {
             // A production call is never sent by a key; only a click sends it.
-            if !self.ships_to_production(call) {
-                self.reply(call, cx);
-            }
-            return;
+            Some(About::Call(call)) if self.ships_to_production(call) => return,
+            Some(About::Call(call)) => return self.reply(call, cx),
+            Some(About::Page { .. }) => return self.write_about_page(agent, window, cx),
+            None => {}
         }
         let waits = self
             .voice

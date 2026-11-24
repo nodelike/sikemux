@@ -66,7 +66,7 @@ pub fn must_wake(core: &Core, params: &PromptChatParams) -> bool {
 }
 
 /// Sends the person's message to an agent nothing need wake: a chat, or one in a terminal, where
-/// it goes in as a message.
+/// it goes in as a message, with what it carries written under its words.
 pub fn prompt_awake(core: &Arc<Core>, params: PromptChatParams) -> CoreResult<()> {
     let PromptChatParams {
         agent_id,
@@ -80,7 +80,12 @@ pub fn prompt_awake(core: &Arc<Core>, params: PromptChatParams) -> CoreResult<()
         .person_wrote(core.workspaces().is_chief(&agent_id));
     (core.chat_above().chief_person_wrote)(core, &agent_id);
     if core.workspaces().in_terminal(&agent_id) {
-        (core.chat_above().messages_from_person)(core, &agent_id, text)
+        let told = context.into_iter().map(|item| item.text);
+        let said: Vec<String> = std::iter::once(text)
+            .chain(told.filter(|text| !text.is_empty()))
+            .chain(paths)
+            .collect();
+        (core.chat_above().messages_from_person)(core, &agent_id, said.join("\n\n"))
     } else {
         super::prompt(
             core,
