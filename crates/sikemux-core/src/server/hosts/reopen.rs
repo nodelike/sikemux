@@ -104,7 +104,7 @@ pub(crate) async fn reopen(
         reports,
         prompt,
     });
-    let shown = |name: &str| format!("{name} on {}", link.name);
+    let shown = |name: &str| format!("{} on {}", crate::server::names::at_name(name), link.name);
     match call(
         core,
         &link.id,
@@ -147,7 +147,8 @@ pub(crate) async fn reopen(
             remote::not_started(core, &closed.agent_id);
             Err(format!(
                 "{} did not reopen on {}: {error}",
-                closed.name, link.name
+                crate::server::names::at_name(&closed.name),
+                link.name
             ))
         }
     }

@@ -1555,8 +1555,12 @@ fn renumbered_once(core: &Core, agent: &str, project: &str, id: u64) -> Result<(
     ))
 }
 
-fn said_by(learned: &Learned) -> &str {
-    learned.name.as_deref().unwrap_or("the person")
+fn said_by(learned: &Learned) -> String {
+    learned
+        .name
+        .as_deref()
+        .map(crate::server::names::at_name)
+        .unwrap_or_else(|| "the person".to_owned())
 }
 
 /// `memory_list`: every rule, piece of knowledge and decision kept for the
@@ -1607,7 +1611,7 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
                 "id": apart.rule.id,
                 "text": apart.rule.text,
                 "sensitive": apart.rule.sensitive,
-                "setAsideBy": core.names().name_or_id(&apart.by),
+                "setAsideBy": crate::server::names::at_name_now(core, &apart.by),
                 "at": apart.at,
                 "why": now_check::why(&apart),
             })

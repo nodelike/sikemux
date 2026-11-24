@@ -273,6 +273,19 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             let lines: Vec<String> = rows.iter().map(line).collect();
             return Ok(json!({ "project": project, "now": now, "agents": lines }));
         }
+        let rows: Vec<Value> = rows
+            .into_iter()
+            .map(|mut row| {
+                if let Some(fields) = row.as_object_mut() {
+                    for key in ["name", "startedBy"] {
+                        if let Some(name) = fields.get(key).and_then(Value::as_str) {
+                            fields.insert(key.into(), super::names::at_name(name).into());
+                        }
+                    }
+                }
+                row
+            })
+            .collect();
         let updates = core.updates().status();
         Ok(json!({
             "project": project,
@@ -432,10 +445,16 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
             match closable(&core, &agents, &waited_on, to, &project, &caller) {
                 Ok(target) if target.reach == Reach::Remote => remote.push(target.agent_id),
                 Ok(target) => {
-                    let name = target.name.unwrap_or_else(|| target.agent_id.clone());
+                    let name = target
+                        .name
+                        .as_deref()
+                        .map(super::names::at_name)
+                        .unwrap_or_else(|| target.agent_id.clone());
                     closing.push((target.agent_id, name));
                 }
-                Err(why) => refused.push(json!({ "agent": to, "reason": why })),
+                Err(why) => {
+                    refused.push(json!({ "agent": super::names::at_name(to), "reason": why }))
+                }
             }
         }
         let ids: Vec<String> = closing.iter().map(|(id, _)| id.clone()).collect();
@@ -452,7 +471,7 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
     .map_err(|error| error.to_string())?;
     for agent_id in remote {
         match super::hosts::route::close(core, &caller, &agent_id).await {
-            Ok(name) => closed.push(name),
+            Ok(name) => closed.push(super::names::at_name(&name)),
             Err(why) => refused.push(json!({ "agent": agent_id, "reason": why })),
         }
     }
@@ -514,7 +533,9 @@ pub(crate) async fn move_account(
             });
             match chosen {
                 Ok((target, account_id)) => moving.push((target, account_id)),
-                Err(why) => refused.push(json!({ "agent": to, "reason": why })),
+                Err(why) => {
+                    refused.push(json!({ "agent": super::names::at_name(to), "reason": why }))
+                }
             }
         }
         Ok((moving, refused))
@@ -523,7 +544,11 @@ pub(crate) async fn move_account(
     .map_err(|error| error.to_string())?;
     let mut moved = Vec::new();
     for (target, account_id) in moving {
-        let name = target.name.unwrap_or_else(|| target.agent_id.clone());
+        let name = target
+            .name
+            .as_deref()
+            .map(super::names::at_name)
+            .unwrap_or_else(|| target.agent_id.clone());
         match super::chat::move_to_account(core, &target.agent_id, &account_id).await {
             Ok(()) => moved.push(name),
             Err(why) => refused.push(json!({ "agent": name, "reason": why.to_string() })),
@@ -559,9 +584,14 @@ fn closable(
         return Ok(target);
     }
     if let Some(waiter) = waited_on.get(&target.agent_id) {
-        let name = target.name.clone().unwrap_or(target.agent_id.clone());
+        let name = target
+            .name
+            .as_deref()
+            .map(super::names::at_name)
+            .unwrap_or_else(|| target.agent_id.clone());
         return Err(format!(
-            "@{waiter} is waiting on {name}, so closing it is not yours to do yet"
+            "{} is waiting on {name}, so closing it is not yours to do yet",
+            super::names::at_name(waiter)
         ));
     }
     if started_by(core, &target.agent_id, caller) {
@@ -572,7 +602,11 @@ fn closable(
     if orphan {
         return Ok(target);
     }
-    let name = target.name.clone().unwrap_or(target.agent_id.clone());
+    let name = target
+        .name
+        .as_deref()
+        .map(super::names::at_name)
+        .unwrap_or_else(|| target.agent_id.clone());
     Err(format!(
         "{name} is not one you started, so Sikemux closes it once it is finished"
     ))
@@ -625,15 +659,22 @@ pub(crate) fn resolve(
             "No open agent is called {wanted}; agent_list shows the agents you can message. One you started that closed is read by agent_read and reopened by agent_send; any other is found by agent_sessions, or who_wrote for its commit, and reopened by agent_spawn with resume set to its sessionId"
         ))),
         ([], [], elsewhere) => Err(format!(
-            "No agent in your project or on your team is called {wanted}. {}; pass its agent id if you mean it",
+            "No agent in your project or on your team is called {}. {}; pass its agent id if you mean it",
+            crate::server::names::at_name(wanted),
             elsewhere
                 .iter()
-                .map(|agent| format!("{wanted} ({}) is in {}", agent.agent_id, agent.project))
+                .map(|agent| format!(
+                    "{} ({}) is in {}",
+                    crate::server::names::at_name(wanted),
+                    agent.agent_id,
+                    agent.project
+                ))
                 .collect::<Vec<_>>()
                 .join(", ")
         )),
         (_, many, _) => Err(format!(
-            "More than one agent is called {wanted}: {}. Pass the agent id instead",
+            "More than one agent is called {}: {}. Pass the agent id instead",
+            crate::server::names::at_name(wanted),
             many.iter()
                 .map(|agent| match host_of(core, agent) {
                     Some(host) => format!("{} on {host}", agent.agent_id),

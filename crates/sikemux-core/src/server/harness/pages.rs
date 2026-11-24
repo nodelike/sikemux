@@ -162,6 +162,13 @@ pub(super) async fn list_pages(core: &Core, request: &HarnessRequest) -> Result<
     })
     .await
     .map_err(|error| error.to_string())??;
+    let pages: Vec<ListedPage> = pages
+        .into_iter()
+        .map(|mut page| {
+            page.agent = crate::server::names::at_name(&page.agent);
+            page
+        })
+        .collect();
     if every {
         return Ok(json!({ "pages": pages }));
     }

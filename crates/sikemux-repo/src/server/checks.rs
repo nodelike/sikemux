@@ -1108,7 +1108,7 @@ fn newly_told(core: &Core, project: &str, agent: &str) -> bool {
 }
 
 fn someone(core: &Core, agent: &str) -> String {
-    format!("@{}", crate::server::names::called_now(core, agent))
+    crate::server::names::called_now(core, agent)
 }
 
 /// Tells who should mend a failing check: the agent holding its CI card, else the one already

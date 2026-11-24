@@ -1121,7 +1121,7 @@ fn warn(
     now: u64,
 ) {
     let (path, writer, owner) = key;
-    let name = |id: &str| core.names().name_or_id(id);
+    let name = |id: &str| crate::server::names::at_name_now(core, id);
     let file = shown(path, &overlap.project);
     let lines = spoken(&overlap.lines);
     let owner_name = name(owner);

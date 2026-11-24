@@ -164,7 +164,7 @@ pub(crate) async fn spawn(
         },
     )
     .await?;
-    let shown = format!("{name} on {}", link.name);
+    let shown = format!("{} on {}", crate::server::names::at_name(&name), link.name);
     if pending {
         return Ok(json!({
             "name": shown,
@@ -330,7 +330,11 @@ pub(crate) async fn hand_over(
         }
         Err(error) => {
             not_started(core, &agent_id);
-            return Err(format!("{given} did not start on {}: {error}", link.name));
+            return Err(format!(
+                "{} did not start on {}: {error}",
+                crate::server::names::at_name(&given),
+                link.name
+            ));
         }
     };
     Ok(Handed {
@@ -428,17 +432,23 @@ async fn settle_pending(core: &Arc<Core>, host: &str, agent_id: &str, first: Dur
         let told = match super::receipt(core, host, &id).await {
             Ok(Stands::Done(Ok(answer))) => {
                 let name = started_as(core, agent_id, &worker.name, &answer);
-                format!("{name} on {place} has started, and gets your prompt once it is ready.")
+                format!(
+                    "{} on {place} has started, and gets your prompt once it is ready.",
+                    crate::server::names::at_name(&name)
+                )
             }
             Ok(Stands::Done(Err(why))) => {
                 not_started(core, agent_id);
-                format!("{} did not start on {place}: {why}", worker.name)
+                format!(
+                    "{} did not start on {place}: {why}",
+                    crate::server::names::at_name(&worker.name)
+                )
             }
             Ok(Stands::Unknown) => {
                 not_started(core, agent_id);
                 format!(
                     "{} did not start on {place}: what started it never arrived there. Start it again if you still need it.",
-                    worker.name
+                    crate::server::names::at_name(&worker.name)
                 )
             }
             Err(Failed::Refused(_)) => {

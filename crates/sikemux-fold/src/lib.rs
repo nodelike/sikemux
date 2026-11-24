@@ -108,6 +108,14 @@ pub trait AgentBook: Send + Sync {
     fn hired(&self, task: &str) -> Option<(String, String)>;
     /// The model the agent runs on, once it has started.
     fn model(&self, agent_id: &str) -> Option<String>;
+    /// Names of agents this chat has started (open or closed), for resolving bare names in its replies.
+    fn started_names(&self) -> Vec<String> {
+        Vec::new()
+    }
+    /// Resolves `@name` to any agent this project has had (open or closed), for drawing its pill.
+    fn mention(&self, _name: &str) -> Option<sikemux_view::chat::NamedAgent> {
+        None
+    }
 }
 
 pub type Agents = std::sync::Arc<dyn AgentBook>;
@@ -180,6 +188,7 @@ impl Row {
                 team: None,
                 from_event: Some(index),
                 chips: Vec::new(),
+                named: Vec::new(),
                 left_out: Vec::new(),
                 ask: None,
             },
@@ -413,6 +422,8 @@ pub struct Fold {
     /// Where a finished edit's lines sit in its file, so they carry the file's numbers.
     place: Option<Place>,
     agents: Option<Agents>,
+    /// Bare names of agents this chat has itself started or messaged.
+    reached_agents: HashSet<String>,
     /// The label each process run was started under, by its id, so a row names a run by it.
     runs: HashMap<String, String>,
     /// How many bytes each row's JSON is as a client opening the chat is sent it, by row id,
@@ -684,6 +695,7 @@ impl Fold {
 
     pub fn know_agents(&mut self, agents: Agents) {
         self.agents = Some(agents);
+        self.resolve_named_all();
     }
 
     /// Names again the agents the running calls reach, as one the core has just hired.
@@ -739,6 +751,7 @@ impl Fold {
             folder: None,
             place: None,
             agents: None,
+            reached_agents: HashSet::new(),
             runs: HashMap::new(),
             sent_bytes: RefCell::default(),
             decided_in_turn: Vec::new(),
@@ -2162,6 +2175,7 @@ impl Fold {
             self.runs.insert(id, label);
         }
         let call = self.shown_call(raw);
+        self.note_reached(&call, raw);
         let detail = tools::detail(&settled);
         let id = call.tool_call_id.clone();
         if detail.diff.is_some() || detail.output.is_some() {
@@ -3077,6 +3091,7 @@ impl Fold {
     fn end_turn(&mut self, stop_reason: Option<StopReason>, at: u64) {
         let was_running = self.head.running;
         self.settle_transcript(&None, at, false);
+        self.prefix_bare_agents();
         self.place_decided();
         if was_running {
             if let Some(last) = self
@@ -3119,6 +3134,131 @@ impl Fold {
         }
     }
 
+    fn note_reached(&mut self, call: &sikemux_view::chat::ToolCall, raw: &Map<String, Value>) {
+        if matches!(
+            tools::sikemux_tool_name(&call.title),
+            "agent_spawn" | "agent_send"
+        ) {
+            for target in call.row.target.split(',') {
+                if let Some(rest) = target.trim().strip_prefix('@') {
+                    let name = rest.split_once(" on ").map_or(rest, |(name, _)| name);
+                    if !name.is_empty() && name != "Chief" {
+                        self.reached_agents.insert(name.to_owned());
+                    }
+                }
+            }
+        }
+        for name in tools::reached_agent_names(raw) {
+            if name != "Chief" {
+                self.reached_agents.insert(name);
+            }
+        }
+    }
+
+    /// Prefixes bare names of agents this chat itself started or messaged in the assistant
+    /// replies of the finished turn, outside code and links, so every client draws their pill.
+    fn prefix_bare_agents(&mut self) {
+        let mut names: Vec<String> = self.reached_agents.iter().cloned().collect();
+        if let Some(agents) = &self.agents {
+            for name in agents.started_names() {
+                if name != "Chief" && !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        if names.is_empty() {
+            return;
+        }
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let start = (self
+            .main
+            .rows
+            .iter()
+            .rposition(|row| row.msg.role == ChatRole::User))
+        .map_or(0, |at| at + 1);
+        let mut first_changed = None;
+        for pos in start..self.main.rows.len() {
+            let Some(row) = self.main.rows.get_mut(pos) else {
+                continue;
+            };
+            if row.msg.role != ChatRole::Assistant || row.local {
+                continue;
+            }
+            let mut changed = Vec::new();
+            for (part, held) in row.msg.parts.iter_mut().enumerate() {
+                let ChatPart::Text { text, .. } = held else {
+                    continue;
+                };
+                if let Some(rewritten) = sikemux_markdown::prefix_bare_names(text, &refs) {
+                    *text = rewritten;
+                    changed.push(part);
+                }
+            }
+            if !changed.is_empty() {
+                for part in changed {
+                    row.touch_part(part);
+                }
+                self.main.touch(pos);
+                first_changed.get_or_insert(pos);
+            }
+        }
+        if let Some(first) = first_changed {
+            self.note_main_change(&None, first);
+        }
+    }
+
+    /// Resolves every `@name` in dirty assistant rows against this project's open and closed
+    /// agents so pills keep drawing and opening their chats even after an agent closes.
+    fn resolve_named(&mut self) {
+        let touched = self.main.touched.clone();
+        let positions: Vec<usize> = touched
+            .iter()
+            .filter_map(|id| self.main.position(id))
+            .collect();
+        self.resolve_named_at(&positions);
+    }
+
+    fn resolve_named_all(&mut self) {
+        let positions: Vec<usize> = (0..self.main.rows.len()).collect();
+        self.resolve_named_at(&positions);
+    }
+
+    fn resolve_named_at(&mut self, positions: &[usize]) {
+        let Some(agents) = self.agents.clone() else {
+            return;
+        };
+        for &pos in positions {
+            let Some(row) = self.main.rows.get_mut(pos) else {
+                continue;
+            };
+            if row.msg.role != ChatRole::Assistant || row.local {
+                continue;
+            }
+            let mut mentioned = Vec::new();
+            let mut seen = HashSet::new();
+            for part in &row.msg.parts {
+                let ChatPart::Text { text, .. } = part else {
+                    continue;
+                };
+                if !text.contains('@') {
+                    continue;
+                }
+                for word in at_words(text) {
+                    if seen.insert(word) {
+                        if let Some(agent) = agents.mention(word) {
+                            mentioned.push(agent);
+                        }
+                    }
+                }
+            }
+            if row.msg.named != mentioned {
+                row.msg.named = mentioned;
+                row.set("named");
+                self.main.touch(pos);
+            }
+        }
+    }
+
     pub fn tool_detail(&self, tool_call_id: &str) -> Option<ToolDetail> {
         self.details.get(tool_call_id).cloned()
     }
@@ -3132,6 +3272,18 @@ impl Fold {
             .map(|row| restored_parts(&row.msg))
             .unwrap_or_default()
     }
+}
+
+/// The `@Word` tokens in `text`, without their leading `@`.
+fn at_words(text: &str) -> impl Iterator<Item = &str> {
+    text.match_indices('@').filter_map(|(at, _)| {
+        let rest = text.get(at + 1..)?;
+        let end = rest
+            .find(|ch: char| !ch.is_alphanumeric())
+            .unwrap_or(rest.len());
+        let word = rest.get(..end)?;
+        (word.chars().count() >= 2).then_some(word)
+    })
 }
 
 /// What the person wrote in a prompt of `text` sent with the files at `paths`, as their row in

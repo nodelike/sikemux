@@ -4,7 +4,7 @@
 //! A busy chat takes it into its turn when it can; an agent that cannot gets
 //! the messages waiting for it together once its turn ends.
 
-pub(crate) use super::names::{called, called_now};
+pub(crate) use super::names::{at_name, at_name_now, called, called_now};
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
@@ -935,7 +935,7 @@ fn wrapped(letter: &Letter) -> String {
     if let Some(answered) = &letter.answers {
         return format!(
             "<question-answer asker=\"{}\" asker-id=\"{}\" cli=\"{}\" question=\"{}\" note=\"{}\"{}>\n{}\n</question-answer>",
-            attribute(&answered.asker),
+            attribute(&at_name(&answered.asker)),
             attribute(&answered.asker_id),
             attribute(&answered.cli),
             attribute(&answered.question),
@@ -946,9 +946,13 @@ fn wrapped(letter: &Letter) -> String {
                 .replace("</question-answer", "&lt;/question-answer"),
         );
     }
+    let from = match Sender::of(&letter.from_id) {
+        Some(_) => letter.from_name.clone(),
+        None => at_name(&letter.from_name),
+    };
     format!(
         "<agent-message from=\"{}\" agent-id=\"{}\" cli=\"{}\" note=\"{}\">\n{}\n</agent-message>",
-        attribute(&letter.from_name),
+        attribute(&from),
         attribute(&letter.from_id),
         attribute(&letter.cli),
         attribute(&note(letter)),
@@ -979,7 +983,7 @@ fn note_open_calls(core: &Core, lead: &str, letter: &mut Letter) {
 fn read_as(core: &Core, reader: &str, letter: &mut Letter) -> String {
     match letter.calm {
         Some(_) => {
-            let line = format!("- @{}: {}", letter.from_name, letter.text);
+            let line = format!("- {}: {}", at_name(&letter.from_name), letter.text);
             match (core.harness().questions).calls_about_note(reader, &letter.from_id) {
                 Some(calls) => format!("{line}\n{calls}"),
                 None => line,
@@ -1003,6 +1007,7 @@ pub(crate) fn task(
     text: String,
 ) -> String {
     let lead = called(lead_name, lead_id);
+    let lead_shown = at_name(lead_name);
     let answer = if reports {
         format!(
             "When your turn ends, your final answer goes to {lead} by itself, unless you end it on something set to wake you, such as a trigger, a land in line or a worker of yours still at work, and ask nothing: then {lead} hears only how your land went, so send it a milestone meanwhile with agent_send. An answer of only a dash is not sent either. Message it with agent_send if you need to ask it something first."
@@ -1025,7 +1030,7 @@ pub(crate) fn task(
         awaited: false,
         calm: None,
         note: Some(format!(
-            "{lead_name}, another agent in Sikemux, started you to do this; it is your lead, not the person: report to it. {answer}"
+            "{lead_shown}, another agent in Sikemux, started you to do this; it is your lead, not the person: report to it. {answer}"
         )),
     })
 }
@@ -1196,7 +1201,7 @@ async fn send_team(
     }
     let named = members
         .into_iter()
-        .map(|member| (core.names().name_or_id(&member), member))
+        .map(|member| (at_name_now(core, &member), member))
         .collect();
     Ok(send_each(core, request, named).await)
 }
@@ -1214,11 +1219,14 @@ async fn send_each(core: &Arc<Core>, request: &HarnessRequest, to: Vec<(String, 
     let answers = futures_util::future::join_all(sending).await;
     let (mut sent, mut failed) = (Vec::new(), Vec::new());
     for (name, answer) in answers {
+        let shown = at_name(&name);
         match answer {
-            Ok(answer) => sent.push(
-                json!({ "to": name, "agentId": answer.get("agentId"), "delivery": answer.get("delivery") }),
-            ),
-            Err(why) => failed.push(json!({ "to": name, "error": why })),
+            Ok(answer) => sent.push(json!({
+                "to": answer.get("to").cloned().unwrap_or_else(|| shown.into()),
+                "agentId": answer.get("agentId"),
+                "delivery": answer.get("delivery"),
+            })),
+            Err(why) => failed.push(json!({ "to": shown, "error": why })),
         }
     }
     json!({ "sent": sent, "failed": failed })
@@ -1335,7 +1343,8 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         Found::Open(target, letter) => (target, *letter),
         Found::Closed(name, _) | Found::ClosedElsewhere(name) if switching => {
             return Err(format!(
-                "{name} had closed; agent_spawn it again with the cli and model it should run on"
+                "{} had closed; agent_spawn it again with the cli and model it should run on",
+                at_name(&name)
             ));
         }
         Found::Closed(name, ran) if calls_off(&message_text(core, &request.params)?) => {
@@ -1359,9 +1368,13 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     }
     let switched = match run_on {
         Some(run_on) => {
-            let name = target.name.as_deref().unwrap_or(&target.agent_id);
+            let shown = target
+                .name
+                .as_deref()
+                .map(at_name)
+                .unwrap_or_else(|| target.agent_id.clone());
             let switched = super::chat::switch::switch(core, &target.agent_id, run_on).await;
-            Some(switched.map_err(|why| format!("{name} was not switched or sent this: {why}"))?)
+            Some(switched.map_err(|why| format!("{shown} was not switched or sent this: {why}"))?)
         }
         None => None,
     };
@@ -1422,15 +1435,16 @@ async fn reopen_elsewhere(
     request: &HarnessRequest,
     name: &str,
 ) -> Result<Value, String> {
+    let shown = at_name(name);
     let text = message_text(core, &request.params)?;
     let opened = super::hosts::reopen::reopen(core, request, None, name, text)
         .await
-        .map_err(|why| format!("{name} had closed, and reopening it failed: {why}"))?;
+        .map_err(|why| format!("{shown} had closed, and reopening it failed: {why}"))?;
     Ok(json!({
-        "to": opened.get("name"),
+        "to": opened.get("name").and_then(Value::as_str).map(at_name),
         "agentId": opened.get("agentId"),
         "delivery": "reopened",
-        "note": format!("{name} had closed, so Sikemux reopened its session on {}; it gets this as its task once it is ready.", opened.get("host").and_then(Value::as_str).unwrap_or("its host")),
+        "note": format!("{shown} had closed, so Sikemux reopened its session on {}; it gets this as its task once it is ready.", opened.get("host").and_then(Value::as_str).unwrap_or("its host")),
     }))
 }
 
@@ -1438,10 +1452,11 @@ async fn reopen_elsewhere(
 /// The answer to a message that calls off the work of `name`, a worker that had closed, which
 /// agent_spawn reopens with `resume`.
 fn called_off(name: &str, resume: &str) -> Value {
+    let shown = at_name(name);
     json!({
-        "to": name,
+        "to": shown,
         "delivery": "notSent",
-        "note": format!("{name} had closed, so its work had already stopped, and Sikemux did not reopen it for a message that calls the work off. To reopen it with this message anyway, agent_spawn with resume {resume}."),
+        "note": format!("{shown} had closed, so its work had already stopped, and Sikemux did not reopen it for a message that calls the work off. To reopen it with this message anyway, agent_spawn with resume {resume}."),
     })
 }
 
@@ -1486,21 +1501,22 @@ async fn reopen(
     name: &str,
     ran: super::names::RanSession,
 ) -> Result<Value, String> {
+    let shown = at_name(name);
     let agent_id =
         (core.names()).returning_id(Some(&ran.provider), &ran.session_id, core.open_agents());
     if core.workspaces().closed_agent(&agent_id).is_some() {
         let taken = super::launching::reopen_agent(core, agent_id)
             .await
-            .map_err(|why| format!("{name} had closed, and reopening it failed: {why}"))?;
+            .map_err(|why| format!("{shown} had closed, and reopening it failed: {why}"))?;
         let mut message = request.clone();
         message.params =
             json!({ "to": taken.agent_id, "text": message_text(core, &request.params)? });
         Box::pin(send(core, &message)).await?;
         return Ok(json!({
-            "to": name,
+            "to": shown,
             "agentId": taken.agent_id,
             "delivery": "reopened",
-            "note": format!("{name} had closed, so Sikemux reopened it as it was; it gets this once it is ready."),
+            "note": format!("{shown} had closed, so Sikemux reopened it as it was; it gets this once it is ready."),
         }));
     }
     let mut spawning = request.clone();
@@ -1511,9 +1527,13 @@ async fn reopen(
     });
     let opened = Box::pin(super::spawn::spawn(core, &spawning))
         .await
-        .map_err(|why| format!("{name} had closed, and reopening its session failed: {why}"))?;
-    let now = opened.get("name").and_then(Value::as_str).unwrap_or(name);
-    let as_now = if now.eq_ignore_ascii_case(name) {
+        .map_err(|why| format!("{shown} had closed, and reopening its session failed: {why}"))?;
+    let now = opened
+        .get("name")
+        .and_then(Value::as_str)
+        .map(at_name)
+        .unwrap_or_else(|| shown.clone());
+    let as_now = if now.eq_ignore_ascii_case(&shown) {
         String::new()
     } else {
         format!(" as {now}")
@@ -1522,12 +1542,13 @@ async fn reopen(
         "to": now,
         "agentId": opened.get("agentId"),
         "delivery": "reopened",
-        "note": format!("{name} had closed, so Sikemux reopened its session{as_now}; it gets this as its task once it is ready."),
+        "note": format!("{shown} had closed, so Sikemux reopened its session{as_now}; it gets this as its task once it is ready."),
     }))
 }
 
 /// What the asker is told beside its lead's answer.
 fn lead_answer_note(lead: &str, asked: &str) -> String {
+    let lead = at_name(lead);
     format!(
         "Sent by {lead}, your lead in Sikemux, not by the person, answering the question you asked: {asked}\nIt does not allow anything that stops for the person: a push, merge, deploy, publish or production write still waits for them."
     )
@@ -2100,10 +2121,10 @@ pub(crate) fn calm_reports(core: &Core, agent_id: &str) -> Option<ChatContext> {
 fn calm_letter(core: &Core, queued: &Queued) -> Option<AgentLetter> {
     let worker = &queued.origin.as_ref()?.from;
     let line = queued.text.lines().next()?;
-    let (name, text) = line.strip_prefix("- @")?.split_once(": ")?;
+    let (name, text) = line.strip_prefix("- ")?.split_once(": ")?;
     Some(AgentLetter {
         kind: LetterKind::Message,
-        name: name.to_owned(),
+        name: name.trim_start_matches('@').to_owned(),
         agent_id: worker.clone(),
         cli: (core.chats().get(worker))
             .map_or_else(|| "agent".to_owned(), |chat| chat.launch.provider.clone()),
@@ -2334,7 +2355,8 @@ async fn handed(
 ) -> Result<(Value, MessageOutcome), String> {
     let name = target
         .name
-        .clone()
+        .as_deref()
+        .map(at_name)
         .unwrap_or_else(|| target.agent_id.clone());
     let answer = |delivery: &str, note: String| json!({ "to": name, "agentId": target.agent_id, "delivery": delivery, "note": note });
     let mailbox = &core.harness().mailbox;

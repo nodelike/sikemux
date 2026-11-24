@@ -608,14 +608,15 @@ fn uncommitted_by(core: &Core, top: &Path, path: &str, asked: Option<&Lines>) ->
                 && listed
                     .iter()
                     .any(|agent| agent.agent_id == writer.agent_id && agent.reach != Reach::Stopped);
+            let shown = crate::server::names::at_name(&writer.name);
             Some(json!({
                 "kind": "agent",
-                "name": writer.name,
+                "name": shown,
                 "cli": writer.cli,
                 "openNow": open.then_some(&writer.agent_id),
                 "lines": ranges(&runs(lines.into_iter())),
                 "action": if open { "message" } else { "ask the person" },
-                "how": if open { format!("agent_send to {}", writer.name) } else { "it is no longer open".to_owned() },
+                "how": if open { format!("agent_send to {shown}") } else { "it is no longer open".to_owned() },
             }))
         })
         .collect()
@@ -641,7 +642,7 @@ fn agent_value(owner: &AgentOwner) -> Value {
     };
     json!({
         "kind": "agent",
-        "name": owner.name,
+        "name": crate::server::names::at_name(&owner.name),
         "cli": owner.cli,
         "model": owner.model,
         "title": owner.title,

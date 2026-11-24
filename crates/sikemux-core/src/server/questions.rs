@@ -726,6 +726,7 @@ impl Questions {
     /// Why `lead` can't answer `id` for the agent `name`: the call is the lead's own, or no
     /// such question is open.
     pub(crate) fn not_asked(&self, lead: &str, name: &str, id: &str) -> String {
+        let name = super::names::at_name(name);
         let state = self.state.locked();
         let own =
             (state.open.iter()).find(|question| question.id == id && question.agent_id == lead);
@@ -1318,7 +1319,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     Ok(json!({
         "questionId": question.id,
         "askedOf": match &question.stage {
-            Stage::Lead { lead_name, .. } => lead_name.clone(),
+            Stage::Lead { lead_name, .. } => super::names::at_name(lead_name),
             Stage::Person { .. } => "the person".to_owned(),
         },
         "note": left_off(sent_note(&question), about_wanted.filter(|_| question.about.is_none()), &unknown_pages),
@@ -1765,7 +1766,9 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
         Err(error) => return error,
     };
     let to = match opened.first().map(|question| &question.stage) {
-        Some(Stage::Lead { lead_name, .. }) => format!("{lead_name}, your lead,"),
+        Some(Stage::Lead { lead_name, .. }) => {
+            format!("{}, your lead,", super::names::at_name(lead_name))
+        }
         _ => "the person".to_owned(),
     };
     let core = core.clone();

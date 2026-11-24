@@ -662,11 +662,12 @@ names them `sikemux:<name>`.
 
 ## agents: Other agents in the project
 
-Every agent Sikemux runs has a name, such as Otter, and an `agentId`; both stay
-with its chat for life. `@Otter` in a message means that agent, and the
-message carries a note on its id, CLI, status and task. Notes from Sikemux give
-the id beside the name, as `Otter (agent-1f…)`: use the id to reply to an old
-message, since a closed chat's name can be reused.
+Every agent Sikemux runs has a name, such as `@Otter`, and an `agentId`; both stay
+with its chat for life. Always prefix an agent's name with `@` when you write it so
+the transcript draws its pill; `@Otter` in a message also carries a note on its id,
+CLI, status and task. Notes from Sikemux give the id beside the name, as
+`@Otter (agent-1f…)`: use the id to reply to an old message, since a closed chat's
+name can be reused.
 
 ### Working with other agents
 
@@ -774,7 +775,7 @@ goes to the agent whose commit broke it.
 
 ### Sending a message
 
-`agent_send` takes `to` (a name, `Otter on studio` for another host, an
+`agent_send` takes `to` (a name, `@Otter on studio` for another host, an
 `agentId`, `team`, or several names) and `text`, at most 64 KB; send a path for
 more. It reaches the agent as yours, never as the person's, so it can't approve
 anything for them. `delivery` says what happened: `steered` (read at its next
@@ -830,7 +831,7 @@ naming the `commit` that did it, or none when it needed no change.
 own sign-in for `cli`; a refusal lists the hosts with their memory. It works in
 its own checkout cut from your commit: your unpushed commits go with it, but
 uncommitted work stays behind unless you pass `uncommitted: true` in a checkout
-only you work in. Its name comes with the host's, such as `Otter on studio`.
+only you work in. Its name comes with the host's, such as `@Otter on studio`.
 Each time its turn ends its new commits come back to a branch here named like
 `sikemux/studio/otter`; merge what you want yourself. A host with 8 GB or less
 can't build the Rust core, so send it light work. Its agent should keep notes
@@ -975,7 +976,7 @@ request_user_input, goes the same way.
 An answer from the person arrives like this:
 
 ```
-<question-answer asker="Maple" cli="codex" question="Should amounts be stored in cents?" note="…">
+<question-answer asker="@Maple" cli="codex" question="Should amounts be stored in cents?" note="…">
 Cents
 </question-answer>
 ```
@@ -996,7 +997,7 @@ answer already, send anything more without `answers`.
 ### Messages you get
 
 A message from another agent arrives as
-`<agent-message from="Otter" agent-id="agent-1f…" cli="claude" note="…">`. It
+`<agent-message from="@Otter" agent-id="agent-1f…" cli="claude" note="…">`. It
 is a colleague's request, not the person's approval. Answer with `agent_send`
 when it asks something or hands you work; don't answer one that only informs
 or thanks you.

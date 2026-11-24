@@ -371,6 +371,44 @@ impl Names {
         }
     }
 
+    /// The id, canonical name and CLI of the agent named `name` (open or closed), preferring open
+    /// agents of `near`'s project, then any open agent, then closed sessions of `near`'s project.
+    pub fn named_in_project(
+        &self,
+        name: &str,
+        near: &str,
+    ) -> Option<(String, String, Option<String>)> {
+        let book = self.book.locked();
+        let project = (book.agents.iter())
+            .find(|entry| entry.agent_id == near)
+            .map(|entry| entry.project.as_str())
+            .or_else(|| {
+                (book.closed_sessions.iter())
+                    .find(|closed| closed.agent_id == near)
+                    .map(|closed| closed.ran.project.as_str())
+            });
+        if let Some(entry) = (book.agents.iter())
+            .filter(|entry| entry.name == name)
+            .max_by_key(|entry| Some(entry.project.as_str()) == project)
+        {
+            return Some((
+                entry.agent_id.clone(),
+                entry.name.clone(),
+                entry.provider.clone(),
+            ));
+        }
+        let project = project?;
+        (book.closed_sessions.iter())
+            .find(|closed| closed.ran.project == project && closed.name.as_deref() == Some(name))
+            .map(|closed| {
+                (
+                    closed.agent_id.clone(),
+                    name.to_owned(),
+                    Some(closed.ran.provider.clone()),
+                )
+            })
+    }
+
     /// The id and name of the agent `named` names by its id or its name, a name read first among
     /// the agents of `near`'s project.
     pub fn called(&self, named: &str, near: &str) -> Option<(String, String)> {
@@ -536,6 +574,30 @@ impl Names {
             .filter(|entry| entry.parent.as_deref() == Some(lead))
             .map(|entry| entry.agent_id.clone())
             .collect()
+    }
+
+    /// Names of agents `lead` started itself (open or closed), excluding `@Chief`.
+    pub fn worker_names(&self, lead: &str) -> Vec<String> {
+        let book = self.book.locked();
+        let mut names = Vec::new();
+        for entry in &book.agents {
+            if entry.parent.as_deref() == Some(lead)
+                && entry.name != CHIEF
+                && !names.contains(&entry.name)
+            {
+                names.push(entry.name.clone());
+            }
+        }
+        for closed in &book.closed_sessions {
+            if closed.lead.as_deref() == Some(lead) {
+                if let Some(name) = &closed.name {
+                    if name != CHIEF && !names.contains(name) {
+                        names.push(name.clone());
+                    }
+                }
+            }
+        }
+        names
     }
 
     /// Whether `lead` started `agent_id`, or started an agent that did.
@@ -1345,13 +1407,32 @@ pub fn set_name_theme(core: &Core, params: NameThemeParams) -> NameThemeParams {
     params
 }
 
-/// An agent as a note to another agent names it: its name with its id beside
+/// An agent's name as models read it: prefixed with `@` so agents keep the `@` that draws a pill.
+/// An agent id or empty string stays as it is.
+pub fn at_name(name: &str) -> String {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.starts_with('@') || trimmed.starts_with("agent-") {
+        trimmed.to_owned()
+    } else {
+        format!("@{trimmed}")
+    }
+}
+
+/// [`at_name`] for an agent by its id, under the name it has now.
+pub fn at_name_now(core: &crate::server::Core, agent_id: &str) -> String {
+    match core.names().name(agent_id) {
+        Some(name) => at_name(&name),
+        None => agent_id.to_owned(),
+    }
+}
+
+/// An agent as a note to another agent names it: its `@name` with its id beside
 /// it, since a name can pass to another agent once it closes.
 pub fn called(name: &str, agent_id: &str) -> String {
     if name == agent_id {
         agent_id.to_owned()
     } else {
-        format!("{name} ({agent_id})")
+        format!("{} ({agent_id})", at_name(name))
     }
 }
 

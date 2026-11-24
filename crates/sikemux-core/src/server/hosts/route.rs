@@ -93,7 +93,11 @@ pub(crate) fn lead_host(core: &Core, agent_id: &str) -> Option<String> {
 
 /// The agent here as a teammate on another host shows it.
 fn shown(foreign: &Foreign, core: &Core) -> String {
-    format!("{} on {}", foreign.name, name_of(core, &foreign.host))
+    format!(
+        "{} on {}",
+        crate::server::names::at_name(&foreign.name),
+        name_of(core, &foreign.host)
+    )
 }
 
 /// The host `agent_id` runs on and how it is shown, for a teammate or another agent heard of there.
@@ -103,7 +107,11 @@ fn placed(core: &Core, agent_id: &str) -> Result<(String, String), String> {
     }
     let (host, agent) = (core.hosts().peers.get(agent_id))
         .ok_or("Sikemux no longer knows which host that agent runs on")?;
-    let name = agent.name.as_deref().unwrap_or(agent_id);
+    let name = agent
+        .name
+        .as_deref()
+        .map(crate::server::names::at_name)
+        .unwrap_or_else(|| agent_id.to_owned());
     Ok((host.clone(), format!("{name} on {}", name_of(core, &host))))
 }
 
@@ -555,7 +563,7 @@ pub(super) fn team_here(core: &Core, host: &str, params: TeamParams) -> CoreResu
                         true => format!("it stopped while {host} was out of reach"),
                         false => format!("it was closed there, or {host}'s Sikemux restarted"),
                     };
-                    notice(core, lead, format!("{} is no longer open on {host} ({why}), so it reports no more. What it committed and did not report yet stays in its checkout there; start another agent if the work is not done.", foreign.name));
+                    notice(core, lead, format!("{} is no longer open on {host} ({why}), so it reports no more. What it committed and did not report yet stays in its checkout there; start another agent if the work is not done.", crate::server::names::at_name(&foreign.name)));
                 }
             }
         }
@@ -595,12 +603,12 @@ pub(super) fn out_of_reach(core: &Core, host: &str) {
         match foreign.role {
             Role::Worker => {
                 if let Some(lead) = foreign.parent.clone() {
-                    notice(core, lead, format!("{} has been out of reach for a few minutes, so {} cannot hear you now. What you send it waits and goes once {name} is back, and so does its report to you. Its work goes on there while {name} keeps running; carry on with your own.", name, foreign.name));
+                    notice(core, lead, format!("{} has been out of reach for a few minutes, so {} cannot hear you now. What you send it waits and goes once {name} is back, and so does its report to you. Its work goes on there while {name} keeps running; carry on with your own.", name, crate::server::names::at_name(&foreign.name)));
                 }
             }
             Role::Lead => {
                 for worker in workers_of(core, &foreign.agent_id) {
-                    notice(core, worker, format!("{name}, where your lead {} runs, has been out of reach for a few minutes. What you send it, and your report, wait and go once {name} is back, and a question you ask goes to the person meanwhile; carry on with your task.", foreign.name));
+                    notice(core, worker, format!("{name}, where your lead {} runs, has been out of reach for a few minutes. What you send it, and your report, wait and go once {name} is back, and a question you ask goes to the person meanwhile; carry on with your task.", crate::server::names::at_name(&foreign.name)));
                 }
             }
         }
@@ -645,12 +653,12 @@ pub(super) fn host_gone(core: &Core, host: &str, why: &str) {
         match foreign.role {
             Role::Worker => {
                 if let Some(lead) = foreign.parent.clone() {
-                    notice(core, lead, format!("{} ran on {name}, which is no longer linked with this host ({why}), so Sikemux can no longer reach it. Its work there goes on without you, and what it has not reported or committed back since its last report stays there.", foreign.name));
+                    notice(core, lead, format!("{} ran on {name}, which is no longer linked with this host ({why}), so Sikemux can no longer reach it. Its work there goes on without you, and what it has not reported or committed back since its last report stays there.", crate::server::names::at_name(&foreign.name)));
                 }
             }
             Role::Lead => {
                 for worker in workers_of(core, &foreign.agent_id) {
-                    notice(core, worker, format!("Your lead {} ran on {name}, which is no longer linked with this host ({why}), so your answers can no longer reach it. Finish your task and stop, or ask the person with ask.", foreign.name));
+                    notice(core, worker, format!("Your lead {} ran on {name}, which is no longer linked with this host ({why}), so your answers can no longer reach it. Finish your task and stop, or ask the person with ask.", crate::server::names::at_name(&foreign.name)));
                 }
             }
         }

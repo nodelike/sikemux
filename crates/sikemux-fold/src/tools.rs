@@ -503,6 +503,43 @@ fn said(raw_output: Option<&Value>, content: Option<&Value>) -> Option<String> {
     })
 }
 
+/// Agent names reached by a settled `agent_spawn` or `agent_send` call, bare and without any
+/// `" on <host>"` suffix.
+pub(super) fn reached_agent_names(raw: &Map<String, Value>) -> Vec<String> {
+    let Some(title) = text(raw.get("title")) else {
+        return Vec::new();
+    };
+    let tool = sikemux_tool_name(title);
+    if !matches!(tool, "agent_spawn" | "agent_send") {
+        return Vec::new();
+    }
+    let Some(answer) = printed(raw.get("rawOutput"), raw.get("content")) else {
+        return Vec::new();
+    };
+    let clean = |value: &str| {
+        let stripped = value.trim().trim_start_matches('@');
+        let name = stripped
+            .split_once(" on ")
+            .map_or(stripped, |(name, _)| name);
+        (!name.is_empty() && !name.starts_with("agent-")).then(|| name.to_owned())
+    };
+    let mut names = Vec::new();
+    if let Some(name) = text(answer.get("name")).and_then(clean) {
+        names.push(name);
+    }
+    if let Some(to) = text(answer.get("to")).and_then(clean) {
+        names.push(to);
+    }
+    if let Some(sent) = answer.get("sent").and_then(Value::as_array) {
+        for item in sent {
+            if let Some(to) = text(item.get("to")).and_then(clean) {
+                names.push(to);
+            }
+        }
+    }
+    names
+}
+
 /// What a finished call started running, by the id or output file later calls name it
 /// by, with the words a row shows for it: a process's label, or a background command's
 /// description.

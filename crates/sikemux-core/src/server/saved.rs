@@ -259,7 +259,10 @@ pub(crate) async fn find(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                     "project": found.project,
                     "date": day(found.active_at),
                     "sessionId": found.session_id,
-                    "openNow": running.map(|(agent_id, name)| json!({ "agentId": agent_id, "name": name })),
+                    "openNow": running.map(|(agent_id, name)| json!({
+                        "agentId": agent_id,
+                        "name": name.as_deref().map(super::names::at_name),
+                    })),
                     "snippets": found.snippets,
                 })
             })

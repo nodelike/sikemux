@@ -209,7 +209,13 @@ fn asked(text: &str) -> Value {
     let from = start
         .strip_prefix("<agent-message from=\"")
         .and_then(|rest| rest.split_once('"'))
-        .map(|(name, _)| name.replace("&quot;", "\"").replace("&amp;", "&"))
+        .map(|(name, _)| {
+            let name = name.replace("&quot;", "\"").replace("&amp;", "&");
+            match name.as_str() {
+                "Board" | "Trigger" | "Auto" | "Sikemux" | "the person" => name,
+                _ => super::names::at_name(&name),
+            }
+        })
         .or_else(|| {
             start
                 .starts_with("<task-notification>")
@@ -401,7 +407,11 @@ fn read_cursor(feed: &str, index: u64) -> String {
 /// The chat's last turns, or what it said since `cursor`, from the feed it runs on or the one
 /// it kept when it went to sleep or closed, which reads only the tail of its history on disk.
 fn read_chat(target: &Listed, feed: &Feed, cursor: Option<&str>) -> Result<Value, String> {
-    let name = target.name.as_deref().unwrap_or(&target.agent_id);
+    let name = target
+        .name
+        .as_deref()
+        .map(super::names::at_name)
+        .unwrap_or_else(|| target.agent_id.clone());
     let from = cursor
         .map(|cursor| {
             cursor
@@ -543,7 +553,11 @@ fn ended(mut said: Vec<(u64, bool, Said)>, at: u64) -> Vec<(u64, bool, Said)> {
 /// session file, with its screen when there is none or it waits on the
 /// person.
 fn read_terminal(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value, String> {
-    let name = target.name.as_deref().unwrap_or(&target.agent_id);
+    let name = target
+        .name
+        .as_deref()
+        .map(super::names::at_name)
+        .unwrap_or_else(|| target.agent_id.clone());
     let mut notes = Vec::new();
     let mut answer = match session_file(core, &target.agent_id) {
         Some((cli, session, path)) => {
@@ -784,7 +798,8 @@ pub(crate) fn read_target(
 ) -> Result<Value, String> {
     let name = target
         .name
-        .clone()
+        .as_deref()
+        .map(super::names::at_name)
         .unwrap_or_else(|| target.agent_id.clone());
     let mut answer = match core.chats().readable(&target.agent_id) {
         Ok(feed) => read_chat(target, &feed, cursor)?,
@@ -921,7 +936,7 @@ fn refreshed(core: &Core, waited: &[Waited]) -> Vec<Waited> {
 
 fn standing(waited: &Waited) -> Value {
     json!({
-        "name": waited.name,
+        "name": super::names::at_name(&waited.name),
         "agentId": waited.agent_id,
         "status": waited.status.map_or("gone", roster::status_word),
     })
@@ -972,7 +987,7 @@ pub(crate) async fn wait(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                 .filter(|waited| until.already(waited.status))
                 .map(|waited| {
                     json!({
-                        "agent": waited.name,
+                        "agent": super::names::at_name(&waited.name),
                         "agentId": waited.agent_id,
                         "what": format!("is {} now", waited.status.map_or("gone", roster::status_word)),
                     })
@@ -1001,7 +1016,7 @@ pub(crate) async fn wait(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                     .find(|waited| waited.agent_id == agent_id)
                     .map_or(agent_id, |waited| waited.name.as_str());
                 Some(json!({
-                    "agent": name,
+                    "agent": super::names::at_name(name),
                     "agentId": agent_id,
                     "what": happened.words(),
                     "cursor": entry.seq.to_string(),

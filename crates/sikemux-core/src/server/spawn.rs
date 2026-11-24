@@ -697,19 +697,17 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         (Opened::AlreadyOpen(..), None) => unreachable!("only a resumed session is already open"),
     };
     let reports = started.reports;
+    let shown = super::names::at_name(&started.name);
     let starting = match &saved {
-        Some(saved) => format!(
-            "{} is reopening \"{}\" in its own tab",
-            started.name, saved.title
-        ),
-        None => format!("{} is starting in its own tab", started.name),
+        Some(saved) => format!("{shown} is reopening \"{}\" in its own tab", saved.title),
+        None => format!("{shown} is starting in its own tab"),
     };
     let unproved = started.checkout.is_some() && {
         let project = core.workspaces().project_of(Path::new(&request.project));
         !super::setup_check::proved(core, &project)
     };
     let answer = json!({
-        "name": started.name,
+        "name": shown,
         "agentId": started.agent_id,
         "cli": started.provider,
         "model": started.model,
@@ -777,7 +775,9 @@ async fn send_to_open(
     name: Option<&str>,
     prompt: String,
 ) -> Result<Value, String> {
-    let name = name.unwrap_or(agent_id);
+    let shown = name
+        .map(super::names::at_name)
+        .unwrap_or_else(|| agent_id.to_owned());
     let stopped = {
         let (core, agent_id) = (core.clone(), agent_id.to_owned());
         blocking(move || {
@@ -793,7 +793,7 @@ async fn send_to_open(
             .await
             .map_err(|error| {
                 format!(
-                    "{name} has \"{}\" open but did not start again: {error}",
+                    "{shown} has \"{}\" open but did not start again: {error}",
                     saved.title
                 )
             })?;
@@ -809,12 +809,12 @@ async fn send_to_open(
         false => format!("already has \"{title}\" open, so"),
     };
     Ok(json!({
-        "name": name,
+        "name": shown,
         "agentId": agent_id,
         "cli": saved.cli,
         "alreadyOpen": true,
         "sent": sent,
-        "note": format!("{name} {opened} your prompt went to it as a message, as agent_send sends one."),
+        "note": format!("{shown} {opened} your prompt went to it as a message, as agent_send sends one."),
     }))
 }
 
@@ -833,11 +833,12 @@ async fn reopen_own_lead(
         .map_err(|error| format!("reopening \"{title}\" failed: {error}"))?;
     let agent_id = taken.agent_id;
     let name = core.names().name_or_id(&agent_id);
+    let shown = super::names::at_name_now(core, &agent_id);
     let mut message = request.clone();
     message.params = json!({ "to": agent_id, "text": prompt });
     let sent = messages::send(core, &message).await?;
     Ok(json!({
-        "name": name,
+        "name": shown,
         "agentId": agent_id,
         "cli": saved.cli,
         "resumed": saved.session_id,
@@ -1077,7 +1078,10 @@ async fn spawn_terminal(
     core.harness().spawning.opening().remove(&opening.agent_id);
     if let Err(error) = opened {
         core.names().forget(&opening.agent_id);
-        return Err(format!("{} did not start: {error}", opening.name));
+        return Err(format!(
+            "{} did not start: {error}",
+            super::names::at_name(&opening.name)
+        ));
     }
     let task = messages::task(
         core,
@@ -1105,22 +1109,22 @@ async fn spawn_terminal(
                 agent_id,
                 Some(name.clone()),
                 lead_id,
-                format!("{name} has not shown its prompt in its terminal yet, so it has not got your prompt. It may be waiting on the person, such as to trust the folder; it gets your prompt once it is ready."),
+                format!("{} has not shown its prompt in its terminal yet, so it has not got your prompt. It may be waiting on the person, such as to trust the folder; it gets your prompt once it is ready.", super::names::at_name(&name)),
             )
             .await;
         }
     });
     let reports = opening.reports;
+    let shown = super::names::at_name(&opening.name);
     let answer = json!({
-        "name": opening.name,
+        "name": shown,
         "agentId": opening.agent_id,
         "cli": opening.provider,
         "model": opening.model,
         "mode": "terminal",
         "reportsBack": opening.reports,
         "note": format!(
-            "{} is starting in a terminal tab and gets your prompt once its prompt box shows.{}",
-            opening.name,
+            "{shown} is starting in a terminal tab and gets your prompt once its prompt box shows.{}",
             if opening.reports { REPORTS } else { "" },
         ),
     });

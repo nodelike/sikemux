@@ -73,12 +73,18 @@ pub fn of_brief(core: &Core, caller: &str, started: &str, brief: &str) -> Option
     }
     let said: Vec<String> = found
         .iter()
-        .map(|(_, name, files)| format!("@{name} is changing {}", files.join(", ")))
+        .map(|(_, name, files)| {
+            format!(
+                "{} is changing {}",
+                crate::server::names::at_name(name),
+                files.join(", ")
+            )
+        })
         .collect();
     Some(json!({
         "agents": found.iter().map(|(agent_id, name, files)| json!({
             "agentId": agent_id,
-            "name": name,
+            "name": crate::server::names::at_name(name),
             "files": files,
         })).collect::<Vec<_>>(),
         "note": format!(

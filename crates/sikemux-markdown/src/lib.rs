@@ -7,6 +7,7 @@ mod delimiters;
 mod doc;
 mod fences;
 mod mend;
+mod mentions;
 pub mod paths;
 mod reference;
 mod sentences;
@@ -16,6 +17,7 @@ pub use doc::{diff, Doc, MdChange, MdOp, Patch};
 
 /// The language a block of math is marked with, from `$$…$$` or a ```` ```math ```` fence.
 pub const MATH: &str = "math";
+pub use mentions::prefix_bare_names;
 pub use reference::name as reference;
 pub use sentences::unsourced;
 

@@ -292,6 +292,7 @@ fn field(row: &ChatMessage, name: &str) -> Value {
         "context" => serde_json::to_value(&row.context),
         "letters" => serde_json::to_value(&row.letters),
         "chips" => serde_json::to_value(&row.chips),
+        "named" => serde_json::to_value(&row.named),
         "leftOut" => serde_json::to_value(&row.left_out),
         _ => Ok(Value::Null),
     };
@@ -439,6 +440,7 @@ fn flush_transcript(
 
 impl Fold {
     pub fn flush(&mut self) -> Flushed {
+        self.resolve_named();
         self.settle_runs();
         self.settle_active_tool();
         self.settle_activity();
@@ -787,6 +789,7 @@ impl Fold {
         let mut fold = Fold::new(self.head.permission_mode);
         fold.head.session_id = self.head.session_id.clone();
         fold.agents = self.agents.clone();
+        fold.reached_agents = self.reached_agents.clone();
         fold.answering(ask);
         for (index, event) in events {
             let at = event
@@ -796,6 +799,7 @@ impl Fold {
                 .unwrap_or_default();
             fold.apply(*index, event.kind, &event.payload, at);
         }
+        fold.resolve_named_all();
         let cards: HashMap<&str, &SubagentCard> = self.cards_by_session();
         let folded = match session {
             Some(session) => fold.subs.remove(session).map(|sub| sub.rows),

@@ -1159,6 +1159,19 @@ impl Card {
             .or_else(|| Some(owner.id.clone()))
     }
 
+    fn owner_at_name(&self, core: &Core) -> Option<String> {
+        let owner = self.owner.as_ref()?;
+        let name = core
+            .names()
+            .name(&owner.id)
+            .or_else(|| owner.name.clone())
+            .filter(|name| name != &owner.id);
+        Some(match name {
+            Some(name) => crate::server::names::at_name(&name),
+            None => owner.id.clone(),
+        })
+    }
+
     fn creator_name(&self, core: &Core) -> String {
         match &self.created_by {
             None => "the person".to_owned(),
@@ -1167,6 +1180,23 @@ impl Card {
                 .name(&maker.id)
                 .or_else(|| maker.name.clone())
                 .unwrap_or_else(|| maker.id.clone()),
+        }
+    }
+
+    fn creator_at_name(&self, core: &Core) -> String {
+        match &self.created_by {
+            None => "the person".to_owned(),
+            Some(maker) => {
+                let name = core
+                    .names()
+                    .name(&maker.id)
+                    .or_else(|| maker.name.clone())
+                    .filter(|name| name != &maker.id);
+                match name {
+                    Some(name) => crate::server::names::at_name(&name),
+                    None => maker.id.clone(),
+                }
+            }
         }
     }
 
@@ -1338,8 +1368,8 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     fields.insert("task".into(), json!(card.id));
     fields.insert("title".into(), json!(card.title));
     fields.insert("status".into(), json!(card.status.words()));
-    fields.insert("owner".into(), json!(card.owner_name(core)));
-    fields.insert("createdBy".into(), json!(card.creator_name(core)));
+    fields.insert("owner".into(), json!(card.owner_at_name(core)));
+    fields.insert("createdBy".into(), json!(card.creator_at_name(core)));
     if let Some(owner) = card.owner_id() {
         fields.insert("ownerId".into(), owner.into());
     }
@@ -1391,7 +1421,13 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
             .iter()
             .filter(|other| other.parent == Some(card.id))
             .map(|other| {
-                json!({ "task": other.id, "title": other.title, "status": other.status.words(), "owner": other.owner_name(core), "ownerId": other.owner_id() })
+                json!({
+                    "task": other.id,
+                    "title": other.title,
+                    "status": other.status.words(),
+                    "owner": other.owner_at_name(core),
+                    "ownerId": other.owner_id(),
+                })
             })
             .collect();
         if !under.is_empty() {
@@ -1429,7 +1465,17 @@ pub fn told_to_teammate(
     }
     let decisions: Vec<Value> = (board.decided.standing())
         .filter(|decision| decision.goal.is_some_and(|goal| above.contains(&goal)))
-        .map(|decision| json!({ "decided": decision.says(), "why": decision.why, "by": decision.learned.name }))
+        .map(|decision| {
+            json!({
+                "decided": decision.says(),
+                "why": decision.why,
+                "by": decision
+                    .learned
+                    .name
+                    .as_deref()
+                    .map(crate::server::names::at_name),
+            })
+        })
         .collect();
     if let Some(fields) = facts.as_object_mut().filter(|_| !decisions.is_empty()) {
         fields.insert("decisions".into(), decisions.into());
@@ -1904,12 +1950,13 @@ fn change_in(
     if let By::Agent(agent) = by {
         if !may_change(core, agent, holder(core, &before)) {
             let owner = before.owner_name(core).unwrap_or_default();
+            let shown = before.owner_at_name(core).unwrap_or_default();
             let called = match before.owner_id() {
                 Some(owner_id) => crate::server::names::called(&owner, owner_id),
-                None => owner.clone(),
+                None => shown.clone(),
             };
             return Err(format!(
-                "#{id} is {owner}'s; message {called} with agent_send to change it"
+                "#{id} is {shown}'s; message {called} with agent_send to change it"
             ));
         }
         if changes.status == Some(CardStatus::Progress) && before.status != CardStatus::Progress {

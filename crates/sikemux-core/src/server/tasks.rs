@@ -495,7 +495,7 @@ pub(crate) fn inspect(core: &Core, project: &Path) -> Value {
             let (kind, label) = match &port.listening.owner {
                 PortOwner::Terminal { .. } => ("terminal", "terminal".to_owned()),
                 PortOwner::Task { label, .. } => ("process", label.clone()),
-                PortOwner::Agent { label, .. } => ("agent", label.clone()),
+                PortOwner::Agent { label, .. } => ("agent", super::names::at_name(label)),
             };
             json!({
                 "port": port.listening.port,

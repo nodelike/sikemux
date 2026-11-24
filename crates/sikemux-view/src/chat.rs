@@ -789,6 +789,10 @@ pub struct ChatMessage {
     /// of these shows nothing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub chips: Vec<WhyChip>,
+    /// Agents named by `@name` in an assistant reply, open or closed, so clients draw every
+    /// pill and open its chat even after the agent closes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub named: Vec<NamedAgent>,
     /// The sentences of an answer that rested on none of its `why` links, taken out of its text;
     /// clients count the sentences, not the entries.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -800,6 +804,19 @@ pub struct ChatMessage {
     /// The person's ask, by number, that the turn it is in answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ask: Option<u64>,
+}
+
+/// An agent named with `@name` in an assistant reply, kept on the row so its pill still draws
+/// and opens its chat even once the agent has closed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NamedAgent {
+    pub agent_id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face: Option<crate::workspace::AgentFace>,
 }
 
 /// The line under the last message of an answer.

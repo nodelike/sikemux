@@ -972,8 +972,8 @@ pub fn with_chips(
     })
 }
 
-/// An agent's answer with each `@name` of an agent the app knows drawn as the chip the draft
-/// draws for it.
+/// An agent's answer with each `@name` of an agent the app knows — open or closed — drawn as the
+/// chip the draft draws for it.
 fn with_named_agents(
     look: Rc<gpui_transcript::Style>,
     message: &ChatMessage,
@@ -992,10 +992,14 @@ fn with_named_agents(
     let Some(strong) = bench.upgrade().filter(|_| !texts.is_empty()) else {
         return look;
     };
-    let chips: Vec<gpui_transcript::Chip> = named_agents(strong.read(cx), writer)
+    let read = strong.read(cx);
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut chips: Vec<gpui_transcript::Chip> = named_agents(read, writer)
         .into_iter()
         .map(|(name, id)| (format!("@{name}"), id))
-        .filter(|(written, _)| texts.iter().any(|text| text.contains(written.as_str())))
+        .filter(|(written, _)| {
+            texts.iter().any(|text| text.contains(written.as_str())) && seen.insert(written.clone())
+        })
         .map(|(written, id)| {
             mention_chip(
                 written.clone(),
@@ -1007,6 +1011,23 @@ fn with_named_agents(
             )
         })
         .collect();
+    let from = read.chat_target(writer);
+    for agent in &message.named {
+        let written = format!("@{}", agent.name);
+        if !texts.iter().any(|text| text.contains(written.as_str()))
+            || !seen.insert(written.clone())
+        {
+            continue;
+        }
+        chips.push(closed_agent_chip(
+            written,
+            agent.clone(),
+            from.clone(),
+            &look,
+            bench,
+            window,
+        ));
+    }
     if chips.is_empty() {
         return look;
     }
@@ -1014,6 +1035,70 @@ fn with_named_agents(
         chips: chips.into(),
         ..(*look).clone()
     })
+}
+
+/// The chip drawn in an answer's text for an agent resolved by the core that is no longer open;
+/// clicking it reopens that agent's chat.
+fn closed_agent_chip(
+    written: String,
+    agent: sikemux_view::chat::NamedAgent,
+    from: crate::core::Target,
+    look: &gpui_transcript::Style,
+    bench: &WeakEntity<Workbench>,
+    window: &mut Window,
+) -> gpui_transcript::Chip {
+    let (size, font) = (look.text_size, look.font.clone());
+    let height = (size * look.line_height).floor() - px(4.);
+    let mut style = window.text_style();
+    style.font_family = font.clone();
+    let run = style.to_run(written.len());
+    let words = window
+        .text_system()
+        .shape_line(written.clone().into(), size, &[run], None)
+        .width;
+    let width = (words + px(CHIP_FRAME + 1.)).min(px(CHIP_WIDEST)).ceil();
+    let label: SharedString = written.clone().into();
+    let bench = bench.clone();
+    gpui_transcript::Chip {
+        written: written.into(),
+        width,
+        draw: Rc::new(move |_, cx| {
+            let tint = Tokens::get(cx).text_tertiary;
+            let glyph = if let Some(open) = bench
+                .upgrade()
+                .and_then(|strong| strong.read(cx).agent_by_id(&agent.agent_id))
+            {
+                open.mark(14., cx)
+            } else if agent.name == "Chief" {
+                crate::ui::chief_mark(14.)
+            } else if agent.face.is_some() || agent.cli.is_some() {
+                let cli = agent.cli.as_deref().unwrap_or_default();
+                crate::ui::still_mark(
+                    cli,
+                    agent.face.as_ref(),
+                    sikemux_wire::protocol::AgentGroup::Idle,
+                    14.,
+                    cx,
+                )
+            } else {
+                ui::icon(Icon::Agent, 13.)
+                    .text_color(tint)
+                    .into_any_element()
+            };
+            let face = chip_face(label.clone(), None, false, glyph, cx)
+                .w_full()
+                .h(height);
+            let face = opens_agent(face, &agent.agent_id, Some(from.clone()), &bench, cx);
+            div()
+                .size_full()
+                .flex()
+                .items_center()
+                .text_size(size)
+                .font_family(font.clone())
+                .child(face)
+                .into_any_element()
+        }),
+    }
 }
 
 /// The chip drawn in a message's text in place of `written`, as the draft drew it; an agent's

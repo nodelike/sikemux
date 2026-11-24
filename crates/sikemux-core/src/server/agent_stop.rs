@@ -61,11 +61,18 @@ pub(crate) async fn stop(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     let ends = join_all(targets.into_iter().map(|(to, target)| async move {
         let end = match target {
             Ok(target) if target.reach == Reach::Remote => {
-                hosts::route::halt(core, caller, &target.agent_id).await
+                hosts::route::halt(core, caller, &target.agent_id)
+                    .await
+                    .map(|(name, over)| (super::names::at_name(&name), over))
             }
-            Ok(target) => stop_here(core, &target.agent_id, caller)
-                .await
-                .map(|over| (target.name.unwrap_or(target.agent_id), over)),
+            Ok(target) => stop_here(core, &target.agent_id, caller).await.map(|over| {
+                let shown = target
+                    .name
+                    .as_deref()
+                    .map(super::names::at_name)
+                    .unwrap_or(target.agent_id);
+                (shown, over)
+            }),
             Err(why) => Err(why),
         };
         (to, end)
@@ -76,7 +83,7 @@ pub(crate) async fn stop(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         match end {
             Ok((name, true)) => stopped.push(name),
             Ok((name, false)) => stopping.push(name),
-            Err(why) => refused.push(json!({ "agent": to, "reason": why })),
+            Err(why) => refused.push(json!({ "agent": super::names::at_name(&to), "reason": why })),
         }
     }
     let mut result = serde_json::Map::new();

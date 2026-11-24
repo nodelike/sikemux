@@ -179,7 +179,7 @@ pub(super) fn agent_letters(text: &str) -> Option<Vec<AgentLetter>> {
             let (text, attachments) = split_attached(&body);
             AgentLetter {
                 kind: LetterKind::Answer,
-                name: attribute("asker"),
+                name: attribute("asker").trim_start_matches('@').to_owned(),
                 agent_id: attribute("asker-id"),
                 cli: attribute("cli"),
                 question: attribute("question"),
@@ -200,7 +200,7 @@ pub(super) fn agent_letters(text: &str) -> Option<Vec<AgentLetter>> {
                     Some(_) => LetterKind::Trigger,
                     None => LetterKind::Message,
                 },
-                name: attribute("from"),
+                name: attribute("from").trim_start_matches('@').to_owned(),
                 agent_id,
                 cli: attribute("cli"),
                 question: String::new(),

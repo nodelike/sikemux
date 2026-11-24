@@ -665,6 +665,25 @@ impl sikemux_fold::AgentBook for Book {
     fn model(&self, agent_id: &str) -> Option<String> {
         self.core.upgrade()?.workspaces().agent(agent_id)?.model
     }
+
+    fn started_names(&self) -> Vec<String> {
+        self.core
+            .upgrade()
+            .map(|core| core.names().worker_names(&self.caller))
+            .unwrap_or_default()
+    }
+
+    fn mention(&self, name: &str) -> Option<sikemux_view::chat::NamedAgent> {
+        let core = self.core.upgrade()?;
+        let (agent_id, name, cli) = core.names().named_in_project(name, &self.caller)?;
+        let face = core.faces().of_closed(&agent_id);
+        Some(sikemux_view::chat::NamedAgent {
+            agent_id,
+            name,
+            cli,
+            face,
+        })
+    }
 }
 
 #[cfg(test)]

@@ -264,7 +264,7 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             r#ref: format!("[·]({})", fact.pointer.href()),
             said: fact.said,
             at: fact.at,
-            who: fact.who,
+            who: fact.who.map(|who| super::names::at_name(&who)),
         })
         .collect();
     let mut note = match shown.is_empty() {
