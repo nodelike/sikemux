@@ -29,8 +29,8 @@ pub(crate) fn sheet(
     foot: Div,
     yes: Answer,
     no: Answer,
-    cx: &mut App,
-) -> AlertDialog {
+    cx: &App,
+) -> Floating {
     sheet_of(px(440.), title, body, foot, yes, no, cx)
 }
 
@@ -73,8 +73,8 @@ pub(crate) fn sheet_of(
     foot: Div,
     yes: Answer,
     no: Answer,
-    cx: &mut App,
-) -> AlertDialog {
+    cx: &App,
+) -> Floating {
     let head = head(None, title, cx);
     framed(width, head, body, foot, yes, no, cx)
 }
@@ -103,8 +103,8 @@ pub(crate) fn marked_sheet(
     foot: Div,
     yes: Answer,
     no: Answer,
-    cx: &mut App,
-) -> AlertDialog {
+    cx: &App,
+) -> Floating {
     let head = head(Some(tile.into()), title, cx);
     framed(px(440.), head, body, foot, yes, no, cx)
 }
@@ -214,8 +214,8 @@ fn framed(
     foot: Div,
     yes: Answer,
     no: Answer,
-    cx: &mut App,
-) -> AlertDialog {
+    cx: &App,
+) -> Floating {
     let t = Tokens::get(cx).clone();
     let content = div().flex().flex_col().child(head).child(body).child(
         foot.flex()
@@ -231,7 +231,7 @@ fn framed(
             .border_color(t.border)
             .bg(t.surface_sunken),
     );
-    float(width, content, yes, no, cx)
+    floating(width, content, yes, no)
 }
 
 /// Whether a box has yet to take the keyboard: as it opens, or once what held it is gone.
@@ -249,6 +249,15 @@ pub(crate) struct Floating {
     content: AnyElement,
     yes: Answer,
     no: Answer,
+    focus: Option<FocusHandle>,
+}
+
+impl Floating {
+    /// The box on a keyboard its caller already holds.
+    fn focus_handle(mut self, focus: FocusHandle) -> Self {
+        self.focus = Some(focus);
+        self
+    }
 }
 
 pub(crate) fn floating(
@@ -262,11 +271,16 @@ pub(crate) fn floating(
         content: content.into_any_element(),
         yes,
         no,
+        focus: None,
     }
 }
 
 impl RenderOnce for Floating {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let dialog = float(self.width, self.content, self.yes, self.no, cx);
+        if let Some(focus) = self.focus {
+            return dialog.focus_handle(focus);
+        }
         let state = window.use_keyed_state("floating-focus", cx, |window, cx| Loose {
             focus: cx.focus_handle(),
             loose: true,
@@ -286,7 +300,7 @@ impl RenderOnce for Floating {
                 }
             });
         }
-        float(self.width, self.content, self.yes, self.no, cx).focus_handle(focus)
+        dialog.focus_handle(focus)
     }
 }
 
