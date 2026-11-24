@@ -1,0 +1,23 @@
+# A call longer than the desk: its question scrolls above the choices, which stay in view.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies calls-tall.json
+project storefront shop
+chat Wren
+title "Show the returns policy"
+say "Add the returns policy to the checkout"
+settle 8
+front Wren
+settle 2
+click "Which returns policy should the checkout show?"
+settle 2
+snap calls-tall
+move 912,300
+scroll -400
+settle 1
+snap calls-tall-scrolled
+key cmd-k
+settle 2
+snap calls-tall-alone

@@ -1,4 +1,4 @@
-# A call whose picked choice is long: Go with names it on one line, cut short inside the button.
+# A call whose picked choice is long: it wraps in its tile, and the button under it stays short.
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir
@@ -13,8 +13,8 @@ front Wren
 settle 2
 click "What should the product page do until its cache is warm?"
 settle 2
-click 900,245
+click 912,600
 settle 2
-zoom 912,300 1.9
+zoom 912,620 1.9
 settle 1
 snap calls-long-choice

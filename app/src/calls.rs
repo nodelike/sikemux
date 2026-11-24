@@ -987,7 +987,6 @@ fn go_button(
         Variant::Primary,
     )
     .sized(26., 11., 12.)
-    .shrinks()
     .disabled(!ready || sending)
     // A step to production is never sent by a key: its button takes no focus, so Tab never
     // reaches it, and a click that came from a key is refused.

@@ -1,6 +1,6 @@
 //! The desk's Calls page: the open call of a project from the top of the pane, the page it links
-//! under its question, its choices as tiles with Go under them, then why it came up and what its
-//! asker opened, and the composer it is answered with pinned at the bottom. The desk's tabs
+//! under its question, then why it came up and what its asker opened; pinned at the bottom, its
+//! choices as tiles with Go under them, over the composer it is answered with. The desk's tabs
 //! name the other calls waiting.
 
 use super::*;
@@ -146,7 +146,12 @@ impl Render for Page {
                     .flatten()
             }
         };
-        let body = body(&open, next, &field, through, cx);
+        let question = question(&open, through, cx);
+        let choices = choices(&open, next, &field, through, cx).pb(if formed {
+            px(SIDE)
+        } else {
+            SPACE_3_PX
+        });
         let answered_with = match &reply {
             Some(view) => view.clone().into_element().isolated().into_any_element(),
             None if formed => div().into_any_element(),
@@ -160,7 +165,7 @@ impl Render for Page {
         };
         page.child(
             div()
-                .id(SharedString::from(format!("calls-page-{}", self.agent)))
+                .id(SharedString::from(format!("calls-page-{}", open.id)))
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
@@ -168,11 +173,13 @@ impl Render for Page {
                     div()
                         .w_full()
                         .max_w(px(COLUMN + 2. * SIDE))
+                        .min_h_full()
                         .mx_auto()
                         .px(px(SIDE))
                         .pt(px(SIDE))
-                        .pb(px(28.))
-                        .child(body),
+                        .flex()
+                        .flex_col()
+                        .child(ui::pinned_foot(question, choices)),
                 ),
         )
         .child(
@@ -206,23 +213,12 @@ fn reply_hint(call: &PersonCall, chosen: &[String]) -> &'static str {
     }
 }
 
-/// The open call in full: who asks, the question, its choices with Go under them, why it came
-/// up and what its asker opened.
-fn body(
-    call: &PersonCall,
-    next: Option<String>,
-    field: &Entity<InputState>,
-    through: Through,
-    cx: &mut App,
-) -> AnyElement {
-    let Through { cards, bench, .. } = through;
+/// What the open call asks: who asks, the question, what it links, why it came up and what its
+/// asker opened.
+fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div {
     let t = Tokens::get(cx).clone();
-    let (chosen, sending) = {
-        let cards = cards.read(cx);
-        (cards.chosen(call), cards.sending(&call.id))
-    };
     let open_chat = {
-        let (bench, agent) = (bench.clone(), call.asker.agent_id.clone());
+        let (bench, agent) = (through.bench.clone(), call.asker.agent_id.clone());
         Button::new(
             SharedString::from(format!("call-page-chat-{}", call.id)),
             t!("Open chat"),
@@ -277,29 +273,6 @@ fn body(
     let link = (call.link.as_ref())
         .map(|link| div().mt(px(16.)).child(link_tile(call, link, through, &t)));
     let page = linked_page(call, through, cx).map(|page| div().mt(px(16.)).child(page));
-    let noted = !field.read(cx).value().trim().is_empty();
-    let note =
-        (call.kind == CallKind::Do && chosen.iter().any(|id| id == DO_NOT_DOING)).then(|| {
-            div()
-                .w_full()
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(note_row(
-                    field,
-                    t!("Say why you're not doing it…"),
-                    noted,
-                    true,
-                    &t,
-                ))
-                .into_any_element()
-        });
-    let tiles = (!call.options.is_empty() && call.kind != CallKind::Look)
-        .then(|| tiles(call, &chosen, sending, note, through, &t));
-    let against = against_line(call, &t).map(|line| div().mt(SPACE_3_PX).child(line));
-    let runs = (call.kind == CallKind::Production)
-        .then_some(call.action.as_deref())
-        .flatten()
-        .map(|action| runs(call, action, &t));
-    let go = go_row(call, (&chosen, noted), sending, next, through);
     let context = context_words(call).map(|words| prose("context", words));
     let why: Vec<gpui_kit::Div> = (context.into_iter())
         .chain(
@@ -327,6 +300,8 @@ fn body(
     });
     let opened = opened_by(call, through, &t, cx);
     div()
+        .flex_none()
+        .pb(px(6.))
         .flex()
         .flex_col()
         .child(who)
@@ -334,13 +309,56 @@ fn body(
         .children(more)
         .children(link)
         .children(page)
+        .children(why)
+        .children(opened)
+}
+
+/// What answers the open call: its choices, the point against its pick, what a yes runs, and Go.
+fn choices(
+    call: &PersonCall,
+    next: Option<String>,
+    field: &Entity<InputState>,
+    through: Through,
+    cx: &App,
+) -> gpui_kit::Div {
+    let t = Tokens::get(cx).clone();
+    let (chosen, sending) = {
+        let cards = through.cards.read(cx);
+        (cards.chosen(call), cards.sending(&call.id))
+    };
+    let noted = !field.read(cx).value().trim().is_empty();
+    let note =
+        (call.kind == CallKind::Do && chosen.iter().any(|id| id == DO_NOT_DOING)).then(|| {
+            div()
+                .w_full()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(note_row(
+                    field,
+                    t!("Say why you're not doing it…"),
+                    noted,
+                    true,
+                    &t,
+                ))
+                .into_any_element()
+        });
+    let tiles = (!call.options.is_empty() && call.kind != CallKind::Look)
+        .then(|| tiles(call, &chosen, sending, note, through, &t));
+    let against = against_line(call, &t);
+    let runs = (call.kind == CallKind::Production)
+        .then_some(call.action.as_deref())
+        .flatten()
+        .map(|action| runs(call, action, &t));
+    let go = go_row(call, (&chosen, noted), sending, next, through);
+    div()
+        .flex_none()
+        .pt(px(14.))
+        .flex()
+        .flex_col()
+        .gap(px(14.))
         .children(tiles)
         .children(against)
         .children(runs)
         .children(go)
-        .children(why)
-        .children(opened)
-        .into_any_element()
 }
 
 /// Says a call changes production, and where, beside who asks it.
@@ -388,12 +406,7 @@ fn tiles(
             t,
         )
     });
-    div()
-        .mt(px(18.))
-        .flex()
-        .flex_col()
-        .gap(px(10.))
-        .children(tiles)
+    div().flex().flex_col().gap(px(10.)).children(tiles)
 }
 
 /// One choice of `call`, its picture over its words when the call's choices have pictures. A
@@ -574,7 +587,6 @@ fn link_tile(call: &PersonCall, link: &CallLink, through: Through, t: &Tokens) -
 /// What a production call runs on a yes, in full under its name.
 fn runs(call: &PersonCall, action: &str, t: &Tokens) -> gpui_kit::Div {
     div()
-        .mt(px(14.))
         .flex()
         .flex_col()
         .gap(SPACE_1H)
@@ -648,13 +660,7 @@ fn go_row(
             ))
         }
         _ => (!call.options.is_empty()).then(|| {
-            let option =
-                (chosen.first()).and_then(|id| call.options.iter().find(|option| &option.id == id));
-            let words: SharedString = match option {
-                Some(option) => t!("Go with {option}", option = option.label).into(),
-                None => t!("Go with this").into(),
-            };
-            let ready = !chosen.is_empty();
+            let (words, ready) = (t!("Go with this").into(), !chosen.is_empty());
             go_button(call, words, ready, sending, bench, Workbench::reply)
         }),
     }
@@ -676,7 +682,6 @@ fn go_row(
     });
     (go.is_some() || next.is_some()).then(|| {
         div()
-            .mt(px(14.))
             .flex()
             .items_center()
             .justify_end()

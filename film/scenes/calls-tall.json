@@ -1,0 +1,39 @@
+[
+  {
+    "when": "returns",
+    "steps": [
+      {
+        "say": "The policy line is ready to place; the number of days is yours."
+      },
+      {
+        "tool": "mcp__sikemux-tools__ask",
+        "call": "agent.ask",
+        "input": {
+          "kind": "taste",
+          "title": "Returns policy",
+          "question": "Which returns policy should the checkout show?\nCustomers see one line under the total, and support answers for whatever it says.\nThe last month had 212 returns. 140 came back inside two weeks, 61 inside a month, and 11 after that. Every late one was a gift bought early for a birthday or a wedding.\nThe warehouse can take up to 40 returns a day. At 30 days it would see about 9, and at 60 days about 11, with a peak of 35 in January.\nCard refunds are free for 60 days. After that each one costs 0.30, and the customer's bank may refuse it, so store credit is the safe way to pay it back.\nTwo of the shops closest to ours show 30 days, one shows 14, and one shows a year but only for members.\nWhatever you pick shows on the product page, the cart, the receipt and the order email. Orders already placed keep the policy they were bought under, and the wording is checked against the rules in every country we ship to before it goes live.\nChanging it later means a new line on the receipt and a note to everyone with an open order, so it is better to settle it once.",
+          "pick": "30 days, what most shops nearby show",
+          "link": {
+            "label": "Returns report",
+            "url": "https://example.com/returns"
+          },
+          "choices": [
+            {
+              "label": "14 days, the least work for the warehouse"
+            },
+            {
+              "label": "30 days, what most shops nearby show"
+            },
+            {
+              "label": "60 days, while card refunds are still free"
+            },
+            {
+              "label": "A year, for members only"
+            }
+          ]
+        },
+        "ms": 800
+      }
+    ]
+  }
+]

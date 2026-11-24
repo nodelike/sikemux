@@ -1,0 +1,20 @@
+# The same call in a window too short for its choices: all of it scrolls, down to the button.
+stage 1200 520
+window 1200 520
+prefer themeId aura-noir
+prefer starAsked true
+replies calls-tall.json
+project storefront shop
+chat Wren
+title "Show the returns policy"
+say "Add the returns policy to the checkout"
+settle 8
+front Wren
+settle 2
+click "Which returns policy should the checkout show?"
+settle 2
+snap calls-short
+move 740,250
+scroll -3000
+settle 1
+snap calls-short-end
