@@ -1,5 +1,5 @@
 # The rail under @Chief: workers the chief started hang on its tree line, and agents the person
-# started stand on their own below it.
+# started stand on their own below it. All projects then names each chief's project.
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir
@@ -17,3 +17,6 @@ chat Wren
 title "Some orders come out a cent off"
 settle 6
 snap rail
+click "All projects"
+settle 2
+snap all-projects

@@ -85,19 +85,28 @@ function running(pid) {
   }
 }
 
-/** One shooter at a time: the checkout and its builds are shared. */
-function lock() {
-  mkdirSync(home, { recursive: true });
-  const file = join(home, "lock");
-  const holder = existsSync(file) ? Number(readFileSync(file, "utf8")) : 0;
-  if (holder && running(holder)) {
-    console.error(
-      `another shooter (pid ${holder}) is taking pictures; run again once it ends`,
-    );
-    process.exit(1);
+/** One shooter at a time, in order of arrival: the checkout and its builds are shared. */
+function takeTurn() {
+  const queue = join(home, "queue");
+  const mine = `${Date.now()}-${process.pid}`;
+  mkdirSync(queue, { recursive: true });
+  writeFileSync(join(queue, mine), "");
+  process.on("exit", () => rmSync(join(queue, mine), { force: true }));
+  for (let told = false; ; told = true) {
+    const ahead = readdirSync(queue)
+      .filter((turn) => turn < mine)
+      .filter((turn) => {
+        const alive = running(Number(turn.split("-")[1]));
+        if (!alive) rmSync(join(queue, turn), { force: true });
+        return alive;
+      });
+    if (!ahead.length) return;
+    if (!told)
+      say(
+        `waiting for the pictures checkout, ${ahead.length} ahead of this run`,
+      );
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
   }
-  writeFileSync(file, String(process.pid));
-  process.on("exit", () => rmSync(file, { force: true }));
 }
 
 function moveTo(rev) {
@@ -367,7 +376,7 @@ if (options.compare) {
   say(`wrote ${join(out, "compare.html")}`);
   process.exit(0);
 }
-lock();
+takeTurn();
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 say(`after: ${commit.slice(0, 10)}`);
