@@ -263,7 +263,10 @@ fn watch_folders(folders: Vec<(&'static str, PathBuf)>, mut tell: impl FnMut(Glo
     let (changed, changes) = std::sync::mpsc::channel::<()>();
     let Ok(mut watcher) =
         notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-            if event.is_ok_and(|event| event.paths.iter().any(|path| concerns(path, &real))) {
+            if event.is_ok_and(|event| {
+                !matches!(event.kind, notify::EventKind::Access(_))
+                    && event.paths.iter().any(|path| concerns(path, &real))
+            }) {
                 let _ = changed.send(());
             }
         })

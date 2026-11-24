@@ -163,10 +163,11 @@ fn watch(core: &Core) {
         let mut watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
                 let touches_config = event.is_ok_and(|event| {
-                    event
-                        .paths
-                        .iter()
-                        .any(|path| path.file_name().is_some_and(|name| name == "config"))
+                    !matches!(event.kind, notify::EventKind::Access(_))
+                        && event
+                            .paths
+                            .iter()
+                            .any(|path| path.file_name().is_some_and(|name| name == "config"))
                 });
                 if let (true, Some(core)) = (touches_config, weak.upgrade()) {
                     core.changed(What::Read(Topic::Ssh));

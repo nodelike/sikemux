@@ -125,10 +125,11 @@ fn watch(file: &Path, changed: Arc<Notify>) -> Option<RecommendedWatcher> {
     let mut watcher =
         ::notify::recommended_watcher(move |event: ::notify::Result<::notify::Event>| {
             if event.is_ok_and(|event| {
-                event
-                    .paths
-                    .iter()
-                    .any(|path| path.file_name() == Some(&name))
+                !matches!(event.kind, ::notify::EventKind::Access(_))
+                    && event
+                        .paths
+                        .iter()
+                        .any(|path| path.file_name() == Some(&name))
             }) {
                 changed.notify_one();
             }

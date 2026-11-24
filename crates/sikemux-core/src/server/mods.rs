@@ -689,7 +689,10 @@ pub(crate) fn watch(core: &Arc<Core>) {
             let concerned = real.clone();
             let Ok(mut watcher) =
                 notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-                    if let Ok(event) = event {
+                    let changed_files = event
+                        .ok()
+                        .filter(|event| !matches!(event.kind, notify::EventKind::Access(_)));
+                    if let Some(event) = changed_files {
                         let paths: Vec<PathBuf> = event
                             .paths
                             .into_iter()
