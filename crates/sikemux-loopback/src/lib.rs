@@ -62,11 +62,79 @@ pub fn challenge(verifier: &str) -> String {
 }
 
 /// What the browser is shown once it came back.
+#[derive(Clone)]
 pub enum Finish {
-    /// A page saying the sign-in to this service is done.
+    /// A page saying how the sign-in to this service ended.
     Page(&'static str),
     /// Sent on to `done`, or to `refused` when the sign-in was turned down.
     Redirect { done: String, refused: String },
+}
+
+/// A browser that came back with a code. It is kept waiting until `answer` says how the
+/// sign-in ended, and told it stopped when nothing does.
+pub struct Landed {
+    code: String,
+    /// None when the browser came back on another machine.
+    browser: Option<Browser>,
+}
+
+struct Browser {
+    stream: TcpStream,
+    finish: Finish,
+}
+
+impl Landed {
+    pub fn code(&self) -> &str {
+        &self.code
+    }
+
+    /// Shows the browser that the sign-in worked, or why it did not.
+    pub async fn answer(mut self, ended: Result<(), String>) {
+        if let Some(browser) = self.browser.take() {
+            browser.answer(ended).await;
+        }
+    }
+}
+
+impl Drop for Landed {
+    fn drop(&mut self) {
+        if let (Some(browser), Ok(runtime)) =
+            (self.browser.take(), tokio::runtime::Handle::try_current())
+        {
+            runtime.spawn(browser.answer(Err("the sign-in was stopped".into())));
+        }
+    }
+}
+
+impl Browser {
+    async fn answer(mut self, ended: Result<(), String>) {
+        let stream = &mut self.stream;
+        match (&self.finish, ended) {
+            (Finish::Redirect { done, .. }, Ok(())) => redirect(stream, done).await,
+            (Finish::Page(service), Ok(())) => {
+                let message = format!(
+                    "Signed in to {service}. You can close this tab and go back to Sikemux."
+                );
+                respond(stream, "200 OK", &message).await;
+            }
+            (Finish::Page(service), Err(reason)) => {
+                let message = format!("Couldn't sign in to {service}: {reason}");
+                respond(stream, "400 Bad Request", &message).await;
+            }
+            (Finish::Redirect { .. }, Err(reason)) => {
+                let message = format!("Couldn't sign in to Sikemux: {reason}");
+                respond(stream, "400 Bad Request", &message).await;
+            }
+        }
+    }
+
+    /// The person or the service turned the sign-in down.
+    async fn refuse(mut self, reason: &str) {
+        match &self.finish {
+            Finish::Redirect { refused, .. } => redirect(&mut self.stream, refused).await,
+            Finish::Page(_) => self.answer(Err(reason.to_owned())).await,
+        }
+    }
 }
 
 pub struct Callback {
@@ -232,7 +300,7 @@ impl Callback {
 
     /// Waits for the browser to come back with a code. Anything else that
     /// reaches the port, such as a request for a favicon, is answered and ignored.
-    pub async fn code(&self, state: &str) -> LoopbackResult<String> {
+    pub async fn code(&self, state: &str) -> LoopbackResult<Landed> {
         let mut relayed = self
             .relayed
             .lock()
@@ -248,7 +316,9 @@ impl Callback {
                 _ = replaced.changed() => continue,
                 accepted = self.accept() => accepted,
                 Some(target) = relayed.recv() => match answer_of(&target, self.path, state) {
-                    Some(Answer::Done(answer)) => return answer,
+                    Some(Answer::Done(answer)) => {
+                        return answer.map(|code| Landed { code, browser: None });
+                    }
                     Some(Answer::Stray) => return Err(not_this_sign_in()),
                     None => continue,
                 },
@@ -271,26 +341,22 @@ impl Callback {
                     respond(&mut stream, "400 Bad Request", &not_this_sign_in().0).await
                 }
                 Some(Answer::Done(answer)) => {
-                    self.finish(&mut stream, &answer).await;
-                    return answer;
+                    let browser = Browser {
+                        stream,
+                        finish: self.finish.clone(),
+                    };
+                    return match answer {
+                        Ok(code) => Ok(Landed {
+                            code,
+                            browser: Some(browser),
+                        }),
+                        Err(error) => {
+                            browser.refuse(&error.0).await;
+                            Err(error)
+                        }
+                    };
                 }
             }
-        }
-    }
-}
-
-impl Callback {
-    async fn finish(&self, stream: &mut TcpStream, answer: &LoopbackResult<String>) {
-        match (&self.finish, answer) {
-            (Finish::Page(service), Ok(_)) => {
-                let message = format!(
-                    "Signed in to {service}. You can close this tab and go back to Sikemux."
-                );
-                respond(stream, "200 OK", &message).await;
-            }
-            (Finish::Page(_), Err(error)) => respond(stream, "400 Bad Request", &error.0).await,
-            (Finish::Redirect { done, .. }, Ok(_)) => redirect(stream, done).await,
-            (Finish::Redirect { refused, .. }, Err(_)) => redirect(stream, refused).await,
         }
     }
 }
@@ -478,7 +544,7 @@ mod tests {
             .await
             .unwrap();
         let abandoned = tokio::spawn(async move {
-            let answer = first.code("first").await;
+            let answer = first.code("first").await.map(|landed| landed.code.clone());
             drop(first);
             answer
         });
@@ -493,7 +559,7 @@ mod tests {
         let waiting = tokio::spawn(async move { second.code("second").await });
         tokio::task::yield_now().await;
         relay("/jira/callback?code=abc&state=second").unwrap();
-        assert_eq!(waiting.await.unwrap(), Ok("abc".into()));
+        assert_eq!(waiting.await.unwrap().unwrap().code(), "abc");
     }
 
     #[test]

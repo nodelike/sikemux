@@ -118,7 +118,11 @@ pub async fn sign_in(data_dir: &Path, input: KeySignIn) -> LinearResult<String> 
 /// Opens Linear's sign-in in the browser, through the URL sent down the stream, and
 /// signs in to the workspace the person picks there. Stopping the stream stops the wait.
 pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> LinearResult<()> {
-    let tokens: Tokens = oauth::APP.sign_in(&client::HTTP, sink).await?;
+    let keep = |tokens| keep_browser_sign_in(data_dir, tokens);
+    oauth::APP.sign_in(&client::HTTP, sink, keep).await
+}
+
+async fn keep_browser_sign_in(data_dir: &Path, tokens: Tokens) -> LinearResult<()> {
     let viewer =
         client::query_with(&oauth::bearer(&tokens.access_token), VIEWER, json!({})).await?;
     let workspace = Workspace {

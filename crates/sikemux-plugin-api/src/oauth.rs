@@ -82,6 +82,15 @@ fn refused<S>(error: LoopbackError) -> ServiceError<S> {
     ServiceError::Auth(error.0)
 }
 
+/// How a sign-in ended, in words for the browser's page.
+pub fn ended<T, S: Service>(result: &Result<T, ServiceError<S>>) -> Result<(), String> {
+    match result {
+        Ok(_) => Ok(()),
+        Err(ServiceError::Auth(reason)) => Err(reason.clone()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 /// What a service said when it would not hand out tokens.
 fn refusal(bytes: &[u8]) -> Option<String> {
     let said: Value = serde_json::from_slice(bytes).ok()?;
@@ -138,13 +147,20 @@ impl OAuthApp {
     }
 
     /// Opens the service's sign-in in the browser, through the address sent
-    /// down the stream, and trades the code it comes back with. Stopping the
-    /// stream stops the wait.
-    pub async fn sign_in<S: Service, T: DeserializeOwned>(
+    /// down the stream, trades the code it comes back with, and has `keep` save
+    /// what it was traded for. The browser is shown how all of that ended.
+    /// Stopping the stream stops the wait.
+    pub async fn sign_in<S, T, R, Fut>(
         &self,
         http: &Http<S>,
         sink: &StreamSink,
-    ) -> Result<T, ServiceError<S>> {
+        keep: impl FnOnce(T) -> Fut,
+    ) -> Result<R, ServiceError<S>>
+    where
+        S: Service,
+        T: DeserializeOwned,
+        Fut: Future<Output = Result<R, ServiceError<S>>>,
+    {
         self.secret()?;
         let callback = Callback::bind(self.callback, S::NAME)
             .await
@@ -156,20 +172,25 @@ impl OAuthApp {
         };
         sink.send(json!({ "url": self.authorize_address(&state, verifier.as_deref()) }))
             .map_err(|_| ServiceError::Auth("the sign-in was closed".into()))?;
-        let code = tokio::time::timeout(BROWSER_WAIT, callback.code(&state))
+        let landed = tokio::time::timeout(BROWSER_WAIT, callback.code(&state))
             .await
             .map_err(|_| ServiceError::Auth("nobody finished signing in".into()))?
             .map_err(refused)?;
         drop(callback);
         let redirect = self.redirect_uri();
-        let mut fields = vec![("code", code.as_str()), ("redirect_uri", &redirect)];
+        let mut fields = vec![("code", landed.code()), ("redirect_uri", &redirect)];
         if let Authorize::Code(_) = self.authorize {
             fields.push(("grant_type", "authorization_code"));
         }
         if let Some(verifier) = &verifier {
             fields.push(("code_verifier", verifier));
         }
-        self.token_request(http, &fields).await
+        let kept = match self.token_request(http, &fields).await {
+            Ok(traded) => keep(traded).await,
+            Err(error) => Err(error),
+        };
+        landed.answer(ended(&kept)).await;
+        kept
     }
 
     /// Services hand back a new refresh token every time, and the old one stops working.

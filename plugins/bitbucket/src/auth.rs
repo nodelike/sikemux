@@ -185,7 +185,11 @@ async fn save_sign_in(
 /// the stream's first item, then waits for the browser to come back. Closing
 /// the stream stops the wait and frees the port. Says which account signed in.
 pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> BitbucketResult<String> {
-    let tokens: Tokens = oauth::APP.sign_in(&client::HTTP, sink).await?;
+    let keep = |tokens| keep_browser_sign_in(data_dir, tokens);
+    oauth::APP.sign_in(&client::HTTP, sink, keep).await
+}
+
+async fn keep_browser_sign_in(data_dir: &Path, tokens: Tokens) -> BitbucketResult<String> {
     let user = identify(&Credential::Bearer(tokens.access_token.clone())).await?;
     let account = new_account(Some(&user), Method::Oauth, None)?;
     let id = save_sign_in(data_dir, account, tokens.refresh_token.clone()).await?;

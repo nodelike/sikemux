@@ -199,7 +199,11 @@ pub async fn sign_in(data_dir: &Path, input: TokenSignIn) -> VercelResult<()> {
 /// down the stream. The person picks a team there; signing in again adds another.
 /// Stopping the stream stops the wait.
 pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> VercelResult<()> {
-    let installed: oauth::Installed = oauth::APP.sign_in(&client::HTTP, sink).await?;
+    let keep = |installed| keep_install(data_dir, installed);
+    oauth::APP.sign_in(&client::HTTP, sink, keep).await
+}
+
+async fn keep_install(data_dir: &Path, installed: oauth::Installed) -> VercelResult<()> {
     if !is_id(&installed.installation_id) {
         return Err(VercelError::Response(
             "Vercel named the installation strangely".into(),

@@ -9,7 +9,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sikemux_plugin_api::http::Read;
-use sikemux_plugin_api::oauth::{new_state, Callback};
+use sikemux_plugin_api::oauth::{ended, new_state, Callback};
 use sikemux_plugin_api::store::Accounts;
 use sikemux_plugin_api::StreamSink;
 
@@ -119,23 +119,31 @@ pub async fn create(data_dir: &Path, ask: Create, sink: &StreamSink) -> GithubRe
     let callback = callback.serving(START, page);
     sink.send(json!({ "url": callback.address_of(START) }))
         .map_err(|_| GithubError::Auth("making the App was closed".into()))?;
-    let code = tokio::time::timeout(BROWSER_WAIT, callback.code(&state))
+    let landed = tokio::time::timeout(BROWSER_WAIT, callback.code(&state))
         .await
         .map_err(|_| GithubError::Auth("nobody finished making the App".into()))?
         .map_err(|error| GithubError::Auth(error.0))?;
     drop(callback);
-    if !plain_name(&code) {
+    let made = make(data_dir, &host, landed.code()).await;
+    landed.answer(ended(&made)).await;
+    let made = made?;
+    sink.send(json!({ "url": install_url(&made) }))
+        .map_err(|_| GithubError::Auth("making the App was closed".into()))?;
+    Ok(())
+}
+
+/// Trades the manifest's code for the App, and keeps it here.
+async fn make(data_dir: &Path, host: &str, code: &str) -> GithubResult<App> {
+    if !plain_name(code) {
         return Err(GithubError::Auth(
             "GitHub came back with a code it could not have made".into(),
         ));
     }
-    let (made, pem) = convert(&host, &code).await?;
+    let (made, pem) = convert(host, code).await?;
     let saved = made.clone();
     let data = data_dir.to_path_buf();
     sikemux_plugin_api::store::blocking(move || app::remember(&data, &saved, &pem)).await?;
-    sink.send(json!({ "url": install_url(&made) }))
-        .map_err(|_| GithubError::Auth("making the App was closed".into()))?;
-    Ok(())
+    Ok(made)
 }
 
 pub async fn forget(data_dir: &Path, ask: Forget) -> GithubResult<()> {

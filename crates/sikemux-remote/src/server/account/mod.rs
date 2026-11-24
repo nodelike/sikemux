@@ -428,11 +428,27 @@ async fn finish(
     state: &str,
     verifier: &str,
 ) -> Result<AccountInfo, String> {
-    let code = callback
+    let landed = callback
         .code(state)
         .await
         .map_err(|error| format!("sign-in was not finished: {}", error.0))?;
-    let user_id = register_host(core, peer, code, callback.redirect_uri(), verifier).await?;
+    let code = landed.code().to_owned();
+    let joined = join(core, peer, code, callback.redirect_uri(), verifier).await;
+    landed
+        .answer(joined.as_ref().map(drop).map_err(String::clone))
+        .await;
+    joined
+}
+
+/// Joins this host to the account whose sign-in gave `code`.
+async fn join(
+    core: &Arc<Core>,
+    peer: &Peer,
+    code: String,
+    redirect_uri: &str,
+    verifier: &str,
+) -> Result<AccountInfo, String> {
+    let user_id = register_host(core, peer, code, redirect_uri, verifier).await?;
     keep_saved(
         core,
         Some(Saved {

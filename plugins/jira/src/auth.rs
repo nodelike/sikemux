@@ -152,7 +152,11 @@ pub async fn sign_in(data_dir: &Path, request: SignIn) -> JiraResult<()> {
 /// Opens Atlassian's sign-in in the browser, through the URL sent down the stream, and
 /// signs in to every Jira site the account reaches. Stopping the stream stops the wait.
 pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> JiraResult<()> {
-    let tokens: Tokens = oauth::APP.sign_in(&client::HTTP, sink).await?;
+    let keep = |tokens| keep_browser_sign_in(data_dir, tokens);
+    oauth::APP.sign_in(&client::HTTP, sink, keep).await
+}
+
+async fn keep_browser_sign_in(data_dir: &Path, tokens: Tokens) -> JiraResult<()> {
     let cloud_sites = oauth::sites(&tokens.access_token).await?;
     let Some(first) = cloud_sites.first() else {
         return Err(JiraError::Auth(
