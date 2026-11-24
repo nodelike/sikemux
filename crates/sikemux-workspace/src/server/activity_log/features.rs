@@ -1,7 +1,7 @@
 //! Which features were used each UTC day, for the usage report: the core's
-//! calls whose row says so and the window's commands. Each counts by name, with
-//! who asked: the app, a program on this host such as an agent's tools or the
-//! CLI, or a paired device.
+//! calls whose row says so and the window's commands, never what the window
+//! asks by itself. Each counts by name, with who asked: the app, a program on
+//! this host such as an agent's tools or the CLI, or a paired device.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -45,6 +45,7 @@ const COMMANDS: &[&str] = &[
     "chat.snapshot",
     "browser.width",
     "browser.widthAll",
+    "editor.goTo",
     "text.sizeIncrease",
 ];
 
@@ -55,6 +56,8 @@ pub enum Counted {
     Yes,
     /// Under the name the call's params give in this field, as a plugin's.
     ByField(&'static str),
+    /// Unless the call's params set this field, as the window does when it calls by itself.
+    Unless(&'static str),
 }
 
 #[derive(Default)]
@@ -95,6 +98,7 @@ impl ActivityLog {
         let feature = match counted {
             Counted::No => None,
             Counted::Yes => Some(method.to_owned()),
+            Counted::Unless(field) => (params[field] != true).then(|| method.to_owned()),
             Counted::ByField(field) => params[field]
                 .as_str()
                 .filter(|name| plain(name))

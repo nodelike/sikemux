@@ -91,6 +91,14 @@ impl Row {
             ..self
         }
     }
+
+    /// Counted unless its params set `field`.
+    const fn counted_unless(self, field: &'static str) -> Self {
+        Self {
+            counted: Counted::Unless(field),
+            ..self
+        }
+    }
 }
 
 /// Each method once: its [`Row`] and what it runs. A method whose params and answer are
@@ -218,7 +226,7 @@ calls! { core, client, method, params;
         let reading = core.clone();
         blocking(move || super::chat::page(&reading, params)).await?
     },
-    "chatFind" = ChatFind: Watch, any_program, counted => {
+    "chatFind" = ChatFind: Watch, any_program, counted_unless("countOnly") => {
         let (reading, client) = (core.clone(), client.id);
         blocking(move || super::chat::find(&reading, client, params)).await?
     },
@@ -347,7 +355,7 @@ calls! { core, client, method, params;
     "activateProject" = ActivateProject: Full => super::layout::activate_project(&core, params)?,
     "openPaths" = OpenPaths: Owner => super::layout::open_paths(&core, params).await?,
     "chooseHost" = ChooseHost: Full => super::layout::choose_host(&core, params).await?,
-    "splitPane" = SplitPane: Full, counted => super::layout::split_pane(&core, params)?,
+    "splitPane" = SplitPane: Full, counted_unless("keepFront") => super::layout::split_pane(&core, params)?,
     "closePane" = ClosePane: Full => super::layout::close_pane(&core, params)?,
     "separatePane" = SeparatePane: Full, counted => super::layout::separate_pane(&core, params)?,
     "openDeskMod" = OpenDeskMod: Full, counted => super::layout::open_desk_mod(&core, params)?,
@@ -640,7 +648,7 @@ calls! { core, client, method, params;
     "changeOwners" = ChangeOwners: Watch, any_program => edits::change_owners(&core, params).await?,
     "commitStaged" = CommitStaged: Owner, counted => edits::commit_staged(&core, params).await?,
     "commitOwners" = CommitOwners: Watch, any_program => who_wrote::call(&core, params).await?,
-    "commitLines" = CommitLines: Watch, any_program, counted => who_wrote::lines(&core, params).await?,
+    "commitLines" = CommitLines: Watch, any_program => who_wrote::lines(&core, params).await?,
     "inbox": Watch, any_program => answer(inbox::read(&core).await?),
     "digest" = Digest: Watch, any_program => inbox::read_digest(&core, params).await?,
     "ports" = Ports: Owner => super::ports::project_ports(&core, client.id, params.project).await?,
@@ -708,7 +716,7 @@ calls! { core, client, method, params;
     "lsp.changeIncremental" = LspChangeIncremental: Full => lsp::change_incremental(params).await?,
     "lsp.save" = LspSave: Full => lsp::save(params).await?,
     "lsp.close" = LspClose: Full => lsp::close(client.id, params).await?,
-    "lsp.locations" = LspLocations: Full, counted => lsp::locations(params).await?,
+    "lsp.locations" = LspLocations: Full => lsp::locations(params).await?,
     "lsp.symbols" = LspSymbols: Full => lsp::symbols(params).await?,
     "lsp.diagnostics" = LspDiagnostics: Full => lsp::diagnostics_of(params),
     "git.pullRequestUrl" = GitPullRequestUrl: Watch, any_program => super::git::pull_request_url(&core, &client.peer, params).await?,

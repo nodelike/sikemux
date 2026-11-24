@@ -40,6 +40,8 @@ use sikemux_wire::protocol::ErrorKind;
 
 /// How long typing pauses before the server is sent the text.
 const CHANGE_DEBOUNCE: Duration = Duration::from_millis(120);
+/// The name a jump to a symbol is counted under; looking one up on hover is not a jump.
+const GO_TO: &str = "editor.goTo";
 /// What a symbol can lead to, asked in turn until one answers.
 const KINDS: [LspKind; 4] = [
     LspKind::Definition,
@@ -204,6 +206,7 @@ fn attach_trusted(
                     lsp.definition_provider = Some(definitions);
                     lsp.show_document = Some(Rc::new(
                         move |params: &ShowDocumentParams, window: &mut Window, cx: &mut App| {
+                            crate::keymap::counted(GO_TO, cx);
                             let found = found.borrow().clone();
                             if found.len() > 1 {
                                 let places = found.iter().filter_map(place).collect();
@@ -622,6 +625,7 @@ pub(super) fn navigate(
     let Some(position) = served.hovered.get() else {
         return false;
     };
+    crate::keymap::counted(GO_TO, cx);
     let (kind, none_found) = if references {
         (LspKind::References, t!("No references found"))
     } else {

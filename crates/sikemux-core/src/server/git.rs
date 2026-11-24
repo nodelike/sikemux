@@ -161,7 +161,7 @@ methods!(
     "git.fileDiff" FileDiff, Watch, any_program => revisions::git_file_diff { repo, path, base_rev, head_rev, full },
     "git.commitFiles" CommitFiles, Watch, any_program => revisions::git_commit_files { repo, rev },
     "git.compare" Compare, Watch, any_program, counted => revisions::git_compare { repo, base, head },
-    "git.blame" Blame, Watch, any_program, counted => blame::git_blame { repo, path, contents },
+    "git.blame" Blame, Watch, any_program => blame::git_blame { repo, path, contents },
     "git.push" Push, Owner, counted => commit::git_push { repo },
     "git.pull" Pull, Full, counted => commit::git_pull { repo },
     "git.aiMessage" AiMessage, Full, counted => ai::git_ai_message { repo, provider, model },
