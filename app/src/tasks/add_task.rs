@@ -94,7 +94,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         t!("Kept in .sikemux/, which Git ignores.")
     };
     let scope = vec![
-        (Icon::Agents, SharedString::from(t!("For the team"))),
+        (Icon::Users, SharedString::from(t!("For the team"))),
         (Icon::User, SharedString::from(t!("Only me"))),
     ];
     let body = dialog::marked_body()

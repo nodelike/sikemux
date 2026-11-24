@@ -1005,7 +1005,7 @@ fn ranked_entries(needle: &str, files: &Arc<Vec<String>>) -> Vec<Choice> {
 
 /// The kinds of thing the menu names, in the order its heading lists them.
 const SCOPES: [(char, Icon, &str); 5] = [
-    ('@', Icon::Agents, n!("Agents")),
+    ('@', Icon::Agent, n!("Agents")),
     ('#', Icon::Issue, n!("Issues")),
     ('!', Icon::PullRequest, n!("Pull requests")),
     ('+', Icon::File, n!("Files")),

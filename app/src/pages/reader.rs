@@ -210,7 +210,7 @@ pub(super) fn no_page(cx: &App) -> Div {
         .items_center()
         .justify_center()
         .gap(SPACE_2)
-        .child(ui::icon(Icon::Tabs, 18.).text_color(Tokens::get(cx).text_disabled))
+        .child(ui::icon(Icon::Presentation, 18.).text_color(Tokens::get(cx).text_disabled))
         .child(ui::meta(t!("No pages yet"), cx))
 }
 

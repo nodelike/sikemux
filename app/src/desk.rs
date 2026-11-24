@@ -2452,7 +2452,7 @@ fn head(
                 .with_size(px(13.))
                 .color(Tokens::get(cx).text_tertiary)
                 .into_any_element(),
-            None if page.local_file.is_some() => ui::icon(Icon::Tabs, 13.)
+            None if page.local_file.is_some() => ui::icon(Icon::Presentation, 13.)
                 .text_color(Tokens::get(cx).text_tertiary)
                 .flex_none()
                 .into_any_element(),
@@ -2639,10 +2639,10 @@ impl Opening {
     fn icon(self) -> Icon {
         match self {
             Opening::Browser => Icon::Globe,
-            Opening::File => Icon::Editor,
+            Opening::File => Icon::File,
             Opening::Terminal => Icon::Terminal,
             Opening::Simulator => Icon::Phone,
-            Opening::Pages => Icon::Tabs,
+            Opening::Pages => Icon::Presentation,
         }
     }
 

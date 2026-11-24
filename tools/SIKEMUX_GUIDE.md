@@ -197,9 +197,10 @@ a trigger (see `triggers`) and end your turn.
 ## ui: Opening things for the person
 
 `ui_open` kinds: `file` (`path`, optional one-based `line`), `diff` (`path`),
-`terminal` (`executionId`), `preview`. Paths must be inside the project.
+`terminal` (`executionId`), `preview`, `mod` (`mod`, its id). Paths must be
+inside the project.
 
-Files and terminals open on your desk without taking the person's focus;
+Files, terminals and mods open on your desk without taking the person's focus;
 `focus: true` brings them to your session, or bounces the Dock icon when they
 are in another app. A diff opens in the workspace.
 

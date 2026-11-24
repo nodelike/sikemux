@@ -860,7 +860,7 @@ impl Workbench {
         let mut showing: Vec<(String, String)> = crate::panes::views(&tab.pane)
             .filter(|view| view.kind == PaneKind::Desk)
             .filter_map(|view| {
-                let shown = desks.mod_shown(&view.target)?;
+                let shown = desks.mod_shown(view.target)?;
                 Some((view.target.clone(), shown.to_owned()))
             })
             .collect();

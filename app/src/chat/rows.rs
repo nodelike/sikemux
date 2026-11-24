@@ -1094,7 +1094,7 @@ fn worker_pages(
         .flex_col()
         .child(
             notice_box(looks)
-                .child(ui::icon(Icon::Tabs, 12.).text_color(looks.quiet))
+                .child(ui::icon(Icon::Presentation, 12.).text_color(looks.quiet))
                 .child(notice_name(said.to_string(), false, looks)),
         )
         .child(self::page::worker_pages(pages, looks.looks, window, cx))

@@ -838,8 +838,7 @@ async fn ui_open(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, Str
     }
     if kind.as_deref() == Some("mod") {
         let id = required_text(&request.params, "mod")?.to_owned();
-        let title = super::mods::title(core, &id).await?;
-        set_param(&mut request.params, "title", title.into());
+        super::mods::check_shows(core, &id).await?;
     }
     if kind.as_deref() == Some("preview") {
         if request.agent_id.is_none() {

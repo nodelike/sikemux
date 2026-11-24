@@ -417,9 +417,9 @@ pub(crate) fn this_host_menu(
     }
 }
 
-/// A host's row with its menu on a right-click and on a ⋯ that shows while the pointer is
-/// over the row, as main's host rows have it.
-fn with_menu(
+/// A row with its menu on a right-click and on a ⋯ that shows while the pointer is over the
+/// row.
+pub(crate) fn with_menu(
     id: SharedString,
     menu: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
     row: Row,
@@ -431,11 +431,11 @@ fn with_menu(
     div()
         .id(id.clone())
         .relative()
-        .group(HOST_ROW)
+        .group(MENU_ROW)
         .context_menu(ui::menu(move |popup, window, cx| menu(popup, window, cx)))
-        .child(row.hover_padding(HOST_ROW, 32.))
+        .child(row.hover_padding(MENU_ROW, 32.))
         .child(
-            ui::hover_actions(HOST_ROW).top_0().bottom_0().child(
+            ui::hover_actions(MENU_ROW).top_0().bottom_0().child(
                 KitButton::new(SharedString::from(format!("{id}-more")))
                     .ghost()
                     .compact()
@@ -452,7 +452,7 @@ fn with_menu(
 }
 
 /// The hover group of a host's row, whose ⋯ shows on hover.
-const HOST_ROW: &str = "host-row";
+const MENU_ROW: &str = "menu-row";
 
 /// "Require approval for new devices" on `host`, this one when none, ticked while it does.
 fn approval_item(
@@ -1299,7 +1299,7 @@ fn surfaces(
     let pages = crate::workbench::actions::FocusPages::ID;
     let pages = tree_row(
         "surface-pages".into(),
-        Icon::Tabs,
+        Icon::Presentation,
         n!("Pages"),
         front == Some(PaneKind::Pages),
         false,

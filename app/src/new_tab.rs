@@ -92,7 +92,7 @@ fn choices() -> [Choice; 9] {
             command: actions::OpenMod::ID,
             label: t!("Mod"),
             detail: t!("A panel you or an agent made"),
-            icon: Icon::Dashboard,
+            icon: Icon::Puzzle,
             in_project: false,
         },
     ]

@@ -52,6 +52,7 @@ pub mod card;
 pub(crate) mod limits;
 pub(crate) mod marble;
 pub mod menu;
+mod mods;
 pub mod palette;
 pub(crate) mod retitle;
 pub mod review;
@@ -96,27 +97,40 @@ pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         .into_any_element()
 }
 
-/// What one of the rail's pages holds; the rail's frame and its page switch stay put while
-/// the pages slide inside it.
+/// The frame of a page's list, over the Mods section at the page's foot.
 pub(crate) fn page_body() -> gpui_kit::Div {
     div().size_full().flex().flex_col().overflow_hidden()
 }
 
+/// A page of the rail: its list, with the Mods section and the Agents page's limits at its foot.
 fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>) -> AnyElement {
-    match page {
-        TabRailPage::Files => {
-            return page_body()
+    let (list, limits) = match (page, bench.chosen_host()) {
+        (TabRailPage::Files, _) => {
+            let files = page_body()
                 .child(files_header(bench, cx))
-                .child(crate::files::page(bench, cx))
-                .into_any_element();
+                .child(crate::files::page(bench, cx));
+            (files.into_any_element(), None)
         }
-        TabRailPage::Terminals => return terminals_page(bench, cx),
-        TabRailPage::Pages => return crate::pages::list::page(bench, cx),
-        TabRailPage::Agents => {}
-    }
-    if let crate::hosts::HostChoice::Ssh(alias) = bench.chosen_host() {
-        return ssh_page(bench, alias, cx);
-    }
+        (TabRailPage::Terminals, _) => (terminals_page(bench, cx), None),
+        (TabRailPage::Pages, _) => (crate::pages::list::page(bench, cx), None),
+        (TabRailPage::Agents, crate::hosts::HostChoice::Ssh(alias)) => {
+            (ssh_page(bench, alias, cx), None)
+        }
+        (TabRailPage::Agents, _) => (agents_page(bench, cx), limits(bench, cx)),
+    };
+    div()
+        .id(SharedString::from(format!("rail-page-{page:?}")))
+        .size_full()
+        .flex()
+        .flex_col()
+        .overflow_hidden()
+        .child(div().flex_1().min_h_0().child(list))
+        .child(mods::mods(bench, cx))
+        .children(limits)
+        .into_any_element()
+}
+
+fn agents_page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let project = bench.project();
     let pins = project
         .filter(|_| !bench.rails.all_projects)
@@ -394,7 +408,6 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
             .children(unseen.chip(true, cx))
             .children(unseen.chip(false, cx)),
         )
-        .children(limits(bench, cx))
         .into_any_element()
 }
 
@@ -1772,7 +1785,7 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .border_color(border)
         .child(page(
             "page-agents",
-            Icon::Agents,
+            Icon::Agent,
             t!("Agents"),
             TabRailPage::Agents,
             cx,
@@ -1793,7 +1806,7 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         ))
         .child(page(
             "page-pages",
-            Icon::Tabs,
+            Icon::Presentation,
             t!("Pages"),
             TabRailPage::Pages,
             cx,

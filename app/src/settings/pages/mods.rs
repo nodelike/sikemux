@@ -167,7 +167,7 @@ pub fn render(
             })
         });
         rows::row_with(
-            Some(ui::picture(Icon::Dashboard, 16., ink)),
+            Some(ui::picture(Icon::Puzzle, 16., ink)),
             example.name.clone(),
             Some(example.description.clone().into()),
             add,

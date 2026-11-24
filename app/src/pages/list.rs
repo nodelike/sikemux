@@ -20,7 +20,7 @@ pub(crate) fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
     let Some(project) = bench.project() else {
         return body
             .child(rail_empty(
-                Icon::Tabs,
+                Icon::Presentation,
                 t!("No project open"),
                 Some((actions::OpenProject::ID, t!("to open one"))),
                 cx,
@@ -43,7 +43,7 @@ pub(crate) fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
         .filter(|page| matches(page, &words))
         .collect();
     let empty = (listed.is_some() && found.is_empty()).then(|| match words.is_empty() {
-        true => rail_empty(Icon::Tabs, t!("No pages yet"), None, cx),
+        true => rail_empty(Icon::Presentation, t!("No pages yet"), None, cx),
         false => rail_empty(Icon::Search, t!("No page matches"), None, cx),
     });
     let in_front = (bench.tab())
@@ -117,7 +117,10 @@ fn row(
         SharedString::from(format!("page-{}", page.id)),
         page.title.clone(),
     )
-    .mark(22., ui::icon(Icon::Tabs, 15.).text_color(t.text_tertiary))
+    .mark(
+        22.,
+        ui::icon(Icon::Presentation, 15.).text_color(t.text_tertiary),
+    )
     .compact(bench.rail_compact())
     .chosen(chosen)
     .child(

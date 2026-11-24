@@ -27,7 +27,7 @@ pub fn icon(shown: &ModInfo) -> Icon {
 }
 
 pub fn icon_named(name: Option<&str>) -> Icon {
-    name.and_then(Icon::named).unwrap_or(Icon::Dashboard)
+    name.and_then(Icon::named).unwrap_or(Icon::Puzzle)
 }
 
 impl Workbench {

@@ -1,0 +1,28 @@
+# The tab rail's Mods section on the Agents and Pages pages, then a mod open on the desk.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+project storefront line-shop
+chat Maple
+title "Bundle the storefront"
+chat Otter
+title "Check the refund totals"
+chat Wren
+title "Cache the product pages"
+project handbook mods-book
+chat Juniper
+say "shell sh mods.sh"
+settle 3
+core setModBadge {"id":"posts","badge":"2 to post"}
+core setModBadge {"id":"ci-board","badge":"3 failing"}
+front Wren
+settle 4
+snap mods
+key cmd-alt-8
+settle 2
+snap mods-pages
+front Wren
+click "Posts"
+settle 4
+snap mods-desk

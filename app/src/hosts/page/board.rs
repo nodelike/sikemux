@@ -364,7 +364,7 @@ fn host_card(
                         .items_center()
                         .gap(SPACE_1H)
                         .text_color(t.text_tertiary)
-                        .child(ui::icon(Icon::Agents, 12.).text_color(t.text_tertiary))
+                        .child(ui::icon(Icon::Agent, 12.).text_color(t.text_tertiary))
                         .child(ui::text(t!("Agents"), TEXT_XS, FontWeight::NORMAL)),
                 )
                 .child(div().ml_auto().child(counts(host.counts(), t))),
@@ -646,7 +646,7 @@ fn table(
         (t!("CPU"), Some(Icon::Activity)),
         (t!("Memory"), Some(Icon::Stack)),
         (t!("Disk"), Some(Icon::Database)),
-        (t!("Agents"), Some(Icon::Agents)),
+        (t!("Agents"), Some(Icon::Agent)),
     ];
     div()
         .rounded(radius_4())

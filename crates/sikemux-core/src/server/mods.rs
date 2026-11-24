@@ -552,8 +552,8 @@ pub(super) fn dismiss_change(core: &Core, params: ModBatchParams) -> CoreResult<
     Ok(())
 }
 
-/// The name of the mod `id`, when it can show, for an agent opening it.
-pub(super) async fn title(core: &Core, id: &str) -> Result<String, String> {
+/// Whether the mod `id` can show, for an agent opening it.
+pub(super) async fn check_shows(core: &Core, id: &str) -> Result<(), String> {
     let folder = shown_folder(core, id).map_err(|error| error.to_string())?;
     let id = id.to_owned();
     blocking(move || {
@@ -561,7 +561,7 @@ pub(super) async fn title(core: &Core, id: &str) -> Result<String, String> {
         Ok(match (folder.is_dir(), shown.problem) {
             (false, _) => Err(format!("there is no mod in {}", folder.display())),
             (true, Some(problem)) => Err(format!("this mod cannot show: {problem}")),
-            (true, None) => Ok(shown.name),
+            (true, None) => Ok(()),
         })
     })
     .await

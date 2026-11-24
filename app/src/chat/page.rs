@@ -151,7 +151,7 @@ pub(crate) fn tab_row(
                 .rounded(px(6.))
                 .object_fit(ObjectFit::Cover)
                 .into_any_element(),
-            None => ui::icon(Icon::Tabs, 16.)
+            None => ui::icon(Icon::Presentation, 16.)
                 .text_color(t.text_tertiary)
                 .into_any_element(),
         });
@@ -195,7 +195,7 @@ pub(crate) fn tab_row(
                 t!("Open"),
                 ui::Variant::Outline,
             )
-            .icon(Icon::Tabs)
+            .icon(Icon::Presentation)
             .sized(24., 10., 11.5)
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();

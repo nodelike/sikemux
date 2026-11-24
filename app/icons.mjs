@@ -132,6 +132,8 @@ const DRAWN = {
   steps: [ICONS, "IconSteps"],
   swipe: [ICONS, "IconSwipe"],
   tabs: [ICONS, "IconTabs"],
+  presentation: [ICONS, "IconPresentation"],
+  puzzle: [ICONS, "IconPuzzle"],
   tap: [ICONS, "IconTap"],
   "touch-path": [ICONS, "IconTouchPath"],
   trash: [ICONS, "IconTrash"],

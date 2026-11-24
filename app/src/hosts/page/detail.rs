@@ -1206,7 +1206,7 @@ fn agents(
             .flex_col()
             .child(section(
                 if people.is_empty() {
-                    Icon::Agents
+                    Icon::Agent
                 } else {
                     Icon::User
                 },
