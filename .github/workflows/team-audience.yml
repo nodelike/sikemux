@@ -1,0 +1,46 @@
+name: Team audience
+run-name: Open Team to ${{ inputs.audience }}
+
+# Sets who may use Team on the accounts server: staff alone shuts it to everyone else.
+on:
+  workflow_dispatch:
+    inputs:
+      audience:
+        description: Who Team is open to.
+        type: choice
+        options: [staff, nightly, everyone]
+        default: staff
+
+permissions:
+  contents: read
+
+concurrency:
+  group: team-audience
+  cancel-in-progress: false
+
+jobs:
+  set:
+    name: Set on citadel
+    if: github.repository == 'nodelike/sikemux' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the deploy key
+        uses: ./.github/actions/deploy-key
+        with:
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
+      - name: Set who Team is open to
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          AUDIENCE: ${{ inputs.audience }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "sikemux-deploy@$DEPLOY_HOST" "team-audience $AUDIENCE"

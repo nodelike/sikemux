@@ -7,6 +7,8 @@
 #   ssh sikemux-deploy@citadel withdraw-update <update id>        stops offering an update
 #   ssh sikemux-deploy@citadel roll-back-update <update id> < directive.json
 #                                                                 rolls phones back from an update
+#   ssh sikemux-deploy@citadel team-audience <staff|nightly|everyone>
+#                                                                 sets who Team is open to
 set -euo pipefail
 # shellcheck source=lib.sh
 . "$(dirname "$0")/lib.sh"
@@ -32,7 +34,8 @@ usage() {
          ssh sikemux-deploy@citadel publish-update < update.tar.gz
          ssh sikemux-deploy@citadel promote-update <update id>
          ssh sikemux-deploy@citadel withdraw-update <update id>
-         ssh sikemux-deploy@citadel roll-back-update <update id> < directive.json"
+         ssh sikemux-deploy@citadel roll-back-update <update id> < directive.json
+         ssh sikemux-deploy@citadel team-audience <staff|nightly|everyone>"
 }
 
 api() {
@@ -78,8 +81,8 @@ publish_update() {
   exit 0
 }
 
-# Runs one update command under the deploy lock: what it is doing, what is true after, and the command.
-update_command() {
+# Runs one command under the deploy lock: what it is doing, what is true after, and the command.
+locked_command() {
   local doing="$1" done="$2"
   shift 2
 
@@ -118,15 +121,19 @@ case "${words[0]:-}" in
     ;;
   promote-update)
     [ "${#words[@]}" -eq 2 ] || usage
-    update_command "promoting ${words[1]} to stable" "${words[1]} is on stable" promote-update "${words[1]}"
+    locked_command "promoting ${words[1]} to stable" "${words[1]} is on stable" promote-update "${words[1]}"
     ;;
   withdraw-update)
     [ "${#words[@]}" -eq 2 ] || usage
-    update_command "withdrawing ${words[1]}" "${words[1]} is withdrawn" withdraw-update "${words[1]}"
+    locked_command "withdrawing ${words[1]}" "${words[1]} is withdrawn" withdraw-update "${words[1]}"
     ;;
   roll-back-update)
     [ "${#words[@]}" -eq 2 ] || usage
     roll_back_update "${words[1]}"
+    ;;
+  team-audience)
+    [ "${#words[@]}" -eq 2 ] || usage
+    locked_command "opening Team to ${words[1]}" "Team is open to ${words[1]}" team-audience "${words[1]}"
     ;;
 esac
 

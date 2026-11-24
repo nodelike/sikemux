@@ -25,6 +25,7 @@ import { purgeStash } from "./stash/purge.ts";
 import { purgeVaultUses } from "./vault/purge.ts";
 import { purgeModRemovals } from "./mods/purge.ts";
 import { endPlanGifts, givePro } from "./billing/gifts.ts";
+import { setTeamAudience, TEAM_AUDIENCES } from "./billing/team-audience.ts";
 import {
   promoteUpdate,
   publishUpdate,
@@ -152,6 +153,21 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
       async (database, log) => {
         await givePro(database.db, days, log);
       },
+    );
+  },
+  "team-audience"() {
+    const audience = TEAM_AUDIENCES.find((known) => known === process.argv[3]);
+    if (!audience) {
+      startLogging("info").fatal(
+        `usage: team-audience <${TEAM_AUDIENCES.join("|")}>`,
+      );
+      process.exitCode = 2;
+      return;
+    }
+    return withDatabase(
+      loadMigrationConfig(process.env),
+      "setting who Team is open to failed",
+      ({ db }, log) => setTeamAudience(db, audience, log),
     );
   },
   "publish-update": updateCommand(
