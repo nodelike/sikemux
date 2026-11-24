@@ -293,7 +293,7 @@ pub(crate) fn pane(bench: &Workbench, folder: &str, cx: &mut Context<Workbench>)
 pub(crate) fn life_words(life: PageLife, shown_at: u64) -> String {
     match life {
         PageLife::Kept => ui::time::age(shown_at),
-        PageLife::WithCall => t!("with its call").into(),
+        PageLife::WithCall => t!("with its ask").into(),
         PageLife::Goes { at } => t!("{left} left", left = left(at)),
     }
 }

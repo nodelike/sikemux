@@ -1455,8 +1455,8 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
     let this = cx.entity().downgrade();
     let cards = bench.calls.clone();
     let words = match count {
-        1 => t!("1 call").to_owned(),
-        count => t!("{count} calls", count = count),
+        1 => t!("1 ask").to_owned(),
+        count => t!("{count} asks", count = count),
     };
     let hover = t.surface_hover;
     let chip = Popover::new("calls-chip")
@@ -1464,7 +1464,7 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
         .offset(SPACE_1H)
         .trigger_with(move |open, _, cx| {
             let button = BaseButton::new("calls-chip-button")
-                .accessibility_label(t!("Calls"))
+                .accessibility_label(t!("Asks"))
                 .h(px(22.))
                 .px(px(crate::tabs::CHIP_INSET))
                 .flex()
@@ -1547,7 +1547,7 @@ fn popover(
         .flex()
         .items_center()
         .gap(px(10.))
-        .child(ui::caps(t!("Calls"), cx))
+        .child(ui::caps(t!("Asks"), cx))
         .child(div().flex_1().h(px(1.)).bg(t.line))
         .child(name.tag(11., cx));
     call_keys(

@@ -156,7 +156,7 @@ impl Render for Reader {
             false => ui::meta(stays(life), cx),
         });
         let back = self.back.clone().map(|back| {
-            Button::new("page-back", t!("Back to call"), Variant::Ghost)
+            Button::new("page-back", t!("Back to ask"), Variant::Ghost)
                 .icon(Icon::ArrowLeft)
                 .on_click(move |_, window, cx| back(window, cx))
         });
@@ -218,7 +218,7 @@ pub(super) fn no_page(cx: &App) -> Div {
 fn stays(life: PageLife) -> String {
     match life {
         PageLife::Kept => t!("Kept until you let it go").into(),
-        PageLife::WithCall => t!("Goes a day after its call settles").into(),
+        PageLife::WithCall => t!("Goes a day after its ask settles").into(),
         PageLife::Goes { at } => t!("Goes in {left}", left = super::left(at)),
     }
 }

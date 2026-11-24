@@ -20,7 +20,7 @@ const SIDE: f32 = 24.;
 const PROSE: f32 = 620.;
 const ATTACHMENT_HEIGHT: f32 = 240.;
 const OPTION_PICTURE_HEIGHT: f32 = 176.;
-/// The hover group of a call's row in a chat, which offers Open in Calls while hovered.
+/// The hover group of a call's row in a chat, which offers Open in Asks while hovered.
 const CHAT_ROW: &str = "call-chat-row";
 
 /// The project path of agent `agent`'s desk.
@@ -669,7 +669,7 @@ fn go_row(
         let cards = through.cards.clone();
         Button::new(
             SharedString::from(format!("call-next-{}", call.id)),
-            t!("Next call"),
+            t!("Next ask"),
             Variant::Ghost,
         )
         .sized(30., 10., 12.5)
@@ -1046,7 +1046,7 @@ pub(super) fn chat_fold(
         (asker.into_iter().flatten()).chain([div().flex_1().into_any_element()])
     });
     let hover = t.surface_hover;
-    let count = t!("{count} calls", count = calls.len());
+    let count = t!("{count} asks", count = calls.len());
     let head = BaseButton::new("call-chat-fold")
         .accessibility_label(count.clone())
         .w_full()
@@ -1106,7 +1106,7 @@ pub(super) enum RowFrame {
 }
 
 /// A call in its asker's chat, folded to one row: who asks, the question and its age, which
-/// offers Open in Calls while hovered and opens it on the agent's desk. Inside the open calls'
+/// offers Open in Asks while hovered and opens it on the agent's desk. Inside the open calls'
 /// block it drops its own frame and leaves its bell to the block's first row.
 pub(super) fn chat_row(
     call: &PersonCall,
@@ -1136,7 +1136,7 @@ pub(super) fn chat_row(
         .text_color(t.text_secondary)
         .opacity(0.)
         .group_hover(CHAT_ROW, |style| style.opacity(1.))
-        .child(t!("Open in Calls"))
+        .child(t!("Open in Asks"))
         .child(ui::icon(Icon::Chevron, 10.).text_color(t.text_secondary));
     let age = div()
         .text_size(theme::ui_text(11.5))

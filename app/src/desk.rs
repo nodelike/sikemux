@@ -3102,13 +3102,7 @@ fn kinds(
     let thumb_radius = (radius_3() - px(SWITCH_INSET)).max(px(0.));
     let mut row = div().flex().items_center().gap(px(KIND_GAP));
     for (id, icon, label, kind, count) in [
-        (
-            "desk-calls",
-            Icon::Bell,
-            t!("Calls"),
-            DeskKind::Calls,
-            calls,
-        ),
+        ("desk-calls", Icon::Bell, t!("Asks"), DeskKind::Calls, calls),
         (
             "desk-tasks",
             Icon::ListTodo,

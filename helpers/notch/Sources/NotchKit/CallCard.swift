@@ -438,7 +438,7 @@ struct CallCount: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(count == 1 ? "1 call" : "\(count) calls")
+            Text(count == 1 ? "1 ask" : "\(count) asks")
                 .font(Theme.ui(12, .semibold))
                 .monospacedDigit()
                 .foregroundStyle(Theme.warn)
@@ -500,7 +500,7 @@ private struct CallsLine: View {
         Button(action: toggle) {
             HStack(spacing: 10) {
                 Circle().fill(Theme.warn).frame(width: 7, height: 7).frame(width: 20, height: 20)
-                Text(count == 1 ? "1 call" : "\(count) calls")
+                Text(count == 1 ? "1 ask" : "\(count) asks")
                     .font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink).fixedSize()
                 Text(open ? "" : newest.question)
                     .font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)

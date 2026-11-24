@@ -168,7 +168,7 @@ fn title(section: &BriefSection) -> String {
     .to_owned()
 }
 
-/// What a section holds, as "9 rules" or "4 workers, 2 waits, 1 open call".
+/// What a section holds, as "9 rules" or "4 workers, 2 waits, 1 open ask".
 fn counts(section: &BriefSection) -> Option<String> {
     let counts = &section.counts;
     let say = |count: Option<u32>, one: &str, many: &str| {
@@ -192,7 +192,7 @@ fn counts(section: &BriefSection) -> Option<String> {
         decisions,
         say(counts.workers, n!("{n} worker"), n!("{n} workers")),
         say(counts.waits, n!("{n} wait"), n!("{n} waits")),
-        say(counts.calls, n!("{n} open call"), n!("{n} open calls")),
+        say(counts.calls, n!("{n} open ask"), n!("{n} open asks")),
     ]
     .into_iter()
     .flatten()

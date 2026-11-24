@@ -41,7 +41,7 @@ const LEVELS: [(Level, &str, &str, &str); 3] = [
         Level::Mine,
         "mine",
         n!("Mine"),
-        n!("Agents prepare it, and you say yes on a call"),
+        n!("Agents prepare it, and you say yes on an ask"),
     ),
 ];
 
@@ -105,7 +105,7 @@ pub(super) fn page(
                 count = production.len(),
                 day = said::day(at)
             ),
-            t!("Agents run everything else. A change to one of these waits for your yes on a call, unless its level says otherwise.").to_owned(),
+            t!("Agents run everything else. A change to one of these waits for your yes on an ask, unless its level says otherwise.").to_owned(),
         ),
         None => (
             t!("found by Sikemux, not confirmed yet").to_owned(),
@@ -259,15 +259,15 @@ fn calls_words(stats: &PlaceStats) -> Option<String> {
     let (asked, picked, overruled) = (stats.asked, stats.as_picked, stats.overruled);
     Some(match asked {
         0 => return None,
-        1 if picked == 1 => t!("1 call, answered as picked").to_owned(),
-        1 if overruled == 1 => t!("1 call, answered against the pick").to_owned(),
-        1 => t!("1 call").to_owned(),
+        1 if picked == 1 => t!("1 ask, answered as picked").to_owned(),
+        1 if overruled == 1 => t!("1 ask, answered against the pick").to_owned(),
+        1 => t!("1 ask").to_owned(),
         _ if picked == asked => t!(
-            "{asked} calls, all {asked} answered as picked",
+            "{asked} asks, all {asked} answered as picked",
             asked = asked
         ),
         _ => t!(
-            "{asked} calls, {picked} answered as picked",
+            "{asked} asks, {picked} answered as picked",
             asked = asked,
             picked = picked
         ),

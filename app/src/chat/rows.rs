@@ -1379,11 +1379,11 @@ fn week_count(week: &ChiefWeek, looks: &Drawn) -> AnyElement {
     let second = match week.answered {
         0 => None,
         1 => Some(t!(
-            "You answered {picked} of 1 call as I picked.",
+            "You answered {picked} of 1 ask as I picked.",
             picked = week.as_picked
         )),
         answered => Some(t!(
-            "You answered {picked} of {answered} calls as I picked.",
+            "You answered {picked} of {answered} asks as I picked.",
             picked = week.as_picked,
             answered = answered
         )),

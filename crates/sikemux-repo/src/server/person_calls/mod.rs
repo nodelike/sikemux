@@ -1336,7 +1336,7 @@ fn answered_before(
     Ok(Some(id))
 }
 
-const PRODUCTION_ONLY_ON_ITS_CALL: &str = "This asks for a change to production, which is answered only by a tap on its call. Open the call to answer it; on a phone that shows no calls, answer it on the Mac or update the app";
+const PRODUCTION_ONLY_ON_ITS_CALL: &str = "This asks for a change to production, which is answered only by a tap on its ask. Open the ask to answer it; on a phone that shows no asks, answer it on the Mac or update the app";
 
 /// `answerQuestion` and `answerQuestions`, from clients released before calls: each answer is its
 /// call's.
