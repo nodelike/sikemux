@@ -943,6 +943,9 @@ pub(crate) async fn run_core(
         let accepting = !*frozen.borrow_and_update();
         tokio::select! {
             accepted = listener.accept(), if accepting => match accepted {
+                Ok(stream) if !socket::admits(&stream) => {
+                    eprintln!("sikemux core: turned away another user's connection");
+                }
                 Ok(stream) => {
                     tokio::spawn(connection::serve_local(core.clone(), stream));
                 }

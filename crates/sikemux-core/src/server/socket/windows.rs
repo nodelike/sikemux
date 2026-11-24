@@ -1,7 +1,7 @@
 use std::fs::{File, OpenOptions};
 use std::path::Path;
 
-use sikemux_client::local::Listener;
+use sikemux_client::local::{Connection, Listener};
 use tokio::signal::windows::{ctrl_break, ctrl_c, ctrl_close, ctrl_shutdown};
 use tokio::signal::windows::{CtrlBreak, CtrlC, CtrlClose, CtrlShutdown};
 
@@ -20,6 +20,10 @@ pub(crate) fn private_to_owner(options: &mut OpenOptions) -> &mut OpenOptions {
 
 pub(crate) fn bind(socket: &Path) -> std::io::Result<Bound> {
     Listener::bind(socket)
+}
+
+pub(crate) fn admits(_connection: &Connection) -> bool {
+    true
 }
 
 pub(crate) fn accepting(bound: Bound) -> std::io::Result<Listener> {

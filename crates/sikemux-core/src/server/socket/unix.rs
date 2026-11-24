@@ -1,9 +1,9 @@
-use std::fs::{DirBuilder, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
-use sikemux_client::local::Listener;
+use sikemux_client::local::{Connection, Listener};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 
 use super::super::Listening;
@@ -11,7 +11,7 @@ use super::super::Listening;
 pub(crate) type Bound = std::os::unix::net::UnixListener;
 
 pub(crate) fn private_folder(path: &Path) -> std::io::Result<()> {
-    DirBuilder::new().recursive(true).mode(0o700).create(path)
+    sikemux_process::files::private_folder(path)
 }
 
 pub(crate) fn private_to_owner(options: &mut OpenOptions) -> &mut OpenOptions {
@@ -19,9 +19,12 @@ pub(crate) fn private_to_owner(options: &mut OpenOptions) -> &mut OpenOptions {
 }
 
 pub(crate) fn bind(socket: &Path) -> std::io::Result<Bound> {
-    let listener = Bound::bind(socket)?;
-    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
-    Ok(listener)
+    sikemux_process::private_socket::bind(socket)
+}
+
+/// Whether what connected may use the core: the core's own user, or root.
+pub(crate) fn admits(connection: &Connection) -> bool {
+    sikemux_process::private_socket::is_owner(connection)
 }
 
 pub(crate) fn accepting(bound: Bound) -> std::io::Result<Listener> {

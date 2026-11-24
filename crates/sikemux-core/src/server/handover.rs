@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::io::Write;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -641,9 +641,7 @@ fn adopt_listener(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),
     }
-    let listener = std::os::unix::net::UnixListener::bind(socket)?;
-    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
-    Ok(listener)
+    super::socket::bind(socket)
 }
 
 /// Takes up the pipes to a chat agent that was handed over still running.

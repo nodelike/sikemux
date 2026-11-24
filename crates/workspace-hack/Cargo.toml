@@ -89,6 +89,7 @@ rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "
 security-framework = { version = "3", features = ["OSX_10_15"] }
 security-framework-sys = { version = "2", features = ["OSX_10_15"] }
 simdutf8 = { version = "0.1", default-features = false, features = ["aarch64_neon", "public_imp", "std"] }
+socket2 = { version = "0.6", default-features = false, features = ["all"] }
 tracing = { version = "0.1", default-features = false, features = ["log"] }
 
 [target.aarch64-apple-darwin.build-dependencies]

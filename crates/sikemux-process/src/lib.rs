@@ -20,6 +20,8 @@ pub mod machine;
 pub mod memory_pressure;
 pub mod names;
 pub mod paths;
+#[cfg(unix)]
+pub mod private_socket;
 pub mod procs;
 pub mod sync;
 mod tree;

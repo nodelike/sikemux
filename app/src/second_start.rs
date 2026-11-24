@@ -3,10 +3,12 @@
 //! already running and quits, so one window answers them all, as the Mac's does.
 
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use sikemux_process::files::private_folder;
+use sikemux_process::private_socket::{bind, is_owner};
 use tokio::sync::mpsc::UnboundedSender;
 use url::Url;
 
@@ -25,20 +27,20 @@ pub fn take_over(opened: UnboundedSender<Vec<String>>) -> bool {
         return true;
     };
     if let Ok(mut running) = UnixStream::connect(&socket) {
-        if running.write_all(handed.join("\n").as_bytes()).is_ok() {
+        if is_owner(&running) && running.write_all(handed.join("\n").as_bytes()).is_ok() {
             return false;
         }
     }
     let _ = std::fs::remove_file(&socket);
     if let Some(folder) = socket.parent() {
-        let _ = std::fs::create_dir_all(folder);
+        let _ = private_folder(folder);
     }
-    if let Ok(listener) = UnixListener::bind(&socket) {
+    if let Ok(listener) = bind(&socket) {
         let opened = opened.clone();
         let _ = std::thread::Builder::new()
             .name("handoff".into())
             .spawn(move || {
-                for start in listener.incoming().flatten() {
+                for start in listener.incoming().flatten().filter(is_owner) {
                     let _ = start.set_read_timeout(Some(HANDING));
                     let links = BufReader::new(start)
                         .lines()
