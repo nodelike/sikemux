@@ -14,7 +14,9 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSBitmapImageFileType,
     NSBitmapImageRep, NSImage, NSView, NSWindow, NSWindowStyleMask,
 };
-use objc2_foundation::{NSDictionary, NSError, NSNumber, NSPoint, NSRect, NSSize};
+use objc2_foundation::{
+    NSDictionary, NSError, NSIntersectionRect, NSNumber, NSPoint, NSRect, NSSize,
+};
 use objc2_web_kit::{WKSnapshotConfiguration, WKWebView};
 
 /// Lets WebKit and AppKit do what they have waiting, without blocking.
@@ -77,7 +79,12 @@ impl StandIn {
         let mut found = Vec::new();
         web_views(&self.view, &mut found);
         for webview in found {
-            let visible = webview.visibleRect();
+            let mut visible = NSIntersectionRect(webview.visibleRect(), webview.bounds());
+            // SAFETY: main thread, as `mtm` proves, and `webview` is live.
+            if let Some(clip) = unsafe { webview.superview() } {
+                let shown = webview.convertRect_fromView(clip.bounds(), Some(&clip));
+                visible = NSIntersectionRect(visible, shown);
+            }
             if visible.size.width < 1. || visible.size.height < 1. {
                 continue;
             }
