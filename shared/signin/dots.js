@@ -260,8 +260,8 @@ void main() {
   gl_Position = vec4((part * 2. - 1.) * vec2(1, -1), 0, 1);
   float most = length(size);
   vec2 slant = mat2(.8, -.6, .6, .8) * page;
-  float cloud = noise(slant / 300. + vec2(time * .03, -time * .02) + 1.6 * noise(page / 190. - time * .02));
-  float second = noise(slant / 420. - vec2(time * .02, time * .03) + 1.4 * noise(page / 260.) + 31.);
+  float cloud = noise(slant / 300. + vec2(time * .03, -time * .02) + 1.2 * vec2(noise(slant / 340. - time * .02), noise(slant.yx / 360. + 7.)));
+  float second = noise(slant / 420. - vec2(time * .02, time * .03) + vec2(noise(slant / 390. + 3.), noise(slant.yx / 410.)) + 31.);
   light = (deep * .62 + tint * .16) * lamp(page, center, max(span * 1.6, most * .22)) * (.5 + cloud);
   light += tint * .3 * lamp(page, center, span * .72) * (.62 + .55 * cloud);
   light += alt * .1 * lamp(page, size * vec2(.12, 1.04), most * .46) * (.4 + 1.1 * second);
