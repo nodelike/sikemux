@@ -584,6 +584,15 @@ const SHIFTED: &[(&str, &str)] = &[
     ("Slash", "?"),
 ];
 
+/// The character GPUI reports for a symbol or digit key pressed with Shift, `{` for `[`.
+#[cfg(feature = "drive")]
+pub(crate) fn shifted(pressed: &str) -> Option<&'static str> {
+    SHIFTED
+        .iter()
+        .find(|(code, _)| key(code).as_deref() == Some(pressed))
+        .map(|(_, typed)| *typed)
+}
+
 /// macOS's own About panel, with the name and version the bundle carries.
 fn show_about() {
     #[cfg(target_os = "macos")]

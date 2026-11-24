@@ -242,7 +242,8 @@ async fn acted(line: &str, window: AnyWindowHandle, cx: &mut AsyncApp) -> Result
     }
 }
 
-/// `cmd+shift+p` as the keystroke GPUI parses, with the step files' key names.
+/// `cmd+shift+p` as the keystroke GPUI reports, with the step files' key names. Shift with a
+/// symbol or digit is the character it types, so `cmd+shift+[` is `cmd-{`.
 fn keystroke(combo: &str, os: gpui_kit::OperatingSystem) -> Option<Keystroke> {
     let parts: Vec<&str> = combo.trim().split('+').collect();
     let (key, held) = parts.split_last()?;
@@ -260,7 +261,12 @@ fn keystroke(combo: &str, os: gpui_kit::OperatingSystem) -> Option<Keystroke> {
         .chain([key])
         .collect::<Vec<_>>()
         .join("-");
-    Keystroke::parse_with_os(&spelled, os).ok()
+    let mut pressed = Keystroke::parse_with_os(&spelled, os).ok()?;
+    if let Some(typed) = crate::keymap::shifted(&pressed.key).filter(|_| pressed.modifiers.shift) {
+        pressed.key = typed.to_owned();
+        pressed.modifiers.shift = false;
+    }
+    Some(pressed)
 }
 
 fn moved(position: Point<Pixels>, pressed_button: Option<MouseButton>) -> PlatformInput {
