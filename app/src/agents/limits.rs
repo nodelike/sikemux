@@ -51,18 +51,25 @@ const ROW_COMPACT: f32 = 28.;
 const ROW_GAP: f32 = 2.;
 
 const HEADER: f32 = 24.;
-const AGENT_HEAD: f32 = 34.;
+const FLOAT_TOP: f32 = 4.;
+const FLOAT_BOTTOM: f32 = 6.;
+const GROUP_GAP: f32 = 4.;
+const GROUP_HEAD: f32 = 26.;
 const ACCOUNT_LINE: f32 = 24.;
 const NAME_LINE: f32 = 20.;
-const NAME_GAP: f32 = 5.;
+const NAME_GAP: f32 = 3.;
 const WINDOW_LINE: f32 = 17.;
-const LABEL_WIDTH: f32 = 44.;
+const LABEL_WIDTH: f32 = 112.;
+const PERCENT_WIDTH: f32 = 30.;
+const WHEN_WIDTH: f32 = 40.;
+const ACCOUNT_TOP: f32 = 4.;
+const ACCOUNT_BOTTOM: f32 = 6.;
 const ACCOUNT_PAD: f32 = 8.;
 const RESETS_HEAD: f32 = 22.;
 const RESET_ROW: f32 = 24.;
 const RESET_ASKING: f32 = 84.;
 const KEPT_LINE: f32 = 16.;
-const AVATAR: f32 = 18.;
+const AVATAR: f32 = 16.;
 const FLOAT_GAP: f32 = 6.;
 /// The smallest float worth scrolling, and what it leaves of the rail above it.
 const FLOAT_LEAST: f32 = 120.;
@@ -454,15 +461,19 @@ fn header(view: &View, agents: &[Agent], cx: &App) -> Div {
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .child(
-            ui::text(t!("LIMITS"), TEXT_2XS, FontWeight::MEDIUM)
-                .letter_spacing(0.08)
-                .text_color(t.text_tertiary),
-        )
+        .child(spaced(t!("LIMITS"), TEXT_2XS, cx))
         .child(div().flex_1().h(px(1.)).bg(t.border))
         .children(resets_badge(view, agents, cx))
         .child(refresh_button(view, agents, cx))
         .children(add)
+}
+
+/// A section's spaced capitals, ahead of the hairline that runs to the section's buttons.
+fn spaced(text: impl Into<SharedString>, size: f32, cx: &App) -> Div {
+    ui::text(text.into(), size, FontWeight::MEDIUM)
+        .flex_none()
+        .letter_spacing(0.08)
+        .text_color(Tokens::get(cx).text_tertiary)
 }
 
 /// How many limit resets the accounts shown hold between them, when any.
@@ -715,25 +726,25 @@ fn row_height(view: &View) -> f32 {
 
 /// A window's short name, such as Week, at the start of its line.
 fn window_label(label: impl Into<SharedString>, cx: &App) -> Div {
-    ui::text(label.into(), TEXT_3XS, FontWeight::MEDIUM)
+    ui::text(label.into(), TEXT_3XS, FontWeight::NORMAL)
         .flex_none()
-        .text_color(Tokens::get(cx).text_tertiary)
+        .truncate()
+        .text_color(Tokens::get(cx).text_secondary)
 }
 
 fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
     let t = Tokens::get(cx);
     let used = window.used_at(now);
-    ui::text(used_label(used), TEXT_2XS, FontWeight::NORMAL)
-        .flex_none()
-        .text_color(match used {
-            used if used < 70. => t.text_primary,
-            used => signal(used, t),
-        })
-}
-
-/// How much of a window is used, as every limit says it.
-fn used_label(used: f64) -> String {
-    t!("{percent}% used", percent = used.round().min(100.))
+    ui::text(
+        format!("{}%", used.round().min(100.)),
+        TEXT_2XS,
+        FontWeight::NORMAL,
+    )
+    .flex_none()
+    .text_color(match used {
+        used if used < 70. => t.text_primary,
+        used => signal(used, t),
+    })
 }
 
 /// When the window is back. Past its reset with reads failing it says how old the reading is,
@@ -775,31 +786,21 @@ fn sign_in(
     })
 }
 
-/// Every account of every agent, each across the float's full width between hairlines, the one
-/// in use lifted.
+/// Every account of every agent under its agent's spaced name. Every limit shares one set of
+/// columns, so all the rulers start and end together.
 fn every_account(view: &View, agents: &[Agent], cx: &App) -> Stateful<Div> {
-    let t = Tokens::get(cx);
-    let hairline = || div().h(px(1.)).flex_none().bg(t.border);
-    let mut heights = Vec::new();
+    let mut heights = vec![FLOAT_TOP];
     let mut items: Vec<AnyElement> = Vec::new();
-    for (at, agent) in agents.iter().enumerate() {
-        if at > 0 {
-            heights.push(1.);
-            items.push(hairline().into_any_element());
-        }
-        heights.push(AGENT_HEAD + 1.);
-        items.push(agent_head(view, agent, cx).into_any_element());
-        items.push(hairline().into_any_element());
+    for agent in agents {
+        let folded = agent.accounts.len() == 1;
+        heights.push(GROUP_GAP + GROUP_HEAD);
+        items.push(group_head(view, agent, folded, cx).into_any_element());
         for (index, shown) in agent.accounts.iter().enumerate() {
-            if index > 0 {
-                heights.push(1.);
-                items.push(hairline().into_any_element());
-            }
-            let last = at + 1 == agents.len() && index + 1 == agent.accounts.len();
-            heights.push(account_height(view, shown));
-            items.push(account_line(view, agent, shown, index, last, cx));
+            heights.push(account_height(view, shown, folded));
+            items.push(account_line(view, agent, shown, index, folded, cx));
         }
     }
+    heights.push(FLOAT_BOTTOM);
     let total: f32 = heights.iter().sum();
     let mut fits = 0.;
     let mut down = 0.;
@@ -816,6 +817,8 @@ fn every_account(view: &View, agents: &[Agent], cx: &App) -> Stateful<Div> {
     };
     div()
         .id("limits-accounts")
+        .pt(px(FLOAT_TOP))
+        .pb(px(FLOAT_BOTTOM))
         .flex()
         .flex_col()
         .overflow_y_scroll()
@@ -823,20 +826,30 @@ fn every_account(view: &View, agents: &[Agent], cx: &App) -> Stateful<Div> {
         .children(items)
 }
 
-fn agent_head(view: &View, agent: &Agent, cx: &App) -> Div {
+/// An agent's mark and spaced name over a hairline, with its +. An agent with one account takes
+/// that account's plan, and its name when it has its own, into this line.
+fn group_head(view: &View, agent: &Agent, folded: bool, cx: &App) -> Div {
     let t = Tokens::get(cx);
+    let only = agent.accounts.first().filter(|_| folded);
+    let own_name = only.filter(|shown| !agent.unnamed(shown)).map(|shown| {
+        ui::text(shown.name.clone(), TEXT_2XS, FontWeight::MEDIUM)
+            .min_w_0()
+            .truncate()
+            .text_color(t.text_secondary)
+    });
     div()
-        .h(px(AGENT_HEAD))
-        .px(SPACE_2H)
+        .mt(px(GROUP_GAP))
+        .h(px(GROUP_HEAD))
+        .pl(SPACE_2H)
+        .pr(SPACE_1H)
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .child(ui::mark(agent.provider, 13.))
-        .child(
-            ui::text(agent.name.to_owned(), TEXT_2XS, FontWeight::MEDIUM)
-                .flex_1()
-                .text_color(t.text_primary),
-        )
+        .child(ui::mark(agent.provider, 12.))
+        .child(spaced(agent.name.to_uppercase(), TEXT_3XS, cx))
+        .children(own_name)
+        .children(only.and_then(Shown::tier).map(|tier| tier_pill(tier, cx)))
+        .child(div().flex_1().min_w(px(8.)).h(px(1.)).bg(t.border))
         .child(add_button(view, agent))
 }
 
@@ -845,7 +858,7 @@ fn one_line(view: &View, shown: &Shown) -> bool {
     shown.signed_out || (shown.id().is_some() && view.undo.as_deref() == shown.id())
 }
 
-fn account_height(view: &View, shown: &Shown) -> f32 {
+fn account_height(view: &View, shown: &Shown, folded: bool) -> f32 {
     if one_line(view, shown) {
         return ACCOUNT_LINE + ACCOUNT_PAD;
     }
@@ -864,22 +877,22 @@ fn account_height(view: &View, shown: &Shown) -> f32 {
                 + if asking { RESET_ASKING - RESET_ROW } else { 0. }
         }
     };
-    NAME_LINE
-        + NAME_GAP
-        + shown.windows().len().max(1) as f32 * WINDOW_LINE
-        + resets_height
-        + ACCOUNT_PAD * 2.
+    let names = match folded {
+        true => 0.,
+        false => ACCOUNT_TOP + NAME_LINE + NAME_GAP,
+    };
+    names + shown.windows().len().max(1) as f32 * WINDOW_LINE + resets_height + ACCOUNT_BOTTOM
 }
 
-/// An account: its avatar, name and plan, a ruler for each of its limits, then the limit resets
-/// it holds. Clicking one not in use moves the agent's chats onto it; while smart accounts is on,
+/// An account: its avatar, name and plan, unless its agent's line already says them, a ruler
+/// for each of its limits, then the limit resets it holds. Clicking one not in use moves the agent's chats onto it; while smart accounts is on,
 /// clicking one pins new chats to it, or unpins it.
 fn account_line(
     view: &View,
     agent: &Agent,
     shown: &Shown,
     place: usize,
-    last: bool,
+    folded: bool,
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx);
@@ -903,15 +916,15 @@ fn account_line(
         div()
             .id(id.clone())
             .px(SPACE_2H)
-            .py(px(ACCOUNT_PAD))
+            .pt(px(if folded { 0. } else { ACCOUNT_TOP }))
+            .pb(px(ACCOUNT_BOTTOM))
             .flex()
             .flex_col()
-            .when(last, |account| account.rounded_b(radius_4()))
     };
     if one_line(view, shown) {
         let short = line(ACCOUNT_LINE);
         if shown.signed_out {
-            let names = match agent.unnamed(shown) && in_use {
+            let names = match (folded || agent.unnamed(shown)) && in_use {
                 true => short.child(name(t!("Signed out").into()).flex_1()),
                 false => short
                     .child(name(shown.name.clone()))
@@ -938,55 +951,34 @@ fn account_line(
     }
     let windows = shown.windows();
     let age = shown.age(view.now);
-    let column = |cells: Vec<Div>| div().flex_none().flex().flex_col().children(cells);
-    let cell = |inner: Div| line(WINDOW_LINE).justify_end().child(inner);
     let lines = match windows.is_empty() {
-        true => line(WINDOW_LINE)
-            .child(ruler(None, t).flex_1().min_w_0().h(px(8.)))
-            .child(note(shown.nothing(), cx)),
+        true => line(WINDOW_LINE).child(note(shown.nothing(), cx)),
         false => div()
             .flex()
-            .gap(SPACE_2)
+            .flex_col()
             .font_features(theme::tabular())
-            .child(
-                column(
-                    (windows.iter())
-                        .map(|(label, _)| line(WINDOW_LINE).child(window_label(label.clone(), cx)))
-                        .collect(),
-                )
-                .min_w(px(LABEL_WIDTH)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .children((windows.iter()).map(|(_, window)| {
-                        line(WINDOW_LINE).child(
-                            ruler(Some(window.used_at(view.now)), t)
-                                .flex_1()
-                                .min_w_0()
-                                .h(px(8.)),
-                        )
-                    })),
-            )
-            .child(
-                column(
-                    (windows.iter())
-                        .map(|(_, window)| cell(percent_cell(window, view.now, cx)))
-                        .collect(),
-                )
-                .min_w(px(50.)),
-            )
-            .child(
-                column(
-                    (windows.iter())
-                        .map(|(_, window)| cell(when_cell(window, view.now, age.as_deref(), cx)))
-                        .collect(),
-                )
-                .min_w(px(40.)),
-            ),
+            .children(windows.iter().map(|(label, window)| {
+                line(WINDOW_LINE)
+                    .child(window_label(label.clone(), cx).w(px(LABEL_WIDTH)))
+                    .child(
+                        ruler(Some(window.used_at(view.now)), t)
+                            .flex_1()
+                            .min_w_0()
+                            .h(px(8.)),
+                    )
+                    .child(
+                        percent_cell(window, view.now, cx)
+                            .w(px(PERCENT_WIDTH))
+                            .flex()
+                            .justify_end(),
+                    )
+                    .child(
+                        when_cell(window, view.now, age.as_deref(), cx)
+                            .min_w(px(WHEN_WIDTH))
+                            .flex()
+                            .justify_end(),
+                    )
+            })),
     };
     let smart = view.smart && agent.accounts.len() > 1;
     let target = shown.profile.filter(|_| !smart && !in_use).cloned();
@@ -1020,7 +1012,7 @@ fn account_line(
                 .hover(|account| account.bg(t.surface_hover))
                 .clicks(view.on(move |bench, _, cx| pick(bench, &target, cx)))
         })
-        .child(names)
+        .when(!folded, |account| account.child(names))
         .child(lines)
         .children(resets_list(view, shown, &windows, cx))
         .into_any_element()
@@ -1061,11 +1053,7 @@ fn resets_list(
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .child(
-            ui::text(t!("RESETS"), TEXT_3XS, FontWeight::MEDIUM)
-                .letter_spacing(0.08)
-                .text_color(t.text_tertiary),
-        )
+        .child(spaced(t!("RESETS"), TEXT_3XS, cx))
         .child(div().flex_1().h(px(1.)).bg(t.border))
         .child(
             ui::text(t!("{left} left", left = left), TEXT_3XS, FontWeight::NORMAL)
