@@ -460,9 +460,9 @@ export class ShareSocket
           .set({ anyone })
           .where("id", "=", message.share)
           .execute();
-        if (!anyone)
-          for (const socket of relay.sockets) socket.needsSignIn(message.share);
       }
+      if (!anyone)
+        for (const socket of relay.sockets) socket.needsSignIn(message.share);
     } else {
       const open = await db
         .selectFrom("shares")
