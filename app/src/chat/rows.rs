@@ -1762,6 +1762,14 @@ pub(super) fn part(
         ChatPart::AgentNotice { notice, .. } if notice.rule_change.is_some() => {
             rule_change(notice, looks)
         }
+        ChatPart::AgentNotice {
+            notice:
+                AgentNotice {
+                    sign_in: Some(card),
+                    ..
+                },
+            ..
+        } => super::sign_in_card::card(card, looks, cx),
         ChatPart::AgentNotice { notice, .. } if notice.closed_card.is_some() => {
             closed_card(notice, looks)
         }

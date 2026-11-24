@@ -458,3 +458,39 @@ pub fn dialog(bench: &Workbench, this: &Entity<Workbench>, cx: &mut App) -> Opti
     let body = div().px(px(4.)).pt(px(4.)).child(screen);
     Some(dialog::floating(px(440.), body, go, close, cx).into_any_element())
 }
+
+/// Opens the sign-in for `plugin` over the window already waiting on the browser, where the
+/// connector signs in there.
+pub fn open_in_browser(
+    bench: &mut Workbench,
+    plugin: &str,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    open(bench, plugin, window, cx);
+    let browser =
+        (bench.reads.plugins.all()).any(|listed| listed.id == plugin && listed.browser_sign_in);
+    if browser {
+        sign_in_with_browser(bench, cx);
+    }
+}
+
+/// Where the sign-in open for a connector stands.
+pub enum Stand {
+    Open,
+    Busy,
+    Refused(SharedString),
+}
+
+/// Where the sign-in for `plugin` stands, while one is open over the window.
+pub fn stand(bench: &Workbench, plugin: &str) -> Option<Stand> {
+    let signing = bench
+        .connector_sign_in
+        .as_ref()
+        .filter(|signing| signing.plugin == plugin)?;
+    Some(match (&signing.refused, signing.busy) {
+        (Some(refused), _) => Stand::Refused(refused.clone()),
+        (None, true) => Stand::Busy,
+        (None, false) => Stand::Open,
+    })
+}

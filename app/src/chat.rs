@@ -92,6 +92,7 @@ mod questions;
 mod rows;
 mod schema;
 mod shown;
+mod sign_in_card;
 pub(crate) use shown::{turn_picture, turn_picture_held};
 pub(crate) mod status;
 mod team;
