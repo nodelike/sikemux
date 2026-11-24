@@ -179,14 +179,29 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: packaging\windows\build.ps1 -Arch ${{ matrix.arch }} -Version $env:VERSION -Binaries "$env:RUNNER_TEMP\binaries" -Resources "$env:RUNNER_TEMP\resources" -Out "$env:RUNNER_TEMP\installer" | Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY
 
-      - name: Install, open, update and uninstall it
+      - name: Install it and open the app
         shell: pwsh
-        timeout-minutes: 20
+        timeout-minutes: 8
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          $installer = Get-ChildItem "$env:RUNNER_TEMP\installer\*-setup.exe" | Select-Object -First 1
-          packaging\windows\prove.ps1 -Installer $installer.FullName -Version $env:VERSION -Probe "$env:RUNNER_TEMP\proof-programs\probe.exe" -Remote "$env:RUNNER_TEMP\proof-programs\remote.exe" -Out "$env:RUNNER_TEMP\proof"
+        run: packaging\windows\prove.ps1 -Part install -Installer "$env:RUNNER_TEMP\installer\Sikemux_$($env:VERSION)_${{ matrix.arch }}-setup.exe" -Version $env:VERSION -Out "$env:RUNNER_TEMP\proof"
+
+      - name: Check the service's core
+        shell: pwsh
+        timeout-minutes: 8
+        run: packaging\windows\prove.ps1 -Part core -Probe "$env:RUNNER_TEMP\proof-programs\probe.exe" -Remote "$env:RUNNER_TEMP\proof-programs\remote.exe" -Out "$env:RUNNER_TEMP\proof"
+
+      - name: Update it over the running app
+        shell: pwsh
+        timeout-minutes: 8
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: packaging\windows\prove.ps1 -Part update -Installer "$env:RUNNER_TEMP\installer\Sikemux_$($env:VERSION)_${{ matrix.arch }}-setup.exe" -Out "$env:RUNNER_TEMP\proof"
+
+      - name: Uninstall it
+        shell: pwsh
+        timeout-minutes: 4
+        run: packaging\windows\prove.ps1 -Part uninstall -Out "$env:RUNNER_TEMP\proof"
 
       - name: Keep the installer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
