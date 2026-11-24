@@ -277,9 +277,7 @@ function GetSikemux() {
         <div className="shared-reader-callout-title">
           Watching a chat from Sikemux
         </div>
-        <div>
-          Own your software factory. Free for Mac, Windows and Linux.
-        </div>
+        <div>Own your software factory. Free for Mac, Windows and Linux.</div>
       </div>
       <a href={GET_SIKEMUX}>Get Sikemux</a>
       <button type="button" aria-label="Close" onClick={() => setClosed(true)}>
