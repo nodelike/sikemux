@@ -10,6 +10,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use super::owners::{git, run};
+use super::push::Signing;
 use crate::server::Core;
 use crate::trailers::{self, Agent, Commit, COMMITTERS_REF as NOTES_REF};
 
@@ -83,8 +84,64 @@ pub fn record_with(dir: &Path, commit: &str, agents: &[Agent], key: &iroh::Secre
     }
 }
 
+/// Who made `commit`, by its note. A rebase our hooks never saw, such as one from a login shell,
+/// leaves the notes on the commit it started from, so they are carried over from there.
 pub fn of(core: &Core, dir: &Path, commit: &str) -> Option<Committer> {
-    read(dir, commit, &core.remote().host_keys())
+    of_signed(dir, commit, &Signing::of(core))
+}
+
+fn of_signed(dir: &Path, commit: &str, signing: &Signing) -> Option<Committer> {
+    read(dir, commit, &signing.hosts).or_else(|| {
+        let from = made_from(dir, commit, &signing.hosts)?;
+        signing.carry_notes(dir, &from, commit);
+        read(dir, &from, &signing.hosts)
+    })
+}
+
+/// The commit with a verified note that `commit` is the same change of, by the same author at
+/// the same time, on another parent.
+fn made_from(dir: &Path, commit: &str, hosts: &[iroh::PublicKey]) -> Option<String> {
+    let author_of = |object: &str| {
+        let (header, _) = object.split_once("\n\n")?;
+        let author = header.lines().find(|line| line.starts_with("author "))?;
+        Some(author.to_owned())
+    };
+    let (tree, parents) = made_of(dir, commit)?;
+    let [onto] = parents.as_slice() else {
+        return None;
+    };
+    let author = author_of(&git(dir, &["cat-file", "commit", commit]).ok()?)?;
+    let noted: Vec<String> = notes_of(dir).into_keys().collect();
+    let input: String = noted.iter().map(|id| format!("{id}\n")).collect();
+    let out = run(dir, &["cat-file", "--batch"], None, Some(input.as_bytes())).ok()?;
+    let mut answers = super::note::Answers(out.as_slice());
+    noted.into_iter().find(|from| {
+        let by_same = answers
+            .next()
+            .and_then(|(_, object)| author_of(&String::from_utf8_lossy(object)))
+            .is_some_and(|by| by == author);
+        by_same
+            && read(dir, from, hosts).is_some()
+            && moved_onto(dir, from, onto).is_some_and(|moved| moved == tree)
+    })
+}
+
+/// The tree `from`'s change makes on `onto`, when it applies there.
+fn moved_onto(dir: &Path, from: &str, onto: &str) -> Option<String> {
+    let (_, parents) = made_of(dir, from)?;
+    let [parent] = parents.as_slice() else {
+        return None;
+    };
+    let base = format!("--merge-base={parent}");
+    let args = [
+        "merge-tree",
+        "--write-tree",
+        "--no-messages",
+        base.as_str(),
+        onto,
+        from,
+    ];
+    Some(git(dir, &args).ok()?.lines().next()?.to_owned())
 }
 
 /// The commits that have a note of who made them, whoever signed it.
@@ -212,7 +269,7 @@ fn made_of(dir: &Path, commit: &str) -> Option<(String, Vec<String>)> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::push::{replay, Signing, Unpushed};
+    use super::super::push::{replay, Unpushed};
     use super::*;
     use crate::server::edits::tests_git::git_in;
 
@@ -304,5 +361,53 @@ mod tests {
         };
         let made = replay(&signing, &dir, &base, &[&unpushed], "here").unwrap();
         assert_eq!(read(&dir, &made, &hosts).unwrap().chat, "chat");
+    }
+
+    /// On 2026-11-25 push refused an agent's commits as no agent's, after a rebase our hooks
+    /// never saw, in a repository whose commits name no agent.
+    #[test]
+    fn a_commit_rebased_without_our_hooks_still_tells_who_made_it() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = sikemux_process::files::real_path(root.path()).unwrap();
+        git_in(&dir, &["init", "-q", "-b", "main"]);
+        git_in(&dir, &["config", "user.name", "t"]);
+        git_in(&dir, &["config", "user.email", "t@t"]);
+        git_in(&dir, &["config", "sikemux.attribution", "false"]);
+        commit(&dir, "base.txt");
+        git_in(&dir, &["checkout", "-qb", "work"]);
+        let forged = commit(&dir, "forged.txt");
+        let mine = commit(&dir, "mine.txt");
+        let key = iroh::SecretKey::generate();
+        let committer = |chat: &str| Committer {
+            name: "Otter".to_owned(),
+            session: None,
+            chat: chat.to_owned(),
+            cli: "claude".to_owned(),
+            model: None,
+            with: Vec::new(),
+        };
+        put(&dir, &mine, &committer("chat"), &key).unwrap();
+        let stranger = iroh::SecretKey::generate();
+        put(&dir, &forged, &committer("forger"), &stranger).unwrap();
+        git_in(&dir, &["checkout", "-q", "main"]);
+        commit(&dir, "theirs.txt");
+        git_in(&dir, &["rebase", "-q", "main", "work"]);
+
+        let signing = Signing {
+            hosts: vec![key.public()],
+            key: Some(key),
+        };
+        let made_by = |commit: &str| {
+            let id = git_in(&dir, &["rev-parse", commit]);
+            of_signed(&dir, &id, &signing).map(|by| by.chat)
+        };
+        assert_ne!(git_in(&dir, &["rev-parse", "work"]), mine);
+        assert_eq!(made_by("work").as_deref(), Some("chat"));
+        assert_eq!(made_by("work~1"), None);
+        assert_eq!(read(&dir, "work", &signing.hosts).unwrap().chat, "chat");
+
+        std::fs::write(dir.join("mine.txt"), "edited").unwrap();
+        git_in(&dir, &["commit", "-qa", "--amend", "--no-edit"]);
+        assert_eq!(made_by("work"), None);
     }
 }

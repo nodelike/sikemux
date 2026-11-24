@@ -16,7 +16,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use super::committer;
-use super::footer::verified;
+use super::footer::{read_commit, verified};
 use super::land;
 use super::note;
 use super::owners::{git, run};
@@ -105,6 +105,35 @@ impl Signing {
         }
         let agents = trailers::agents(message);
         (!agents.is_empty()).then_some(agents)
+    }
+
+    /// Puts `from`'s notes on `to`, signed for it.
+    pub fn carry_notes(&self, top: &Path, from: &str, to: &str) {
+        let (Ok((was_tree, was_parents, _)), Ok((tree, parents, _))) =
+            (read_commit(top, from), read_commit(top, to))
+        else {
+            return;
+        };
+        let was = Commit {
+            tree: &was_tree,
+            parents: &was_parents,
+        };
+        let made_of = Commit {
+            tree: &tree,
+            parents: &parents,
+        };
+        let (key, hosts) = (self.key.as_ref(), &self.hosts);
+        carry_note::<note::Note>(top, NOTES_REF, from, &was, to, &made_of, key, hosts);
+        carry_note::<committer::Committer>(
+            top,
+            COMMITTERS_REF,
+            from,
+            &was,
+            to,
+            &made_of,
+            key,
+            hosts,
+        );
     }
 }
 
@@ -869,7 +898,7 @@ pub fn replay(
     commits: &[&Unpushed],
     clash: &str,
 ) -> Result<String, String> {
-    let (key, hosts) = (&signing.key, &signing.hosts);
+    let key = &signing.key;
     let acting = crate::git_guard::identity::actor_of(top);
     let mut onto = onto.to_owned();
     for commit in commits {
@@ -980,26 +1009,7 @@ pub fn replay(
             ));
         }
         let made = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        carry_note::<note::Note>(
-            top,
-            NOTES_REF,
-            id,
-            &was,
-            &made,
-            &made_of,
-            key.as_ref(),
-            hosts,
-        );
-        carry_note::<committer::Committer>(
-            top,
-            COMMITTERS_REF,
-            id,
-            &was,
-            &made,
-            &made_of,
-            key.as_ref(),
-            hosts,
-        );
+        signing.carry_notes(top, id, &made);
         onto = made;
     }
     Ok(onto)
