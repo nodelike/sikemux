@@ -377,7 +377,6 @@ impl Claude {
             "--replay-user-messages",
             "--setting-sources=user,project,local",
             "--allow-dangerously-skip-permissions",
-            "--prompt-suggestions",
             "--thinking-display",
             "summarized",
             "--disallowedTools",

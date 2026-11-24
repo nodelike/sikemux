@@ -23,6 +23,7 @@ use super::super::super::states::{self, Held, Subagent, Task as TaskState};
 use super::super::super::Respond;
 use super::super::json::{self, text};
 use super::super::pending::{Answered, Purpose};
+use super::super::predict;
 use super::super::process::Reads;
 use super::super::session::{Sink, TurnEnd};
 use super::apps::{self, Apps, Shows};
@@ -127,9 +128,6 @@ pub struct Reader {
     /// MCP apps whose pages are being read, and what Claude said since, which waits for them.
     reading_apps: usize,
     held_back: VecDeque<Message>,
-    /// The last turn to end was the person's and it finished, so what Claude predicts they
-    /// send next is shown.
-    suggests: bool,
 }
 
 /// What the reader knows of the session, as plain data, for a core that
@@ -186,6 +184,12 @@ pub(crate) struct ReaderState {
     /// compaction cost cannot be told apart from what they did.
     #[serde(default)]
     others_called: bool,
+    /// How many turns ended, which tells a late suggestion from the last turn's.
+    #[serde(default)]
+    turns_ended: u64,
+    /// The account's plan is used up, so each call to the model is billed to its usage credits.
+    #[serde(default)]
+    on_credits: bool,
 }
 
 /// The answer to the hook before a tool that has Claude not run it, and tells it `reason`.
@@ -497,6 +501,8 @@ impl Reader {
                 calls: Vec::new(),
                 compactions: Vec::new(),
                 others_called: false,
+                turns_ended: 0,
+                on_credits: false,
             },
         )
     }
@@ -521,7 +527,6 @@ impl Reader {
             apps,
             reading_apps: 0,
             held_back: VecDeque::new(),
-            suggests: false,
         }
     }
 
@@ -640,20 +645,18 @@ impl Reader {
                     self.sink.letter_unread(letter);
                 }
             }
-            Message::RateLimitEvent { rate_limit_info } => self
-                .sink
-                .plan_limits(crate::agent_accounts::usage::claude_live(&rate_limit_info)),
+            Message::RateLimitEvent { rate_limit_info } => {
+                self.data.on_credits = rate_limit_info
+                    .get("isUsingOverage")
+                    .and_then(Value::as_bool)
+                    == Some(true);
+                self.sink
+                    .plan_limits(crate::agent_accounts::usage::claude_live(&rate_limit_info));
+            }
             Message::ConversationReset => {
+                self.data.turns_ended += 1;
                 self.data.task_plan.clear();
                 self.send(None, self.data.task_plan.plan());
-            }
-            Message::PromptSuggestion { suggestion } => {
-                if std::mem::take(&mut self.suggests) && !self.turn_running() {
-                    self.sink.update(
-                        &self.data.session_id,
-                        sikemux_fold::update::prompt_suggestion(&suggestion),
-                    );
-                }
             }
             Message::Other => {}
         }
@@ -787,16 +790,19 @@ impl Reader {
     }
 
     fn purpose_answered(&self, purpose: &Purpose, result: Answered) {
-        if *purpose == Purpose::Title {
-            let title = result
-                .ok()
-                .and_then(|named| feed::title(text(&named, "title")?));
-            if let Some(title) = title {
-                self.sink.update(
-                    &self.data.session_id,
-                    sikemux_fold::update::session_title(&title),
-                );
-            }
+        let Ok(answer) = result else { return };
+        let update = match purpose {
+            Purpose::Title => text(&answer, "title")
+                .and_then(feed::title)
+                .map(|title| sikemux_fold::update::session_title(&title)),
+            Purpose::Suggestion(after) => (*after == self.data.turns_ended && !self.turn_running())
+                .then(|| text(&answer, "response").and_then(predict::message))
+                .flatten()
+                .map(sikemux_fold::update::prompt_suggestion),
+            _ => None,
+        };
+        if let Some(update) = update {
+            self.sink.update(&self.data.session_id, update);
         }
     }
 
@@ -1178,7 +1184,6 @@ impl Reader {
     }
 
     fn result(&mut self, result: &TurnResult) {
-        self.suggests = false;
         if let Some(usage) = result.model_usage.as_ref() {
             self.learn_windows(usage);
             if let Some(size) = self.window_of(usage) {
@@ -1219,9 +1224,13 @@ impl Reader {
                 None
             }
         };
+        self.data.turns_ended += 1;
         let Some(mut turn) = ended else {
             if !self.turn_running() {
                 self.sink.work_ended(StopReason::EndTurn);
+                if !result.is_error {
+                    self.suggest_next();
+                }
             }
             return;
         };
@@ -1265,8 +1274,24 @@ impl Reader {
             TurnEnd::Completed(turn_answer(stop_reason(result)))
         };
         self.data.offline_retries = false;
-        self.suggests = !turn.cancelled && matches!(end, TurnEnd::Completed(_));
+        let finished = !turn.cancelled && matches!(end, TurnEnd::Completed(_));
         self.sink.end_turn(turn.number, end);
+        if finished {
+            self.suggest_next();
+        }
+    }
+
+    /// Asks Claude what the person sends next. Claude Code's own suggestions drop one-word ones
+    /// and stop near a usage limit, so it is asked as a side question instead, which is kept out
+    /// of the conversation. Usage credits are not spent on it.
+    fn suggest_next(&self) {
+        if self.data.on_credits {
+            return;
+        }
+        let _ = self.control.send_for(
+            json!({ "subtype": "side_question", "question": predict::QUESTION }),
+            Purpose::Suggestion(self.data.turns_ended),
+        );
     }
 
     fn quiet(&self) -> bool {

@@ -12,6 +12,7 @@ mod parts;
 mod patch;
 mod pending;
 pub mod pi;
+mod predict;
 pub mod process;
 mod rpc;
 mod rpc_driver;

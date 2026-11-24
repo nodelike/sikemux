@@ -28,6 +28,7 @@ use super::file_link;
 use super::models::Models;
 use super::parts::{parts, picture, Part};
 use super::pending::{Answered, Purpose};
+use super::predict;
 use super::process::{Lines, Process, Reading, Released, Writer};
 use super::rpc::Rpc;
 use super::rpc_driver::{self, RpcAgent};
@@ -39,10 +40,6 @@ use commands::Command;
 use state::{user_input_told, Predict, Reply, Session};
 
 type Driver = rpc_driver::Driver<Session>;
-
-/// Codex has no suggestion of its own, so a finished turn is followed by one cheap question on
-/// the same thread. Codex releases without `thread/sample` refuse it, and nothing is shown.
-const PREDICT_NEXT: &str = "Predict the next message the user will send in this conversation. Reply with only that message, written as the user would type it, in under 20 words. Do not use tools. If there is no clear next step, reply with nothing.";
 
 impl RpcAgent for Session {
     type Reply = Asked;
@@ -60,6 +57,8 @@ impl RpcAgent for Session {
             .and_then(Value::as_str)
     }
 
+    /// Asks for the next message on the same thread. Codex releases without `thread/sample`
+    /// refuse it, and nothing is shown.
     fn carry_out(driver: &Driver, Predict(turn): Predict) {
         let driver = driver.clone();
         tokio::spawn(async move {
@@ -67,14 +66,15 @@ impl RpcAgent for Session {
             let params = json!({
                 "threadId": thread,
                 "expectedTurnId": turn,
-                "prompt": PREDICT_NEXT,
+                "prompt": predict::QUESTION,
                 "effort": "low",
             });
             if let Ok(answer) = driver.rpc.request("thread/sample", params).await {
-                if let Some(text) = answer.get("text").and_then(Value::as_str) {
+                let said = answer.get("text").and_then(Value::as_str);
+                if let Some(message) = said.and_then(predict::message) {
                     driver
                         .sink
-                        .update(&thread, sikemux_fold::update::prompt_suggestion(text));
+                        .update(&thread, sikemux_fold::update::prompt_suggestion(message));
                 }
             }
         });

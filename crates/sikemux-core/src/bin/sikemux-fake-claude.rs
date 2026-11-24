@@ -12,7 +12,8 @@
 //! - `count` says how many messages the person sent before this one;
 //! - `limit` fails the way Claude Code does when the account is out of usage;
 //! - `question` asks three questions, or `question {...}` asks the AskUserQuestion input given;
-//! - `suggest WORDS` says `Done.` and, started with `--prompt-suggestions`, predicts WORDS next;
+//! - `suggest WORDS` says `Done.` and answers the side question after it that the person sends
+//!   WORDS next;
 //! - `apps N` says a line and calls the `counter` server's `show_counter` N times, then says it
 //!   is done, a tool that
 //!   names an MCP App's page, after saying at the turn's start that it hosts MCP Apps as Claude
@@ -103,8 +104,8 @@ struct Claude {
     out: Mutex<std::io::Stdout>,
     waiting: Mutex<HashMap<String, Sender<Value>>>,
     interrupted: AtomicBool,
-    /// Started with `--prompt-suggestions`, so it predicts the next prompt after a turn.
-    suggesting: bool,
+    /// What it predicts the person sends next, when a side question asks.
+    next: Mutex<Option<String>>,
     /// How many times an app called `add_one`.
     added: AtomicUsize,
     session_id: String,
@@ -530,15 +531,11 @@ impl Claude {
             }
             "suggest" => {
                 self.say(&message_id, "Done.");
+                let suggestion: Vec<&str> = words
+                    .take_while(|word| !word.starts_with("sikemux://"))
+                    .collect();
+                *self.next.locked() = Some(suggestion.join(" "));
                 self.finish(uuid, None);
-                if self.suggesting {
-                    let suggestion: Vec<&str> = words
-                        .take_while(|word| !word.starts_with("sikemux://"))
-                        .collect();
-                    self.send(
-                        json!({ "type": "prompt_suggestion", "suggestion": suggestion.join(" ") }),
-                    );
-                }
             }
             "limit" => {
                 let resets_at = sikemux_process::clock::epoch_secs() + 3600;
@@ -700,6 +697,10 @@ impl Claude {
                     { "name": "count", "annotations": { "readOnly": true } },
                 ],
             }] }),
+            Some("side_question") => {
+                let next = self.next.locked().take().unwrap_or_default();
+                json!({ "response": format!("<next>{next}</next>"), "synthetic": false })
+            }
             Some("mcp_read_resource") if request["uri"] == APP_URI => json!({
                 "contents": [{ "uri": APP_URI, "mimeType": "text/html;profile=mcp-app", "text": APP_PAGE }],
             }),
@@ -918,7 +919,7 @@ fn main() {
         out: Mutex::new(std::io::stdout()),
         waiting: Mutex::new(HashMap::new()),
         interrupted: AtomicBool::new(false),
-        suggesting: args.iter().any(|arg| arg == "--prompt-suggestions"),
+        next: Mutex::new(None),
         added: AtomicUsize::new(0),
         session_id,
         transcript,

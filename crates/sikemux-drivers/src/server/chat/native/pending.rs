@@ -47,6 +47,8 @@ pub enum Purpose {
     },
     /// A name for the chat.
     Title,
+    /// What the person sends next, after this many turns ended.
+    Suggestion(u64),
     /// Asking whether the agent has settled, since this many events changed the answer.
     Settle(u64),
     /// How much of the context window the session uses now.
