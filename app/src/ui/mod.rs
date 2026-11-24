@@ -304,15 +304,13 @@ pub fn plan_lapsed_mark(size: f32, cx: &App) -> Svg {
     icon(Icon::Pause, size).text_color(Tokens::get(cx).warn)
 }
 
-/// A page's site icon, or a filled square in its place while the page has none.
-pub fn favicon(icon: Option<std::sync::Arc<gpui_kit::Image>>, size: f32, cx: &App) -> AnyElement {
-    match icon {
-        Some(icon) => img(icon).size(px(size)).flex_none().into_any_element(),
-        None => div()
-            .size(px(size))
+/// A page's site icon, or a globe while the page has none.
+pub fn favicon(site: Option<std::sync::Arc<gpui_kit::Image>>, size: f32, cx: &App) -> AnyElement {
+    match site {
+        Some(site) => img(site).size(px(size)).flex_none().into_any_element(),
+        None => icon(Icon::Globe, size)
+            .text_color(Tokens::get(cx).text_tertiary)
             .flex_none()
-            .rounded(theme::radius_1())
-            .bg(Tokens::get(cx).text_disabled)
             .into_any_element(),
     }
 }

@@ -1,0 +1,36 @@
+# The desk's strip of tabs: a few, then more than fit, at rest and under the pointer.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies desk-tabs.json
+project storefront shop-site
+chat Kai
+title "Storefront"
+settle 4
+say "Bring the storefront up."
+front Kai
+hold 8
+key cmd-shift-t
+hold 1
+settle 1
+snap few
+move 960,63 0.3
+wait 0.5
+snap few-hover
+move 600,700 0.3
+key cmd-shift-t
+hold 1
+key cmd-shift-t
+hold 1
+key cmd-shift-t
+hold 1
+key cmd-shift-t
+hold 1
+key cmd-shift-t
+hold 1
+settle 2
+snap many
+move 890,63 0.3
+wait 0.5
+snap many-hover

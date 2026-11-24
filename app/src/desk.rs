@@ -41,7 +41,7 @@ use crate::core::{Ask, Target, TerminalAsk};
 use crate::icons::Icon;
 use crate::tabs::shows;
 use crate::theme::{
-    radius_2, radius_3, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_6, TEXT_XS,
+    radius_2, radius_3, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_4, TEXT_XS,
 };
 use crate::toast;
 use crate::ui::{self, IconButton};
@@ -93,8 +93,8 @@ pub struct Desks {
     /// desk is in the tab in front.
     page_wanted: Option<(String, Instant)>,
     pub(crate) floating: Option<address::Floating>,
-    /// Each desk's tab strip, and the tab it last scrolled into view.
-    tab_scrolls: std::cell::RefCell<HashMap<String, (gpui_kit::ScrollHandle, Option<usize>)>>,
+    /// How each desk's tab strip is scrolled.
+    tab_scrolls: std::cell::RefCell<HashMap<String, TabScroll>>,
     /// What the engine tells the window, until the window listens.
     hearing: Option<mpsc::UnboundedReceiver<Heard>>,
     told: mpsc::UnboundedSender<Heard>,
@@ -105,6 +105,14 @@ pub struct Desks {
     /// What the pages were last told of their pins.
     pins_shown: pins::PinsShown,
     _theming: Subscription,
+}
+
+/// How a strip of tabs is scrolled, with the tab it last brought into view and how wide it
+/// was then.
+#[derive(Clone, Default)]
+struct TabScroll {
+    handle: gpui_kit::ScrollHandle,
+    shown: std::rc::Rc<std::cell::Cell<(Option<usize>, gpui_kit::Pixels)>>,
 }
 
 /// The window listening to its desks' engine.
@@ -2129,11 +2137,9 @@ const KIND_GAP: f32 = 2.;
 const SWITCH_H: f32 = HEAD - GAP;
 const SWITCH_INSET: f32 = (SWITCH_H - KIND_H) / 2.;
 const SWITCH_W: f32 = KINDS * KIND_W + (KINDS - 1.) * KIND_GAP + 2. * SWITCH_INSET;
-/// A desk tab's width, and the narrowest it gets before the strip scrolls, as the Mac's.
+/// A desk tab's width, and the narrowest it gets before the strip scrolls.
 const PILL_W: f32 = 180.;
 const PILL_MIN: f32 = 120.;
-/// How far a tab not in front shrinks: to its mark.
-const PILL_MARK: f32 = 32.;
 /// The hover group of a desk tab, whose × shows while the pointer is on it.
 const DESK_PILL: &str = "desk-pill";
 
@@ -2255,6 +2261,10 @@ fn head(
             _ if page.loading => Spinner::new()
                 .with_size(px(13.))
                 .color(Tokens::get(cx).text_tertiary)
+                .into_any_element(),
+            None if page.local_file.is_some() => ui::icon(Icon::Tabs, 13.)
+                .text_color(Tokens::get(cx).text_tertiary)
+                .flex_none()
                 .into_any_element(),
             favicon => ui::favicon(favicon, 13., cx),
         };
@@ -2839,11 +2849,7 @@ fn stepped_edge(
 
 /// The row a desk's tabs sit in, scrolling sideways on the desk's own handle.
 fn tab_row(bench: &Workbench, row: &str, cx: &App) -> gpui_kit::Stateful<gpui_kit::Div> {
-    let scroll = (bench.desks.read(cx).tab_scrolls.borrow_mut())
-        .entry(row.to_owned())
-        .or_default()
-        .0
-        .clone();
+    let scroll = tab_scroll(bench, row, cx);
     div()
         .id(SharedString::from(format!("desk-tabs-{row}")))
         .flex_initial()
@@ -2853,10 +2859,18 @@ fn tab_row(bench: &Workbench, row: &str, cx: &App) -> gpui_kit::Stateful<gpui_ki
         .items_center()
         .gap(SPACE_1)
         .overflow_x_scroll()
-        .track_scroll(&scroll)
+        .track_scroll(&scroll.handle)
 }
 
-/// A desk's strip of tabs from `tab_row`, scrolled to show the tab at `front` when it changes.
+fn tab_scroll(bench: &Workbench, row: &str, cx: &App) -> TabScroll {
+    (bench.desks.read(cx).tab_scrolls.borrow_mut())
+        .entry(row.to_owned())
+        .or_default()
+        .clone()
+}
+
+/// A desk's strip of tabs from `tab_row`, scrolled to show the tab at `front` when that tab or
+/// the strip's width changes.
 fn tab_strip(
     bench: &Workbench,
     row: &str,
@@ -2864,14 +2878,19 @@ fn tab_strip(
     front: Option<usize>,
     cx: &App,
 ) -> gpui_kit::Div {
-    if let Some((scroll, shown)) = bench.desks.read(cx).tab_scrolls.borrow_mut().get_mut(row) {
-        if *shown != front {
-            *shown = front;
-            if let Some(front) = front {
-                scroll.scroll_to_item(front);
+    let TabScroll { handle, shown } = tab_scroll(bench, row, cx);
+    // Laid out before the tabs, so they scroll in the frame the strip's width changes.
+    let keep_front_in_view = gpui_kit::canvas(
+        move |bounds, _, _| {
+            let now = (front, bounds.size.width);
+            if shown.replace(now) != now {
+                if let Some(front) = front {
+                    handle.scroll_to_item(front);
+                }
             }
-        }
-    }
+        },
+        |_, _, _, _| {},
+    );
     div()
         .relative()
         .flex_initial()
@@ -2879,6 +2898,7 @@ fn tab_strip(
         .h_full()
         .flex()
         .pl(SPACE_1H)
+        .child(keep_front_in_view.absolute().inset_0())
         .child(tabs)
         .child(crate::track::sideways_scroller())
         .children(ui::spot(|| format!("desk-tabs-{row}")).map(|spot| {
@@ -2906,20 +2926,18 @@ fn pill(
     cx: &App,
 ) -> gpui_kit::Stateful<gpui_kit::Div> {
     let close_id = SharedString::from(format!("{id}-close"));
-    pill_face(id, mark, label, shown, at_work, cx)
-        .group_hover(DESK_PILL, |pill| pill.pr(SPACE_6))
-        .child(
-            ui::hover_actions(DESK_PILL)
-                .right(px(2.))
-                .top_0()
-                .bottom_0()
-                .child(
-                    div()
-                        .relative()
-                        .child(ui::close_button(close_id, t!("Close tab"), close, cx))
-                        .children(close_spot),
-                ),
-        )
+    pill_face(id, mark, label, shown, at_work, true, cx).child(
+        ui::hover_actions(DESK_PILL)
+            .right(px(2.))
+            .top_0()
+            .bottom_0()
+            .child(
+                div()
+                    .relative()
+                    .child(ui::close_button(close_id, t!("Close tab"), close, cx))
+                    .children(close_spot),
+            ),
+    )
 }
 
 fn pill_face(
@@ -2928,9 +2946,13 @@ fn pill_face(
     label: String,
     shown: bool,
     at_work: Option<(Hsla, AnyElement)>,
+    closes: bool,
     cx: &App,
 ) -> gpui_kit::Stateful<gpui_kit::Div> {
     let t = Tokens::get(cx).clone();
+    // The name gives the × its room, unless the mark that gives way to it already holds it.
+    // Padding the tab instead would change how much of it shrinks, and so its width.
+    let gives_room = closes && at_work.is_none();
     let rest = t.text_primary.opacity(0.05);
     let tinted = at_work.as_ref().map(|(tint, _)| *tint);
     div()
@@ -2938,7 +2960,7 @@ fn pill_face(
         .group(DESK_PILL)
         .flex_initial()
         .w(px(PILL_W))
-        .min_w(px(if shown { PILL_MIN } else { PILL_MARK }))
+        .min_w(px(PILL_MIN))
         .relative()
         .h(px(24.))
         .pl(SPACE_2)
@@ -2971,7 +2993,10 @@ fn pill_face(
                 .min_w_0()
                 .overflow_hidden()
                 .text_ellipsis()
-                .whitespace_nowrap(),
+                .whitespace_nowrap()
+                .when(gives_room, |name| {
+                    name.group_hover(DESK_PILL, |name| name.pr(SPACE_4))
+                }),
         )
         .children(at_work.map(|(_, mark)| ui::gives_way(DESK_PILL, mark)))
 }
@@ -3157,6 +3182,7 @@ fn calls_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> An
                 crate::calls::tab_title(call),
                 Some(&call.id) == opened.as_ref(),
                 None,
+                false,
                 cx,
             )
             .clicks(move |_, _, cx| cards.update(cx, |cards, cx| cards.open(&id, cx))),
