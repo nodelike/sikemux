@@ -37,6 +37,10 @@ use sikemux_view::layout::{Pane, PaneKind};
 use sikemux_wire::protocol::AgentStatus;
 use tokio::sync::mpsc;
 
+use sikemux_calls::call;
+use sikemux_calls::layout::DeskModParams;
+
+use crate::agents::rows::AgentRow;
 use crate::core::{Ask, Target, TerminalAsk};
 use crate::icons::Icon;
 use crate::tabs::shows;
@@ -69,6 +73,8 @@ pub struct Desks {
     pub(crate) page_files: Arc<PageFiles>,
     /// The files and task terminals on each agent's desk, beside its pages, in the order they came.
     pub(crate) items: HashMap<String, Vec<DeskItem>>,
+    /// The mod to show once its core lists it on the agent's desk.
+    mod_wanted: Option<WantedMod>,
     /// The item each desk shows in front of its pages, while it shows one.
     pub(crate) front: HashMap<String, DeskItem>,
     /// Each desk's tabs, keyed by [`tab_key`], in the order they came onto it.
@@ -190,12 +196,26 @@ pub(crate) async fn show_once(
 }
 
 /// What a desk holds besides its pages: a file in an editor, the terminal of a task its
-/// agent started, or what a link named, shown among its pages: a pull request, issue or run,
-/// or a plugin's own item such as a Jira issue.
+/// agent started, or a mod.
 #[derive(Clone, PartialEq)]
 pub enum DeskItem {
     File(PathBuf),
-    Terminal { session: u64, title: String },
+    Terminal {
+        session: u64,
+        title: String,
+    },
+    /// A mod, by its id, which its core keeps on the desk.
+    Mod(String),
+}
+
+/// An agent and the tab holding it: its strip, the tab and its view there.
+type PlacedAgent = (String, (Strip, String, String));
+
+/// A mod on its way onto an agent's desk, in front of what is there or behind it.
+struct WantedMod {
+    agent: String,
+    id: String,
+    front: bool,
 }
 
 impl DeskItem {
@@ -203,6 +223,7 @@ impl DeskItem {
         match self {
             DeskItem::File(_) => DeskKind::Files,
             DeskItem::Terminal { .. } => DeskKind::Terminals,
+            DeskItem::Mod(_) => DeskKind::Mods,
         }
     }
 
@@ -210,6 +231,7 @@ impl DeskItem {
         match self {
             DeskItem::File(path) => format!("{FILE_TAB}{}", path.display()),
             DeskItem::Terminal { session, .. } => format!("{TERMINAL_TAB}{session}"),
+            DeskItem::Mod(id) => format!("{MOD_TAB}{id}"),
         }
     }
 
@@ -220,6 +242,7 @@ impl DeskItem {
                 DeskItem::Terminal { session: one, .. },
                 DeskItem::Terminal { session: other, .. },
             ) => one == other,
+            (DeskItem::Mod(one), DeskItem::Mod(other)) => one == other,
             _ => false,
         }
     }
@@ -243,10 +266,11 @@ impl Desks {
 }
 
 /// How a desk's tabs are keyed in the order they came: a page by its id, a file by its path,
-/// a terminal by its session.
+/// a terminal by its session, a mod by its id.
 const PAGE_TAB: &str = "page:";
 const FILE_TAB: &str = "file:";
 const TERMINAL_TAB: &str = "terminal:";
+const MOD_TAB: &str = "mod:";
 const SIM_TAB: &str = "simulator";
 
 /// How many site icons the desks keep decoded.
@@ -259,14 +283,15 @@ const DESKS_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
 const PAGE_WANTED_FOR: Duration = Duration::from_secs(3);
 
 /// What a desk shows, as its switch names it: its pages, its files, its task terminals, its
-/// simulator, or the calls of its project. Only the pages, the simulator and the calls are kept;
-/// files and terminals are shown by bringing one to the front.
+/// mods, its simulator, or the calls of its project. Only the pages, the simulator and the calls
+/// are kept; files, terminals and mods are shown by bringing one to the front.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum DeskKind {
     #[default]
     Pages,
     Files,
     Terminals,
+    Mods,
     Simulator,
     Calls,
     Tasks,
@@ -347,6 +372,7 @@ impl Desks {
             finished_runs: HashSet::new(),
             page_files,
             items: HashMap::new(),
+            mod_wanted: None,
             front: HashMap::new(),
             order: HashMap::new(),
             sim_tabs: HashSet::new(),
@@ -450,9 +476,36 @@ impl Desks {
         {
             return *kind;
         }
-        self.front
-            .get(agent)
+        self.front_item(agent)
             .map_or(DeskKind::Pages, DeskItem::kind)
+    }
+
+    /// The item in front of the agent's pages; a desk with nothing but mods shows its last one.
+    fn front_item(&self, agent: &str) -> Option<&DeskItem> {
+        let items = || self.items.get(agent).into_iter().flatten().rev();
+        let no_pages = || (self.strips.get(agent)).is_none_or(|strip| strip.tabs.is_empty());
+        (self.front.get(agent)).or_else(|| {
+            items()
+                .find(|item| matches!(item, DeskItem::Mod(_)))
+                .filter(|_| no_pages())
+        })
+    }
+
+    /// The mods on the agent's desk.
+    fn mods_on<'a>(&'a self, agent: &str) -> impl Iterator<Item = &'a str> {
+        let items = self.items.get(agent).into_iter().flatten();
+        items.filter_map(|item| match item {
+            DeskItem::Mod(id) => Some(id.as_str()),
+            _ => None,
+        })
+    }
+
+    /// The mod the agent's desk shows now.
+    pub(crate) fn mod_shown(&self, agent: &str) -> Option<&str> {
+        match self.front_item(agent)? {
+            DeskItem::Mod(id) if self.kind_of(agent) == DeskKind::Mods => Some(id),
+            _ => None,
+        }
     }
 
     /// Asks for the agent's page to take the keys once its desk is in the tab in front.
@@ -594,6 +647,7 @@ impl Desks {
                         title: title.clone(),
                         running: false,
                     }),
+                    DeskItem::Mod(_) => {}
                 }
             }
         }
@@ -609,7 +663,7 @@ impl Desks {
     fn files(&self) -> impl Iterator<Item = &PathBuf> {
         self.items.values().flatten().filter_map(|item| match item {
             DeskItem::File(path) => Some(path),
-            DeskItem::Terminal { .. } => None,
+            DeskItem::Terminal { .. } | DeskItem::Mod(_) => None,
         })
     }
 }
@@ -1050,54 +1104,63 @@ impl Workbench {
         if !empty {
             return;
         }
-        if let Some((strip, tab, desk)) = self.desk_place(agent) {
+        let Some((core, view)) = self.home_of(agent) else {
+            return;
+        };
+        if let Some((strip, tab, desk)) = desk_place_in(view, agent) {
             if !self.panes.shutting(&desk) {
-                self.shut_desk(Target::here(&self.asks), strip, tab, desk, cx);
+                self.shut_desk(core, strip, tab, desk, cx);
             }
         }
     }
 
-    /// The project tab holding the agent's desk, its strip and the desk's view there.
-    fn desk_place(&self, agent: &str) -> Option<(Strip, String, String)> {
-        let layout = &self.this_view()?.layout;
-        layout.projects.iter().find_map(|(project, strip)| {
-            strip.tabs.iter().find_map(|tab| {
-                view_of(&tab.pane, PaneKind::Desk, agent)
-                    .map(|view| (Strip::Project(project.clone()), tab.id.clone(), view))
-            })
-        })
+    /// The host whose strips hold the agent, this one or the one in front, and its view.
+    fn home_of(&self, agent: &str) -> Option<(Target, &DeviceView)> {
+        let here = (self.this_view()).filter(|view| agent_place_in(view, agent).is_some());
+        match here {
+            Some(view) => Some((Target::here(&self.asks), view)),
+            None => Some((self.target(), self.shown()?)),
+        }
     }
 
     /// The project tab holding the agent, its strip and its view there, wherever it is.
     fn agent_place(&self, agent: &str) -> Option<(Strip, String, String)> {
-        agent_place_in(self.this_view()?, agent)
+        agent_place_in(self.home_of(agent)?.1, agent)
     }
 
     /// Whether the agent's desk is in the tab in front, or about to be, as `show_pages` brings
     /// it out beside the agent there. The engine holds a new tab back until it knows.
     fn desk_in_sight(&self, agent: &str) -> bool {
         self.tab().is_some_and(|tab| {
-            view_of(&tab.pane, PaneKind::Desk, agent).is_some()
+            self.desk_in_front(agent)
                 || (!self.desk_open_anywhere(agent)
                     && view_of(&tab.pane, PaneKind::Agent, agent).is_some())
         })
     }
 
+    /// Whether the agent's desk is out in the tab in front.
+    pub(crate) fn desk_in_front(&self, agent: &str) -> bool {
+        (self.tab()).is_some_and(|tab| view_of(&tab.pane, PaneKind::Desk, agent).is_some())
+    }
+
     pub(crate) fn desk_open_anywhere(&self, agent: &str) -> bool {
-        self.this_view().is_some_and(|view| {
-            view.layout.projects.values().any(|strip| {
-                strip
-                    .tabs
-                    .iter()
-                    .any(|tab| view_of(&tab.pane, PaneKind::Desk, agent).is_some())
-            })
-        })
+        (self.home_of(agent)).is_some_and(|(_, view)| desk_place_in(view, agent).is_some())
     }
 
     fn reveal_desk(&self, agent: &str) {
-        if let Some((strip, tab, view)) = self.agent_place(agent) {
-            let here = Target::here(&self.asks);
-            self.split_desk(&here, &strip, &tab, &view, agent, true);
+        let Some((core, view)) = self.home_of(agent) else {
+            return;
+        };
+        if let Some((strip, tab, view)) = agent_place_in(view, agent) {
+            self.split_desk(&core, &strip, &tab, &view, agent, true);
+        }
+    }
+
+    /// Opens the mod `id` on the desk of the agent in front, else of the one that worked last, and
+    /// shows it there.
+    pub(crate) fn open_mod(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some((_, _, agent)) = self.nearest_agent_anywhere(cx) {
+            self.open_mod_on(&agent, id, true, cx);
         }
     }
 
@@ -1306,6 +1369,15 @@ impl Workbench {
         let closing = match &item {
             DeskItem::File(path) => vec![crate::editor::FileKey::new(self.place(), path)],
             DeskItem::Terminal { .. } => Vec::new(),
+            DeskItem::Mod(id) => {
+                if let Some((core, _)) = self.home_of(agent) {
+                    core.call_typed::<call::CloseDeskMod>(DeskModParams {
+                        agent: agent.to_owned(),
+                        id: id.clone(),
+                    });
+                }
+                return;
+            }
         };
         let agent = agent.to_owned();
         crate::editor::close_unsaved(
@@ -1318,7 +1390,7 @@ impl Workbench {
                         DeskItem::Terminal { session, .. } => {
                             desks.shells.remove(&session).then_some(session)
                         }
-                        DeskItem::File(_) => None,
+                        DeskItem::File(_) | DeskItem::Mod(_) => None,
                     }
                 });
                 if let Some(session) = shell {
@@ -1544,7 +1616,7 @@ impl Workbench {
     }
 
     /// The agent in the pane the person last used, else the tab's first agent, with its view.
-    fn front_agent(&self) -> Option<(String, String, String)> {
+    pub(crate) fn front_agent(&self) -> Option<(String, String, String)> {
         let tab = self.tab()?;
         let focused = self
             .panes
@@ -2286,7 +2358,9 @@ pub fn pane(
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     if let crate::hosts::Place::Account(host) = bench.place() {
-        return elsewhere(bench, &host, cx);
+        if bench.desks.read(cx).mods_on(agent).next().is_none() {
+            return elsewhere(bench, &host, cx);
+        }
     }
     let kind = bench.desk_kind(agent, cx);
     let head = head(bench, agent, kind, cx);
@@ -2294,7 +2368,7 @@ pub fn pane(
         DeskKind::Simulator => simulator_desk(bench, agent, cx),
         DeskKind::Calls => calls_desk(bench, agent, cx),
         DeskKind::Tasks => tasks_desk(bench, agent, cx),
-        DeskKind::Pages | DeskKind::Files | DeskKind::Terminals => {
+        DeskKind::Pages | DeskKind::Files | DeskKind::Terminals | DeskKind::Mods => {
             pages_desk(bench, agent, window, cx)
         }
     };
@@ -2323,7 +2397,7 @@ fn head(
 ) -> gpui_kit::Div {
     let desks = bench.desks.read(cx);
     let strip = desks.strips.get(agent).cloned();
-    let front_item = desks.front.get(agent).cloned();
+    let front_item = desks.front_item(agent).cloned();
     let held: Vec<DeskItem> = desks.items.get(agent).cloned().unwrap_or_default();
     let simulator = cfg!(target_os = "macos")
         && (desks.holds_simulator(agent) || bench.sims.read(cx).holds(agent));
@@ -2335,7 +2409,7 @@ fn head(
     let front_item = front_item.as_ref();
     let lit = matches!(
         kind,
-        DeskKind::Pages | DeskKind::Files | DeskKind::Terminals
+        DeskKind::Pages | DeskKind::Files | DeskKind::Terminals | DeskKind::Mods
     );
     let root = bench.agent_by_id(agent).and_then(|row| {
         bench
@@ -2447,6 +2521,14 @@ fn head(
                     .into_any_element(),
                 title.clone(),
             ),
+            DeskItem::Mod(id) => {
+                let info = bench.mod_info(id);
+                let icon = crate::mods::icon_named(info.and_then(|info| info.icon.as_deref()));
+                (
+                    ui::icon(icon, 13.).flex_none().into_any_element(),
+                    info.map_or_else(|| id.clone(), |info| info.name.clone()),
+                )
+            }
         };
         let (pick_agent, pick_item) = (agent.to_owned(), item.clone());
         let (close_agent, close_item) = (agent.to_owned(), item.clone());
@@ -2613,6 +2695,13 @@ impl Opening {
     }
 }
 
+/// The mods a desk can open, each with its name and icon.
+fn mods_for(bench: &Workbench) -> Vec<(String, String, Icon)> {
+    (bench.mods_here())
+        .map(|info| (info.id.clone(), info.name.clone(), crate::mods::icon(info)))
+        .collect()
+}
+
 /// The + at the end of a desk's tabs, listing what can be opened on it.
 fn add_menu(agent: &str, cx: &Context<Workbench>) -> impl IntoElement {
     let (bench, agent) = (cx.weak_entity(), agent.to_owned());
@@ -2624,7 +2713,12 @@ fn add_menu(agent: &str, cx: &Context<Workbench>) -> impl IntoElement {
             .width(24.)
             .height(24.),
         move |popup, _, cx| {
-            Opening::all().fold(popup, |popup, opening| {
+            let Some(workbench) = bench.upgrade() else {
+                return popup;
+            };
+            let here = workbench.read(cx).place() == crate::hosts::Place::This;
+            let mods = mods_for(workbench.read(cx));
+            let popup = (Opening::all().filter(|_| here)).fold(popup, |popup, opening| {
                 let (bench, agent) = (bench.clone(), agent.clone());
                 popup.item(
                     ui::MenuRow::new(opening.label())
@@ -2704,7 +2798,7 @@ fn pages_desk(
     let t = Tokens::get(cx).clone();
     let desks = bench.desks.read(cx);
     let strip = desks.strips.get(agent).cloned();
-    let front_item = desks.front.get(agent).cloned();
+    let front_item = desks.front_item(agent).cloned();
     let strip = strip.as_deref();
     let front = strip.and_then(|strip| {
         strip
@@ -2724,8 +2818,12 @@ fn pages_desk(
                 &session.to_string(),
                 cx,
             ),
+            DeskItem::Mod(id) => mod_pane(bench, agent, &id, cx),
         };
         return div().flex_1().min_h_0().child(shown).into_any_element();
+    }
+    if let crate::hosts::Place::Account(host) = bench.place() {
+        return elsewhere(bench, &host, cx);
     }
     let no_pages = strip.is_none_or(|strip| strip.tabs.is_empty());
     let page = bench.desks.read(cx).pages.get(agent);
@@ -2829,7 +2927,7 @@ fn pages_desk(
                 }
             }
         }))
-        .when(no_pages, |body| body.child(on_this_desk(agent, cx)))
+        .when(no_pages, |body| body.child(on_this_desk(bench, agent, cx)))
         .children(address::overlay(bench, agent, cx));
     div()
         .flex_1()
@@ -2879,7 +2977,7 @@ fn mod_pane(bench: &Workbench, agent: &str, id: &str, cx: &mut Context<Workbench
 }
 
 /// What an empty desk shows: the same choices as its +.
-fn on_this_desk(agent: &str, cx: &Context<Workbench>) -> impl IntoElement {
+fn on_this_desk(bench: &Workbench, agent: &str, cx: &Context<Workbench>) -> impl IntoElement {
     let rows = Opening::all().map(|opening| {
         let (bench, agent) = (cx.weak_entity(), agent.to_owned());
         ui::Button::new(
@@ -2892,6 +2990,19 @@ fn on_this_desk(agent: &str, cx: &Context<Workbench>) -> impl IntoElement {
         .wide()
         .on_click(move |_, window, cx| {
             let _ = bench.update(cx, |bench, cx| opening.open(bench, &agent, window, cx));
+        })
+    });
+    let mods = mods_for(bench).into_iter().map(|(id, name, icon)| {
+        let (bench, agent) = (cx.weak_entity(), agent.to_owned());
+        ui::Button::new(
+            SharedString::from(format!("desk-open-mod-{id}")),
+            name,
+            ui::Variant::Ghost,
+        )
+        .icon(icon)
+        .wide()
+        .on_click(move |_, _, cx| {
+            let _ = bench.update(cx, |bench, cx| bench.open_mod_on(&agent, &id, true, cx));
         })
     });
     div()
@@ -2912,7 +3023,8 @@ fn on_this_desk(agent: &str, cx: &Context<Workbench>) -> impl IntoElement {
                         .pb(SPACE_1)
                         .px(SPACE_2),
                 )
-                .children(rows),
+                .children(rows)
+                .children(mods),
         )
 }
 
@@ -3253,7 +3365,9 @@ fn tab_menu(
                 )
                 .separator()
                 .item(close),
-            DeskTab::Item(DeskItem::Terminal { .. }) | DeskTab::Simulator => popup.item(close),
+            DeskTab::Item(DeskItem::Terminal { .. } | DeskItem::Mod(_)) | DeskTab::Simulator => {
+                popup.item(close)
+            }
         }
     }
 }
@@ -3451,10 +3565,20 @@ impl DeskNews {
     }
 }
 
+/// The project tab holding the agent in `view`, its strip and its view there.
 fn agent_place_in(view: &DeviceView, agent: &str) -> Option<(Strip, String, String)> {
+    place_in(view, PaneKind::Agent, agent)
+}
+
+/// The project tab holding the agent's desk in `view`, its strip and the desk's view there.
+fn desk_place_in(view: &DeviceView, agent: &str) -> Option<(Strip, String, String)> {
+    place_in(view, PaneKind::Desk, agent)
+}
+
+fn place_in(view: &DeviceView, kind: PaneKind, agent: &str) -> Option<(Strip, String, String)> {
     view.layout.projects.iter().find_map(|(project, strip)| {
         strip.tabs.iter().find_map(|tab| {
-            view_of(&tab.pane, PaneKind::Agent, agent)
+            view_of(&tab.pane, kind, agent)
                 .map(|view| (Strip::Project(project.clone()), tab.id.clone(), view))
         })
     })
