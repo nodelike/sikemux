@@ -7,7 +7,7 @@
 
 use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
-use crate::server::workspace_state::WorkspaceParts;
+use crate::server::workspace_state::{WorkspaceCore, WorkspaceParts};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,6 +33,8 @@ const HOOK_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
 
 #[derive(Serialize)]
 pub struct Pushed {
+    /// The checkout it pushed from.
+    checkout: PathBuf,
     remote: String,
     branch: String,
     pushed: Vec<String>,
@@ -58,6 +60,38 @@ pub struct Pushed {
     /// The newest commit it sent, when it sent any.
     #[serde(skip)]
     pub tip: Option<String>,
+}
+
+impl Pushed {
+    /// Why nothing reached the remote, when nothing did.
+    pub fn unsent(&self) -> Option<String> {
+        let sent = !self.pushed.is_empty() || (self.tip.is_some() && self.sent_back.is_empty());
+        if sent {
+            return None;
+        }
+        let listed = |what: &str, commits: &[String]| {
+            (!commits.is_empty()).then(|| format!("{what}: {}.", commits.join("; ")))
+        };
+        let said: Vec<String> = [
+            self.note.clone(),
+            listed("Waiting for the person", &self.waiting),
+            listed("Not yours", &self.kept),
+            listed(
+                "Taken off the branch, as it does not apply onto the remote's newest commits",
+                &self.sent_back,
+            ),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        Some(format!(
+            "Nothing was pushed from {}, which is on {}, to {}. {} To push another checkout, name a path in it in paths.",
+            self.checkout.display(),
+            self.branch,
+            self.remote,
+            said.join(" ")
+        ))
+    }
 }
 
 /// A commit of the branch that does not apply onto the remote's newest commits, so the push
@@ -181,6 +215,9 @@ pub fn force_push(
     }
     let was = fetched_tip(&top, remote, &branch)?;
     let head = line(git(&top, &["rev-parse", "HEAD"])?);
+    if head == was {
+        return push(core, dir, agents, remote);
+    }
     let listed = git(
         &top,
         &[
@@ -207,12 +244,13 @@ pub fn force_push(
                 "{remote}/{branch} moved since it was fetched, so it was left as it is; look at what it holds before pushing again"
             ))
         }
-        Err(Attempt::Failed(why)) => return Err(why),
+        Err(stuck) => return Err(stuck.into()),
     };
     follow(&top, remote, &branch)?;
     (core.repo_above().pushed)(core);
     (core.repo_above().triggers_pushed)(core, dir, agents, &head);
     Ok(Pushed {
+        checkout: top,
         remote: remote.to_owned(),
         branch,
         pushed: (commits.iter())
@@ -276,7 +314,13 @@ fn push_from(
     let guarded = workflows::guarded(core, dir, remote).is_some();
     let judge = |commit: &str| guarded && workflows::waits(dir, commit);
     let signing = Signing::of(core);
-    let mut pushed = push_holding(dir, remote, whose, judge, whole_branch, &signing, landing)?;
+    let mut pushed = push_holding(dir, remote, whose, judge, whole_branch, &signing, landing)
+        .map_err(|stuck| match stuck {
+            Attempt::Stuck { why, commits } => {
+                format!("{why} {}", way_out(core, dir, agents, &commits))
+            }
+            stuck => stuck.into(),
+        })?;
     for blocked in &mut pushed.blocked {
         blocked.owners = (verified(core, dir, &blocked.id)
             .unwrap_or_default()
@@ -294,6 +338,40 @@ fn push_from(
     Ok(pushed)
 }
 
+/// Who can push a branch whole when the caller's commits can't go without `commits`, made by
+/// others.
+fn way_out(core: &Core, dir: &Path, agents: &[String], commits: &[String]) -> String {
+    let chain = |agent: &str| [vec![agent.to_owned()], core.names().leads_of(agent)].concat();
+    let authors = (commits.iter())
+        .map(|commit| {
+            let made_by = verified(core, dir, commit).unwrap_or_default();
+            made_by
+                .into_iter()
+                .map(|agent| agent.chat)
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    let open = core.names().open_with(core.open_agents());
+    let lead = agents
+        .iter()
+        .flat_map(|agent| core.names().leads_of(agent))
+        .find(|lead| {
+            open.contains(lead)
+                && authors
+                    .iter()
+                    .all(|made_by| made_by.iter().any(|author| chain(author).contains(lead)))
+        });
+    let top = land::top(dir).unwrap_or_else(|_| dir.to_owned());
+    match lead {
+        Some(lead) => format!(
+            "{} leads everyone who made them, so its push sends the branch whole: ask it with agent_send to call git_commit with push: true, no message, and paths: [{:?}].",
+            crate::server::names::called_now(core, &lead),
+            top.display().to_string()
+        ),
+        None => "No open agent leads everyone who made them, so the person can push the branch whole from its Git view; commits landed on the project's own checkout go with that checkout's push.".to_owned(),
+    }
+}
+
 /// Pushes the unpushed commits on `dir`'s branch that `whose` says are the
 /// caller's, as `whose` names the writers of each. When the remote has moved
 /// on, they go on its tip and the branch takes its new commits; when it moves
@@ -305,7 +383,15 @@ fn push_as(
     whose: impl Fn(&str) -> Result<(bool, String), String>,
     signing: &Signing,
 ) -> Result<Pushed, String> {
-    push_holding(dir, remote, whose, |_| false, false, signing, None)
+    Ok(push_holding(
+        dir,
+        remote,
+        whose,
+        |_| false,
+        false,
+        signing,
+        None,
+    )?)
 }
 
 /// [`push_as`], leaving out the caller's commits `judge` says wait for the person, with those
@@ -318,7 +404,7 @@ fn push_holding(
     drop_clashing: bool,
     signing: &Signing,
     landing: Option<&Landing>,
-) -> Result<Pushed, String> {
+) -> Result<Pushed, Attempt> {
     let top = PathBuf::from(git(dir, &["rev-parse", "--show-toplevel"])?.trim());
     let branch = match landing {
         Some(landing) => landing.branch.to_owned(),
@@ -350,16 +436,16 @@ fn push_holding(
             signing,
         ) {
             Err(Attempt::Raced) => continue,
-            Err(Attempt::Failed(why)) => return Err(why),
+            Err(stuck) => return Err(stuck),
             Ok(pushed) => {
                 follow(&top, remote, &branch)?;
                 return Ok(pushed);
             }
         }
     }
-    Err(format!(
+    Err(Attempt::Failed(format!(
         "{remote}/{branch} kept moving while pushing; call this again"
-    ))
+    )))
 }
 
 /// Makes `branch` track its namesake on `remote`, unless it already tracks something.
@@ -376,9 +462,24 @@ fn follow(top: &Path, remote: &str, branch: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug)]
 enum Attempt {
     Raced,
+    /// The caller's commits build on `commits`, other agents' unpushed ones.
+    Stuck {
+        why: String,
+        commits: Vec<String>,
+    },
     Failed(String),
+}
+
+impl From<Attempt> for String {
+    fn from(attempt: Attempt) -> Self {
+        match attempt {
+            Attempt::Raced => "the remote moved".to_owned(),
+            Attempt::Stuck { why, .. } | Attempt::Failed(why) => why,
+        }
+    }
 }
 
 impl From<String> for Attempt {
@@ -441,6 +542,7 @@ fn push_once(
     if !unpushed.iter().any(|commit| commit.mine) {
         let rebased = at == head || rebase_branch(signing, top, branch, &at, &head, true, LANDED)?;
         return Ok(Pushed {
+            checkout: top.to_owned(),
             remote: remote.to_owned(),
             branch: branch.to_owned(),
             pushed: Vec::new(),
@@ -479,6 +581,7 @@ fn push_once(
         let output = send(top, remote, &format!("{head}:refs/heads/{branch}"), &[])?;
         let rebased = at == head || rebase_branch(signing, top, branch, &at, &head, true, LANDED)?;
         return Ok(Pushed {
+            checkout: top.to_owned(),
             remote: remote.to_owned(),
             branch: branch.to_owned(),
             pushed: shown(&ours),
@@ -492,18 +595,28 @@ fn push_once(
             tip: Some(head),
         });
     }
-    let cannot_go_alone = || {
-        Attempt::Failed(format!(
-            "Your commits build on other agents' unpushed ones, so they cannot go alone: {}. Ask them to push theirs with agent_send, then push again.",
-            kept(&unpushed).join("; ")
-        ))
+    let cannot_go_alone = |commit: usize| {
+        let under = &unpushed[..commit];
+        Attempt::Stuck {
+            why: format!(
+                "Your commits build on other agents' unpushed ones, so they cannot go alone: {}.",
+                kept(under).join("; ")
+            ),
+            commits: (under.iter())
+                .filter(|commit| !commit.mine)
+                .map(|commit| commit.id.clone())
+                .collect(),
+        }
     };
+    let last_mine = (unpushed.iter())
+        .rposition(|commit| commit.mine)
+        .unwrap_or_default();
     let clash = match moved {
         true => "onto the remote's newest commits",
         false => WITHOUT_THEIRS,
     };
-    let base = base.ok_or_else(cannot_go_alone)?;
-    let mut tip = base;
+    let base = base.ok_or_else(|| cannot_go_alone(last_mine))?;
+    let mut tip = base.clone();
     let mut going: Vec<&Unpushed> = Vec::new();
     let mut waiting: Vec<&Unpushed> = Vec::new();
     let mut blocked: Vec<Blocked> = Vec::new();
@@ -540,10 +653,12 @@ fn push_once(
                 owners: Vec::new(),
             }),
             Err(why) => {
-                return Err(match moved {
-                    true => Attempt::Failed(format!("{why}; pull and settle it, then push again")),
-                    false => cannot_go_alone(),
-                })
+                let with_theirs: Vec<&Unpushed> = unpushed[..=at].iter().collect();
+                let stuck = !moved || replay(signing, top, &base, &with_theirs, clash).is_ok();
+                return Err(match stuck {
+                    true => cannot_go_alone(at),
+                    false => Attempt::Failed(format!("{why}; pull and settle it, then push again")),
+                });
             }
         }
     }
@@ -552,6 +667,7 @@ fn push_once(
         .filter(|commit| !blocked.iter().any(|off| off.id == commit.id))
         .collect();
     let pushed = Pushed {
+        checkout: top.to_owned(),
         remote: remote.to_owned(),
         branch: branch.to_owned(),
         pushed: shown(&going),
@@ -584,9 +700,10 @@ fn push_once(
             ..pushed
         });
     }
-    let rebuilt = replay(signing, top, &tip, &left, clash).map_err(|_| cannot_go_alone())?;
+    let rebuilt =
+        replay(signing, top, &tip, &left, clash).map_err(|_| cannot_go_alone(last_mine))?;
     if !moved && tree(top, &rebuilt)? != tree(top, &head)? {
-        return Err(cannot_go_alone());
+        return Err(cannot_go_alone(last_mine));
     }
     land::steps(top, branch, &at, &rebuilt)?;
     let output = send(top, remote, &format!("{tip}:refs/heads/{branch}"), &[])?;
@@ -1298,7 +1415,7 @@ mod tests {
             &signing,
             Some(&landing),
         );
-        assert!(refused.is_err_and(|why| why.contains("main is protected")));
+        assert!(refused.is_err_and(|why| String::from(why).contains("main is protected")));
         as_it_was();
 
         std::fs::remove_file(&hook).unwrap();

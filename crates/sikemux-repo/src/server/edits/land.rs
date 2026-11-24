@@ -16,8 +16,9 @@ use std::time::Duration;
 use serde::Serialize;
 
 use super::owners::{git, run};
-use super::push::{line, replay, Signing, Unpushed};
+use super::push::{is_main_checkout, line, on_release_line, replay, shared, Signing, Unpushed};
 use crate::git::Git;
+use crate::server::worktree::agent::linked_at;
 use crate::server::Core;
 use sikemux_view::workspace::AgentWorktree;
 
@@ -45,6 +46,7 @@ pub enum NotPut {
 
 #[derive(Serialize)]
 pub struct Synced {
+    checkout: PathBuf,
     /// The branch it was brought up to: the base branch here, or origin's.
     branch: String,
     /// The branch's commit the checkout now stands on.
@@ -204,11 +206,53 @@ pub fn own_checkout(core: &Core, agent_id: &str) -> Option<AgentWorktree> {
         .and_then(|agent| agent.worktree)
 }
 
-/// Brings the calling agent's own checkout up to the tip of the branch it was
-/// cut from, here or on origin, its commits made again on it.
-pub fn sync(core: &Core, agent_id: &str) -> Result<Synced, String> {
-    let worktree = own_checkout(core, agent_id).ok_or("You work in the project's own checkout, which is on its branch already; there is nothing to sync")?;
+/// [`own_checkout`], when `dir` is in it.
+pub fn own_checkout_of(core: &Core, agent_id: &str, dir: &Path) -> Option<AgentWorktree> {
+    let own = own_checkout(core, agent_id)?;
+    (top(&own.path).ok()? == top(dir).ok()?).then_some(own)
+}
+
+pub fn top(dir: &Path) -> Result<PathBuf, String> {
+    Ok(PathBuf::from(line(git(
+        dir,
+        &["rev-parse", "--show-toplevel"],
+    )?)))
+}
+
+/// Brings the worktree `dir` is in up to the tip of the branch it was cut from, here or on
+/// origin, its commits made again on it.
+pub fn sync(core: &Core, agent_id: &str, dir: &Path) -> Result<Synced, String> {
+    let worktree = match own_checkout_of(core, agent_id, dir) {
+        Some(own) => own,
+        None => worktree_at(core, dir)?,
+    };
     sync_from(&worktree, &Signing::of(core))
+}
+
+/// The worktree `dir` is in, when no agent has it as its own and the branch it was cut from is
+/// its repository's shared one.
+fn worktree_at(core: &Core, dir: &Path) -> Result<AgentWorktree, String> {
+    let top = top(dir)?;
+    let shown = top.display();
+    if is_main_checkout(&top) {
+        return Err(format!("{shown} is its repository's own checkout, which is on its branch already; there is nothing to sync. To sync a worktree, name a path in it in paths."));
+    }
+    let agents = core.workspaces().view().agents;
+    let owner = agents.iter().find(|agent| {
+        let own = agent.worktree.as_ref();
+        own.is_some_and(|tree| self::top(&tree.path).is_ok_and(|own| own == top))
+    });
+    if let Some(owner) = owner {
+        return Err(format!(
+            "{shown} is the own checkout of {}, which alone can sync it; ask it with agent_send",
+            crate::server::names::called_now(core, &owner.id)
+        ));
+    }
+    let shares = |branch: &str| shared(&top, "origin", branch);
+    linked_at(&top)
+        .filter(|tree| tree.base.as_deref().is_some_and(shares))
+        .filter(|tree| !shares(&tree.branch) && !on_release_line(&top))
+        .ok_or_else(|| format!("Not synced: which branch {shown} was cut from can't be told. Run git rebase onto that branch there."))
 }
 
 /// Whether `worktree` holds commits its base branch lacks.
@@ -342,6 +386,7 @@ fn sync_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Synced, Stri
         )?;
         if synced == head {
             return Ok(Synced {
+                checkout: worktree.path.clone(),
                 branch: name,
                 onto: short(&tip),
                 kept: Vec::new(),
@@ -368,6 +413,7 @@ fn sync_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Synced, Stri
             continue;
         }
         return Ok(Synced {
+            checkout: worktree.path.clone(),
             branch: name,
             onto: short(&tip),
             kept: listed(&commits),

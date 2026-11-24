@@ -239,13 +239,19 @@ pub(super) fn branch_for_folder(repo: &Path, folder: &str) -> Option<String> {
 }
 
 fn read_back(cwd: &Path) -> Option<AgentWorktree> {
+    linked_at(cwd).filter(|tree| tree.path.starts_with(worktrees_folder(&tree.repo)))
+}
+
+/// The linked worktree `cwd` lies in, whoever made it. The main checkout's current branch stands
+/// in as its base.
+pub fn linked_at(cwd: &Path) -> Option<AgentWorktree> {
     let path = PathBuf::from(
         Git::quick(cwd)
             .trimmed(&["rev-parse", "--path-format=absolute", "--show-toplevel"])
             .ok()?,
     );
     let main = main_checkout(&path)?;
-    if !path.starts_with(worktrees_folder(&main)) {
+    if path == main {
         return None;
     }
     let branch = Git::quick(&path)

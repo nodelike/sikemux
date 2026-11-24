@@ -6,7 +6,7 @@
 use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -68,7 +68,7 @@ struct Done {
     /// Why the commit made was neither queued to land nor pushed.
     #[serde(skip_serializing_if = "Option::is_none")]
     not_landed: Option<String>,
-    /// Why its commits were not pushed: a push waits on the person.
+    /// Why its commits were not pushed.
     #[serde(skip_serializing_if = "Option::is_none")]
     not_pushed: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -172,8 +172,10 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
         if message.is_none() && !(sync || land || push) {
             return Err("message must be the commit message".to_owned().into());
         }
-        let own =
-            super::land::own_checkout(&core, &agent_id).filter(|tree| dir.starts_with(&tree.path));
+        let own = super::land::own_checkout_of(&core, &agent_id, &dir);
+        if land && own.is_none() {
+            lands_from(&core, &agent_id, &project, &dir)?;
+        }
         if land && own.as_ref().is_some_and(|tree| super::push::on_release_line(&tree.path)) {
             return Err("This checkout is on a release line, which never lands on the branch it was cut from; push it with push: true and no land".to_owned().into());
         }
@@ -186,7 +188,7 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
             None => (None, None),
         };
         let synced = match sync {
-            true => match super::land::sync(&core, &agent_id) {
+            true => match super::land::sync(&core, &agent_id, &dir) {
                 Ok(synced) => Some(synced),
                 Err(why) if committed.is_some() => {
                     return Ok(Done {
@@ -245,7 +247,8 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
             true => {
                 let from = match own {
                     Some(tree)
-                        if super::push::on_release_line(&tree.path)
+                        if force
+                            || super::push::on_release_line(&tree.path)
                             || super::land::unlanded(&tree)? =>
                     {
                         tree.path
@@ -255,14 +258,21 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
                 };
                 not_pushed = super::super::ship::check(&core, &agent_id, ship(), &from).err();
                 match not_pushed {
-                    None => push_or_tell(&core, from, &agent_id, force)?,
+                    None => match push_or_tell(&core, from, &agent_id, force) {
+                        Ok(pushed) => pushed,
+                        Err(why) if committed.is_some() || synced.is_some() => {
+                            not_pushed = Some(why);
+                            None
+                        }
+                        Err(why) => return Err(why.into()),
+                    },
                     Some(_) => None,
                 }
             }
             false => None,
         };
         let still_pushing = (push && !land && not_pushed.is_none() && pushed.is_none()).then(|| {
-            "The push is still running, often the repository's pre-push hook, and has no time limit. End your turn or go on with other work: Sikemux wakes you with how it went and the end of the hook's output once it ends.".to_owned()
+            "The push is still running, often the repository's pre-push hook, or goes after another agent's from the same checkout, and has no time limit. End your turn or go on with other work: Sikemux wakes you with how it went and the end of the hook's output once it ends.".to_owned()
         });
         Ok(Done {
             committed,
@@ -282,107 +292,166 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
 
 /// Pushes from `from` as `agent`, answering within [`PUSH_ANSWER_WAIT`]: none
 /// when the push is still going, and the agent is then woken with how it went.
-/// A push asked for while one from the same checkout runs joins it rather than
-/// running the repository's pre-push hook a second time beside it.
+/// A push asked for while one from the same checkout runs goes after it, as its
+/// own agent's, rather than running the repository's pre-push hook beside it.
 fn push_or_tell(
     core: &Arc<Core>,
     from: PathBuf,
     agent: &str,
     force: bool,
 ) -> Result<Option<super::push::Pushed>, String> {
-    let Some(running) = Running::start(&from, agent) else {
+    let mut turn = Turn {
+        agent: agent.to_owned(),
+        force,
+    };
+    let Some(mut running) = Running::start(&from, &turn) else {
         return Ok(None);
     };
     let (answer, answered) = std::sync::mpsc::channel();
     let runtime = tokio::runtime::Handle::try_current().ok();
-    let (owner, agent) = (core.clone(), agent.to_owned());
+    let owner = core.clone();
     std::thread::spawn(move || {
         let _entered = runtime.as_ref().map(tokio::runtime::Handle::enter);
-        let agents = std::slice::from_ref(&agent);
-        let pushed =
-            checked_before_push(&owner, runtime.as_ref(), &from, &agent).and_then(
-                |()| match force {
-                    true => super::push::force_push(&owner, &from, agents, "origin"),
-                    false => super::push::push(&owner, &from, agents, "origin"),
-                },
-            );
-        let mut waiting = running.finish();
-        let text = match &pushed {
-            Ok(pushed) => format!(
-                "Your push ended: {}",
-                serde_json::to_string(pushed).unwrap_or_default()
-            ),
-            Err(why) => format!("Your push failed: {why}"),
-        };
-        match answer.send(pushed) {
-            Ok(()) => waiting.retain(|other| *other != agent),
-            Err(std::sync::mpsc::SendError(pushed)) => {
-                if let (Ok(pushed), Some(runtime)) = (&pushed, &runtime) {
-                    super::push::tell_sent_back(&owner, runtime, pushed);
-                }
+        let mut answer = Some(answer);
+        loop {
+            let pushed = push_turn(&owner, runtime.as_ref(), &from, &turn);
+            let next = running.next();
+            let unheard = match answer.take() {
+                Some(answer) => answer.send(pushed).err().map(|unheard| unheard.0),
+                None => Some(pushed),
+            };
+            if let (Some(pushed), Some(runtime)) = (unheard, &runtime) {
+                tell_pushed(&owner, runtime, turn.agent, &pushed);
             }
-        }
-        let Some(runtime) = runtime else {
-            return;
-        };
-        for agent in waiting {
-            let (owner, text) = (owner.clone(), text.clone());
-            runtime.spawn(async move {
-                let told = (owner.repo_above().messages_work_from_sikemux)(
-                    &owner,
-                    agent,
-                    text,
-                    "about its push",
-                );
-                if let Err(error) = told.await {
-                    eprintln!("sikemux core: how a push went did not reach its agent: {error}");
-                }
-            });
+            match next {
+                Some(next) => turn = next,
+                None => return,
+            }
         }
     });
     match answered.recv_timeout(PUSH_ANSWER_WAIT) {
-        Ok(pushed) => pushed.map(Some),
+        Ok(pushed) => {
+            let pushed = pushed?;
+            pushed.unsent().map_or(Ok(Some(pushed)), Err)
+        }
         Err(_) => Ok(None),
     }
 }
 
-/// Pushes running from a checkout, with the agents to tell how each went.
-static RUNNING: std::sync::Mutex<BTreeMap<PathBuf, Vec<String>>> =
+fn push_turn(
+    core: &Arc<Core>,
+    runtime: Option<&tokio::runtime::Handle>,
+    from: &Path,
+    turn: &Turn,
+) -> Result<super::push::Pushed, String> {
+    checked_before_push(core, runtime, from, &turn.agent)?;
+    let agents = std::slice::from_ref(&turn.agent);
+    match turn.force {
+        true => super::push::force_push(core, from, agents, "origin"),
+        false => super::push::push(core, from, agents, "origin"),
+    }
+}
+
+/// Wakes `agent` with how its push went.
+fn tell_pushed(
+    core: &Arc<Core>,
+    runtime: &tokio::runtime::Handle,
+    agent: String,
+    pushed: &Result<super::push::Pushed, String>,
+) {
+    let text = match pushed {
+        Ok(pushed) => {
+            super::push::tell_sent_back(core, runtime, pushed);
+            let said = pushed
+                .unsent()
+                .unwrap_or_else(|| serde_json::to_string(pushed).unwrap_or_default());
+            format!("Your push ended: {said}")
+        }
+        Err(why) => format!("Your push failed: {why}"),
+    };
+    let core = core.clone();
+    runtime.spawn(async move {
+        let told =
+            (core.repo_above().messages_work_from_sikemux)(&core, agent, text, "about its push");
+        if let Err(error) = told.await {
+            eprintln!("sikemux core: how a push went did not reach its agent: {error}");
+        }
+    });
+}
+
+/// Refuses a land asked for in `dir` when that isn't the checkout a land of this agent takes.
+fn lands_from(core: &Core, agent_id: &str, project: &Path, dir: &Path) -> Result<(), String> {
+    let home = match super::land::own_checkout(core, agent_id) {
+        Some(tree) => tree.path,
+        None => core
+            .workspaces()
+            .agent(agent_id)
+            .map_or_else(|| project.to_owned(), |agent| agent.cwd),
+    };
+    let top = super::land::top(dir)?;
+    match super::land::top(&home) {
+        Ok(home) if home != top => Err(format!(
+            "Nothing was committed or landed: land takes your checkout, {}, and these paths are in {}, which has no branch on record to land on. Push its own branch with push: true and no land.",
+            home.display(),
+            top.display()
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// A push an agent asked for.
+#[derive(Clone, PartialEq)]
+struct Turn {
+    agent: String,
+    force: bool,
+}
+
+/// The push running from each checkout, then those that go after it.
+static RUNNING: std::sync::Mutex<BTreeMap<PathBuf, VecDeque<Turn>>> =
     std::sync::Mutex::new(BTreeMap::new());
 
-/// A push running from one checkout, ended when dropped.
-struct Running(PathBuf);
+/// The pushes from one checkout, ended when dropped.
+struct Running(Option<PathBuf>);
 
 impl Running {
-    /// None when a push from `from` is already running; `agent` then hears how that one went.
-    fn start(from: &Path, agent: &str) -> Option<Self> {
+    /// None when a push from `from` is already running; `turn` then goes after it.
+    fn start(from: &Path, turn: &Turn) -> Option<Self> {
         let mut running = RUNNING
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(waiting) = running.get_mut(from) {
-            if !waiting.iter().any(|other| other == agent) {
-                waiting.push(agent.to_owned());
+        if let Some(turns) = running.get_mut(from) {
+            if !turns.contains(turn) {
+                turns.push_back(turn.clone());
             }
             return None;
         }
-        running.insert(from.to_owned(), vec![agent.to_owned()]);
-        Some(Self(from.to_owned()))
+        running.insert(from.to_owned(), VecDeque::from([turn.clone()]));
+        Some(Self(Some(from.to_owned())))
     }
 
-    fn finish(self) -> Vec<String> {
+    /// Ends the running push, and gives the one to run after it.
+    fn next(&mut self) -> Option<Turn> {
         let mut running = RUNNING
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        running.remove(&self.0).unwrap_or_default()
+        let turns = running.get_mut(self.0.as_ref()?)?;
+        turns.pop_front();
+        let next = turns.front().cloned();
+        if next.is_none() {
+            running.remove(&self.0.take()?);
+        }
+        next
     }
 }
 
 impl Drop for Running {
     fn drop(&mut self) {
-        let mut running = RUNNING
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        running.remove(&self.0);
+        if let Some(from) = &self.0 {
+            let mut running = RUNNING
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            running.remove(from);
+        }
     }
 }
 
