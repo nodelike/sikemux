@@ -6,12 +6,12 @@ alter table ended_sessions
     check (cause in ('work_address', 'device_removed'));
 
 -- Rows recorded before the cause was: registering a removed device again wrote its session's row in
--- one transaction with its audit entry, so both carry the same moment.
+-- one transaction with its audit entry, so both carry the same moment. The device may have come back
+-- on another account than its session's, so the entry's account is not compared.
 update ended_sessions e
 set cause = 'device_removed'
 where exists (
   select 1 from audit a
-  where a.user_id = e.user_id
-    and a.action = 'device.registered'
+  where a.action = 'device.registered'
     and a.at = e.made_at
 );
