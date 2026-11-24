@@ -253,6 +253,8 @@ pub enum ChatCommand {
     DiscardFailed,
     /// Compacts the agent's session between turns, with nothing in the chat to show for it.
     Compact,
+    /// Asks the agent what the person sends next.
+    Suggest,
     /// Asks the agent's session for a handoff note between turns, while its cache is warm, for
     /// the fresh session that may replace it.
     TakeHandoff,
@@ -664,8 +666,10 @@ impl Chat {
         let carries_on = ending
             .as_ref()
             .is_some_and(|ending| !matches!(ending, Ending::Stopped { .. }));
+        let finished = matches!(ending, Some(Ending::Finished));
+        self.meter.turn_ended(finished);
         if let Some(core) = self.core.upgrade() {
-            if matches!(ending, Some(Ending::Finished)) {
+            if finished {
                 (core.chat_above().questions_reply_read)(&core, self.agent_id());
             }
             (core.chat_above().note_activity)(&core, self.agent_id(), activity);
@@ -676,6 +680,17 @@ impl Chat {
         self.publish_state();
         if carries_on {
             self.send_queued_later();
+        }
+        self.suggest_if_watched();
+    }
+
+    /// Asks the agent what the person sends next, once for each finished turn and only while
+    /// someone has the chat open.
+    pub fn suggest_if_watched(&self) {
+        let resting = !self.turn_running() && !self.feed.has_queued() && !self.meter.compacting();
+        if resting && self.feed.watched() && self.meter.take_suggestion(self.provider() == "claude")
+        {
+            let _ = self.send(ChatCommand::Suggest);
         }
     }
 
@@ -1407,6 +1422,7 @@ impl Chat {
                 | ChatCommand::StopTask { .. }
                 | ChatCommand::DiscardFailed
                 | ChatCommand::Compact
+                | ChatCommand::Suggest
                 | ChatCommand::TakeHandoff => return Ok(()),
                 ChatCommand::HandOver { reply } => {
                     let _ = reply.send(Err("it had not started".into()));

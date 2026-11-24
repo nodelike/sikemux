@@ -1204,6 +1204,11 @@ impl<B: Backend> Running<'_, B> {
                     }
                 }
             }
+            ChatCommand::Suggest => {
+                if !self.chat.turn_running() {
+                    self.backend.suggest();
+                }
+            }
             ChatCommand::HandOver { reply } => {
                 let _ = reply.send(Err("the chat's loop hands it over itself".into()));
             }
@@ -1411,6 +1416,7 @@ impl<B: Backend> Running<'_, B> {
             .state
             .take_failed(chat)
             .or_else(|| chat.unprompted().then(Switching::carry_on_prompt));
+        chat.meter.suggests_nothing();
         match switch_to(chat, self.provider, self.launch, &account, replay) {
             Some(outcome) => {
                 say(Ok(()));
@@ -1454,6 +1460,8 @@ impl<B: Backend> Running<'_, B> {
             self.backend.set_config(&config_id, &value).await
         };
         if let Ok(options) = &result {
+            // Another model starts from a cold cache.
+            self.chat.meter.suggests_nothing();
             if let Some(setup) = self.state.setup.as_object_mut() {
                 setup.insert("configOptions".to_owned(), options.clone());
             }

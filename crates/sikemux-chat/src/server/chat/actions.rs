@@ -110,6 +110,7 @@ pub async fn attach(
         },
         since,
     );
+    chat.suggest_if_watched();
 }
 
 pub fn history(

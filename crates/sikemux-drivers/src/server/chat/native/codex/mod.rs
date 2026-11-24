@@ -13,6 +13,7 @@ mod subagents;
 
 use sikemux_fold::UpdateKind;
 use std::collections::HashMap;
+use std::convert::Infallible;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -37,7 +38,7 @@ use super::session::{self, Backend, Opened, Prompt, Sink, Steered};
 use crate::sessions::for_agent::context_text;
 use approvals::Question;
 use commands::Command;
-use state::{user_input_told, Predict, Reply, Session};
+use state::{user_input_told, Reply, Session};
 
 type Driver = rpc_driver::Driver<Session>;
 
@@ -57,27 +58,8 @@ impl RpcAgent for Session {
             .and_then(Value::as_str)
     }
 
-    /// Asks for the next message on the same thread. Codex releases without `thread/sample`
-    /// refuse it, and nothing is shown.
-    fn carry_out(driver: &Driver, Predict(turn): Predict) {
-        let driver = driver.clone();
-        tokio::spawn(async move {
-            let thread = driver.session_id();
-            let params = json!({
-                "threadId": thread,
-                "expectedTurnId": turn,
-                "prompt": predict::QUESTION,
-                "effort": "low",
-            });
-            if let Ok(answer) = driver.rpc.request("thread/sample", params).await {
-                let said = answer.get("text").and_then(Value::as_str);
-                if let Some(message) = said.and_then(predict::message) {
-                    driver
-                        .sink
-                        .update(&thread, sikemux_fold::update::prompt_suggestion(message));
-                }
-            }
-        });
+    fn carry_out(_: &Driver, own: Infallible) {
+        match own {}
     }
 
     fn notification(driver: &Driver, method: &str, params: Value) {
@@ -815,6 +797,35 @@ impl Backend for Codex {
             .await?;
         self.driver.session.locked().turns.rewound(&turn_id);
         Ok(None)
+    }
+
+    /// Codex releases without `thread/sample` refuse it, and nothing is shown.
+    fn suggest(&mut self) {
+        let Some(turn) = self.driver.session.locked().latest_turn.clone() else {
+            return;
+        };
+        let driver = self.driver.clone();
+        tokio::spawn(async move {
+            let thread = driver.session_id();
+            let params = json!({
+                "threadId": thread,
+                "expectedTurnId": turn,
+                "prompt": predict::QUESTION,
+                "effort": "low",
+            });
+            let Ok(answer) = driver.rpc.request("thread/sample", params).await else {
+                return;
+            };
+            if driver.session.locked().latest_turn.as_ref() != Some(&turn) {
+                return;
+            }
+            let said = answer.get("text").and_then(Value::as_str);
+            if let Some(message) = said.and_then(predict::message) {
+                driver
+                    .sink
+                    .update(&thread, sikemux_fold::update::prompt_suggestion(message));
+            }
+        });
     }
 
     async fn closed(&self) -> String {

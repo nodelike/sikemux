@@ -243,6 +243,11 @@ impl Feed {
         self.inner.locked().subscribers.contains_key(&client)
     }
 
+    /// Whether any client has the chat open.
+    pub fn watched(&self) -> bool {
+        !self.inner.locked().subscribers.is_empty()
+    }
+
     pub fn unsubscribe(&self, client: ClientId) {
         self.viewed();
         let mut inner = self.inner.locked();

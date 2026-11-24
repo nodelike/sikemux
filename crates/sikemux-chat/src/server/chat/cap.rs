@@ -34,6 +34,9 @@ const COMPACTING_MS: u64 = 10 * 60_000;
 const IDLE_COMPACT_MS: u64 = 50 * 60_000;
 const CACHE_MS: u64 = 60 * 60_000;
 
+/// Providers whose calls the core does not see drop an idle cache as early as this.
+const UNSEEN_CACHE_MS: u64 = 5 * 60_000;
+
 /// How long the prompt cache lives: an hour, or in a debug build whatever `SIKEMUX_CACHE_MS`
 /// says, so a throwaway core can watch a cache expire in a minute.
 fn cache_ms() -> u64 {
@@ -65,6 +68,8 @@ pub struct Meter {
     keeps_history: AtomicBool,
     /// The person stopped the turn while the chat was summarised ahead of its message.
     summarise_stopped: AtomicBool,
+    /// When the last turn finished, or 0 once its suggestion was asked for or cannot be.
+    unsuggested_since: AtomicU64,
 }
 
 /// What a meter keeps while its chat sleeps or its core starts again.
@@ -117,6 +122,7 @@ impl Meter {
     pub fn compacted(&self, context: u64) {
         self.context.store(context, Ordering::Release);
         self.compacted.store(true, Ordering::Release);
+        self.suggests_nothing();
         self.forgot_at.store(epoch_ms(), Ordering::Release);
     }
 
@@ -143,11 +149,34 @@ impl Meter {
         self.last_call_ms.store(0, Ordering::Release);
         self.context.store(0, Ordering::Release);
         self.compacted.store(false, Ordering::Release);
+        self.suggests_nothing();
         self.forgot_at.store(epoch_ms(), Ordering::Release);
     }
 
     pub fn compaction_over(&self) {
         self.compacting_since.store(0, Ordering::Release);
+    }
+
+    pub fn turn_ended(&self, finished: bool) {
+        let since = if finished { epoch_ms() } else { 0 };
+        self.unsuggested_since.store(since, Ordering::Release);
+    }
+
+    pub fn suggests_nothing(&self) {
+        self.unsuggested_since.store(0, Ordering::Release);
+    }
+
+    /// Takes the one suggestion a finished turn may be asked for. On a cold cache the ask would
+    /// write the whole context again, so there is none.
+    pub fn take_suggestion(&self, calls_seen: bool) -> bool {
+        let finished = self.unsuggested_since.swap(0, Ordering::AcqRel);
+        let (used, life) = if calls_seen {
+            (self.last_call_ms(), cache_ms())
+        } else {
+            (finished, UNSEEN_CACHE_MS)
+        };
+        let cleared = calls_seen && self.compacted.load(Ordering::Acquire);
+        finished > 0 && !cleared && epoch_ms().saturating_sub(used) < life
     }
 
     /// The session has sat idle since a call whose cache is still warm, big enough that a

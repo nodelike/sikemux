@@ -203,6 +203,10 @@ pub trait Backend: Sized + Send {
         async { Ok(()) }
     }
 
+    /// Asks the agent, between turns and outside the conversation, what the person sends next,
+    /// and shows its answer as the suggestion.
+    fn suggest(&mut self) {}
+
     /// Asks the session between turns what a fresh one would need to know, with no turn in
     /// the chat to show for it, and answers with what it wrote.
     fn handoff(&mut self) -> impl std::future::Future<Output = Result<String, String>> + Send {

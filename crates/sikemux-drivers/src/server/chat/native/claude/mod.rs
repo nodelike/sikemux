@@ -36,6 +36,7 @@ use super::super::Respond;
 use super::file_link;
 use super::parts::{inline_picture, parts, Part};
 use super::pending::Purpose;
+use super::predict;
 use super::process::{self, Lines, Process, Reading, Released, Writer};
 use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink, Steered, Telling};
@@ -868,6 +869,19 @@ impl Backend for Claude {
         self.writer()
             .send(&user_message(&uuid, vec![command], None))
             .inspect_err(|_| self.shared.locked().quiet = None)
+    }
+
+    /// Claude Code's own suggestions drop one-word ones and stop near a usage limit, so it is
+    /// asked as a side question instead. Usage credits are not spent on it.
+    fn suggest(&mut self) {
+        let shared = self.shared.locked();
+        if shared.on_credits {
+            return;
+        }
+        let _ = self.running.control.send_for(
+            json!({ "subtype": "side_question", "question": predict::QUESTION }),
+            Purpose::Suggestion(shared.turns_ended),
+        );
     }
 
     async fn handoff(&mut self) -> Result<String, String> {

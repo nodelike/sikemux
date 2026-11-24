@@ -5,6 +5,7 @@
 use sikemux_fold::update::{agent_text, notice, session_title, text_content, thought};
 use sikemux_fold::UpdateKind;
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -21,10 +22,7 @@ use super::items::{self, Items};
 use super::notifications::{self, EndedTurn, Notification};
 use super::subagents::{Route, Subagents};
 
-pub type Effect = rpc_driver::Effect<Predict>;
-
-/// Ask Codex what the person will send next, after the turn with this id finished.
-pub struct Predict(pub String);
+pub type Effect = rpc_driver::Effect<Infallible>;
 
 pub enum Reply {
     Ask(Question),
@@ -186,16 +184,12 @@ impl Session {
         let error = self.errors.remove(&ended.id);
         let outcome = states::outcome(&ended.status).unwrap_or(Outcome::Failed);
         let payload = self.payload();
-        let mut effects = self.end_prompted(turn, outcome, payload, || {
+        self.end_prompted(turn, outcome, payload, || {
             let error = error
                 .or_else(|| ended.error.clone().filter(|error| !error.is_null()))
                 .unwrap_or_else(|| json!({ "message": "Turn failed", "codexErrorInfo": null }));
             failure(&error)
-        });
-        if outcome == Outcome::Completed {
-            effects.push(Effect::Own(Predict(ended.id.clone())));
-        }
-        effects
+        })
     }
 
     fn turn_completed(&mut self, ended: &EndedTurn) -> Vec<Effect> {
@@ -490,7 +484,7 @@ impl Default for Session {
 }
 
 impl RpcSession for Session {
-    type Own = Predict;
+    type Own = Infallible;
     const NAME: &'static str = "Codex";
 
     fn id(&self) -> &str {
