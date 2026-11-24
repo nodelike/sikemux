@@ -1,7 +1,7 @@
 import { useAuth } from "@clerk/react";
 import { useEffect } from "react";
 
-import { Backdrop } from "../Backdrop.tsx";
+import { Field } from "../Field.tsx";
 import { SignIn } from "../SignIn.tsx";
 import "../app.css";
 
@@ -21,14 +21,8 @@ export default function ShareSignIn({
   }, [isSignedIn]);
 
   return (
-    <>
-      <Backdrop />
-      <div className="page">
-        <main className="center">
-          <p className="lede">{lede}</p>
-          <SignIn ready={isLoaded} />
-        </main>
-      </div>
-    </>
+    <Field>
+      <SignIn ready={isLoaded} intro={{ title: "Sign in to Sikemux", lede }} />
+    </Field>
   );
 }

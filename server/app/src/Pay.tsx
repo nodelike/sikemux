@@ -4,8 +4,10 @@ import { connectApi } from "@shared/account/api";
 
 import { problemText } from "./api.ts";
 import { config } from "./config.ts";
-import { Panel } from "./Consent.tsx";
+import { Foot } from "./Frame.tsx";
+import { iconMark } from "./marks.ts";
 import { BILLING } from "./navigation.ts";
+import { btnClass, Hero, Problem } from "./ui.tsx";
 
 const PADDLE_JS = "https://cdn.paddle.com/paddle/v2/paddle.js";
 
@@ -75,18 +77,22 @@ export function Pay() {
   }, [back]);
 
   return (
-    <Panel>
-      <h1>Checkout</h1>
-      {problem ? (
-        <>
-          <p className="lede">{problem}</p>
-          <p>
-            <a href={back}>Back to billing</a>
-          </p>
-        </>
-      ) : (
-        <p className="quiet">Opening Paddle's checkout…</p>
-      )}
-    </Panel>
+    <Hero
+      title="Checkout"
+      lede={problem ? undefined : "Opening Paddle's checkout…"}
+      mark={iconMark("card")}
+      scene="plan"
+      tone={problem ? "failed" : "waiting"}
+      foot={<Foot />}
+    >
+      <div className="do">
+        <Problem>{problem}</Problem>
+        {problem ? (
+          <a className={btnClass({ quiet: true })} href={back}>
+            Back to billing
+          </a>
+        ) : null}
+      </div>
+    </Hero>
   );
 }

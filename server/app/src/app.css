@@ -1666,3 +1666,155 @@ canvas.dots {
   color: var(--two);
   font-size: 12px;
 }
+
+/* Sign-in and the pages that stand alone. */
+.lit {
+  color: var(--lit);
+}
+.hero .tx .ic,
+.hero .back .ic {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.hero .tx > .note {
+  margin-top: 16px;
+  max-width: 44ch;
+}
+.hero .note .txt {
+  color: var(--acc-ink);
+  min-height: 0;
+}
+.hero .who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 16px;
+  color: var(--lit);
+  overflow-wrap: anywhere;
+}
+.hero .do + .do {
+  margin-top: 8px;
+}
+.hero .facts {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 16px 0 0;
+  padding: 0 0 0 14px;
+  max-width: 48ch;
+  color: var(--two);
+  list-style: disc;
+}
+.hero .facts li::marker {
+  color: var(--meta);
+}
+.hero .fine {
+  max-width: 48ch;
+  margin-top: 14px;
+  color: var(--meta);
+  font-size: var(--t2);
+  text-wrap: pretty;
+}
+.hero .fine a,
+.hero .facts a {
+  color: var(--acc-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-underline-offset: 3px;
+}
+.hero .ask-for {
+  color: var(--two);
+  font-size: var(--t2);
+}
+.hero .big-code {
+  margin-top: 20px;
+  font-family: var(--mono);
+  font-size: clamp(26px, 2cqw, 44px);
+  letter-spacing: 0.14em;
+  color: var(--lit);
+}
+.hero .code-field {
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+}
+.secret {
+  position: relative;
+}
+.secret .field {
+  width: 100%;
+  padding-right: 40px;
+}
+.secret button {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r);
+  color: var(--meta);
+}
+.secret button:hover {
+  color: var(--lit);
+}
+.digits {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+.digits input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  font-size: 16px;
+}
+.digit {
+  display: grid;
+  place-items: center;
+  height: 44px;
+  border-radius: var(--r);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--fline);
+  font-family: var(--mono);
+  font-size: 18px;
+  color: var(--lit);
+}
+.digit[data-current] {
+  box-shadow:
+    inset 0 0 0 1px var(--acc),
+    0 0 0 3px var(--acc-ring);
+}
+.digits[data-failed] .digit:not([data-current]) {
+  box-shadow: inset 0 0 0 1px var(--bad);
+}
+.digits:has(input:disabled) .digit {
+  opacity: 0.6;
+}
+.confirm-you {
+  width: min(360px, calc(100vw - 32px));
+  margin: auto;
+  padding: 20px;
+  border: 0;
+  border-radius: var(--r-card);
+  background: var(--pop);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  color: var(--ink);
+}
+.confirm-you[open],
+.confirm-you form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.confirm-you::backdrop {
+  background: color-mix(in srgb, var(--ground) 72%, transparent);
+}
+.confirm-you h2 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}

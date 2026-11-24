@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { TeamAccess } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
+import { Foot } from "./Frame.tsx";
+import { iconMark } from "./marks.ts";
+import { Btn, Hero, Problem } from "./ui.tsx";
 
 type AccountState =
   | { state: "loading" }
@@ -80,27 +83,26 @@ export function RestoreAccount({
   };
 
   return (
-    <div className="deletion">
-      <h1>Your account is being deleted</h1>
-      <p className="lede">
-        It will be deleted for good on <span className="ink">{day}</span>.
-        Restore it to keep using Sikemux. Your devices were signed out, so each
-        one signs in again.
-      </p>
-      {problem ? (
-        <p className="problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
-      <button
-        type="button"
-        className="button"
-        onClick={() => void restore()}
-        disabled={busy}
-        data-busy={busy || undefined}
-      >
-        Restore account
-      </button>
-    </div>
+    <Hero
+      title="Your account is being deleted"
+      lede={
+        <>
+          It will be deleted for good on <span className="lit">{day}</span>.
+          Restore it to keep using Sikemux. Your devices were signed out, so
+          each one signs in again.
+        </>
+      }
+      mark={iconMark("user")}
+      scene="sign"
+      tone={problem ? "failed" : "waiting"}
+      foot={<Foot />}
+    >
+      <div className="do">
+        <Problem>{problem}</Problem>
+        <Btn onClick={() => void restore()} busy={busy}>
+          Restore account
+        </Btn>
+      </div>
+    </Hero>
   );
 }

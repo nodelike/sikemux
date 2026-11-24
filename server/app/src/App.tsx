@@ -2,11 +2,13 @@ import { HandleSSOCallback, useAuth, useClerk, useSignIn } from "@clerk/react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { Account } from "./Account.tsx";
-import { Consent, Panel } from "./Consent.tsx";
-import { AccountDeleted, DeleteAccountIntro } from "./DeleteAccount.tsx";
+import { Consent } from "./Consent.tsx";
+import { AccountDeleted, DELETE_INTRO } from "./DeleteAccount.tsx";
 import { FoldWaiting, useFoldGate } from "./Fold.tsx";
 import { Field } from "./Field.tsx";
+import { Loading } from "./Frame.tsx";
 import { HostApproval } from "./HostApproval.tsx";
+import { brandMark } from "./marks.ts";
 import { Pay } from "./Pay.tsx";
 import { SIGNED_IN, SignedIn } from "./SignedIn.tsx";
 import {
@@ -21,7 +23,7 @@ import {
   usePath,
 } from "./navigation.ts";
 import { SignIn } from "./SignIn.tsx";
-import { Toasts } from "./ui.tsx";
+import { Hero, Toasts } from "./ui.tsx";
 import "./app.css";
 
 /** The deleted page's address, carrying when the account is deleted for good so it survives signing out. */
@@ -110,37 +112,31 @@ export function App() {
     <Field>
       <Toasts>
         {appReturning ? (
-          <main className="center">
-            <Panel>
-              <p className="quiet">Loading…</p>
-            </Panel>
-          </main>
+          <Loading />
         ) : showDeleted ? (
-          <main className="center">
-            <AccountDeleted
-              deletesAt={deleted?.deletesAt ?? deletesAtOf(location.search)}
-            />
-          </main>
+          <AccountDeleted
+            deletesAt={deleted?.deletesAt ?? deletesAtOf(location.search)}
+          />
         ) : path === "/sso-callback" ? (
-          <main className="center">
-            <SsoCallback done={afterSignIn} />
-          </main>
+          <SsoCallback done={afterSignIn} />
         ) : signedIn && path !== SIGNED_IN && !fold.open ? (
-          <main className="center">{fold.screen}</main>
+          fold.screen
         ) : path === PAY ? (
-          <main className="center">
-            <Pay />
-          </main>
+          <Pay />
         ) : path === SIGNED_IN ? (
           <SignedIn />
         ) : path === CONSENT ? (
-          <main className="center">
-            {signedIn ? <Consent /> : <SignIn ready={isLoaded} />}
-          </main>
+          signedIn ? (
+            <Consent />
+          ) : (
+            <SignIn ready={isLoaded} />
+          )
         ) : path === HOST ? (
-          <main className="center">
-            {signedIn ? <HostApproval /> : <SignIn ready={isLoaded} />}
-          </main>
+          signedIn ? (
+            <HostApproval />
+          ) : (
+            <SignIn ready={isLoaded} />
+          )
         ) : signedIn ? (
           <Account
             ready={isLoaded}
@@ -150,15 +146,11 @@ export function App() {
             onDeleted={onDeleted}
           />
         ) : (
-          <main className="center">
-            {path === DELETE_ACCOUNT ? <DeleteAccountIntro /> : null}
-            <FoldWaiting />
-            <SignIn ready={isLoaded} />
-            <footer className="legal">
-              <a href="https://sikemux.com/privacy">Privacy</a>
-              <a href="https://sikemux.com/terms">Terms</a>
-            </footer>
-          </main>
+          <SignIn
+            ready={isLoaded}
+            intro={path === DELETE_ACCOUNT ? DELETE_INTRO : undefined}
+            notice={<FoldWaiting />}
+          />
         )}
       </Toasts>
     </Field>
@@ -169,18 +161,26 @@ export function App() {
 function SsoCallback({ done }: { done: () => void }) {
   const { signIn } = useSignIn();
   return (
-    <Panel>
-      <p className="quiet">
-        {signIn.isTransferable ? "Creating your account…" : "Signing you in…"}
-      </p>
-      <HandleSSOCallback
-        navigateToApp={done}
-        navigateToSignIn={done}
-        navigateToSignUp={done}
-      />
-      <a className="link" href="/">
-        Back to sign in
-      </a>
-    </Panel>
+    <Hero
+      title={
+        signIn.isTransferable ? "Creating your account…" : "Signing you in…"
+      }
+      mark={brandMark}
+      scene="sign"
+      tone="waiting"
+    >
+      <div className="do">
+        <HandleSSOCallback
+          navigateToApp={done}
+          navigateToSignIn={done}
+          navigateToSignUp={done}
+        />
+        <div>
+          <a className="txt" href="/">
+            Back to sign in
+          </a>
+        </div>
+      </div>
+    </Hero>
   );
 }

@@ -10,11 +10,13 @@ import type {
 import { useEffect, useState } from "react";
 
 import { api, problemText, signedInToken } from "./api.ts";
-import { Panel } from "./Consent.tsx";
 import { RestoreAccount } from "./RestoreAccount.tsx";
 import { DeleteAccount } from "./DeleteAccount.tsx";
+import { Foot, Loading } from "./Frame.tsx";
+import { brandMark, iconMark } from "./marks.ts";
 import { JOIN, RETURN_KEY, SIGNED_UP_FOR_KEY } from "./navigation.ts";
 import { useReverified } from "./Reverify.tsx";
+import { Btn, Hero, Problem, Txt } from "./ui.tsx";
 
 const WAITING_KEY = "sikemux.fold";
 const SIGNED_IN_HERE_KEY = "sikemux.signedInHere";
@@ -145,9 +147,7 @@ export function useFoldGate(
         }}
       />
     ) : gate.kind === "checking" ? (
-      <Panel>
-        <p className="quiet">Loading…</p>
-      </Panel>
+      <Loading />
     ) : null;
 
   return { open: gate.kind === "open", screen };
@@ -223,7 +223,6 @@ function Catch({
   const [deleting, setDeleting] = useState(false);
   const address = caught.address ?? "this address";
 
-  if (confirm) return confirm;
   if (caught.deletesAt)
     return (
       <RestoreAccount deletesAt={caught.deletesAt} onRestored={onRestored} />
@@ -254,61 +253,54 @@ function Catch({
 
   const why = caught.why ?? "browser";
   return (
-    <Panel>
-      <h1>{caught.title}</h1>
-      <div className="consent-who">
-        <span className="ink">{address}</span>
-      </div>
-      <p className="lede">{caught.words}</p>
-      {problem || keepProblem ? (
-        <p className="problem" role="alert">
-          {problem ?? keepProblem}
-        </p>
-      ) : null}
-      <div className="consent-actions">
-        {caught.mustFold ? (
-          <button
-            type="button"
-            className="button"
-            disabled={busy}
-            onClick={() => void signOut({ redirectUrl: "/" })}
-          >
-            Sign out
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="button"
-            disabled={busy || keeping}
-            data-busy={keeping || undefined}
-            onClick={() => void keepNew()}
-          >
-            I'm new here
-          </button>
-        )}
-        <button
-          type="button"
-          className="button primary"
+    <Hero
+      title={caught.title}
+      lede={caught.words}
+      mark={iconMark("user")}
+      scene="sign"
+      tone={problem || keepProblem ? "failed" : "waiting"}
+      foot={<Foot />}
+    >
+      {confirm}
+      <p className="who">{address}</p>
+      <div className="do">
+        <Problem>{problem ?? keepProblem}</Problem>
+        <Btn
           disabled={busy || keeping}
-          data-busy={busy || undefined}
+          busy={busy}
           onClick={() =>
             void start(why, why === "invite" ? inviteToken : undefined)
           }
         >
           Use my account
-        </button>
+        </Btn>
+        {caught.mustFold ? (
+          <Btn
+            quiet
+            disabled={busy}
+            onClick={() => void signOut({ redirectUrl: "/" })}
+          >
+            Sign out
+          </Btn>
+        ) : (
+          <Btn
+            quiet
+            disabled={busy || keeping}
+            busy={keeping}
+            onClick={() => void keepNew()}
+          >
+            I'm new here
+          </Btn>
+        )}
+        {caught.mustFold ? (
+          <div>
+            <Txt bad disabled={busy} onClick={() => setDeleting(true)}>
+              Delete this account instead
+            </Txt>
+          </div>
+        ) : null}
       </div>
-      {caught.mustFold ? (
-        <button
-          type="button"
-          className="link"
-          disabled={busy}
-          onClick={() => setDeleting(true)}
-        >
-          Delete this account instead
-        </button>
-      ) : null}
-    </Panel>
+    </Hero>
   );
 }
 
@@ -317,21 +309,17 @@ export function FoldWaiting() {
   const [waiting, setWaiting] = useState(waitingFold);
   if (!waiting) return null;
   return (
-    <section className="panel fold-waiting">
-      <p className="lede">
-        {waiting.waitingWords}{" "}
-        <a
-          href="/"
-          onClick={(event) => {
-            event.preventDefault();
-            dropWaiting();
-            setWaiting(null);
-          }}
-        >
-          Cancel
-        </a>
-      </p>
-    </section>
+    <p className="note">
+      {waiting.waitingWords}{" "}
+      <Txt
+        onClick={() => {
+          dropWaiting();
+          setWaiting(null);
+        }}
+      >
+        Cancel
+      </Txt>
+    </p>
   );
 }
 
@@ -393,60 +381,57 @@ function ConfirmFold({
     };
   }, [getToken, waiting]);
 
-  if (confirm) return confirm;
-
-  if (read.state === "loading")
-    return (
-      <Panel>
-        <p className="quiet">Loading…</p>
-      </Panel>
-    );
+  if (read.state === "loading") return <Loading />;
 
   if (read.state === "failed")
     return (
-      <Panel>
-        <h1>Nothing was brought over</h1>
-        <p className="problem" role="alert">
-          {read.problem}
-        </p>
-        {read.sameAccount ? (
-          <div className="consent-actions">
-            <button
-              type="button"
-              className="button primary"
-              onClick={() => void signOut({ redirectUrl: "/" })}
-            >
-              Sign in with another account
-            </button>
-            <button type="button" className="button" onClick={onCancel}>
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <button type="button" className="button" onClick={onCancel}>
-            Continue
-          </button>
-        )}
-      </Panel>
+      <Hero
+        title="Nothing was brought over"
+        mark={iconMark("user")}
+        scene="sign"
+        tone="failed"
+        foot={<Foot />}
+      >
+        <div className="do">
+          <Problem>{read.problem}</Problem>
+          {read.sameAccount ? (
+            <>
+              <Btn onClick={() => void signOut({ redirectUrl: "/" })}>
+                Sign in with another account
+              </Btn>
+              <Btn quiet onClick={onCancel}>
+                Cancel
+              </Btn>
+            </>
+          ) : (
+            <Btn onClick={onCancel}>Continue</Btn>
+          )}
+        </div>
+      </Hero>
     );
 
   const seatComing = waiting.why === "seat";
 
   if (read.state === "done")
     return (
-      <Panel>
-        <h1>{read.title}</h1>
-        <p className="lede">{read.words}</p>
-        <button
-          type="button"
-          className="button primary"
-          onClick={() =>
-            seatComing ? void signOut({ redirectUrl: "/team" }) : onDone()
-          }
-        >
-          {seatComing ? "Sign in" : "Continue"}
-        </button>
-      </Panel>
+      <Hero
+        title={read.title}
+        lede={read.words}
+        mark={brandMark}
+        scene="sign"
+        tone="worked"
+        foot={<Foot />}
+      >
+        <div className="do">
+          <Btn
+            onClick={() =>
+              seatComing ? void signOut({ redirectUrl: "/team" }) : onDone()
+            }
+          >
+            {seatComing ? "Sign in" : "Continue"}
+          </Btn>
+        </div>
+      </Hero>
     );
 
   const { preview } = read;
@@ -470,60 +455,39 @@ function ConfirmFold({
   };
 
   return (
-    <Panel>
-      <h1>{preview.title}</h1>
-      <div className="consent-who">
-        <span className="ink">{preview.address}</span>
-      </div>
-      <p className="lede">{preview.words}</p>
-      {problem ? (
-        <p className="problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
-      <div className="consent-actions">
-        <button
-          type="button"
-          className="button"
-          disabled={busy}
-          onClick={onCancel}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="button primary"
-          disabled={busy}
-          data-busy={busy || undefined}
-          onClick={() => void bring()}
-        >
+    <Hero
+      title={preview.title}
+      lede={preview.words}
+      mark={iconMark("user")}
+      scene="sign"
+      tone={problem ? "failed" : "waiting"}
+      foot={<Foot />}
+    >
+      {confirm}
+      <p className="who">{preview.address}</p>
+      <div className="do">
+        <Problem>{problem}</Problem>
+        <Btn busy={busy} onClick={() => void bring()}>
           {seatComing ? "Move the seat" : "Bring it here"}
-        </button>
+        </Btn>
+        <Btn quiet disabled={busy} onClick={onCancel}>
+          Cancel
+        </Btn>
       </div>
-    </Panel>
+    </Hero>
   );
 }
 
-/** "Bring it here" on the Team page: a seat another of the person's accounts holds. */
+/** "Bring it here" where an org is started: a seat another of the person's accounts holds. */
 export function BringSeat() {
   const { start, busy, problem, confirm } = useStartFold();
-  if (confirm) return confirm;
   return (
     <>
-      <button
-        type="button"
-        className="button small"
-        disabled={busy}
-        data-busy={busy || undefined}
-        onClick={() => void start("seat")}
-      >
+      {confirm}
+      <Txt disabled={busy} onClick={() => void start("seat")}>
         Bring it here
-      </button>
-      {problem ? (
-        <p className="problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
+      </Txt>
+      <Problem>{problem}</Problem>
     </>
   );
 }

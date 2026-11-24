@@ -1,8 +1,10 @@
 import { useClerk, useOAuthConsent, useUser } from "@clerk/react";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
 import { Avatar } from "./Avatar.tsx";
-import { Logo } from "./icons.tsx";
+import { Foot, Loading } from "./Frame.tsx";
+import { iconMark } from "./marks.ts";
+import { Btn, Hero, Problem } from "./ui.tsx";
 
 /** Where Clerk sends a sign-in an app started, such as the Mac's, to ask the person first. */
 export function Consent() {
@@ -21,59 +23,61 @@ export function Consent() {
 
   if (!clientId || !redirectUri)
     return (
-      <Panel>
-        <h1>Nothing to sign in</h1>
-        <p className="lede">
-          This page opens when Sikemux on a computer asks to sign in. Start from
-          Settings, Devices in the app.
-        </p>
-      </Panel>
+      <Hero
+        title="Nothing to sign in"
+        lede="This page opens when Sikemux on a computer asks to sign in. Start from Settings, Devices in the app."
+        mark={iconMark("laptop")}
+        scene="sign"
+        tone="waiting"
+        foot={<Foot />}
+      />
     );
-  if (isLoading || (!data && !error))
-    return (
-      <Panel>
-        <p className="quiet">Loading…</p>
-      </Panel>
-    );
+  if (isLoading || (!data && !error)) return <Loading />;
   if (error || !data)
     return (
-      <Panel>
-        <h1>This sign-in can't continue</h1>
-        <p className="problem">
-          {error?.errors[0]?.longMessage ??
-            "The request from the app is no longer valid."}
-        </p>
-        <p className="lede">Start again from Sikemux on your computer.</p>
-      </Panel>
+      <Hero
+        title="This sign-in can't continue"
+        lede="Start again from Sikemux on your computer."
+        mark={iconMark("laptop")}
+        scene="sign"
+        tone="failed"
+        foot={<Foot />}
+      >
+        <div className="do">
+          <Problem>
+            {error?.errors[0]?.longMessage ??
+              "The request from the app is no longer valid."}
+          </Problem>
+        </div>
+      </Hero>
     );
 
   const destination = destinationOf(redirectUri);
   const email = user?.primaryEmailAddress?.emailAddress;
   return (
-    <Panel>
-      <h1>Sign in to {data.oauthApplicationName}?</h1>
-      <div className="consent-who">
-        <Avatar size={32} />
-        <span className="ink">{email}</span>
-      </div>
-      <p className="lede">
-        {data.oauthApplicationName} will be signed in to your Sikemux account
-        and can see:
-      </p>
-      <ul className="consent-scopes">
+    <Hero
+      title={`Sign in to ${data.oauthApplicationName}?`}
+      lede={`${data.oauthApplicationName} will be signed in to your Sikemux account and can see:`}
+      mark={iconMark("laptop")}
+      scene="sign"
+      tone={answering ? "waiting" : undefined}
+      foot={<Foot />}
+    >
+      <ul className="facts">
         {data.scopes
           .filter((scope) => scope.requiresConsent)
           .map((scope) => (
             <li key={scope.scope}>{scope.description ?? scope.scope}</li>
           ))}
       </ul>
-      <p className="quiet consent-return">
-        You go back to {destination} afterwards.
+      <p className="who">
+        <Avatar size={24} />
+        {email}
       </p>
       <form
         method="POST"
         action={clerk.oauthApplication.buildConsentActionUrl({ clientId })}
-        className="consent-actions"
+        className="do"
         onSubmit={(event) => {
           const submitter = (event.nativeEvent as SubmitEvent)
             .submitter as HTMLButtonElement | null;
@@ -90,38 +94,26 @@ export function Consent() {
               value={value}
             />
           ))}
-        <button
-          type="submit"
-          name="consented"
-          value="false"
-          className="button"
-          data-busy={answering === "deny" || undefined}
-        >
-          Deny
-        </button>
-        <button
+        <Btn
           type="submit"
           name="consented"
           value="true"
-          className="button primary"
           data-busy={answering === "allow" || undefined}
         >
           Allow
-        </button>
+        </Btn>
+        <Btn
+          quiet
+          type="submit"
+          name="consented"
+          value="false"
+          data-busy={answering === "deny" || undefined}
+        >
+          Deny
+        </Btn>
       </form>
-    </Panel>
-  );
-}
-
-export function Panel({ children }: { children: ReactNode }) {
-  return (
-    <section className="panel">
-      <div className="brand">
-        <Logo size={22} />
-        <span>Sikemux</span>
-      </div>
-      {children}
-    </section>
+      <p className="fine">You go back to {destination} afterwards.</p>
+    </Hero>
   );
 }
 

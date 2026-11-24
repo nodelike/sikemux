@@ -12,7 +12,11 @@ import { formatDay } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
 import type { Load } from "./Devices.tsx";
 import { IconBack } from "@shared/ui/Icons";
+import { Foot } from "./Frame.tsx";
+import { iconMark } from "./marks.ts";
 import { useReverified } from "./Reverify.tsx";
+import { Btn, btnClass, Field, Hero, Problem, Txt } from "./ui.tsx";
+
 const POLICY = "https://sikemux.com/delete-account";
 const CONTACT = "contact@nodelike.com";
 
@@ -62,36 +66,43 @@ export function DeleteAccount({
     }
   };
 
-  if (confirm) return confirm;
-
   const devices = load.state === "loaded" ? load.devices : null;
   const hosts = devices?.filter((device) => device.role === "host") ?? [];
   const clients = devices?.filter((device) => device.role === "client") ?? [];
 
   return (
-    <div className="deletion">
-      <button type="button" className="back" onClick={onBack}>
-        <IconBack />
-        Account
-      </button>
-      <h1>Delete your account</h1>
-      <p className="lede">
-        This deletes {email ? <span className="ink">{email}</span> : "it"} from
-        Sikemux. Changed your mind? Sign in again{" "}
-        {restorableDays
-          ? `within ${count(restorableDays, "day", "days")}`
-          : "soon"}{" "}
-        to restore it.
-      </p>
-
+    <Hero
+      title="Delete your account"
+      lede={
+        <>
+          This deletes {email ? <span className="lit">{email}</span> : "it"}{" "}
+          from Sikemux. Changed your mind? Sign in again{" "}
+          {restorableDays
+            ? `within ${count(restorableDays, "day", "days")}`
+            : "soon"}{" "}
+          to restore it.
+        </>
+      }
+      mark={iconMark("warning")}
+      scene="sign"
+      tone={problem ? "failed" : busy ? "waiting" : undefined}
+      back={
+        <Txt onClick={onBack}>
+          <IconBack className="ic" />
+          Account
+        </Txt>
+      }
+      foot={<Foot />}
+    >
+      {confirm}
       <ul className="facts">
         <li>
-          <span className="ink">Hosts</span>
+          <span className="lit">Hosts</span>
           {devices ? ` (${hosts.length})` : ""} are signed out. The phones
           paired to them keep working.
         </li>
         <li>
-          <span className="ink">Clients</span>
+          <span className="lit">Clients</span>
           {devices ? ` (${clients.length})` : ""} are signed out and removed
           from every host.
         </li>
@@ -102,21 +113,20 @@ export function DeleteAccount({
           your sign-in, device keys and the account&rsquo;s history are erased,
           and backups within {release.account.backupDays} days after that.
         </li>
+        {devices && devices.length > 0 ? (
+          <li>
+            {count(devices.length, "device", "devices")}:{" "}
+            {devices.map((device) => device.name).join(", ")}.
+          </li>
+        ) : null}
       </ul>
-      {devices && devices.length > 0 ? (
-        <p className="quiet small">
-          {count(devices.length, "device", "devices")}:{" "}
-          {devices.map((device) => device.name).join(", ")}.
-        </p>
-      ) : null}
 
-      <form className="form confirm-delete" onSubmit={(e) => void submit(e)}>
-        <label htmlFor={fieldId}>
-          Type <span className="word">{CONFIRM_WORD}</span> to confirm
+      <form className="do" onSubmit={(e) => void submit(e)}>
+        <label className="ask-for" htmlFor={fieldId}>
+          Type <span className="mono lit">{CONFIRM_WORD}</span> to confirm
         </label>
-        <input
+        <Field
           id={fieldId}
-          className="field"
           value={typed}
           onChange={(event) => setTyped(event.target.value)}
           autoComplete="off"
@@ -124,66 +134,61 @@ export function DeleteAccount({
           spellCheck={false}
           disabled={busy}
         />
-        {problem ? (
-          <p className="problem" role="alert">
-            {problem}
-          </p>
-        ) : null}
-        <button
-          type="submit"
-          className="button danger"
-          disabled={!confirmsDeletion(typed) || busy}
-          data-busy={busy || undefined}
-        >
+        <Problem>{problem}</Problem>
+        <Btn bad type="submit" disabled={!confirmsDeletion(typed)} busy={busy}>
           Delete account
-        </button>
-        <p className="quiet small">
-          You may be asked to confirm it's you first.{" "}
-          <a href={POLICY}>How deletion works</a>
-        </p>
+        </Btn>
       </form>
-    </div>
+      <p className="fine">
+        You may be asked to confirm it's you first.{" "}
+        <a href={POLICY}>How deletion works</a>
+      </p>
+    </Hero>
   );
 }
 
 /** Signed out: what this page is for, above the usual sign-in. */
-export function DeleteAccountIntro() {
-  return (
-    <section className="intro">
-      <h1>Delete your Sikemux account</h1>
-      <p>
-        Sign in to delete it. Every device on the account is signed out, and
-        phones are removed from every host. <a href={POLICY}>How it works</a>
-      </p>
-      <p className="quiet small">
-        Can't sign in? Email <a href={`mailto:${CONTACT}`}>{CONTACT}</a>.
-      </p>
-    </section>
-  );
-}
+export const DELETE_INTRO = {
+  title: "Delete your Sikemux account",
+  lede: (
+    <>
+      Sign in to delete it. Every device on the account is signed out, and
+      phones are removed from every host. <a href={POLICY}>How it works</a>.
+      Can&rsquo;t sign in? Email <a href={`mailto:${CONTACT}`}>{CONTACT}</a>.
+    </>
+  ),
+};
 
 export function AccountDeleted({ deletesAt }: { deletesAt?: string }) {
   return (
-    <section className="panel">
-      <h1>Your account is deleted</h1>
-      <p>
-        Every device on it is signed out. Changed your mind? Sign in again{" "}
-        {deletesAt ? (
-          <>
-            before <span className="ink">{formatDay(deletesAt)}</span>
-          </>
-        ) : (
-          "soon"
-        )}{" "}
-        to restore it. After that, your sign-in, device keys and the
-        account&rsquo;s history are erased.
-      </p>
-      <p className="quiet small">
+    <Hero
+      title="Your account is deleted"
+      lede={
+        <>
+          Every device on it is signed out. Changed your mind? Sign in again{" "}
+          {deletesAt ? (
+            <>
+              before <span className="lit">{formatDay(deletesAt)}</span>
+            </>
+          ) : (
+            "soon"
+          )}{" "}
+          to restore it. After that, your sign-in, device keys and the
+          account&rsquo;s history are erased.
+        </>
+      }
+      mark={iconMark("user")}
+      scene="sign"
+      foot={<Foot />}
+    >
+      <div className="do">
+        <a className={btnClass({})} href="https://sikemux.com">
+          Go to sikemux.com
+        </a>
+      </div>
+      <p className="fine">
         Questions? Email <a href={`mailto:${CONTACT}`}>{CONTACT}</a>.
       </p>
-      <a className="button" href="https://sikemux.com">
-        Go to sikemux.com
-      </a>
-    </section>
+    </Hero>
   );
 }

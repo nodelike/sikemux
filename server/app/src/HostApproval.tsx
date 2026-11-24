@@ -5,9 +5,13 @@ import { errorCode, orReverify } from "@shared/account/account";
 import { useState, type SubmitEvent } from "react";
 
 import { formatDay } from "@shared/lib/format";
+import { IconBack } from "@shared/ui/Icons";
 import { api, problemText, signedInToken } from "./api.ts";
-import { Panel } from "./Consent.tsx";
+import { Foot } from "./Frame.tsx";
+import { iconMark } from "./marks.ts";
+import { HOSTS } from "./navigation.ts";
 import { useReverified } from "./Reverify.tsx";
+import { Btn, btnClass, Field, Hero, Problem, Txt } from "./ui.tsx";
 
 type Step =
   | { kind: "enter" }
@@ -57,18 +61,26 @@ export function HostApproval() {
     }
   };
 
-  if (confirm) return confirm;
-
   if (step.kind === "done")
     return (
-      <Panel>
-        <h1>{step.approved ? `${step.name} is on your account` : "Refused"}</h1>
-        <p className="lede">
-          {step.approved
+      <Hero
+        title={step.approved ? `${step.name} is on your account` : "Refused"}
+        lede={
+          step.approved
             ? "Join it from Sikemux on your phone. The host still asks before it lets each phone in."
-            : `${step.name} was not added. Its sign-in has stopped.`}
-        </p>
-      </Panel>
+            : `${step.name} was not added. Its sign-in has stopped.`
+        }
+        mark={iconMark("server")}
+        scene="teal"
+        tone={step.approved ? "worked" : undefined}
+        foot={<Foot />}
+      >
+        <div className="do">
+          <a className={btnClass({ quiet: true })} href={HOSTS}>
+            See your hosts
+          </a>
+        </div>
+      </Hero>
     );
 
   if (step.kind === "check") {
@@ -77,44 +89,78 @@ export function HostApproval() {
       .filter(Boolean)
       .join(", ");
     return (
-      <Panel>
-        <h1>Add {host.name} to your account?</h1>
-        <ul className="consent-scopes">
+      <Hero
+        title={`Add ${host.name} to your account?`}
+        lede="Check that its screen shows this code."
+        mark={iconMark("server")}
+        scene="teal"
+        tone={
+          problem || host.removedAt ? "failed" : busy ? "waiting" : undefined
+        }
+        back={
+          <Txt
+            disabled={busy !== undefined}
+            onClick={() => {
+              setProblem(undefined);
+              setStep({ kind: "enter" });
+            }}
+          >
+            <IconBack className="ic" />
+            Back
+          </Txt>
+        }
+        foot={<Foot />}
+      >
+        {confirm}
+        <p className="big-code">{code.toUpperCase()}</p>
+        <ul className="facts">
           <li>
             {platformName(host.platform)} · {host.channel}
           </li>
           <li>Asked {ago(host.requestedAt)}</li>
-          <li>From {where || "an address the server could not see"}</li>
+          <li>
+            From {where || "an address the server could not see"}
+            {host.requestedNear ? (
+              <>
+                {" "}
+                (places from{" "}
+                <a href="https://db-ip.com" target="_blank" rel="noreferrer">
+                  DB-IP
+                </a>
+                )
+              </>
+            ) : null}
+          </li>
         </ul>
-        {host.removedAt ? (
-          <p className="problem">
-            This host was removed from your account on{" "}
-            {formatDay(host.removedAt)}. Add it again only if you are setting it
-            up yourself.
-          </p>
-        ) : null}
-        <p className="lede">
+        <p className="fine">
           Only add a computer you are setting up yourself right now. If you did
-          not just run <span className="ink">sikemux login</span> there, or it
-          asked from somewhere you are not, someone else is trying to get into
-          your account: choose Not mine.
+          not just run <span className="mono lit">sikemux login</span> there, or
+          it asked from somewhere you are not, someone else is trying to get
+          into your account: choose Not mine.
         </p>
-        {host.requestedNear ? (
-          <p className="quiet small">
-            Places from{" "}
-            <a href="https://db-ip.com" target="_blank" rel="noreferrer">
-              DB-IP
-            </a>
-            .
-          </p>
-        ) : null}
-        {problem ? <p className="problem">{problem}</p> : null}
-        <div className="consent-actions">
-          <button
-            type="button"
-            className="button"
+        <div className="do">
+          <Problem>
+            {host.removedAt
+              ? `This host was removed from your account on ${formatDay(host.removedAt)}. Add it again only if you are setting it up yourself.`
+              : null}
+          </Problem>
+          <Problem>{problem}</Problem>
+          <Btn
             disabled={busy !== undefined}
-            data-busy={busy === "refuse" || undefined}
+            busy={busy === "approve"}
+            onClick={() =>
+              void run("approve", async () => {
+                await approve(code);
+                setStep({ kind: "done", name: host.name, approved: true });
+              })
+            }
+          >
+            Add host
+          </Btn>
+          <Btn
+            quiet
+            disabled={busy !== undefined}
+            busy={busy === "refuse"}
             onClick={() =>
               void run("refuse", async () => {
                 const token = await signedInToken(getToken, "refuse this host");
@@ -124,23 +170,9 @@ export function HostApproval() {
             }
           >
             Not mine
-          </button>
-          <button
-            type="button"
-            className="button primary"
-            disabled={busy !== undefined}
-            data-busy={busy === "approve" || undefined}
-            onClick={() =>
-              void run("approve", async () => {
-                await approve(code);
-                setStep({ kind: "done", name: host.name, approved: true });
-              })
-            }
-          >
-            Add host
-          </button>
+          </Btn>
         </div>
-      </Panel>
+      </Hero>
     );
   }
 
@@ -158,15 +190,22 @@ export function HostApproval() {
     });
   };
   return (
-    <Panel>
-      <h1>Add a host</h1>
-      <p className="lede">
-        Enter the code that <span className="ink">sikemux login</span> shows on
-        the computer.
-      </p>
-      <form className="form" onSubmit={submit}>
-        <input
-          className="field"
+    <Hero
+      title="Add a host"
+      lede={
+        <>
+          Enter the code that <span className="mono lit">sikemux login</span>{" "}
+          shows on the computer.
+        </>
+      }
+      mark={iconMark("server")}
+      scene="teal"
+      tone={problem ? "failed" : busy ? "waiting" : undefined}
+      foot={<Foot />}
+    >
+      <form className="do" onSubmit={submit}>
+        <Field
+          className="field code-field"
           value={typed}
           onChange={(event) => setTyped(event.target.value)}
           placeholder="BCDF-GHJK"
@@ -176,16 +215,11 @@ export function HostApproval() {
           autoFocus
           aria-label="Code"
         />
-        {problem ? <p className="problem">{problem}</p> : null}
-        <button
-          type="submit"
-          className="button primary"
-          disabled={busy !== undefined || !typed.trim()}
-          data-busy={busy === "look" || undefined}
-        >
+        <Problem>{problem}</Problem>
+        <Btn type="submit" disabled={!typed.trim()} busy={busy === "look"}>
           Continue
-        </button>
+        </Btn>
       </form>
-    </Panel>
+    </Hero>
   );
 }
