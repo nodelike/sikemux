@@ -1706,6 +1706,9 @@ canvas.dots {
   color: var(--lit);
   overflow-wrap: anywhere;
 }
+.hero .tx > .why {
+  margin-top: 12px;
+}
 .hero .do + .do {
   margin-top: 8px;
 }

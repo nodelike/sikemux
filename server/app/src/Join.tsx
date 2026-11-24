@@ -156,7 +156,7 @@ function PasteLink({
         className="do"
         onSubmit={(event) => {
           event.preventDefault();
-          const token = link.trim().split("#")[1]?.trim();
+          const token = /#([\w-]{43})$/.exec(link.trim())?.[1];
           if (token) onToken(token);
           else
             setProblem(
