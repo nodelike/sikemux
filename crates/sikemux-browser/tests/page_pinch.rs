@@ -1,5 +1,5 @@
-//! A page in Pages took no pinch, so it could not be zoomed or panned, once it was read in a view
-//! of its own rather than a desk tab. Real trackpad events are sent to a real window, whose views
+//! An artifact once took no pinch, so it could not be zoomed or panned, in a view that was not a
+//! desk tab. A desk tab, where artifacts open, must take one. Real trackpad events are sent to a real window, whose views
 //! want the main thread, so this runs as its own program, answering nextest's `--list` itself.
 #![allow(
     clippy::expect_used,
@@ -37,7 +37,9 @@ fn main() {
 #[cfg(target_os = "macos")]
 mod mac {
     use std::cell::RefCell;
+    use std::path::{Path, PathBuf};
     use std::rc::Rc;
+    use std::sync::Arc;
 
     use block2::RcBlock;
     use objc2::rc::Retained;
@@ -47,13 +49,40 @@ mod mac {
     use objc2_core_graphics::{CGEvent, CGEventField, CGEventType, CGScrollEventUnit};
     use objc2_foundation::{NSDate, NSError, NSPoint, NSRect, NSRunLoop, NSSize, NSString};
     use objc2_web_kit::WKWebView;
-    use sikemux_browser::page_view::{PageView, Room};
+    use sikemux_browser::{
+        DocumentEvent, Opener, PageDialog, PageLoad, ParentView, Tab, TabEvents, TabSpec, TabStall,
+    };
 
     const SIZE: NSSize = NSSize::new(900.0, 700.0);
     const AT: NSPoint = NSPoint::new(300.0, 200.0);
-    const PAGE: &str = "<body style='margin:0'>\
+    const PAGE: &str = "data:text/html,<body style='margin:0'>\
         <p style='position:absolute;left:200px;top:100px;width:250px;height:300px'>words</p>\
         <div style='width:1800px;height:3000px'></div>";
+
+    struct Anything;
+
+    impl TabEvents for Anything {
+        fn may_load(&self, _: &str) -> bool {
+            true
+        }
+        fn loaded(&self, _: PageLoad) {}
+        fn titled(&self, _: String) {}
+        fn moved(&self, _: String, _: bool, _: bool) {}
+        fn new_window(&self, _: String, _: Option<Opener>) -> Option<Tab> {
+            None
+        }
+        fn closed(&self) {}
+        fn download_started(&self, _: String, _: &Path) -> Option<PathBuf> {
+            None
+        }
+        fn download_finished(&self, _: String, _: bool) {}
+        fn dialog(&self, _: Option<PageDialog>) {}
+        fn upload(&self) -> Option<Vec<PathBuf>> {
+            None
+        }
+        fn document(&self, _: DocumentEvent) {}
+        fn health(&self, _: Option<TabStall>) {}
+    }
 
     pub fn check() {
         let mtm = MainThreadMarker::new().expect("runs on the main thread");
@@ -72,13 +101,24 @@ mod mac {
         unsafe { window.setReleasedWhenClosed(false) };
         window.orderBack(None);
 
-        let page = PageView::new(mtm, PAGE, Room::Served("http://127.0.0.1:9/page"), |_| {});
-        let view = page.view();
-        view.setFrame(NSRect::new(NSPoint::ZERO, SIZE));
-        window
-            .contentView()
-            .expect("a window has a content view")
-            .addSubview(&view);
+        let content = window.contentView().expect("a window has a content view");
+        let tab = Tab::open(
+            ParentView::beneath(Retained::as_ptr(&content).cast_mut().cast()),
+            TabSpec {
+                agent_id: "agent",
+                tab_id: "tab",
+                url: PAGE,
+                user_agent: "Sikemux",
+                size: (SIZE.width, SIZE.height),
+                opener: None,
+                private: true,
+            },
+            Arc::new(Anything),
+        )
+        .expect("a window takes a tab");
+        tab.set_bounds((0.0, 0.0, SIZE.width, SIZE.height));
+        tab.show();
+        let view = tab.view_here().expect("a tab has a view");
         let webview = view.downcast::<WKWebView>().expect("a page is a web view");
         // SAFETY: `isLoading` is a plain getter on a live view, on the main thread.
         spin("loading", || unsafe { !webview.isLoading() });
@@ -121,7 +161,7 @@ mod mac {
             &|scale, left, top| scale == zoomed.0 && left > zoomed.1 && top > zoomed.2,
         );
 
-        page.show(PAGE);
+        tab.navigate(&format!("{PAGE}<p>Next</p>"));
         shows(
             "the next page at its own size",
             &|| (),

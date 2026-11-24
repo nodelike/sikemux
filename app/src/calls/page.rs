@@ -20,6 +20,7 @@ const SIDE: f32 = 24.;
 const PROSE: f32 = 620.;
 const ATTACHMENT_HEIGHT: f32 = 240.;
 const OPTION_PICTURE_HEIGHT: f32 = 176.;
+const FOOT_HEIGHT: f32 = 300.;
 /// The hover group of a call's row in a chat, which offers Open in Asks while hovered.
 const CHAT_ROW: &str = "call-chat-row";
 
@@ -131,75 +132,208 @@ impl Render for Page {
             .nth(1)
             .filter(|call| call.id != open.id)
             .map(|call| call.id.clone());
-        let field = self.cards.update(cx, |cards, cx| {
-            cards.saw(&open, &target);
-            cards.field(&open, window, cx)
+        let question = question(&open, through, cx);
+        let answering = Answering::new(&open, next, through, window, cx);
+        let (choices, pinned) = (answering.choices, answering.with);
+        let shown = div()
+            .id(SharedString::from(format!("calls-page-{}", open.id)))
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .child(
+                div()
+                    .w_full()
+                    .max_w(px(COLUMN + 2. * SIDE))
+                    .min_h_full()
+                    .mx_auto()
+                    .px(px(SIDE))
+                    .pt(px(SIDE))
+                    .flex()
+                    .flex_col()
+                    .child(ui::pinned_foot(question, choices)),
+            );
+        let page = div().size_full().relative().flex().flex_col();
+        let page = page.child(shown).child(composer_row(pinned));
+        match answering.composed {
+            true => answer_drops(page, &open, through, cx),
+            false => page.into_any_element(),
+        }
+    }
+}
+
+/// What an ask linking the page in front of an agent's desk is answered with, at the desk's foot.
+pub struct Foot {
+    bench: WeakEntity<Workbench>,
+    cards: Entity<Cards>,
+    agent: String,
+    _cards: Subscription,
+}
+
+impl Foot {
+    pub(crate) fn new(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Entity<Self> {
+        let weak = cx.entity().downgrade();
+        let cards = bench.calls.clone();
+        let agent = agent.to_owned();
+        cx.new(|cx| {
+            let observed = cx.observe(&cards, |_, _, cx| cx.notify());
+            Self {
+                bench: weak,
+                cards,
+                agent,
+                _cards: observed,
+            }
+        })
+    }
+}
+
+impl Workbench {
+    /// The ask of `agent` the artifact in front of its desk belongs to: the one picked, else the
+    /// latest.
+    pub(crate) fn asked_on_desk(&self, agent: &str, cx: &App) -> Option<PersonCall> {
+        let page = self.page_on_desk(agent, cx)?;
+        let mut links: Vec<PersonCall> = on_desk(self, agent);
+        links.retain(|call| {
+            call.kind != CallKind::Look && call.pages().any(|linked| linked.id == page)
+        });
+        let picked = self.calls.read(cx).opened.clone();
+        let picked = (links.iter()).position(|call| Some(&call.id) == picked.as_ref());
+        match picked {
+            Some(at) => Some(links.swap_remove(at)),
+            None => links.pop(),
+        }
+    }
+}
+
+impl Render for Foot {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = Tokens::get(cx).clone();
+        let asked = self.bench.upgrade().and_then(|bench| {
+            let bench = bench.read(cx);
+            Some((bench.asked_on_desk(&self.agent, cx)?, bench.target()))
+        });
+        let Some((open, target)) = asked else {
+            return div().into_any_element();
+        };
+        let through = Through {
+            target: &target,
+            cards: &self.cards,
+            bench: &self.bench,
+        };
+        let asks = div()
+            .text_size(theme::ui_text(13.5))
+            .font_weight(FontWeight::SEMIBOLD)
+            .line_height(relative(1.4))
+            .text_color(t.text_primary)
+            .line_clamp(2)
+            .child(question_lines(&open).0);
+        let answering = Answering::new(&open, None, through, window, cx);
+        let foot = div()
+            .flex_none()
+            .relative()
+            .flex()
+            .flex_col()
+            .border_t(theme::border())
+            .border_color(t.border)
+            .child(
+                div()
+                    .id(SharedString::from(format!("desk-foot-{}", open.id)))
+                    .max_h(px(FOOT_HEIGHT))
+                    .overflow_y_scroll()
+                    .child(
+                        div()
+                            .w_full()
+                            .max_w(px(COLUMN + 2. * SIDE))
+                            .mx_auto()
+                            .px(px(SIDE))
+                            .pt(SPACE_3_PX)
+                            .child(asks)
+                            .child(answering.choices),
+                    ),
+            )
+            .child(composer_row(answering.with));
+        match answering.composed {
+            true => answer_drops(foot, &open, through, cx),
+            false => foot.into_any_element(),
+        }
+    }
+}
+
+/// What answers an open call: its choices, and under them its composer, or the field its secret
+/// is typed in.
+struct Answering {
+    choices: gpui_kit::Div,
+    with: AnyElement,
+    /// Whether a composer answers it.
+    composed: bool,
+}
+
+impl Answering {
+    fn new(
+        open: &PersonCall,
+        next: Option<String>,
+        through: Through,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self {
+        let field = through.cards.update(cx, |cards, cx| {
+            cards.saw(open, through.target);
+            cards.field(open, window, cx)
         });
         let formed = matches!(open.kind, CallKind::Do | CallKind::Look);
         let reply = match open.secret || formed {
             true => None,
             false => {
-                let hint = reply_hint(&open, &self.cards.read(cx).chosen(&open)).into();
-                (self.bench)
-                    .update(cx, |bench, cx| bench.reply_view(&open, hint, window, cx))
+                let hint = reply_hint(open, &through.cards.read(cx).chosen(open)).into();
+                (through.bench)
+                    .update(cx, |bench, cx| bench.reply_view(open, hint, window, cx))
                     .ok()
                     .flatten()
             }
         };
-        let question = question(&open, through, cx);
-        let choices = choices(&open, next, &field, through, cx).pb(if formed {
-            px(SIDE)
-        } else {
-            SPACE_3_PX
-        });
-        let answered_with = match &reply {
-            Some(view) => view.clone().into_element().isolated().into_any_element(),
+        let choices =
+            choices(open, next, &field, through, cx).pb(if formed { px(SIDE) } else { SPACE_3_PX });
+        let composed = reply.is_some();
+        let with = match reply {
+            Some(view) => view.into_element().isolated().into_any_element(),
             None if formed => div().into_any_element(),
-            None => secret_field(&open, &field, through, window, cx),
+            None => secret_field(open, &field, through, window, cx),
         };
-        let owner = reply::owner(&open.id);
-        let page = div().size_full().relative().flex().flex_col();
-        let page = match reply {
-            Some(_) => crate::chat::takes_drops(page, &owner, self.bench.clone()),
-            None => page,
-        };
-        page.child(
-            div()
-                .id(SharedString::from(format!("calls-page-{}", open.id)))
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .child(
-                    div()
-                        .w_full()
-                        .max_w(px(COLUMN + 2. * SIDE))
-                        .min_h_full()
-                        .mx_auto()
-                        .px(px(SIDE))
-                        .pt(px(SIDE))
-                        .flex()
-                        .flex_col()
-                        .child(ui::pinned_foot(question, choices)),
-                ),
-        )
-        .child(
-            // The composer keeps a margin of its own inside; this one lines it up with the
-            // column above.
-            div().flex_none().px(px(SIDE) - theme::SPACE_4).child(
-                div()
-                    .w_full()
-                    .max_w(px(COLUMN) + theme::SPACE_4 * 2.)
-                    .mx_auto()
-                    .child(answered_with),
-            ),
-        )
-        .when(reply.is_some() && cx.has_active_drag(), |page| {
-            let words = t!("Drop files to send with your answer");
-            let hint = crate::chat::drop_hint(words, &owner, bench.read(cx), cx);
-            page.child(gpui_kit::deferred(hint))
-        })
-        .into_any_element()
+        Self {
+            choices,
+            with,
+            composed,
+        }
     }
+}
+
+/// What a call is answered with, in line with the column above it: a composer keeps a margin of
+/// its own inside.
+fn composer_row(answered_with: AnyElement) -> gpui_kit::Div {
+    div().flex_none().px(px(SIDE) - theme::SPACE_4).child(
+        div()
+            .w_full()
+            .max_w(px(COLUMN) + theme::SPACE_4 * 2.)
+            .mx_auto()
+            .child(answered_with),
+    )
+}
+
+/// `area` taking files dropped on it into the composer of call `open`.
+fn answer_drops(
+    area: gpui_kit::Div,
+    open: &PersonCall,
+    through: Through,
+    cx: &mut App,
+) -> AnyElement {
+    let owner = reply::owner(&open.id);
+    let area = crate::chat::takes_drops(area, &owner, through.bench.clone());
+    area.when(cx.has_active_drag(), |area| {
+        let words = t!("Drop files to send with your answer");
+        let hint = (through.bench.upgrade())
+            .map(|bench| crate::chat::drop_hint(words, &owner, bench.read(cx), cx));
+        area.children(hint.map(gpui_kit::deferred))
+    })
+    .into_any_element()
 }
 
 /// What the empty composer of `call` says: what its words will be, and how files join them.
@@ -211,6 +345,19 @@ fn reply_hint(call: &PersonCall, chosen: &[String]) -> &'static str {
         (false, false, true) => t!("Add a note, then click Go…"),
         (false, false, false) => t!("Add a note · ⏎ sends and closes · ⌘⏎ keeps it open"),
     }
+}
+
+/// The line that says what `call` asks, and the lines under it.
+fn question_lines(call: &PersonCall) -> (String, Vec<String>) {
+    let mut lines = (call.question.lines().map(str::trim))
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned);
+    let formed = matches!(call.kind, CallKind::Do | CallKind::Look);
+    let first = match call.title.as_ref().filter(|_| formed) {
+        Some(title) => title.clone(),
+        None => lines.next().unwrap_or_default(),
+    };
+    (first, lines.collect())
 }
 
 /// What the open call asks: who asks, the question, what it links, why it came up and what its
@@ -250,12 +397,7 @@ fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div 
                 text,
             ))
     };
-    let mut lines = (call.question.lines().map(str::trim)).filter(|line| !line.is_empty());
-    let formed = matches!(call.kind, CallKind::Do | CallKind::Look);
-    let headline = match call.title.as_ref().filter(|_| formed) {
-        Some(title) => title.clone(),
-        None => lines.next().unwrap_or_default().to_owned(),
-    };
+    let (headline, lines) = question_lines(call);
     let question = div()
         .mt(px(14.))
         .text_size(theme::ui_text(21.))
@@ -266,13 +408,13 @@ fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div 
             SharedString::from(format!("call-page-question-{}", call.id)),
             headline,
         ));
-    let more: Vec<gpui_kit::Div> = lines
+    let more: Vec<gpui_kit::Div> = (lines.into_iter())
         .enumerate()
-        .map(|(ix, line)| prose(&format!("line-{ix}"), line.to_owned()).mt(px(10.)))
+        .map(|(ix, line)| prose(&format!("line-{ix}"), line).mt(px(10.)))
         .collect();
     let link = (call.link.as_ref())
         .map(|link| div().mt(px(16.)).child(link_tile(call, link, through, &t)));
-    let page = linked_page(call, through, cx).map(|page| div().mt(px(16.)).child(page));
+    let page = linked_page(call, None, through, cx).map(|page| div().mt(px(16.)).child(page));
     let context = context_words(call).map(|words| prose("context", words));
     let why: Vec<gpui_kit::Div> = (context.into_iter())
         .chain(

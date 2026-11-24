@@ -1218,7 +1218,7 @@ fn surfaces(
         "surface-pages".into(),
         Icon::Presentation,
         n!("Artifacts"),
-        front == Some(PaneKind::Pages),
+        false,
         false,
         keymap::hint(pages, cx),
         cx,

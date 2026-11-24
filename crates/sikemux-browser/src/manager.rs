@@ -229,10 +229,8 @@ impl BrowserManager {
 
     /// Whether `url` is a page an agent showed the person with page_show, which other tools leave be.
     pub fn shows_page(&self, url: &str) -> bool {
-        self.local_files
-            .path_of(url)
-            .and_then(|path| Some(sikemux_base::pages::is_page_id(path.file_stem()?.to_str()?)))
-            .unwrap_or(false)
+        (self.local_files.path_of(url))
+            .is_some_and(|path| sikemux_base::pages::page_id_of(&path).is_some())
     }
 
     fn release_unused_files(&self) {

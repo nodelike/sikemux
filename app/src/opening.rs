@@ -511,8 +511,7 @@ impl Workbench {
         if !sikemux_base::pages::is_page_id(&id) {
             return answer(Err("that is not a page the core keeps".into()));
         }
-        let page =
-            Target::here(&self.asks).request_typed::<call::ReadPage>(PageParams { id: id.clone() });
+        let page = Target::here(&self.asks).request_typed::<call::ReadPage>(PageParams::new(&id));
         let picture = request.params.get("picture") == Some(&Value::Bool(true));
         let shut = request.params.get("quiet") == Some(&Value::Bool(true))
             && !self.desk_open_anywhere(&agent);

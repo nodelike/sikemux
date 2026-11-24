@@ -55,9 +55,6 @@ pub(crate) fn open(
         let _ = events.send(event);
     }));
     let view = gpui_native_view::OwnedView::new(page.view(), window)?;
-    if matches!(room, Room::Served(_)) {
-        view.round_bottom(crate::theme::inside_pane_radius());
-    }
     let parks = matches!(room, Room::App);
     if parks {
         gpui_native_view::Surface::place(&view, Some(parked()));
@@ -83,7 +80,7 @@ pub(crate) fn open(
     let parent = gpui_native_view::window_x11(window)?;
     let ground = match room {
         Room::App | Room::Panel => crate::theme::page_ground_rgb(crate::theme::Tokens::get(cx)),
-        Room::Fills(_) | Room::Served(_) => [255; 3],
+        Room::Fills(_) => [255; 3],
     };
     let page =
         sikemux_browser::page_view::PageView::new(parent, html, room, ground, move |event| {

@@ -4,6 +4,7 @@
 //! agrees. `sikemux://slice/<card>?repo=<owner/name>`, which a pull request's description
 //! holds, opens that slice in the project whose code host repository it names.
 //! `sikemux://hosts/<host>` opens the Hosts page on that host, as the notch's alerts do.
+//! `sikemux://artifact/<page>?ask=<ask>` opens an artifact an ask links, as its card does.
 //! `sikemux://ask/<number>` opens one of the person's asks, as its card on the board does.
 //! `sikemux://install-mod?repo=<owner>/<name>` asks the person to install a mod from GitHub.
 
@@ -74,6 +75,17 @@ fn hosts_link(link: &str) -> Option<String> {
     Some(host.unwrap_or_default())
 }
 
+/// The ask a `sikemux://artifact/<page>?ask=<ask>` link names, and the artifact of it.
+fn artifact_link(link: &str) -> Option<(String, String)> {
+    let url = Url::parse(link).ok()?;
+    if url.scheme() != "sikemux" || url.host_str() != Some("artifact") {
+        return None;
+    }
+    let page = url.path_segments()?.find(|part| !part.is_empty())?;
+    let (_, ask) = url.query_pairs().find(|(key, _)| key == "ask")?;
+    Some((ask.into_owned(), page.to_owned()))
+}
+
 /// Takes what the system hands this app to open: each `sikemux://` link, such as one clicked
 /// in another app, brings the window to the front for it, and files and folders, such as
 /// from Finder's Open With, open as `sikemux open` would; a start with nothing to open, as
@@ -119,6 +131,10 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
     }
     if let Some(host) = hosts_link(link) {
         return bench.open_hosts(Some(host).filter(|host| !host.is_empty()));
+    }
+    let asked = artifact_link(link).filter(|(ask, _)| bench.call_at(ask).is_some());
+    if let Some((ask, page)) = asked {
+        return bench.open_call_page(&ask, &page, cx);
     }
     if let Some(repo) = crate::mod_install::link(link) {
         return bench.offer_repo_mod(repo, cx);

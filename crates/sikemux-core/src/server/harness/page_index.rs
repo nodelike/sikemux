@@ -174,6 +174,20 @@ pub(crate) fn title_of(data_dir: &Path, id: &str) -> Option<String> {
         .flatten()
 }
 
+/// The agent that showed page `id`, and the folder of its project.
+pub(crate) fn shown_by(data_dir: &Path, id: &str) -> Option<(String, String)> {
+    open(data_dir)
+        .ok()?
+        .query_row(
+            "SELECT agent, project FROM pages WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .ok()
+        .flatten()
+}
+
 /// The latest version of at most `most` pages whose title holds every one of `words`, newest
 /// first, from `project` alone when one is named. `open` names the calls still open.
 pub(crate) fn list(

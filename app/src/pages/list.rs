@@ -2,7 +2,6 @@
 
 use gpui_kit::{AnyElement, Context, IntoElement, ParentElement, SharedString, Styled};
 use sikemux_calls::harness::{ListedPage, PageLife};
-use sikemux_view::layout::PaneKind;
 
 use super::{folder_of, life_words};
 use crate::agents::searched;
@@ -43,12 +42,7 @@ pub(crate) fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
         true => rail_empty(Icon::Presentation, t!("No artifacts yet"), None, cx),
         false => rail_empty(Icon::Search, t!("No artifact matches"), None, cx),
     });
-    let in_front = (bench.tab())
-        .and_then(|tab| crate::tabs::first_view(&tab.pane))
-        .is_some_and(|(kind, _)| kind == PaneKind::Pages);
-    let reading = (bench.pages.readers.get(&folder))
-        .filter(|_| in_front)
-        .and_then(|reader| reader.read(cx).shows().map(str::to_owned));
+    let in_front = bench.front_page_id(cx);
     let (shared, rest): (Vec<&ListedPage>, Vec<&ListedPage>) =
         (found.into_iter()).partition(|page| page.shared.is_some());
     let (kept, going): (Vec<&ListedPage>, Vec<&ListedPage>) =
@@ -56,7 +50,7 @@ pub(crate) fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
     let mut rows = |pages: Vec<&ListedPage>| {
         (pages.into_iter())
             .map(|page| {
-                let chosen = reading.as_deref() == Some(page.id.as_str());
+                let chosen = in_front.as_deref() == Some(page.id.as_str());
                 row(bench, page, chosen, cx)
             })
             .collect()
@@ -88,7 +82,7 @@ fn row(
         Some(share) => t!("{left} left", left = ui::time::left_short(share.expires_at)),
         None => life_words(page.life, page.shown_at),
     };
-    let (id, title) = (page.id.clone(), page.title.clone());
+    let id = page.id.clone();
     Row::new(
         SharedString::from(format!("page-{}", page.id)),
         page.title.clone(),
@@ -104,6 +98,9 @@ fn row(
             .flex_none()
             .whitespace_nowrap(),
     )
-    .on_click(cx.listener(move |bench, _, _, cx| bench.open_page(&id, &title, cx)))
+    .on_click(cx.listener(move |bench, _, _, cx| {
+        let at = bench.target();
+        bench.open_page(&id, None, at, cx)
+    }))
     .into_any_element()
 }

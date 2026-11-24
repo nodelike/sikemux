@@ -11,6 +11,7 @@ use crate::ui::Clicks;
 use gpui_kit::Task;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -26,6 +27,7 @@ use gpui_kit::{
 };
 use gpui_native_view::{native_view, Frame, NativeSurface, Surface};
 use sikemux_agents::harness::runs::RunStatus;
+use sikemux_base::pages::page_id_of;
 use sikemux_browser::{
     BrowserBounds, BrowserDownload, BrowserManager, BrowserShortcut, BrowserSnapshot, Host,
     ParentView,
@@ -38,6 +40,7 @@ use sikemux_wire::protocol::AgentStatus;
 use tokio::sync::mpsc;
 
 use sikemux_calls::call;
+use sikemux_calls::harness::PageLife;
 use sikemux_calls::layout::DeskModParams;
 
 use crate::agents::rows::AgentRow;
@@ -49,7 +52,7 @@ use crate::theme::{
     TEXT_XS,
 };
 use crate::toast;
-use crate::ui::{self, IconButton};
+use crate::ui::{self, Button, IconButton, Variant};
 use crate::workbench::{Strip, Workbench};
 
 /// The browser engine and what the desks show of it.
@@ -63,6 +66,8 @@ pub struct Desks {
     pub(crate) kinds: HashMap<String, DeskKind>,
     /// Each desk's calls page, made the first time the desk shows its calls.
     call_pages: HashMap<String, Entity<crate::calls::Page>>,
+    /// What answers the ask of each desk's artifact, made the first time one shows.
+    page_feet: HashMap<String, Entity<crate::calls::Foot>>,
     pub(crate) task_views: HashMap<String, crate::task_list::View>,
     /// The agents in the view as last heard, so those that leave it are let go.
     present: HashSet<String>,
@@ -302,6 +307,8 @@ pub(crate) struct Page {
     pub(crate) surface: NativeSurface,
     pub(crate) focus: FocusHandle,
     pub(crate) address: Entity<InputState>,
+    /// Whether something stands under the page, in the desk's rounded corners.
+    footed: Arc<AtomicBool>,
     _typing: Subscription,
 }
 
@@ -366,6 +373,7 @@ impl Desks {
             known: HashMap::new(),
             kinds: HashMap::new(),
             call_pages: HashMap::new(),
+            page_feet: HashMap::new(),
             task_views: HashMap::new(),
             present: HashSet::new(),
             working: HashSet::new(),
@@ -409,6 +417,9 @@ impl Desks {
         for page in self.call_pages.values() {
             page.update(cx, |_, cx| cx.notify());
         }
+        for foot in self.page_feet.values() {
+            foot.update(cx, |_, cx| cx.notify());
+        }
     }
 
     fn forget(&mut self, agent: &str) {
@@ -417,6 +428,7 @@ impl Desks {
         self.known.remove(agent);
         self.kinds.remove(agent);
         self.call_pages.remove(agent);
+        self.page_feet.remove(agent);
         self.task_views.remove(agent);
         self.items.remove(agent);
         self.front.remove(agent);
@@ -489,6 +501,11 @@ impl Desks {
                 .find(|item| matches!(item, DeskItem::Mod(_)))
                 .filter(|_| no_pages())
         })
+    }
+
+    /// Whether the agent's desk holds a browser tab.
+    fn has_tabs(&self, agent: &str) -> bool {
+        (self.strips.get(agent)).is_some_and(|strip| !strip.tabs.is_empty())
     }
 
     /// The mods on the agent's desk.
@@ -811,16 +828,6 @@ impl PageFiles {
         self.page_url(id, &page.html, media, page.written_in.as_deref())
     }
 
-    /// A page the core keeps as the window draws it, themed, with the address it is read from.
-    pub(crate) fn served(
-        &self,
-        id: &str,
-        page: &sikemux_calls::harness::PageHtml,
-    ) -> Result<(String, String), String> {
-        let media = (page.media.as_deref()).filter(|media| media.is_dir());
-        self.themed_page(id, &page.html, media, page.written_in.as_deref())
-    }
-
     fn page_url(
         &self,
         name: &str,
@@ -828,16 +835,6 @@ impl PageFiles {
         media: Option<&Path>,
         written_in: Option<&Path>,
     ) -> Result<String, String> {
-        Ok(self.themed_page(name, html, media, written_in)?.0)
-    }
-
-    fn themed_page(
-        &self,
-        name: &str,
-        html: &str,
-        media: Option<&Path>,
-        written_in: Option<&Path>,
-    ) -> Result<(String, String), String> {
         let folder = self
             .folder
             .as_ref()
@@ -845,9 +842,8 @@ impl PageFiles {
         std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
         let path = folder.join(format!("{name}.html"));
         let themed = sikemux_base::pages::themed(html, &self.theme.locked(), None);
-        std::fs::write(&path, &themed).map_err(|error| error.to_string())?;
-        let url = self.engine()?.local_page_url(&path, media, written_in)?;
-        Ok((url, themed))
+        std::fs::write(&path, themed).map_err(|error| error.to_string())?;
+        self.engine()?.local_page_url(&path, media, written_in)
     }
 
     /// The `:root` rule of the theme pages are drawn in.
@@ -877,6 +873,7 @@ fn desk_theme(t: &Tokens) -> String {
 struct DeskPage {
     engine: Arc<BrowserManager>,
     agent: String,
+    footed: Arc<AtomicBool>,
 }
 
 impl Surface for DeskPage {
@@ -891,7 +888,10 @@ impl Surface for DeskPage {
             holes: Vec::new(),
             dim: 0.,
             opacity: 1.,
-            bottom_radius: f64::from(inside_pane_radius()),
+            bottom_radius: match self.footed.load(Ordering::Relaxed) {
+                true => 0.,
+                false => f64::from(inside_pane_radius()),
+            },
         });
         if let Err(error) = self.engine.set_bounds(&self.agent, bounds) {
             eprintln!("sikemux: the desk's page could not be placed: {error}");
@@ -996,7 +996,10 @@ impl Workbench {
             return;
         };
         let agents = &view.workspace.agents;
-        let present: HashSet<String> = agents.iter().map(|agent| agent.id.clone()).collect();
+        let present: HashSet<String> = (self.views())
+            .flat_map(|(_, view)| &view.workspace.agents)
+            .map(|agent| agent.id.clone())
+            .collect();
         let asleep: Vec<String> = agents
             .iter()
             .filter(|agent| agent.asleep && self.sims.read(cx).attached_by(&agent.id))
@@ -1049,16 +1052,10 @@ impl Workbench {
         let Some(engine) = self.desks.read(cx).engine.clone() else {
             return;
         };
-        let agents: Vec<String> = self
-            .this_view()
-            .map(|view| {
-                view.workspace
-                    .agents
-                    .iter()
-                    .map(|agent| agent.id.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let agents: Vec<String> = (self.views())
+            .flat_map(|(_, view)| &view.workspace.agents)
+            .map(|agent| agent.id.clone())
+            .collect();
         for agent in agents {
             let Ok(strip) = engine.snapshot(&agent) else {
                 continue;
@@ -1116,9 +1113,10 @@ impl Workbench {
 
     /// The host whose strips hold the agent, this one or the one in front, and its view.
     fn home_of(&self, agent: &str) -> Option<(Target, &DeviceView)> {
-        let here = (self.this_view()).filter(|view| agent_place_in(view, agent).is_some());
-        match here {
-            Some(view) => Some((Target::here(&self.asks), view)),
+        let holds = |(_, view): &(_, &DeviceView)| agent_place_in(view, agent).is_some();
+        let held = self.reached_views().find(holds);
+        match held {
+            Some((place, view)) => Some((Target::new(&self.asks, place), view)),
             None => Some((self.target(), self.shown()?)),
         }
     }
@@ -1635,7 +1633,7 @@ impl Workbench {
 
     /// The agent in front, else the project's agent that worked last, brought to the front;
     /// with neither, the person hears that a desk belongs to an agent.
-    fn nearest_agent(&self, cx: &mut Context<Self>) -> Option<(String, String, String)> {
+    pub(crate) fn nearest_agent(&self, cx: &mut Context<Self>) -> Option<(String, String, String)> {
         if let Some(front) = self.front_agent() {
             return Some(front);
         }
@@ -1982,7 +1980,7 @@ impl Workbench {
         });
     }
 
-    fn bring_page_forward<Url>(
+    pub(crate) fn bring_page_forward<Url>(
         &mut self,
         agent: &str,
         cx: &mut Context<Self>,
@@ -2065,6 +2063,16 @@ impl Workbench {
     fn front_page<'a>(&self, agent: &str, cx: &'a App) -> Option<&'a sikemux_browser::BrowserTab> {
         let strip = self.desks.read(cx).strips.get(agent)?;
         (strip.tabs.iter()).find(|tab| Some(&tab.id) == strip.active_tab_id.as_ref())
+    }
+
+    /// The artifact in front of the agent's desk.
+    pub(crate) fn page_on_desk(&self, agent: &str, cx: &App) -> Option<String> {
+        let desks = self.desks.read(cx);
+        if desks.kind_of(agent) != DeskKind::Pages {
+            return None;
+        }
+        let file = self.front_page(agent, cx)?.local_file.as_deref()?;
+        page_id_of(file).map(str::to_owned)
     }
 
     fn front_url<'a>(&self, agent: &str, cx: &'a App) -> Option<&'a str> {
@@ -2214,13 +2222,16 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
                 }
             },
         );
+        let footed = Arc::new(AtomicBool::new(false));
         let page = Page {
             surface: NativeSurface::new(DeskPage {
                 engine: engine.clone(),
                 agent: agent.clone(),
+                footed: footed.clone(),
             }),
             focus: cx.focus_handle(),
             address,
+            footed,
             _typing: typing,
         };
         bench
@@ -2358,7 +2369,8 @@ pub fn pane(
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     if let crate::hosts::Place::Account(host) = bench.place() {
-        if bench.desks.read(cx).mods_on(agent).next().is_none() {
+        let desks = bench.desks.read(cx);
+        if desks.mods_on(agent).next().is_none() && !desks.has_tabs(agent) {
             return elsewhere(bench, &host, cx);
         }
     }
@@ -2689,7 +2701,7 @@ impl Opening {
             Opening::File => bench.find_for_desk(agent, window, cx),
             Opening::Terminal => bench.open_desk_shell(agent, cx),
             Opening::Simulator => bench.show_simulator(agent, cx),
-            Opening::Pages => bench.open_pages(cx),
+            Opening::Pages => bench.open_rail_on(sikemux_view::prefs::TabRailPage::Pages, cx),
         }
         bench.parts.redraw_stage(cx);
     }
@@ -2822,11 +2834,22 @@ fn pages_desk(
         };
         return div().flex_1().min_h_0().child(shown).into_any_element();
     }
-    if let crate::hosts::Place::Account(host) = bench.place() {
-        return elsewhere(bench, &host, cx);
-    }
     let no_pages = strip.is_none_or(|strip| strip.tabs.is_empty());
+    if let crate::hosts::Place::Account(host) = bench.place() {
+        if no_pages {
+            return elsewhere(bench, &host, cx);
+        }
+    }
+    let artifact = front.and_then(|tab| {
+        let id = page_id_of(tab.local_file.as_deref()?)?;
+        Some((id.to_owned(), tab.title.clone()))
+    });
+    let keeping = artifact.and_then(|(id, title)| keep_and_share(bench, agent, id, title, cx));
+    let foot = (bench.asked_on_desk(agent, cx)).map(|_| page_foot(bench, agent, cx));
     let page = bench.desks.read(cx).pages.get(agent);
+    if let Some(page) = page {
+        page.footed.store(foot.is_some(), Ordering::Relaxed);
+    }
     let (back, forward, reload) = (agent.to_owned(), agent.to_owned(), agent.to_owned());
     let bar = second_row(cx)
         .child(
@@ -2888,6 +2911,7 @@ fn pages_desk(
                     )
                 })
         }))
+        .children(keeping)
         .children(front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
         .child(snip_toggle(bench, agent, cx))
         .children(front.and_then(external_address).map(|address| {
@@ -2936,7 +2960,77 @@ fn pages_desk(
         .flex_col()
         .when(!no_pages, |content| content.child(bar))
         .child(body)
+        .children(foot)
         .into_any_element()
+}
+
+/// How long Sikemux keeps the artifact of the agent's tab in front, and its Keep and Share.
+fn keep_and_share(
+    bench: &Workbench,
+    agent: &str,
+    id: String,
+    title: String,
+    cx: &mut Context<Workbench>,
+) -> Option<gpui_kit::Div> {
+    let Some(life) = bench.pages.life_of(&id) else {
+        let folder = crate::calls::project_of(bench, agent)?;
+        let this = cx.weak_entity();
+        cx.defer(move |cx| {
+            let _ = this.update(cx, |bench, cx| {
+                bench.want_pages(&folder, bench.target(), cx)
+            });
+        });
+        return None;
+    };
+    let (kept, shared) = (life == PageLife::Kept, bench.pages.share_of(&id).is_some());
+    let fact = match shared {
+        true => t!("Kept while it is shared").to_owned(),
+        false => crate::pages::stays(life),
+    };
+    let keep = (!shared).then(|| {
+        let (label, variant) = match kept {
+            true => (t!("Kept"), Variant::Ghost),
+            false => (t!("Keep"), Variant::Outline),
+        };
+        let id = id.clone();
+        Button::new("page-keep", label, variant)
+            .icon(Icon::Pin)
+            .on_click(cx.listener(move |bench, _, _, cx| bench.keep_page(&id, !kept, cx)))
+    });
+    let (label, variant) = match shared {
+        true => (t!("Shared"), Variant::Ghost),
+        false => (t!("Share"), Variant::Outline),
+    };
+    let share = Button::new("page-share", label, variant)
+        .icon(Icon::Share)
+        .on_click(cx.listener(move |bench, _, _, cx| bench.open_page_share(&id, &title, cx)));
+    Some(
+        div()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(SPACE_1)
+            .px(SPACE_1)
+            .child(ui::meta(fact, cx).min_w_0().truncate())
+            .children(keep)
+            .child(share),
+    )
+}
+
+/// The foot of `agent`'s desk, made the first time an artifact of an ask shows on it.
+fn page_foot(
+    bench: &Workbench,
+    agent: &str,
+    cx: &mut Context<Workbench>,
+) -> Entity<crate::calls::Foot> {
+    if let Some(foot) = bench.desks.read(cx).page_feet.get(agent) {
+        return foot.clone();
+    }
+    let foot = crate::calls::Foot::new(bench, agent, cx);
+    bench.desks.update(cx, |desks, _| {
+        desks.page_feet.insert(agent.to_owned(), foot.clone());
+    });
+    foot
 }
 
 /// A mod on the agent's desk. Its one page shows in one desk at a time, so another desk in sight

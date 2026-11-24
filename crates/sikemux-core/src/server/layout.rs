@@ -278,7 +278,6 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
         | PaneKind::Search
         | PaneKind::Board
         | PaneKind::ProjectSettings
-        | PaneKind::Pages
         | PaneKind::InstallSikemux
         | PaneKind::Stash
         | PaneKind::Hosts => true,
@@ -1086,7 +1085,6 @@ pub(crate) async fn lay_out_carried(
         | PaneKind::Search
         | PaneKind::Board
         | PaneKind::ProjectSettings
-        | PaneKind::Pages
         | PaneKind::Stash
         | PaneKind::Hosts => true,
     };

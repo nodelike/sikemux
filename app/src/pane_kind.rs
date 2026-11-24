@@ -52,7 +52,6 @@ pub fn of(kind: PaneKind) -> Kind {
         PaneKind::Board => kind_of(Icon::Window, t!("Closed"), Never, true),
         PaneKind::Desk => kind_of(Icon::PanelRight, t!("Desk"), Never, false),
         PaneKind::ProjectSettings => kind_of(Icon::Book, t!("Playbook"), Never, true),
-        PaneKind::Pages => kind_of(Icon::Presentation, t!("Artifacts"), Never, true),
         PaneKind::InstallSikemux => kind_of(Icon::Server, "Sikemux", Never, true),
         PaneKind::Stash => kind_of(Icon::Stack, t!("Stash"), Never, true),
         PaneKind::Hosts => kind_of(Icon::Gauge, t!("Devices"), Never, true),
@@ -104,14 +103,14 @@ pub const PAGES: [TabRailPage; 5] = [
     TabRailPage::Mods,
 ];
 
-/// The kind whose views a tab rail page lists; none for the mods, which open on the desk.
+/// The kind whose views a tab rail page lists; none for the artifacts and the mods,
+/// which open on the desk.
 pub fn listed_on(page: TabRailPage) -> Option<PaneKind> {
     Some(match page {
         TabRailPage::Agents => PaneKind::Agent,
         TabRailPage::Terminals => PaneKind::Terminal,
         TabRailPage::Files => PaneKind::Files,
-        TabRailPage::Pages => PaneKind::Pages,
-        TabRailPage::Mods => return None,
+        TabRailPage::Pages | TabRailPage::Mods => return None,
     })
 }
 
@@ -148,7 +147,6 @@ pub fn make(
         | PaneKind::Files
         | PaneKind::Desk
         | PaneKind::ProjectSettings
-        | PaneKind::Pages
         | PaneKind::InstallSikemux
         | PaneKind::Stash
         | PaneKind::Hosts
@@ -188,7 +186,6 @@ pub fn draw(
         PaneKind::Agent => crate::home::agent_view(bench, tab, id, target, cx),
         PaneKind::Desk => crate::desk::pane(bench, target, window, cx),
         PaneKind::ProjectSettings => crate::playbook::pane(bench, target, window, cx),
-        PaneKind::Pages => crate::pages::pane(bench, target, cx),
         PaneKind::InstallSikemux => crate::hosts::install_pane::pane(bench, target, cx),
         PaneKind::Stash => crate::stash::pane(bench, cx),
         PaneKind::Hosts => crate::hosts::page::pane(bench, target, window, cx),
@@ -235,7 +232,6 @@ pub fn focus(kind: PaneKind, bench: &Workbench, target: &str, window: &mut Windo
         | PaneKind::Search
         | PaneKind::Board
         | PaneKind::ProjectSettings
-        | PaneKind::Pages
         | PaneKind::InstallSikemux
         | PaneKind::Stash
         | PaneKind::Hosts

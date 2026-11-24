@@ -282,12 +282,21 @@ final class NotchStore {
         running.activate()
     }
 
-    /// Opens Sikemux's Hosts page on `host` with a link only this helper's own app follows, since Sikemux and Sikemux
-    /// Dev both answer `sikemux://`.
+    /// Opens Sikemux's Hosts page on `host`.
     func openHosts(_ host: String) {
+        openLink("sikemux://hosts/", host)
+    }
+
+    /// Opens the artifact a call links on its asker's desk, with the call's choices at its foot.
+    func openPage(_ page: CallPage, of call: PersonCall) {
+        openLink("sikemux://artifact/", page.id, query: "?ask=\(call.id)")
+    }
+
+    /// Opens a link only this helper's own app follows, since Sikemux and Sikemux Dev both answer `sikemux://`.
+    private func openLink(_ kind: String, _ key: String, query: String = "") {
         guard let app = options.app, app.hasSuffix(".app"),
-              let key = host.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "sikemux://hosts/\(key)") else { return openApp() }
+              let key = key.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: kind + key + query) else { return openApp() }
         NSWorkspace.shared.open([url], withApplicationAt: URL(fileURLWithPath: app), configuration: NSWorkspace.OpenConfiguration())
     }
 

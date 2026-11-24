@@ -46,7 +46,6 @@ impl PageView {
                 path.and_then(|path| url::Url::from_file_path(path).ok())
                     .map(String::from),
             ),
-            Room::Served(url) => (true, Some(url.to_owned())),
         };
         let (html, events): (String, Events) = (html.to_owned(), Arc::new(events));
         let (sender, receiver) = std::sync::mpsc::channel();

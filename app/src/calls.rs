@@ -32,7 +32,7 @@ use crate::workbench::Workbench;
 
 mod page;
 pub(crate) mod reply;
-pub(crate) use page::{on_desk, project_of, waiting_on_desk, Page};
+pub(crate) use page::{on_desk, project_of, waiting_on_desk, Foot, Page};
 
 /// Whether agent `agent`'s chat lists `call`, as the core places it.
 pub(crate) fn listed_in(call: &PersonCall, agent: &str) -> bool {
@@ -224,9 +224,8 @@ impl Cards {
             return picture.clone();
         }
         self.page_pictures.insert(id.to_owned(), None);
-        let answer = target.request_typed::<call::ReadPage>(sikemux_calls::harness::PageParams {
-            id: id.to_owned(),
-        });
+        let answer =
+            target.request_typed::<call::ReadPage>(sikemux_calls::harness::PageParams::new(id));
         let id = id.to_owned();
         cx.spawn(async move |cards, cx| {
             let picture = (answer.await.ok())
@@ -294,7 +293,7 @@ impl Cards {
 
 impl Workbench {
     /// Each core's view this window holds, with where it is.
-    fn views(&self) -> impl Iterator<Item = (Place, &DeviceView)> {
+    pub(crate) fn views(&self) -> impl Iterator<Item = (Place, &DeviceView)> {
         let this = (self.feeds.this.view.as_ref()).map(|view| (Place::This, view));
         let hosts = (self.feeds.hosts())
             .filter_map(|(key, feed)| Some((Place::Account(key.clone()), feed.view.as_ref()?)));
@@ -306,6 +305,29 @@ impl Workbench {
             let call = view.calls.iter().find(|call| call.id == id)?;
             Some((place, call))
         })
+    }
+
+    /// Opens artifact `page` of call `id` on its asker's desk, with the call's choices at its foot.
+    pub(crate) fn open_call_page(&mut self, id: &str, page: &str, cx: &mut Context<Self>) {
+        let Some((place, call)) = self.call_at(id) else {
+            return;
+        };
+        let asker = call.asker.agent_id.clone();
+        self.calls.update(cx, |cards, cx| cards.open(id, cx));
+        let at = Target::new(&self.asks, place);
+        self.open_page(page, Some(&asker), at, cx);
+    }
+
+    /// Opens what a notification about agent `agent` of this core told of: the artifact of the
+    /// latest ask its chat holds, else its chat.
+    pub(crate) fn open_notified(&mut self, agent: &str, cx: &mut Context<Self>) {
+        let asked = (self.open_calls(&Place::This, agent).into_iter().next_back())
+            .filter(|call| call.kind != CallKind::Look)
+            .and_then(|call| Some((call.id.clone(), call.page.as_ref()?.id.clone())));
+        match asked {
+            Some((call, page)) => self.open_call_page(&call, &page, cx),
+            None => self.open_agent(agent, cx),
+        }
     }
 
     /// The calls waiting on the person on every core this window reaches, each with where it
@@ -330,7 +352,7 @@ impl Workbench {
             .count()
     }
 
-    fn reached_views(&self) -> impl Iterator<Item = (Place, &DeviceView)> {
+    pub(crate) fn reached_views(&self) -> impl Iterator<Item = (Place, &DeviceView)> {
         self.views().filter(|(place, _)| self.feeds.reaches(place))
     }
 
@@ -479,7 +501,7 @@ impl Workbench {
     pub(crate) fn open_look(&mut self, id: &str, cx: &mut Context<Self>) {
         let shown = (self.call_at(id)).and_then(|(_, call)| Some(call.page.as_ref()?.id.clone()));
         match shown {
-            Some(page) => self.read_call_page(id, &page, cx),
+            Some(page) => self.open_call_page(id, &page, cx),
             None => self.seen_look(id, cx),
         }
     }
@@ -557,9 +579,14 @@ struct Through<'a> {
     bench: &'a WeakEntity<Workbench>,
 }
 
-/// The pages a call names, as the rows a chat shows for pages: a click opens one in its project's
-/// Pages.
-fn linked_page(call: &PersonCall, through: Through, cx: &mut App) -> Option<AnyElement> {
+/// The pages a call names, as the rows a chat shows for pages: a click opens one on its asker's
+/// desk and closes the popover that held the row, if `dismiss` is how.
+fn linked_page(
+    call: &PersonCall,
+    dismiss: Option<&crate::ui::list_picker::Dismiss>,
+    through: Through,
+    cx: &mut App,
+) -> Option<AnyElement> {
     let Through {
         target,
         cards,
@@ -570,10 +597,14 @@ fn linked_page(call: &PersonCall, through: Through, cx: &mut App) -> Option<AnyE
         .map(|(at, page)| {
             let picture = cards.update(cx, |cards, cx| cards.page_picture(&page.id, target, cx));
             let place = t!("@{name}'s artifact", name = owner.name).into();
-            let open: std::rc::Rc<dyn Fn(&mut App)> = {
+            let open: crate::chat::page::Opens = {
                 let (bench, call, page) = (bench.clone(), call.id.clone(), page.id.clone());
-                std::rc::Rc::new(move |cx| {
-                    let _ = bench.update(cx, |bench, cx| bench.read_call_page(&call, &page, cx));
+                let dismiss = dismiss.cloned();
+                std::rc::Rc::new(move |window, cx| {
+                    if let Some(dismiss) = &dismiss {
+                        dismiss(window, cx);
+                    }
+                    let _ = bench.update(cx, |bench, cx| bench.open_call_page(&call, &page, cx));
                 })
             };
             let page = sikemux_view::chat::PageRef {
@@ -622,7 +653,8 @@ fn card(
             SharedString::from(format!("call-question-{}", call.id)),
             call.question.clone(),
         ));
-    let page = linked_page(call, through, cx).map(|page| div().mt(SPACE_3_PX).child(page));
+    let page =
+        linked_page(call, Some(&dismiss), through, cx).map(|page| div().mt(SPACE_3_PX).child(page));
     let prose = |part: &str, text: String| {
         div()
             .text_size(theme::ui_text(12.5))

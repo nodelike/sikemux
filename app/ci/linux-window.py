@@ -4,7 +4,7 @@ python3 -I ci/linux-window.py --app APP --core CORE --agent FAKE_AGENT --seed FA
 
 The arguments are desk-checks.py's, run under an X server and a window manager (DISPLAY set). L1 opens the app
 and checks it shows a window with the seeded chat. With --browser, the fake agent shows a page with
-page_show, which must leave a card in the chat that opens the page in the project's Pages (L6), where its page must be drawn (L10), and L2 has it open a desk browser tab on a local page
+page_show, which must leave a card in the chat that brings the page's tab forward on the agent's desk (L6), where its page must be drawn (L10), and L2 has it open a desk browser tab on a local page
 through the agent browser tool, whose answer must report the desktop viewport an agent's tab is held at; with --input as well, L4 has it type into the page's field,
 press a key there and read the field back, L5 has the page ask a prompt the person sees in a dialog and the agent
 answers, L9 records the tab for a few seconds and checks the video with ffprobe, and L3 clicks a link there, all
@@ -52,15 +52,13 @@ def spread(shot, box):
     return tuple(map(float, said)) if len(said) == 2 else (0.0, 0.0)
 
 
-def page_drawn(run, name, region=None):
-    """Captures the window as `name` until a page area, the desk's unless `region` gives another, shows the
-    page: varied over the whole area and in the band its heading sits in. Says whether it did, and what the
-    area held."""
+def page_drawn(run, name):
+    """Captures the window as `name` until the desk's page area shows the page: varied over the whole area and
+    in the band its heading sits in. Says whether it did, and what the area held."""
     seen = ["no page on the desk"]
-    region = region or (lambda: run.desk().get("pageBounds"))
 
     def look():
-        bounds = region()
+        bounds = run.desk().get("pageBounds")
         run.capture(name)
         shot = run.out / f"{name}.png"
         if not bounds or not shot.exists():
@@ -83,9 +81,13 @@ def shown_in_chat(run):
     said = run.prompt("show " + json.dumps({"path": str(run.root / "site/shown.html"), "title": "Kit shown"}))
     card = lambda: next((frame for name, frame in ((run.state() or {}).get("spots") or {}).items()
                          if name.startswith("page-card-")), None)
+    shown = lambda: (lambda page: page if page.get("title") == "Kit shown page" and not page.get("loading") else None)(desk.active_page(run.desk()))
     asked = time.time()
-    page = desk.until(lambda: (lambda page: page if page.get("title") == "Kit shown page" and not page.get("loading") else None)(desk.active_page(run.desk())), 40) or {}
+    page = desk.until(shown, 40) or {}
     waited = f"its desk tab loaded {time.time() - asked:.1f} s after it was shown" if page else "no desk tab loaded it"
+    # Another tab is put in front, so the click has the page's own to bring back.
+    run.prompt(desk.json_tool("browser.navigate", {"url": f"{run.site}/page2.html", "newTab": True}))
+    covered = desk.until(lambda: not shown(), 20)
     last = {}
 
     def settled_card():
@@ -96,15 +98,15 @@ def shown_in_chat(run):
 
     # The reply's last lines can still push the card up after it first shows, so click it only once it holds still.
     carded = desk.until(settled_card, 10)
-    # Clicking the card opens the page in the project's Pages, in place of the chat.
     if carded:
         x, y, width, height = carded
         run.drive(f"click {x + width / 2:.0f} {y + height / 2:.0f}", "wait 1")
-    reader = f"page-reader-{(desk.answered(said).get('page') or {}).get('id')}"
-    in_pages = desk.until(lambda: ((run.state() or {}).get("spots") or {}).get(reader), 10) if carded else None
-    run.report("L6", said.startswith("tool answered") and bool(page) and bool(carded) and bool(in_pages),
-               f"page_show answered {said[:120]!r}; {waited}; the chat's card {carded}; Pages' reader on it {in_pages}")
-    drawn, seen = page_drawn(run, "L10", lambda: ((run.state() or {}).get("spots") or {}).get(reader)) if in_pages else (False, "")
+    forward = desk.until(shown, 10) if carded and covered else None
+    copies = [other for other in desk.pages(run.desk()) if other.get("title") == "Kit shown page"]
+    run.report("L6", said.startswith("tool answered") and bool(page) and bool(forward) and len(copies) == 1,
+               f"page_show answered {said[:120]!r}; {waited}; the chat's card {carded}; another tab {'covered it' if covered else 'never covered it'}, "
+               f"and the click {'brought it forward' if forward else 'did not'}, in {len(copies)} tab(s)")
+    drawn, seen = page_drawn(run, "L10") if forward else (False, "")
     run.report("L10", drawn, seen)
 
 
@@ -235,7 +237,6 @@ def main():
             run.leave("L5", "waits for input in the Linux browser (pass --browser --input once dialogs reach the agent)")
             run.leave("L9", "waits for input in the Linux browser (pass --browser --input to record a tab)")
             run.leave("L3", "waits for input in the Linux browser (pass --browser --input once clicks reach a page)")
-        # Last of the browser checks, since the Pages it opens takes the place of the chat and its desk.
         if options.browser:
             shown_in_chat(run)
         link_handoff(run)

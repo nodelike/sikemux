@@ -216,7 +216,7 @@ impl Workbench {
             }
             Shared::Page { id, .. } => Box::pin(
                 self.target()
-                    .request_typed::<call::StopPageShare>(PageParams { id: id.clone() }),
+                    .request_typed::<call::StopPageShare>(PageParams::new(id)),
             ),
         };
         if let Some(sharing) = self.overlays.sharing.as_mut() {

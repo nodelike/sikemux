@@ -1,5 +1,5 @@
 //! A page an agent showed with `page_show`, as a card in its reply. The core keeps the page and a
-//! picture of it; a click opens it in the project's Pages.
+//! picture of it; a click opens it on its agent's desk.
 
 use crate::ui::Clicks;
 use std::collections::HashMap;
@@ -59,7 +59,7 @@ fn shown<'a>(page: &PageRef, looks: &Looks, window: &mut Window, cx: &'a mut App
 }
 
 /// Pages the agent showed, one row each in a shared frame: the top of the page, its title, and
-/// Open, which opens it in Pages, as a click anywhere on the row does.
+/// Open, which opens it on the agent's desk, as a click anywhere on the row does.
 pub(super) fn tabs(
     pages: &[&PageRef],
     looks: &Looks,
@@ -74,9 +74,9 @@ pub(super) fn tabs(
             let (picture, failed) = (shown.picture.clone(), shown.failed.clone());
             let place: SharedString = match failed {
                 Some(failed) => t!("Could not show it: {failed}", failed = failed).into(),
-                None => t!("In Artifacts").into(),
+                None => t!("In a tab on the desk").into(),
             };
-            let open = opens_page(page, &looks.bench);
+            let open = opens_page(page, &looks.agent, looks);
             tab_row(page, picture, place, at > 0, open, cx)
         })
         .collect();
@@ -99,7 +99,7 @@ pub(super) fn worker_pages(
             };
             let picture = shown(&page_ref, looks, window, cx).picture.clone();
             let place = t!("@{name}'s artifact", name = page.name).into();
-            let open = opens_page(&page_ref, &looks.bench);
+            let open = opens_page(&page_ref, &page.agent_id, looks);
             tab_row(&page_ref, picture, place, at > 0, open, cx)
         })
         .collect();
@@ -122,6 +122,9 @@ pub(crate) fn tab_frame(rows: Vec<AnyElement>, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
+/// What a click on a page's row does.
+pub(crate) type Opens = Rc<dyn Fn(&mut Window, &mut App)>;
+
 /// A page's row: the top of the page, its title over `place`, and Open, which runs `open`, as a
 /// click anywhere on the row does.
 pub(crate) fn tab_row(
@@ -129,7 +132,7 @@ pub(crate) fn tab_row(
     picture: Option<Arc<Image>>,
     place: SharedString,
     below_another: bool,
-    open: Rc<dyn Fn(&mut App)>,
+    open: Opens,
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx);
@@ -170,7 +173,7 @@ pub(crate) fn tab_row(
         .hover(|row| row.bg(t.surface_hover))
         .clicks({
             let open = open.clone();
-            move |_, _, cx| open(cx)
+            move |_, window, cx| open(window, cx)
         })
         .children(ui::spot(|| format!("page-card-{}", page.id)))
         .child(thumb)
@@ -197,22 +200,23 @@ pub(crate) fn tab_row(
             )
             .icon(Icon::Presentation)
             .sized(24., 10., 11.5)
-            .on_click(move |_, _, cx| {
+            .on_click(move |_, window, cx| {
                 cx.stop_propagation();
-                open(cx)
+                open(window, cx)
             }),
         )
         .into_any_element()
 }
 
-/// Opens `page` in the Pages of the project in front.
-fn opens_page(
-    page: &PageRef,
-    bench: &gpui_kit::WeakEntity<crate::workbench::Workbench>,
-) -> Rc<dyn Fn(&mut App)> {
-    let (id, title, bench) = (page.id.clone(), page.title.clone(), bench.clone());
-    Rc::new(move |cx| {
-        let _ = bench.update(cx, |bench, cx| bench.open_page(&id, &title, cx));
+/// Opens `page` on `agent`'s desk, from the chat that `looks` draws.
+fn opens_page(page: &PageRef, agent: &str, looks: &Looks) -> Opens {
+    let (id, agent) = (page.id.clone(), agent.to_owned());
+    let (bench, chat) = (looks.bench.clone(), looks.agent.clone());
+    Rc::new(move |_, cx| {
+        let _ = bench.update(cx, |bench, cx| {
+            let at = bench.chat_target(&chat);
+            bench.open_page(&id, Some(&agent), at, cx)
+        });
     })
 }
 
@@ -249,9 +253,7 @@ fn fetch(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) {
     else {
         return;
     };
-    let answer = target.request_typed::<call::ReadPage>(PageParams {
-        id: page.id.clone(),
-    });
+    let answer = target.request_typed::<call::ReadPage>(PageParams::new(&page.id));
     let (id, reader) = (page.id.clone(), looks.reader.clone());
     window
         .spawn(cx, async move |cx| {
@@ -288,7 +290,7 @@ mod tests {
                 title: "Mockup".into(),
             };
             let opened = self.0.clone();
-            let open: Rc<dyn Fn(&mut App)> = Rc::new(move |_| opened.set(opened.get() + 1));
+            let open: Opens = Rc::new(move |_, _| opened.set(opened.get() + 1));
             let row = tab_row(&page, None, "In a tab".into(), false, open, cx);
             div().w(px(600.)).child(row)
         }

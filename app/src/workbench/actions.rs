@@ -113,8 +113,8 @@ commands! {
     FocusAgents = "window.agents" opens Workbench::focus_agents;
     FocusHosts = "window.hosts" opens |bench, _, _| bench.open_hosts(None);
     FocusPlaybook = "window.playbook" opens |bench, _, _| bench.open_playbook();
-    /// The pages agents showed in the project in front.
-    FocusPages = "window.pages" opens |bench, _, cx| bench.open_pages(cx);
+    /// The pages agents showed in the project in front, on the tab rail.
+    FocusPages = "window.pages" opens |bench, _, cx| bench.open_rail_on(sikemux_view::prefs::TabRailPage::Pages, cx);
     /// The mods that show in the project in front, on the tab rail.
     FocusMods = "window.mods" opens |bench, _, cx| bench.open_rail_on(sikemux_view::prefs::TabRailPage::Mods, cx);
     /// The project's tasks on the nearest agent's desk.

@@ -1,5 +1,5 @@
-# A project's Pages: listed on the tab rail with the newest open, a call's page opened there,
-# then a worker's pages in its lead's chat, one opened in Pages.
+# A project's Pages listed on the tab rail, a call's page opened on the asker's desk, then a worker's
+# pages in its lead's chat, one opened on the worker's desk.
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir

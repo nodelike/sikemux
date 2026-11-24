@@ -76,7 +76,7 @@ fn follow_clicks(cx: &mut Context<Workbench>) {
             let shown = bench.update(cx, |bench, cx| {
                 cx.activate(true);
                 match opens.and_then(|opens| serde_json::from_str(&opens).ok()) {
-                    Some(Opens::Agent(agent)) => bench.open_agent(&agent, cx),
+                    Some(Opens::Agent(agent)) => bench.open_notified(&agent, cx),
                     None => {}
                 }
             });

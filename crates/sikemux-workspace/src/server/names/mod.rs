@@ -543,13 +543,13 @@ impl Names {
         self.book.locked().leads(lead, agent_id)
     }
 
-    /// The agent that started `agent_id`, the one that started that, and so on up.
+    /// The agent that started `agent_id`, open or closed, the one that started that, and so on up.
     pub fn leads_of(&self, agent_id: &str) -> Vec<String> {
         let book = self.book.locked();
         let mut leads = Vec::new();
         let mut current = agent_id;
         for _ in 0..=book.agents.len() + book.closed_leads.len() {
-            match book.parent(current) {
+            match book.parent(current).or_else(|| book.closed_lead(current)) {
                 Some(parent) => {
                     leads.push(parent.to_owned());
                     current = parent;
@@ -914,6 +914,12 @@ impl Book {
             Some(entry) => entry.parent.as_deref(),
             None => self.closed_leads.get(agent_id).map(String::as_str),
         }
+    }
+
+    fn closed_lead(&self, agent_id: &str) -> Option<&str> {
+        (self.closed_sessions.iter())
+            .find(|closed| closed.agent_id == agent_id)
+            .and_then(|closed| closed.lead.as_deref())
     }
 
     fn leads(&self, lead: &str, agent_id: &str) -> bool {

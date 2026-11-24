@@ -331,12 +331,11 @@ pub(crate) async fn read_page(core: &Core, params: PageParams) -> CoreResult<Pag
     if !crate::pages::is_page_id(&params.id) {
         return Err("that is not a page's id".into());
     }
-    let dir = core
-        .config()
-        .data_dir
-        .clone()
-        .ok_or("this core keeps no pages")?
-        .join(crate::pages::FOLDER);
+    let data_dir = (core.config().data_dir.clone()).ok_or("this core keeps no pages")?;
+    let dir = data_dir.join(crate::pages::FOLDER);
+    let id = params.id.clone();
+    let shown = blocking(move || Ok(page_index::shown_by(&data_dir, &id))).await?;
+    let desk = desk_for(core, params.agent, shown);
     blocking(move || {
         use base64::Engine as _;
         let html = std::fs::read_to_string(dir.join(format!("{}.html", params.id)))
@@ -351,7 +350,25 @@ pub(crate) async fn read_page(core: &Core, params: PageParams) -> CoreResult<Pag
             picture,
             media,
             written_in: crate::pages::written_in(&dir, &params.id),
+            desk,
         })
     })
     .await
+}
+
+/// The open agent whose desk a page opens on: `wanted`, or the one that showed it, else the
+/// nearest lead above them still open, else its project's chief.
+fn desk_for(
+    core: &Core,
+    wanted: Option<String>,
+    shown: Option<(String, String)>,
+) -> Option<String> {
+    let open = |agent: &String| core.workspaces().agent(agent).is_some();
+    let (agent, project) = shown.unzip();
+    let wanted = wanted.or(agent)?;
+    let chief = || crate::server::chief::chief_at(core, project.as_deref()?);
+    std::iter::once(wanted.clone())
+        .chain(core.names().leads_of(&wanted))
+        .find(open)
+        .or_else(|| chief().filter(open))
 }

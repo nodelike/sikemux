@@ -3,6 +3,19 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Serialize)]
 pub struct PageParams {
     pub id: String,
+    /// The agent whose desk it would open on, such as the one whose ask links it; the one that
+    /// showed it when none is named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+}
+
+impl PageParams {
+    pub fn new(id: &str) -> Self {
+        Self {
+            id: id.to_owned(),
+            agent: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -18,6 +31,9 @@ pub struct PageHtml {
     /// relative addresses are served from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub written_in: Option<std::path::PathBuf>,
+    /// The open agent whose desk it opens on, or none when nobody it belongs with is open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desk: Option<String>,
 }
 
 /// A project's pages, narrowed to those whose title holds every word in `words`.

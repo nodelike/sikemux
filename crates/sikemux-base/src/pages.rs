@@ -47,6 +47,11 @@ pub fn is_page_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+/// The id of the page kept in `file`, whose name is that id.
+pub fn page_id_of(file: &Path) -> Option<&str> {
+    file.file_stem()?.to_str().filter(|id| is_page_id(id))
+}
+
 /* Elements ahead of `<html>` land in the head the parser makes for them, so
 the markup goes straight after the doctype and needs no parsing of the page. */
 pub fn insert_head(html: &str, markup: &str) -> String {
