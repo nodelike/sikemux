@@ -813,7 +813,10 @@ fn org_add_row(vault: &ShownOrgVault, kind: Kind, this: &Entity<Workbench>) -> A
         .py(SPACE_2H)
         .child(
             ui::Button::new(
-                SharedString::from(format!("org-key-add-{org}")),
+                (
+                    SharedString::from(format!("org-key-add-{org}")),
+                    kind as usize,
+                ),
                 t!("Add a key for {org}", org = vault.name),
                 ui::Variant::Outline,
             )
