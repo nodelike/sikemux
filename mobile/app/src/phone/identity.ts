@@ -29,12 +29,16 @@ async function deviceKey(): Promise<ArrayBuffer> {
   return key;
 }
 
-type NativeDevice = DeviceLike & { networkChanged?: () => Promise<void>; refresh?: () => Promise<void> };
+type NativeDevice = DeviceLike & {
+  networkChanged?: () => Promise<void>;
+  refresh?: (relays: ReturnType<typeof relaySettings>) => Promise<void>;
+};
 
 let identity: Promise<DeviceIdentity> | undefined;
 let online: Promise<DeviceLike> | undefined;
 let ready: NativeDevice | undefined;
 let closing: Promise<void> = Promise.resolve();
+let refreshing: Promise<void> = Promise.resolve();
 let generation = 0;
 let joining = 0;
 
@@ -98,7 +102,8 @@ export function thisDevice(): Promise<DeviceLike> {
       }
     });
   }
-  return online;
+  const current = online;
+  return refreshing.then(() => current);
 }
 
 /** Keeps the phone online while a host decides whether to let it in, which can outlast the app being in front. */
@@ -139,9 +144,12 @@ export function refreshDevice(): Promise<void> {
   if (joining > 0) return closing;
   const live = ready;
   if (live?.refresh) {
-    const refreshing = live.refresh().catch(() => {});
-    closing = closing.then(() => refreshing);
-    return closing;
+    const run = currentRelays()
+      .then((relays) => live.refresh!(relaySettings(relays)))
+      .catch(() => {});
+    const step = Promise.race([run, after(3000)]);
+    refreshing = refreshing.then(() => step);
+    return refreshing;
   }
   return goOffline();
 }

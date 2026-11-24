@@ -114,6 +114,8 @@ export class ChatSession {
   private readonly outbox: Outbox;
   private listeners = new Set<() => void>();
   private attached: Attached = 'attaching';
+  /** True only once the current connection's attach answer has applied fresh rows. */
+  private synced = false;
   private problem: string | null = null;
   private readonly say: Say;
   private notice: string | null = null;
@@ -167,6 +169,7 @@ export class ChatSession {
       store: options.outbox,
       onWaiting: options.onWaiting,
       connection: () => this.connection,
+      attached: () => this.synced,
       chat: () => this.feed.chat,
       read: options.read ?? readFile,
       now: () => this.now(),
@@ -301,6 +304,9 @@ export class ChatSession {
 
   /** Whether any message waits to be sent or is still in flight on reconnect. */
   hasWaiting = () => this.outbox.waiting() || this.outbox.sending();
+
+  /** Drops any pending or failed outbox entries (used when the host is forgotten or unpaired). */
+  clearOutbox = () => this.outbox.clearAll();
 
   /**
    * Shows the message at once, behind the running turn when there is one or into it when `steers`, and puts
@@ -714,6 +720,7 @@ export class ChatSession {
 
   private stop() {
     this.run += 1;
+    this.synced = false;
     this.stopRun?.();
     this.stopRun = undefined;
     this.feed.cut();
@@ -724,6 +731,7 @@ export class ChatSession {
     const connection = this.connection;
     if (!connection) return;
     const run = (this.run += 1);
+    this.synced = false;
     const agentId = this.agentId;
     const feed = this.feed;
     if (!feed.mark || this.attached === 'missing') this.attached = 'attaching';
@@ -786,8 +794,10 @@ export class ChatSession {
         const waiting = held ?? [];
         held = undefined;
         this.attached = 'live';
+        this.synced = true;
         feed.take(waiting);
-        this.outbox.pushWaiting();
+        feed.applyPending();
+        if (this.synced) this.outbox.pushWaiting();
         void this.draft.save();
         this.emit();
       })

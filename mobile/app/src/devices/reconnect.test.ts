@@ -146,19 +146,19 @@ describe('background reconnect on real identity and hub', () => {
     healthyDial.settle(healthyConn);
     await vi.waitFor(() => expect(hub.liveOf('healthy').status).toBe('open'));
 
-    // Sleeping host stalls past ATTEMPT_MS (22s); it must NOT close the shared endpoint or cut the healthy host.
-    await vi.advanceTimersByTimeAsync(22_500);
+    // Sleeping host stalls past ATTEMPT_MS (25s); it must NOT close the shared endpoint or cut the healthy host.
+    await vi.advanceTimersByTimeAsync(25_500);
     expect(native.endpoints[0].closed).toBe(false);
     expect(healthyConn.closed).toBe(false);
     expect(hub.liveOf('healthy').status).toBe('open');
 
     // Network switch while healthy is live and asleep is retrying must NOT close the shared endpoint.
-    // Even if healthy's 1s probe is slow, live view activity arriving during the probe keeps it open.
+    // Even if healthy's 2s probe is slow, live view activity arriving during the probe keeps it open.
     healthyConn.host.mockImplementationOnce(() => new Promise(() => {}));
     NetInfo.emit('cellular');
-    await vi.advanceTimersByTimeAsync(400);
-    healthyDial.listener.events([CoreEvent.View.new({ viewJson: JSON.stringify(VIEW) })] as never);
     await vi.advanceTimersByTimeAsync(800);
+    healthyDial.listener.events([CoreEvent.View.new({ viewJson: JSON.stringify(VIEW) })] as never);
+    await vi.advanceTimersByTimeAsync(1500);
     expect(native.endpoints[0].closed).toBe(false);
     expect(healthyConn.closed).toBe(false);
     expect(hub.liveOf('healthy').status).toBe('open');

@@ -13,6 +13,7 @@ import { goOffline, notifyNetworkChange, refreshDevice, thisDevice } from '@/pho
 import { onNetworkChange } from '@/network/connectivity';
 import { dismissHostCards, reconcileCards } from '@/notify/cards';
 import { shareKey, withdrawKey } from '@/notify/keys';
+import { forgetOutboxForHost } from '@/chat/outboxStore';
 import { flushKeptViews, forgetKeptView, loadKeptView, saveKeptView } from './keptView';
 import { forgetDevice, pairedDevices, pairedListDamaged, readAgain, updateDevice, type PairedDevice } from './paired';
 import { hostStatus, type HostStatus } from './status';
@@ -41,9 +42,9 @@ const UNPAIR_WAIT_MS = 3000;
 /** Glancing at another app keeps the connections; staying away longer lets them go. */
 const AWAY_MS = 10_000;
 /** Back in front or after a network change, a connection that cannot answer in this time is replaced. */
-const PROBE_MS = 1000;
-/** A try that has not ended by now is given up and tried again; sits above the core's 15s dial. */
-const ATTEMPT_MS = 22_000;
+const PROBE_MS = 2000;
+/** A try that has not ended by now is given up and tried again; sits above the core's 6+15s redial. */
+const ATTEMPT_MS = 25_000;
 
 type Entry = {
   live: Live;
@@ -82,6 +83,19 @@ let devicesLoad = 0;
 let away = false;
 
 const anyListeners = new Set<() => void>();
+const forgottenListeners = new Set<(core: string) => void>();
+
+/** Runs `listener` whenever a host is forgotten or turns this phone away as unpaired. */
+export function onHostForgotten(listener: (core: string) => void) {
+  forgottenListeners.add(listener);
+  return () => {
+    forgottenListeners.delete(listener);
+  };
+}
+
+function hostForgotten(core: string) {
+  forgottenListeners.forEach((listener) => listener(core));
+}
 
 function hostChanged(core: string) {
   hostListeners.get(core)?.forEach((listener) => listener());
@@ -189,8 +203,9 @@ function inGrace(found: Entry): boolean {
 }
 
 /** The shared endpoint may only be torn down when no host on it is live or waiting on its own probe. */
-function canRefreshEndpoint(): boolean {
-  for (const found of entries.values()) {
+function canRefreshEndpoint(exclude?: string | Set<string>): boolean {
+  for (const [core, found] of entries) {
+    if (typeof exclude === 'string' ? core === exclude : exclude?.has(core)) continue;
     if (found.live.status === 'open' || found.probing) return false;
   }
   return true;
@@ -218,7 +233,11 @@ function drop(core: string, reason: string, error?: unknown) {
   if (wasOpen) found.tryingSince = Date.now();
   const unpaired = MobileError.Unpaired.instanceOf(error);
   const outdatedBy = outdated(error);
-  if (unpaired) forgetKeptView(core);
+  if (unpaired) {
+    forgetKeptView(core);
+    forgetOutboxForHost(core);
+    hostForgotten(core);
+  }
   const snapshot = unpaired ? undefined : found.live.snapshot;
   found.failure = reason;
   const holding = !unpaired && !outdatedBy && found.watchers > 0 && !away && !backgrounded && inGrace(found);
@@ -289,7 +308,7 @@ async function connect(core: string, found: Entry) {
     if (found.current !== attempt) return;
     console.info(`sikemux: host ${core.slice(0, 8)} dial stalled after ${ATTEMPT_MS}ms`);
     drop(core, translate('The host did not answer in time.'));
-    if (canRefreshEndpoint()) void refreshDevice();
+    if (canRefreshEndpoint(core)) void refreshDevice();
   }, ATTEMPT_MS);
   let connection: ConnectionLike;
   try {
@@ -358,7 +377,7 @@ function close(core: string, found: Entry, reason: string) {
 /** Drops a connection that may be dead and makes a new one now, as on a fresh start. */
 function reconnect(core: string, found: Entry, reason: string) {
   close(core, found, reason);
-  if (canRefreshEndpoint()) void refreshDevice();
+  if (canRefreshEndpoint(core)) void refreshDevice();
   found.attempt = 0;
   found.tryingSince = Date.now();
   open(core, true);
@@ -462,7 +481,7 @@ AppState.addEventListener('change', (state) => {
     if (found.live.status === 'closed' && found.live.unpaired) return;
     toOpen.push([core, found]);
   });
-  if (toOpen.some(([, found]) => found.current) && canRefreshEndpoint()) void refreshDevice();
+  if (toOpen.some(([, found]) => found.current) && canRefreshEndpoint(new Set(toOpen.map(([core]) => core)))) void refreshDevice();
   toOpen.forEach(([core, found]) => {
     found.attempt = 0;
     found.tryingSince = Date.now();
@@ -520,7 +539,7 @@ onNetworkChange((change) => {
     if (found.watchers === 0 || settled(found)) return;
     toOpen.push([core, found]);
   });
-  if (toOpen.length > 0 && canRefreshEndpoint()) void refreshDevice();
+  if (toOpen.length > 0 && canRefreshEndpoint(new Set(toOpen.map(([core]) => core)))) void refreshDevice();
   toOpen.forEach(([core, found]) => {
     found.attempt = 0;
     open(core, true);
@@ -585,6 +604,8 @@ export async function forget(core: string) {
   dismissHostCards(core);
   forgetAgentCatalog(core);
   forgetKeptView(core);
+  forgetOutboxForHost(core);
+  hostForgotten(core);
   if (found) {
     release(core, found);
     found.live = FORGOTTEN;
@@ -612,7 +633,8 @@ export function retry(core: string) {
   clearTimeout(found.retrying);
   found.attempt = 0;
   found.tryingSince = Date.now();
-  if (canRefreshEndpoint()) void refreshDevice();
+  if (canRefreshEndpoint(core)) void refreshDevice();
+  else void notifyNetworkChange();
   open(core, true);
 }
 

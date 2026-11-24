@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 
 import type { ConnectionLike } from '@sikemux/native';
 
-import { connectionOf, liveOf, onAnyHost, onChatEvents, useLive } from '@/devices/hub';
+import { connectionOf, liveOf, onAnyHost, onChatEvents, onHostForgotten, useLive, watch } from '@/devices/hub';
 import { translate } from '@/i18n';
 import { keptChat, listPendingOutbox, unsavedDraft, waitingOutbox } from './kept';
 import { ChatSession, type ChatSnapshot, type OpenTimes } from './session';
@@ -19,14 +19,34 @@ function logOpen(agentId: string, took: OpenTimes) {
 /** Every chat this phone opened since it started, so going back to one finds it as it was left. */
 const sessions = new Map<string, ChatSession>();
 /** Sessions that hold messages waiting to send even after their chat screen closed. */
-const pendingDelivery = new Map<string, { core: string; session: ChatSession; release?: () => void }>();
+const pendingDelivery = new Map<string, { core: string; session: ChatSession; unwatch: () => void; release?: () => void }>();
 let offHostWatcher: (() => void) | undefined;
 let scannedSavedOutbox = false;
+
+onHostForgotten((core) => {
+  const prefix = `${core}:`;
+  pendingDelivery.forEach((item, key) => {
+    if (item.core !== core) return;
+    item.release?.();
+    item.unwatch();
+    pendingDelivery.delete(key);
+  });
+  sessions.forEach((session, key) => {
+    if (!key.startsWith(prefix)) return;
+    session.clearOutbox();
+    sessions.delete(key);
+  });
+  if (!pendingDelivery.size && offHostWatcher) {
+    offHostWatcher();
+    offHostWatcher = undefined;
+  }
+});
 
 function flushPendingSessions() {
   pendingDelivery.forEach((item, key) => {
     if (!item.session.hasWaiting()) {
       item.release?.();
+      item.unwatch();
       pendingDelivery.delete(key);
       return;
     }
@@ -49,13 +69,14 @@ function flushPendingSessions() {
 function trackWaiting(core: string, agentId: string, session: ChatSession, waiting: boolean) {
   const key = `${core}:${agentId}`;
   if (waiting) {
-    if (!pendingDelivery.has(key)) pendingDelivery.set(key, { core, session });
+    if (!pendingDelivery.has(key)) pendingDelivery.set(key, { core, session, unwatch: watch(core) });
     if (!offHostWatcher) offHostWatcher = onAnyHost(flushPendingSessions);
     flushPendingSessions();
   } else {
     const existing = pendingDelivery.get(key);
     if (existing) {
       existing.release?.();
+      existing.unwatch();
       pendingDelivery.delete(key);
     }
     if (!pendingDelivery.size && offHostWatcher) {

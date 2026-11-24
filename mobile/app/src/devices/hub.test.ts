@@ -287,7 +287,7 @@ describe('the hub', () => {
     const connection = await opened();
     connection.host.mockImplementationOnce(() => new Promise(() => {}));
     NetInfo.emit('cellular');
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(2_000);
     expect(connection.closed).toBe(true);
     expect(identity.refreshDevice).toHaveBeenCalled();
     expect(connects()).toBe(2);
@@ -313,7 +313,7 @@ describe('the hub', () => {
     AppState.emit('background');
     await vi.advanceTimersByTimeAsync(2_000);
     AppState.emit('active');
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(2_000);
     expect(connection.closed).toBe(true);
     expect(identity.refreshDevice).toHaveBeenCalled();
     expect(connects()).toBe(2);
@@ -325,7 +325,7 @@ describe('the hub', () => {
     hub.retry('host');
     await vi.waitFor(() => expect(connects()).toBe(2));
     vi.setSystemTime(Date.now() + 16_000);
-    await vi.advanceTimersByTimeAsync(22_000);
+    await vi.advanceTimersByTimeAsync(25_000);
     expect(hub.liveOf('host')).toMatchObject({ status: 'closed', problem: 'The host did not answer in time.' });
     await vi.advanceTimersByTimeAsync(400);
     expect(connects()).toBe(3);
@@ -343,7 +343,7 @@ describe('the hub', () => {
     await vi.waitFor(() => expect(connects('asleep')).toBe(1));
 
     // A stalled dial on the sleeping host never refreshes the shared endpoint while Mac is open.
-    await vi.advanceTimersByTimeAsync(22_000);
+    await vi.advanceTimersByTimeAsync(25_000);
     expect(healthy.closed).toBe(false);
     expect(identity.refreshDevice).not.toHaveBeenCalled();
 
