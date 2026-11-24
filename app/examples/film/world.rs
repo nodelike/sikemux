@@ -1018,6 +1018,7 @@ const SIGNED_OUT: &str = r#"
 if [ "$1 $2" = 'acp --login' ]; then
   printf 'Open this page to sign in to your Google account:\n\n  https://accounts.example.com/o/oauth2/v2/auth?response_type=code&client_id=stand-in&redirect_uri=https%%3A%%2F%%2Fexample.com%%2Fcallback&scope=openid+email+profile\n\nPaste the code it gives you: '
   read -r code
+  [ "$code" = 0000 ] && echo 'Login closed.' && exit 0
   [ "$code" = 4821 ] || { echo 'That code was not accepted.'; exit 1; }
   : > "$bin/agy-account"
   echo 'Signed in.'

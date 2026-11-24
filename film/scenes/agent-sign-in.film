@@ -17,6 +17,13 @@ snap failed
 key enter
 settle 4
 snap again
+type "0000"
+key enter
+hold 4
+settle 3
+snap still-signed-out
+key enter
+settle 4
 type "4821"
 key enter
 hold 4

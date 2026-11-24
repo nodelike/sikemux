@@ -23,7 +23,7 @@
 //!                               person, host and orgs the world's sikemuxAccount names; a
 //!                               scene with a host step and none of these signs in first
 //!   signed-out                  signs Antigravity out; its sign-in in a terminal asks for a
-//!                               code, which is 4821
+//!                               code: 4821 signs it in, 0000 ends well but leaves it signed out
 //!   host NAME                   signs in another host on the same account, a throwaway core
 //!                               of its own holding a copy of the last project
 //!   saved HOST "TITLE"          saves a Claude chat titled TITLE in the last project, on HOST
