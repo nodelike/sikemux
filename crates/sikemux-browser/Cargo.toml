@@ -10,6 +10,7 @@ base64 = "0.23"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sikemux-base = { path = "../sikemux-base" }
+sikemux-loopback = { path = "../sikemux-loopback" }
 sikemux-process = { path = "../sikemux-process" }
 tokio = { version = "1", features = ["rt", "sync", "time", "io-util", "net"] }
 url = "2"

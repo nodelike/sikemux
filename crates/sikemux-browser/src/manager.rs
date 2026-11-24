@@ -747,6 +747,12 @@ impl BrowserManager {
         let _ = self.close_tab(agent_id, tab_id);
     }
 
+    pub(crate) fn page_address(&self, agent_id: &str, tab_id: &str) -> Option<String> {
+        let agents = self.agents.locked();
+        let page = agents.get(agent_id)?.strip.pages.get(tab_id)?;
+        Some(page.url.clone())
+    }
+
     pub fn close_tab(&self, agent_id: &str, tab_id: &str) -> BrowserResult<()> {
         self.close_tab_because(agent_id, tab_id, "was closed")
     }

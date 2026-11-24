@@ -107,9 +107,13 @@ pub fn follow_opened(
     .detach();
 }
 
-/// Follows a `sikemux://` link. A link this app does not understand goes nowhere, rather
-/// than to whichever app the system would pick, and the window says so.
+/// Follows a `sikemux://` link. One with nothing after it only brings Sikemux forward. A link
+/// this app does not understand goes nowhere, rather than to whichever app the system would
+/// pick, and the window says so.
 pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
+    if link.trim_end_matches('/') == "sikemux:" {
+        return;
+    }
     if let Some(id) = crate::opened_task::link(link) {
         return bench.open_task(id, cx);
     }

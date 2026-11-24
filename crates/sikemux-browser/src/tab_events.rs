@@ -2,8 +2,9 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Weak};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use sikemux_loopback::{DONE, PORT};
 use sikemux_process::sync::Locked;
 use url::Url;
 
@@ -13,6 +14,27 @@ use crate::{
     burst, favicon, DocumentEvent, Opener, PageDialog, PageLoad, Tab, TabEvents, TabStall,
     BLANK_URL,
 };
+
+/// How long the page of a sign-in that worked is left up to be seen before its tab closes.
+const SIGNED_IN_SHOWN: Duration = Duration::from_secs(2);
+const ACCOUNT_HOST: &str = "app.sikemux.com";
+
+/// The page of a sign-in to a service that worked, once its script has moved it there.
+fn is_signed_in(url: &str) -> bool {
+    Url::parse(url)
+        .is_ok_and(|url| is_this_computer(&url) && url.port() == Some(PORT) && url.path() == DONE)
+}
+
+/// A page Sikemux itself shows while signing in, served from this computer or the account's site.
+fn is_sign_in_page(url: &str) -> bool {
+    Url::parse(url).is_ok_and(|url| {
+        is_this_computer(&url) || (url.scheme() == "https" && url.host_str() == Some(ACCOUNT_HOST))
+    })
+}
+
+fn is_this_computer(url: &Url) -> bool {
+    url.scheme() == "http" && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
+}
 
 /// The tab whose page opened another as its window, and what the engine makes that one from.
 pub(crate) struct OpenedBy {
@@ -37,10 +59,32 @@ impl TabListener {
             manager.note_page(&self.agent_id, &self.tab_id, update);
         }
     }
+
+    /// Closes the tab `after` this long, if its page is then still one `at` accepts.
+    fn close_if(&self, at: fn(&str) -> bool, after: Duration) {
+        let (manager, agent) = (self.manager.clone(), self.agent_id.clone());
+        let tab = self.tab_id.clone();
+        crate::spawn(async move {
+            tokio::time::sleep(after).await;
+            let Some(manager) = manager.upgrade() else {
+                return;
+            };
+            if manager
+                .page_address(&agent, &tab)
+                .is_some_and(|url| at(&url))
+            {
+                let _ = manager.close_tab(&agent, &tab);
+            }
+        });
+    }
 }
 
 impl TabEvents for TabListener {
     fn may_load(&self, url: &str) -> bool {
+        if url.trim_end_matches('/') == "sikemux:" {
+            self.close_if(is_sign_in_page, Duration::ZERO);
+            return false;
+        }
         Url::parse(url).is_ok_and(|url| tab_may_load(&url))
     }
 
@@ -88,6 +132,9 @@ impl TabEvents for TabListener {
     }
 
     fn moved(&self, url: String, can_go_back: bool, can_go_forward: bool) {
+        if is_signed_in(&url) {
+            self.close_if(is_signed_in, SIGNED_IN_SHOWN);
+        }
         self.note(|page| {
             page.url = url;
             page.can_go_back = can_go_back;
