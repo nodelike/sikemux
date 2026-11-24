@@ -1640,36 +1640,6 @@ export function NewTeam({
   );
 }
 
-/** Makes an org in the free preview, with no checkout. */
-export function NewPreviewTeam({
-  onMade,
-  onCancel,
-}: {
-  onMade: (org: Org) => void;
-  onCancel: () => void;
-}) {
-  const client = useClient();
-  const action = useAction();
-  return (
-    <NameForm
-      submit="Start Team"
-      action={action}
-      onCancel={onCancel}
-      onSubmit={(name) =>
-        void action.run(
-          async () => {
-            const routes = await client("start a Team");
-            onMade(await routes.createOrg({ name }));
-          },
-          (error) => `${problemText(error)} No org was made.`,
-        )
-      }
-    >
-      <span className="soft">{FREE_DURING_PREVIEW}</span>
-    </NameForm>
-  );
-}
-
 /** Everything about the money itself: what is charged next, the card, refunds and invoices. */
 function Money({
   overview,
