@@ -371,7 +371,7 @@ pub fn dialog(
         Rc::new(move |_, cx| this.update(cx, submit))
     };
     let body = div().px(SPACE_1).pt(SPACE_1).child(screen);
-    Some(dialog::floating(px(440.), body, go, close, cx).into_any_element())
+    Some(dialog::floating(px(440.), body, go, close).into_any_element())
 }
 
 /// Answers the add-account dialog as its main button does: adds the named account, or

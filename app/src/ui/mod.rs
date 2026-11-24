@@ -42,7 +42,7 @@ pub(crate) use lists::relist;
 pub use lists::{close_button, gives_way, hover_actions, tab_height, Group, Row, Tab, ROW};
 pub use model_name::model_name;
 pub use pane::{floating_panel, notice_bar, pane, pane_frame, PaneHeader, AGENT_INSET};
-pub use select::{select, Pick};
+pub use select::{select, select_across, Pick};
 pub use state_mark::{status_mark, turn_mark, turn_time};
 pub use stepper::stepper;
 

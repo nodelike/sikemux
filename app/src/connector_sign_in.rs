@@ -105,6 +105,10 @@ pub fn open(bench: &mut Workbench, plugin: &str, window: &mut Window, cx: &mut C
             fields.push((field.name.clone(), input));
         }
     }
+    let first = fields.first().filter(|_| !plugin.browser_sign_in);
+    if let Some((_, first)) = first {
+        first.update(cx, |first, cx| first.focus(window, cx));
+    }
     if plugin.id == AWS {
         read_profiles(bench, cx);
     }
@@ -314,7 +318,7 @@ pub fn dialog(bench: &Workbench, this: &Entity<Workbench>, cx: &mut App) -> Opti
     if plugin.id == AWS {
         let chosen = signing.profile.clone().unwrap_or_default();
         let this = this.clone();
-        screen = screen.child(ui::select(
+        screen = screen.child(sign_in::pick(
             "connector-aws-profile",
             match chosen.is_empty() {
                 true => t!("Pick a profile").to_owned(),
@@ -456,7 +460,7 @@ pub fn dialog(bench: &Workbench, this: &Entity<Workbench>, cx: &mut App) -> Opti
         std::rc::Rc::new(move |_, cx| this.update(cx, sign_in_with_token))
     };
     let body = div().px(px(4.)).pt(px(4.)).child(screen);
-    Some(dialog::floating(px(440.), body, go, close, cx).into_any_element())
+    Some(dialog::floating(px(440.), body, go, close).into_any_element())
 }
 
 /// Opens the sign-in for `plugin` over the window already waiting on the browser, where the

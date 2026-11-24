@@ -654,10 +654,7 @@ pub fn sign_in_box(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
     ));
     let no: ui::dialog::Answer = std::rc::Rc::new(move |_, cx| this.update(cx, stop_sign_in));
     let body = div().px(px(4.)).pt(px(4.)).child(screen);
-    Some(
-        ui::dialog::floating(px(440.), body, std::rc::Rc::new(|_, _| {}), no, cx)
-            .into_any_element(),
-    )
+    Some(ui::dialog::floating(px(440.), body, std::rc::Rc::new(|_, _| {}), no).into_any_element())
 }
 
 fn stop_sign_in(bench: &mut Workbench, cx: &mut Context<Workbench>) {

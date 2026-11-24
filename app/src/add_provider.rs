@@ -536,5 +536,5 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         Rc::new(move |window, cx| adds.update(cx, |bench, cx| add(bench, window, cx)));
     let no: dialog::Answer = Rc::new(move |_, cx| closing.update(cx, close));
     let body = div().px(px(4.)).pt(px(4.)).child(screen);
-    Some(dialog::floating(px(440.), body, yes, no, cx).into_any_element())
+    Some(dialog::floating(px(440.), body, yes, no).into_any_element())
 }

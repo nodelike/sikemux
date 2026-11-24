@@ -894,7 +894,7 @@ pub(super) fn org_dialog(
     let yes: ui::dialog::Answer = std::rc::Rc::new(move |_, cx| adds.update(cx, add_org_key));
     let no: ui::dialog::Answer = std::rc::Rc::new(move |_, cx| closing.update(cx, close_org_add));
     let body = div().px(px(4.)).pt(px(4.)).child(screen);
-    Some(ui::dialog::floating(px(440.), body, yes, no, cx).into_any_element())
+    Some(ui::dialog::floating(px(440.), body, yes, no).into_any_element())
 }
 
 /// A group's name in spaced capitals over its card, after the org's mark when it is an org's.

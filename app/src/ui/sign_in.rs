@@ -192,6 +192,19 @@ impl RenderOnce for Field {
     }
 }
 
+/// One of `picks` chosen across the column, `shown` while closed.
+pub fn pick(
+    id: &'static str,
+    shown: impl Into<SharedString>,
+    picks: Vec<super::Pick>,
+    chosen: Option<SharedString>,
+    disabled: bool,
+    on_pick: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    super::select_across(id, px(COLUMN), shown, picks, chosen, disabled, on_pick, cx)
+}
+
 /// What a box in the form is for, over it.
 pub fn label(words: impl Into<SharedString>, cx: &App) -> Div {
     text(words, TEXT_2XS, FontWeight::MEDIUM).text_color(Tokens::get(cx).text_tertiary)

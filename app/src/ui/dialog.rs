@@ -7,7 +7,7 @@ use gpui_kit::TestSupportExt as _;
 use gpui_kit::{
     div, px, AnyElement, App, Div, Entity, FocusHandle, FontWeight, Hsla, InteractiveElement,
     IntoElement, KeyDownEvent, ParentElement, Pixels, RenderOnce, Role, SharedString,
-    StatefulInteractiveElement, Styled, Window,
+    StatefulInteractiveElement, Styled, Subscription, Window,
 };
 
 use super::{icon, text};
@@ -231,12 +231,66 @@ fn framed(
             .border_color(t.border)
             .bg(t.surface_sunken),
     );
-    floating(width, content, yes, no, cx)
+    float(width, content, yes, no, cx)
+}
+
+/// Whether a box has yet to take the keyboard: as it opens, or once what held it is gone.
+struct Loose {
+    focus: FocusHandle,
+    loose: bool,
+    _lost: Subscription,
 }
 
 /// A dialog drawn wholly by what it shows, with no title or foot of the sheet's: the scrim,
 /// the float, and Escape and Enter answering it as a sheet's do.
+#[derive(IntoElement)]
+pub(crate) struct Floating {
+    width: Pixels,
+    content: AnyElement,
+    yes: Answer,
+    no: Answer,
+}
+
 pub(crate) fn floating(
+    width: Pixels,
+    content: impl IntoElement,
+    yes: Answer,
+    no: Answer,
+) -> Floating {
+    Floating {
+        width,
+        content: content.into_any_element(),
+        yes,
+        no,
+    }
+}
+
+impl RenderOnce for Floating {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let state = window.use_keyed_state("floating-focus", cx, |window, cx| Loose {
+            focus: cx.focus_handle(),
+            loose: true,
+            _lost: cx.on_focus_lost(window, |state: &mut Loose, _, cx| {
+                state.loose = true;
+                cx.notify();
+            }),
+        });
+        let focus = state.read(cx).focus.clone();
+        if state.read(cx).loose {
+            let focus = focus.clone();
+            window.defer(cx, move |window, cx| {
+                state.update(cx, |state, _| state.loose = false);
+                // A field the box opened with may hold it already.
+                if !focus.contains_focused(window, cx) {
+                    focus.focus(window, cx);
+                }
+            });
+        }
+        float(self.width, self.content, self.yes, self.no, cx).focus_handle(focus)
+    }
+}
+
+fn float(
     width: Pixels,
     content: impl IntoElement,
     yes: Answer,

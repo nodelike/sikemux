@@ -7,12 +7,12 @@ use gpui_kit::base::Button as BaseButton;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, radians, Anchor, AnyElement, App, InteractiveElement, IntoElement, ParentElement,
-    SharedString, Styled, Transformation, Window,
+    Pixels, SharedString, Styled, Transformation, Window,
 };
 
 use super::{icon, menu_button, MenuRow};
 use crate::icons::Icon;
-use crate::theme::{radius_2, Tokens, SPACE_1H, SPACE_2, TEXT_XS};
+use crate::theme::{radius_2, Tokens, SPACE_1H, SPACE_2, TEXT_SM, TEXT_XS};
 
 /// One choice: what picking it hands back, and its words.
 pub struct Pick {
@@ -90,6 +90,27 @@ pub fn select_field(
         )
 }
 
+/// [`select`] in a form: as tall as the form's boxes, `width` across, its chevron at the end.
+#[allow(clippy::too_many_arguments)]
+pub fn select_across(
+    id: impl Into<SharedString>,
+    width: Pixels,
+    shown: impl Into<SharedString>,
+    picks: Vec<Pick>,
+    chosen: Option<SharedString>,
+    disabled: bool,
+    on_pick: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    let id: SharedString = id.into();
+    let trigger = select_field(format!("{id}-field"), None, shown, disabled, cx)
+        .w(width)
+        .h(px(30.))
+        .justify_between()
+        .text_size(crate::theme::ui_text(TEXT_SM));
+    picking(id, trigger, width, picks, chosen, disabled, on_pick)
+}
+
 /// [`select`] with `lead` before its words, such as an agent's mark.
 #[allow(clippy::too_many_arguments)]
 fn select_led(
@@ -110,12 +131,25 @@ fn select_led(
         disabled,
         cx,
     );
+    picking(id, trigger, px(260.), picks, chosen, disabled, on_pick)
+}
+
+/// `trigger` opening a menu of `picks`, at least `width` wide.
+fn picking(
+    id: SharedString,
+    trigger: BaseButton,
+    width: Pixels,
+    picks: Vec<Pick>,
+    chosen: Option<SharedString>,
+    disabled: bool,
+    on_pick: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     if disabled {
         return trigger.into_any_element();
     }
     let on_pick = Rc::new(on_pick);
     menu_button(id, Anchor::TopLeft, trigger, move |mut popup, _, cx| {
-        popup = popup.min_w(px(260.));
+        popup = popup.min_w(width);
         for pick in &picks {
             let (on_pick, key) = (on_pick.clone(), pick.key.clone());
             popup = popup.item(
