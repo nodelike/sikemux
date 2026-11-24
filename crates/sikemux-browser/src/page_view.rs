@@ -54,6 +54,12 @@ pub enum Room<'a> {
 }
 
 impl Room<'_> {
+    /// Whether a pinch zooms the page. An app or a mod is part of the window, drawn at its size.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn zooms(self) -> bool {
+        matches!(self, Room::Fills(_) | Room::Served(_))
+    }
+
     /// Whether a link the page's own script reports is taken as one the person clicked.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub(crate) fn trusts_page_links(self) -> bool {

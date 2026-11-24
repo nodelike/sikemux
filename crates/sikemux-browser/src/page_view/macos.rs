@@ -279,6 +279,7 @@ impl PageView {
                 configuration: &*configuration
             ];
             view.unregisterDraggedTypes();
+            view.setAllowsMagnification(room.zooms());
             view.setNavigationDelegate(Some(ProtocolObject::from_ref(&*messages)));
             if clear {
                 let no = NSNumber::numberWithBool(false);
