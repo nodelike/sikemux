@@ -8,7 +8,7 @@ use sikemux_agents::agent_shell;
 use sikemux_agents::ship;
 pub use sikemux_agents::{acp, agent_catalog, harness, skills};
 pub use sikemux_agents::{agent_accounts, git, git_guard, launch, sessions};
-pub use sikemux_base::{download, http, pages, runtime};
+pub use sikemux_base::{cut, download, http, pages, runtime};
 pub use sikemux_corekit::accounts;
 use sikemux_corekit::{backoff, flights, text};
 pub use sikemux_corekit::{

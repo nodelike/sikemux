@@ -1996,6 +1996,15 @@ fn change_in(
         }
         .is_empty();
     let card = board.card_mut(id)?;
+    if changes
+        .details
+        .as_deref()
+        .is_some_and(|details| crate::cut::cut_of(details, &card.details))
+    {
+        return Err(format!(
+            "Nothing changed: those details are card #{id}'s cut short, as a list shows them. Read them whole with task_list task {id} first."
+        ));
+    }
     if let Some(title) = changes.title {
         card.title = title;
     }

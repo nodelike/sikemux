@@ -570,6 +570,15 @@ pub(crate) async fn record_write(
     }
 }
 
+/// Whether a tool keeps or sends on the text it is given, so that a cut one loses data.
+fn keeps_text(method: &str) -> bool {
+    let family = method.split_once('.').map_or(method, |(family, _)| family);
+    matches!(
+        family,
+        "plugins" | "mod" | "theme" | "memory" | "task" | "decision" | "skills"
+    )
+}
+
 async fn dispatch(
     core: &Arc<Core>,
     mut request: HarnessRequest,
@@ -588,6 +597,12 @@ async fn dispatch(
             .into_owned();
     if let Some(agent_id) = &request.agent_id {
         messages::used_tool(core, agent_id, &tool_word(&request.method));
+    }
+    if keeps_text(&request.method) && crate::cut::marked(&request.params) {
+        return Err(format!(
+            "Nothing was done: the call holds {}, which is where an earlier answer was cut, so sending it would lose the rest. Read the whole answer from the file its omitted names, or change only a part where the tool can.",
+            crate::cut::MARK
+        ));
     }
     if let Some(answered) = super::hosts::record::tool_write(core, &request).await {
         return answered;

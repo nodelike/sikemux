@@ -937,3 +937,34 @@ fn the_plugin_tools_listed_are_kept_and_no_others_are_reachable() {
         "Unknown tool: github_runs"
     );
 }
+
+#[test]
+fn a_cut_answer_says_where_the_whole_of_it_is() {
+    let script = "echo made up\n".repeat(3000);
+    let answer = json!({
+        "definition": {
+            "steps": (0..4000).map(|step| format!("step {step}")).collect::<Vec<_>>(),
+            "commands": [{ "exec": "one" }, { "script": script }],
+        },
+    });
+    let given = bound::bounded(answer.clone(), |_| false);
+    assert!(given.to_string().len() <= bound::BUDGET);
+    let sent_back = &given["definition"];
+    assert!(sikemux_core::cut::marked(&sent_back["steps"]));
+    assert!(sikemux_core::cut::marked(&sent_back["commands"]));
+    let notes = given["omitted"].as_array().expect("notes");
+    let path = notes
+        .iter()
+        .filter_map(Value::as_str)
+        .find_map(|note| note.strip_prefix("the whole answer, as JSON, is in "))
+        .and_then(|note| note.split_once(';'))
+        .map(|(path, _)| path)
+        .expect("a file");
+    let kept = std::fs::read(path).expect("the file");
+    assert_eq!(
+        serde_json::from_slice::<Value>(&kept).expect("JSON"),
+        answer
+    );
+    bound::forget();
+    assert!(!std::path::Path::new(path).exists());
+}

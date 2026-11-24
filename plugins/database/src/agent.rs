@@ -198,9 +198,11 @@ pub async fn query(
     );
     let note = cut.then(|| {
         format!(
-            "Cut to fit: values longer than {} characters end in …, and rows past {} KB were left out. \
+            "Cut to fit: values longer than {} characters end in {}, and rows past {} KB were left out. \
+             Read a long value whole in pieces with substr before writing it back. \
              Select fewer columns, add a where, or aggregate rather than asking for more rows.",
             values::AGENT_CELL_CHARACTERS,
+            sikemux_plugin_api::cut::MARK,
             values::AGENT_REPLY_BYTES / 1024
         )
     });

@@ -10543,6 +10543,7 @@ dependencies = [
  "git2",
  "percent-encoding",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sikemux-plugin-api",

@@ -2,6 +2,7 @@
 //! dictation build without the core itself.
 
 pub mod cli;
+pub mod cut;
 pub mod download;
 pub mod http;
 pub mod pages;

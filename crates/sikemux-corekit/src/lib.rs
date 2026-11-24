@@ -28,6 +28,7 @@ pub mod usage;
 pub mod waiting;
 pub mod wall_clock;
 
+pub use sikemux_base::cut;
 use sikemux_base::http;
 
 use std::path::PathBuf;

@@ -29,6 +29,7 @@ use serde_json::Value;
 pub use error::{FailureCategory, PluginError, PluginResult};
 pub use service::{Service, ServiceError, ServiceResult};
 pub use signin::{SignInStatus, SignedInAs};
+pub use sikemux_base::cut;
 pub use sikemux_base::http::Unreachable;
 
 pub type PluginFuture<'a, T> = Pin<Box<dyn Future<Output = PluginResult<T>> + Send + 'a>>;

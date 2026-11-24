@@ -475,14 +475,21 @@ pub struct Place {
     production: bool,
 }
 
-pub async fn place(session: &Session, ask: RunAsk, prod_envs: &[String]) -> RundeckResult<Place> {
+/// A job asked to run or change; `definition` is what would replace it.
+#[derive(Deserialize)]
+pub struct PlaceAsk {
+    job: String,
+    project: Option<String>,
+    definition: Option<serde_json::Value>,
+}
+
+pub async fn place(session: &Session, ask: PlaceAsk, prod_envs: &[String]) -> RundeckResult<Place> {
     let detail = resolve(session, &ask.job, ask.project.as_deref()).await?;
+    let moved_to = (ask.definition.as_ref()).and_then(crate::definition::group_of);
+    let production =
+        |group: Option<&str>| crate::shape::is_production(&detail.project, group, prod_envs);
     Ok(Place {
-        production: crate::shape::is_production(
-            &detail.project,
-            detail.group.as_deref(),
-            prod_envs,
-        ),
+        production: production(detail.group.as_deref()) || production(moved_to),
         path: path_of(&detail),
     })
 }

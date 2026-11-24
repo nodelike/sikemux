@@ -4,6 +4,7 @@
 
 use serde::Serialize;
 use serde_json::Value;
+use sikemux_plugin_api::cut;
 
 pub const DEFAULT_ROW_LIMIT: usize = 500;
 pub const MAX_ROW_LIMIT: usize = 10_000;
@@ -51,14 +52,14 @@ pub fn row_limit(asked: Option<usize>) -> usize {
     asked.unwrap_or(DEFAULT_ROW_LIMIT).clamp(1, MAX_ROW_LIMIT)
 }
 
-/// The text cut to `characters` and marked with an ellipsis; none when it is short enough already.
-fn shortened(value: &str, characters: usize) -> Option<String> {
+/// The text cut to `characters` and ending in `mark`; none when it is short enough already.
+fn shortened(value: &str, characters: usize, mark: &str) -> Option<String> {
     let (cut, _) = value.char_indices().nth(characters)?;
-    Some(format!("{}…", value.get(..cut).unwrap_or(value)))
+    Some(format!("{}{mark}", value.get(..cut).unwrap_or(value)))
 }
 
 pub fn text(value: &str) -> Value {
-    Value::String(shortened(value, CELL_CHARACTERS).unwrap_or_else(|| value.to_string()))
+    Value::String(shortened(value, CELL_CHARACTERS, "…").unwrap_or_else(|| value.to_string()))
 }
 
 fn json_bytes(value: &impl Serialize) -> usize {
@@ -81,13 +82,13 @@ pub fn fit(results: &mut [ResultSet], cell_characters: usize, budget: usize) -> 
             }
             for cell in row.iter_mut() {
                 if let Value::String(text) = cell {
-                    if let Some(short) = shortened(text, cell_characters) {
+                    if let Some(short) = shortened(text, cell_characters, cut::MARK) {
                         *text = short;
                         cut = true;
                     }
                 }
             }
-            let size = json_bytes(row);
+            let size = json_bytes(row) + ",".len();
             if spent + size > budget {
                 full = true;
                 break;
@@ -210,7 +211,7 @@ mod tests {
         let Value::String(cell) = &first.rows[0][0] else {
             panic!("expected text")
         };
-        assert_eq!(cell.chars().count(), 401);
+        assert_eq!(cell.chars().count(), 400 + cut::MARK.chars().count());
         assert!(results[1].rows.is_empty() && results[1].truncated);
 
         let mut small = vec![texts(3, 10)];

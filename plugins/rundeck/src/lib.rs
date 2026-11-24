@@ -124,6 +124,14 @@ impl Plugin for Rundeck {
                     ))
                     .await
                 }
+                "agentEdit" => {
+                    answer(definition::edit(
+                        session,
+                        params(input)?,
+                        &saved.settings.prod_envs,
+                    ))
+                    .await
+                }
                 "agentExecutions" => {
                     answer(agent::history(session, params(input)?, branch_options)).await
                 }

@@ -1727,6 +1727,17 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "rundeck_edit",
+        Spec {
+            verb: "update",
+            kind: "edit",
+            icon: "code",
+            target: &["{job} definition"],
+            detail: &["{project}"],
+            plugin: Some("sikemux.rundeck"),
+        },
+    ),
+    (
         "rundeck_executions",
         Spec {
             verb: "list",

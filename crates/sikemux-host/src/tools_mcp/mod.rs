@@ -58,6 +58,7 @@ pub fn run() -> i32 {
     let resources = std::env::current_dir()
         .is_ok_and(|cwd| sikemux_core::tasks::config::names_resources_near(&cwd));
     serve(Arc::new(Offer::new(simulator, resources)), agent_id);
+    bound::forget();
     0
 }
 
@@ -100,6 +101,7 @@ fn watch_parent() {
         std::thread::sleep(PARENT_CHECK_INTERVAL);
         // SAFETY: `getppid` takes nothing and cannot fail.
         if unsafe { libc::getppid() } != launcher {
+            bound::forget();
             std::process::exit(0);
         }
     });

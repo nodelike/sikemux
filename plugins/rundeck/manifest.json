@@ -86,7 +86,7 @@
       "name": "rundeck_export",
       "row": {"verb": "read", "kind": "read", "icon": "code", "target": ["{job} definition"]},
       "method": "agentExport",
-      "description": "A job's whole definition as Rundeck's JSON: steps, scripts, options, schedule. Change it and pass it to rundeck import.",
+      "description": "A job's whole definition as Rundeck's JSON, and its revision for rundeck edit. Too long an answer is cut; omitted names the file holding it whole.",
       "properties": {
         "job": { "type": "string", "description": "Its id or group/name path." },
         "project": { "type": "string", "description": "Where to find job. Default: every project." }
@@ -97,7 +97,7 @@
       "name": "rundeck_import",
       "row": {"verb": "update", "kind": "edit", "icon": "code", "target": ["{job} definition"], "detail": ["{project}"]},
       "method": "agentImport",
-      "description": "Replace a job's definition in place, keeping its uuid. definition is what rundeck export answered with, changed.",
+      "description": "Replace a job's whole definition, keeping its uuid. To change only parts of it, use rundeck edit.",
       "properties": {
         "job": { "type": "string", "description": "Its id or group/name path." },
         "project": { "type": "string", "description": "Where to find job. Default: every project." },
@@ -105,6 +105,33 @@
         "production": { "type": "boolean", "description": "True only after the person agreed to change this production job." }
       },
       "required": ["job", "definition"]
+    },
+    {
+      "name": "rundeck_edit",
+      "row": {"verb": "update", "kind": "edit", "icon": "code", "target": ["{job} definition"], "detail": ["{project}"]},
+      "method": "agentEdit",
+      "description": "Change parts of a job and leave the rest as it is. Refused if the job changed since that revision.",
+      "properties": {
+        "job": { "type": "string", "description": "Its id or group/name path." },
+        "project": { "type": "string", "description": "Where to find job. Default: every project." },
+        "revision": { "type": "string", "description": "From rundeck export, or the last edit." },
+        "changes": {
+          "type": "array",
+          "description": "Made in order.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "op": { "type": "string", "enum": ["add", "replace", "remove", "replaceText"], "description": "add puts value in before that list position. replaceText swaps old for value inside one text." },
+              "path": { "type": "string", "description": "Such as /sequence/commands/2; /- is a list's end." },
+              "value": { "description": "A step, a field, or text." },
+              "old": { "type": "string", "description": "Text found once at path." }
+            },
+            "required": ["op", "path"]
+          }
+        },
+        "production": { "type": "boolean", "description": "True only after the person agreed to change this production job." }
+      },
+      "required": ["job", "revision", "changes"]
     },
     {
       "name": "rundeck_executions",
