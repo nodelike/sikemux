@@ -95,13 +95,6 @@
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ui: "Figtree", system-ui, -apple-system, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --control: 44px;
-  --radius-control: 8px;
-  --radius-card: 14px;
-  --dur-1: 90ms;
-  --dur-2: 140ms;
-  --dur-4: 320ms;
-  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   color-scheme: dark;
   background: var(--ground);
@@ -110,31 +103,20 @@
   -webkit-font-smoothing: antialiased;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --dur-1: 0ms;
-    --dur-2: 0ms;
-    --dur-4: 0ms;
-  }
-}
-
 *,
 *::before,
 *::after {
   box-sizing: border-box;
   margin: 0;
 }
-
 html,
 body {
-  margin: 0;
   overscroll-behavior: none;
 }
 html {
   scrollbar-width: thin;
   scrollbar-color: var(--line2) transparent;
 }
-
 button,
 input,
 select {
@@ -302,7 +284,6 @@ canvas.dots {
 .lab {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 10px;
   font-size: 10.5px;
   font-weight: 600;
@@ -759,7 +740,6 @@ canvas.dots {
   grid-template-columns: var(--rail-w) minmax(0, 1fr);
   align-items: start;
 }
-
 .rail {
   position: sticky;
   top: 0;
@@ -824,11 +804,6 @@ canvas.dots {
   border-radius: var(--r);
   color: var(--two);
   font-weight: 500;
-  text-decoration: none;
-  white-space: nowrap;
-  transition:
-    background var(--dur-1),
-    color var(--dur-1);
 }
 .rl:hover,
 .ol:hover {
@@ -864,15 +839,6 @@ canvas.dots {
   width: 20px;
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--gray-100);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 600;
 }
 .ol .dot {
   width: 6px;
@@ -1017,10 +983,6 @@ canvas.dots {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface-glass);
 }
 .seats {
   display: flex;
@@ -1071,10 +1033,6 @@ canvas.dots {
   flex-direction: column;
   gap: 4px;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-  color: var(--warn);
-  font-size: 12px;
 }
 .strip i,
 .strip b {
@@ -1401,11 +1359,9 @@ canvas.dots {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 36px;
 }
 .lab-line .lab {
   flex: 1;
-  color: var(--text-primary);
 }
 .lead {
   display: grid;
@@ -1422,7 +1378,6 @@ canvas.dots {
 .skels {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: 14px;
   padding: 8px 0;
 }
