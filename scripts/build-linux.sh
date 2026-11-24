@@ -130,6 +130,7 @@ DESKTOP
 lay_out_shared() {
   local root="$1"
   mkdir -p "$root/usr/share/applications"
+  install -Dm644 "$ROOT/packaging/ThirdPartyNotices.txt" "$root/usr/share/doc/sikemux/ThirdPartyNotices.txt"
   desktop_entry sikemux >"$root/usr/share/applications/$APP_IDENTIFIER.desktop"
   for size in 32 128 256 512; do
     mkdir -p "$root/usr/share/icons/hicolor/${size}x${size}/apps"

@@ -19,6 +19,7 @@ $Stage = Join-Path $env:RUNNER_TEMP "sikemux-stage-$Arch"
 Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $Stage, $Out | Out-Null
 Copy-Item "$Resources\sikemux.ico" $Stage
+Copy-Item (Join-Path $Here "..\ThirdPartyNotices.txt") $Stage
 
 foreach ($Name in "sikemux.exe", "sikemux-host.exe") {
   $Built = Join-Path $Binaries $Name

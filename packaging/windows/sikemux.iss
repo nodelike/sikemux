@@ -55,6 +55,7 @@ Name: shareusage; Description: "Share anonymous usage data and crash reports (re
 [Files]
 Source: "{#Exe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Core}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "ThirdPartyNotices.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#Name}"; Filename: "{app}\{#Exe}"; AppUserModelID: "com.nodelike.sikemux"

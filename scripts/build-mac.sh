@@ -62,6 +62,7 @@ mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources" "$APP_PATH/Co
 ln -s "$CORE_LINK_TARGET" "$APP_PATH/Contents/MacOS/sikemux-host"
 /usr/bin/ditto "$ROOT/packaging/icons/build/Assets.car" "$APP_PATH/Contents/Resources/Assets.car"
 /usr/bin/ditto "$ROOT/packaging/icons/build/sikemux.icns" "$APP_PATH/Contents/Resources/icon.icns"
+/usr/bin/ditto "$ROOT/packaging/ThirdPartyNotices.txt" "$APP_PATH/Contents/Resources/ThirdPartyNotices.txt"
 /usr/libexec/PlistBuddy \
   -c "Add :CFBundleDevelopmentRegion string English" \
   -c "Add :CFBundleDisplayName string $APP_NAME" \
