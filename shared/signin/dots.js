@@ -5,19 +5,47 @@ const MOST_QUIET = 8;
 const PLAYS_FOR = 12;
 const PLAYS_ON_AFTER_POINTER = 5;
 const POINTER_FELT_FOR = 1.2;
-const SETTLES_FOR = 1.8;
+export const SETTLES_FOR = 1.8;
 const TAP_LASTS = 0.9;
 const RING_LASTS = 1.6;
-const STILL_TIME = 9;
+export const STILL_TIME = 9;
 const STATE_BYTES = 20;
 const GLOW_CELL = 28;
 const DRAWS = ["tint", "deep", "alt", "bright"];
 
 /** Where each value of the shaders' `Scene` block starts, in floats. */
 const AT = {
-    size: 0, center: 2, pointer: 4, before: 6, sweep: 8, time: 10, seconds: 11, tap: 12, kick: 15, ring: 16, morph: 19,
-    span: 20, seen: 21, still: 22, fresh: 23, failed: 24, waiting: 25, density: 26, rich: 27, reach: 28, clearing: 29, quiets: 30,
-    tint: 32, glow: 35, deep: 36, across: 39, alt: 40, down: 43, bright: 44, ringTint: 48, quiet: 52,
+    size: 0,
+    center: 2,
+    pointer: 4,
+    before: 6,
+    sweep: 8,
+    time: 10,
+    seconds: 11,
+    tap: 12,
+    kick: 15,
+    ring: 16,
+    morph: 19,
+    span: 20,
+    seen: 21,
+    still: 22,
+    fresh: 23,
+    failed: 24,
+    waiting: 25,
+    density: 26,
+    rich: 27,
+    reach: 28,
+    clearing: 29,
+    quiets: 30,
+    tint: 32,
+    glow: 35,
+    deep: 36,
+    across: 39,
+    alt: 40,
+    down: 43,
+    bright: 44,
+    ringTint: 48,
+    quiet: 52,
 };
 const SCENE_FLOATS = AT.quiet + MOST_QUIET * 4;
 
@@ -82,9 +110,9 @@ void main() {
   gl_Position = vec4(2);
   vec2 belongs = homeAt(), at = state.xy, speed = state.zw;
 #ifdef FIELD
-  if (still + fresh > .5) {
+  if (still + fresh >= 1.) {
 #else
-  if (still > .5) {
+  if (still >= 1.) {
 #endif
     nextState = vec4(belongs, 0, 0);
     nextHeat = 0.;
@@ -438,7 +466,8 @@ export function particlesOn(gl, kinds) {
     const nothing = "#version 300 es\nprecision lowp float;\nout vec4 pixel;\nvoid main() { pixel = vec4(0); }";
     const programs = {};
     for (const kind of kinds)
-        programs[kind] = kind === "glow" ? { draw: link(kind, GLOW, GLOW_FILL) } : { move: link(kind, MOVE, nothing, true), draw: link(kind, DRAW, FILL) };
+        programs[kind] =
+            kind === "glow" ? { draw: link(kind, GLOW, GLOW_FILL) } : { move: link(kind, MOVE, nothing, true), draw: link(kind, DRAW, FILL) };
     for (const program of Object.values(programs).flatMap(Object.values)) {
         if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
         gl.uniformBlockBinding(program, gl.getUniformBlockIndex(program, "Scene"), 0);
@@ -570,6 +599,33 @@ export function markOn(particles, most, scattered) {
     };
 }
 
+export const toward = (value, target, rate, seconds) => value + (target - value) * (1 - Math.exp(-seconds * rate));
+
+/** Where the pointer is, how fast it sweeps and how much of it is felt. */
+export function pointerOf() {
+    return {
+        at: [0, 0],
+        before: [0, 0],
+        sweep: [0, 0],
+        seen: 0,
+        here: false,
+        moved: -1e9,
+        move(at, now) {
+            if (this.here && this.seen > 0.05) {
+                const seconds = Math.max(0.004, (now - this.moved) / 1000);
+                const speed = at.map((value, axis) => (value - this.at[axis]) / seconds);
+                const most = Math.min(1, 1500 / Math.max(1, Math.hypot(...speed)));
+                this.sweep = speed.map((value, axis) => (this.sweep[axis] + value * most) / 2);
+            } else this.before = at;
+            Object.assign(this, { at, here: true, moved: now });
+        },
+        pass(now, seconds) {
+            this.seen = toward(this.seen, this.here && now - this.moved < POINTER_FELT_FOR * 1000 ? 1 : 0, 10, seconds);
+            this.sweep = this.sweep.map((speed) => speed * Math.exp(-seconds * 9));
+        },
+    };
+}
+
 /**
  * Draws a mark as particles in a field of them, on a canvas over the page. They answer the pointer.
  * Null, and `mark` gets the class "plain", when the browser can't.
@@ -585,7 +641,7 @@ export function drawDots(canvas, { mark, quiet }) {
     const { signal } = gone;
     const stillness = matchMedia("(prefers-reduced-motion: reduce)");
     const field = { most: MOST_IN_FIELD, used: 0, fresh: true };
-    const pointer = { at: [0, 0], before: [0, 0], sweep: [0, 0], seen: 0, here: false, moved: -1e9 };
+    const pointer = pointerOf();
     const tap = { at: [0, 0], since: -1e9 };
     const ring = { since: -1e9, tint: [1, 1, 1] };
     const style = { tint: "#a277ff", tone: "worked", reach: 0.62, rich: 1, clearing: 0.5, glow: 0.16 };
@@ -608,11 +664,10 @@ export function drawDots(canvas, { mark, quiet }) {
 
     const ease = (seconds) => {
         mood ??= { ...goal.colors, failed: goal.failed, waiting: goal.waiting, glow: style.glow };
-        const toward = (value, target, rate) => value + (target - value) * (1 - Math.exp(-seconds * rate));
-        for (const part of DRAWS) mood[part] = mood[part].map((channel, at) => toward(channel, goal.colors[part][at], 3.2));
-        mood.glow = toward(mood.glow, style.glow, 3.2);
-        mood.failed = toward(mood.failed, goal.failed, 6);
-        mood.waiting = toward(mood.waiting, goal.waiting, 6);
+        for (const part of DRAWS) mood[part] = mood[part].map((channel, at) => toward(channel, goal.colors[part][at], 3.2, seconds));
+        mood.glow = toward(mood.glow, style.glow, 3.2, seconds);
+        mood.failed = toward(mood.failed, goal.failed, 6, seconds);
+        mood.waiting = toward(mood.waiting, goal.waiting, 6, seconds);
     };
 
     const paint = (now, seconds) => {
@@ -652,12 +707,9 @@ export function drawDots(canvas, { mark, quiet }) {
         request = 0;
         const seconds = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
         last = now;
-        const toward = (value, target, rate) => value + (target - value) * (1 - Math.exp(-seconds * rate));
-        life = toward(life, until - now > SETTLES_FOR * 1000 ? 1 : 0, 2.2);
+        life = toward(life, until - now > SETTLES_FOR * 1000 ? 1 : 0, 2.2, seconds);
         clock += seconds * life;
-        pointer.seen = toward(pointer.seen, pointer.here && now - pointer.moved < POINTER_FELT_FOR * 1000 ? 1 : 0, 10);
-        const left = Math.exp(-seconds * 9);
-        pointer.sweep = pointer.sweep.map((speed) => speed * left);
+        pointer.pass(now, seconds);
         paint(now, seconds);
         if (now < until) request = requestAnimationFrame(frame);
     };
@@ -736,15 +788,7 @@ export function drawDots(canvas, { mark, quiet }) {
     };
     const move = (event) => {
         if (event.pointerType === "touch") return;
-        const now = performance.now();
-        const at = place(event);
-        if (pointer.here && pointer.seen > 0.05) {
-            const seconds = Math.max(0.004, (now - pointer.moved) / 1000);
-            const speed = at.map((value, axis) => (value - pointer.at[axis]) / seconds);
-            const most = Math.min(1, 1500 / Math.max(1, Math.hypot(...speed)));
-            pointer.sweep = speed.map((value, axis) => (pointer.sweep[axis] + value * most) / 2);
-        } else pointer.before = at;
-        Object.assign(pointer, { at, here: true, moved: now });
+        pointer.move(place(event), performance.now());
         wake(PLAYS_ON_AFTER_POINTER);
     };
     listen(window, "resize", measure);
