@@ -3,7 +3,8 @@
 //! build, and that disk comes back only when the whole folder goes. So it goes whole: once the
 //! worktree's agent has closed, once its agent has landed everything and gone to sleep, and,
 //! least recently built first, while free space is low. A worktree no agent holds whose work is
-//! all on its base branch goes whole, as its agent closes or on an hourly sweep. The main checkout's is never touched,
+//! all on its base branch goes whole, as its agent closes or on an hourly sweep; one with work
+//! left in it goes on the sweep once untouched for days, its work kept on a branch. The main checkout's is never touched,
 //! nor a worktree's while an agent is at work in it or any process runs from it. A worktree that
 //! settles, as its agent closes or has landed everything and gone to sleep, also runs the
 //! project's `worktree.onSettle`.
@@ -24,7 +25,8 @@ use sikemux_process::sync::Locked;
 use sikemux_view::changed::Topic;
 use sikemux_view::host_stats::{ClearedFor, HostEventKind};
 
-use super::removal::busy;
+use super::left::last_changed;
+use super::removal::{busy, Work};
 use super::warm::{hold_builds, ignored_folders, is_cargo_output};
 use super::{worktrees_folder, AgentWorktree};
 use crate::git::{main_checkout, Git};
@@ -58,9 +60,12 @@ pub const SET_ASIDE: &str = ".build-output-removing-";
 const SET_ASIDE_SWEPT_AFTER: Duration = Duration::from_secs(10 * 60);
 /// How often worktrees no agent holds are looked over for ones whose work is all landed.
 const SWEEP_LANDED_EVERY: Duration = Duration::from_secs(60 * 60);
-/// How long a worktree goes untouched before a sweep may take it, so one an agent is being
-/// given at that moment stays.
+/// How long a landed worktree goes untouched before a sweep may take it, so one an agent is
+/// being given at that moment stays.
 const LANDED_UNTOUCHED_FOR: Duration = Duration::from_secs(60 * 60);
+/// How long one with work left in it goes untouched before a sweep keeps that work on a branch
+/// and takes the folder.
+const LEFT_UNTOUCHED_FOR: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 
 #[derive(Default)]
 pub struct BuildOutputs {
@@ -190,14 +195,14 @@ fn settle(
         for tree in trees {
             super::agent::settle(core.clone(), tree.repo.clone(), tree.path.clone()).await;
             if remove_landed && all_landed(&tree) {
-                super::removal::remove_left(&core, &tree.repo, &tree.path).await;
+                super::removal::remove_left(&core, &tree.repo, &tree.path, Work::Landed).await;
             }
         }
     });
 }
 
-/// Once an hour, removes the worktrees no agent holds or runs from whose work is all on the
-/// base branch and that nothing touched for an hour.
+/// Once an hour, removes the worktrees no agent holds or runs from that nothing touched for an
+/// hour with all their work on the base branch, or for days with work left in them.
 pub fn sweep_landed(core: &Core) {
     if cfg!(debug_assertions) {
         return;
@@ -221,21 +226,21 @@ pub fn sweep_landed(core: &Core) {
         return;
     };
     in_background(core, move |core| {
-        let left = landed_and_left(core);
+        let left = left(core);
         let Some(core) = core.arc() else {
             return;
         };
         runtime.spawn(async move {
-            for (repo, tree) in left {
-                super::removal::remove_left(&core, &repo, &tree).await;
+            for (repo, tree, work) in left {
+                super::removal::remove_left(&core, &repo, &tree, work).await;
             }
         });
     });
 }
 
-/// The worktrees, with the main checkout each belongs to, that no agent holds or runs from,
-/// untouched for a while, with all their work on the base branch.
-fn landed_and_left(core: &Core) -> Vec<(PathBuf, PathBuf)> {
+/// The worktrees, with the main checkout each belongs to, that no agent holds or runs from and
+/// nothing touched for as long as their work calls for.
+fn left(core: &Core) -> Vec<(PathBuf, PathBuf, Work)> {
     let Some(places) = procs::places() else {
         return Vec::new();
     };
@@ -260,17 +265,23 @@ fn landed_and_left(core: &Core) -> Vec<(PathBuf, PathBuf)> {
                 || held.iter().any(|path| path.starts_with(&tree))
                 || sikemux_process::files::real_path(&tree)
                     .map_or(true, |real| running_in(&places, &[&tree, &real]).is_some());
-            if !in_use && !touched_lately(&tree) && on_base(&tree, &base) {
-                left.push((main.clone(), tree));
+            if in_use || !untouched_for(&tree, LANDED_UNTOUCHED_FOR) {
+                continue;
+            }
+            if on_base(&tree, &base) {
+                left.push((main.clone(), tree, Work::Landed));
+            } else if untouched_for(&tree, LEFT_UNTOUCHED_FOR)
+                && last_changed(&tree).is_none_or(|at| ago(at, LEFT_UNTOUCHED_FOR))
+            {
+                left.push((main.clone(), tree, Work::Left));
             }
         }
     }
     left
 }
 
-/// Whether the worktree's checkout moved, or the worktree was made, within the last
-/// `LANDED_UNTOUCHED_FOR`.
-fn touched_lately(tree: &Path) -> bool {
+/// Whether the worktree was made, and its checkout last moved, at least `long` ago.
+fn untouched_for(tree: &Path, long: Duration) -> bool {
     let head_log = Git::quick(tree)
         .trimmed(&[
             "rev-parse",
@@ -284,7 +295,11 @@ fn touched_lately(tree: &Path) -> bool {
         .flatten()
         .filter_map(|path| path.metadata().and_then(|meta| meta.modified()).ok())
         .max();
-    changed.is_none_or(|at| at.elapsed().map_or(true, |age| age < LANDED_UNTOUCHED_FOR))
+    changed.is_some_and(|at| ago(at, long))
+}
+
+fn ago(at: SystemTime, long: Duration) -> bool {
+    at.elapsed().is_ok_and(|age| age >= long)
 }
 
 fn clear_once_stopped(core: &Core, mut trees: Vec<PathBuf>, reason: ClearedFor) {

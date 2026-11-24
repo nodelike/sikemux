@@ -12,6 +12,7 @@ use crate::tasks::detect::PERSONAL_TASKS;
 
 pub mod agent;
 pub mod build_output;
+mod left;
 pub mod published;
 pub mod removal;
 mod stale_builds;
@@ -139,11 +140,38 @@ pub fn cut(repo: &Path, branch: &str, start: &str) -> Result<(String, PathBuf), 
 }
 
 pub fn remove(repo: &Path, path: &Path, branch: &str) {
-    let target = path.to_string_lossy().into_owned();
-    if let Err(error) = Git::quick(repo).trimmed(&["worktree", "remove", "--force", &target]) {
-        eprintln!("sikemux core: the worktree {target} is left: {error}");
+    if let Err(error) = take_folder(repo, path, true) {
+        eprintln!(
+            "sikemux core: the worktree {} is left: {error}",
+            path.display()
+        );
     }
     let _ = Git::quick(repo).trimmed(&["branch", "-D", branch]);
+}
+
+/// Removes the worktree at `path` from `repo`. Git forgets a worktree even when something writing
+/// into its folder kept some of it from going, so the rest goes then.
+fn take_folder(repo: &Path, path: &Path, force: bool) -> Result<(), String> {
+    let target = path.to_string_lossy().into_owned();
+    let mut args = vec!["worktree", "remove", &target];
+    if force {
+        args.push("--force");
+    }
+    let record = git_folder(path);
+    Git::slow(repo).trimmed(&args).map(drop).or_else(|error| {
+        match record.is_some_and(|record| !record.exists()) && path.exists() {
+            true => std::fs::remove_dir_all(path).map_err(|rest| format!("{error}; {rest}")),
+            false => Err(error),
+        }
+    })
+}
+
+/// Where the main checkout keeps its record of the worktree at `path`.
+pub(super) fn git_folder(path: &Path) -> Option<PathBuf> {
+    Git::quick(path)
+        .trimmed(&["rev-parse", "--absolute-git-dir"])
+        .ok()
+        .map(PathBuf::from)
 }
 
 /// Copies the files of [`included`] from `main` into the worktree at `tree`.

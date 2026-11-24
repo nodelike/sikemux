@@ -11,6 +11,7 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 
 use super::connection::blocking;
+use super::worktree::git_folder;
 use super::Core;
 use crate::git::Git;
 use sikemux_process::procs::lowest_priority;
@@ -142,6 +143,12 @@ fn default_branch_upstream(checkout: &Path) -> Option<(String, String)> {
     is_default.then_some((remote, followed))
 }
 
+/// Whether git is partway through changing `checkout`, or it can't be told.
+pub(super) fn under_way(checkout: &Path) -> bool {
+    git_folder(checkout)
+        .is_none_or(|folder| UNDER_WAY.iter().any(|file| folder.join(file).exists()))
+}
+
 /// Whether nobody is at work in `checkout`: no agent busy there, nothing changed or added in
 /// it, and no merge or rebase under way.
 fn untouched(core: &Core, checkout: &Path) -> bool {
@@ -152,11 +159,7 @@ fn untouched(core: &Core, checkout: &Path) -> bool {
     if agents_busy {
         return false;
     }
-    let Ok(git_dir) = Git::quick(checkout).trimmed(&["rev-parse", "--absolute-git-dir"]) else {
-        return false;
-    };
-    let git_dir = PathBuf::from(git_dir);
-    if UNDER_WAY.iter().any(|file| git_dir.join(file).exists()) {
+    if under_way(checkout) {
         return false;
     }
     Git::quick(checkout)

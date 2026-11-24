@@ -15,7 +15,7 @@ use sikemux_view::changed::Topic;
 use sikemux_view::host_stats::HostEventKind;
 
 use super::{
-    add_again, base_branch, branch_exists, branch_for, copy_included, cut, inside, warm,
+    add_again, base_branch, branch_exists, branch_for, copy_included, cut, inside, left, warm,
     worktrees_folder, AgentWorktree,
 };
 use crate::git::{main_checkout, Git};
@@ -191,6 +191,7 @@ fn make_again(cwd: &Path, branch: Option<&str>) -> Result<AgentWorktree, String>
         }
     };
     add_again(&repo, &path, &branch, &start)?;
+    left::take_up(&path)?;
     Ok(AgentWorktree {
         repo,
         path,
@@ -221,7 +222,7 @@ fn lost_worktree(cwd: &Path) -> Option<(PathBuf, PathBuf)> {
 }
 
 /// The local branch whose worktree folder is named `folder`, as [`super::cut`] names them.
-fn branch_for_folder(repo: &Path, folder: &str) -> Option<String> {
+pub(super) fn branch_for_folder(repo: &Path, folder: &str) -> Option<String> {
     Git::quick(repo)
         .trimmed(&["for-each-ref", "--format=%(refname:short)", "refs/heads"])
         .ok()?

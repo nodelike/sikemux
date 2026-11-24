@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use super::included;
+use super::{git_folder, included};
 use crate::git::Git;
 
 #[cfg(target_os = "macos")]
@@ -60,10 +60,7 @@ pub fn seed(main: &Path, tree: &Path) {
 /// folder, which goes when the checkout does. Inside the checkout, Git would list every
 /// file of a clone still being made as new.
 fn staging_of(tree: &Path) -> Option<PathBuf> {
-    let git_dir = Git::quick(tree)
-        .trimmed(&["rev-parse", "--absolute-git-dir"])
-        .ok()?;
-    Some(PathBuf::from(git_dir).join("sikemux-cloning"))
+    Some(git_folder(tree)?.join("sikemux-cloning"))
 }
 
 fn staged_at(staging: &Path, folder: &Path) -> PathBuf {
