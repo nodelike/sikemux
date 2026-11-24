@@ -461,7 +461,7 @@ function OrgBills({
   follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const owned = orgs.filter((org) => org.role === "owner");
-  if (team === "shut" || owned.length === 0) return null;
+  if (team !== "sold" || owned.length === 0) return null;
   return (
     <Card label={owned.length === 1 ? "Your org's bill" : "Your orgs' bills"}>
       <Rows>
@@ -634,6 +634,7 @@ function OrgBill({
   const least = Math.max(1, org.seats.held);
   const [seats, setSeats] = useState(Math.max(least, lastSeats));
   const sells = team === "sold" && !planSub && !preview;
+  const paused = team !== "sold" && !planSub && !preview;
   const total = unit ? money(times(unit, seats), { cents: false }) : undefined;
   const nextTotal =
     planSub && unit
@@ -648,9 +649,11 @@ function OrgBill({
       ? "The card was declined"
       : planSub
         ? "Team"
-        : ended
-          ? "Team ended"
-          : "No Team plan";
+        : paused
+          ? "Team paused"
+          : ended
+            ? "Team ended"
+            : "No Team plan";
   const lede = preview
     ? `Free for up to ${org.seats.limit} people while we finish Team.`
     : lapsed
@@ -661,9 +664,11 @@ function OrgBill({
           : overview.payer === "departed"
             ? `Whoever paid for it no longer owns the org, so it ends on ${ends} and can be bought again then.`
             : `${seatsWord(planSub.quantity)}${each ? ` at ${each} each` : ""}. ${planSub.refundRequestedAt ? "It ends when its refund is paid." : planSub.cancelAtPeriodEnd ? `It ends on ${ends}.` : `The next charge is${nextTotal ? ` ${nextTotal}` : ""} on ${ends}.`}`
-        : ended
-          ? `Its Team plan ended on ${formatDay(ended.currentPeriodEnd, "long")}. Nothing is deleted.`
-          : "Nobody can be invited until it has one. Nothing is deleted.";
+        : paused
+          ? `${org.name} is paused. Team isn't open to your account now. Nothing is deleted.`
+          : ended
+            ? `Its Team plan ended on ${formatDay(ended.currentPeriodEnd, "long")}. Nothing is deleted.`
+            : "Nobody can be invited until it has one. Nothing is deleted.";
 
   return (
     <Page
@@ -789,13 +794,30 @@ function OrgBill({
             </Rows>
           </Card>
         ) : null}
-        <Card label="What Team has">
-          <Features
-            features={featuresAdded(catalog, "team").added.filter(
-              (feature) => !preview || inPreview(feature),
-            )}
-          />
-        </Card>
+        {paused ? null : (
+          <Card label="What Team has">
+            <Features
+              features={featuresAdded(catalog, "team").added.filter(
+                (feature) => !preview || inPreview(feature),
+              )}
+            />
+          </Card>
+        )}
+        {paused && org.seats.held > 0 ? (
+          <Card label="Seats">
+            <Rows>
+              <Row
+                lead={
+                  <Tile>
+                    <IconUsers size={14} />
+                  </Tile>
+                }
+                name={`${seatsWord(org.seats.held)} held`}
+                detail="People stay in it, and keep their own hosts."
+              />
+            </Rows>
+          </Card>
+        ) : null}
       </Column>
       <Column w={5} side>
         {preview && invoices.length === 0 ? (
