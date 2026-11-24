@@ -26,7 +26,13 @@ import {
   IconUser,
   IconUsers,
 } from "@shared/ui/Icons";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import { api, problemText, signedInToken } from "./api.ts";
 import { BilledSwitch } from "./BilledSwitch.tsx";
@@ -56,7 +62,7 @@ import {
   Segmented,
   useAction,
   useNotice,
-} from "./ui.tsx";
+} from "./old.tsx";
 
 export const FREE_DURING_PREVIEW = "Free during preview";
 export const NOT_OPEN = "Buying is not open yet";
@@ -103,6 +109,17 @@ export function useBillingShown(ready: boolean): boolean {
   return shown;
 }
 
+/** The org's own plan and bill, for its owners. */
+export function OrgBillingPage({
+  org,
+}: {
+  org: Org;
+  version: number;
+  team: TeamAccess;
+}) {
+  return <p>{org.name}</p>;
+}
+
 export function BillingPage({
   version,
   staff,
@@ -111,6 +128,8 @@ export function BillingPage({
   version: number;
   staff: boolean;
   team: TeamAccess;
+  orgs: Org[];
+  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const client = useClient();
   const [orgs, setOrgs] = useState<Org[]>();

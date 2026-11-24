@@ -1,5 +1,5 @@
 import { SignIns, type Load } from "./SignIns.tsx";
-import { PageHead } from "./ui.tsx";
+import { PageHead } from "./old.tsx";
 
 export function ConnectorsPage({ signIns }: { signIns: Load }) {
   return (

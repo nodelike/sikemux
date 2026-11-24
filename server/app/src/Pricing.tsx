@@ -22,7 +22,7 @@ import {
 } from "./money.ts";
 import { PlanCard, type CardLine } from "./PlanCard.tsx";
 import { useOrgs } from "./OrgPages.tsx";
-import { PageHead, Row, Rows, Section, useAction, useNotice } from "./ui.tsx";
+import { PageHead, Row, Rows, Section, useAction, useNotice } from "./old.tsx";
 
 type Built = "" | "partly" | "not built" | "later";
 

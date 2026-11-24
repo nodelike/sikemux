@@ -14,7 +14,7 @@ import { api, problemText, signedInToken } from "./api.ts";
 import { AppleMark, GitHubMark, GoogleMark } from "./icons.tsx";
 import { useReverified } from "./Reverify.tsx";
 import { CodeEntry } from "./SignIn.tsx";
-import { ItemRow, Rows, Section, useAction, useNotice } from "./ui.tsx";
+import { ItemRow, Rows, Section, useAction, useNotice } from "./old.tsx";
 
 type Way = {
   id: string;

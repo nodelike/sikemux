@@ -1,12 +1,19 @@
 import { useAuth } from "@clerk/react";
 import { platformName } from "@shared/remote/access";
 import type { AccountEvent, Device } from "@sikemux/protocol";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 
 import { formatDay } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
 import { IconLaptop, IconPhone } from "@shared/ui/Icons";
-import { Confirm, ItemRow, Rows, Section } from "./ui.tsx";
+import { Confirm, ItemRow, PageHead, Rows, Section } from "./old.tsx";
+import { ShedNotHost } from "./Shed.tsx";
 
 export type Load =
   | { state: "loading" }
@@ -77,7 +84,30 @@ export function useDevices(ready: boolean) {
   return { load, reload: () => void read(), apply, remove };
 }
 
-export function Devices({
+export function HostsPage({
+  load,
+  remove,
+  staff,
+  follow,
+}: {
+  load: Load;
+  remove: (key: string) => Promise<void>;
+  staff: boolean;
+  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  return (
+    <>
+      <PageHead title="Hosts">
+        Every host you own, linked on one account. No plan caps how many. A
+        client connects to a host only after someone at the host allows it.
+      </PageHead>
+      <Devices load={load} remove={remove} />
+      {staff ? <ShedNotHost follow={follow} /> : null}
+    </>
+  );
+}
+
+function Devices({
   load,
   remove,
 }: {

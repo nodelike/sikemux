@@ -9,11 +9,9 @@ export const HOSTS = "/hosts";
 export const CONNECTORS = "/connectors";
 export const BILLING = "/billing";
 export const PRICING = "/pricing";
+/** Where a Mac sends someone to their org before it knows which. */
 export const TEAM = "/team";
-export const TEAMS = "/teams";
-export const DOMAINS = "/domains";
-export const AUDIT = "/audit-log";
-export const POLICY = "/policy";
+export const START = "/orgs/new";
 export const JOIN = "/orgs/join";
 export const PAY = "/pay";
 export const WORK_ADDRESS = "/work-address";
@@ -25,13 +23,30 @@ const PAGES = new Set([
   HOSTS,
   BILLING,
   TEAM,
-  TEAMS,
-  DOMAINS,
-  AUDIT,
-  POLICY,
+  START,
   PRICING,
   DELETE_ACCOUNT,
 ]);
+
+export const ORG_PAGES = {
+  people: "People",
+  domains: "Domains",
+  "audit-log": "Audit log",
+  policy: "Policy",
+  billing: "Plan and billing",
+} as const;
+
+export type OrgPage = keyof typeof ORG_PAGES;
+
+export function orgPath(orgId: string, page: OrgPage = "people"): string {
+  return `/orgs/${orgId}/${page}`;
+}
+
+/** The org and the page of it a path names. */
+export function orgRoute(path: string): { id: string; page: OrgPage } | null {
+  const [, id, page] = /^\/orgs\/([^/]+)\/([^/]+)\/?$/.exec(path) ?? [];
+  return id && page && page in ORG_PAGES ? { id, page: page as OrgPage } : null;
+}
 
 export const RETURN_KEY = "sikemux.returnTo";
 export const SIGNED_UP_FOR_KEY = "sikemux.signedUpFor";
@@ -102,7 +117,7 @@ export function takeReturn(): string | null {
   if (path === "/" && appReturn(`?${query}`)) return saved;
   if (path === CONSENT || path === HOST || saved.startsWith(`${JOIN}#`))
     return saved;
-  return PAGES.has(path) ? path : "/";
+  return PAGES.has(path) || orgRoute(path) ? path : "/";
 }
 
 export function usePath() {

@@ -1,7 +1,7 @@
 import type { BillingInterval, BillingProduct } from "@sikemux/protocol";
 
 import { priceOf } from "./money.ts";
-import { Segmented } from "./ui.tsx";
+import { Segmented } from "./old.tsx";
 
 /** Monthly or yearly. Given a product, the yearly side says how many of its months come free. */
 export function BilledSwitch({

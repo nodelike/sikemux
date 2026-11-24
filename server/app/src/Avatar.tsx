@@ -1,70 +1,65 @@
-import { clerkImageUrl } from "@shared/lib/format";
 import { useUser } from "@clerk/react";
-import { initials } from "@shared/lib/initials";
-import { useState } from "react";
+import { clerkImageUrl } from "@shared/lib/format";
+import { useId, useMemo, useState, type CSSProperties } from "react";
 
-/** The account's picture, or its initials on a neutral circle when it has none. */
-export function Avatar({ size = 26 }: { size?: number }) {
+import { orgSvg, personSvg } from "./avatarSvg.ts";
+
+const sized = (size: number | undefined) =>
+  size ? ({ "--z": `${size}px` } as CSSProperties) : undefined;
+
+/** The signed-in person's own picture, or one drawn from their account's id. */
+export function Avatar({ size }: { size?: number }) {
   const { user } = useUser();
   return (
-    <Face
+    <PersonAvatar
+      id={user?.id ?? ""}
+      imageUrl={user?.hasImage ? user.imageUrl : null}
       size={size}
-      picture={user?.hasImage ? user.imageUrl : undefined}
-      letters={
-        user
-          ? initials(user.fullName, user.primaryEmailAddress?.emailAddress)
-          : ""
-      }
     />
   );
 }
 
-/** Someone else's picture, or their initials. */
 export function PersonAvatar({
-  name,
+  id,
   imageUrl,
-  size = 26,
+  size,
 }: {
-  name: string | null;
+  id: string;
   imageUrl: string | null;
   size?: number;
 }) {
+  const [failed, setFailed] = useState<string>();
+  const key = useId();
+  const svg = useMemo(() => personSvg(id, key), [id, key]);
+  if (imageUrl && imageUrl !== failed)
+    return (
+      <span className="av" aria-hidden="true" style={sized(size)}>
+        <img
+          src={clerkImageUrl(imageUrl, (size ?? 64) * 2)}
+          alt=""
+          onError={() => setFailed(imageUrl)}
+        />
+      </span>
+    );
   return (
-    <Face
-      size={size}
-      picture={imageUrl ?? undefined}
-      letters={initials(name, undefined)}
+    <span
+      className="av"
+      aria-hidden="true"
+      style={sized(size)}
+      dangerouslySetInnerHTML={{ __html: svg }}
     />
   );
 }
 
-function Face({
-  size,
-  picture,
-  letters,
-}: {
-  size: number;
-  picture: string | undefined;
-  letters: string;
-}) {
-  const [failed, setFailed] = useState<string>();
+export function OrgAvatar({ id, size }: { id: string; size?: number }) {
+  const key = useId();
+  const svg = useMemo(() => orgSvg(id, key), [id, key]);
   return (
     <span
-      className="avatar"
+      className="orgm"
       aria-hidden="true"
-      style={size === 26 ? undefined : { width: size, height: size }}
-    >
-      {picture && picture !== failed ? (
-        <img
-          src={clerkImageUrl(picture, size * 2)}
-          alt=""
-          width={size}
-          height={size}
-          onError={() => setFailed(picture)}
-        />
-      ) : (
-        letters
-      )}
-    </span>
+      style={sized(size)}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
   );
 }

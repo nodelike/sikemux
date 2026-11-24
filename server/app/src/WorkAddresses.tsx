@@ -8,7 +8,7 @@ import { useClient } from "./Billing.tsx";
 import { GoogleMark } from "./icons.tsx";
 import { WORK_ADDRESS } from "./navigation.ts";
 import { OfferRow } from "./OrgPages.tsx";
-import { ItemRow, Rows, Section, useAction, useNotice } from "./ui.tsx";
+import { ItemRow, Rows, Section, useAction, useNotice } from "./old.tsx";
 
 /** Addresses the person proved through Google are theirs at a domain an org verified, so they can join it. */
 export function WorkAddressesSection() {

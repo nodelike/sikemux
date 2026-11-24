@@ -18,7 +18,7 @@ import {
 } from "./Billing.tsx";
 import { money, priceOf, productOf, SHED_WORDS, times } from "./money.ts";
 import { BILLING } from "./navigation.ts";
-import { PriceRow, ItemRow, Rows, Section } from "./ui.tsx";
+import { PriceRow, ItemRow, Rows, Section } from "./old.tsx";
 
 type Loaded = {
   catalog: BillingCatalog;

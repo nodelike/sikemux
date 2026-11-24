@@ -1,84 +1,27 @@
-import {
-  HandleSSOCallback,
-  useAuth,
-  useClerk,
-  useSignIn,
-  useUser,
-} from "@clerk/react";
-import {
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-  type MouseEvent,
-} from "react";
+import { HandleSSOCallback, useAuth, useClerk, useSignIn } from "@clerk/react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import {
-  IconActivity,
-  IconCreditCard,
-  IconGlobe,
-  IconStack,
-  IconPlug,
-  IconServer,
-  IconShield,
-  IconTag,
-  IconUser,
-  IconUsers,
-} from "@shared/ui/Icons";
-
-import { AccountPage } from "./AccountPage.tsx";
-import { Backdrop } from "./Backdrop.tsx";
-import { ConnectorsPage } from "./Connectors.tsx";
-import { BillingPage, useBillingShown } from "./Billing.tsx";
+import { Account } from "./Account.tsx";
 import { Consent, Panel } from "./Consent.tsx";
-import {
-  AccountDeleted,
-  DeleteAccount,
-  DeleteAccountIntro,
-} from "./DeleteAccount.tsx";
-import { Devices, useDevices } from "./Devices.tsx";
+import { AccountDeleted, DeleteAccountIntro } from "./DeleteAccount.tsx";
 import { FoldWaiting, useFoldGate } from "./Fold.tsx";
+import { Field } from "./Field.tsx";
 import { HostApproval } from "./HostApproval.tsx";
-import { useLive } from "./live.ts";
-import { PricingPage } from "./Pricing.tsx";
-import { ShedNotHost } from "./Shed.tsx";
 import { Pay } from "./Pay.tsx";
-import {
-  AuditPage,
-  PolicyPage,
-  DomainsPage,
-  OfferBanner,
-  TeamsPage,
-  useOffers,
-} from "./OrgPages.tsx";
 import { SIGNED_IN, SignedIn } from "./SignedIn.tsx";
-import { JoinPage, TeamPage } from "./Team.tsx";
-import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
   appReturn,
-  AUDIT,
-  POLICY,
-  BILLING,
-  CONNECTORS,
   CONSENT,
   DELETE_ACCOUNT,
-  DOMAINS,
   HOST,
-  HOSTS,
   isPagePath,
   isSharePath,
-  JOIN,
   PAY,
-  PRICING,
   takeReturn,
-  TEAM,
-  TEAMS,
   usePath,
 } from "./navigation.ts";
 import { SignIn } from "./SignIn.tsx";
-import { Shell, type NavGroup } from "./Shell.tsx";
-import { useSignIns } from "./SignIns.tsx";
-import { PageHead } from "./ui.tsx";
+import { Toasts } from "./ui.tsx";
 import "./app.css";
 
 /** The deleted page's address, carrying when the account is deleted for good so it survives signing out. */
@@ -164,9 +107,8 @@ export function App() {
   }, [appReturning, isLoaded]);
 
   return (
-    <>
-      {path === SIGNED_IN ? null : <Backdrop />}
-      <div className="page">
+    <Field>
+      <Toasts>
         {appReturning ? (
           <main className="center">
             <Panel>
@@ -218,209 +160,8 @@ export function App() {
             </footer>
           </main>
         )}
-      </div>
-    </>
-  );
-}
-
-const PAGE_TITLES: Record<string, string> = {
-  [CONNECTORS]: "Connectors",
-  [HOSTS]: "Hosts",
-  [BILLING]: "Plan and billing",
-  [TEAM]: "Team",
-  [TEAMS]: "Teams",
-  [DOMAINS]: "Domains",
-  [AUDIT]: "Audit log",
-  [POLICY]: "Policy",
-  [JOIN]: "Join an org",
-  [PRICING]: "Pricing",
-  [DELETE_ACCOUNT]: "Delete your account",
-};
-
-function Account({
-  ready,
-  path,
-  follow,
-  go,
-  onDeleted,
-}: {
-  ready: boolean;
-  path: string;
-  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
-  go: (to: string) => void;
-  onDeleted: (deletesAt?: string) => void;
-}) {
-  const { user } = useUser();
-  const { isSignedIn } = useAuth();
-  const email = user?.primaryEmailAddress?.emailAddress;
-  const { account, staff, team, restored } = useAccountState(ready);
-  const active = account.state === "active";
-  const devices = useDevices(ready && active);
-  const signIns = useSignIns(ready && active);
-  const hostCount =
-    devices.load.state === "loaded"
-      ? devices.load.devices.filter((device) => device.role === "host").length
-      : undefined;
-  const billingShown = useBillingShown(ready && active);
-  const [planVersion, setPlanVersion] = useState(0);
-  const teamShown = team !== "shut";
-  const offers = useOffers(team === "sold" || team === "preview");
-  const shown: Record<string, boolean> = {
-    [BILLING]: billingShown,
-    [TEAM]: teamShown,
-    [TEAMS]: teamShown,
-    [DOMAINS]: teamShown,
-    [AUDIT]: teamShown,
-    [POLICY]: teamShown,
-    [PRICING]: staff,
-  };
-  const page = path in PAGE_TITLES && shown[path] !== false ? path : "/";
-
-  useEffect(() => {
-    document.title = `${PAGE_TITLES[page] ?? "Account"} · Sikemux`;
-  }, [page]);
-
-  useLive(ready && isSignedIn === true && active, {
-    onEvents: (events) => {
-      devices.apply(events);
-      signIns.apply(events);
-      if (events.some((event) => event.type === "plan.changed"))
-        setPlanVersion((version) => version + 1);
-    },
-    onResync: () => {
-      devices.reload();
-      signIns.reload();
-      setPlanVersion((version) => version + 1);
-    },
-    onAccountDeleted: () => onDeleted(),
-  });
-
-  const groups: NavGroup[] = [
-    {
-      items: [
-        { path: "/", name: "Account", icon: <IconUser size={15} /> },
-        {
-          path: CONNECTORS,
-          name: "Connectors",
-          icon: <IconPlug size={15} />,
-        },
-        {
-          path: HOSTS,
-          name: "Hosts",
-          icon: <IconServer size={15} />,
-          count: hostCount ? String(hostCount) : undefined,
-        },
-      ],
-    },
-    ...(billingShown
-      ? [
-          {
-            label: "Billing",
-            items: [
-              {
-                path: BILLING,
-                name: "Plan and billing",
-                icon: <IconCreditCard size={15} />,
-              },
-            ],
-          },
-        ]
-      : []),
-    ...(teamShown
-      ? [
-          {
-            label: "Org",
-            items: [
-              { path: TEAM, name: "Team", icon: <IconUsers size={15} /> },
-              { path: TEAMS, name: "Teams", icon: <IconStack size={15} /> },
-              {
-                path: DOMAINS,
-                name: "Domains",
-                icon: <IconGlobe size={15} />,
-              },
-              {
-                path: AUDIT,
-                name: "Audit log",
-                icon: <IconActivity size={15} />,
-              },
-              {
-                path: POLICY,
-                name: "Policy",
-                icon: <IconShield size={15} />,
-              },
-            ],
-          },
-        ]
-      : []),
-    ...(staff
-      ? [
-          {
-            label: "Staff",
-            items: [
-              {
-                path: PRICING,
-                name: "Pricing",
-                icon: <IconTag size={15} />,
-              },
-            ],
-          },
-        ]
-      : []),
-  ];
-
-  return (
-    <Shell
-      path={page === DELETE_ACCOUNT ? "/" : page === JOIN ? TEAM : page}
-      follow={follow}
-      groups={groups}
-      wide={page === PRICING}
-    >
-      {page !== TEAM && page !== JOIN && account.state === "active" ? (
-        <OfferBanner offers={offers.offers} onOpen={() => go(TEAM)} />
-      ) : null}
-      {account.state === "deleting" ? (
-        <RestoreAccount deletesAt={account.deletesAt} onRestored={restored} />
-      ) : page === DELETE_ACCOUNT ? (
-        <DeleteAccount
-          email={email}
-          restorableDays={
-            account.state === "active" ? account.restorableDays : undefined
-          }
-          load={devices.load}
-          onBack={() => go("/")}
-          onDeleted={onDeleted}
-        />
-      ) : page === JOIN ? (
-        <JoinPage follow={follow} />
-      ) : page === TEAM ? (
-        <TeamPage team={team} follow={follow} />
-      ) : page === TEAMS ? (
-        <TeamsPage />
-      ) : page === DOMAINS ? (
-        <DomainsPage />
-      ) : page === AUDIT ? (
-        <AuditPage />
-      ) : page === POLICY ? (
-        <PolicyPage />
-      ) : page === PRICING ? (
-        <PricingPage />
-      ) : page === BILLING ? (
-        <BillingPage version={planVersion} staff={staff} team={team} />
-      ) : page === HOSTS ? (
-        <>
-          <PageHead title="Hosts">
-            Every host you own, linked on one account. No plan caps how many. A
-            client connects to a host only after someone at the host allows it.
-          </PageHead>
-          <Devices load={devices.load} remove={devices.remove} />
-          {staff ? <ShedNotHost follow={follow} /> : null}
-        </>
-      ) : page === CONNECTORS ? (
-        <ConnectorsPage signIns={signIns.load} />
-      ) : (
-        <AccountPage onDelete={follow(DELETE_ACCOUNT)} />
-      )}
-    </Shell>
+      </Toasts>
+    </Field>
   );
 }
 

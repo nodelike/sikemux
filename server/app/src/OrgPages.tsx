@@ -43,7 +43,7 @@ import {
   Switch,
   useAction,
   useNotice,
-} from "./ui.tsx";
+} from "./old.tsx";
 
 const CHOSEN_KEY = "sikemux.org";
 
@@ -501,7 +501,7 @@ function TeamMemberPick({
   const inTeam = team.members.includes(member.id);
   return (
     <li>
-      <PersonAvatar name={member.name} imageUrl={member.imageUrl} size={20} />
+      <PersonAvatar id={member.id} imageUrl={member.imageUrl} size={20} />
       <span className="grow">
         {name}
         {member.you ? <span className="chip">You</span> : null}

@@ -6,7 +6,7 @@ import { formatAgo } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
 import { IconKey } from "@shared/ui/Icons";
 import { PluginMark } from "./PluginMark.tsx";
-import { ItemRow, Rows, Section } from "./ui.tsx";
+import { ItemRow, Rows, Section } from "./old.tsx";
 
 const SERVICE_NAMES: Record<string, string> = {
   "sikemux.github": "GitHub",

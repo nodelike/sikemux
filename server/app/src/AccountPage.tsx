@@ -5,7 +5,7 @@ import type { MouseEvent } from "react";
 import { Avatar } from "./Avatar.tsx";
 import { DELETE_ACCOUNT } from "./navigation.ts";
 import { PROVIDERS, SignInWaysSection } from "./SignInWays.tsx";
-import { ItemRow, PageHead, Row, Rows, Section } from "./ui.tsx";
+import { ItemRow, PageHead, Row, Rows, Section } from "./old.tsx";
 import { WorkAddressesSection } from "./WorkAddresses.tsx";
 
 /** The ways the signed-in account can sign in, as the person knows them. */

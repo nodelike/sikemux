@@ -59,7 +59,7 @@ import {
   Segmented,
   useAction,
   useNotice,
-} from "./ui.tsx";
+} from "./old.tsx";
 import { BringSeat } from "./Fold.tsx";
 
 /** Whether someone with `actor`'s role may change, remove or invite someone with `role`, as the API decides it. */
@@ -410,7 +410,7 @@ function MemberRow({
   return (
     <ItemRow
       glyph={
-        <PersonAvatar name={member.name} imageUrl={member.imageUrl} size={22} />
+        <PersonAvatar id={member.id} imageUrl={member.imageUrl} size={22} />
       }
       name={
         <>
