@@ -3,13 +3,13 @@
 //! and nothing waits for one: a brief carries what the last test found.
 
 use crate::server::parts::Parts;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_view::memory::{CheckOutcome, LastCheck, MemoryCheck, Stale};
+use sikemux_view::memory::{CheckOutcome, Knowledge, LastCheck, MemoryCheck, Stale, Store};
 
 use super::{tell_clients, Core};
 use crate::server::wake::sooner;
@@ -50,6 +50,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 let Some(check) = &known.check else {
                     continue;
                 };
+                if held.store == Store::Org && !org_may_ask(check) {
+                    continue;
+                }
                 if state.checking.contains(&known.id) {
                     continue;
                 }
@@ -90,6 +93,22 @@ pub(crate) fn settle(core: &Arc<Core>) {
     if let Some(next) = next {
         core.memory().wake.at(next);
     }
+}
+
+/// Whether a test an org's member may have written runs here. Who wrote an entry is the member's
+/// own word, so it only looks inside the project.
+pub(super) fn org_may_ask(check: &MemoryCheck) -> bool {
+    match check {
+        MemoryCheck::PathExists { path } => Path::new(path)
+            .components()
+            .all(|part| matches!(part, Component::Normal(_) | Component::CurDir)),
+        MemoryCheck::HostAnswers { .. } => false,
+    }
+}
+
+/// Leaves behind a test its org could not have run here, as the entry leaves the org's store.
+pub(super) fn leaves_org(known: &mut Knowledge) {
+    known.check = known.check.take().filter(org_may_ask);
 }
 
 async fn run(folder: &Path, check: &MemoryCheck) -> LastCheck {

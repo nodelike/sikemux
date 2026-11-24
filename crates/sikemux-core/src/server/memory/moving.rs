@@ -215,7 +215,11 @@ fn take(held: &mut Held, id: u64) -> Option<Moving> {
         return Some(Moving::Rule(Box::new(held.rules.remove(at))));
     }
     let at = held.knowledge.iter().position(|known| known.id == id)?;
-    Some(Moving::Knowledge(Box::new(held.knowledge.remove(at))))
+    let mut known = held.knowledge.remove(at);
+    if held.store == Store::Org {
+        super::check::leaves_org(&mut known);
+    }
+    Some(Moving::Knowledge(Box::new(known)))
 }
 
 pub(super) fn rekeyed(held: &mut Held, old: &str, new: &str) -> bool {

@@ -478,7 +478,8 @@ fn forget_org(core: &Core, state: &mut State, key: &str, kept_for: Option<KeptFo
                 own.rules.push(rule);
             }
         }
-        for known in org.knowledge.into_iter().filter(|known| theirs(known.id)) {
+        for mut known in org.knowledge.into_iter().filter(|known| theirs(known.id)) {
+            super::check::leaves_org(&mut known);
             if !(own.knowledge.iter()).any(|kept| kept.text.eq_ignore_ascii_case(&known.text)) {
                 own.knowledge.push(known);
             }
@@ -745,6 +746,7 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
     for mut known in added_knowledge {
         let to = home(&state, &known.moved);
         known.moved = None;
+        super::check::leaves_org(&mut known);
         let held = holding_or_personal(&mut state, &to, Store::Project);
         held.refused.insert(known.id, why.to_owned());
         held.knowledge.push(known);
@@ -765,6 +767,7 @@ fn give_back(core: &Core, shared: &Shared, why: &str) {
         for mut known in reworded_knowledge {
             known.id = state.next_id(&to);
             known.moved = None;
+            super::check::leaves_org(&mut known);
             let held = holding_or_personal(&mut state, &to, Store::Project);
             held.refused.insert(known.id, kept_as_it_was.clone());
             held.knowledge.push(known);
