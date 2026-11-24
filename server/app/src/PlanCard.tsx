@@ -28,7 +28,11 @@ export function PlanCard({
   children?: ReactNode;
 }) {
   return (
-    <div className="plan-card" data-chosen={chosen || undefined}>
+    <section
+      className="card plan-card"
+      data-calm=""
+      data-chosen={chosen || undefined}
+    >
       <h3>
         {name}
         {aside ? <span className="aside">{aside}</span> : null}
@@ -50,6 +54,6 @@ export function PlanCard({
         ))}
       </ul>
       {children ? <div className="plan-card-foot">{children}</div> : null}
-    </div>
+    </section>
   );
 }

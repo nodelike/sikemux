@@ -1879,3 +1879,126 @@ canvas.dots {
 .ct .box {
   width: 100%;
 }
+.soft {
+  color: var(--two);
+  font-size: var(--t2);
+}
+.amount {
+  color: var(--lit);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.btn.icon-only {
+  padding: 0 7px;
+}
+.step-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--r);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.stepper button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: var(--two);
+}
+.stepper button:hover:not(:disabled) {
+  color: var(--lit);
+}
+.stepper button:disabled {
+  color: var(--meta);
+  cursor: default;
+}
+.stepper input {
+  width: 38px;
+  height: 28px;
+  border: 0;
+  background: none;
+  color: var(--lit);
+  font: inherit;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.save {
+  margin-left: 6px;
+  color: var(--ok-ink);
+  font-style: normal;
+  font-size: var(--t3);
+}
+.staff-only {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.staff-only > svg {
+  flex: none;
+  position: relative;
+  top: 1px;
+}
+.plan-card {
+  grid-column: auto;
+}
+.plan-card[data-chosen] {
+  box-shadow: inset 0 0 0 1px var(--acc-ring);
+}
+.plan-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--lit);
+  font-weight: 600;
+}
+.plan-card .aside,
+.plan-card .tag,
+.plan-card .plus {
+  color: var(--two);
+  font-size: var(--t2);
+  font-weight: 500;
+}
+.plan-card .price {
+  color: var(--lit);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+}
+.plan-card .price small {
+  color: var(--two);
+  font-size: var(--t);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.plan-card .features {
+  display: grid;
+  gap: 6px;
+  color: var(--two);
+  font-size: var(--t2);
+}
+.plan-card .features li {
+  display: flex;
+  gap: 8px;
+}
+.plan-card .features svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--ok);
+}
+.plan-card-foot {
+  margin-top: auto;
+  padding-top: 6px;
+}
+.row > span:first-child:empty {
+  display: none;
+}
+.row:has(> span:first-child:empty) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}

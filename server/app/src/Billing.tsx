@@ -18,10 +18,15 @@ import type {
 } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
 import {
-  IconCircleAlert,
+  IconCheck,
+  IconClock,
   IconCreditCard,
   IconDownload,
-  IconInfo,
+  IconLaptop,
+  IconMail,
+  IconRefresh,
+  IconScrollText,
+  IconSwap,
   IconUndo,
   IconUser,
   IconUsers,
@@ -36,10 +41,11 @@ import {
 
 import { ApiProblem } from "@shared/account/api";
 import { api, problemText, signedInToken } from "./api.ts";
+import { OrgAvatar } from "./Avatar.tsx";
+import { orgSvg } from "./avatarSvg.ts";
 import { BilledSwitch } from "./BilledSwitch.tsx";
-import { PlanCard } from "./PlanCard.tsx";
-import { TEAM } from "./navigation.ts";
-import { ShedBoxes } from "./Shed.tsx";
+import { useCheer } from "./Field.tsx";
+import { brandMark } from "./marks.ts";
 import {
   FEATURE_WORDS,
   featuresAdded,
@@ -52,18 +58,29 @@ import {
   times,
   UNIT_WORD,
 } from "./money.ts";
+import { orgPath, START } from "./navigation.ts";
+import { frozen } from "./orgs.ts";
+import { orgScene } from "./scenes.ts";
+import { ShedBoxes } from "./Shed.tsx";
 import {
+  Btn,
+  btnClass,
+  Card,
+  Chip,
+  Column,
   Confirm,
-  ItemRow,
-  PageHead,
-  PriceRow,
+  Empty,
+  Field,
+  Page,
+  Problem,
   Row,
   Rows,
-  Section,
-  Segmented,
+  Seg,
+  Tile,
+  Txt,
   useAction,
-  useNotice,
-} from "./old.tsx";
+  useToast,
+} from "./ui.tsx";
 
 export const FREE_DURING_PREVIEW = "Free during preview";
 export const NOT_OPEN = "Buying is not open yet";
@@ -119,28 +136,8 @@ export function useBillingShown(
   return shown;
 }
 
-/** The org's own plan and bill, for its owners. */
-export function OrgBillingPage({
-  org,
-}: {
-  org: Org;
-  version: number;
-  team: TeamAccess;
-}) {
-  return <p>{org.name}</p>;
-}
-
-export function BillingPage({
-  version,
-  staff,
-  team,
-}: {
-  version: number;
-  staff: boolean;
-  team: TeamAccess;
-  orgs: Org[];
-  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
-}) {
+/** What one payer, the person or an org, is billed. Read again whenever `version` moves. */
+function useBill(version: number, orgId?: string) {
   const client = useClient();
   const [orgs, setOrgs] = useState<Org[]>();
   const [chosen, setChosen] = useState<string>();
@@ -154,21 +151,7 @@ export function BillingPage({
 
   useEffect(() => {
     let current = true;
-    void client("see your plan")
-      .then((routes) => routes.listOrgs())
-      .then(
-        ({ orgs }) => current && setOrgs(orgs),
-        () => current && setOrgs([]),
-      );
-    return () => {
-      current = false;
-    };
-  }, [version, client]);
-
-  useEffect(() => {
-    if (!payer) return;
-    let current = true;
-    const query = payer === ME ? {} : { org: payer };
+    const query = orgId ? { org: orgId } : {};
     void (async () => {
       try {
         const routes = await client("see your plan");
@@ -192,222 +175,629 @@ export function BillingPage({
     return () => {
       current = false;
     };
-  }, [payer, version, tick, client]);
-
-  const switcher =
-    owned.length > 0 ? (
-      <div className="payer">
-        <Segmented
-          label="Whose bill"
-          value={payer ?? ME}
-          onChange={(value) => {
-            setLoad({ state: "loading" });
-            setChosen(value);
-          }}
-          options={[
-            { value: ME, name: "You" },
-            ...owned.map((each) => ({ value: each.id, name: each.name })),
-          ]}
-        />
-      </div>
-    ) : null;
-
-  if (load.state !== "loaded")
-    return (
-      <>
-        <PageHead title="Plan and billing" />
-        {switcher}
-        {load.state === "failed" ? (
-          <p className="problem" role="alert">
-            {load.problem}
-          </p>
-        ) : (
-          <div className="groups">
-            <Section label="Plan">
-              <Rows busy />
-            </Section>
-          </div>
-        )}
-      </>
-    );
-
-  return (
-    <>
-      <Bill
-        {...load}
-        org={org}
-        orgs={orgs ?? []}
-        switcher={switcher}
-        staff={staff}
-        team={team}
-        reload={reload}
-        show={show}
-      />
-      {notice}
-    </>
-  );
+  }, [orgId, version, tick, client]);
+  const reload = useCallback(() => setTick((n) => n + 1), []);
+  return { load, reload };
 }
 
 export type Show = (text: string, undo?: () => Promise<void>) => void;
 
-function Bill({
-  catalog,
-  overview,
-  invoices,
-  readAt,
-  org,
-  orgs,
-  switcher,
+function useShow(): Show {
+  const say = useToast();
+  const cheer = useCheer();
+  return useCallback(
+    (text, undo) => {
+      say(text, undo);
+      cheer();
+    },
+    [say, cheer],
+  );
+}
+
+type Ask = "seats" | "cancel" | { interval: BillingInterval };
+
+type Wear = Pick<Parameters<typeof Page>[0], "mark" | "scene">;
+
+function NotLoaded({
+  load,
+  reload,
+  wear,
+}: {
+  load: Exclude<Load, { state: "loaded" }>;
+  reload: () => void;
+  wear: Wear;
+}) {
+  if (load.state === "loading")
+    return (
+      <Page {...wear} title="Plan and billing">
+        <Card label="Plan" w={7} busy />
+        <Column w={5} side>
+          <Card label="Card" busy />
+        </Column>
+      </Page>
+    );
+
+  return (
+    <Page
+      {...wear}
+      tone="failed"
+      title="The plan didn't load"
+      lede="Nothing about it has changed."
+      actions={<Btn onClick={reload}>Try again</Btn>}
+    >
+      <div className="full-err">
+        <Problem>{load.problem}</Problem>
+      </div>
+    </Page>
+  );
+}
+
+const TestMode = ({ live }: { live: boolean }) =>
+  live ? null : <Chip tone="warn">TEST MODE</Chip>;
+
+const openSubs = (overview: BillingOverview) =>
+  overview.subscriptions.filter((sub) => sub.status !== "ended");
+
+function usePlanSub({ catalog, overview }: Loaded) {
+  return openSubs(overview).find(
+    (sub) => productOf(catalog, sub.product)?.kind === "plan",
+  );
+}
+
+const canPay = (overview: BillingOverview) =>
+  overview.payer !== "another_owner" && overview.payer !== "departed";
+
+/** The person's own plan and bill. */
+export function BillingPage({
+  version,
   staff,
   team,
-  reload,
-  show,
-}: Loaded & {
-  org?: Org;
-  orgs: Org[];
-  switcher: ReactNode;
+  orgs,
+  follow,
+}: {
+  version: number;
   staff: boolean;
   team: TeamAccess;
+  orgs: Org[];
+  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  const { load, reload } = useBill(version);
+  const wear: Wear = { mark: brandMark, scene: "plan" };
+  if (load.state !== "loaded")
+    return <NotLoaded load={load} reload={reload} wear={wear} />;
+  return (
+    <PersonBill
+      loaded={load}
+      wear={wear}
+      staff={staff}
+      team={team}
+      orgs={orgs}
+      follow={follow}
+      reload={reload}
+    />
+  );
+}
+
+function PersonBill({
+  loaded,
+  wear,
+  staff,
+  team,
+  orgs,
+  follow,
+  reload,
+}: {
+  loaded: Loaded;
+  wear: Wear;
+  staff: boolean;
+  team: TeamAccess;
+  orgs: Org[];
+  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
   reload: () => void;
   show: Show;
 }) {
+  const { catalog, overview, invoices, readAt } = loaded;
   const { allowance, live, canBuy } = overview;
+  const show = useShow();
+  const checkout = useCheckout();
+  const portal = usePortal({});
   const [interval, setInterval] = useState<BillingInterval>("month");
-  const open = overview.subscriptions.filter((sub) => sub.status !== "ended");
-  const kindOf = (sub: Subscription) => productOf(catalog, sub.product)?.kind;
-  const planSub = open.find((sub) => kindOf(sub) === "plan");
-  const shedSubs = open.filter((sub) => kindOf(sub) === "shed");
+  const [ask, setAsk] = useState<Ask>();
+  const open = openSubs(overview);
+  const planSub = usePlanSub(loaded);
+  const shedSubs = open.filter(
+    (sub) => productOf(catalog, sub.product)?.kind === "shed",
+  );
+  const pays = canPay(overview);
   const planName =
     catalog.plans.find((plan) => plan.id === allowance.plan)?.name ??
     allowance.plan;
+  const free = allowance.plan === "free";
   const seatIn = orgs
     .filter((each) => allowance.seatOrgs?.includes(each.id))
     .map((each) => each.name);
-  const free = !org && allowance.plan === "free";
-  const query = org ? { org: org.id } : {};
-  const pays =
-    overview.payer !== "another_owner" && overview.payer !== "departed";
-  const ends = planSub ? formatDay(planSub.currentPeriodEnd, "long") : "";
+  const seat = seatIn.length > 0;
+  const seatOrgs = allowance.seatOrgs?.length ?? 0;
   const giftEnds =
-    !org && !planSub && allowance.giftEnds
+    !planSub && allowance.giftEnds
       ? formatDay(allowance.giftEnds, "long")
-      : "";
-
-  const lede = org
-    ? planSub
-      ? overview.payer === "another_owner"
-        ? `${org.name} is on ${planName}. Another owner pays for it, so only they can change it.`
-        : overview.payer === "departed"
-          ? `${org.name} is on ${planName} until ${ends}. Whoever paid for it no longer owns the org, so it ends then and can be bought again once it has.`
-          : `${org.name} is on ${planName}. You own the bill.`
-      : org.preview
-        ? `${org.name} is in the Team preview. It is free, for up to ${org.seats.limit} people.`
-        : `${org.name} has no Team plan, so nobody can be invited to it.`
-    : free
-      ? "You're on Free. It has no cap on hosts and never runs out."
-      : !planSub && seatIn.length > 0
-        ? `You have ${planName} through a seat in ${seatIn.join(", ")}.`
-        : giftEnds
-          ? `${planName} is yours free until ${giftEnds}. After that you're on Free, and nothing you have is deleted.`
-          : `You're on ${planName}.`;
-
+      : undefined;
   const pro = productOf(catalog, "pro");
-  const boxes = catalog.products.filter((product) => product.kind === "shed");
-  const buyingBoxes = staff && !org && boxes.length > 0;
-  const priced = free || buyingBoxes;
+  const proPrice =
+    (pro ? priceText(pro, interval) : undefined) ??
+    (pro ? priceText(pro, "month") : undefined);
+  const subProduct = planSub ? productOf(catalog, planSub.product) : undefined;
+  const subPrice =
+    planSub && subProduct ? priceText(subProduct, planSub.interval) : undefined;
+  const ends = planSub ? formatDay(planSub.currentPeriodEnd, "long") : "";
+  const lapsed = planSub?.status === "lapsed";
+  const yearly = priceOf(subProduct, "year");
+  const goesYearly =
+    planSub?.status === "active" &&
+    planSub.interval === "month" &&
+    yearly &&
+    mayChange(planSub, pays, canBuy);
+
+  const lede = lapsed
+    ? `Its last payment failed, so ${subProduct?.name ?? planName}'s features are off until it's paid. Your hosts keep working.`
+    : seat
+      ? `Your ${seatIn.length > 1 ? "seats there give" : "seat there gives"} you Pro on your own hosts${planSub?.seatPause && subPrice ? `, so your own ${subPrice} plan is paused` : ""}.`
+      : free
+        ? "Every agent, on every host, for nothing."
+        : giftEnds
+          ? `Yours free until ${giftEnds}. After that you're on Free, and nothing you have is deleted.`
+          : planSub
+            ? `${subPrice ? `${subPrice}. ` : ""}${planSub.refundRequestedAt ? "It ends when its refund is paid." : planSub.seatPause ? pausedLine(planSub.seatPause) : planSub.cancelAtPeriodEnd ? `Ends on ${ends}.` : `Renews on ${ends}.`}`
+            : undefined;
 
   return (
-    <>
-      <PageHead
-        title="Plan and billing"
-        tag={live ? null : <span className="testmode">TEST MODE</span>}
-        aside={
-          priced ? (
+    <Page
+      {...wear}
+      tone={lapsed ? "failed" : undefined}
+      title={
+        lapsed
+          ? "The card was declined"
+          : seat
+            ? `${planName}, through ${seatIn.join(" and ")}`
+            : planName
+      }
+      tag={<TestMode live={live} />}
+      lede={lede}
+      actions={
+        lapsed && pays ? (
+          <Btn busy={portal.busy} onClick={() => void portal.open()}>
+            Change the card
+          </Btn>
+        ) : free && !planSub && pro ? (
+          <>
+            <Btn
+              disabled={!canBuy}
+              busy={checkout.busy}
+              onClick={() =>
+                void checkout.go((routes) =>
+                  routes.startCheckout({
+                    product: "pro",
+                    interval,
+                    quantity: 1,
+                  }),
+                )
+              }
+            >
+              {canBuy
+                ? `Go Pro${proPrice ? ` for ${proPrice}` : ""}`
+                : NOT_OPEN}
+            </Btn>
             <BilledSwitch
               interval={interval}
               onChange={setInterval}
-              saving={free ? pro : boxes[0]}
+              saving={pro}
             />
-          ) : null
-        }
-      >
-        {lede}
-      </PageHead>
-      {switcher}
-      <div className="groups">
-        {planSub?.status === "lapsed" ? (
-          <Lapsed sub={planSub} catalog={catalog} query={query} pays={pays} />
-        ) : null}
-        <Section label="Plan">
-          <Rows>
-            {planSub ? (
+          </>
+        ) : goesYearly ? (
+          <Btn quiet onClick={() => setAsk({ interval: "year" })}>
+            Pay yearly, {money(yearly, { cents: false })}
+          </Btn>
+        ) : null
+      }
+    >
+      {checkout.problem || portal.problem ? (
+        <div className="full-err">
+          <Problem>{checkout.problem ?? portal.problem}</Problem>
+        </div>
+      ) : null}
+      <Column w={7}>
+        {planSub ? (
+          <Card label="Plan">
+            <Rows>
               <PlanRows
                 sub={planSub}
                 catalog={catalog}
                 canBuy={canBuy}
                 pays={pays}
+                ask={ask}
+                onAsk={setAsk}
                 reload={reload}
                 show={show}
               />
-            ) : (
-              <PriceRow
-                glyph={org ? <IconUsers size={16} /> : <IconUser size={16} />}
-                name={
-                  org ? (org.preview ? "Team preview" : "No plan") : planName
-                }
-                detail={
-                  org?.preview
-                    ? "Free during preview"
-                    : free
-                      ? "The whole app, on every host you own"
-                      : seatIn.length > 0 && !org
-                        ? `Through a seat in ${seatIn.join(", ")}`
-                        : giftEnds
-                          ? `Free until ${giftEnds}`
-                          : undefined
-                }
-                price={free ? "$0" : undefined}
-                per={free ? PER.month : undefined}
-                end={org ? null : <span className="quiet">Your plan</span>}
-              />
-            )}
-          </Rows>
-        </Section>
-        {free ? (
-          <Upgrade
-            catalog={catalog}
-            canBuy={canBuy}
-            interval={interval}
-            access={team}
-          />
-        ) : org && !planSub && !org.preview ? (
-          <StartTeam catalog={catalog} canBuy={canBuy} org={org} />
+            </Rows>
+          </Card>
         ) : null}
+        <Card
+          label={
+            lapsed ? "What Pro has" : free ? "What Pro adds" : "What you have"
+          }
+        >
+          <Features features={featuresAdded(catalog, "pro").added} />
+        </Card>
+        <OrgBills team={team} orgs={orgs} follow={follow} />
+        {seatOrgs > 0 ? null : (
+          <TeamOffer
+            catalog={catalog}
+            team={team}
+            orgs={orgs}
+            follow={follow}
+          />
+        )}
         <ShedBoxes
           catalog={catalog}
           bought={shedSubs}
-          buying={buyingBoxes}
-          interval={interval}
+          buying={staff}
           canBuy={canBuy}
           pays={pays}
           reload={reload}
           show={show}
         />
-        <NextCharge subs={open} catalog={catalog} card={overview.card} />
-        <Refunds
-          subs={open}
+      </Column>
+      <Column w={5} side>
+        <Money
+          overview={overview}
+          invoices={invoices}
           readAt={readAt}
           catalog={catalog}
+          pays={pays}
+          query={{}}
           reload={reload}
           show={show}
         />
-        {open.length === 0 && invoices.length === 0 ? (
-          <Section label="Billing">
+      </Column>
+    </Page>
+  );
+}
+
+function OrgBills({
+  team,
+  orgs,
+  follow,
+}: {
+  team: TeamAccess;
+  orgs: Org[];
+  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  const owned = orgs.filter((org) => org.role === "owner");
+  if (team === "shut" || owned.length === 0) return null;
+  return (
+    <Card label={owned.length === 1 ? "Your org's bill" : "Your orgs' bills"}>
+      <Rows>
+        {owned.map((org) => {
+          const to = orgPath(org.id, "billing");
+          return (
+            <Row
+              key={org.id}
+              lead={<OrgAvatar id={org.id} size={28} />}
+              name={org.name}
+              detail={
+                org.preview
+                  ? "Team preview"
+                  : frozen(org)
+                    ? "Team ended"
+                    : `Team, ${seatsWord(org.seats.limit)}`
+              }
+              hot={{
+                picture: { svg: orgSvg(org.id) },
+                scene: orgScene(org.id),
+              }}
+              end={
+                <a
+                  className={btnClass({ small: true, quiet: true })}
+                  href={to}
+                  onClick={follow(to)}
+                >
+                  Open
+                </a>
+              }
+            />
+          );
+        })}
+      </Rows>
+    </Card>
+  );
+}
+
+function TeamOffer({
+  catalog,
+  team,
+  orgs,
+  follow,
+}: {
+  catalog: BillingCatalog;
+  team: TeamAccess;
+  orgs: Org[];
+  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  const product = productOf(catalog, "team");
+  if (
+    !product ||
+    (team !== "sold" && team !== "preview") ||
+    orgs.some((org) => org.role === "owner")
+  )
+    return null;
+  const preview = team === "preview";
+  return (
+    <Card
+      label="Team"
+      aside={
+        <span className="soft">
+          {preview ? FREE_DURING_PREVIEW : priceText(product, "month")}
+        </span>
+      }
+      foot={
+        <a
+          className={btnClass({ small: true })}
+          href={START}
+          onClick={follow(START)}
+        >
+          Start an org
+        </a>
+      }
+    >
+      <Features
+        features={featuresAdded(catalog, "team").added.filter(
+          (feature) => !preview || inPreview(feature),
+        )}
+      />
+    </Card>
+  );
+}
+
+const FEATURE_ICONS: Partial<Record<PlanFeature, ReactNode>> = {
+  sync: <IconLaptop size={14} />,
+  move_work: <IconSwap size={14} />,
+  history_search: <IconScrollText size={14} />,
+  own_triggers: <IconClock size={14} />,
+};
+
+function Features({ features }: { features: PlanFeature[] }) {
+  return (
+    <Rows>
+      {features.map((feature) => {
+        const [name, detail] = FEATURE_WORDS[feature].split(": ");
+        return (
+          <Row
+            key={feature}
+            lead={
+              <Tile>{FEATURE_ICONS[feature] ?? <IconCheck size={14} />}</Tile>
+            }
+            name={name}
+            detail={
+              detail
+                ? `${detail.charAt(0).toUpperCase()}${detail.slice(1)}.`
+                : undefined
+            }
+          />
+        );
+      })}
+    </Rows>
+  );
+}
+
+/** The org's own plan and bill, for its owners. */
+export function OrgBillingPage({
+  org,
+  version,
+  team,
+}: {
+  org: Org;
+  version: number;
+  team: TeamAccess;
+}) {
+  const { load, reload } = useBill(version, org.id);
+  const wear: Wear = {
+    mark: { svg: orgSvg(org.id) },
+    scene: orgScene(org.id),
+  };
+  if (load.state !== "loaded")
+    return <NotLoaded load={load} reload={reload} wear={wear} />;
+  return (
+    <OrgBill loaded={load} wear={wear} org={org} team={team} reload={reload} />
+  );
+}
+
+function OrgBill({
+  loaded,
+  wear,
+  org,
+  team,
+  reload,
+}: {
+  loaded: Loaded;
+  wear: Wear;
+  org: Org;
+  team: TeamAccess;
+  reload: () => void;
+}) {
+  const { catalog, overview, invoices, readAt } = loaded;
+  const { live, canBuy } = overview;
+  const show = useShow();
+  const query = { org: org.id };
+  const checkout = useCheckout();
+  const portal = usePortal(query);
+  const [ask, setAsk] = useState<Ask>();
+  const planSub = usePlanSub(loaded);
+  const pays = canPay(overview);
+  const product = productOf(catalog, "team");
+  const unit = priceOf(product, "month");
+  const each = unit ? money(unit, { cents: false }) : undefined;
+  const ends = planSub ? formatDay(planSub.currentPeriodEnd, "long") : "";
+  const lapsed = planSub?.status === "lapsed";
+  const preview = org.preview && !planSub;
+  const ended = overview.subscriptions
+    .filter((sub) => sub.status === "ended" && sub.product === "team")
+    .sort((a, b) => b.currentPeriodEnd.localeCompare(a.currentPeriodEnd))[0];
+  const lastSeats = ended?.quantity ?? 1;
+  const least = Math.max(1, org.seats.held);
+  const [seats, setSeats] = useState(Math.max(least, lastSeats));
+  const sells = team === "sold" && !planSub && !preview;
+  const total = unit ? money(times(unit, seats), { cents: false }) : undefined;
+  const nextTotal =
+    planSub && unit
+      ? money(times(unit, (planSub.atRenewal ?? planSub).quantity), {
+          cents: false,
+        })
+      : undefined;
+
+  const title = preview
+    ? "Team preview"
+    : lapsed
+      ? "The card was declined"
+      : planSub
+        ? "Team"
+        : ended
+          ? "Team ended"
+          : "No Team plan";
+  const lede = preview
+    ? `Free for up to ${org.seats.limit} people while we finish Team.`
+    : lapsed
+      ? `Its last payment failed. Invites and org features are frozen until it's paid; everyone keeps their own hosts.${pays ? "" : " Only whoever pays for it can change the card."}`
+      : planSub
+        ? overview.payer === "another_owner"
+          ? `${seatsWord(planSub.quantity)}. Another owner pays for it, so only they can change it.`
+          : overview.payer === "departed"
+            ? `Whoever paid for it no longer owns the org, so it ends on ${ends} and can be bought again then.`
+            : `${seatsWord(planSub.quantity)}${each ? ` at ${each} each` : ""}. ${planSub.refundRequestedAt ? "It ends when its refund is paid." : planSub.cancelAtPeriodEnd ? `It ends on ${ends}.` : `The next charge is${nextTotal ? ` ${nextTotal}` : ""} on ${ends}.`}`
+        : ended
+          ? `Its Team plan ended on ${formatDay(ended.currentPeriodEnd, "long")}. Nothing is deleted.`
+          : "Nobody can be invited until it has one. Nothing is deleted.";
+
+  return (
+    <Page
+      {...wear}
+      tone={lapsed ? "failed" : !planSub && !preview ? "waiting" : undefined}
+      title={title}
+      tag={<TestMode live={live} />}
+      lede={lede}
+      actions={
+        lapsed ? (
+          pays ? (
+            <Btn busy={portal.busy} onClick={() => void portal.open()}>
+              Change the card
+            </Btn>
+          ) : null
+        ) : planSub ? (
+          mayChange(planSub, pays, canBuy) ? (
+            <Btn onClick={() => setAsk("seats")}>Change seats</Btn>
+          ) : null
+        ) : sells ? (
+          <Btn
+            disabled={!canBuy}
+            busy={checkout.busy}
+            onClick={() =>
+              void checkout.go((routes) =>
+                routes.startCheckout({
+                  product: "team",
+                  interval: "month",
+                  quantity: seats,
+                  orgId: org.id,
+                }),
+              )
+            }
+          >
+            {canBuy
+              ? `${ended ? "Renew" : "Start Team"}${total ? ` for ${total} a month` : ""}`
+              : NOT_OPEN}
+          </Btn>
+        ) : null
+      }
+    >
+      {checkout.problem || portal.problem ? (
+        <div className="full-err">
+          <Problem>{checkout.problem ?? portal.problem}</Problem>
+        </div>
+      ) : null}
+      <Column w={7}>
+        {frozen(org) ? null : <Seats org={org} />}
+        {planSub ? (
+          <Card label="Plan">
             <Rows>
-              <ItemRow
-                glyph={<IconCreditCard size={16} />}
-                name="No card or invoices yet"
-                detail="You add a card at your first checkout; each payment's invoice shows here."
+              <PlanRows
+                sub={planSub}
+                catalog={catalog}
+                canBuy={canBuy}
+                pays={pays}
+                held={org.seats.held}
+                ask={ask}
+                onAsk={setAsk}
+                reload={reload}
+                show={show}
+              />
+            </Rows>
+          </Card>
+        ) : preview ? (
+          <Card label="What happens next">
+            <Rows>
+              <Row
+                lead={
+                  <Tile>
+                    <IconMail size={14} />
+                  </Tile>
+                }
+                name="30 days' notice"
+                detail="We write to owners before it costs anything."
+              />
+              <Row
+                lead={
+                  <Tile>
+                    <IconCheck size={14} />
+                  </Tile>
+                }
+                name="Nothing is lost"
+                detail="People, domains and the log carry over."
+              />
+              {each ? (
+                <Row
+                  lead={
+                    <Tile>
+                      <IconCreditCard size={14} />
+                    </Tile>
+                  }
+                  name={`${each} a seat each month, after`}
+                  detail="You choose whether to keep it."
+                />
+              ) : null}
+            </Rows>
+          </Card>
+        ) : sells ? (
+          <Card label="Seats">
+            <Rows>
+              <Row
+                lead={
+                  <Tile>
+                    <IconUsers size={14} />
+                  </Tile>
+                }
+                name={seatsWord(seats)}
+                detail={
+                  org.seats.held > 0
+                    ? `${org.seats.held} held by people and links out`
+                    : undefined
+                }
+                end={
+                  <Stepper
+                    value={seats}
+                    min={least}
+                    max={product?.maxQuantity ?? 1000}
+                    onChange={setSeats}
+                  />
+                }
               />
               <li className="row note">
                 <span className="glyph">
@@ -420,15 +810,65 @@ function Bill({
                 </span>
               </li>
             </Rows>
-          </Section>
+          </Card>
+        ) : null}
+        <Card label="What Team has">
+          <Features
+            features={featuresAdded(catalog, "team").added.filter(
+              (feature) => !preview || inPreview(feature),
+            )}
+          />
+        </Card>
+      </Column>
+      <Column w={5} side>
+        {preview && invoices.length === 0 ? (
+          <Card label="Invoices">
+            <Empty>None while it's free.</Empty>
+          </Card>
         ) : (
-          <>
-            {pays ? <PaymentMethod card={overview.card} query={query} /> : null}
-            <Invoices invoices={invoices} catalog={catalog} />
-          </>
+          <Money
+            overview={overview}
+            invoices={invoices}
+            readAt={readAt}
+            catalog={catalog}
+            pays={pays}
+            query={query}
+            reload={reload}
+            show={show}
+          />
         )}
+      </Column>
+    </Page>
+  );
+}
+
+const DRAWN_SEATS = 60;
+
+function Seats({ org }: { org: Org }) {
+  const { held, limit } = org.seats;
+  const left = Math.max(0, limit - held);
+  return (
+    <Card label="Seats">
+      <div className="seatw">
+        <div>
+          <div className="big">
+            {held}
+            <small>of {limit}</small>
+          </div>
+          <p className="soft">
+            {left === 0 ? "None free" : `${left} free`}. People and links out
+            hold a seat.
+          </p>
+        </div>
+        {limit <= DRAWN_SEATS ? (
+          <div className="seats" aria-hidden="true">
+            {Array.from({ length: limit }, (_, index) => (
+              <span key={index} className={index < held ? "s h" : "s f"} />
+            ))}
+          </div>
+        ) : null}
       </div>
-    </>
+    </Card>
   );
 }
 
@@ -492,11 +932,25 @@ function intervalWord(interval: BillingInterval) {
   return interval === "month" ? "monthly" : "yearly";
 }
 
+/** Whether the payer can change it now: not while it is refunding, paused, or holding a change. */
+function mayChange(sub: Subscription, pays: boolean, canBuy: boolean) {
+  return (
+    pays &&
+    canBuy &&
+    !sub.refundRequestedAt &&
+    !sub.seatPause &&
+    !heldChange(sub)
+  );
+}
+
 function PlanRows({
   sub,
   catalog,
   canBuy,
   pays,
+  held: taken,
+  ask,
+  onAsk,
   reload,
   show,
 }: {
@@ -504,23 +958,34 @@ function PlanRows({
   catalog: BillingCatalog;
   canBuy: boolean;
   pays: boolean;
+  /** Seats people and links out hold already; fewer can't be paid for. */
+  held?: number;
+  ask?: Ask;
+  onAsk: (ask?: Ask) => void;
   reload: () => void;
   show: Show;
 }) {
   const client = useClient();
+  const action = useAction();
   const product = productOf(catalog, sub.product);
   const name = product?.name ?? sub.product;
   const seats = product?.unit === "seat";
   const ends = formatDay(sub.currentPeriodEnd, "long");
   const refunding = !!sub.refundRequestedAt;
-  const [asking, setAsking] = useState<"seats" | "cancel">();
-  const action = useAction();
+  const price = product ? priceText(product, sub.interval) : undefined;
+  const pause = sub.seatPause;
+  const open = mayChange(sub, pays, canBuy);
+  const bothWays =
+    sub.status === "active" &&
+    !!priceOf(product, "month") &&
+    !!priceOf(product, "year");
+  const billing = typeof ask === "object" ? ask.interval : undefined;
   const resume = async () => {
     await (await client("keep your plan")).resumeSubscription(sub.id);
     reload();
   };
   const close = () => {
-    setAsking(undefined);
+    onAsk(undefined);
     action.clear();
   };
   const price = product ? priceText(product, sub.interval) : undefined;
@@ -530,49 +995,98 @@ function PlanRows({
   return (
     <>
       <Row
-        label="Plan"
-        action={
-          seats && !refunding && pays && !held ? (
-            <button
-              type="button"
-              className="button small"
-              onClick={() =>
-                asking === "seats" ? close() : setAsking("seats")
-              }
-              disabled={!canBuy}
-              title={canBuy ? undefined : NOT_OPEN}
-              aria-expanded={asking === "seats"}
+        lead={
+          <Tile>
+            {seats ? <IconUsers size={14} /> : <IconUser size={14} />}
+          </Tile>
+        }
+        name={seats ? seatsWord(sub.quantity) : name}
+        detail={
+          [
+            price,
+            taken !== undefined
+              ? `${taken} held, ${Math.max(0, sub.quantity - taken)} free`
+              : undefined,
+          ]
+            .filter(Boolean)
+            .join(" · ") || undefined
+        }
+        end={
+          seats && open ? (
+            <Btn
+              small
+              quiet
+              aria-expanded={ask === "seats"}
+              onClick={() => (ask === "seats" ? close() : onAsk("seats"))}
             >
-              {canBuy ? "Change seats" : NOT_OPEN}
-            </button>
+              Change seats
+            </Btn>
+          ) : seats && pays && !canBuy ? (
+            <span>{NOT_OPEN}</span>
           ) : null
         }
-        below={
-          asking === "seats" ? (
-            <ChangeSeats
+      >
+        {seats && open && ask === "seats" ? (
+          <ChangeSeats
+            sub={sub}
+            name={name}
+            max={product?.maxQuantity}
+            min={Math.max(1, taken ?? 1)}
+            onClose={close}
+            onChanged={(text) => {
+              reload();
+              show(text);
+            }}
+          />
+        ) : null}
+      </Row>
+      {sub.product === "team" ? (
+        <Row
+          lead={
+            <Tile>
+              <IconLaptop size={14} />
+            </Tile>
+          }
+          name="Pro on your own hosts"
+          detail="While you hold a seat."
+        />
+      ) : null}
+      {bothWays && open ? (
+        <Row
+          lead={
+            <Tile>
+              <IconCreditCard size={14} />
+            </Tile>
+          }
+          name="Billed"
+          detail={intervalWord(sub.interval).replace(/^./, (first) =>
+            first.toUpperCase(),
+          )}
+          end={
+            <IntervalSeg
+              label={`How ${name} is billed`}
               sub={sub}
-              name={name}
-              max={product?.maxQuantity}
+              catalog={catalog}
+              value={billing ?? sub.interval}
+              onChange={(interval) =>
+                onAsk(interval === sub.interval ? undefined : { interval })
+              }
+            />
+          }
+        >
+          {billing && billing !== sub.interval ? (
+            <ChangePlan
+              sub={sub}
+              catalog={catalog}
+              asked={{ interval: billing }}
+              onAsk={() => undefined}
               onClose={close}
               onChanged={(text) => {
                 reload();
                 show(text);
               }}
             />
-          ) : null
-        }
-      >
-        <span className="chip accent">{name}</span>
-        {seats ? (
-          <span>
-            {sub.quantity} {sub.quantity === 1 ? "seat" : "seats"}
-          </span>
-        ) : null}
-        {price ? <span className="quiet">· {price}</span> : null}
-      </Row>
-      {sub.product === "team" ? (
-        <Row label="Includes">
-          <span>Pro on your own hosts while you hold a seat</span>
+          ) : null}
         </Row>
       ) : null}
       <AtRenewal
@@ -583,18 +1097,33 @@ function PlanRows({
         show={show}
       />
       {refunding ? (
-        <Row label="Ends">
-          <span>When its refund is paid</span>
-          <span className="quiet">· it can't be changed until then</span>
-        </Row>
+        <Row
+          lead={
+            <Tile>
+              <IconUndo size={14} />
+            </Tile>
+          }
+          name="Ends when its refund is paid"
+          detail="It can't be changed until then."
+        />
       ) : sub.cancelAtPeriodEnd ? (
         <Row
-          label="Ends"
-          action={
+          lead={
+            <Tile>
+              <IconClock size={14} />
+            </Tile>
+          }
+          name={`Ends on ${ends}`}
+          detail={
+            sub.product === "team"
+              ? "Invites and org features freeze then."
+              : undefined
+          }
+          end={
             pays ? (
-              <button
-                type="button"
-                className="button small primary"
+              <Btn
+                small
+                busy={action.busy}
                 onClick={() =>
                   void action.run(
                     async () => {
@@ -609,93 +1138,111 @@ function PlanRows({
                 data-busy={action.busy || undefined}
               >
                 Keep {name}
-              </button>
-            ) : null
-          }
-          below={
-            action.problem && !asking ? (
-              <p className="problem" role="alert">
-                {action.problem}
-              </p>
+              </Btn>
             ) : null
           }
         >
-          <span>{ends}</span>
-          {sub.product === "team" ? (
-            <span className="quiet">
-              · invites and org features freeze then
-            </span>
+          {action.problem && ask !== "cancel" ? (
+            <Problem>{action.problem}</Problem>
           ) : null}
         </Row>
       ) : (
         <Row
-          label={pause ? (pause.resumesAt ? "Resumes" : "Paused") : "Renews"}
-          action={
-            <button
-              type="button"
-              className="button small quiet-danger"
-              onClick={() =>
-                asking === "cancel" ? close() : setAsking("cancel")
-              }
-              aria-expanded={asking === "cancel"}
+          lead={
+            <Tile>
+              <IconRefresh size={14} />
+            </Tile>
+          }
+          name={pause ? (pause.resumesAt ? "Resumes" : "Paused") : "Renews"}
+          detail={
+            pause
+              ? pausedLine(pause)
+              : `On ${ends}, ${intervalWord(sub.interval)}`
+          }
+          end={
+            <Txt
+              bad
+              aria-expanded={ask === "cancel"}
+              onClick={() => (ask === "cancel" ? close() : onAsk("cancel"))}
             >
               Cancel {name}
-            </button>
-          }
-          below={
-            asking === "cancel" ? (
-              <Confirm
-                problem={action.problem}
-                busy={action.busy}
-                label={`Cancel ${name}`}
-                danger
-                onCancel={close}
-                onConfirm={() =>
-                  void action.run(
-                    async () => {
-                      await (
-                        await client("cancel your plan")
-                      ).cancelSubscription(sub.id);
-                      close();
-                      reload();
-                      if (pause)
-                        show(
-                          `${name} cancelled. The days you'd already paid are refunded.`,
-                        );
-                      else
-                        show(
-                          `${name} cancelled. It runs until ${ends}.`,
-                          resume,
-                        );
-                    },
-                    (error) =>
-                      `${problemText(error)} ${pause ? "It stays paused." : "It still renews."}`,
-                  )
-                }
-              >
-                <p>
-                  {pause
-                    ? `${name} ends now, and the days you'd already paid are refunded. `
-                    : `${name} runs until ${ends}, then stops renewing. `}
-                  {sub.product === "team"
-                    ? "Invites and org features freeze then; everyone keeps their own hosts and the org keeps its data."
-                    : "Your hosts and data stay as they are."}
-                </p>
-              </Confirm>
-            ) : null
+            </Txt>
           }
         >
-          {pause ? (
-            <span>{pausedLine(pause)}</span>
-          ) : (
-            <>
-              <span>{ends}</span>
-              <span className="quiet">· {intervalWord(sub.interval)}</span>
-            </>
-          )}
+          {ask === "cancel" ? (
+            <Confirm
+              problem={action.problem}
+              busy={action.busy}
+              label={`Cancel ${name}`}
+              danger
+              onCancel={close}
+              onConfirm={() =>
+                void action.run(
+                  async () => {
+                    await (
+                      await client("cancel your plan")
+                    ).cancelSubscription(sub.id);
+                    close();
+                    reload();
+                    if (pause)
+                      show(
+                        `${name} cancelled. The days you'd already paid are refunded.`,
+                      );
+                    else
+                      show(`${name} cancelled. It runs until ${ends}.`, resume);
+                  },
+                  (error) =>
+                    `${problemText(error)} ${pause ? "It stays paused." : "It still renews."}`,
+                )
+              }
+            >
+              <p>
+                {pause
+                  ? `${name} ends now, and the days you'd already paid are refunded. `
+                  : `${name} runs until ${ends}, then stops renewing. `}
+                {sub.product === "team"
+                  ? "Invites and org features freeze then; everyone keeps their own hosts and the org keeps its data."
+                  : "Your hosts and data stay as they are."}
+              </p>
+            </Confirm>
+          ) : null}
         </Row>
       )}
     </>
+  );
+}
+
+function IntervalSeg({
+  label,
+  sub,
+  catalog,
+  value,
+  onChange,
+}: {
+  label: string;
+  sub: Subscription;
+  catalog: BillingCatalog;
+  value: BillingInterval;
+  onChange: (interval: BillingInterval) => void;
+}) {
+  const product = productOf(catalog, sub.product);
+  return (
+    <Seg
+      label={label}
+      value={value}
+      onChange={onChange}
+      options={(["month", "year"] as const).flatMap((interval) => {
+        const unit = priceOf(product, interval);
+        return unit
+          ? [
+              {
+                value: interval,
+                name: `${interval === "month" ? "Monthly" : "Yearly"} · ${money(unit, { cents: false })}`,
+              },
+            ]
+          : [];
+      })}
+    />
   );
 }
 
@@ -785,11 +1332,11 @@ function PreviewWords({
 }) {
   if (!seen || seen.state === "failed") return null;
   if (seen.state === "loading")
-    return <span className="quiet">Working out the amount…</span>;
+    return <span className="soft">Working out the amount…</span>;
   const { now, renewal } = seen.preview;
   if (when === "renewal")
     return (
-      <span className="quiet">
+      <span className="soft">
         {renewal
           ? `From ${formatDay(renewal.at, "long")}: ${money(renewal.amount, { cents: false })} a ${interval}.`
           : "It ends at the end of this period, so nothing more is charged."}
@@ -802,7 +1349,7 @@ function PreviewWords({
   return now.amount > 0 ? (
     <span>
       {money(now)} today
-      <span className="quiet">
+      <span className="soft">
         {" "}
         for what's left of this period{then ? `, then ${then}` : ""}.
       </span>
@@ -810,7 +1357,7 @@ function PreviewWords({
   ) : (
     <span>
       Nothing to pay today
-      <span className="quiet">{then ? `, then ${then}` : ""}.</span>
+      <span className="soft">{then ? `, then ${then}` : ""}.</span>
     </span>
   );
 }
@@ -852,14 +1399,32 @@ function AtRenewal({
       : held.quantity !== sub.quantity
         ? countWord(sub.quantity, seats)
         : intervalWord(sub.interval);
+  const becomes = [
+    held.product !== sub.product
+      ? productOf(catalog, held.product)?.name
+      : undefined,
+    held.quantity !== sub.quantity
+      ? countWord(held.quantity, seats)
+      : undefined,
+    held.interval !== sub.interval ? intervalWord(held.interval) : undefined,
+  ]
+    .filter(Boolean)
+    .join(", ");
   return (
     <Row
-      label="At renewal"
-      action={
+      lead={
+        <Tile>
+          <IconClock size={14} />
+        </Tile>
+      }
+      name={becomes.replace(/^./, (first) => first.toUpperCase())}
+      detail={`From ${ends}`}
+      end={
         pays ? (
-          <button
-            type="button"
-            className="button small"
+          <Btn
+            small
+            quiet
+            busy={action.busy}
             onClick={() =>
               void action.run(
                 async () => {
@@ -881,33 +1446,11 @@ function AtRenewal({
             data-busy={action.busy || undefined}
           >
             Keep {kept}
-          </button>
-        ) : null
-      }
-      below={
-        action.problem ? (
-          <p className="problem" role="alert">
-            {action.problem}
-          </p>
+          </Btn>
         ) : null
       }
     >
-      <span>
-        {[
-          held.product !== sub.product
-            ? productOf(catalog, held.product)?.name
-            : undefined,
-          held.quantity !== sub.quantity
-            ? countWord(held.quantity, seats)
-            : undefined,
-          held.interval !== sub.interval
-            ? intervalWord(held.interval)
-            : undefined,
-        ]
-          .filter(Boolean)
-          .join(", ")}
-      </span>
-      <span className="quiet">· from {ends}</span>
+      {action.problem ? <Problem>{action.problem}</Problem> : null}
     </Row>
   );
 }
@@ -967,7 +1510,7 @@ export function ChangeSeats({
         )
       }
     >
-      <label className="stepper-line">
+      <label className="step-line">
         <Stepper value={count} min={min} max={max} onChange={setCount} />
         {change ? (
           <PreviewWords
@@ -981,7 +1524,7 @@ export function ChangeSeats({
             }
           />
         ) : (
-          <span className="quiet">
+          <span className="soft">
             seats. More are charged today for what's left of this period; fewer
             start at renewal.
           </span>
@@ -1052,135 +1595,47 @@ export function useCheckout() {
   return { ...action, go };
 }
 
-function Upgrade({
-  catalog,
-  canBuy,
-  interval,
-  access,
-}: {
-  catalog: BillingCatalog;
-  canBuy: boolean;
-  interval: BillingInterval;
-  access: TeamAccess;
-}) {
-  const pro = productOf(catalog, "pro");
-  const team = productOf(catalog, "team");
-  const checkout = useCheckout();
-  const [naming, setNaming] = useState(false);
-  const proMonth = priceOf(pro, "month");
-  const proYear = priceOf(pro, "year");
-
-  return (
-    <Section label="Upgrade">
-      <div className="plan-cards">
-        {pro ? (
-          <PlanOffer
-            catalog={catalog}
-            plan="pro"
-            price={priceOf(pro, interval) ?? proMonth}
-            per={priceOf(pro, interval) ? PER[interval] : PER.month}
-            other={
-              interval === "month" && proYear
-                ? `or ${money(proYear, { cents: false })} a year`
-                : proMonth
-                  ? `or ${money(proMonth, { cents: false })} a month`
-                  : undefined
-            }
-          >
-            {checkout.problem && !naming ? (
-              <p className="problem" role="alert">
-                {checkout.problem}
-              </p>
-            ) : null}
-            <button
-              type="button"
-              className="button primary"
-              disabled={!canBuy || checkout.busy}
-              data-busy={(checkout.busy && !naming) || undefined}
-              onClick={() =>
-                void checkout.go((routes) =>
-                  routes.startCheckout({
-                    product: "pro",
-                    interval,
-                    quantity: 1,
-                  }),
-                )
-              }
-            >
-              {canBuy ? "Upgrade to Pro" : NOT_OPEN}
-            </button>
-          </PlanOffer>
-        ) : null}
-        {team && (access === "sold" || access === "preview") ? (
-          <PlanOffer
-            catalog={catalog}
-            plan="team"
-            price={priceOf(team, "month")}
-            per={`${UNIT_WORD.seat} ${PER.month}`}
-            other={access === "preview" ? FREE_DURING_PREVIEW : undefined}
-            added={access === "preview" ? inPreview : undefined}
-          >
-            {access === "preview" ? (
-              <a className="button" href={TEAM}>
-                Start Team
-              </a>
-            ) : naming ? (
-              <NewTeam
-                catalog={catalog}
-                checkout={checkout}
-                onCancel={() => setNaming(false)}
-              />
-            ) : (
-              <button
-                type="button"
-                className="button"
-                disabled={!canBuy}
-                onClick={() => {
-                  checkout.clear();
-                  setNaming(true);
-                }}
-              >
-                {canBuy ? "Start Team" : NOT_OPEN}
-              </button>
-            )}
-          </PlanOffer>
-        ) : null}
-      </div>
-    </Section>
-  );
-}
-
-function PlanOffer({
-  catalog,
-  plan,
-  price,
-  per,
-  other,
-  added: shown = () => true,
+function NameForm({
+  submit,
+  action,
+  onCancel,
+  onSubmit,
   children,
 }: {
-  catalog: BillingCatalog;
-  plan: "pro" | "team";
-  price?: Money;
-  per: string;
-  other?: string;
-  added?: (feature: PlanFeature) => boolean;
-  children: ReactNode;
+  submit: string;
+  action: { busy: boolean; problem?: string };
+  onCancel: () => void;
+  onSubmit: (name: string) => void;
+  children?: ReactNode;
 }) {
-  const { before, added } = featuresAdded(catalog, plan);
+  const [name, setName] = useState("");
   return (
-    <PlanCard
-      name={catalog.plans.find((each) => each.id === plan)?.name ?? plan}
-      price={price}
-      per={other ? `${per} · ${other}` : per}
-      plus={before ? `Everything in ${before}, plus` : undefined}
-      lines={added.filter(shown).map((feature) => ({
-        key: feature,
-        text: FEATURE_WORDS[feature],
-      }))}
+    <form
+      className="box"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (name.trim()) onSubmit(name.trim());
+      }}
     >
+      <Field
+        placeholder="Org name"
+        aria-label="Org name"
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        autoFocus
+        maxLength={64}
+      />
       {children}
-    </PlanCard>
+      <Problem>{action.problem}</Problem>
+      <div className="do">
+        <Btn type="submit" small busy={action.busy} disabled={!name.trim()}>
+          {submit}
+        </Btn>
+        <Btn small quiet onClick={onCancel} disabled={action.busy}>
+          Cancel
+        </Btn>
+      </div>
+    </form>
   );
 }
 
@@ -1210,60 +1665,37 @@ export function NewTeam({
       });
     });
   return (
-    <form
-      className="new-team"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (name.trim()) start();
-      }}
+    <NameForm
+      submit={submit}
+      action={checkout}
+      onCancel={onCancel}
+      onSubmit={(name) =>
+        void checkout.go(async (routes) => {
+          const org = await routes.createOrg({ name });
+          return routes.startCheckout({
+            product: "team",
+            interval: "month",
+            quantity: seats,
+            orgId: org.id,
+          });
+        })
+      }
     >
-      <input
-        className="field"
-        placeholder="Org name"
-        aria-label="Org name"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        autoFocus
-        maxLength={64}
-      />
-      <label className="stepper-line">
+      <span className="step-line">
         <Stepper
           value={seats}
           min={1}
           max={team?.maxQuantity ?? 1000}
           onChange={setSeats}
         />
-        <span className="quiet">
+        <span className="soft">
           seats
           {unit
-            ? ` · ${money(times(unit, seats), { cents: false })} a month`
+            ? ` · ${money(times(unit, seats), { cents: false })} ${PER.month}`
             : ""}
         </span>
-      </label>
-      {checkout.problem ? (
-        <p className="problem" role="alert">
-          {checkout.problem}
-        </p>
-      ) : null}
-      <div className="actions">
-        <button
-          type="button"
-          className="button small"
-          onClick={onCancel}
-          disabled={checkout.busy}
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="button small primary"
-          disabled={!name.trim() || checkout.busy}
-          data-busy={checkout.busy || undefined}
-        >
-          {submit}
-        </button>
-      </div>
-    </form>
+      </span>
+    </NameForm>
   );
 }
 
@@ -1279,117 +1711,74 @@ export function NewPreviewTeam({
   const action = useAction();
   const [name, setName] = useState("");
   return (
-    <form
-      className="new-team"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!name.trim()) return;
+    <NameForm
+      submit="Start Team"
+      action={action}
+      onCancel={onCancel}
+      onSubmit={(name) =>
         void action.run(
           async () => {
             const routes = await client("start a Team");
-            onMade(await routes.createOrg({ name: name.trim() }));
+            onMade(await routes.createOrg({ name }));
           },
           (error) => `${problemText(error)} No org was made.`,
-        );
-      }}
+        )
+      }
     >
-      <input
-        className="field"
-        placeholder="Org name"
-        aria-label="Org name"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        autoFocus
-        maxLength={64}
-      />
-      <span className="quiet">{FREE_DURING_PREVIEW}</span>
-      {action.problem ? (
-        <p className="problem" role="alert">
-          {action.problem}
-        </p>
-      ) : null}
-      <div className="actions">
-        <button
-          type="button"
-          className="button small"
-          onClick={onCancel}
-          disabled={action.busy}
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          className="button small primary"
-          disabled={!name.trim() || action.busy}
-          data-busy={action.busy || undefined}
-        >
-          Start Team
-        </button>
-      </div>
-    </form>
+      <span className="soft">{FREE_DURING_PREVIEW}</span>
+    </NameForm>
   );
 }
 
-function StartTeam({
+/** Everything about the money itself: what is charged next, the card, refunds and invoices. */
+function Money({
+  overview,
+  invoices,
+  readAt,
   catalog,
-  canBuy,
-  org,
+  pays,
+  query,
+  reload,
+  show,
 }: {
+  overview: BillingOverview;
+  invoices: Invoice[];
+  readAt: number;
   catalog: BillingCatalog;
-  canBuy: boolean;
-  org: Org;
+  pays: boolean;
+  query: { org?: string };
+  reload: () => void;
+  show: Show;
 }) {
-  const team = productOf(catalog, "team");
-  const [seats, setSeats] = useState(Math.max(1, org.seats.held));
-  const checkout = useCheckout();
-  const unit = priceOf(team, "month");
+  const open = openSubs(overview);
+  if (open.length === 0 && invoices.length === 0)
+    return (
+      <Card
+        label="Invoices"
+        foot={`What you pay for a plan in its first ${catalog.refundDays} days comes back in full if you ask within them, once for each plan.`}
+      >
+        <Empty>No card and no invoices yet.</Empty>
+      </Card>
+    );
   return (
-    <Section label="Team plan">
-      <Rows>
-        <Row
-          label="Seats"
-          action={
-            <button
-              type="button"
-              className="button small primary"
-              disabled={!canBuy || checkout.busy}
-              data-busy={checkout.busy || undefined}
-              onClick={() =>
-                void checkout.go((routes) =>
-                  routes.startCheckout({
-                    product: "team",
-                    interval: "month",
-                    quantity: seats,
-                    orgId: org.id,
-                  }),
-                )
-              }
-            >
-              {canBuy ? "Start Team" : NOT_OPEN}
-            </button>
-          }
-          below={
-            checkout.problem ? (
-              <p className="problem" role="alert">
-                {checkout.problem}
-              </p>
-            ) : null
-          }
-        >
-          <Stepper
-            value={seats}
-            min={Math.max(1, org.seats.held)}
-            max={team?.maxQuantity ?? 1000}
-            onChange={setSeats}
-          />
-          {unit ? (
-            <span className="quiet">
-              · {money(times(unit, seats), { cents: false })} a month
-            </span>
-          ) : null}
-        </Row>
-      </Rows>
-    </Section>
+    <>
+      <NextCharge subs={open} catalog={catalog} card={overview.card} />
+      {pays ? (
+        <PaymentMethod
+          card={overview.card}
+          declined={open.some((sub) => sub.status === "lapsed")}
+          query={query}
+        />
+      ) : null}
+      <Refunds
+        subs={open}
+        readAt={readAt}
+        catalog={catalog}
+        reload={reload}
+        show={show}
+      />
+      <Invoices invoices={invoices} catalog={catalog} />
+    </>
   );
 }
 
@@ -1424,51 +1813,43 @@ function NextCharge({
   const currency = renewing[0]?.unit.currency ?? "usd";
 
   return (
-    <Section label="Next charge">
+    <Card label={renewing.length > 1 ? "Next charges" : "Next charge"}>
       <Rows>
-        {renewing.map(({ sub, next, product, unit }, index) => {
-          const day = formatDay(sub.currentPeriodEnd, "long");
-          const shownDay =
-            index === 0 ||
-            renewing[index - 1]?.sub.currentPeriodEnd !== sub.currentPeriodEnd;
-          const what =
-            product?.unit === "seat"
-              ? `${product.name}, ${next.quantity} seats × ${money(unit, { cents: false })}`
-              : product?.unit === "box"
-                ? `${product.name}, ${next.quantity} ${next.quantity === 1 ? "box" : "boxes"}, ${intervalWord(next.interval)}`
-                : `${product?.name ?? next.product}, ${intervalWord(next.interval)}`;
-          return (
-            <Row
-              key={sub.id}
-              label={shownDay ? day : ""}
-              action={
-                <span className="amount">
-                  {money(times(unit, next.quantity))}
-                </span>
-              }
-            >
-              <span className="quiet">{what}</span>
-            </Row>
-          );
-        })}
+        {renewing.map(({ sub, next, product, unit }) => (
+          <Row
+            key={sub.id}
+            name={
+              product?.unit === "seat"
+                ? `${product.name}, ${next.quantity} seats × ${money(unit, { cents: false })}`
+                : product?.unit === "box"
+                  ? `${product.name}, ${countWord(next.quantity, false)}, ${intervalWord(next.interval)}`
+                  : `${product?.name ?? next.product}, ${intervalWord(next.interval)}`
+            }
+            detail={formatDay(sub.currentPeriodEnd, "long")}
+            end={
+              <span className="amount">
+                {money(times(unit, next.quantity))}
+              </span>
+            }
+          />
+        ))}
         {renewing.length > 1 ? (
           <Row
-            label="Total"
-            action={
-              <span className="amount big">
+            name="Total"
+            detail={card ? cardName(card) : undefined}
+            end={
+              <span className="amount">
                 {money({ amount: total, currency })}
               </span>
             }
-          >
-            {card ? <span className="quiet">{cardName(card)}</span> : null}
-          </Row>
+          />
         ) : null}
       </Rows>
-    </Section>
+    </Card>
   );
 }
 
-type BoxAsk = { interval: BillingInterval } | { product: BillingProductId };
+type PlanAsk = { interval: BillingInterval } | { product: BillingProductId };
 
 export function ShedBox({
   sub,
@@ -1485,64 +1866,68 @@ export function ShedBox({
   reload: () => void;
   show: Show;
 }) {
-  const [asked, setAsked] = useState<BoxAsk>();
+  const [asked, setAsked] = useState<PlanAsk>();
   const product = productOf(catalog, sub.product);
   const name = product?.name ?? sub.product;
   const refunding = !!sub.refundRequestedAt;
-  const open = pays && canBuy && !refunding && !heldChange(sub);
+  const open = mayChange(sub, pays, canBuy);
   const sizing = !!asked && "product" in asked;
   return (
     <>
       <Row
-        label={name}
-        action={
-          open ? (
-            <button
-              type="button"
-              className="button small"
-              onClick={() =>
-                setAsked(sizing ? undefined : { product: sub.product })
-              }
-              aria-expanded={sizing}
-            >
-              Change size
-            </button>
-          ) : null
+        wrap
+        name={name}
+        detail={
+          [
+            refunding
+              ? "Ends when its refund is paid"
+              : open
+                ? undefined
+                : intervalWord(sub.interval),
+            sub.quantity > 1 ? countWord(sub.quantity, false) : undefined,
+          ]
+            .filter(Boolean)
+            .join(" · ") || undefined
         }
-        below={
-          asked ? (
-            <ChangeBox
-              sub={sub}
-              catalog={catalog}
-              asked={asked}
-              onAsk={setAsked}
-              onClose={() => setAsked(undefined)}
-              onChanged={(text) => {
-                reload();
-                show(text);
-              }}
-            />
+        end={
+          open ? (
+            <>
+              <IntervalSeg
+                label={`How ${name} is billed`}
+                sub={sub}
+                catalog={catalog}
+                value={
+                  asked && "interval" in asked ? asked.interval : sub.interval
+                }
+                onChange={(interval) =>
+                  setAsked(interval === sub.interval ? undefined : { interval })
+                }
+              />
+              <Btn
+                small
+                quiet
+                aria-expanded={sizing}
+                onClick={() =>
+                  setAsked(sizing ? undefined : { product: sub.product })
+                }
+              >
+                Change size
+              </Btn>
+            </>
           ) : null
         }
       >
-        {refunding ? (
-          <span>Ends when its refund is paid</span>
-        ) : open ? (
-          <Segmented
-            label={`How ${name} is billed`}
-            value={asked && "interval" in asked ? asked.interval : sub.interval}
-            onChange={(interval) =>
-              setAsked(interval === sub.interval ? undefined : { interval })
-            }
-            options={(["month", "year"] as const)
-              .filter((interval) => priceOf(product, interval))
-              .map((interval) => {
-                const unit = priceOf(product, interval);
-                return {
-                  value: interval,
-                  name: `${interval === "month" ? "Monthly" : "Yearly"}${unit ? ` · ${money(unit, { cents: false })}` : ""}`,
-                };
-              })}
+        {asked ? (
+          <ChangePlan
+            sub={sub}
+            catalog={catalog}
+            asked={asked}
+            onAsk={setAsked}
+            onClose={() => setAsked(undefined)}
+            onChanged={(text) => {
+              reload();
+              show(text);
+            }}
           />
         ) : (
           <span>{intervalWord(sub.interval)}</span>
@@ -1562,7 +1947,7 @@ export function ShedBox({
   );
 }
 
-function ChangeBox({
+function ChangePlan({
   sub,
   catalog,
   asked,
@@ -1572,8 +1957,8 @@ function ChangeBox({
 }: {
   sub: Subscription;
   catalog: BillingCatalog;
-  asked: BoxAsk;
-  onAsk: (asked: BoxAsk) => void;
+  asked: PlanAsk;
+  onAsk: (asked: PlanAsk) => void;
   onClose: () => void;
   onChanged: (text: string) => void;
 }) {
@@ -1622,7 +2007,7 @@ function ChangeBox({
             if (!change) return;
             const preview = previewReady(seen);
             await (
-              await client("change your box")
+              await client("change your plan")
             ).changeSubscription(sub.id, change);
             onClose();
             onChanged(
@@ -1637,9 +2022,9 @@ function ChangeBox({
         )
       }
     >
-      <span className="stepper-line">
+      <span className="step-line">
         {"product" in asked ? (
-          <Segmented
+          <Seg
             label="Box size"
             value={asked.product}
             onChange={(product) => onAsk({ product })}
@@ -1661,7 +2046,7 @@ function ChangeBox({
             }
           />
         ) : (
-          <span className="quiet">
+          <span className="soft">
             A larger box starts today; a smaller one at renewal.
           </span>
         )}
@@ -1703,7 +2088,7 @@ export function Refunds({
   );
   if (open.length === 0) return null;
   return (
-    <Section label="Refund">
+    <Card label="Refund">
       <Rows>
         {open.map((sub) => (
           <RefundRow
@@ -1715,7 +2100,7 @@ export function Refunds({
           />
         ))}
       </Rows>
-    </Section>
+    </Card>
   );
 }
 
@@ -1739,11 +2124,16 @@ function RefundRow({
   const amount = sub.refundAmount ? money(sub.refundAmount) : undefined;
   const again =
     productOf(catalog, sub.product)?.kind === "shed" ? "a Shed box" : plan;
+  const lead = (
+    <Tile>
+      <IconUndo size={14} />
+    </Tile>
+  );
 
   if (sub.refundRequestedAt || !sub.refundableUntil)
     return (
-      <ItemRow
-        glyph={<IconUndo size={16} />}
+      <Row
+        lead={lead}
         name={name}
         detail={`Refund${amount ? ` of ${amount}` : ""} asked${sub.refundRequestedAt ? ` on ${formatDay(sub.refundRequestedAt, "long")}` : ""}. It takes a few days to come back, and ${plan} ends then.`}
       />
@@ -1751,14 +2141,12 @@ function RefundRow({
 
   const until = formatDay(sub.refundableUntil, "long");
   return (
-    <ItemRow
-      glyph={<IconUndo size={16} />}
+    <Row
+      lead={lead}
       name={name}
       detail={`${amount ?? "Everything paid on it so far"} comes back if you ask by ${until}. It's given once.`}
       end={
-        <button
-          type="button"
-          className="button small"
+        <Txt
           onClick={() => {
             action.clear();
             setAsking(!asking);
@@ -1766,7 +2154,7 @@ function RefundRow({
           aria-expanded={asking}
         >
           Ask for a refund
-        </button>
+        </Txt>
       }
     >
       {asking ? (
@@ -1798,7 +2186,7 @@ function RefundRow({
           </p>
         </Confirm>
       ) : null}
-    </ItemRow>
+    </Row>
   );
 }
 
@@ -1809,9 +2197,11 @@ function cardName(card: NonNullable<BillingOverview["card"]>): string {
 
 function PaymentMethod({
   card,
+  declined,
   query,
 }: {
   card?: BillingOverview["card"];
+  declined: boolean;
   query: { org?: string };
 }) {
   const portal = usePortal(query);
@@ -1827,26 +2217,38 @@ function PaymentMethod({
     </button>
   );
   return (
-    <Section label="Payment method">
+    <Card label="Card">
       <Rows>
-        <ItemRow
-          glyph={<IconCreditCard size={16} />}
+        <Row
+          lead={
+            <Tile>
+              <IconCreditCard size={14} />
+            </Tile>
+          }
           name={card ? cardName(card) : "No card on file"}
           detail={
             card
               ? `Expires ${String(card.expMonth).padStart(2, "0")}/${String(card.expYear).slice(-2)}`
               : "The payment provider holds the card; we never see it."
           }
-          end={update}
+          end={
+            <>
+              {declined ? <Chip tone="bad">Declined</Chip> : null}
+              <Btn
+                small
+                quiet
+                busy={portal.busy}
+                onClick={() => void portal.open()}
+              >
+                {card ? "Change" : "Add a card"}
+              </Btn>
+            </>
+          }
         >
-          {portal.problem ? (
-            <p className="problem row-problem" role="alert">
-              {portal.problem}
-            </p>
-          ) : null}
-        </ItemRow>
+          {portal.problem ? <Problem>{portal.problem}</Problem> : null}
+        </Row>
       </Rows>
-    </Section>
+    </Card>
   );
 }
 
@@ -1864,24 +2266,18 @@ function Invoices({
   invoices: Invoice[];
   catalog: BillingCatalog;
 }) {
-  if (invoices.length === 0)
-    return (
-      <Section label="Invoices">
-        <Rows>
-          <Row label="Invoices">
-            <span className="quiet">None yet</span>
-          </Row>
-        </Rows>
-      </Section>
-    );
   return (
-    <Section label="Invoices" count={invoices.length}>
-      <Rows>
-        {invoices.map((invoice) => (
-          <InvoiceRow key={invoice.id} invoice={invoice} catalog={catalog} />
-        ))}
-      </Rows>
-    </Section>
+    <Card label="Invoices" count={invoices.length || undefined}>
+      {invoices.length === 0 ? (
+        <Empty>None yet.</Empty>
+      ) : (
+        <Rows>
+          {invoices.map((invoice) => (
+            <InvoiceRow key={invoice.id} invoice={invoice} catalog={catalog} />
+          ))}
+        </Rows>
+      )}
+    </Card>
   );
 }
 
@@ -1904,27 +2300,36 @@ function InvoiceRow({
       },
       (error) => `${problemText(error)} Try the receipt again.`,
     );
+  const status = invoice.partlyRefunded
+    ? `${money(invoice.partlyRefunded)} refunded`
+    : STATUS_WORDS[invoice.status];
   return (
-    <li className="row invoice">
-      <span className="quiet">{formatDay(invoice.at, "short")}</span>
-      <span className="ink">{invoiceWhat(invoice, catalog)}</span>
-      <span className="amount">{money(invoice.total)}</span>
-      <span className="status" data-status={invoice.status}>
-        {invoice.partlyRefunded
-          ? `${money(invoice.partlyRefunded)} refunded`
-          : STATUS_WORDS[invoice.status]}
-      </span>
-      <button
-        type="button"
-        className="icon-button"
-        onClick={() => void receipt()}
-        disabled={action.busy}
-        data-busy={action.busy || undefined}
-        aria-label="Download the receipt"
-        title={action.problem ?? "Download the receipt"}
-      >
-        <IconDownload size={15} />
-      </button>
-    </li>
+    <Row
+      name={invoiceWhat(invoice, catalog)}
+      detail={formatDay(invoice.at, "short")}
+      end={
+        <>
+          {invoice.status === "failed" || invoice.status === "disputed" ? (
+            <Chip tone="bad">{status}</Chip>
+          ) : (
+            <span>{status}</span>
+          )}
+          <span className="amount">{money(invoice.total)}</span>
+          <Btn
+            small
+            quiet
+            className="icon-only"
+            busy={action.busy}
+            onClick={() => void receipt()}
+            aria-label="Download the receipt"
+            title="Download the receipt"
+          >
+            <IconDownload size={14} />
+          </Btn>
+        </>
+      }
+    >
+      {action.problem ? <Problem>{action.problem}</Problem> : null}
+    </Row>
   );
 }
