@@ -43,9 +43,8 @@ nightly() {
   {
     echo "# $version"
     {
-      git log --reverse --no-merges --format=%s ${last:+"$last..HEAD"} -- "${PHONE[@]}" |
-        grep -E '^(feat|fix|perf)(\([^)]*\))?!?: ' |
-        sed -E 's/^[a-z]+(\([^)]*\))?!?: /• /; s/^(• [^.]*\.) .*$/\1/; s/\*\*//g; s/\]\(/] (/g' || true
+      [[ -z "$last" ]] || node scripts/release-notes.mjs phone "$last" HEAD |
+        sed -E 's/^- /• /; s/\*\*//g; s/\]\(/] (/g; s/`//g'
     } | awk -v max="$NOTES_LIMIT" '{ if (total + length($0) + 1 > max) next; total += length($0) + 1; print }' |
       grep . || echo "• Fixes and improvements."
   } >"$NOTES"

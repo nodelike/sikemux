@@ -119,7 +119,7 @@ else
   gh api "repos/{owner}/{repo}/git/ref/tags/v$VERSION" >/dev/null 2>&1 ||
     gh api -X POST "repos/{owner}/{repo}/git/refs" -f "ref=refs/tags/v$VERSION" -f "sha=$(git rev-parse HEAD)" >/dev/null ||
     fail "GitHub refused to make the tag v$VERSION on $(git rev-parse HEAD)"
-  "${RELEASE_CMD[@]}" "$MANIFEST" --prerelease
+  "${RELEASE_CMD[@]}" "$MANIFEST" "$ROOT/RELEASE_CHANGES.md" --prerelease
   if staff_feed_takes "$VERSION"; then scripts/move-feed.sh staff "$VERSION"; fi
   gh workflow run nightly-soak.yml -f "version=$VERSION"
   echo "✓ Released nightly v$VERSION; the nightly feed follows once it has soaked"

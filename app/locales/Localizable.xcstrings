@@ -157509,54 +157509,54 @@
         }
       }
     },
-    "v{version} shipped without notes.": {
+    "Nothing you'd notice changed in v{version}.": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "v{version} est sortie sans notes."
+            "value": "Aucun changement visible dans la v{version}."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "v{version} se publicó sin notas."
+            "value": "No hay cambios que vayas a notar en la v{version}."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "v{version} wurde ohne Notizen ausgeliefert."
+            "value": "In v{version} hat sich nichts geändert, was dir auffallen würde."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "v{version} 发布时没有说明。"
+            "value": "v{version} 没有你会注意到的变化。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "v{version} はリリースノートなしで出荷されました。"
+            "value": "v{version} に目立った変更はありません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "v{version}은(는) 릴리스 노트 없이 배포되었습니다."
+            "value": "v{version}에는 눈에 띄는 변경 사항이 없습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "v{version} вышла без заметок."
+            "value": "В v{version} нет заметных изменений."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "a v{version} foi lançada sem notas."
+            "value": "Nada que você vá notar mudou na v{version}."
           }
         }
       }

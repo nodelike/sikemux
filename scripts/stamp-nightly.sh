@@ -25,9 +25,9 @@ scripts/set-version.sh "$version"
   printf 'Built from [`%s`](https://github.com/%s/commit/%s) on main.\n' "$(git rev-parse --short HEAD)" "$REPO" "$(git rev-parse HEAD)"
   if [[ -n "$last" ]]; then
     printf '\n## New since %s\n\n' "${last#v}"
-    git log --reverse --no-merges --format=%s "$last..HEAD" |
-      grep -E '^(feat|fix|perf)(\([^)]*\))?!?: ' |
-      sed -E 's/^[a-z]+(\(([^)]*)\))?!?: (.*)$/- \3/; s/^(- [^.]*\.)( .*)?$/\1/' || true
+    news="$(node scripts/release-notes.mjs app "$last" HEAD)"
+    nothing="Nothing you'd notice in the app changed."
+    printf '%s\n' "${news:-$nothing}"
     printf "\nFor the complete patch history, compare [\`%s...v%s\`](https://github.com/%s/compare/%s...v%s).\n" \
       "$last" "$version" "$REPO" "$last" "$version"
   fi
@@ -43,9 +43,7 @@ base="$(git merge-base HEAD "$stable")"
     name="$tag"
     [[ "$tag" == HEAD ]] && name="v$version"
     printf '\n## %s · %s commits\n\n' "$name" "$(git rev-list --count "$from..$tag")"
-    git log --reverse --no-merges --format=%s "$from..$tag" |
-      grep -E '^(feat|fix|perf)(\([^)]*\))?!?: ' |
-      sed -E 's/^[a-z]+(\(([^)]*)\))?!?: (.*)$/- \3/; s/^(- [^.]*\.)( .*)?$/\1/' || true
+    node scripts/release-notes.mjs app "$from" "$tag"
     from="$tag"
   done
 } >RELEASE_CHANGES.md

@@ -10,7 +10,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use semver::Version;
-use serde::de::{DeserializeOwned, IgnoredAny};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
@@ -70,8 +70,6 @@ struct Comparison {
 struct ComparedCommit {
     author: Option<Account>,
     commit: CommitDetail,
-    #[serde(default)]
-    parents: Vec<IgnoredAny>,
 }
 
 #[derive(Deserialize)]
@@ -85,8 +83,6 @@ struct Account {
 #[derive(Deserialize)]
 struct CommitDetail {
     author: Option<ReleaseCommitAuthor>,
-    #[serde(default)]
-    message: String,
 }
 
 #[derive(Deserialize)]
@@ -176,6 +172,30 @@ fn shipped_since_stable(changes: &str) -> Option<(&str, Vec<Shipped<'_>>)> {
     Some((base, shipped))
 }
 
+fn shipped_after<'a, 'b>(
+    from: &str,
+    base: &str,
+    shipped: &'b [Shipped<'a>],
+) -> Option<&'b [Shipped<'a>]> {
+    match shipped.iter().position(|it| it.tag == from) {
+        Some(at) => shipped.get(at + 1..),
+        None => (from == base).then_some(shipped),
+    }
+}
+
+/// What a nightly's list says changed since `since`, or since the last stable release when
+/// `since` is older than that.
+fn listed_since(changes: &str, tag: &str, since: &str) -> Option<Option<String>> {
+    let (base, shipped) = shipped_since_stable(changes)?;
+    if shipped.last()?.tag != tag {
+        return None;
+    }
+    Some(match shipped_after(&format!("v{since}"), base, &shipped) {
+        Some(later) => new_since(since, later),
+        None => new_since(base.trim_start_matches('v'), &shipped),
+    })
+}
+
 fn baked_notes(
     notes: &str,
     changes: &str,
@@ -189,15 +209,9 @@ fn baked_notes(
     let (notes, credits) = match (since, ranges) {
         (Some(since), Some((base, shipped))) => {
             let from = format!("v{since}");
-            let after = match shipped.iter().position(|it| it.tag == from) {
-                Some(at) => at + 1,
-                None if from == base => 0,
-                None => return None,
-            };
-            let later = shipped.get(after..)?;
-            let changes = later.iter().flat_map(|it| it.changes.iter().copied());
+            let later = shipped_after(&from, base, &shipped)?;
             let commits = later.iter().map(|it| it.commits).sum();
-            (new_since(since, changes), Some((from, commits)))
+            (new_since(since, later), Some((from, commits)))
         }
         (Some(_), None) => return None,
         (None, _) if !own => return None,
@@ -226,8 +240,8 @@ fn baked_notes(
 
 /// The notes of one published release, and everyone who committed to it. Given the build
 /// the person last read, the notes list every change since that build instead of the
-/// release's own. The notes are what matter, so a failed contributor lookup leaves the
-/// credits empty rather than failing the whole answer.
+/// release's own, if the release publishes a list. The notes are what matter, so a failed
+/// contributor lookup leaves the credits empty rather than failing the whole answer.
 pub async fn release_notes(
     version: String,
     since: Option<String>,
@@ -240,20 +254,23 @@ pub async fn release_notes(
     }
     let tag = format!("v{version}");
     let release_url = format!("{REPO_API}/releases/tags/{tag}");
-    let (release, compared) = tokio::join!(get_json::<GithubRelease>(&release_url), async {
-        let previous = match &since {
-            Some(since) => format!("v{since}"),
-            None => previous_tag(&parsed).await?,
-        };
-        credits_between(&previous, &tag).await
-    });
+    let (release, credits, listed) = tokio::join!(
+        get_json::<GithubRelease>(&release_url),
+        async {
+            let previous = match &since {
+                Some(since) => format!("v{since}"),
+                None => previous_tag(&parsed).await?,
+            };
+            credits_between(&previous, &tag).await
+        },
+        async {
+            let since = since.as_deref()?;
+            listed_since(&changes_of(&tag).await.ok()?, &tag, since)
+        },
+    );
     let release = release.map_err(|error| format!("GitHub has no release {tag}: {error}"))?;
     let own_notes = release.body.filter(|body| !body.trim().is_empty());
-    let (credits, subjects) = compared.unzip();
-    let notes = match (&since, subjects) {
-        (Some(since), Some(subjects)) => changes_since(since, &subjects),
-        _ => own_notes,
-    };
+    let notes = listed.unwrap_or(own_notes);
     let notes = ReleaseNotes {
         version,
         notes,
@@ -271,36 +288,27 @@ pub async fn release_notes(
     Ok(notes)
 }
 
-/// The `feat`, `fix` and `perf` subjects since `since`, oldest first, listed as
-/// `scripts/stamp-nightly.sh` lists a nightly's.
-fn changes_since(since: &str, subjects: &[String]) -> Option<String> {
-    new_since(since, subjects.iter().filter_map(|subject| change(subject)))
-}
-
-fn new_since<'a>(since: &str, changes: impl Iterator<Item = &'a str>) -> Option<String> {
-    let listed: Vec<String> = changes.map(|change| format!("- {change}")).collect();
+fn new_since(since: &str, shipped: &[Shipped<'_>]) -> Option<String> {
+    let listed: Vec<String> = shipped
+        .iter()
+        .flat_map(|it| &it.changes)
+        .map(|change| format!("- {change}"))
+        .collect();
     if listed.is_empty() {
         return None;
     }
     Some(format!("## New since {since}\n\n{}\n", listed.join("\n")))
 }
 
-/// `fix(rail)!: The chip waits. More detail` as `The chip waits.`; nothing for another kind.
-fn change(subject: &str) -> Option<&str> {
-    let rest = ["feat", "fix", "perf"]
-        .into_iter()
-        .find_map(|kind| subject.strip_prefix(kind))?;
-    let rest = match rest.strip_prefix('(') {
-        Some(scoped) => scoped.split_once(')')?.1,
-        None => rest,
-    };
-    let said = rest.strip_prefix('!').unwrap_or(rest).strip_prefix(": ")?;
-    match said.split_once('.') {
-        Some((sentence, after)) if after.is_empty() || after.starts_with(' ') => {
-            said.get(..=sentence.len())
-        }
-        _ => Some(said),
+/// The list published with a nightly, unless this build is that nightly.
+async fn changes_of(tag: &str) -> Result<String, String> {
+    let baked = shipped_since_stable(BAKED_CHANGES);
+    if baked.is_some_and(|(_, shipped)| shipped.last().is_some_and(|last| last.tag == tag)) {
+        return Ok(BAKED_CHANGES.to_owned());
     }
+    let url = format!("{REPO_WEB}/releases/download/{tag}/RELEASE_CHANGES.md");
+    let response = get(&url).await?;
+    response.text().await.map_err(|error| error.to_string())
 }
 
 async fn previous_tag(version: &Version) -> Option<String> {
@@ -324,8 +332,7 @@ fn previous_release<'a>(version: &Version, tags: impl Iterator<Item = &'a str>) 
     .map(|(_, tag)| tag.to_owned())
 }
 
-/// Who committed between the two tags, and the subjects of the commits that are not merges.
-async fn credits_between(previous: &str, tag: &str) -> Option<(ReleaseCredits, Vec<String>)> {
+async fn credits_between(previous: &str, tag: &str) -> Option<ReleaseCredits> {
     let page_url = |page: usize| {
         format!("{REPO_API}/compare/{previous}...{tag}?per_page={COMMITS_PER_PAGE}&page={page}")
     };
@@ -345,19 +352,12 @@ async fn credits_between(previous: &str, tag: &str) -> Option<(ReleaseCredits, V
     }
     rest.sort_by_key(|(page, _)| *page);
     commits.extend(rest.into_iter().flat_map(|(_, page)| page));
-    let subjects = commits
-        .iter()
-        .filter(|commit| commit.parents.len() < 2)
-        .filter_map(|commit| commit.commit.message.lines().next())
-        .map(str::to_owned)
-        .collect();
-    let credits = ReleaseCredits {
+    Some(ReleaseCredits {
         commits: total,
         compare: format!("{REPO_WEB}/compare/{previous}...{tag}"),
         contributors: tally(commits),
         avatars: HashMap::new(),
-    };
-    Some((credits, subjects))
+    })
 }
 
 /// People ordered by how many commits they made, one entry per GitHub account. A commit
@@ -403,7 +403,7 @@ fn tally(commits: Vec<ComparedCommit>) -> Vec<Contributor> {
     people
 }
 
-async fn get_json<T: DeserializeOwned>(url: &str) -> Result<T, String> {
+async fn get(url: &str) -> Result<reqwest::Response, String> {
     let response = client()
         .map_err(|error| error.to_string())?
         .get(url)
@@ -415,6 +415,11 @@ async fn get_json<T: DeserializeOwned>(url: &str) -> Result<T, String> {
     if !response.status().is_success() {
         return Err(response.status().to_string());
     }
+    Ok(response)
+}
+
+async fn get_json<T: DeserializeOwned>(url: &str) -> Result<T, String> {
+    let response = get(url).await?;
     response.json().await.map_err(|error| error.to_string())
 }
 

@@ -716,9 +716,11 @@ fn main(
             error = error
         ))
         .into_any_element(),
-        (None, Some(Ok(_))) => {
-            status(t!("v{version} shipped without notes.", version = version)).into_any_element()
-        }
+        (None, Some(Ok(_))) => status(t!(
+            "Nothing you'd notice changed in v{version}.",
+            version = version
+        ))
+        .into_any_element(),
         (None, None) => {
             status(t!("Loading the notes for v{version}…", version = version)).into_any_element()
         }

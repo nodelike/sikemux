@@ -11,6 +11,7 @@ bash -n packaging/arch/PKGBUILD packaging/arch/prepare.sh packaging/arch/build-r
 node --check scripts/verify-updater-signature.mjs
 node --check scripts/app-metadata.mjs
 node --check scripts/release-credits.mjs
+node --check scripts/release-notes.mjs
 node --check scripts/build-core.mjs
 node --check scripts/smoke-core.mjs
 node --check scripts/build-voice-helper.mjs
@@ -240,6 +241,12 @@ CARGO_VERSION="$(node -e '
   echo "package.json and Cargo package versions differ" >&2
   exit 1
 }
+
+# 0.6.4-nightly.239 was published with an empty list of changes.
+if [[ -z "$(node scripts/release-notes.mjs app 461f55a4a2157013874d8edb92a4d0c5bb94b9fc cf09df49f1723297f5867a00bcf0e9f9f8ae17b4)" ]]; then
+  echo "0.6.4-nightly.239's notes list nothing" >&2
+  exit 1
+fi
 
 # Exercise the verifier against a fresh ephemeral key and prove that changing
 # the signed bytes, or signing with another key, is rejected. The fixture signs
