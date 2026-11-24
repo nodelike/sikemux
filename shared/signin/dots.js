@@ -564,17 +564,6 @@ export function markOn(particles, most, scattered) {
                     const grain = order[at % shown]?.[1] ?? { x: 0, y: 0 };
                     home.set([grain.x * 1.2, grain.y * 1.2, 0, 0], at * 4);
                 }
-            for (const [column, row, cover, chance, ...ink] of marks) {
-                const torn = failed ? Math.max(0, (column + row) / SIDE + 0.28 + (chance - 0.5) * 0.35) : 0;
-                if (chance < torn * 0.35) continue;
-                const flung = torn * torn * 150;
-                pen.fillStyle = `rgb(${ink.map((channel) => channel * 255).join(" ")})`;
-                dot(
-                    centerX + column * PITCH + flung * (0.5 + chance),
-                    centerY + row * PITCH + flung * (chance - 0.2),
-                    2.55 * Math.sqrt(cover),
-                    Math.max(0.16, 1 - torn * 1.1),
-                );
             }
             group.update();
         },
