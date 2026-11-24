@@ -11,7 +11,7 @@ $ErrorActionPreference = "Stop"
 
 $Id = "Nodelike.Sikemux"
 $ProductCode = "{6D6F1A52-3B1C-4B7E-9C55-5A3E2D8B7C41}_is1"
-$Description = "A whole team of AI coders, in one window"
+$Description = "Own your software factory: agents build and ship, you make the calls"
 $Installers = [ordered]@{
   x64 = @{ File = $X64; Url = "$Base/$(Split-Path $X64 -Leaf)"; Hash = (Get-FileHash $X64 -Algorithm SHA256).Hash }
   arm64 = @{ File = $Arm64; Url = "$Base/$(Split-Path $Arm64 -Leaf)"; Hash = (Get-FileHash $Arm64 -Algorithm SHA256).Hash }

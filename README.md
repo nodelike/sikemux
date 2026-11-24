@@ -2,15 +2,15 @@
 
 # Sikemux
 
-**A whole team of AI coders, in one window.**
+**Own your software factory.**
+
+`Open-source agentic infrastructure · MIT`
 
 English · [简体中文](README.zh-CN.md) · [日本語](README.ja.md)
 
-Other tools give you one AI assistant. Sikemux gives you a team: Claude Code, Codex and more, side by side in one native app, where you see who's working, who's stuck and who needs you.
+**Agents build and ship. You make the calls.** A project chief staffs and routes Claude Code, Codex and more across your laptops, servers and phone, with shared rules, peer review, real browser testing and release gates.
 
-Out of Claude? The chat carries on in Codex.
-
-A native app, not Electron, about 30 MB. Claude Code, Codex and more on the plans you already pay for, working as one team. Free and MIT, for Apple Silicon Macs, Windows and Linux.
+Native Rust app on the GPU, about 30 MB, using the plans you already pay for. Free and MIT for Apple Silicon Macs, Windows and Linux.
 
 ![Sikemux with a Claude Code agent and its browser tab](docs/screenshots/sikemux-hero.png)
 
@@ -54,6 +54,7 @@ macOS 11+ on Apple Silicon, Windows 10 22H2+ on x64 and arm64, or Linux on x86_6
 ## Why Sikemux
 
 - **Every agent, side by side.** Claude, Codex, OpenCode, Hermes, Pi and Muse, several at once, each with its own browser tabs.
+- **Out of Claude?** The chat carries on in Codex.
 - **Agents that see your work.** `@` an agent, `#` an issue, `!` a PR, `+` a file, `&` something from the stash, hand over a terminal selection or a log. Give a chat its own worktree.
 - **Your tools, already wired.** GitHub, GitLab, Jira, Linear, Slack, Vercel, AWS, your databases. Sign in once; every agent can use them.
 - **Nothing stops when you quit.** Terminals, agents and processes keep running and come back where you left them.

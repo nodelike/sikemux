@@ -10,7 +10,7 @@ autolib = false
 # How the app is named and known to the system, for the release scripts and the core.
 [package.metadata.sikemux]
 name = "Sikemux"
-description = "The IDE for you and your coding agents"
+description = "Own your software factory"
 identifier = "com.nodelike.sikemux"
 dev-name = "Sikemux Dev"
 dev-identifier = "com.nodelike.sikemux.dev"

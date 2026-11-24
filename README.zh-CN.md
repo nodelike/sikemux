@@ -2,15 +2,15 @@
 
 # Sikemux
 
-**一整支 AI 编程团队，尽在一个窗口。**
+**你自己的软件工厂。**
+
+`开源智能体基础设施 · MIT`
 
 [English](README.md) · 简体中文 · [日本語](README.ja.md)
 
-别的工具给你一个 AI 助手，Sikemux 给你一支团队：Claude Code、Codex 等编程智能体并排跑在同一个原生应用里。谁在干活、谁卡住了、谁在等你，一眼就能看到。
+**智能体开发并交付，你来拍板。** 每个项目都有一位 Chief，把活派给笔记本和服务器上的 Claude Code、Codex 等编程智能体，你在手机上也能随时跟进。规则共用，互相审阅，在真实浏览器里测试，发布也有把关。
 
-Claude 额度用完了？这段对话可以接着在 Codex 里继续。
-
-原生应用，不是 Electron，安装包约 30 MB。Claude Code、Codex 等智能体用的是你已经在付费的订阅，作为一个团队协作。免费、MIT 开源，支持 Apple Silicon Mac、Windows 和 Linux。
+GPU 渲染的 Rust 原生应用，约 30 MB，直接用你已在付费的订阅。免费、MIT 开源，支持 Apple Silicon Mac、Windows 和 Linux。
 
 ![Sikemux：一个 Claude Code 智能体和它的浏览器标签页](docs/screenshots/sikemux-hero.png)
 
@@ -62,6 +62,7 @@ Sikemux 的界面有简体中文：打开 Settings（设置）→ General（通�
 ## 为什么选 Sikemux
 
 - **所有智能体并排工作。** Claude、Codex、OpenCode、Hermes、Pi 和 Muse，可以同时开好几个，每个都有自己的浏览器标签页。
+- **Claude 额度用完了？** 这段对话可以直接在 Codex 里继续。
 - **智能体看得到你的工作。** 用 `@` 提到一个智能体，`#` 一个 issue，`!` 一个 PR，`+` 一个文件，`&` 暂存区里的内容，也可以把终端里选中的文字或一段日志直接交给它。还可以给一段对话单独开一个 worktree。
 - **你的工具已经接好。** GitHub、GitLab、Jira、Linear、Slack、Vercel、AWS 和你的数据库。登录一次，所有智能体都能用。
 - **退出应用也不会中断。** 终端、智能体和进程会继续运行，回来时还在原来的位置。

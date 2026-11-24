@@ -38,7 +38,7 @@ cask "sikemux" do
 
   url "https://github.com/nodelike/sikemux/releases/download/v#{version}/Sikemux_#{version}_aarch64.dmg"
   name "Sikemux"
-  desc "Native workspace for Claude Code, Codex and other coding agents"
+  desc "Open-source software factory for Claude Code, Codex and other coding agents"
   homepage "https://sikemux.com/"
 
   livecheck do

@@ -278,8 +278,7 @@ function GetSikemux() {
           Watching a chat from Sikemux
         </div>
         <div>
-          A whole team of AI coders, in one window. Free for Mac, Windows and
-          Linux.
+          Own your software factory. Free for Mac, Windows and Linux.
         </div>
       </div>
       <a href={GET_SIKEMUX}>Get Sikemux</a>
