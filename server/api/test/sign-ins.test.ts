@@ -517,6 +517,24 @@ async function frozenAt() {
   return user.frozen_at;
 }
 
+async function stripRetryAt() {
+  const user = await database.db
+    .selectFrom("users")
+    .select("strip_retry_at")
+    .where("id", "=", MAYA)
+    .executeTakeFirstOrThrow();
+  return user.strip_retry_at;
+}
+
+/** The sweep, once every removal still waiting is due. */
+async function sweepRemovals(clerk: FakeClerk) {
+  await database.db
+    .updateTable("sign_in_removals")
+    .set({ rerun_at: new Date() })
+    .execute();
+  await sweepClerk(database.db, clerk, null, log);
+}
+
 /** Clerk telling the API Maya's account changed, showing the addresses it lists with their times. */
 function clerkUpdated(
   clerk: FakeClerk,
@@ -689,6 +707,202 @@ it("freezes the account while Clerk fails to end the Acme session, when the Acme
     stripWorkSignIns(database.db, clerk, PROOF_KEY, log, MAYA),
   ).rejects.toThrow("Clerk answered 500");
   expect(await frozenAt()).not.toBeNull();
+});
+
+it("refuses the Acme session while Clerk fails to take off the Acme Google, and nothing older", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_own", createdAt: new Date(Date.now() - 3_600_000) },
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  const removeAccount = clerk.removeExternalAccount.bind(clerk);
+  clerk.removeExternalAccount = () =>
+    Promise.reject(new Error("Clerk answered 500"));
+  const app = testApp(database);
+  const signedIn = async (sid: string) =>
+    (
+      await caller(app)(
+        "/v1/devices/challenge",
+        await sessionToken(MAYA, { claims: { sid } }),
+        { method: "POST" },
+      )
+    ).status;
+
+  await expect(
+    stripWorkSignIns(database.db, clerk, null, log, MAYA),
+  ).rejects.toThrow("Clerk answered 500");
+  expect(await signedIn("sess_work")).toBe(401);
+  expect(await signedIn("sess_own")).toBe(200);
+  expect(await frozenAt()).toBeNull();
+
+  clerk.userSessions.get(MAYA)?.push({
+    id: "sess_again",
+    createdAt: new Date(added.getTime() + 2),
+  });
+  await sweepRemovals(clerk);
+  expect(await signedIn("sess_again")).toBe(401);
+  expect(await signedIn("sess_own")).toBe(200);
+
+  clerk.removeExternalAccount = removeAccount;
+  await sweepRemovals(clerk);
+  expect(clerk.users.get(MAYA)?.externalAccounts).toEqual([]);
+  expect(clerk.users.get(MAYA)?.addresses.map((a) => a.id)).toEqual([
+    "idn_own",
+  ]);
+  expect(clerk.revoked).toEqual(["sess_work", "sess_again"]);
+  expect(await frozenAt()).toBeNull();
+});
+
+it("refuses the Acme session while Clerk fails to show the Acme address gone", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  const signIns = clerk.signIns.bind(clerk);
+  let reads = 0;
+  clerk.signIns = (userId) =>
+    reads++ === 0
+      ? signIns(userId)
+      : Promise.reject(new Error("Clerk answered 500"));
+
+  await expect(
+    stripWorkSignIns(database.db, clerk, null, log, MAYA),
+  ).rejects.toThrow("Clerk answered 500");
+
+  const work = await sessionToken(MAYA, { claims: { sid: "sess_work" } });
+  const response = await caller(testApp(database))(
+    "/v1/devices/challenge",
+    work,
+    { method: "POST" },
+  );
+  expect(response.status).toBe(401);
+});
+
+it("freezes the account on the sweep's timer when Clerk failed to list its sessions, though the Acme address is the last way in", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  const maya = clerk.users.get(MAYA);
+  if (!maya) throw new Error("no Maya");
+  maya.addresses = maya.addresses.filter((a) => a.id !== "idn_own");
+  maya.primaryAddressId = "idn_work";
+  const sessions = clerk.sessions.bind(clerk);
+  clerk.sessions = () => Promise.reject(new Error("Clerk answered 500"));
+  await expect(
+    stripWorkSignIns(database.db, clerk, PROOF_KEY, log, MAYA),
+  ).rejects.toThrow("Clerk answered 500");
+
+  clerk.sessions = sessions;
+  await database.db
+    .updateTable("users")
+    .set({ strip_retry_at: new Date() })
+    .execute();
+  await sweepClerk(database.db, clerk, PROOF_KEY, log);
+
+  expect(await frozenAt()).not.toBeNull();
+  expect(clerk.revoked).toEqual(["sess_work"]);
+  expect(await stripRetryAt()).toBeNull();
+});
+
+it("keeps a Mac Maya signed in from her own session while Clerk goes on failing to take off the Acme Google", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_own", createdAt: new Date(Date.now() - 3_600_000) },
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  clerk.removeExternalAccount = () =>
+    Promise.reject(new Error("Clerk answered 500"));
+  const app = testApp(database);
+  await expect(
+    stripWorkSignIns(database.db, clerk, null, log, MAYA),
+  ).rejects.toThrow("Clerk answered 500");
+  await database.db
+    .updateTable("ended_sessions")
+    .set({ ended_at: new Date(Date.now() - 3_600_000) })
+    .execute();
+  const mac = await signInMac(app, MAYA);
+  expect(mac.response.status).toBe(201);
+
+  await sweepRemovals(clerk);
+
+  expect((await signedAsHost(app, mac)).status).toBe(200);
+  expect((await signInMac(app, MAYA)).response.status).toBe(201);
+});
+
+it("keeps the sweep's timer a strip set while the sweep ran its own", async () => {
+  const { clerk } = await mayaWithAcmeAddress();
+  const signIns = clerk.signIns.bind(clerk);
+  clerk.signIns = () => Promise.reject(new Error("Clerk answered 500"));
+  const failedStrip = () =>
+    expect(
+      stripWorkSignIns(database.db, clerk, null, log, MAYA),
+    ).rejects.toThrow("Clerk answered 500");
+  await failedStrip();
+  await database.db
+    .updateTable("users")
+    .set({ strip_retry_at: new Date() })
+    .execute();
+  const sessions = clerk.sessions.bind(clerk);
+  let meanwhile: Promise<void> | null = null;
+  clerk.sessions = async (userId) => {
+    clerk.signIns = () => Promise.reject(new Error("Clerk answered 500"));
+    meanwhile ??= failedStrip();
+    await meanwhile;
+    clerk.signIns = signIns;
+    return sessions(userId);
+  };
+  clerk.signIns = signIns;
+
+  await sweepClerk(database.db, clerk, null, log);
+
+  expect(meanwhile).not.toBeNull();
+  expect((await stripRetryAt())?.getTime()).toBeGreaterThan(Date.now());
+});
+
+it("runs the strip on the sweep's timer when Clerk failed to say what Maya signs in with", async () => {
+  const { clerk, added } = await mayaWithAcmeAddress();
+  clerk.userSessions.set(MAYA, [
+    { id: "sess_work", createdAt: new Date(added.getTime() + 1) },
+  ]);
+  clerk.failing = true;
+  await expect(
+    stripWorkSignIns(database.db, clerk, null, log, MAYA),
+  ).rejects.toThrow("Clerk answered 500");
+
+  clerk.failing = false;
+  await database.db
+    .updateTable("users")
+    .set({ strip_retry_at: new Date() })
+    .where("strip_retry_at", "is not", null)
+    .execute();
+  await sweepClerk(database.db, clerk, null, log);
+
+  expect(clerk.users.get(MAYA)?.addresses.map((a) => a.id)).toEqual([
+    "idn_own",
+  ]);
+  expect(clerk.revoked).toEqual(["sess_work"]);
+  expect(await stripRetryAt()).toBeNull();
+});
+
+it("takes off the Acme Google on the sweep's timer when Clerk fails after staff lifted the freeze", async () => {
+  const { clerk } = await mayaWithAcmeAddress();
+  const removeAccount = clerk.removeExternalAccount.bind(clerk);
+  clerk.removeExternalAccount = () =>
+    Promise.reject(new ClerkRefusal("Clerk answered 404"));
+  await stripWorkSignIns(database.db, clerk, null, log, MAYA);
+  await database.db.updateTable("users").set({ frozen_at: null }).execute();
+  clerk.removeExternalAccount = () =>
+    Promise.reject(new Error("Clerk answered 500"));
+  await expect(
+    stripWorkSignIns(database.db, clerk, null, log, MAYA),
+  ).rejects.toThrow("Clerk answered 500");
+
+  clerk.removeExternalAccount = removeAccount;
+  await sweepRemovals(clerk);
+
+  expect(clerk.users.get(MAYA)?.externalAccounts).toEqual([]);
+  expect(await frozenAt()).toBeNull();
 });
 
 it("tells staff when Clerk lists a connected account without the id it is removed by", async () => {

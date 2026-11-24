@@ -16,10 +16,13 @@ Table users {
   admitted_at timestamptz
   new_kept_at timestamptz
   frozen_at timestamptz
+  strip_attempts integer [not null, default: 0]
+  strip_retry_at timestamptz
 
   indexes {
     billing_retry_at [name: 'users_awaiting_billing', note: 'where (billing_retry_at IS NOT NULL)']
     clerk_retry_at [name: 'users_awaiting_clerk', note: 'where ((deleted_at IS NOT NULL) AND (clerk_deleted_at IS NULL))']
+    strip_retry_at [name: 'users_awaiting_strip', note: 'where (strip_retry_at IS NOT NULL)']
     purge_after [name: 'users_to_purge', note: 'where (purge_after IS NOT NULL)']
   }
 }

@@ -59,6 +59,8 @@ export interface Tables {
     admitted_at: ColumnType<Date | null, Date | undefined, Date>;
     frozen_at: ColumnType<Date | null, never, Date | null>;
     new_kept_at: ColumnType<Date | null, never, Date>;
+    strip_attempts: ColumnType<number, never, number>;
+    strip_retry_at: ColumnType<Date | null, never, Date | null>;
   };
   address_proofs: {
     id: Generated<string>;

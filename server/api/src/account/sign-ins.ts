@@ -39,7 +39,9 @@ const BEFORE_LIFTING =
  * the connected account that brought it, so the work Google stops signing in too. Then ends every
  * session made since it first appeared, with what those sessions put on the account and every
  * other way to sign in added since. Nothing the account was admitted with goes. When the work
- * address can't go because the person's own ways are gone, the account is frozen instead.
+ * address can't go because the person's own ways are gone, the account is frozen instead. One Clerk
+ * fails to take off leaves the account unfrozen: the sessions made since it appeared are refused,
+ * and the removal waits to be tried again.
  */
 export async function stripWorkSignIns(
   db: Kysely<Tables>,
@@ -54,7 +56,7 @@ export async function stripWorkSignIns(
     .where("id", "=", userId)
     .executeTakeFirst();
   if (!user) return;
-  const signIns = await clerk.signIns(userId);
+  const signIns = await clerk.signIns(userId).catch(stripAgainSoon(db, userId));
   if (!signIns) return;
   if (signIns.accountsWithoutId.length) {
     log.error(
@@ -95,6 +97,7 @@ export async function stripWorkSignIns(
       })),
   ];
 
+  const failures: unknown[] = [];
   for (const { address, email, addedAt, brought } of workSignIns) {
     if (addedAt <= admittedAt) continue;
     const refusal = await workAddressRefusal(db, proofKey, email, addedAt);
@@ -139,6 +142,7 @@ export async function stripWorkSignIns(
       appeared,
       stretch: stretch?.id ?? null,
     });
+    await refuseSessionsSince(db, clerk, log, userId, appeared);
     try {
       if (primary) {
         await clerk.setPrimaryAddress(userId, primary.id);
@@ -153,7 +157,20 @@ export async function stripWorkSignIns(
       if (address) await clerk.removeAddress(address.id);
       signIns.addresses = signIns.addresses.filter((a) => a !== address);
     } catch (error) {
-      if (!(error instanceof ClerkRefusal)) throw error;
+      if (!(error instanceof ClerkRefusal)) {
+        failures.push(error);
+        await db
+          .updateTable("sign_in_removals")
+          .set({
+            end_sessions_from: appeared,
+            rerun_at: sql<Date>`now() + interval '1 minute'`,
+          })
+          .where("user_id", "=", userId)
+          .where("address_id", "=", clerkId)
+          .where("end_sessions_from", "is", null)
+          .execute();
+        continue;
+      }
       const window = { since: appeared, admittedAt };
       await freeze(
         db,
@@ -180,6 +197,7 @@ export async function stripWorkSignIns(
       admittedAt,
     });
   await endSessionsOfRemoved(db, clerk, proofKey, log, userId, admittedAt);
+  if (failures.length) throw failures[0];
 }
 
 /**
@@ -457,14 +475,40 @@ async function stopWaiting(
     .execute();
 }
 
-/** Ends the sessions, refuses their tokens, and removes the devices and open folds they made. */
+/**
+ * Ends the sessions made since a work address appeared before it is asked off, so a Clerk that fails
+ * to take it off leaves them refused. Its own failure is left to the removal, which still waits.
+ */
+async function refuseSessionsSince(
+  db: Kysely<Tables>,
+  clerk: ClerkBackend,
+  log: Logger,
+  userId: string,
+  since: Date,
+) {
+  try {
+    const opened = (await clerk.sessions(userId)).filter(
+      (session) => session.createdAt >= since,
+    );
+    if (opened.length) await endSessions(db, clerk, userId, opened);
+  } catch (error) {
+    log.warn(
+      { userId, err: error },
+      "could not end every session before taking off a work address",
+    );
+  }
+}
+
+/**
+ * Ends the sessions, refuses their tokens, and removes the devices and open folds they made. A Mac
+ * signed in since a session ended in an earlier run was let in by another session, so it stays.
+ */
 async function endSessions(
   db: Kysely<Tables>,
   clerk: ClerkBackend,
   userId: string,
   opened: ClerkSession[],
 ): Promise<number> {
-  const firstMade = Math.min(...opened.map((s) => s.createdAt.getTime()));
   const ids = opened.map((session) => session.id);
   const devices = await db.transaction().execute(async (trx) => {
     await trx
@@ -478,7 +522,7 @@ async function endSessions(
       .where("session_id", "in", ids)
       .where("cause", "=", "device_removed")
       .execute();
-    await trx
+    const newlyEnded = await trx
       .insertInto("ended_sessions")
       .values(
         opened.map((session) => ({
@@ -488,6 +532,7 @@ async function endSessions(
         })),
       )
       .onConflict((oc) => oc.column("session_id").doNothing())
+      .returning("made_at")
       .execute();
     const added = await trx
       .selectFrom("devices")
@@ -496,11 +541,18 @@ async function endSessions(
       .where((eb) =>
         eb.or([
           eb("sign_in_session", "in", ids),
-          eb(
-            "mac_signed_in_at",
-            ">=",
-            new Date(firstMade - CLERK_CLOCK_SLACK_MS),
-          ),
+          ...(newlyEnded.length
+            ? [
+                eb(
+                  "mac_signed_in_at",
+                  ">=",
+                  new Date(
+                    Math.min(...newlyEnded.map((s) => s.made_at.getTime())) -
+                      CLERK_CLOCK_SLACK_MS,
+                  ),
+                ),
+              ]
+            : []),
         ]),
       )
       .execute();
@@ -521,20 +573,26 @@ async function endSessions(
       .execute();
     return added.length;
   });
-  for (const session of opened)
-    if (session.live) await clerk.revokeSession(session.id);
+  const live = opened.filter((session) => session.live).map(({ id }) => id);
+  for (const id of live) await clerk.revokeSession(id);
   await db
     .updateTable("ended_sessions")
     .set({ ended_at: sql<Date>`clock_timestamp()` })
     .where("session_id", "in", ids)
+    .where((eb) =>
+      eb.or([
+        eb("ended_at", "is", null),
+        ...(live.length ? [eb("session_id", "in", live)] : []),
+      ]),
+    )
     .execute();
   return devices;
 }
 
 /**
  * Ends at Clerk, by their own ids, the sessions the API recorded but could not end, then runs the
- * strip again for each account that had one of the strip's or has a removal waiting that is due,
- * backing off one that keeps waiting, so a strip that failed finishes without waiting on Clerk to
+ * strip again for each account that had one of the strip's, or whose strip is due again, backing
+ * off one that keeps waiting, so a strip that failed finishes without waiting on Clerk to
  * list the session again or on the account's next change.
  */
 export async function retryEndedSessions(
@@ -601,12 +659,85 @@ export async function retryEndedSessions(
     .limit(limit)
     .execute();
   for (const { user_id } of waiting) accounts.add(user_id);
+  const unlisted = await db
+    .selectFrom("users")
+    .select("id")
+    .where("strip_retry_at", "<=", sql<Date>`now()`)
+    .orderBy("strip_retry_at")
+    .limit(limit)
+    .execute();
+  for (const { id } of unlisted) accounts.add(id);
   for (const userId of accounts) {
+    const marked = await stripRetry(db, userId);
     const failure = await stripWorkSignIns(db, clerk, proofKey, log, userId)
       .then(() => null)
       .catch((error: unknown) => error);
     await rerunLater(db, log, userId, failure);
+    await rerunUnlisted(db, log, userId, marked, failure);
   }
+}
+
+/** Has the sweep run the account's strip again after a read of Clerk failed, which it rethrows. */
+function stripAgainSoon(db: Kysely<Tables>, userId: string) {
+  return async (error: unknown): Promise<never> => {
+    await db
+      .updateTable("users")
+      .set({
+        strip_retry_at: sql<Date>`greatest(strip_retry_at, date_trunc('milliseconds', now() + interval '1 minute'))`,
+      })
+      .where("id", "=", userId)
+      .execute();
+    throw error;
+  };
+}
+
+async function stripRetry(db: Kysely<Tables>, userId: string) {
+  return db
+    .selectFrom("users")
+    .select(["strip_attempts", "strip_retry_at"])
+    .where("id", "=", userId)
+    .where("strip_retry_at", "is not", null)
+    .executeTakeFirst();
+}
+
+type StripRetry = Awaited<ReturnType<typeof stripRetry>>;
+
+/**
+ * Backs off an account whose strip could not read it at Clerk. Once a strip ran through, clears the
+ * mark it started under, and leaves one another strip made since.
+ */
+async function rerunUnlisted(
+  db: Kysely<Tables>,
+  log: Logger,
+  userId: string,
+  marked: StripRetry,
+  failure: unknown,
+) {
+  if (failure === null) {
+    if (marked)
+      await db
+        .updateTable("users")
+        .set({ strip_attempts: 0, strip_retry_at: null })
+        .where("id", "=", userId)
+        .where("strip_retry_at", "=", marked.strip_retry_at)
+        .execute();
+    return;
+  }
+  const mark = await stripRetry(db, userId);
+  if (!mark) return;
+  const attempts = mark.strip_attempts + 1;
+  await db
+    .updateTable("users")
+    .set({
+      strip_attempts: attempts,
+      strip_retry_at: retryLater(
+        log,
+        { service: "Clerk", what: "finish an account's strip" },
+        { error: failure, attempts, userId },
+      ),
+    })
+    .where("id", "=", userId)
+    .execute();
 }
 
 /** Backs off the account's removals that still wait after a strip ran again, as a failed call to Clerk. */
@@ -761,7 +892,10 @@ async function takeWaysAddedSince(
   );
 }
 
-/** Freezes the account when a session was made since `since`, before ending those sessions. */
+/**
+ * Freezes the account when a session was made since `since`, before ending those sessions. When
+ * Clerk can't list them, the sweep runs the strip again.
+ */
 async function freezeIfSignedInSince(
   db: Kysely<Tables>,
   clerk: ClerkBackend,
@@ -769,7 +903,10 @@ async function freezeIfSignedInSince(
   userId: string,
   { signIns, why, ...window }: Window & { signIns: SignIns; why: string },
 ) {
-  const opened = (await clerk.sessions(userId)).filter(
+  const sessions = await clerk
+    .sessions(userId)
+    .catch(stripAgainSoon(db, userId));
+  const opened = sessions.filter(
     (session) => session.createdAt >= window.since,
   );
   if (opened.length === 0) {
