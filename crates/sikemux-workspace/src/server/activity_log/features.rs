@@ -34,7 +34,6 @@ const COMMANDS: &[&str] = &[
     "window.git",
     "window.agents",
     "window.search",
-    "window.board",
     "window.goals",
     "window.hosts",
     "window.playbook",

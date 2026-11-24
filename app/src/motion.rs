@@ -113,7 +113,7 @@ pub const TREE_FOLD: Ease = Ease::new(140, Curve::CSS);
 pub const THUMB_SLIDE: Ease = Ease::new(160, Curve::Bezier(0.3, 0.7, 0.2, 1.));
 /// A list's group, a run's step or a release's assets.
 pub const LIST_FOLD: Ease = Ease::new(90, Curve::CSS);
-/// A team in the agents rail, or a lane on the board.
+/// A team in the agents rail, or a section of a list.
 pub const LANE_FOLD: Ease = Ease::new(90, Curve::CSS_OUT);
 
 pub const TOOLTIP_IN: Ease = Ease::new(110, Curve::CSS_OUT);

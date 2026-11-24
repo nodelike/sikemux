@@ -49,7 +49,6 @@ pub fn of(kind: PaneKind) -> Kind {
         PaneKind::Files => kind_of(Icon::File, t!("Files"), WhenSaved, false),
         PaneKind::Git => kind_of(Icon::Git, "Git", Always, true),
         PaneKind::Search => kind_of(Icon::Search, t!("Search"), Always, true),
-        PaneKind::Board => kind_of(Icon::Window, t!("Closed"), Never, true),
         PaneKind::Desk => kind_of(Icon::PanelRight, t!("Desk"), Never, false),
         PaneKind::ProjectSettings => kind_of(Icon::Book, t!("Playbook"), Never, true),
         PaneKind::InstallSikemux => kind_of(Icon::Server, "Sikemux", Never, true),
@@ -142,7 +141,6 @@ pub fn make(
         PaneKind::Git => bench.git_pane(window, cx),
         PaneKind::Search => bench.search_pane(cx),
         PaneKind::Agent
-        | PaneKind::Board
         | PaneKind::Terminal
         | PaneKind::Files
         | PaneKind::Desk
@@ -182,7 +180,6 @@ pub fn draw(
             Some(pane) => ui::pane(cx).child(pane.clone()).into_any_element(),
             None => ui::pane(cx).into_any_element(),
         },
-        PaneKind::Board => ui::pane(cx).into_any_element(),
         PaneKind::Agent => crate::home::agent_view(bench, tab, id, target, cx),
         PaneKind::Desk => crate::desk::pane(bench, target, window, cx),
         PaneKind::ProjectSettings => crate::playbook::pane(bench, target, window, cx),
@@ -230,7 +227,6 @@ pub fn focus(kind: PaneKind, bench: &Workbench, target: &str, window: &mut Windo
         PaneKind::Files
         | PaneKind::Git
         | PaneKind::Search
-        | PaneKind::Board
         | PaneKind::ProjectSettings
         | PaneKind::InstallSikemux
         | PaneKind::Stash

@@ -990,11 +990,6 @@ impl Workbench {
                 }
             }
         }
-        if kinds.contains(&PaneKind::Board) {
-            if let (Some(strip), Some(tab)) = (self.strip(), self.tab().map(|tab| tab.id.clone())) {
-                return self.close_tabs(&strip, &[tab]);
-            }
-        }
         for kind in kinds {
             crate::pane_kind::make(kind, self, window, cx);
         }
