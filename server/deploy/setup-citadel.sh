@@ -154,17 +154,22 @@ install -m 644 "$here/sikemux-purge.timer" /etc/systemd/system/sikemux-purge.tim
 install -m 644 "$here/sikemux-places.service" /etc/systemd/system/sikemux-places.service
 install -m 644 "$here/sikemux-places.timer" /etc/systemd/system/sikemux-places.timer
 install -D -m 755 -o root -g root "$here/update-places" /usr/local/lib/sikemux/update-places
-install -m 644 "$here/sikemux-leaderboard.service" /etc/systemd/system/sikemux-leaderboard.service
-install -m 644 "$here/sikemux-leaderboard.timer" /etc/systemd/system/sikemux-leaderboard.timer
-install -D -m 755 -o root -g root "$here/update-leaderboard" /usr/local/lib/sikemux/update-leaderboard
+# Remove the leaderboard job that earlier runs of this script installed.
+if [ -e /etc/systemd/system/sikemux-leaderboard.timer ]; then
+  systemctl disable --now sikemux-leaderboard.timer >/dev/null
+fi
+if [ -e /etc/systemd/system/sikemux-leaderboard.service ]; then
+  systemctl stop sikemux-leaderboard.service
+fi
+rm -f /etc/systemd/system/sikemux-leaderboard.timer /etc/systemd/system/sikemux-leaderboard.service \
+  /usr/local/lib/sikemux/update-leaderboard /etc/sikemux/leaderboard.env \
+  /var/lib/systemd/timers/stamp-sikemux-leaderboard.timer
 systemctl daemon-reload
 systemctl enable sikemux-api >/dev/null
 [ "$api_env_changed" = 0 ] || systemctl try-restart sikemux-api
 systemctl enable --now sikemux-purge.timer >/dev/null
 systemctl enable --now sikemux-places.timer >/dev/null
 [ -f /var/lib/sikemux-places/dbip-asn-lite.mmdb ] || systemctl start sikemux-places
-# Needs POSTHOG_API_KEY, a PostHog personal key that can write insights.
-[ ! -f /etc/sikemux/leaderboard.env ] || systemctl enable --now sikemux-leaderboard.timer >/dev/null
 
 step "backups: nightly, encrypted to an offline age key, sent to R2"
 if ! command -v age >/dev/null || ! command -v rclone >/dev/null; then
