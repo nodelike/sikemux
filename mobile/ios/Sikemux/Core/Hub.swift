@@ -271,7 +271,8 @@ final class Hub {
     /// Starts a try unless one is under way; `again` gives up the one under way first.
     private func open(_ core: String, again: Bool = false) {
         let found = live(core)
-        guard !forgotten.contains(core), !away, !backgrounded, found.status != .open, found.current == nil || again else { return }
+        guard !forgotten.contains(core), !away, !backgrounded, found.status != .open, found.current == nil || again
+        else { return }
         found.retrying?.cancel()
         if found.tryingSince == nil { found.tryingSince = Date() }
         found.status = .connecting(problem: inGrace(found) ? nil : found.failure)
@@ -545,7 +546,8 @@ final class Hub {
             if answered {
                 if found.connection === connection { found.lastActivityAt = Date() }
             } else if found.connection === connection {
-                Self.log.info("host \(String(found.core.prefix(8)), privacy: .public) probe failed; refreshing endpoint")
+                Self.log.info(
+                    "host \(String(found.core.prefix(8)), privacy: .public) probe failed; refreshing endpoint")
                 reconnect(found, reason: String(localized: "The network changed."), refresh: true)
             }
         }
