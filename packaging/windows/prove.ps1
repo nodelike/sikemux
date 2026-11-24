@@ -1,11 +1,13 @@
 # Proves an installer on a clean runner, which runs as an administrator: a silent install, the app opening from where it was
 # installed, the service's core starting children at Medium, a silent reinstall over the running
 # app as the service runs an update, and an uninstall that leaves only the person's data.
+# A part can be a step of its own: a runner that dies keeps no log, only the name of its last step.
 param(
-  [Parameter(Mandatory)][string]$Installer,
-  [Parameter(Mandatory)][string]$Version,
-  [Parameter(Mandatory)][string]$Probe,
-  [Parameter(Mandatory)][string]$Remote,
+  [ValidateSet("install", "core", "update", "uninstall")][string[]]$Part = @("install", "core", "update", "uninstall"),
+  [string]$Installer,
+  [string]$Version,
+  [string]$Probe,
+  [string]$Remote,
   [Parameter(Mandatory)][string]$Out
 )
 $ErrorActionPreference = "Stop"
@@ -74,84 +76,106 @@ function Wait-Window($Seconds) {
   }
 }
 
-$Silent = "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
-# The service starts the core with the signed-in person's saved environment, not this step's.
-[Environment]::SetEnvironmentVariable("DO_NOT_TRACK", "1", "Machine")
-
-Run-Setup ($Silent + '/MERGETASKS="!shareusage"') "install.log"
-Check (Test-Path $App) "the app is in $Dir"
-Check (Test-Path $Shortcut) "the Start menu has Sikemux"
-$Entry = Get-ItemProperty $Uninstall
-Check ($Entry.DisplayVersion -eq $Version) "Apps & features lists $Version"
-$Info = (Get-Item $App).VersionInfo
-Check ($Info.ProductName -eq "Sikemux" -and $Info.ProductVersion -eq $Version) "sikemux.exe says Sikemux $Version"
-$Info = (Get-Item $Core).VersionInfo
-Check ($Info.ProductName -eq "Sikemux" -and $Info.ProductVersion -eq $Version) "sikemux-host.exe says Sikemux $Version"
-Check (Service-Running) "the $Service service runs and starts at boot"
-Check ((Get-Content $Preferences -Raw) -match '"shareUsageData":false') "unticking sharing turns usage data and crash reports off"
-
-Start-Process $App
-$Window = Wait-Window 60
-Check $Window "the installed app opens a window"
-Write-Host "window: $($Window.MainWindowTitle)"
-
-Check (Wait-Core 60) "the app starts its core"
-Check ((Core-Run enable) -eq 0) "sikemux-host enable exits 0"
-$Command = (Get-ItemProperty $SignIn -Name $SignInName -ErrorAction SilentlyContinue).$SignInName
-Check ($Command -like "`"$App`" --start-core *") "the core is set to start at sign-in from the app: $Command"
-Installed-Running | Stop-Process -Force
-Check ((Core-Run stop) -eq 0) "sikemux-host stop exits 0"
-Check (-not (Core-Answers)) "the core and its watcher are stopped"
-# Exactly what Windows runs at sign-in.
-Start-Process cmd.exe -ArgumentList "/d /s /c `"$Command`"" -WindowStyle Hidden
-Check (Wait-Core 30) "the sign-in command starts a core that answers"
-Start-Process $App
-$Window = Wait-Window 60
-Check $Window "the app opens again beside the core"
-
-$Status = & $Core status --json | ConvertFrom-Json
-$Parent = (Get-CimInstance Win32_Process -Filter "ProcessId = $($Status.pid)").ParentProcessId
-Check ($Parent -eq (Get-CimInstance Win32_Service -Filter "Name = '$Service'").ProcessId) "the $Service service started the running core"
-# A release core takes only the program at the app's path for its app, so the remote example
-# stands there while it asks the core to start children.
-$Installed = (Get-FileHash $App).Hash
-$Aside = "$env:TEMP\sikemux-installed.exe"
-$Running = Installed-Running
-$Running | Stop-Process -Force
-$Running | Wait-Process -Timeout 30
-Move-Item -Force $App $Aside
-try {
-  Copy-Item $Remote $App
-  & "$PSScriptRoot\..\..\app\ci\windows-children.ps1" -Socket $Status.socket -Probe $Probe -App $App -Out "$Out\children"
-  $Children = $LASTEXITCODE
-} finally {
-  Move-Item -Force $Aside $App
+# The runner's own agent opens a program for a moment after it runs, and Move-Item fails while it does.
+function Move-Freed($From, $To) {
+  $Deadline = (Get-Date).AddSeconds(30)
+  while ($true) {
+    try {
+      Move-Item -Force $From $To
+      return
+    } catch [System.IO.IOException] {
+      if ((Get-Date) -ge $Deadline) { throw }
+      Start-Sleep -Milliseconds 500
+    }
+  }
 }
-Check ((Get-FileHash $App).Hash -eq $Installed) "the installed app is back in place"
-Check ($Children -eq 0) "a git hook, an agent and a terminal's child of the service's core run at Medium"
-Start-Process $App
-Check (Wait-Window 60) "the app opens again after the children's check"
 
-Run-Setup $Silent "update.log"
-Check ((Installed-Running).Count -eq 0) "a silent reinstall closes the running app"
-Check (Service-Running) "the $Service service runs again after the reinstall"
-Start-Process $App
-Check (Wait-Window 60) "the updated app opens"
-Check (Wait-Core 60) "the updated app's core answers"
-& "$Dir\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/LOG=$Out\uninstall.log" | Out-Null
-# The uninstaller hands its work to a copy of itself and returns at once.
-$Deadline = (Get-Date).AddSeconds(60)
-while ((Test-Path $Dir) -and (Get-Date) -lt $Deadline) { Start-Sleep -Milliseconds 500 }
-Check (-not (Test-Path $Dir)) "the install folder is gone"
-Check (-not (Test-Path $Shortcut)) "the Start menu entry is gone"
-Check (-not (Test-Path $Uninstall)) "Apps & features no longer lists it"
-Check (-not (Test-Path $CliCopy)) "the agents' sikemux command is gone"
-Check (-not (Get-ItemProperty $SignIn -Name $SignInName -ErrorAction SilentlyContinue)) "the core no longer starts at sign-in"
-Check (-not (Test-Path $SignInFile)) "the sign-in file is gone"
-Check (-not (Test-Path $WatchFile)) "the core's watch file is gone"
-Check (@(Get-Process sikemux-host -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $Core }).Count -eq 0) "the core is stopped"
-Check (-not (Get-Service $Service -ErrorAction SilentlyContinue)) "the $Service service is removed"
-Check ((Installed-Running).Count -eq 0) "nothing runs from the install folder"
-Check (Test-Path $Preferences) "the person's data stays"
+$Silent = "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+switch ($Part) {
+  "install" {
+    # The service starts the core with the signed-in person's saved environment, not this step's.
+    [Environment]::SetEnvironmentVariable("DO_NOT_TRACK", "1", "Machine")
+
+    Run-Setup ($Silent + '/MERGETASKS="!shareusage"') "install.log"
+    Check (Test-Path $App) "the app is in $Dir"
+    Check (Test-Path $Shortcut) "the Start menu has Sikemux"
+    $Entry = Get-ItemProperty $Uninstall
+    Check ($Entry.DisplayVersion -eq $Version) "Apps & features lists $Version"
+    $Info = (Get-Item $App).VersionInfo
+    Check ($Info.ProductName -eq "Sikemux" -and $Info.ProductVersion -eq $Version) "sikemux.exe says Sikemux $Version"
+    $Info = (Get-Item $Core).VersionInfo
+    Check ($Info.ProductName -eq "Sikemux" -and $Info.ProductVersion -eq $Version) "sikemux-host.exe says Sikemux $Version"
+    Check (Service-Running) "the $Service service runs and starts at boot"
+    Check ((Get-Content $Preferences -Raw) -match '"shareUsageData":false') "unticking sharing turns usage data and crash reports off"
+
+    Start-Process $App
+    $Window = Wait-Window 60
+    Check $Window "the installed app opens a window"
+    Write-Host "window: $($Window.MainWindowTitle)"
+
+    Check (Wait-Core 60) "the app starts its core"
+    Check ((Core-Run enable) -eq 0) "sikemux-host enable exits 0"
+    $Command = (Get-ItemProperty $SignIn -Name $SignInName -ErrorAction SilentlyContinue).$SignInName
+    Check ($Command -like "`"$App`" --start-core *") "the core is set to start at sign-in from the app: $Command"
+    Installed-Running | Stop-Process -Force
+    Check ((Core-Run stop) -eq 0) "sikemux-host stop exits 0"
+    Check (-not (Core-Answers)) "the core and its watcher are stopped"
+    # Exactly what Windows runs at sign-in.
+    Start-Process cmd.exe -ArgumentList "/d /s /c `"$Command`"" -WindowStyle Hidden
+    Check (Wait-Core 30) "the sign-in command starts a core that answers"
+    Start-Process $App
+    $Window = Wait-Window 60
+    Check $Window "the app opens again beside the core"
+  }
+  "core" {
+    $Status = & $Core status --json | ConvertFrom-Json
+    $Parent = (Get-CimInstance Win32_Process -Filter "ProcessId = $($Status.pid)").ParentProcessId
+    Check ($Parent -eq (Get-CimInstance Win32_Service -Filter "Name = '$Service'").ProcessId) "the $Service service started the running core"
+    # A release core takes only the program at the app's path for its app, so the remote example
+    # stands there while it asks the core to start children.
+    $Installed = (Get-FileHash $App).Hash
+    $Aside = "$env:TEMP\sikemux-installed.exe"
+    $Running = Installed-Running
+    $Running | Stop-Process -Force
+    $Running | Wait-Process -Timeout 30
+    Move-Freed $App $Aside
+    try {
+      Copy-Item $Remote $App
+      & "$PSScriptRoot\..\..\app\ci\windows-children.ps1" -Socket $Status.socket -Probe $Probe -App $App -Out "$Out\children"
+      $Children = $LASTEXITCODE
+    } finally {
+      Move-Freed $Aside $App
+    }
+    Check ((Get-FileHash $App).Hash -eq $Installed) "the installed app is back in place"
+    Check ($Children -eq 0) "a git hook, an agent and a terminal's child of the service's core run at Medium"
+    Start-Process $App
+    Check (Wait-Window 60) "the app opens again after the children's check"
+  }
+  "update" {
+    Run-Setup $Silent "update.log"
+    Check ((Installed-Running).Count -eq 0) "a silent reinstall closes the running app"
+    Check (Service-Running) "the $Service service runs again after the reinstall"
+    Start-Process $App
+    Check (Wait-Window 60) "the updated app opens"
+    Check (Wait-Core 60) "the updated app's core answers"
+  }
+  "uninstall" {
+    & "$Dir\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/LOG=$Out\uninstall.log" | Out-Null
+    # The uninstaller hands its work to a copy of itself and returns at once.
+    $Deadline = (Get-Date).AddSeconds(60)
+    while ((Test-Path $Dir) -and (Get-Date) -lt $Deadline) { Start-Sleep -Milliseconds 500 }
+    Check (-not (Test-Path $Dir)) "the install folder is gone"
+    Check (-not (Test-Path $Shortcut)) "the Start menu entry is gone"
+    Check (-not (Test-Path $Uninstall)) "Apps & features no longer lists it"
+    Check (-not (Test-Path $CliCopy)) "the agents' sikemux command is gone"
+    Check (-not (Get-ItemProperty $SignIn -Name $SignInName -ErrorAction SilentlyContinue)) "the core no longer starts at sign-in"
+    Check (-not (Test-Path $SignInFile)) "the sign-in file is gone"
+    Check (-not (Test-Path $WatchFile)) "the core's watch file is gone"
+    Check (@(Get-Process sikemux-host -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $Core }).Count -eq 0) "the core is stopped"
+    Check (-not (Get-Service $Service -ErrorAction SilentlyContinue)) "the $Service service is removed"
+    Check ((Installed-Running).Count -eq 0) "nothing runs from the install folder"
+    Check (Test-Path $Preferences) "the person's data stays"
+  }
+}
 # Every failed check throws, so reaching here passes, whatever the last program run returned.
 exit 0
