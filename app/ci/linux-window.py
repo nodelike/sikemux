@@ -78,6 +78,8 @@ def page_drawn(run, name):
 
 
 def shown_in_chat(run):
+    # A tab to put over the page later, opened first since its long answer pushes the card out of the chat.
+    run.prompt(desk.json_tool("browser.navigate", {"url": f"{run.site}/page2.html", "newTab": True}))
     said = run.prompt("show " + json.dumps({"path": str(run.root / "site/shown.html"), "title": "Kit shown"}))
     card = lambda: next((frame for name, frame in ((run.state() or {}).get("spots") or {}).items()
                          if name.startswith("page-card-")), None)
@@ -85,9 +87,12 @@ def shown_in_chat(run):
     asked = time.time()
     page = desk.until(shown, 40) or {}
     waited = f"its desk tab loaded {time.time() - asked:.1f} s after it was shown" if page else "no desk tab loaded it"
-    # Another tab is put in front, so the click has the page's own to bring back.
-    run.prompt(desk.json_tool("browser.navigate", {"url": f"{run.site}/page2.html", "newTab": True}))
-    covered = desk.until(lambda: not shown(), 20)
+    other = next((name for name in desk.pills(run) if name.startswith("desk-page-") and "Kit shown" not in name), None)
+    over = desk.in_view(run, other) if other else None
+    if over:
+        x, y = desk.middle(over)
+        run.drive(f"click {x:.0f} {y:.0f}", "wait 1")
+    covered = desk.until(lambda: not shown(), 20) if over else None
     last = {}
 
     def settled_card():
@@ -99,8 +104,8 @@ def shown_in_chat(run):
     # The reply's last lines can still push the card up after it first shows, so click it only once it holds still.
     carded = desk.until(settled_card, 10)
     if carded:
-        x, y, width, height = carded
-        run.drive(f"click {x + width / 2:.0f} {y + height / 2:.0f}", "wait 1")
+        x, y = desk.middle(carded)
+        run.drive(f"click {x:.0f} {y:.0f}", "wait 1")
     forward = desk.until(shown, 10) if carded and covered else None
     copies = [other for other in desk.pages(run.desk()) if other.get("title") == "Kit shown page"]
     run.report("L6", said.startswith("tool answered") and bool(page) and bool(forward) and len(copies) == 1,
