@@ -34,9 +34,9 @@ use crate::settings::Settings;
 use crate::theme::{
     Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM,
 };
-use crate::ui;
 use crate::ui::numbers::compact;
 use crate::ui::time::{ago, now_ms};
+use crate::ui::{self, sign_in, Clicks};
 use crate::workbench::Workbench;
 
 /// What a search finds on this page.
@@ -81,7 +81,6 @@ pub struct Fields {
 
 struct OrgAdding {
     org: String,
-    kind: Kind,
     /// The providers offered, in the order `choice` lists them.
     offered: Vec<String>,
     picked: usize,
@@ -707,7 +706,6 @@ fn start_org_add(
         fields.failure = None;
         fields.org_adding = Some(OrgAdding {
             org,
-            kind,
             offered: offered.into_iter().map(|(id, _)| id).collect(),
             picked: 0,
             choice,
@@ -806,71 +804,97 @@ fn org_key_row(
     row(label, Some(about), controls, &t)
 }
 
-fn org_add_row(
-    fields: &Fields,
-    vault: &ShownOrgVault,
-    kind: Kind,
-    this: &Entity<Workbench>,
-    cx: &App,
-) -> AnyElement {
-    let adding = (fields.org_adding.as_ref())
-        .filter(|adding| adding.org == vault.org && adding.kind == kind);
-    let Some(adding) = adding else {
-        let this = this.clone();
-        let org = vault.org.clone();
-        return div()
-            .flex()
-            .px(SPACE_4)
-            .py(SPACE_2H)
-            .child(
-                ui::Button::new(
-                    SharedString::from(format!("org-key-add-{org}")),
-                    t!("Add a key for {org}", org = vault.name),
-                    ui::Variant::Outline,
-                )
-                .icon(crate::icons::Icon::Plus)
-                .on_click(move |_, window, cx| {
-                    let org = org.clone();
-                    this.update(cx, |bench, cx| start_org_add(bench, org, kind, window, cx))
-                }),
+fn org_add_row(vault: &ShownOrgVault, kind: Kind, this: &Entity<Workbench>) -> AnyElement {
+    let this = this.clone();
+    let org = vault.org.clone();
+    div()
+        .flex()
+        .px(SPACE_4)
+        .py(SPACE_2H)
+        .child(
+            ui::Button::new(
+                SharedString::from(format!("org-key-add-{org}")),
+                t!("Add a key for {org}", org = vault.name),
+                ui::Variant::Outline,
             )
-            .into_any_element();
-    };
+            .icon(crate::icons::Icon::Plus)
+            .on_click(move |_, window, cx| {
+                let org = org.clone();
+                this.update(cx, |bench, cx| start_org_add(bench, org, kind, window, cx))
+            }),
+        )
+        .into_any_element()
+}
+
+fn close_org_add(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    change_fields(bench, cx, |fields, _| {
+        fields.org_adding = None;
+        fields.failure = None;
+    });
+}
+
+/// The box that adds a key to an org's vault, while one is being added.
+pub(super) fn org_dialog(
+    bench: &Workbench,
+    this: &Entity<Workbench>,
+    cx: &mut App,
+) -> Option<AnyElement> {
+    let fields = fields(bench, cx)?;
+    let adding = fields.org_adding.as_ref()?;
+    let vault = (fields.orgs.iter()).find(|vault| vault.org == adding.org)?;
     let t = Tokens::get(cx).clone();
     let id = format!("org-add-{}", vault.org);
     let busy = fields.busy.as_deref() == Some(id.as_str());
     let failed = (fields.failure.as_ref())
         .filter(|(at, _)| *at == id)
-        .map(|(_, message)| lines(vec![message.clone()], true, cx));
+        .map(|(_, message)| sign_in::error(message.clone(), cx));
     let empty = fields.key.read(cx).value().trim().is_empty() || adding.offered.is_empty();
-    let controls = div()
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .child(div().w(px(160.)).child(adding.choice.view()))
-        .child(div().w(px(220.)).child(ui::Field::new(&fields.key)))
-        .child(button(
-            format!("org-key-cancel-{}", vault.org),
-            t!("Cancel"),
-            ui::Variant::Outline,
-            busy,
-            this,
-            |bench, window, cx| edit(bench, None, window, cx),
-        ))
-        .child(button(
-            format!("org-key-connect-{}", vault.org),
-            if busy { t!("Checking…") } else { t!("Add") },
-            ui::Variant::Primary,
-            busy || empty,
-            this,
-            |bench, _, cx| add_org_key(bench, cx),
-        ));
-    row(
+    let mark = (adding.offered.get(adding.picked))
+        .and_then(|provider| crate::icons::Icon::named(provider))
+        .map_or_else(
+            || ui::org_mark(&vault.name, &vault.org, 26.).into_any_element(),
+            |icon| ui::picture(icon, 26., t.text_primary).into_any_element(),
+        );
+    let screen = sign_in::Screen::new(
+        "org-key-add",
+        mark,
         t!("Add a key for {org}", org = vault.name),
-        failed,
-        controls,
-        &t,
     )
+    .lede(t!(
+        "Everyone in {org} can run agents on this key. Nobody sees it.",
+        org = vault.name
+    ))
+    .child(div().w_full().child(adding.choice.view().w_full()))
+    .child(sign_in::Field::new(t!("API key"), &fields.key).mono())
+    .children(failed)
+    .child(
+        ui::Button::new(
+            "org-key-connect",
+            if busy {
+                t!("Checking…")
+            } else {
+                t!("Add key")
+            },
+            ui::Variant::Primary,
+        )
+        .wide()
+        .disabled(busy || empty)
+        .on_click({
+            let this = this.clone();
+            move |_, _, cx| this.update(cx, add_org_key)
+        }),
+    )
+    .child(
+        sign_in::links().child(sign_in::link("org-key-cancel", t!("Cancel"), cx).clicks({
+            let this = this.clone();
+            move |_, _, cx| this.update(cx, close_org_add)
+        })),
+    );
+    let (adds, closing) = (this.clone(), this.clone());
+    let yes: ui::dialog::Answer = std::rc::Rc::new(move |_, cx| adds.update(cx, add_org_key));
+    let no: ui::dialog::Answer = std::rc::Rc::new(move |_, cx| closing.update(cx, close_org_add));
+    let body = div().px(px(4.)).pt(px(4.)).child(screen);
+    Some(ui::dialog::floating(px(440.), body, yes, no, cx).into_any_element())
 }
 
 /// A group's name in spaced capitals over its card, after the org's mark when it is an org's.
@@ -975,9 +999,7 @@ fn org_group(
             keys.iter()
                 .map(|key| org_key_row(bench, fields, vault, key, this, cx)),
         )
-        .when(adds, |body| {
-            body.child(org_add_row(fields, vault, kind, this, cx))
-        });
+        .when(adds, |body| body.child(org_add_row(vault, kind, this)));
     let card = rows::section("", None, Some(sub.into()), false, body, cx);
     let mark = ui::org_mark(&vault.name, &vault.org, 14.).into_any_element();
     let lapsed = (!vault.active).then(|| {

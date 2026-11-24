@@ -19,9 +19,9 @@ use crate::chat::model_picker::{Move, Moving};
 use crate::core::{CallError, Target};
 use crate::hosts::Place;
 use crate::icons::Icon;
-use crate::theme::{Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_XS};
+use crate::theme::{Tokens, SPACE_0, SPACE_1H, SPACE_2H, TEXT_2XS, TEXT_XS};
 use crate::toast;
-use crate::ui::{self, dialog};
+use crate::ui::{self, dialog, sign_in};
 use crate::workbench::Workbench;
 use sikemux_calls::call;
 use sikemux_calls::model_providers::Entered;
@@ -491,66 +491,50 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     line.child(div().pl(px(23.)).child(running_bar(&t, cx.reduce_motion())))
                 })
         });
-    let body = dialog::marked_body()
-        .pt(SPACE_1)
-        .gap(SPACE_3)
-        .child(
-            div()
-                .text_size(crate::theme::ui_text(TEXT_XS))
-                .line_height(crate::theme::ui_text(17.))
-                .text_color(t.text_tertiary)
-                .child(t!(
-                    "Any provider with an OpenAI-compatible API, or a model server on this host."
-                )),
-        )
-        .child(dialog::field(t!("Base URL"), &adding.url, true, cx))
-        .child(dialog::field(t!("API key"), &adding.key, false, cx))
-        .child(dialog::field(t!("Name"), &adding.name, false, cx))
-        .children(check.map(|(words, ink)| {
-            ui::text(words, TEXT_XS, FontWeight::NORMAL)
-                .text_color(ink)
-                .whitespace_normal()
-        }))
-        .children(runs)
-        .into_any_element();
-    let (adds, closing) = (this.clone(), this);
-    let yes: dialog::Answer =
-        Rc::new(move |window, cx| adds.update(cx, |bench, cx| add(bench, window, cx)));
-    let no: dialog::Answer = Rc::new(move |_, cx| closing.update(cx, close));
+    let mark = Icon::named(&name.to_lowercase()).unwrap_or(Icon::Plus);
     let label: SharedString = match (adding.adding, name.is_empty()) {
         (true, _) => t!("Adding…").into(),
         (false, false) => t!("Add {name}", name = name).into(),
         (false, true) => t!("Add").into(),
     };
-    let foot = dialog::hinted_foot(dialog::escape("cancel", cx), cx)
-        .child(dialog::button(
-            "provider-cancel",
-            t!("Cancel").into(),
-            None,
-            no.clone(),
-            cx,
-        ))
-        .child(
-            div()
-                .when(!ready, |button| button.opacity(0.45))
-                .child(dialog::button(
-                    "provider-add",
-                    label,
-                    Some(t.accent),
-                    yes.clone(),
-                    cx,
-                )),
-        );
-    Some(
-        dialog::marked_sheet(
-            Icon::Plus,
-            t!("Add a provider").into(),
-            body,
-            foot,
-            yes,
-            no,
-            cx,
-        )
-        .into_any_element(),
+    let screen = sign_in::Screen::new(
+        "add-provider",
+        ui::picture(mark, 26., t.text_primary),
+        t!("Add a provider"),
     )
+    .lede(t!(
+        "Any provider with an OpenAI-compatible API, or a model server on this host."
+    ))
+    .child(sign_in::Field::new(t!("Base URL"), &adding.url))
+    .child(sign_in::Field::new(t!("API key"), &adding.key).mono())
+    .child(sign_in::Field::new(t!("Name"), &adding.name))
+    .children(check.map(|(words, ink)| {
+        ui::text(words, TEXT_XS, FontWeight::NORMAL)
+            .w_full()
+            .text_left()
+            .text_color(ink)
+            .whitespace_normal()
+    }))
+    .children(runs.map(|runs| runs.w_full().text_left()))
+    .child(
+        ui::Button::new("provider-add", label, ui::Variant::Primary)
+            .wide()
+            .disabled(!ready)
+            .on_click({
+                let this = this.clone();
+                move |_, window, cx| this.update(cx, |bench, cx| add(bench, window, cx))
+            }),
+    )
+    .child(
+        sign_in::links().child(sign_in::link("provider-cancel", t!("Cancel"), cx).clicks({
+            let this = this.clone();
+            move |_, _, cx| this.update(cx, close)
+        })),
+    );
+    let (adds, closing) = (this.clone(), this);
+    let yes: dialog::Answer =
+        Rc::new(move |window, cx| adds.update(cx, |bench, cx| add(bench, window, cx)));
+    let no: dialog::Answer = Rc::new(move |_, cx| closing.update(cx, close));
+    let body = div().px(px(4.)).pt(px(4.)).child(screen);
+    Some(dialog::floating(px(440.), body, yes, no, cx).into_any_element())
 }

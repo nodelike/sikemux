@@ -176,13 +176,17 @@ pub fn render(
     }
 }
 
-/// A connector's settings, over whichever page is open.
+/// A connector's settings, or an org key being added, over whichever page is open.
 pub fn dialogs(
     bench: &Workbench,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
-    connectors::dialog(bench, this, cx).into_iter().collect()
+    let connector = connectors::dialog(bench, this, cx);
+    connector
+        .into_iter()
+        .chain(agents::dialogs(bench, this, cx))
+        .collect()
 }
 
 /// Lists the model providers again while a page shows them, as after one is added.

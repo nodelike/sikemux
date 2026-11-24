@@ -94,5 +94,14 @@ pub(super) fn stale(fields: &Fields, page: Page) -> bool {
     matches!(page, Page::Agents | Page::Models) && providers::stale(&fields.providers)
 }
 
+/// The box adding a key to an org's vault, over the page.
+pub(super) fn dialogs(
+    bench: &Workbench,
+    this: &Entity<Workbench>,
+    cx: &mut App,
+) -> Option<AnyElement> {
+    providers::org_dialog(bench, this, cx)
+}
+
 pub(crate) use accounts::dialog as account_dialog;
 pub(super) use providers::rebuild_choices;
