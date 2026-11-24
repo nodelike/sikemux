@@ -243,12 +243,16 @@ export default async function sikemuxBrowser(pi: ExtensionAPI): Promise<void> {
   }
 
   const client = new McpClient(command, args);
+  let instructions = "";
   try {
-    await client.request("initialize", {
+    const initialized = await client.request("initialize", {
       protocolVersion: "2025-03-26",
       capabilities: {},
       clientInfo: { name: "sikemux-pi", version: "1" },
     });
+    if (typeof initialized.instructions === "string") {
+      instructions = initialized.instructions.trim();
+    }
     client.notify("notifications/initialized");
     const listed = await client.request("tools/list");
     const tools = Array.isArray(listed.tools) ? listed.tools : [];
@@ -301,6 +305,11 @@ export default async function sikemuxBrowser(pi: ExtensionAPI): Promise<void> {
       `[sikemux-tools] ${error instanceof Error ? error.message : String(error)}`,
     );
     return;
+  }
+  if (instructions) {
+    pi.on("before_agent_start", (event) => ({
+      systemPrompt: `${event.systemPrompt}\n\n${instructions}`,
+    }));
   }
   pi.on("session_shutdown", async () => client.stop());
 }

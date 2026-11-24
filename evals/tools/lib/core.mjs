@@ -55,6 +55,10 @@ export async function startCore({ surface, fixture, project, endpointFile, logFi
           stage = 'request';
           continue;
         }
+        if (!message?.request?.method) {
+          socket.end(`${JSON.stringify({ status: 'error', message: 'not a harness request' })}\n`);
+          continue;
+        }
         const { method, params } = message.request;
         const result = handle(method, params);
         if (!result) {

@@ -6,14 +6,35 @@ import { brief } from './grade.mjs';
 
 export const JUDGE_MODEL = 'claude-sonnet-5-5';
 const ROLE =
-  'You grade one run of a coding agent in a tool-use eval. Read the rubric, the task the agent was given, every tool call it made with a short piece of each result, and its final reply, then give a verdict.';
+  'You grade one run of a coding agent in a tool-use eval. You are blind to how tools were delivered (MCP vs CLI vs skills). Read the rubric, the task the agent was given, the normalized tool calls with a short piece of each result, and its final reply, then give a verdict.';
+
+const HIDE_TOOLS = new Set(['ToolSearch', 'Skill', 'TodoWrite']);
+
+function blindSteps(calls) {
+  return calls
+    .filter((call) => !HIDE_TOOLS.has(call.tool))
+    .map((call) => {
+      const tool = call.tool.replace(/^mcp__sikemux-tools__/, '');
+      let args = call.args;
+      if (tool === 'Bash' && typeof call.args?.command === 'string') {
+        const command = call.args.command
+          .replace(/sikemux\s+tool\s+help\b[^\n;&|]*/g, '')
+          .replace(/sikemux\s+tool\b\s*(?:list|instructions)?/g, '')
+          .trim();
+        if (!command) return null;
+        args = { ...call.args, command };
+      }
+      return { ...call, tool, args };
+    })
+    .filter(Boolean)
+    .map((call, index) => `${index + 1}. ${brief(call)}${call.error ? '  -> ERROR' : ''}${call.result ? `\n   -> ${call.result.slice(0, 300).replace(/\n/g, ' ')}` : ''}`)
+    .join('\n');
+}
 
 export async function judge({ testCase, outcome, dir, sandbox }) {
   const folder = join(dir, 'judge');
   mkdirSync(folder, { recursive: true });
-  const steps = outcome.calls
-    .map((call, index) => `${index + 1}. ${brief(call)}${call.error ? '  -> ERROR' : ''}${call.result ? `\n   -> ${call.result.slice(0, 300).replace(/\n/g, ' ')}` : ''}`)
-    .join('\n');
+  const steps = blindSteps(outcome.calls);
   const prompt = [
     `Rubric:\n${testCase.judge}`,
     `Task given to the agent:\n${testCase.prompt}`,

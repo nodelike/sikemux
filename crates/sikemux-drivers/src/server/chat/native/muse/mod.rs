@@ -399,7 +399,24 @@ fn input(parts: Vec<Part>) -> Vec<Value> {
         .collect()
 }
 
+fn needs_after_compaction(items: &[Value]) -> bool {
+    let mut compacted = false;
+    for item in items {
+        match item.get("kind").and_then(Value::as_str) {
+            Some("compaction") => compacted = true,
+            Some("userMessage") => compacted = false,
+            _ => {}
+        }
+    }
+    compacted
+}
+
 impl Muse {
+    fn offers_tools(&self) -> bool {
+        self.host.session_tools
+            && servers::offers_sikemux_tools(&servers::tool_servers(&self.launch))
+    }
+
     fn driver(&self) -> &Driver {
         &self.host.driver
     }
@@ -453,6 +470,9 @@ impl Muse {
                         json!({ "sessionId": session_id, "commandId": command_id() }),
                     )
                     .await?;
+                if self.offers_tools() {
+                    self.driver().session.locked().needs_tool_instructions = true;
+                }
             }
             Command::Rename(name) => {
                 self.rpc()
@@ -655,7 +675,12 @@ impl Backend for Muse {
             .and_then(Value::as_str)
             .ok_or("Muse opened a session without an id")?
             .to_owned();
-        *host.driver.session.locked() = Session::new(session_id.clone(), cwd.clone());
+        let mut session = Session::new(session_id.clone(), cwd.clone());
+        let offers_tools =
+            host.session_tools && servers::offers_sikemux_tools(&servers::tool_servers(launch));
+        session.needs_tool_instructions =
+            offers_tools && (launch.resume_id.is_none() || needs_after_compaction(&items));
+        *host.driver.session.locked() = session;
 
         let model = launch
             .model
@@ -708,8 +733,19 @@ impl Backend for Muse {
         if let Some(command) = commands::parse(&prompt.text, &self.kept.skills) {
             return self.command(turn, &prompt, command).await;
         }
-        let input = self.prompt_input(&prompt)?;
-        self.send_turn(turn, &prompt, input).await
+        let mut input = self.prompt_input(&prompt)?;
+        let carry_instructions =
+            self.offers_tools() && self.driver().session.locked().needs_tool_instructions;
+        if carry_instructions {
+            if let Some(instructions) = self.driver().sink.tool_instructions() {
+                input.insert(0, json!({ "type": "text", "text": instructions }));
+            }
+        }
+        self.send_turn(turn, &prompt, input).await?;
+        if carry_instructions {
+            self.driver().session.locked().needs_tool_instructions = false;
+        }
+        Ok(())
     }
 
     fn steer(
@@ -813,6 +849,7 @@ impl Backend for Muse {
             (session.session_id.clone(), turn_id, before)
         };
         let config = self.host.session_config(&self.launch);
+        let fresh = before.is_none();
         let moved = match before {
             Some(before) => {
                 self.rpc()
@@ -861,10 +898,12 @@ impl Backend for Muse {
                 )
                 .await?;
         }
-        self.driver()
-            .session
-            .locked()
-            .moved(moved.clone(), &turn_id);
+        let offers_tools = self.offers_tools();
+        let mut session = self.driver().session.locked();
+        session.moved(moved.clone(), &turn_id);
+        if fresh && offers_tools {
+            session.needs_tool_instructions = true;
+        }
         Ok(Some(moved))
     }
 

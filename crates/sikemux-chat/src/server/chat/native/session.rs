@@ -205,6 +205,7 @@ pub struct ChatSink {
     broken: mpsc::UnboundedSender<String>,
     settled: mpsc::UnboundedSender<u64>,
     account: Option<String>,
+    tool_instructions: Option<String>,
 }
 
 impl std::ops::Deref for ChatSink {
@@ -384,6 +385,10 @@ impl SinkPort for ChatSink {
     fn telling(&self) -> &Telling {
         &self.telling
     }
+
+    fn tool_instructions(&self) -> Option<&str> {
+        self.tool_instructions.as_deref()
+    }
 }
 
 /// Sends `command` to the chat's loop again once the running turn has ended.
@@ -496,6 +501,22 @@ pub async fn run<B: Backend>(
             Some(book.account_in(&provider, folder)?.id)
         })
         .or_else(|| launch.account.as_ref().map(|account| account.id.clone()));
+    let tool_instructions = if matches!(
+        crate::agent_catalog::AgentKind::from_name(&provider),
+        Some(crate::agent_catalog::AgentKind::Antigravity | crate::agent_catalog::AgentKind::Muse)
+    ) && launch.mcp_servers.iter().any(|server| {
+        server.get("name").and_then(Value::as_str) == Some(crate::launch::tools::TOOLS_SERVER)
+    }) {
+        let simulator = match chat.core.upgrade() {
+            Some(core) => {
+                (core.chat_above().simulator_offered)(&core, &launch.agent_id, &launch.cwd).await
+            }
+            None => false,
+        };
+        Some(sikemux_corekit::cli::manifest::instructions(simulator))
+    } else {
+        None
+    };
     let sink = |quiet: bool| {
         Sink::new(Arc::new(ChatSink {
             telling: ChatTelling {
@@ -506,6 +527,7 @@ pub async fn run<B: Backend>(
             broken: broken_tx.clone(),
             settled: settled_tx.clone(),
             account: account.clone(),
+            tool_instructions: tool_instructions.clone(),
         }))
     };
     let (backend, state, replay) = match opening {

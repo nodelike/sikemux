@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
     CancelNotification, ContentBlock, Error as AcpError, ImageContent, Implementation,
-    InitializeRequest, InitializeResponse, LoadSessionRequest, McpServer, NewSessionRequest,
+    InitializeRequest, InitializeResponse, LoadSessionRequest, McpServer, Meta, NewSessionRequest,
     PromptRequest, RequestPermissionOutcome, RequestPermissionResponse, ResumeSessionRequest,
     SelectedPermissionOutcome, SetSessionConfigOptionRequest, SetSessionModeRequest,
     AGENT_METHOD_NAMES, CLIENT_METHOD_NAMES,
@@ -673,14 +673,28 @@ impl Acp {
         Ok(())
     }
 
+    fn session_meta(driver: &Driver, launch: &ChatLaunch, servers: &[McpServer]) -> Option<Meta> {
+        let mut meta = native::session_meta(&launch.provider);
+        if driver.antigravity && servers::offers_sikemux_tools(servers) {
+            if let Some(instructions) = driver.sink.tool_instructions() {
+                meta.get_or_insert_with(Meta::new).insert(
+                    "antigravity".into(),
+                    json!({ "systemPrompt": { "append": instructions } }),
+                );
+            }
+        }
+        meta
+    }
+
     async fn open_new(
         driver: &Driver,
         launch: &ChatLaunch,
         servers: Vec<McpServer>,
     ) -> Result<(String, Value), Refused> {
+        let meta = Self::session_meta(driver, launch, &servers);
         let request = NewSessionRequest::new(&launch.cwd)
             .mcp_servers(servers)
-            .meta(native::session_meta(&launch.provider));
+            .meta(meta);
         let setup = driver
             .rpc
             .start(AGENT_METHOD_NAMES.session_new, params(request)?)
@@ -709,13 +723,14 @@ impl Acp {
         let Some(existing) = launch.resume_id.clone() else {
             return Self::open_new(driver, launch, servers).await;
         };
+        let meta = Self::session_meta(driver, launch, &servers);
         let (method, request) = match reopens {
             Reopens::Load => (
                 AGENT_METHOD_NAMES.session_load,
                 params(
                     LoadSessionRequest::new(existing.clone(), &launch.cwd)
                         .mcp_servers(servers.clone())
-                        .meta(native::session_meta(&launch.provider)),
+                        .meta(meta),
                 )?,
             ),
             Reopens::Resume => {
@@ -725,7 +740,7 @@ impl Acp {
                     params(
                         ResumeSessionRequest::new(existing.clone(), &launch.cwd)
                             .mcp_servers(servers.clone())
-                            .meta(native::session_meta(&launch.provider)),
+                            .meta(meta),
                     )?,
                 )
             }

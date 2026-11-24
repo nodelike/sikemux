@@ -7,7 +7,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
-use crate::server::serving::ServeCore;
+use crate::server::serving::{ServeCore, ServeParts};
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 use crate::server::ServerCore;
@@ -102,8 +102,20 @@ pub(crate) async fn terminal_agent(
         spawn.env.extend(own_temp(core, agent_id));
     }
     if let (Some(agent_id), Some(tools)) = (context.agent_id.as_deref(), tools(core)) {
+        let instructions = if AgentKind::from_name(&agent_type) == Some(AgentKind::Hermes) {
+            let cwd = PathBuf::from(spawn.cwd.clone().unwrap_or_default());
+            let simulator = simulator_offered(core, agent_id, &cwd).await;
+            Some(crate::cli::manifest::instructions(simulator))
+        } else {
+            None
+        };
         match tools
-            .terminal(agent_id, &agent_type, &command.program)
+            .terminal(
+                agent_id,
+                &agent_type,
+                &command.program,
+                instructions.as_deref(),
+            )
             .await
         {
             Ok(given) => spawn.env.extend(given.apply(&mut command.args)),
@@ -307,8 +319,33 @@ pub(crate) fn own_tools(core: &Core, launch: &mut ChatLaunch) {
     }
 }
 
-/// Gives a Hermes or Grok chat its own home with the skills library, unless
-/// it has one. Answers whether the launch changed.
+/// Whether `agent_id` is offered the simulator tools on its desk.
+pub(crate) async fn simulator_offered(core: &Core, agent_id: &str, cwd: &Path) -> bool {
+    let request = crate::cli::protocol::HarnessRequest {
+        id: String::new(),
+        project: cwd.to_string_lossy().into_owned(),
+        method: crate::cli::protocol::SIM_OFFERED_METHOD.to_owned(),
+        params: json!({}),
+        agent_id: Some(agent_id.to_owned()),
+    };
+    let Ok(request) = serde_json::to_value(&request) else {
+        return false;
+    };
+    let Ok(call) = core.window().call(
+        sikemux_wire::protocol::WindowCall::Harness { request },
+        "drive the iOS Simulator",
+        false,
+        Some(agent_id),
+    ) else {
+        return false;
+    };
+    super::harness::answer_of(core, call, std::time::Duration::from_secs(2), String::new())
+        .await
+        .is_ok_and(|answer| answer.get("offered") == Some(&Value::Bool(true)))
+}
+
+/// Gives a Hermes or Grok chat its own home with the skills library and tool
+/// instructions, unless it has one. Answers whether the launch changed.
 pub(crate) async fn own_home(core: &Core, launch: &mut ChatLaunch) -> bool {
     let private = AgentKind::from_name(&launch.provider).and_then(homes::private);
     if private.is_none_or(|(home, _)| launch.env.contains_key(home.variable)) {
@@ -317,11 +354,21 @@ pub(crate) async fn own_home(core: &Core, launch: &mut ChatLaunch) -> bool {
     let Some(tools) = tools(core) else {
         return false;
     };
+    let instructions = if AgentKind::from_name(&launch.provider) == Some(AgentKind::Hermes)
+        && launch.mcp_servers.iter().any(|server| {
+            server.get("name").and_then(Value::as_str) == Some(crate::launch::tools::TOOLS_SERVER)
+        }) {
+        let simulator = simulator_offered(core, &launch.agent_id, &launch.cwd).await;
+        Some(crate::cli::manifest::instructions(simulator))
+    } else {
+        None
+    };
     tools
         .chat_home(
             &launch.agent_id,
             &launch.provider,
             &launch.program,
+            instructions.as_deref(),
             &mut launch.env,
         )
         .await;

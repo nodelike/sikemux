@@ -75,6 +75,7 @@ pub struct TerminalSetup<'a> {
     /// The data folder with the skills library ready in it.
     pub data_dir: Option<&'a Path>,
     pub library: Option<PathBuf>,
+    pub instructions: Option<&'a str>,
 }
 
 impl TerminalSetup<'_> {
@@ -119,6 +120,7 @@ impl TerminalSetup<'_> {
                 self.program,
                 Some(&self.launch),
                 self.library.as_deref(),
+                self.instructions.map(|text| ("cli", text)),
             )
             .await?;
         self.environment.push(home);
@@ -187,6 +189,7 @@ impl Tools {
         agent_id: &str,
         agent_type: &str,
         agent_program: &str,
+        instructions: Option<&str>,
     ) -> Result<TerminalTools, String> {
         let Some(kind) = AgentKind::from_name(agent_type) else {
             return Ok(TerminalTools::default());
@@ -201,6 +204,7 @@ impl Tools {
             environment: self.base_environment(agent_id),
             data_dir,
             library: data_dir.map(crate::skills::library),
+            instructions,
         };
         let args_prefix = kind.ops().terminal_tools(&mut setup).await?;
         Ok(TerminalTools {
@@ -222,22 +226,22 @@ impl Tools {
         serde_json::to_value(McpServer::Stdio(server)).map_err(|error| error.to_string())
     }
 
-    /// Gives a chat of an agent that takes the skills library in a home of its own
-    /// a private home holding it, since the tools reach it over the protocol.
+    /// Gives a chat of an agent that takes the skills library or tool instructions in a
+    /// home of its own a private home holding them, since the tools reach it over the protocol.
     pub async fn chat_home(
         &self,
         agent_id: &str,
         provider: &str,
         program: &Path,
+        instructions: Option<&str>,
         env: &mut BTreeMap<String, String>,
     ) {
-        let Some(library) = self.skills_dir().map(crate::skills::library) else {
-            return;
-        };
+        let library = self.skills_dir().map(crate::skills::library);
         let program = program.to_string_lossy();
-        let Some(home) = AgentKind::from_name(provider)
-            .and_then(|kind| kind.ops().chat_home(self, agent_id, &program, &library))
-        else {
+        let Some(home) = AgentKind::from_name(provider).and_then(|kind| {
+            kind.ops()
+                .chat_home(self, agent_id, &program, library.as_deref(), instructions)
+        }) else {
             return;
         };
         match home.await {
@@ -295,7 +299,7 @@ impl Tools {
     }
 
     /// A private Hermes home for `agent_id`, kept under `host`, given the tools
-    /// when `tools` names them and the skills `library`.
+    /// when `tools` names them, the skills `library`, and `(platform, instructions)`.
     pub(crate) async fn hermes_home(
         &self,
         host: &str,
@@ -303,6 +307,7 @@ impl Tools {
         program: &str,
         tools: Option<&McpLaunch>,
         library: Option<&Path>,
+        instructions: Option<(&str, &str)>,
     ) -> Result<(String, String), String> {
         let (variable, home, _) = self.private_home(AgentKind::Hermes, host, agent_id)?;
         let set = |key: &str, value: &str| {
@@ -323,6 +328,16 @@ impl Tools {
             let dirs = hermes_external_dirs(&yaml, library);
             if let Err(error) = set("skills.external_dirs", &dirs).await {
                 eprintln!("Sikemux skills are unavailable to Hermes: {error}");
+            }
+        }
+        if let Some((platform, instructions)) = instructions
+            .map(|(platform, text)| (platform, text.trim()))
+            .filter(|(_, text)| !text.is_empty())
+        {
+            let yaml = std::fs::read_to_string(home.join("config.yaml")).unwrap_or_default();
+            let (key, value) = hermes_platform_hint(&yaml, platform, instructions);
+            if let Err(error) = set(&key, &value).await {
+                eprintln!("Sikemux tool instructions are unavailable to Hermes: {error}");
             }
         }
         Ok((variable.to_owned(), home.to_string_lossy().into_owned()))
@@ -506,6 +521,69 @@ fn hermes_external_dirs(config_yaml: &str, library: &Path) -> String {
         dirs.push(library);
     }
     json!(dirs).to_string()
+}
+
+fn hermes_platform_hint(config_yaml: &str, platform: &str, instructions: &str) -> (String, String) {
+    let (bare, existing) = yaml_platform_append(config_yaml, platform);
+    let merged = match existing {
+        Some(existing) if existing.contains(instructions) => existing,
+        Some(existing) if !existing.is_empty() => format!("{existing}\n\n{instructions}"),
+        _ => instructions.to_owned(),
+    };
+    if bare {
+        (
+            format!("platform_hints.{platform}"),
+            json!({ "append": merged }).to_string(),
+        )
+    } else {
+        (format!("platform_hints.{platform}.append"), merged)
+    }
+}
+
+fn yaml_platform_append(text: &str, platform: &str) -> (bool, Option<String>) {
+    let mut lines = text
+        .lines()
+        .skip_while(|line| line.trim_end() != "platform_hints:");
+    if lines.next().is_none() {
+        return (false, None);
+    }
+    let mut inside = lines
+        .take_while(|line| line.is_empty() || line.starts_with(' '))
+        .peekable();
+    let prefix = format!("{platform}:");
+    while let Some(line) = inside.next() {
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        let Some(rest) = trimmed.strip_prefix(&prefix) else {
+            continue;
+        };
+        let rest = rest.trim();
+        if !rest.is_empty() && !rest.starts_with('{') {
+            return (true, Some(unquote_yaml_scalar(rest)));
+        }
+        for child in inside.by_ref() {
+            let child_trimmed = child.trim_start();
+            if !child_trimmed.is_empty() && child.len() - child_trimmed.len() <= indent {
+                break;
+            }
+            if let Some(append) = child_trimmed.strip_prefix("append:") {
+                let append = append.trim();
+                if !append.is_empty() {
+                    return (false, Some(unquote_yaml_scalar(append)));
+                }
+            }
+        }
+        break;
+    }
+    (false, None)
+}
+
+fn unquote_yaml_scalar(value: &str) -> String {
+    if value.starts_with('"') && value.ends_with('"') {
+        serde_json::from_str::<String>(value).unwrap_or_else(|_| value.trim_matches('"').to_owned())
+    } else {
+        value.trim_matches('\'').to_owned()
+    }
 }
 
 /// Reads `parent: { key: [...] }` from YAML in its block or flow form. Hermes
@@ -759,12 +837,12 @@ mod tests {
         let shared = Some(own.join("auth.json"));
         let terminal = tools.grok_home("grok", "agent-one", "grok", None, None);
         assert_eq!(login(terminal.await.unwrap()), shared);
-        let first = chat.chat_home(&tools, "agent-one", "grok", &library);
+        let first = chat.chat_home(&tools, "agent-one", "grok", Some(&library), None);
         assert_eq!(login(first.unwrap().await.unwrap()), shared);
 
         let elsewhere = data.path().join("secrets").join("grok.json");
         std::env::set_var("GROK_AUTH_PATH", &elsewhere);
-        let again = chat.chat_home(&tools, "agent-one", "grok", &library);
+        let again = chat.chat_home(&tools, "agent-one", "grok", Some(&library), None);
         assert_eq!(login(again.unwrap().await.unwrap()), Some(elsewhere));
     }
 }

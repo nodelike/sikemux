@@ -432,6 +432,11 @@ pub trait SinkPort: Send + Sync {
 
     /// What it tells the chat of a session's history.
     fn telling(&self) -> &Telling;
+
+    /// Sikemux's tool instructions when the agent drops MCP `initialize.instructions`.
+    fn tool_instructions(&self) -> Option<&str> {
+        None
+    }
 }
 
 impl std::ops::Deref for dyn SinkPort {

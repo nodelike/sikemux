@@ -31,6 +31,8 @@ pub struct Session {
     pub context: Option<Window>,
     /// The approval stages already put to the person.
     asked: HashSet<(String, String)>,
+    #[serde(default)]
+    pub needs_tool_instructions: bool,
 }
 
 /// The failure a turn ended with, from Muse's error for it.
@@ -82,6 +84,7 @@ impl Session {
             totals: None,
             context: None,
             asked: HashSet::new(),
+            needs_tool_instructions: false,
         }
     }
 
@@ -151,7 +154,11 @@ impl Session {
         let cwd = self.cwd.clone();
         match notification {
             Notification::Item { stage, params } if !stale(params.turn_id()) => {
-                if params.item.get("kind").and_then(Value::as_str) != Some("userMessage") {
+                let kind = params.item.get("kind").and_then(Value::as_str);
+                if root && stage == Stage::Completed && kind == Some("compaction") {
+                    self.needs_tool_instructions = true;
+                }
+                if kind != Some("userMessage") {
                     let shown = match stage {
                         Stage::Opened => {
                             self.items.opened(&session, &params.item, &cwd, &mut follow)

@@ -51,6 +51,8 @@ pub struct ChatAbove {
     pub start_new: for<'a> fn(&'a Arc<Core>, ChatChoice) -> Doing<'a, CoreResult<String>>,
     /// Gives a launch a home of its own for agents that keep one; whether it changed.
     pub own_home: for<'a> fn(&'a Core, &'a mut ChatLaunch) -> Doing<'a, bool>,
+    /// Whether `agent_id` is offered the simulator tools on its desk.
+    pub simulator_offered: for<'a> fn(&'a Core, &'a str, &'a Path) -> Doing<'a, bool>,
     /// What an agent's turn starts with: a chief's digest of what happened since its last turn,
     /// and any lead's calm reports from the agents it started.
     pub turn_digest: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, Vec<ChatContext>>,
