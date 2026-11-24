@@ -474,6 +474,11 @@ async function endSessions(
       .forUpdate()
       .execute();
     await trx
+      .deleteFrom("ended_sessions")
+      .where("session_id", "in", ids)
+      .where("cause", "=", "device_removed")
+      .execute();
+    await trx
       .insertInto("ended_sessions")
       .values(
         opened.map((session) => ({
@@ -482,12 +487,7 @@ async function endSessions(
           made_at: session.createdAt,
         })),
       )
-      .onConflict((oc) =>
-        oc.column("session_id").doUpdateSet({
-          cause: "work_address",
-          made_at: sql<Date>`least(ended_sessions.made_at, excluded.made_at)`,
-        }),
-      )
+      .onConflict((oc) => oc.column("session_id").doNothing())
       .execute();
     const added = await trx
       .selectFrom("devices")
