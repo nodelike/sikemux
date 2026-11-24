@@ -85,13 +85,16 @@ def shown_in_chat(run):
     card = lambda: next((frame for name, frame in ((run.state() or {}).get("spots") or {}).items()
                          if name.startswith("page-card-")), None)
 
-    def shown():
-        on_desk = run.desk()
-        page = desk.active_page(on_desk)
-        return page if page.get("title") == "Kit shown page" and not page.get("loading") and not on_desk.get("front") else None
+    def loaded():
+        page = desk.active_page(run.desk())
+        return page if page.get("title") == "Kit shown page" and not page.get("loading") else None
 
+    def in_front():
+        return loaded() if not run.desk().get("front") else None
+
+    # The file is in front, so the page loads behind it.
     asked = time.time()
-    page = desk.until(shown, 40) or {}
+    page = desk.until(loaded, 40) or {}
     waited = f"its desk tab loaded {time.time() - asked:.1f} s after it was shown" if page else "no desk tab loaded it"
     desk.show_kind(run, "files")
     over = desk.in_view(run, f"desk-item-{run.agent}-a.txt")
@@ -112,7 +115,7 @@ def shown_in_chat(run):
     if carded:
         x, y = desk.middle(carded)
         run.drive(f"click {x:.0f} {y:.0f}", "wait 1")
-    forward = desk.until(shown, 10) if carded and covered else None
+    forward = desk.until(in_front, 10) if carded and covered else None
     copies = [other for other in desk.pages(run.desk()) if other.get("title") == "Kit shown page"]
     run.report("L6", said.startswith("tool answered") and bool(page) and bool(forward) and len(copies) == 1,
                f"page_show answered {said[:120]!r}; {waited}; the chat's card {carded}; a file {'covered it' if covered else 'never covered it'}, "
