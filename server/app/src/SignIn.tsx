@@ -380,7 +380,6 @@ export function PasswordField({
       />
       <button
         type="button"
-        className="reveal"
         onClick={() => setShown((was) => !was)}
         aria-label={shown ? "Hide password" : "Show password"}
       >
