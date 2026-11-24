@@ -546,12 +546,18 @@ impl Reading {
         }
     }
 
+    fn toggle_team(&mut self, id: &str) {
+        if self.teams.remove(id).is_none() {
+            self.teams.insert(id.to_owned(), false);
+        }
+    }
+
     fn team_open(&self, id: &str) -> bool {
-        self.finding || self.teams.contains_key(id)
+        self.teams.contains_key(id)
     }
 
     fn team_all(&self, id: &str) -> bool {
-        self.finding || self.teams.get(id).copied().unwrap_or(false)
+        self.teams.get(id).copied().unwrap_or(false)
     }
 }
 
@@ -1153,14 +1159,14 @@ impl Chat {
         })
     }
 
-    /// While the find bar looks for something, long texts show all of themselves so every
-    /// place it finds can be seen.
     /// Keeps what the reader sees where it is while a fold opens or closes below its top.
     pub(crate) fn hold_place(&self, cx: &mut App) {
         self.transcript
             .update(cx, |transcript, cx| transcript.hold_place(cx));
     }
 
+    /// While the find bar looks for something, long texts show all of themselves so every
+    /// place it finds can be seen.
     pub fn unfold_for_find(&self, on: bool, cx: &mut App) {
         if self.reader.read(cx).finding == on {
             return;

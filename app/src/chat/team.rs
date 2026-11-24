@@ -148,11 +148,7 @@ pub(super) fn head(
             .hover(move |row| row.bg(hover))
             .clicks(move |_, _, cx| {
                 let id = toggled.clone();
-                toggle(cx, &move |reading| {
-                    if reading.teams.remove(&id).is_none() {
-                        reading.teams.insert(id.clone(), false);
-                    }
-                });
+                toggle(cx, &move |reading| reading.toggle_team(&id));
             })
             .child(motion::turn(
                 format!("team-chevron:{id}"),
@@ -233,4 +229,120 @@ pub(super) fn head(
         .child(row)
         .children(earlier)
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use sikemux_fold::{ChatEventKind, Fold};
+    use sikemux_wire::protocol::PermissionMode;
+
+    /// How a worker's report was recorded on 2026-11-24, with the report itself cut short.
+    fn report(name: &str, id: &str, cli: &str, said: &str) -> serde_json::Value {
+        json!({ "paths": [], "text": format!(
+            "<agent-message from=\"{name}\" agent-id=\"{id}\" cli=\"{cli}\" note=\"{name} ({id}) is an agent you started, and this is how its turn ended, sent by Sikemux. Reply with agent_send to it if it needs more; once its work has landed and you need nothing more, close it with agent_close.\">\nFinished its turn. Its final answer:\n\n{said}\n</agent-message>"
+        ) })
+    }
+
+    fn rows(fold: &mut Fold) -> Vec<ChatRow> {
+        fold.flush();
+        fold.view(false)
+            .rows
+            .into_iter()
+            .map(ChatRow::new)
+            .collect()
+    }
+
+    fn run_of<'a>(rows: &'a [ChatRow], name: &str) -> &'a str {
+        let row = rows
+            .iter()
+            .find(|row| (row.message.letters.iter()).any(|letter| letter.name == name));
+        let team = row.and_then(|row| row.message.team.as_ref());
+        &team.expect("a report is in a run").id
+    }
+
+    #[test]
+    fn reports_come_folded_and_a_click_folds_them_while_the_find_bar_looks() {
+        let mut fold = Fold::new(PermissionMode::Bypass);
+        let mut at = 1795487800000;
+        let mut next = |fold: &mut Fold, kind, payload: serde_json::Value| {
+            at += 1000;
+            fold.apply(at, kind, &payload, at);
+        };
+        let ashborn = report(
+            "Ashborn",
+            "agent-c4cd9c7694424c30b8269801cd47984e",
+            "claude",
+            "Holding: I haven't edited, translated or landed anything.",
+        );
+        let bege = report(
+            "Bege",
+            "agent-712004123d574116b60ed23b9f0905d2",
+            "antigravity",
+            "**Recommendation:** Yes, with a small core-only rule.",
+        );
+        next(
+            &mut fold,
+            ChatEventKind::Prompt,
+            json!({ "text": "What holds the rename?" }),
+        );
+        next(&mut fold, ChatEventKind::TurnStarted, json!({}));
+        next(&mut fold, ChatEventKind::Prompt, ashborn.clone());
+        next(
+            &mut fold,
+            ChatEventKind::TurnCompleted,
+            json!({ "stopReason": "end_turn" }),
+        );
+        next(
+            &mut fold,
+            ChatEventKind::Prompt,
+            json!({ "text": "And the spaces?" }),
+        );
+        next(&mut fold, ChatEventKind::TurnStarted, json!({}));
+        next(
+            &mut fold,
+            ChatEventKind::TurnCompleted,
+            json!({ "stopReason": "end_turn" }),
+        );
+        next(&mut fold, ChatEventKind::Prompt, bege);
+        next(&mut fold, ChatEventKind::TurnStarted, json!({}));
+
+        let shown = rows(&mut fold);
+        let mid_turn = run_of(&shown, "Ashborn").to_owned();
+        let alone = run_of(&shown, "Bege").to_owned();
+        assert_ne!(mid_turn, alone);
+        let letters = shown.iter().filter(|row| !row.message.letters.is_empty());
+        assert!(letters
+            .flat_map(|row| (0..row.docs().len()).map(move |doc| row.findable(doc)))
+            .all(|found| !found));
+
+        let mut reading = Reading {
+            finding: true,
+            ..Default::default()
+        };
+        for run in [&mid_turn, &alone] {
+            assert!(!reading.team_open(run), "comes folded");
+            reading.toggle_team(run);
+            assert!(reading.team_open(run), "a click opens it");
+            assert!(!reading.team_all(run));
+            reading.toggle_team(run);
+            assert!(!reading.team_open(run), "a click folds it");
+        }
+
+        reading.toggle_team(&alone);
+        next(&mut fold, ChatEventKind::Prompt, ashborn);
+        next(
+            &mut fold,
+            ChatEventKind::TurnCompleted,
+            json!({ "stopReason": "end_turn" }),
+        );
+        let grown = rows(&mut fold);
+        let last = grown.iter().rev().find_map(|row| row.message.team.as_ref());
+        assert_eq!(last.map(|team| team.id.as_str()), Some(alone.as_str()));
+        assert!(
+            reading.team_open(&alone),
+            "stays open as another message joins"
+        );
+    }
 }
