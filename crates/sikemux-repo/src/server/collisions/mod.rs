@@ -1385,9 +1385,9 @@ impl Collisions {
 
     /// The chat agents in `project` that were running a shell command at
     /// `at`, ended one up to `grace` before, or were heard to begin one up to
-    /// `late` after, in the checkout holding `place` or having read, written or
-    /// named `place` itself, each with the text of those commands. An agent in
-    /// a checkout of its own still edits files kept only in the main checkout.
+    /// `late` after, each with the text of those commands: those in the checkout
+    /// holding `place`, and those whose command reaches into it for a file they
+    /// saw or name, as for files kept only in the main checkout.
     fn commands(
         &self,
         core: &Core,
@@ -1398,7 +1398,7 @@ impl Collisions {
         late: u64,
     ) -> BTreeMap<String, Vec<Arc<str>>> {
         let mut found: BTreeMap<String, Vec<Arc<str>>> = BTreeMap::new();
-        let handled: BTreeSet<String>;
+        let saw: BTreeSet<String>;
         {
             let state = self.state.locked();
             let open = state
@@ -1414,20 +1414,25 @@ impl Collisions {
             for (agent, command) in open.chain(ended) {
                 found.entry(agent.clone()).or_default().extend(command);
             }
-            handled = found
-                .iter()
-                .filter(|(agent, commands)| {
+            saw = found
+                .keys()
+                .filter(|agent| {
                     state
                         .seen
                         .contains_key(&((*agent).clone(), place.to_path_buf()))
-                        || commands.iter().any(|command| names_file(command, place))
                 })
-                .map(|(agent, _)| agent.clone())
+                .cloned()
                 .collect();
         }
-        found.retain(|agent, _| {
+        found.retain(|agent, commands| {
             in_project(core, project, agent)
-                && (handled.contains(agent) || holds(core, place, agent))
+                && core.edits().checkout_of(core, agent).is_none_or(|own| {
+                    place.starts_with(&own)
+                        || commands.iter().any(|command| {
+                            reaches(command, place, &own)
+                                && (saw.contains(agent) || names_file(command, place))
+                        })
+                })
         });
         found
     }
@@ -1481,6 +1486,32 @@ fn command_text(update: &Value) -> Option<Arc<str>> {
         end -= 1;
     }
     Some(Arc::from(text.get(..end).unwrap_or_default()))
+}
+
+/// Whether `command` names the folder that sets `place` apart from the checkout
+/// `own`, from the root or the home folder.
+fn reaches(command: &str, place: &Path, own: &Path) -> bool {
+    let Some(apart) = place
+        .ancestors()
+        .take_while(|folder| !own.starts_with(folder))
+        .last()
+    else {
+        return false;
+    };
+    let home = sikemux_process::paths::home();
+    let below_home = home.and_then(|home| apart.strip_prefix(home).ok());
+    let folder = match below_home {
+        Some(below) => format!("/{}", below.display()),
+        None => apart.display().to_string(),
+    }
+    .replace('\\', "/");
+    let command = command.replace('\\', "/");
+    command.match_indices(&folder).any(|(at, _)| {
+        command
+            .get(at + folder.len()..)
+            .and_then(|tail| tail.chars().next())
+            .is_none_or(|c| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.')))
+    })
 }
 
 /// Whether `command` names the file at `place`, as a script that writes it does.
