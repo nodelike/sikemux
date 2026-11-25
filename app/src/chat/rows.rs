@@ -1800,6 +1800,7 @@ pub(super) fn part(
                     &row.message,
                     &looks.agent,
                     looks.file_pressed(),
+                    looks.bubble,
                     &looks.bench,
                     window,
                 )

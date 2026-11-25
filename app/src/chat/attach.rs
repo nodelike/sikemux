@@ -885,7 +885,13 @@ pub(crate) fn agent_pill(
     let face = chip_face(key, title, false, agent.mark(size + 1., cx), cx)
         .flex_none()
         .text_size(theme::ui_text(size));
-    opens_agent(face, &agent.id, None, bench, cx)
+    opens_agent(
+        face,
+        &agent.id,
+        None,
+        lifted(Tokens::get(cx).surface_raised, cx),
+        bench,
+    )
 }
 
 /// The chip of the agent `id` named `name`: [`agent_pill`] while the window knows the agent,
@@ -919,20 +925,30 @@ pub(crate) fn unknown_agent_pill(
     let face = chip_face(format!("@{name}").into(), None, false, mark, cx)
         .flex_none()
         .text_size(theme::ui_text(size));
-    opens_agent(face, id, Some(from), bench, cx).into_any_element()
+    opens_agent(
+        face,
+        id,
+        Some(from),
+        lifted(Tokens::get(cx).surface_raised, cx),
+        bench,
+    )
+    .into_any_element()
 }
 
-/// A chip that opens `agent`'s chat, through `from` when given, lifting a step on hover.
+/// A step over `ground`.
+fn lifted(ground: Hsla, cx: &App) -> Hsla {
+    theme::over(Tokens::get(cx).surface_active, ground)
+}
+
+/// A chip that opens `agent`'s chat, through `from` when given, with `hover` as its ground under the pointer.
 fn opens_agent(
     face: Div,
     agent: &str,
     from: Option<crate::core::Target>,
+    hover: Hsla,
     bench: &WeakEntity<Workbench>,
-    cx: &App,
 ) -> gpui_kit::Stateful<Div> {
     let (agent, bench) = (agent.to_owned(), bench.clone());
-    let t = Tokens::get(cx);
-    let hover = theme::over(t.surface_active, t.surface_raised);
     face.id(SharedString::from(format!("mention:{agent}")))
         .hover(move |chip| chip.bg(hover))
         .clicks(move |_, _, cx| {
@@ -969,6 +985,7 @@ pub fn with_chips(
     message: &ChatMessage,
     agent: &str,
     file: super::files::FilePressed,
+    bubble: Hsla,
     bench: &WeakEntity<Workbench>,
     window: &mut Window,
 ) -> Rc<gpui_transcript::Style> {
@@ -986,7 +1003,8 @@ pub fn with_chips(
                 .ok();
         })
     };
-    let opens = Opens {
+    let site = ChipSite {
+        bubble: Some(bubble),
         file: Some(file),
         reply: Some(reply),
     };
@@ -996,7 +1014,7 @@ pub fn with_chips(
                 mention.written,
                 mention.id,
                 mention.label,
-                opens.clone(),
+                site.clone(),
                 &look,
                 bench,
                 window,
@@ -1042,7 +1060,7 @@ fn with_named_agents(
                 written.clone(),
                 format!("{AGENT}{id}"),
                 written,
-                Opens::default(),
+                ChipSite::default(),
                 &look,
                 bench,
                 window,
@@ -1126,7 +1144,13 @@ fn closed_agent_chip(
             let face = chip_face(label.clone(), None, false, glyph, cx)
                 .w_full()
                 .h(height);
-            let face = opens_agent(face, &agent.agent_id, Some(from.clone()), &bench, cx);
+            let face = opens_agent(
+                face,
+                &agent.agent_id,
+                Some(from.clone()),
+                lifted(Tokens::get(cx).surface_raised, cx),
+                &bench,
+            );
             div()
                 .size_full()
                 .flex()
@@ -1141,20 +1165,21 @@ fn closed_agent_chip(
 
 type ReplyPressed = Rc<dyn Fn(&str, &mut App)>;
 
-/// What a message's chips open.
+/// The bubble a message's chips sit in, if any, and what they open.
 #[derive(Clone, Default)]
-struct Opens {
+struct ChipSite {
+    bubble: Option<Hsla>,
     file: Option<super::files::FilePressed>,
     reply: Option<ReplyPressed>,
 }
 
 /// The chip drawn in a message's text in place of `written`, as the draft drew it; an agent's
-/// chip opens its chat.
+/// chip opens its chat. In a `bubble` it's drawn a step over the bubble's own ground.
 fn mention_chip(
     written: String,
     id: String,
     label: String,
-    opens: Opens,
+    site: ChipSite,
     look: &gpui_transcript::Style,
     bench: &WeakEntity<Workbench>,
     window: &mut Window,
@@ -1181,22 +1206,26 @@ fn mention_chip(
         written: written.into(),
         width,
         draw: Rc::new(move |_, cx| {
+            let t = Tokens::get(cx);
+            let ground = site
+                .bubble
+                .map_or(t.surface_raised, |bubble| lifted(bubble, cx));
+            let hover = lifted(ground, cx);
             let face = chip_face(
                 key.clone(),
                 title.clone(),
                 false,
-                mark(&id, Tokens::get(cx).text_tertiary, &bench, cx),
+                mark(&id, t.text_tertiary, &bench, cx),
                 cx,
             )
             .w_full()
-            .h(height);
-            let t = Tokens::get(cx);
-            let hover = theme::over(t.surface_active, t.surface_raised);
+            .h(height)
+            .bg(ground);
             let agent = id.strip_prefix(AGENT);
-            let file = id.strip_prefix(FILE).zip(opens.file.as_ref());
-            let reply = (opens.reply.clone()).filter(|_| id.starts_with(REPLY_URI));
+            let file = id.strip_prefix(FILE).zip(site.file.as_ref());
+            let reply = (site.reply.clone()).filter(|_| id.starts_with(REPLY_URI));
             let face = if let Some(agent) = agent {
-                opens_agent(face, agent, None, &bench, cx).into_any_element()
+                opens_agent(face, agent, None, hover, &bench).into_any_element()
             } else if let Some((path, file)) = file {
                 presses_file(face.hover(move |chip| chip.bg(hover)), path, file).into_any_element()
             } else if let Some(reply) = reply {
