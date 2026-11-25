@@ -244,11 +244,71 @@ function loadCompiledSecrets() {
   }
 }
 
-function appEnvironment() {
+function appEnvironment(runId) {
   const env = withoutTerminalSession(process.env);
   for (const key of CALLER_OPTIONS)
     if (process.env[key]) env[key] = process.env[key];
+  env.SIKEMUX_DEV_RUN_ID = runId;
   return env;
+}
+
+function listProcesses() {
+  if (!onMac) return [];
+  const result = spawnSync("ps", ["-A", "-o", "pid=,comm="], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0) return [];
+  return (result.stdout ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const space = line.indexOf(" ");
+      if (space <= 0) return null;
+      const pid = Number(line.slice(0, space));
+      const comm = line.slice(space + 1).trim();
+      return Number.isSafeInteger(pid) ? { pid, comm } : null;
+    })
+    .filter(Boolean);
+}
+
+function processHasTag(pid, runId) {
+  const result = spawnSync("ps", ["eww", "-o", "command=", "-p", String(pid)], {
+    encoding: "utf8",
+  });
+  return (result.stdout ?? "").includes(`SIKEMUX_DEV_RUN_ID=${runId}`);
+}
+
+async function stopHelperBundles(runId, { includeCore }) {
+  if (!onMac) return;
+  const helperPrefixes = [
+    `${notchApp}/Contents/MacOS/`,
+    ...appHelpers.map((helper) => join(macos, helper)),
+  ];
+  if (includeCore) helperPrefixes.push(`${coreApp}/Contents/MacOS/`);
+  const candidates = listProcesses().filter(({ pid, comm }) => {
+    if (pid === process.pid) return false;
+    if (helperPrefixes.some((prefix) => comm.startsWith(prefix))) return true;
+    return comm.startsWith(`${bundle}/Contents/`) && processHasTag(pid, runId);
+  });
+  await Promise.all(
+    candidates.map(({ pid }) => {
+      try {
+        process.kill(pid, "SIGTERM");
+      } catch {
+        return;
+      }
+      return new Promise((resolveStop) => setTimeout(resolveStop, 250)).then(
+        () => {
+          try {
+            process.kill(pid, "SIGKILL");
+          } catch {
+            // Already exited.
+          }
+        },
+      );
+    }),
+  );
 }
 
 function runningApp() {
@@ -284,10 +344,11 @@ async function runDevGpui() {
   }
   if (onMac) assemble();
 
+  const runId = `${process.pid}-${Date.now()}`;
   const child = spawn(launchedApp, [], {
     cwd: root,
     detached: true,
-    env: appEnvironment(),
+    env: appEnvironment(runId),
     stdio: "inherit",
   });
   let requested = null;
@@ -311,6 +372,7 @@ async function runDevGpui() {
   });
   for (const [signal, handler] of handlers) process.off(signal, handler);
   await stopProcessTree(child.pid);
+  await stopHelperBundles(runId, { includeCore: requested !== null });
   if (requested !== null) return requested;
   if (outcome.code !== null) return outcome.code;
   return outcome.signal ? 1 : 0;

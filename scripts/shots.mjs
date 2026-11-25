@@ -13,7 +13,7 @@
  *
  * It writes compare.html beside the pictures, each pair stacked at full width, for page_show.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -29,6 +29,7 @@ import { homedir, tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
+import { stopProcessTree } from "./dev-process.mjs";
 import { guardCheckout, SAFE_SHOOTER } from "./lib/shots-checkout.mjs";
 
 const { values: options, positionals } = parseArgs({
@@ -58,22 +59,92 @@ const checkout = join(home, "checkout");
 const kept = join(home, "last", platform);
 const out = resolve(options.out ?? join(home, "out", commit.slice(0, 10)));
 
+const SCENE_TIMEOUT_MS =
+  Number(process.env.SIKEMUX_SHOT_TIMEOUT_MS) || 5 * 60 * 1000;
+const PHONE_TIMEOUT_MS =
+  Number(process.env.SIKEMUX_SHOT_TIMEOUT_MS) || 10 * 60 * 1000;
+const OUT_KEEP = 10;
+const DERIVED_DATA_IDLE_MS = 7 * 24 * 60 * 60 * 1000;
+const STALE_TEMP_IDLE_MS = 24 * 60 * 60 * 1000;
+
+const activeChildren = new Set();
+const activeWorkDirs = new Set();
+let queueTurnPath = null;
+let stopping = false;
+
+function cleanupFiles() {
+  for (const work of activeWorkDirs) {
+    rmSync(work, { recursive: true, force: true });
+  }
+  activeWorkDirs.clear();
+  if (queueTurnPath) {
+    rmSync(queueTurnPath, { force: true });
+    queueTurnPath = null;
+  }
+}
+
+for (const [signal, code] of [
+  ["SIGHUP", 129],
+  ["SIGINT", 130],
+  ["SIGTERM", 143],
+]) {
+  process.on(signal, async () => {
+    if (stopping) return;
+    stopping = true;
+    await Promise.all(
+      [...activeChildren].map((pid) => stopProcessTree(pid).catch(() => {})),
+    );
+    activeChildren.clear();
+    cleanupFiles();
+    process.exit(code);
+  });
+}
+
 const say = (text) => console.error(`\x1b[35m›\x1b[0m ${text}`);
-function run(command, args, cwd, env = {}) {
+async function run(command, args, cwd, env = {}, { timeoutMs = 0 } = {}) {
   const started = Date.now();
-  const result = spawnSync(command, args, {
+  const child = spawn(command, args, {
     cwd,
     stdio: "inherit",
+    detached: true,
     env: { ...process.env, ...env },
   });
-  if (result.status === 75) {
+  if (child.pid) activeChildren.add(child.pid);
+  let timedOut = false;
+  let timer = null;
+  if (timeoutMs > 0) {
+    timer = setTimeout(() => {
+      timedOut = true;
+      if (child.pid) stopProcessTree(child.pid).catch(() => {});
+    }, timeoutMs);
+  }
+  let outcome;
+  try {
+    outcome = await new Promise((resolveExit, rejectExit) => {
+      child.once("error", rejectExit);
+      child.once("exit", (code, signal) => resolveExit({ code, signal }));
+    });
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (child.pid) {
+      activeChildren.delete(child.pid);
+      await stopProcessTree(child.pid).catch(() => {});
+    }
+  }
+  if (timedOut) {
+    throw new Error(
+      `${command} ${args.join(" ")} timed out after ${Math.round(timeoutMs / 1000)}s`,
+    );
+  }
+  if (outcome.code === 75) {
     console.error(
       `${command} waits its turn on this Mac; run this again when Sikemux says it may start`,
     );
     process.exit(75);
   }
-  if (result.status !== 0)
+  if (outcome.code !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed in ${cwd}`);
+  }
   return (Date.now() - started) / 1000;
 }
 
@@ -86,12 +157,13 @@ function running(pid) {
 }
 
 /** One shooter at a time, in order of arrival: the checkout and its builds are shared. */
-function takeTurn() {
+async function takeTurn() {
   const queue = join(home, "queue");
   const mine = `${Date.now()}-${process.pid}`;
   mkdirSync(queue, { recursive: true });
-  writeFileSync(join(queue, mine), "");
-  process.on("exit", () => rmSync(join(queue, mine), { force: true }));
+  queueTurnPath = join(queue, mine);
+  writeFileSync(queueTurnPath, "");
+  process.on("exit", cleanupFiles);
   for (let told = false; ; told = true) {
     const ahead = readdirSync(queue)
       .filter((turn) => turn < mine)
@@ -105,30 +177,30 @@ function takeTurn() {
       say(
         `waiting for the pictures checkout, ${ahead.length} ahead of this run`,
       );
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+    await new Promise((resolveTick) => setTimeout(resolveTick, 1000));
   }
 }
 
-function moveTo(rev) {
+async function moveTo(rev) {
   if (!existsSync(join(checkout, ".git"))) {
     say(
       `making the pictures checkout at ${checkout}; its first build is a cold one`,
     );
-    run(
+    await run(
       "git",
       ["clone", "--quiet", "--shared", "--no-checkout", store, checkout],
       home,
     );
   }
   guardCheckout(checkout);
-  run(
+  await run(
     "git",
     ["checkout", "--quiet", "--force", "--detach", rev],
     checkout,
     SAFE_SHOOTER,
   );
   if (git(checkout, "status", "--porcelain", "--untracked-files=all"))
-    run("git", ["clean", "-fdq"], checkout);
+    await run("git", ["clean", "-fdq"], checkout);
   if (
     platform === "iphone" &&
     !existsSync(join(checkout, "mobile/ios/Sikemux/Core/Showcase.swift"))
@@ -150,9 +222,9 @@ const signsIn = (scene) =>
     readFileSync(join(checkout, `film/scenes/${scene}.film`), "utf8"),
   );
 
-function shootMac(side) {
+async function shootMac(side) {
   const built =
-    run(
+    (await run(
       "cargo",
       [
         "build",
@@ -174,8 +246,8 @@ function shootMac(side) {
       ],
       checkout,
       cargoPath,
-    ) +
-    run(
+    )) +
+    (await run(
       "cargo",
       [
         "build",
@@ -189,9 +261,9 @@ function shootMac(side) {
       ],
       checkout,
       cargoPath,
-    ) +
+    )) +
     (scenes.some(signsIn)
-      ? run(
+      ? await run(
           "pnpm",
           ["install", "--silent", "--frozen-lockfile", "--prefer-offline"],
           join(checkout, "server"),
@@ -201,6 +273,7 @@ function shootMac(side) {
   const bin = join(checkout, "target/debug");
   for (const scene of scenes) {
     const work = mkdtempSync(join(tmpdir(), "sxshot"));
+    activeWorkDirs.add(work);
     // The film puts run/bin first on its cores' PATH. Builds older than its own stand-in `open`
     // would let a signed-out agent CLI open its sign-in page in the person's browser.
     mkdirSync(join(work, "run/bin"), { recursive: true });
@@ -208,7 +281,7 @@ function shootMac(side) {
       mode: 0o755,
     });
     try {
-      run(
+      await run(
         join(bin, "examples/film"),
         [
           join(checkout, `film/scenes/${scene}.film`),
@@ -229,27 +302,29 @@ function shootMac(side) {
         ],
         checkout,
         { SIKEMUX_CONFIG_DIR: join(work, "config") },
+        { timeoutMs: SCENE_TIMEOUT_MS },
       );
     } finally {
+      activeWorkDirs.delete(work);
       rmSync(work, { recursive: true, force: true });
     }
   }
 }
 
-function shootPhone(side) {
+async function shootPhone(side) {
   const installed =
-    run(
+    (await run(
       "pnpm",
       ["install", "--silent", "--frozen-lockfile", "--prefer-offline"],
       checkout,
-    ) +
-    run(
+    )) +
+    (await run(
       "pnpm",
       ["install", "--silent", "--frozen-lockfile", "--prefer-offline"],
       join(checkout, "mobile"),
-    );
+    ));
   say(`${side}: installed in ${Math.round(installed)} s`);
-  run(
+  await run(
     "node",
     [
       "showcase/capture.mjs",
@@ -261,6 +336,7 @@ function shootPhone(side) {
     ],
     join(checkout, "mobile"),
     cargoPath,
+    { timeoutMs: PHONE_TIMEOUT_MS },
   );
 }
 
@@ -268,17 +344,17 @@ function shootPhone(side) {
 const iphoneApps = join(here, "mobile/ios/build/shots");
 const showcaseData = join(out, "showcase.json");
 
-function buildIphone(side) {
+async function buildIphone(side) {
   const ios = join(checkout, "mobile/ios");
   const built =
-    run(
+    (await run(
       "pnpm",
       ["install", "--silent", "--frozen-lockfile", "--prefer-offline"],
       join(checkout, "mobile"),
-    ) +
-    run("scripts/build-core.sh", ["--sim-only"], ios) +
-    run("xcodegen", ["generate", "--quiet"], ios) +
-    run(
+    )) +
+    (await run("scripts/build-core.sh", ["--sim-only"], ios)) +
+    (await run("xcodegen", ["generate", "--quiet"], ios)) +
+    (await run(
       "xcodebuild",
       [
         "-quiet",
@@ -297,10 +373,10 @@ function buildIphone(side) {
         "build",
       ],
       ios,
-    );
+    ));
   say(`${side}: built in ${Math.round(built)} s`);
   if (!existsSync(showcaseData))
-    run(
+    await run(
       "node",
       ["showcase/export.mjs", showcaseData],
       join(checkout, "mobile"),
@@ -308,7 +384,7 @@ function buildIphone(side) {
     );
   mkdirSync(iphoneApps, { recursive: true });
   rmSync(join(iphoneApps, `${side}.app`), { recursive: true, force: true });
-  run(
+  await run(
     "cp",
     [
       "-R",
@@ -371,14 +447,52 @@ function compare() {
   );
 }
 
+function pruneOldShots() {
+  const outRoot = join(home, "out");
+  if (existsSync(outRoot)) {
+    const runs = readdirSync(outRoot)
+      .map((name) => {
+        const path = join(outRoot, name);
+        const mtime = statSync(path, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+        return { path, mtime };
+      })
+      .sort((a, b) => b.mtime - a.mtime);
+    for (const runDir of runs.slice(OUT_KEEP)) {
+      if (resolve(runDir.path) === out) continue;
+      rmSync(runDir.path, { recursive: true, force: true });
+    }
+  }
+  const derived = join(checkout, "mobile/ios/build/derived");
+  if (platform !== "iphone" && existsSync(derived)) {
+    const mtime = statSync(derived, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+    if (Date.now() - mtime > DERIVED_DATA_IDLE_MS) {
+      rmSync(derived, { recursive: true, force: true });
+    }
+  }
+  const tempRoot = tmpdir();
+  for (const name of readdirSync(tempRoot)) {
+    if (!name.startsWith("sxshot")) continue;
+    const path = join(tempRoot, name);
+    if (activeWorkDirs.has(path)) continue;
+    const mtime = statSync(path, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+    if (Date.now() - mtime > STALE_TEMP_IDLE_MS) {
+      rmSync(path, { recursive: true, force: true });
+    }
+  }
+}
+
 function trimTarget() {
   const target = join(checkout, "target");
   if (!existsSync(target)) return;
-  const result = spawnSync(
-    process.execPath,
-    [join(here, "scripts/prune-target.mjs"), "--throttled", target],
-    { cwd: here, encoding: "utf8" },
-  );
+  const host = [
+    join(checkout, "target/debug/sikemux-host"),
+    join(here, "target/debug/sikemux-host"),
+  ].find((candidate) => existsSync(candidate));
+  if (!host) return;
+  const result = spawnSync(host, ["prune-target", "--throttled", target], {
+    cwd: here,
+    encoding: "utf8",
+  });
   const line = result.stdout?.trim();
   if (line && !line.startsWith("Freed 0.0 GB")) say(line);
 }
@@ -388,15 +502,16 @@ if (options.compare) {
   say(`wrote ${join(out, "compare.html")}`);
   process.exit(0);
 }
-takeTurn();
+await takeTurn();
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 say(`after: ${commit.slice(0, 10)}`);
-moveTo(commit);
+await moveTo(commit);
 try {
-  PLATFORMS[platform]("after");
+  await PLATFORMS[platform]("after");
 } finally {
   trimTarget();
+  pruneOldShots();
 }
 if (platform === "iphone") {
   iphoneSteps();

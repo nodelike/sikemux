@@ -102,7 +102,9 @@ pub fn kill_and_reap(child: &mut Child) {
 
 enum RunEvent {
     Exited(io::Result<std::process::ExitStatus>),
-    ReaderFinished,
+    StdoutFinished,
+    StderrFinished,
+    StdinFinished,
 }
 
 /// How often the wait checks a cancellation token. Nothing else needs a timer:
@@ -111,16 +113,78 @@ enum RunEvent {
 const CANCEL_CHECK_INTERVAL: Duration = Duration::from_millis(250);
 /// How often a run whose waits do not count asks whether it waits.
 const WAIT_LOOK_INTERVAL: Duration = Duration::from_secs(2);
+/// How long to wait for pipes and child reap to drain after a timeout or cancel
+/// before detaching any reader held open by an escaped grandchild.
+const POST_KILL_GRACE: Duration = Duration::from_secs(1);
 
+#[cfg(unix)]
+fn wait_readable(fd: std::os::fd::RawFd, stop: &AtomicBool) -> io::Result<bool> {
+    loop {
+        if stop.load(Ordering::Acquire) {
+            return Ok(false);
+        }
+        let mut pollfd = libc::pollfd {
+            fd,
+            events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
+            revents: 0,
+        };
+        // SAFETY: `pollfd` points to one valid `libc::pollfd` for the duration of the call.
+        let ready = unsafe { libc::poll(&mut pollfd, 1, 100) };
+        if ready > 0 {
+            return Ok(true);
+        }
+        if ready < 0 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn read_bounded<R: Read + std::os::fd::AsRawFd>(
+    mut pipe: R,
+    total: Arc<AtomicUsize>,
+    exceeded: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+    max_output_bytes: usize,
+) -> io::Result<Vec<u8>> {
+    let fd = pipe.as_raw_fd();
+    let mut bytes = Vec::new();
+    let mut chunk = [0_u8; 16 * 1024];
+    loop {
+        if !wait_readable(fd, &stop)? {
+            return Ok(bytes);
+        }
+        let read = pipe.read(&mut chunk)?;
+        if read == 0 {
+            return Ok(bytes);
+        }
+        let previous = total.fetch_add(read, Ordering::AcqRel);
+        if previous.saturating_add(read) > max_output_bytes {
+            exceeded.store(true, Ordering::Release);
+            return Err(io::Error::other("subprocess output limit exceeded"));
+        }
+        bytes.extend_from_slice(chunk.get(..read).unwrap_or_default());
+    }
+}
+
+#[cfg(not(unix))]
 fn read_bounded(
     mut pipe: impl Read,
     total: Arc<AtomicUsize>,
     exceeded: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
     max_output_bytes: usize,
 ) -> io::Result<Vec<u8>> {
     let mut bytes = Vec::new();
     let mut chunk = [0_u8; 16 * 1024];
     loop {
+        if stop.load(Ordering::Acquire) {
+            return Ok(bytes);
+        }
         let read = pipe.read(&mut chunk)?;
         if read == 0 {
             return Ok(bytes);
@@ -220,33 +284,41 @@ fn run_counting(
 
     let total = Arc::new(AtomicUsize::new(0));
     let exceeded = Arc::new(AtomicBool::new(false));
+    let stop_readers = Arc::new(AtomicBool::new(false));
     let (events, arrivals) = mpsc::channel();
     let stdout_reader = {
         let total = Arc::clone(&total);
         let exceeded = Arc::clone(&exceeded);
+        let stop = Arc::clone(&stop_readers);
         let events = events.clone();
         std::thread::spawn(move || {
-            let result = read_bounded(stdout, total, exceeded, max_output_bytes);
-            let _ = events.send(RunEvent::ReaderFinished);
+            let result = read_bounded(stdout, total, exceeded, stop, max_output_bytes);
+            let _ = events.send(RunEvent::StdoutFinished);
             result
         })
     };
     let stderr_reader = {
         let total = Arc::clone(&total);
         let exceeded = Arc::clone(&exceeded);
+        let stop = Arc::clone(&stop_readers);
         let events = events.clone();
         std::thread::spawn(move || {
-            let result = read_bounded(stderr, total, exceeded, max_output_bytes);
-            let _ = events.send(RunEvent::ReaderFinished);
+            let result = read_bounded(stderr, total, exceeded, stop, max_output_bytes);
+            let _ = events.send(RunEvent::StderrFinished);
             result
         })
     };
     let stdin_writer = input.map(|bytes| {
         let bytes = bytes.to_vec();
         let stdin = child.stdin.take();
+        let events = events.clone();
         std::thread::spawn(move || {
-            let mut stdin = stdin.ok_or(ProcessRunError::MissingPipe("stdin"))?;
-            stdin.write_all(&bytes).map_err(ProcessRunError::Io)
+            let result = (|| {
+                let mut stdin = stdin.ok_or(ProcessRunError::MissingPipe("stdin"))?;
+                stdin.write_all(&bytes).map_err(ProcessRunError::Io)
+            })();
+            let _ = events.send(RunEvent::StdinFinished);
+            result
         })
     });
 
@@ -262,7 +334,10 @@ fn run_counting(
     let mut counting = true;
     let mut next_look = counted_to;
     let mut completed_status = None;
-    let mut readers_finished = 0_u8;
+    let mut waiter_done = false;
+    let mut stdout_done = false;
+    let mut stderr_done = false;
+    let mut stdin_done = stdin_writer.is_none();
     let status = loop {
         if cancellation.is_some_and(ProcessCancellation::is_cancelled) {
             kill_group(pid);
@@ -273,7 +348,7 @@ fn run_counting(
             break Err(ProcessRunError::OutputLimit(max_output_bytes));
         }
         if let Some(status) = completed_status {
-            if readers_finished == 2 {
+            if stdout_done && stderr_done {
                 break Ok(status);
             }
         }
@@ -303,9 +378,15 @@ fn run_counting(
             None => wait,
         };
         match arrivals.recv_timeout(wait) {
-            Ok(RunEvent::ReaderFinished) => readers_finished += 1,
-            Ok(RunEvent::Exited(Ok(status))) => completed_status = Some(status),
+            Ok(RunEvent::StdoutFinished) => stdout_done = true,
+            Ok(RunEvent::StderrFinished) => stderr_done = true,
+            Ok(RunEvent::StdinFinished) => stdin_done = true,
+            Ok(RunEvent::Exited(Ok(status))) => {
+                waiter_done = true;
+                completed_status = Some(status);
+            }
             Ok(RunEvent::Exited(Err(error))) => {
+                waiter_done = true;
                 kill_group(pid);
                 break Err(ProcessRunError::Io(error));
             }
@@ -321,6 +402,43 @@ fn run_counting(
             },
         }
     };
+
+    if let Err(error) = status {
+        let mut drain = |deadline: Instant| -> bool {
+            while !(waiter_done && stdout_done && stderr_done && stdin_done) {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    break;
+                };
+                match arrivals.recv_timeout(remaining) {
+                    Ok(RunEvent::Exited(_)) => waiter_done = true,
+                    Ok(RunEvent::StdoutFinished) => stdout_done = true,
+                    Ok(RunEvent::StderrFinished) => stderr_done = true,
+                    Ok(RunEvent::StdinFinished) => stdin_done = true,
+                    Err(_) => break,
+                }
+            }
+            stdout_done && stderr_done
+        };
+        if !drain(Instant::now() + POST_KILL_GRACE) {
+            stop_readers.store(true, Ordering::Release);
+            drain(Instant::now() + Duration::from_millis(250));
+        }
+        if waiter_done {
+            let _ = waiter.join();
+        }
+        if stdin_done {
+            if let Some(writer) = stdin_writer {
+                let _ = writer.join();
+            }
+        }
+        if stdout_done {
+            let _ = stdout_reader.join();
+        }
+        if stderr_done {
+            let _ = stderr_reader.join();
+        }
+        return Err(error);
+    }
 
     let _ = waiter.join();
     let stdin_result = if let Some(writer) = stdin_writer {
@@ -340,8 +458,6 @@ fn run_counting(
         .join()
         .map_err(|_| ProcessRunError::WorkerPanic("stderr"))?
         .map_err(ProcessRunError::Io);
-    // Process-level policy errors are more useful than the expected broken
-    // pipe errors caused by enforcing them.
     let status = status?;
     if let Some(result) = stdin_result {
         result?;
@@ -443,6 +559,37 @@ mod tests {
         .expect_err("cancellation must stop the run");
 
         assert!(matches!(error, ProcessRunError::Cancelled), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_detached_grandchild_holding_stdout_does_not_hang_timeout() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let pid_file = dir.path().join("grandchild.pid");
+        let script = format!(
+            "python3 -c 'import os, time; pid = os.fork(); \
+             (os._exit(0) if pid else (os.setsid(), open({:?}, \"w\").write(str(os.getpid())), time.sleep(30)))'; sleep 30",
+            pid_file.to_string_lossy()
+        );
+        let mut command = shell(&script);
+        let started = Instant::now();
+        let error = run(
+            &mut command,
+            None,
+            Duration::from_millis(200),
+            1024 * 1024,
+            None,
+        )
+        .expect_err("timeout must return even with a detached grandchild holding stdout");
+
+        if let Ok(text) = std::fs::read_to_string(&pid_file) {
+            if let Ok(pid) = text.trim().parse::<libc::pid_t>() {
+                // SAFETY: sending SIGKILL to the test's own detached grandchild pid.
+                unsafe { libc::kill(pid, libc::SIGKILL) };
+            }
+        }
+        assert!(matches!(error, ProcessRunError::Timeout(_)), "{error}");
         assert!(started.elapsed() < Duration::from_secs(5));
     }
 
