@@ -3,8 +3,10 @@
 //
 //   node scripts/testflight-release.mjs internal 0.1.0-nightly.10 100010
 //
-// `submit` does the same and also hands the build to the external Testers group through beta review.
-// Apple only lets external testers install a build it has reviewed.
+// `external` hands the newest processed build to the external Testers group through beta review, unless
+// one is already in review. Apple only lets external testers install a build it has reviewed.
+//
+//   node scripts/testflight-release.mjs external
 //
 // `app-store` puts a build up for App Store review as a stable version, released by itself once Apple
 // approves. A stable release promotes the build a nightly already sent to TestFlight:
@@ -28,25 +30,9 @@ const BUNDLE_ID = /\n {4}Release:\n(?: {6}.*\n)*? {6}SIKEMUX_BUNDLE_ID: (\S+)\n/
 )?.[1];
 if (!BUNDLE_ID) throw new Error('project.yml names no SIKEMUX_BUNDLE_ID for Release');
 const API = 'https://api.appstoreconnect.apple.com';
-export const TESTERS_GROUP = 'Testers';
+const TESTERS_GROUP = 'Testers';
 const PROCESSING_LIMIT_MS = 40 * 60 * 1000;
 const POLL_MS = 30 * 1000;
-
-function nextStep(externalState) {
-  switch (externalState) {
-    case 'PROCESSING':
-      return 'wait';
-    case 'READY_FOR_BETA_SUBMISSION':
-      return 'submit';
-    case 'WAITING_FOR_BETA_REVIEW':
-    case 'IN_BETA_REVIEW':
-    case 'BETA_APPROVED':
-    case 'IN_BETA_TESTING':
-      return 'done';
-    default:
-      throw new Error(`TestFlight cannot send this build to testers: its external state is ${externalState}`);
-  }
-}
 
 /** The App Store Connect token; Apple refuses one that lives longer than 20 minutes. */
 function token() {
@@ -96,7 +82,7 @@ async function processedBuild(appId, base, build) {
     const detail = found.included?.find((item) => item.type === 'buildBetaDetails');
     // A build reads VALID a while before TestFlight knows it, and adding it to a group then fails.
     const state = processing === 'VALID' && !detail ? 'VALID but not in TestFlight yet' : processing;
-    if (state === 'VALID') return { id: candidate.id, external: detail.attributes.externalBuildState };
+    if (state === 'VALID') return candidate.id;
     if (state === 'FAILED' || state === 'INVALID') throw new Error(`App Store Connect could not process build ${build}: ${state}`);
     if (Date.now() > deadline) throw new Error(`Build ${build} was still ${state ?? 'not listed'} after 40 minutes`);
     console.log(`TestFlight: build ${build} is ${state ?? 'not listed yet'}; checking again in 30 seconds`);
@@ -145,44 +131,52 @@ async function pruneCertificates() {
   console.log(`TestFlight: revoked ${stale.length} development certificates earlier CI runs made`);
 }
 
-async function internal(version, build) {
+async function appStoreConnectApp() {
   const apps = await call(`/v1/apps?filter[bundleId]=${BUNDLE_ID}`);
   const appId = apps.data[0]?.id;
   if (!appId) throw new Error(`App Store Connect has no app with the bundle id ${BUNDLE_ID}`);
-  const { id: buildId } = await processedBuild(appId, version.replace(/-.*$/, ''), build);
+  return appId;
+}
+
+async function internal(version, build) {
+  const buildId = await processedBuild(await appStoreConnectApp(), version.replace(/-.*$/, ''), build);
   await setWhatToTest(buildId, releaseNotes(version));
   console.log(`TestFlight: ${version} (${build}) is out to internal testers`);
 }
 
-async function submit(version, build) {
-  const notes = releaseNotes(version);
-  const base = version.replace(/-.*$/, '');
-  const apps = await call(`/v1/apps?filter[bundleId]=${BUNDLE_ID}`);
-  const appId = apps.data[0]?.id;
-  if (!appId) throw new Error(`App Store Connect has no app with the bundle id ${BUNDLE_ID}`);
+async function external() {
+  const appId = await appStoreConnectApp();
+  const ours = `/v1/builds?filter[app]=${appId}&limit=1`;
+  const reviewed = await call(`${ours}&filter[betaAppReviewSubmission.betaReviewState]=WAITING_FOR_REVIEW,IN_REVIEW`);
+  if (reviewed.data.length) {
+    console.log(`TestFlight: build ${reviewed.data[0].attributes.version} is still in beta review`);
+    return;
+  }
 
-  const { id: buildId, external } = await processedBuild(appId, base, build);
-  await setWhatToTest(buildId, notes);
+  const newest = await call(`${ours}&filter[processingState]=VALID&filter[expired]=false&sort=-uploadedDate`);
+  const build = newest.data[0];
+  if (!build) throw new Error('TestFlight has no build to send to external testers');
+  const detail = await call(`/v1/builds/${build.id}/buildBetaDetail`);
+  const state = detail.data?.attributes.externalBuildState;
+  if (state !== 'READY_FOR_BETA_SUBMISSION') {
+    console.log(`TestFlight: build ${build.attributes.version} needs no submission; its external state is ${state ?? 'not known yet'}`);
+    return;
+  }
 
   const groups = await call(`/v1/apps/${appId}/betaGroups?limit=200`);
   const group = groups.data.find((item) => item.attributes.name === TESTERS_GROUP && !item.attributes.isInternalGroup);
   if (!group) throw new Error(`App Store Connect has no external TestFlight group named ${TESTERS_GROUP}`);
   await call(`/v1/betaGroups/${group.id}/relationships/builds`, {
     method: 'POST',
-    body: JSON.stringify({ data: [{ type: 'builds', id: buildId }] }),
+    body: JSON.stringify({ data: [{ type: 'builds', id: build.id }] }),
   });
-
-  if (nextStep(external) === 'submit') {
-    await call('/v1/betaAppReviewSubmissions', {
-      method: 'POST',
-      body: JSON.stringify({
-        data: { type: 'betaAppReviewSubmissions', relationships: { build: { data: { type: 'builds', id: buildId } } } },
-      }),
-    });
-    console.log(`TestFlight: ${version} (${build}) is in the ${TESTERS_GROUP} group and submitted for beta review`);
-  } else {
-    console.log(`TestFlight: ${version} (${build}) is in the ${TESTERS_GROUP} group; its beta review state is ${external}`);
-  }
+  await call('/v1/betaAppReviewSubmissions', {
+    method: 'POST',
+    body: JSON.stringify({
+      data: { type: 'betaAppReviewSubmissions', relationships: { build: { data: { type: 'builds', id: build.id } } } },
+    }),
+  });
+  console.log(`TestFlight: build ${build.attributes.version} is in the ${TESTERS_GROUP} group and submitted for beta review`);
 }
 
 const IN_REVIEW = ['WAITING_FOR_REVIEW', 'IN_REVIEW', 'PENDING_DEVELOPER_RELEASE', 'PROCESSING_FOR_APP_STORE', 'READY_FOR_SALE'];
@@ -242,10 +236,8 @@ async function reviewSubmission(appId) {
 }
 
 async function appStore(version, build) {
-  const apps = await call(`/v1/apps?filter[bundleId]=${BUNDLE_ID}`);
-  const appId = apps.data[0]?.id;
-  if (!appId) throw new Error(`App Store Connect has no app with the bundle id ${BUNDLE_ID}`);
-  const { id: buildId } = await processedBuild(appId, version, build);
+  const appId = await appStoreConnectApp();
+  const buildId = await processedBuild(appId, version, build);
 
   const target = await appStoreVersion(appId, version);
   if (IN_REVIEW.includes(target.state)) {
@@ -282,11 +274,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const [command, version, build] = process.argv.slice(2);
   try {
     if (command === 'internal' && version && build) await internal(version, build);
-    else if (command === 'submit' && version && build) await submit(version, build);
+    else if (command === 'external') await external();
     else if (command === 'app-store' && version && build) await appStore(version, build);
     else if (command === 'prune-certificates') await pruneCertificates();
     else {
-      console.error('usage: testflight-release.mjs internal|submit <version> <build number> | app-store <version> <build number> | prune-certificates');
+      console.error('usage: testflight-release.mjs internal <version> <build number> | external | app-store <version> <build number> | prune-certificates');
       process.exit(2);
     }
   } catch (error) {
