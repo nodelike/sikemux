@@ -186,8 +186,8 @@ export function Row({
   children?: ReactNode;
 }) {
   return (
-    <li className={wrap ? "row wrap" : "row"}>
-      {lead ? <span className="lead">{lead}</span> : <span />}
+    <li className={`row${wrap ? " wrap" : ""}${lead ? "" : " bare"}`}>
+      {lead ? <span className="lead">{lead}</span> : null}
       <span className="what">
         <span className="nm">{name}</span>
         {detail ? <span className="dt">{detail}</span> : null}

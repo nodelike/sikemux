@@ -1107,8 +1107,8 @@ canvas.dots {
   padding: 9px 0;
   border-bottom: 1px solid var(--line);
 }
-.row > span:first-child:empty {
-  margin-right: -14px;
+.row.bare {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 .row .nm {
   font-weight: 500;
