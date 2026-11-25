@@ -41,6 +41,7 @@ import { clientAddress, limit, type RateLimiter } from "./limits.ts";
 import type { Logger } from "./log.ts";
 import { networkRoutes } from "./network/routes.ts";
 import { membershipRoutes } from "./orgs/host.ts";
+import { orgLogoRoutes } from "./orgs/logo.ts";
 import { invitePreviewRoutes, orgRoutes } from "./orgs/routes.ts";
 import { orgVaultRoutes } from "./orgvault/routes.ts";
 import { shareRoutes } from "./orgs/shares.ts";
@@ -143,6 +144,8 @@ export function createApp(services: Services) {
   // A vault rotation carries every entry sealed again, so the vault limits its own bodies too.
   app.route("/v1/vault", vaultRoutes(services));
   app.route("/v1/orgs/:orgId/vault", orgVaultRoutes(services));
+  // A logo is a picture, so its route limits its own body too.
+  app.route("/v1/orgs/:orgId/logo", orgLogoRoutes(services));
   // A push carries many sealed documents and a mod's files are uploaded, so mods limit their own bodies too.
   app.route("/v1/mods", modRoutes(services));
   // A shared page is uploaded whole, so pages limit their own bodies too.

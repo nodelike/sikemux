@@ -2130,6 +2130,211 @@
               }
             }
           },
+          "409": {
+            "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/logo": {
+      "get": {
+        "operationId": "getOrgLogo",
+        "summary": "An org's logo, as anyone in it",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The picture's bytes, with its Content-Type and the org's `logo` id as its ETag.",
+            "content": {
+              "application/octet-stream": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "304": {
+            "description": "If-None-Match holds the logo's ETag: it has not changed."
+          },
+          "404": {
+            "description": "You are not in an org with that id, or it has no logo.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "putOrgLogo",
+        "summary": "Set an org's logo, as its owner or an admin: the body is a PNG, JPEG or WebP picture, told by its own bytes",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": { "type": "string", "format": "binary" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The org with its new logo.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Org" }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not a PNG, JPEG or WebP picture.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role in the org does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "413": {
+            "description": "The picture is over 1,000,000 bytes.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "You changed logos more than 30 times in the last minute.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "removeOrgLogo",
+        "summary": "Remove an org's logo, as its owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The org without a logo.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Org" }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role in the org does not allow it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "You changed logos more than 30 times in the last minute.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
           "default": {
             "description": "Something went wrong.",
             "content": {
@@ -8468,6 +8673,10 @@
           "preview": {
             "description": "Only true: the org has its seats free while Team is in preview.",
             "type": "boolean"
+          },
+          "logo": {
+            "description": "Only when the org has a logo, which GET /v1/orgs/{orgId}/logo answers.",
+            "$ref": "#/components/schemas/OrgLogoId"
           }
         },
         "required": ["id", "name", "role", "seats", "createdAt"],
@@ -8478,6 +8687,9 @@
         "type": "string",
         "enum": [
           "created",
+          "renamed",
+          "logo_changed",
+          "logo_removed",
           "joined",
           "left",
           "removed",
@@ -8541,8 +8753,12 @@
             "description": "The team's name at the time.",
             "$ref": "#/components/schemas/OrgTeamName"
           },
+          "name": {
+            "description": "What the org was renamed to.",
+            "$ref": "#/components/schemas/OrgName"
+          },
           "previousName": {
-            "description": "A renamed team's old name.",
+            "description": "A renamed org or team's old name.",
             "$ref": "#/components/schemas/OrgTeamName"
           },
           "domain": { "$ref": "#/components/schemas/OrgDomainName" },
@@ -8848,6 +9064,11 @@
         },
         "required": ["orgs"],
         "additionalProperties": false
+      },
+      "OrgLogoId": {
+        "description": "A logo's id, a UUID in lowercase: a new picture has a new one.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
       },
       "OrgMember": {
         "description": "Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now.",

@@ -970,6 +970,97 @@
         "404": {
           "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
           "body": "ApiError"
+        },
+        "409": {
+          "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/orgs/{orgId}/logo",
+      "operationId": "getOrgLogo",
+      "summary": "An org's logo, as anyone in it",
+      "auth": "session",
+      "bytes": "response",
+      "responses": {
+        "200": {
+          "description": "The picture's bytes, with its Content-Type and the org's `logo` id as its ETag."
+        },
+        "304": {
+          "description": "If-None-Match holds the logo's ETag: it has not changed."
+        },
+        "404": {
+          "description": "You are not in an org with that id, or it has no logo.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/orgs/{orgId}/logo",
+      "operationId": "putOrgLogo",
+      "summary": "Set an org's logo, as its owner or an admin: the body is a PNG, JPEG or WebP picture, told by its own bytes",
+      "auth": "session",
+      "bytes": "request",
+      "responses": {
+        "200": {
+          "description": "The org with its new logo.",
+          "body": "Org"
+        },
+        "400": {
+          "description": "The body is not a PNG, JPEG or WebP picture.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Your role in the org does not allow it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+          "body": "ApiError"
+        },
+        "413": {
+          "description": "The picture is over 1,000,000 bytes.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "You changed logos more than 30 times in the last minute.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/orgs/{orgId}/logo",
+      "operationId": "removeOrgLogo",
+      "summary": "Remove an org's logo, as its owner or an admin",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The org without a logo.",
+          "body": "Org"
+        },
+        "403": {
+          "description": "Your role in the org does not allow it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The org's Team plan lapsed, so its features are frozen until it is renewed.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "You changed logos more than 30 times in the last minute.",
+          "body": "ApiError"
         }
       }
     },

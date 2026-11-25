@@ -51,10 +51,12 @@ import {
   inviteTokenHash,
   memberOf,
   membership,
+  membersOf,
   orgBody,
   orgIdOf,
   peopleNamer,
   requireRole,
+  requireTeamPlan,
   orgsChanged,
   seatsChanged,
 } from "./shared.ts";
@@ -124,15 +126,6 @@ async function refuseSecondPreview(db: Kysely<Tables>, userId: string) {
     throw conflict(
       `The preview gives each person one org, and you made ${made.name}.`,
     );
-}
-
-async function membersOf(db: Kysely<Tables>, orgId: string) {
-  const rows = await db
-    .selectFrom("org_users")
-    .select("user_id")
-    .where("org_id", "=", orgId)
-    .execute();
-  return rows.map((row) => row.user_id);
 }
 
 /** Names an invite's org for a page whose reader has not signed in yet; any link that would not join answers alike. */
@@ -285,19 +278,29 @@ export function orgRoutes({
       const { userId } = c.get("identity");
       const orgId = orgIdOf(c);
       const { name } = await readBody(c, "OrgRename");
-      const { org, role } = await membership(db, orgId, userId);
-      requireRole(role, ["owner", "admin"]);
-      const renamed = await db.transaction().execute(async (trx) => {
-        const row = await trx
+      const to = orgName(name);
+      const { org, role } = await db.transaction().execute(async (trx) => {
+        const member = await membership(trx, orgId, userId, { lock: true });
+        requireRole(member.role, ["owner", "admin"]);
+        await requireTeamPlan(trx, orgId);
+        if (member.org.name === to) return member;
+        const renamed = await trx
           .updateTable("orgs")
-          .set({ name: orgName(name) })
-          .where("id", "=", org.id)
+          .set({ name: to })
+          .where("id", "=", orgId)
           .returningAll()
           .executeTakeFirstOrThrow();
-        await orgsChanged(trx, await membersOf(trx, org.id));
-        return row;
+        await audit(trx, {
+          userId,
+          actor: `user:${userId}`,
+          action: "org.renamed",
+          subject: orgId,
+          detail: { name: to, previousName: member.org.name },
+        });
+        await orgsChanged(trx, await membersOf(trx, orgId));
+        return { org: renamed, role: member.role };
       });
-      return c.json(await orgBody(db, renamed, role));
+      return c.json(await orgBody(db, org, role));
     })
     .delete("/:orgId", perUser(limiter, "delete-org", 10), async (c) => {
       const { userId } = c.get("identity");

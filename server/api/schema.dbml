@@ -876,6 +876,13 @@ Table team_audience {
   vaults_open boolean [not null, default: `false`]
 }
 
+Table org_logos {
+  org_id uuid [pk]
+  id uuid [not null, unique, default: `gen_random_uuid()`]
+  mime text [not null, note: 'mime = ANY (ARRAY[\'image/png\', \'image/jpeg\', \'image/webp\'])']
+  bytes bytea [not null, note: '(length(bytes) >= 1) AND (length(bytes) <= 1000000)']
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -933,3 +940,4 @@ Ref: invoice_refunds.invoice_id > invoices.id [delete: cascade]
 Ref: vault_ended.user_id > vaults.user_id [delete: cascade]
 Ref: pages.user_id > users.id [delete: cascade]
 Ref: host_removal_sign_outs.user_id > users.id [delete: cascade]
+Ref: org_logos.org_id - orgs.id [delete: cascade]

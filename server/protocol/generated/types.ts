@@ -1062,11 +1062,16 @@ export interface Org {
   createdAt: string;
   /** Only true: the org has its seats free while Team is in preview. */
   preview?: boolean;
+  /** Only when the org has a logo, which GET /v1/orgs/{orgId}/logo answers. */
+  logo?: OrgLogoId;
 }
 
 /** What happened. ownership is handed over when role_changed has to: owner. */
 export type OrgAuditAction =
   | "created"
+  | "renamed"
+  | "logo_changed"
+  | "logo_removed"
   | "joined"
   | "left"
   | "removed"
@@ -1096,6 +1101,9 @@ export type OrgAuditAction =
   | "vault_remade";
 export const orgAuditActionValues: readonly OrgAuditAction[] = [
   "created",
+  "renamed",
+  "logo_changed",
+  "logo_removed",
   "joined",
   "left",
   "removed",
@@ -1144,7 +1152,9 @@ export interface OrgAuditEntry {
   via?: OrgJoinedVia;
   /** The team's name at the time. */
   team?: OrgTeamName;
-  /** A renamed team's old name. */
+  /** What the org was renamed to. */
+  name?: OrgName;
+  /** A renamed org or team's old name. */
   previousName?: OrgTeamName;
   domain?: OrgDomainName;
   joining?: OrgDomainJoining;
@@ -1299,6 +1309,9 @@ export const orgJoinedViaValues: readonly OrgJoinedVia[] = ["invite", "domain"];
 export interface OrgList {
   orgs: Org[];
 }
+
+/** A logo's id, a UUID in lowercase: a new picture has a new one. */
+export type OrgLogoId = string;
 
 /** Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now. */
 export interface OrgMember {
@@ -2651,6 +2664,7 @@ export interface Definitions {
   OrgJoin: OrgJoin;
   OrgJoinedVia: OrgJoinedVia;
   OrgList: OrgList;
+  OrgLogoId: OrgLogoId;
   OrgMember: OrgMember;
   OrgMemberId: OrgMemberId;
   OrgMemberList: OrgMemberList;

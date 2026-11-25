@@ -21,6 +21,9 @@ const PAGE = 50;
 /** The audit actions the org's log shows, by the name the log gives each. */
 const SHOWN: Record<string, OrgAuditAction> = {
   "org.created": "created",
+  "org.renamed": "renamed",
+  "org.logo_changed": "logo_changed",
+  "org.logo_removed": "logo_removed",
   "org.joined": "joined",
   "org.left": "left",
   "org.member_removed": "removed",
@@ -100,6 +103,7 @@ function entryBody(
     from: role(detail.from),
     to: role(detail.to),
     team: text(detail.team),
+    name: text(detail.name),
     previousName: text(detail.previousName),
     domain: text(detail.domain),
     entryKind: row.action.startsWith("org_vault.entry_")

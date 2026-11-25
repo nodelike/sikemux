@@ -312,6 +312,9 @@ export function apiClient(send: Send) {
     /** Rename an org, as its owner or an admin. */
     renameOrg: (orgId: string, body: OrgRename) =>
       send<Org>("POST", `/v1/orgs/${encodeURIComponent(orgId)}/name`, body),
+    /** Remove an org's logo, as its owner or an admin. */
+    removeOrgLogo: (orgId: string) =>
+      send<Org>("DELETE", `/v1/orgs/${encodeURIComponent(orgId)}/logo`),
     /** Delete an org, as its owner. */
     deleteOrg: (orgId: string) =>
       send<void>("DELETE", `/v1/orgs/${encodeURIComponent(orgId)}`),

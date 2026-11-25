@@ -237,6 +237,12 @@ function auditLine(entry: OrgAuditEntry, org: Org): string {
   switch (entry.action) {
     case "created":
       return `made ${org.name}`;
+    case "renamed":
+      return `renamed ${entry.previousName ?? "the org"} to ${entry.name ?? org.name}`;
+    case "logo_changed":
+      return "set the logo";
+    case "logo_removed":
+      return "removed the logo";
     case "joined":
       return entry.via === "domain"
         ? `joined through ${domain}, as ${role(entry.role)}`

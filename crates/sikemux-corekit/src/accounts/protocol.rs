@@ -1053,6 +1053,9 @@ pub struct Org {
     /// Only true: the org has its seats free while Team is in preview.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview: Option<bool>,
+    /// Only when the org has a logo, which GET /v1/orgs/{orgId}/logo answers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logo: Option<OrgLogoId>,
 }
 
 /// What happened. ownership is handed over when role_changed has to: owner.
@@ -1060,6 +1063,12 @@ pub struct Org {
 pub enum OrgAuditAction {
     #[serde(rename = "created")]
     Created,
+    #[serde(rename = "renamed")]
+    Renamed,
+    #[serde(rename = "logo_changed")]
+    LogoChanged,
+    #[serde(rename = "logo_removed")]
+    LogoRemoved,
     #[serde(rename = "joined")]
     Joined,
     #[serde(rename = "left")]
@@ -1145,7 +1154,10 @@ pub struct OrgAuditEntry {
     /// The team's name at the time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub team: Option<OrgTeamName>,
-    /// A renamed team's old name.
+    /// What the org was renamed to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<OrgName>,
+    /// A renamed org or team's old name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_name: Option<OrgTeamName>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1359,6 +1371,9 @@ pub enum OrgJoinedVia {
 pub struct OrgList {
     pub orgs: Vec<Org>,
 }
+
+/// A logo's id, a UUID in lowercase: a new picture has a new one.
+pub type OrgLogoId = String;
 
 /// Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -2385,6 +2400,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgJoin" => through::<OrgJoin>(json),
         "OrgJoinedVia" => through::<OrgJoinedVia>(json),
         "OrgList" => through::<OrgList>(json),
+        "OrgLogoId" => through::<OrgLogoId>(json),
         "OrgMember" => through::<OrgMember>(json),
         "OrgMemberId" => through::<OrgMemberId>(json),
         "OrgMemberList" => through::<OrgMemberList>(json),

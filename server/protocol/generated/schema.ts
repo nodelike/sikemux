@@ -1936,6 +1936,11 @@ export const schema = {
             "Only true: the org has its seats free while Team is in preview.",
           type: "boolean",
         },
+        logo: {
+          description:
+            "Only when the org has a logo, which GET /v1/orgs/{orgId}/logo answers.",
+          $ref: "#/$defs/OrgLogoId",
+        },
       },
       required: ["id", "name", "role", "seats", "createdAt"],
       additionalProperties: false,
@@ -1946,6 +1951,9 @@ export const schema = {
       type: "string",
       enum: [
         "created",
+        "renamed",
+        "logo_changed",
+        "logo_removed",
         "joined",
         "left",
         "removed",
@@ -2013,8 +2021,12 @@ export const schema = {
           description: "The team's name at the time.",
           $ref: "#/$defs/OrgTeamName",
         },
+        name: {
+          description: "What the org was renamed to.",
+          $ref: "#/$defs/OrgName",
+        },
         previousName: {
-          description: "A renamed team's old name.",
+          description: "A renamed org or team's old name.",
           $ref: "#/$defs/OrgTeamName",
         },
         domain: { $ref: "#/$defs/OrgDomainName" },
@@ -2313,6 +2325,12 @@ export const schema = {
       properties: { orgs: { type: "array", items: { $ref: "#/$defs/Org" } } },
       required: ["orgs"],
       additionalProperties: false,
+    },
+    OrgLogoId: {
+      description:
+        "A logo's id, a UUID in lowercase: a new picture has a new one.",
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     },
     OrgMember: {
       description:

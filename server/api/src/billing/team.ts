@@ -155,7 +155,7 @@ export async function holdsVaults(db: Kysely<Tables>, userId: string) {
 /** What anyone in an org may do though Team is not open to them: read, hand it over, take people out and leave. */
 const isKept = (method: string, path: string) =>
   method === "GET" ||
-  method === "DELETE" ||
+  (method === "DELETE" && !path.endsWith("/logo")) ||
   path.endsWith("/leave") ||
   path.endsWith("/role");
 

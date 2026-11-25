@@ -43,6 +43,8 @@ export type FoldWhy =
   "invite" | "share" | "browser" | "domain" | "address" | "seat";
 
 /** The tables the API reads and writes. Each one arrives with the migration that creates it. */
+export type OrgLogoMime = "image/png" | "image/jpeg" | "image/webp";
+
 export interface Tables {
   users: {
     id: string;
@@ -527,6 +529,12 @@ export interface Tables {
     team_id: string;
     member_id: string;
     added_at: CreatedAt;
+  };
+  org_logos: {
+    org_id: string;
+    id: Generated<string>;
+    mime: OrgLogoMime;
+    bytes: Buffer;
   };
   org_domains: {
     id: Generated<string>;

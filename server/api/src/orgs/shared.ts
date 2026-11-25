@@ -36,10 +36,15 @@ export async function orgBody(
   org: Selectable<Tables["orgs"]>,
   role: OrgRole,
 ): Promise<Org> {
-  const [held, limit, preview] = await Promise.all([
+  const [held, limit, preview, logo] = await Promise.all([
     seatsHeld(db, org.id),
     seatLimit(db, org.id),
     isFree(db, org.id),
+    db
+      .selectFrom("org_logos")
+      .select("id")
+      .where("org_id", "=", org.id)
+      .executeTakeFirst(),
   ]);
   return {
     id: org.id,
@@ -47,6 +52,7 @@ export async function orgBody(
     role,
     seats: { held, limit },
     ...(preview ? { preview: true } : {}),
+    ...(logo ? { logo: logo.id } : {}),
     createdAt: org.created_at.toISOString(),
   };
 }
@@ -77,6 +83,15 @@ export async function membership(
     : undefined;
   if (!org || !role) throw notFound(NOT_IN_ORG);
   return { org, role };
+}
+
+export async function membersOf(db: Kysely<Tables>, orgId: string) {
+  const rows = await db
+    .selectFrom("org_users")
+    .select("user_id")
+    .where("org_id", "=", orgId)
+    .execute();
+  return rows.map((row) => row.user_id);
 }
 
 export function requireRole(role: OrgRole, allowed: readonly OrgRole[]) {
