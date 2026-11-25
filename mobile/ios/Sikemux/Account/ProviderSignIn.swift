@@ -1,12 +1,12 @@
 import AuthenticationServices
 import UIKit
 
-/// Signing in with Apple, Google or GitHub. Apple uses the system's own sheet; Google and GitHub open their page in
-/// a sheet inside the app that hands back to Clerk when done.
+/// Signing in with Apple, Google, GitHub or Microsoft. Apple uses the system's own sheet; the others open their page
+/// in a sheet inside the app that hands back to Clerk when done.
 @MainActor
 enum ProviderSignIn {
     enum Provider: String {
-        case apple, google, github
+        case apple, google, github, microsoft
     }
 
     struct Cancelled: Error {}
@@ -17,7 +17,7 @@ enum ProviderSignIn {
         #endif
         switch provider {
         case .apple: try await withApple()
-        case .google, .github: try await onTheWeb("oauth_\(provider.rawValue)")
+        case .google, .github, .microsoft: try await onTheWeb("oauth_\(provider.rawValue)")
         }
     }
 

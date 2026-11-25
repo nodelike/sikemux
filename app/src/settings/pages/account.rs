@@ -21,7 +21,7 @@ pub(in crate::settings) const ENTRIES: &[Entry] = &[
     section(
         Account,
         "Account",
-        "account sign in sign out login google github email delete",
+        "account sign in sign out login apple google github microsoft email delete",
     ),
     section(
         Account,
@@ -93,7 +93,7 @@ fn sign_in_panel(
         false => (
             t!("Sign in to your Sikemux account"),
             removal_note(link).unwrap_or(
-                t!("Your phone finds this host through it. Sign in with Google, GitHub or your email, in your browser."),
+                t!("Your phone finds this host through it. Sign in with Apple, Google, GitHub, Microsoft or your email, in your browser."),
             ),
         ),
     };

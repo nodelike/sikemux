@@ -1,4 +1,4 @@
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Path, Rect } from 'react-native-svg';
 
 /** GitHub's mark, in one colour as its brand rules ask. */
 export function GitHubMark({ size = 18, color }: { size?: number; color: string }) {
@@ -29,6 +29,18 @@ export function GoogleG({ size = 18 }: { size?: number }) {
         fill="#EA4335"
         d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58A8.98 8.98 0 009 0 9 9 0 00.96 4.96l3 2.33C4.67 5.16 6.66 3.58 9 3.58z"
       />
+    </Svg>
+  );
+}
+
+/** Microsoft's four-square mark, in its brand colours. */
+export function MicrosoftMark({ size = 18 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 21 21">
+      <Rect x="1" y="1" width="9" height="9" fill="#F25022" />
+      <Rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+      <Rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+      <Rect x="11" y="11" width="9" height="9" fill="#FFB900" />
     </Svg>
   );
 }

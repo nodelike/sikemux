@@ -11,7 +11,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { problem as problemOf } from '@/core/problem';
 import { useT } from '@/i18n';
-import { GitHubMark, GoogleG } from '@/ui/brands';
+import { GitHubMark, GoogleG, MicrosoftMark } from '@/ui/brands';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Button } from '@/ui/controls';
 import { useBottomGap } from '@/ui/screen';
@@ -21,9 +21,13 @@ import { defaultPalette as colors, fonts, typeFor } from '@/ui/theme';
 
 WebBrowser.maybeCompleteAuthSession();
 
-type Provider = 'oauth_google' | 'oauth_github';
+type Provider = 'oauth_google' | 'oauth_github' | 'oauth_microsoft';
 
-const PROVIDER_NAME: Record<Provider, string> = { oauth_google: 'Google', oauth_github: 'GitHub' };
+const PROVIDER_NAME: Record<Provider, string> = {
+  oauth_google: 'Google',
+  oauth_github: 'GitHub',
+  oauth_microsoft: 'Microsoft',
+};
 
 // Shown before any host is paired, so it is drawn in the default theme.
 const type = typeFor(colors);
@@ -169,6 +173,13 @@ export function Welcome() {
           icon={<GitHubMark color={colors.ink} />}
           busy={provider.busy === 'oauth_github'}
           onPress={() => provider.start('oauth_github')}
+          style={styles.provider}
+        />
+        <Button
+          title={t('Continue with {provider}', { provider: PROVIDER_NAME.oauth_microsoft })}
+          icon={<MicrosoftMark />}
+          busy={provider.busy === 'oauth_microsoft'}
+          onPress={() => provider.start('oauth_microsoft')}
           style={styles.provider}
         />
         <Pressable onPress={() => router.push('/sign-in')} style={styles.paste} accessibilityRole="button">

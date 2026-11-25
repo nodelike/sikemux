@@ -32,6 +32,7 @@ struct WelcomeScreen: View {
                 provider(.apple, "Continue with Apple", BrandMarks.apple)
                 provider(.google, "Continue with Google", BrandMarks.google)
                 provider(.github, "Continue with GitHub", BrandMarks.github)
+                provider(.microsoft, "Continue with Microsoft", BrandMarks.microsoft)
                 NavigationLink(value: Route.signIn) {
                     Text("Continue with email")
                         .font(Theme.ui(15, .medium))

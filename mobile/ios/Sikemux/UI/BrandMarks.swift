@@ -39,4 +39,12 @@ enum BrandMarks {
                     "M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58A8.98 8.98 0 009 0 9 9 0 00.96 4.96l3 2.33C4.67 5.16 6.66 3.58 9 3.58z",
                 style: .fill(.hex("#EA4335")), opacity: 1, evenOdd: false, translate: (0, 0)),
         ])
+    static let microsoft = IconDef(
+        viewBox: ViewBox(x: 0, y: 0, width: 21, height: 21),
+        shapes: [
+            IconShape(d: "M1 1h9v9H1z", style: .fill(.hex("#F25022")), opacity: 1, evenOdd: false, translate: (0, 0)),
+            IconShape(d: "M11 1h9v9h-9z", style: .fill(.hex("#7FBA00")), opacity: 1, evenOdd: false, translate: (0, 0)),
+            IconShape(d: "M1 11h9v9H1z", style: .fill(.hex("#00A4EF")), opacity: 1, evenOdd: false, translate: (0, 0)),
+            IconShape(d: "M11 11h9v9h-9z", style: .fill(.hex("#FFB900")), opacity: 1, evenOdd: false, translate: (0, 0)),
+        ])
 }
