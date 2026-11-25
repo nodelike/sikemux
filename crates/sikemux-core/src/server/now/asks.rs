@@ -368,6 +368,7 @@ pub(crate) fn handed(
     }
     let holders: Vec<Holder> = to.iter().map(|agent| holder(core, agent)).collect();
     let home = folder_of_agent(core, from);
+    let mut marked = Vec::new();
     change(core, |board, at| {
         let names_here = home.as_deref() == Some(board.folder());
         each_ask(board, at, |id, asked| {
@@ -377,6 +378,7 @@ pub(crate) fn handed(
             }
             let mut changed = false;
             for holder in &holders {
+                marked.push(holder.agent.clone());
                 if !asked.owners.iter().any(|kept| kept.agent == holder.agent) {
                     asked.owners.push(holder.clone());
                     changed = true;
@@ -390,6 +392,9 @@ pub(crate) fn handed(
             changed
         })
     });
+    for agent in marked {
+        core.names().mark_for_person(&agent, true);
+    }
 }
 
 /// `agent`'s turn ended by itself: its asks it handed on as work to nobody were answered.
@@ -436,9 +441,12 @@ pub(crate) fn work_read(core: &Core, agent: &str) {
     });
 }
 
-/// Whether the person waits on `agent`'s work: it holds an ask of theirs, or landed one that is
-/// not yet in the build they run.
+/// Whether the person waits on `agent`'s work: it was handed their work, holds an ask of theirs,
+/// or landed one that is not yet in the build they run.
 pub(crate) fn person_waits_on(core: &Core, agent: &str) -> bool {
+    if core.names().for_person(agent) {
+        return true;
+    }
     let state = core.boards().state.locked();
     state.boards.values().any(|board| {
         asks(board).any(|(_, asked)| {

@@ -91,6 +91,8 @@ struct Entry {
     /// The task title its lead started it with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     task: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    for_person: bool,
 }
 
 impl Entry {
@@ -153,6 +155,8 @@ struct ClosedSession {
     chosen: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     buddy: Option<AgentBuddy>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    for_person: bool,
 }
 
 /// The provider session an agent ran, and the project it ran in.
@@ -303,6 +307,7 @@ impl Names {
             terminal: false,
             role: None,
             task: adopted.task.map(str::to_owned),
+            for_person: false,
         };
         let named = entry.view();
         book.agents.push(entry);
@@ -334,6 +339,7 @@ impl Names {
                 terminal: false,
                 role: None,
                 task: None,
+                for_person: false,
             });
         }
         self.save(&book);
@@ -512,6 +518,17 @@ impl Names {
             self.save(&book);
             return Ok(named);
         }
+        let for_person = worker.session.is_some_and(|session| {
+            book.agents.iter().any(|entry| {
+                entry.for_person
+                    && entry.provider.as_deref() == Some(worker.provider)
+                    && entry.session_id.as_deref() == Some(session)
+            }) || book.closed_sessions.iter().any(|closed| {
+                closed.for_person
+                    && closed.ran.provider == worker.provider
+                    && closed.ran.session_id == session
+            })
+        });
         let entry = Entry {
             agent_id: worker.agent_id.to_owned(),
             name: book.fresh(&project, worker.agent_id, &open),
@@ -529,6 +546,7 @@ impl Names {
             terminal: false,
             role: None,
             task: worker.task.map(str::to_owned),
+            for_person,
         };
         let named = entry.view();
         book.agents.push(entry);
@@ -552,6 +570,38 @@ impl Names {
             .iter()
             .find(|entry| entry.agent_id == agent_id && !entry.quiet)
             .and_then(|entry| entry.parent.clone())
+    }
+
+    /// Whether the agent works on something the person asked for.
+    pub fn for_person(&self, agent_id: &str) -> bool {
+        let book = self.book.locked();
+        if let Some(entry) = book.agents.iter().find(|entry| entry.agent_id == agent_id) {
+            return entry.for_person;
+        }
+        book.closed_sessions
+            .iter()
+            .any(|closed| closed.agent_id == agent_id && closed.for_person)
+    }
+
+    pub fn mark_for_person(&self, agent_id: &str, for_person: bool) {
+        let mut book = self.book.locked();
+        if let Some(entry) = book.entry_mut(agent_id) {
+            if entry.for_person != for_person {
+                entry.for_person = for_person;
+                self.save(&book);
+            }
+            return;
+        }
+        if let Some(closed) = book
+            .closed_sessions
+            .iter_mut()
+            .find(|closed| closed.agent_id == agent_id)
+        {
+            if closed.for_person != for_person {
+                closed.for_person = for_person;
+                self.save(&book);
+            }
+        }
     }
 
     /// The agent at the top of `agent_id`'s chain of leads, the one the person
@@ -1030,6 +1080,7 @@ impl Book {
                     quiet: entry.quiet,
                     chosen: entry.chosen,
                     buddy: entry.buddy.clone(),
+                    for_person: entry.for_person,
                 });
                 self.closed_sessions.truncate(MAX_CLOSED_SESSIONS);
             }
@@ -1116,6 +1167,17 @@ impl Book {
             }
             return (entry.view(), true);
         }
+        let for_person = resume_id.is_some_and(|session| {
+            self.agents.iter().any(|entry| {
+                entry.for_person
+                    && entry.session_id.as_deref() == Some(session)
+                    && provider.is_none_or(|provider| entry.provider.as_deref() == Some(provider))
+            }) || self.closed_sessions.iter().any(|closed| {
+                closed.for_person
+                    && closed.ran.session_id == session
+                    && provider.is_none_or(|provider| closed.ran.provider == provider)
+            })
+        });
         let name = self.fresh(&project, agent_id, open);
         let entry = Entry {
             agent_id: agent_id.to_owned(),
@@ -1134,6 +1196,7 @@ impl Book {
             terminal: false,
             role: None,
             task: None,
+            for_person,
         };
         let named = entry.view();
         self.agents.push(entry);
@@ -1190,6 +1253,7 @@ impl Book {
             terminal: closed.ran.terminal,
             role: None,
             task: None,
+            for_person: closed.for_person,
         });
         Some(Returned { buddy, same_name })
     }

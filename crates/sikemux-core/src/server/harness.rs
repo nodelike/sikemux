@@ -754,7 +754,7 @@ async fn dispatch(
 
 /// The agents a start or a message reached take the asks it names, and those of the caller's turn
 /// when it hands them on as work.
-fn handing(
+pub(super) fn handing(
     core: &Core,
     request: &HarnessRequest,
     answer: Result<Value, String>,
@@ -770,8 +770,13 @@ fn handing(
         .into_iter()
         .collect();
     let title = request.params.get("title").and_then(Value::as_str);
-    let work = request.params.get("work").and_then(Value::as_bool) == Some(true);
-    super::now::asks::handed(core, from, &reached, &named, title, work);
+    let work = request.params.get("work").and_then(Value::as_bool);
+    super::now::asks::handed(core, from, &reached, &named, title, work == Some(true));
+    if let Some(work) = work {
+        for agent in &reached {
+            core.names().mark_for_person(agent, work);
+        }
+    }
     answer
 }
 

@@ -3209,6 +3209,215 @@ mod tests {
         );
     }
 
+    /// Workers handed the person's work lost their wake mark once their earlier ask entered the
+    /// running build, after an answer turn with no open in-turn ask, on a follow-up send without
+    /// `work: true`, across a restart/update, or after closing and resuming; upkeep stays held,
+    /// and calm reports arriving together still batch into one wake.
+    #[test]
+    fn persons_work_mark_survives_follow_up_restart_and_resume() {
+        use crate::server::names::{Starting, Worker};
+
+        let dir = tempfile::tempdir().unwrap();
+        let open = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect();
+        let worker_listed = |id: &str| Listed {
+            name: Some(id.to_owned()),
+            project: "/shop".to_owned(),
+            cli: "claude".to_owned(),
+            title: None,
+            status: sikemux_wire::protocol::AgentStatus::Idle,
+            parent: Some("chief".to_owned()),
+            active_at: None,
+            rank: 0,
+            reach: Reach::Chat,
+            agent_id: id.to_owned(),
+        };
+        let busy = TurnState {
+            state: TurnPhase::Working,
+            since: 1,
+            on: None,
+            wait: None,
+            call: None,
+            done: None,
+            stopped: None,
+            failed: None,
+            seen: false,
+        };
+        let turns = HashMap::from([("shun".to_owned(), busy)]);
+        let agents = [
+            worker_listed("koizumi"),
+            worker_listed("upkeep"),
+            worker_listed("shun"),
+        ];
+
+        let core = Core::new(Default::default(), Some(dir.path())).unwrap();
+        core.names().give(
+            Starting {
+                agent_id: "chief",
+                project: "/shop".into(),
+                provider: Some("claude"),
+                resume_id: None,
+            },
+            open(&["chief"]),
+        );
+        for (id, session) in [("koizumi", "ses-koizumi"), ("upkeep", "ses-upkeep")] {
+            core.names()
+                .hire(
+                    Worker {
+                        agent_id: id,
+                        lead: "chief",
+                        project: None,
+                        provider: "claude",
+                        session: Some(session),
+                        reports: true,
+                        task: None,
+                    },
+                    open(&["chief"]),
+                )
+                .unwrap();
+        }
+        core.names().settle(open(&["chief", "koizumi", "upkeep"]));
+
+        let hand_request = |method: &str, params: Value| HarnessRequest {
+            id: "1".to_owned(),
+            project: "/shop".to_owned(),
+            agent_id: Some("chief".to_owned()),
+            method: method.to_owned(),
+            params,
+        };
+
+        // Marked with work: true even without an in-turn ask on the board (e.g. answer turn).
+        super::super::harness::handing(
+            &core,
+            &hand_request("agent.send", json!({ "to": "koizumi", "work": true })),
+            Ok(json!({ "agentId": "koizumi" })),
+        )
+        .unwrap();
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "koizumi", "chief", 10),
+            10
+        );
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "upkeep", "chief", 10),
+            u64::MAX
+        );
+
+        // A follow-up agent_send without work keeps the mark.
+        super::super::harness::handing(
+            &core,
+            &hand_request(
+                "agent.send",
+                json!({ "to": "koizumi", "text": "follow up" }),
+            ),
+            Ok(json!({ "agentId": "koizumi" })),
+        )
+        .unwrap();
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "koizumi", "chief", 11),
+            11
+        );
+
+        // Closing and restarting the core (update/handover) preserves the mark on disk.
+        core.names().settle(open(&["chief", "upkeep"]));
+        drop(core);
+
+        let restarted = Core::new(Default::default(), Some(dir.path())).unwrap();
+        let returning = restarted.names().returning_id(
+            Some("claude"),
+            "ses-koizumi",
+            open(&["chief", "upkeep"]),
+        );
+        assert_eq!(returning, "koizumi");
+        restarted
+            .names()
+            .hire(
+                Worker {
+                    agent_id: &returning,
+                    lead: "chief",
+                    project: None,
+                    provider: "claude",
+                    session: Some("ses-koizumi"),
+                    reports: true,
+                    task: None,
+                },
+                open(&["chief", "upkeep"]),
+            )
+            .unwrap();
+        assert_eq!(
+            calm_due_in(&restarted, &turns, &agents, "koizumi", "chief", 12),
+            12
+        );
+        assert_eq!(
+            calm_due_in(&restarted, &turns, &agents, "upkeep", "chief", 12),
+            u64::MAX
+        );
+
+        // Resuming the same session under a fresh id also inherits the mark.
+        restarted
+            .names()
+            .settle(open(&["chief", "koizumi", "upkeep"]));
+        restarted.names().settle(open(&["chief", "upkeep"]));
+        restarted
+            .names()
+            .hire(
+                Worker {
+                    agent_id: "koizumi-resumed",
+                    lead: "chief",
+                    project: None,
+                    provider: "claude",
+                    session: Some("ses-koizumi"),
+                    reports: true,
+                    task: None,
+                },
+                open(&["chief", "upkeep"]),
+            )
+            .unwrap();
+        let resumed_agents = [
+            worker_listed("koizumi-resumed"),
+            worker_listed("upkeep"),
+            worker_listed("shun"),
+        ];
+        assert_eq!(
+            calm_due_in(
+                &restarted,
+                &turns,
+                &resumed_agents,
+                "koizumi-resumed",
+                "chief",
+                13
+            ),
+            13
+        );
+
+        // Several due calm reports arriving together are taken and joined into one wake.
+        let mailbox = &restarted.harness().mailbox;
+        for (from, line) in [
+            ("koizumi-resumed", "- @Koizumi: Landed docs."),
+            ("kirito", "- @Kirito: Landed composer fix."),
+        ] {
+            mailbox.wait(
+                "chief",
+                Queued {
+                    text: line.to_owned(),
+                    origin: Some(Origin {
+                        from: from.to_owned(),
+                        kind: MessageKind::Report,
+                        awaited: false,
+                        calm: Some(13),
+                    }),
+                    mark: None,
+                    paths: Vec::new(),
+                },
+            );
+        }
+        assert_eq!(mailbox.calm_until("chief"), Some(13));
+        let batch = mailbox.take("chief");
+        assert_eq!(batch.len(), 2);
+        let combined = joined(&batch);
+        assert!(combined.contains("@Koizumi: Landed docs."));
+        assert!(combined.contains("@Kirito: Landed composer fix."));
+        assert_eq!(combined.matches("<agent-message").count(), 1);
+    }
+
     /// A lead's chat drew a worker's report as the person's own message, raw tags and all,
     /// while the lead had a call about that worker open.
     #[tokio::test]
