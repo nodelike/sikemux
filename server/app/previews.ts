@@ -28,7 +28,7 @@ const PREVIEWS: Record<string, Preview> = {
       "One account for every device you use with Sikemux. Sign in on each, and they find each other.",
     url: "https://app.sikemux.com/",
     picture: {
-      src: "https://sikemux.com/og.png",
+      src: "https://sikemux.com/og.jpg",
       width: 1200,
       height: 630,
       alt: "Sikemux: own your software factory. Agents build and ship, you make the calls.",
