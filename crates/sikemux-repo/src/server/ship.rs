@@ -2229,13 +2229,14 @@ fn take(core: &Core, id: &str) -> CoreResult<Hold> {
 /// Puts each held action to the person as a production call, and closes the calls of those no
 /// longer held.
 fn tell_calls(core: &Core) {
-    let state = core.ship().state.locked();
-    let wanted = (state.holds.iter())
-        .filter(|hold| hold.key.is_none())
-        .map(|hold| (hold.token.clone(), held_call(core, hold)))
-        .collect();
+    let wanted = {
+        let state = core.ship().state.locked();
+        (state.holds.iter())
+            .filter(|hold| hold.key.is_none())
+            .map(|hold| (hold.token.clone(), held_call(core, hold)))
+            .collect()
+    };
     person_calls::sync_holds(core, wanted);
-    drop(state);
 }
 
 /// What came of a held action the person allowed: it ran, and how it ended where Sikemux saw.

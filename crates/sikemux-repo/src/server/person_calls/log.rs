@@ -85,6 +85,7 @@ impl Entry {
     }
 }
 
+#[derive(Clone)]
 pub struct CallLog {
     folder: Option<PathBuf>,
 }
@@ -95,6 +96,10 @@ impl CallLog {
         Self {
             folder: data_dir.map(|dir| dir.join(FOLDER)),
         }
+    }
+
+    pub fn has_folder(&self) -> bool {
+        self.folder.is_some()
     }
 
     fn files(&self, project: &str) -> Option<(PathBuf, PathBuf)> {

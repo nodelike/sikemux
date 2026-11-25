@@ -9,8 +9,9 @@ mod log;
 use crate::server::changed::ChangedCore;
 use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
+use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -98,13 +99,159 @@ struct AfterStart {
 }
 
 /// Every call open, and those settled lately, as their entries left them.
-type Book = Vec<Kept>;
+#[derive(Default)]
+struct Book {
+    entries: HashMap<String, Kept>,
+}
+
+impl Book {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Kept> {
+        self.entries.values()
+    }
+
+    fn get(&self, id: &str) -> Option<&Kept> {
+        self.entries.get(id)
+    }
+
+    fn get_mut(&mut self, id: &str) -> Option<&mut Kept> {
+        self.entries.get_mut(id)
+    }
+
+    fn into_values(self) -> impl Iterator<Item = Kept> {
+        self.entries.into_values()
+    }
+}
+
+enum LogOp {
+    Append {
+        project: String,
+        entry: Box<Entry>,
+        sure: bool,
+        still_open: Vec<Entry>,
+        done: Option<mpsc::SyncSender<Result<(), String>>>,
+    },
+    Flush(mpsc::SyncSender<()>),
+}
+
+struct LogWriter {
+    tx: Option<mpsc::Sender<LogOp>>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl LogWriter {
+    fn start(log: CallLog) -> Self {
+        if !log.has_folder() {
+            return Self {
+                tx: None,
+                worker: None,
+            };
+        }
+        let (tx, rx) = mpsc::channel::<LogOp>();
+        let worker = std::thread::Builder::new()
+            .name("sikemux-call-log".to_owned())
+            .spawn(move || {
+                while let Ok(op) = rx.recv() {
+                    match op {
+                        LogOp::Append {
+                            project,
+                            entry,
+                            sure,
+                            still_open,
+                            done,
+                        } => {
+                            let res = log.append(&project, &entry, sure, || still_open);
+                            if let Some(done) = done {
+                                let _ = done.send(res);
+                            } else if let Err(error) = res {
+                                eprintln!("sikemux core: a call was not written down: {error}");
+                            }
+                        }
+                        LogOp::Flush(done) => {
+                            let _ = done.send(());
+                        }
+                    }
+                }
+            })
+            .ok();
+        match worker {
+            Some(handle) => Self {
+                tx: Some(tx),
+                worker: Some(handle),
+            },
+            None => Self {
+                tx: None,
+                worker: None,
+            },
+        }
+    }
+
+    fn enqueue(&self, project: String, entry: Entry, still_open: Vec<Entry>) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(LogOp::Append {
+                project,
+                entry: Box::new(entry),
+                sure: false,
+                still_open,
+                done: None,
+            });
+        }
+    }
+
+    fn append_sure(
+        &self,
+        log: &CallLog,
+        project: String,
+        entry: Entry,
+        still_open: Vec<Entry>,
+    ) -> Result<(), String> {
+        let Some(tx) = &self.tx else {
+            return log.append(&project, &entry, true, || still_open);
+        };
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        tx.send(LogOp::Append {
+            project,
+            entry: Box::new(entry),
+            sure: true,
+            still_open,
+            done: Some(done_tx),
+        })
+        .map_err(|_| "call log writer stopped".to_owned())?;
+        done_rx
+            .recv()
+            .map_err(|_| "call log writer stopped".to_owned())?
+    }
+
+    fn flush(&self) {
+        let Some(tx) = &self.tx else {
+            return;
+        };
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        if tx.send(LogOp::Flush(done_tx)).is_ok() {
+            let _ = done_rx.recv();
+        }
+    }
+}
+
+impl Drop for LogWriter {
+    fn drop(&mut self) {
+        self.tx.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
 
 pub struct PersonCalls {
     book: Mutex<Book>,
     /// What a restart left to do once the core runs, as `PersonCalls::new` found it.
     after_start: Mutex<AfterStart>,
     log: CallLog,
+    writer: LogWriter,
+    history_cache: Mutex<HashMap<String, Vec<PersonCall>>>,
     /// Counts how long each call waited and who answered it.
     activity: Arc<ActivityLog>,
 }
@@ -233,7 +380,7 @@ pub fn key_of(core: &Core, id: &str) -> Option<String> {
 }
 
 fn kept<'a>(book: &'a Book, id: &str) -> Option<&'a Kept> {
-    book.iter().find(|kept| kept.call.id == id)
+    book.get(id)
 }
 
 fn open<'a>(book: &'a Book, id: &str) -> CoreResult<&'a Kept> {
@@ -265,30 +412,33 @@ fn apply_with(book: &mut Book, entry: Entry, prune: bool) {
         attempt,
     } = entry
     {
-        let now = epoch_ms();
-        let seen = (book.iter())
-            .find(|kept| kept.call.id == id)
+        let seen = book
+            .get(&id)
             .map(|kept| kept.seen.clone())
             .unwrap_or_default();
-        book.retain(|kept| {
-            kept.call.id != id
-                && (!prune
-                    || kept.call.state == CallState::Open
-                    || now.saturating_sub(settled_at(&kept.call)) < SHOWN_AFTER_MS)
-        });
-        book.push(Kept {
-            call: *call,
-            source,
-            also,
-            key,
-            yes,
-            attempt,
-            started: None,
-            seen,
-        });
+        if prune {
+            let now = epoch_ms();
+            book.entries.retain(|_, kept| {
+                kept.call.state == CallState::Open
+                    || now.saturating_sub(settled_at(&kept.call)) < SHOWN_AFTER_MS
+            });
+        }
+        book.entries.insert(
+            id,
+            Kept {
+                call: *call,
+                source,
+                also,
+                key,
+                yes,
+                attempt,
+                started: None,
+                seen,
+            },
+        );
         return;
     }
-    let Some(kept) = book.iter_mut().find(|kept| kept.call.id == id) else {
+    let Some(kept) = book.get_mut(&id) else {
         return;
     };
     let call = &mut kept.call;
@@ -514,58 +664,25 @@ impl PersonCalls {
             }
             apply(&mut book, entry);
         }
+        let writer = LogWriter::start(log.clone());
         Self {
             book: Mutex::new(book),
             after_start: Mutex::new(after_start),
             log,
+            writer,
+            history_cache: Mutex::default(),
             activity,
         }
     }
 
-    /// Writes `entry` down in its project's file and applies it, even when the file could not
-    /// take it: what the person sees goes on, and the next restart knows less.
-    fn write(&self, book: &mut Book, entry: Entry) {
-        if let Err(error) = self.record(book, entry, false) {
-            eprintln!("sikemux core: a call was not written down: {error}");
-        }
-    }
-
-    /// Writes `entry` down and on to the disk itself before applying it, for what must outlast a
-    /// power loss before anything runs on it. Nothing is applied when it could not be.
-    fn write_sure(&self, book: &mut Book, entry: Entry) -> Result<(), String> {
-        self.record(book, entry, true)
-    }
-
-    /// Writes `entry` down, sure of a production call's raising: one the file could not take
-    /// is not raised, so it never lives in memory alone, and the next look raises it again.
-    fn put(&self, book: &mut Book, entry: Entry) -> Result<(), String> {
-        match &entry {
-            Entry::Raised { call, .. } if call.kind == CallKind::Production => {
-                self.write_sure(book, entry)
-            }
-            _ => {
-                self.write(book, entry);
-                Ok(())
-            }
-        }
-    }
-
-    fn record(&self, book: &mut Book, entry: Entry, sure: bool) -> Result<(), String> {
-        let project = match &entry {
+    fn entry_project(book: &Book, entry: &Entry) -> Option<String> {
+        match entry {
             Entry::Raised { call, .. } => Some(call.project.clone()),
             entry => kept(book, entry.id()).map(|kept| kept.call.project.clone()),
-        };
-        let Some(project) = project else {
-            return Err(GONE.to_owned());
-        };
-        let written = (self.log).append(&project, &entry, sure, || still_open(book, &project));
-        if let (true, Err(error)) = (sure, &written) {
-            return Err(format!(
-                "Sikemux could not record it, so nothing ran: {error}"
-            ));
         }
-        let closes = closing(book, &entry);
-        apply(book, entry);
+    }
+
+    fn note_closed(&self, closes: Option<(CallKind, Option<CallClient>, u64)>) {
         if let Some((kind, by, waited)) = closes {
             let (kind, waited) = (kind_name(kind), Duration::from_millis(waited));
             match by {
@@ -578,7 +695,39 @@ impl PersonCalls {
                 Some(CallClient::Unknown) | None => self.activity.call_closed(kind, None, waited),
             }
         }
-        written
+    }
+
+    /// Writes `entry` down in its project's file via the serialized writer and applies it
+    /// without doing disk I/O while holding `book`.
+    fn write(&self, book: &mut Book, entry: Entry) {
+        let Some(project) = Self::entry_project(book, &entry) else {
+            return;
+        };
+        let open_entries = still_open(book, &project);
+        let closes = closing(book, &entry);
+        self.history_cache.locked().remove(&project);
+        self.writer.enqueue(project, entry.clone(), open_entries);
+        apply(book, entry);
+        self.note_closed(closes);
+    }
+
+    /// Writes `entry` durably to disk via the serialized writer WITHOUT holding `self.book`.
+    fn append_sure_off_lock(
+        &self,
+        project: String,
+        entry: Entry,
+        open_entries: Vec<Entry>,
+    ) -> Result<(), String> {
+        self.history_cache.locked().remove(&project);
+        self.writer
+            .append_sure(&self.log, project, entry, open_entries)
+            .map_err(|error| format!("Sikemux could not record it, so nothing ran: {error}"))
+    }
+
+    fn apply_recorded(&self, book: &mut Book, entry: Entry) {
+        let closes = closing(book, &entry);
+        apply(book, entry);
+        self.note_closed(closes);
     }
 
     fn changed(&self, core: &Core) {
@@ -590,9 +739,11 @@ impl PersonCalls {
     pub fn shown(&self) -> Vec<PersonCall> {
         let now = epoch_ms();
         let book = self.book.locked();
-        let open = (book.iter())
+        let mut open: Vec<PersonCall> = (book.iter())
             .filter(|kept| kept.call.state == CallState::Open)
-            .map(|kept| kept.call.clone());
+            .map(|kept| kept.call.clone())
+            .collect();
+        open.sort_by_key(|call| call.raised_at);
         let mut closed: Vec<PersonCall> = (book.iter())
             .filter(|kept| kept.call.state != CallState::Open)
             .filter(|kept| now.saturating_sub(settled_at(&kept.call)) < SHOWN_AFTER_MS)
@@ -600,7 +751,7 @@ impl PersonCalls {
             .collect();
         closed.sort_by_key(|call| std::cmp::Reverse(settled_at(call)));
         closed.truncate(MAX_SHOWN_CLOSED);
-        open.chain(closed).collect()
+        open.into_iter().chain(closed).collect()
     }
 
     /// The open call `agent_id` has waited on longest, and how many it waits on; a look call
@@ -714,13 +865,30 @@ impl PersonCalls {
                 },
             }
         }
+        let mut sure_entries = Vec::new();
         let moved = !entries.is_empty();
         for entry in entries {
-            if let Err(error) = self.put(&mut book, entry) {
-                eprintln!("sikemux core: a call was not raised: {error}");
+            let is_sure =
+                matches!(&entry, Entry::Raised { call, .. } if call.kind == CallKind::Production);
+            if is_sure {
+                if let Some(project) = Self::entry_project(&book, &entry) {
+                    let open_entries = still_open(&book, &project);
+                    sure_entries.push((project, entry, open_entries));
+                }
+            } else {
+                self.write(&mut book, entry);
             }
         }
         drop(book);
+        for (project, entry, open_entries) in sure_entries {
+            match self.append_sure_off_lock(project, entry.clone(), open_entries) {
+                Ok(()) => {
+                    let mut book = self.book.locked();
+                    self.apply_recorded(&mut book, entry);
+                }
+                Err(error) => eprintln!("sikemux core: a call was not raised: {error}"),
+            }
+        }
         if moved {
             self.changed(core);
         }
@@ -753,16 +921,27 @@ impl PersonCalls {
 
     /// Takes the person's answer to the open call `id`, which waits for what came of it.
     fn take_answer(&self, id: &str, answer: CallAnswer) -> CoreResult<(PersonCall, Source)> {
-        let mut book = self.book.locked();
-        let production = open(&book, id)?.call.kind == CallKind::Production;
         let answered = Entry::Answered {
             id: id.to_owned(),
             answer,
         };
-        match production {
-            true => self.write_sure(&mut book, answered)?,
-            false => self.write(&mut book, answered),
-        }
+        let sure_info = {
+            let mut book = self.book.locked();
+            let kept_open = open(&book, id)?;
+            let production = kept_open.call.kind == CallKind::Production;
+            if !production {
+                self.write(&mut book, answered);
+                let kept = kept(&book, id).ok_or(GONE)?;
+                return Ok((kept.call.clone(), kept.source.clone()));
+            }
+            let project = kept_open.call.project.clone();
+            let open_entries = still_open(&book, &project);
+            (project, open_entries)
+        };
+        self.append_sure_off_lock(sure_info.0, answered.clone(), sure_info.1)?;
+        let mut book = self.book.locked();
+        open(&book, id)?;
+        self.apply_recorded(&mut book, answered);
         let kept = kept(&book, id).ok_or(GONE)?;
         Ok((kept.call.clone(), kept.source.clone()))
     }
@@ -834,8 +1013,9 @@ fn settled_at(call: &PersonCall) -> u64 {
 /// Puts a call to the person, or joins `raise.asker` to the open call of the project with the
 /// same key. Answers the call's id, or why a production call could not be raised.
 pub fn raise(core: &Core, raise: Raise) -> Result<String, String> {
-    let id = {
-        let mut book = core.person_calls().book.locked();
+    let calls = core.person_calls();
+    let pending_sure = {
+        let mut book = calls.book.locked();
         let same = book.iter().find(|kept| {
             kept.call.state == CallState::Open
                 && kept.call.project == raise.project
@@ -851,18 +1031,34 @@ pub fn raise(core: &Core, raise: Raise) -> Result<String, String> {
                     source: None,
                     at: epoch_ms(),
                 };
-                core.person_calls().write(&mut book, joined);
-                id
+                calls.write(&mut book, joined);
+                Ok(id)
             }
             None => {
                 let id = uuid::Uuid::new_v4().simple().to_string();
+                let is_prod = raise.kind == CallKind::Production;
+                let project = raise.project.clone();
                 let raised = raise.into_entry(id.clone());
-                core.person_calls().put(&mut book, raised)?;
-                id
+                if is_prod {
+                    let open_entries = still_open(&book, &project);
+                    Err((id, project, raised, open_entries))
+                } else {
+                    calls.write(&mut book, raised);
+                    Ok(id)
+                }
             }
         }
     };
-    core.person_calls().changed(core);
+    let id = match pending_sure {
+        Ok(id) => id,
+        Err((id, project, raised, open_entries)) => {
+            calls.append_sure_off_lock(project, raised.clone(), open_entries)?;
+            let mut book = calls.book.locked();
+            calls.apply_recorded(&mut book, raised);
+            id
+        }
+    };
+    calls.changed(core);
     Ok(id)
 }
 
@@ -1034,47 +1230,66 @@ pub fn sync_holds(core: &Core, wanted: Vec<(String, PersonCall)>) {
 /// rather than that nothing did: the first time, and again once what ran last has an outcome.
 /// When that can't be recorded for sure, nothing may run.
 pub fn started(core: &Core, id: &str) -> Result<(), String> {
-    let mut book = core.person_calls().book.locked();
-    let since = |kept: &Kept| match kept.started {
-        None => true,
-        Some(started) => (kept.call.outcome.as_ref()).is_some_and(|came| came.at > started),
-    };
-    match kept(&book, id) {
-        Some(kept) if since(kept) => {
-            let at = epoch_ms();
-            let started = Entry::Started {
-                id: id.to_owned(),
-                at,
-            };
-            core.person_calls().write_sure(&mut book, started)
+    let calls = core.person_calls();
+    let pending = {
+        let book = calls.book.locked();
+        let since = |kept: &Kept| match kept.started {
+            None => true,
+            Some(started) => (kept.call.outcome.as_ref()).is_some_and(|came| came.at > started),
+        };
+        match kept(&book, id) {
+            Some(kept) if since(kept) => {
+                let project = kept.call.project.clone();
+                let open_entries = still_open(&book, &project);
+                let started = Entry::Started {
+                    id: id.to_owned(),
+                    at: epoch_ms(),
+                };
+                Some((project, started, open_entries))
+            }
+            _ => None,
         }
-        _ => Ok(()),
-    }
+    };
+    let Some((project, started, open_entries)) = pending else {
+        return Ok(());
+    };
+    calls.append_sure_off_lock(project, started.clone(), open_entries)?;
+    let mut book = calls.book.locked();
+    calls.apply_recorded(&mut book, started);
+    Ok(())
 }
 
 impl PersonCalls {
     /// Marks the call `id` started when its answer is the yes that runs what it holds now, as an
     /// approval's plugin call runs with the answer. A held action runs later, and says so itself.
     fn starting_on_yes(&self, id: &str) -> Result<(), String> {
+        let pending = {
+            let book = self.book.locked();
+            let Some(kept) = kept(&book, id) else {
+                return Ok(());
+            };
+            let picked = (kept.call.answer.as_ref()).and_then(|answer| answer.option.as_deref());
+            let gate = matches!(kept.source, Source::Raised)
+                && kept.call.place.is_some()
+                && kept.key.is_some();
+            let now = !matches!(kept.source, Source::Hold(_))
+                && !gate
+                && picked.is_some_and(|option| allows(kept, option));
+            if !now || kept.started.is_some() {
+                return Ok(());
+            }
+            let project = kept.call.project.clone();
+            let open_entries = still_open(&book, &project);
+            let started = Entry::Started {
+                id: id.to_owned(),
+                at: epoch_ms(),
+            };
+            (project, started, open_entries)
+        };
+        self.append_sure_off_lock(pending.0, pending.1.clone(), pending.2)?;
         let mut book = self.book.locked();
-        let Some(kept) = kept(&book, id) else {
-            return Ok(());
-        };
-        let picked = (kept.call.answer.as_ref()).and_then(|answer| answer.option.as_deref());
-        let gate = matches!(kept.source, Source::Raised)
-            && kept.call.place.is_some()
-            && kept.key.is_some();
-        let now = !matches!(kept.source, Source::Hold(_))
-            && !gate
-            && picked.is_some_and(|option| allows(kept, option));
-        if !now || kept.started.is_some() {
-            return Ok(());
-        }
-        let started = Entry::Started {
-            id: id.to_owned(),
-            at: epoch_ms(),
-        };
-        self.write_sure(&mut book, started)
+        self.apply_recorded(&mut book, pending.1);
+        Ok(())
     }
 
     /// Takes back an answer whose yes could not be recorded as starting, so nothing ran on it.
@@ -1297,9 +1512,12 @@ async fn deliver(
     match source {
         Source::Question(_) => {
             let index = |option: &String| call.options.iter().position(|known| known.id == *option);
-            let mut reached = false;
+            let ids = core.person_calls().questions_of(&call.id);
+            if ids.is_empty() {
+                return Err(GONE.into());
+            }
             let mut failed = None;
-            for id in core.person_calls().questions_of(&call.id) {
+            for id in ids {
                 let params = AnswerParams {
                     id,
                     answer: typed.clone(),
@@ -1307,13 +1525,12 @@ async fn deliver(
                     choice: answer.option.as_ref().and_then(index),
                     ..AnswerParams::default()
                 };
-                match (core.repo_above().questions_answer)(core, params).await {
-                    Ok(()) => reached = true,
-                    Err(error) => failed = failed.or(Some(error)),
+                if let Err(error) = (core.repo_above().questions_answer)(core, params).await {
+                    failed = failed.or(Some(error));
                 }
             }
-            if !reached {
-                return Err(failed.unwrap_or_else(|| GONE.to_owned()).into());
+            if let Some(error) = failed {
+                return Err(error.into());
             }
             core.person_calls().settle(&call.id, CallResult::Heard);
         }
@@ -1854,13 +2071,22 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
 /// Every call `project` has had, as its file keeps them, newest first, or `None` when its file
 /// could not be read. Reads the disk, so it blocks.
 pub fn history(core: &Core, project: &str) -> Option<Vec<PersonCall>> {
+    let calls = core.person_calls();
+    if let Some(cached) = calls.history_cache.locked().get(project).cloned() {
+        return Some(cached);
+    }
+    calls.writer.flush();
     let mut book = Book::new();
-    for entry in core.person_calls().log.read_project(project)? {
+    for entry in calls.log.read_project(project)? {
         apply_with(&mut book, entry, false);
     }
-    let mut calls: Vec<PersonCall> = book.into_iter().map(|kept| kept.call).collect();
-    calls.sort_by_key(|call| std::cmp::Reverse(call.raised_at));
-    Some(calls)
+    let mut listed: Vec<PersonCall> = book.into_values().map(|kept| kept.call).collect();
+    listed.sort_by_key(|call| std::cmp::Reverse(call.raised_at));
+    calls
+        .history_cache
+        .locked()
+        .insert(project.to_owned(), listed.clone());
+    Some(listed)
 }
 
 /// The calls of `project` the person answered from `from` to `to`, read from its whole record:
