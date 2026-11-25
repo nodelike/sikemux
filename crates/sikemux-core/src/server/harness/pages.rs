@@ -325,6 +325,14 @@ pub(crate) async fn share_page(core: &Core, params: SharePageParams) -> CoreResu
     })
     .await?;
     if let Err(error) = upload(core, &link, &title, &html).await {
+        if let PutError::Transient {
+            ref message,
+            unreachable: true,
+            ..
+        } = error
+        {
+            eprintln!("sikemux core: could not share page {}: {message}", link.id);
+        }
         if matches!(error, PutError::Ended) && existing {
             let (index, link_id) = (index.clone(), link.id.clone());
             let _ = blocking(move || index.drop_share(&link_id).map_err(CoreError::from)).await;

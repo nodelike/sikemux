@@ -7,6 +7,7 @@ use sikemux_calls::share::StopShareParams;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::time::Duration;
 
 use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
@@ -72,7 +73,9 @@ impl Workbench {
             shared: Shared::Chat(agent.to_owned()),
             lifetime: 1,
             anyone,
-            working: false,
+            activity: None,
+            copied: 0,
+            copied_shown: false,
             problem: None,
         });
         cx.notify();
@@ -88,7 +91,9 @@ impl Workbench {
             },
             lifetime: 2,
             anyone,
-            working: false,
+            activity: None,
+            copied: 0,
+            copied_shown: false,
             problem: None,
         });
         cx.notify();
@@ -125,11 +130,44 @@ impl Workbench {
         cx.notify();
     }
 
+    fn copy_link(&mut self, url: String, window: &mut Window, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(url));
+        window.push_notification(t!("Copied the share link"), cx);
+        let Some(sharing) = self.overlays.sharing.as_mut() else {
+            return;
+        };
+        sharing.copied = sharing.copied.wrapping_add(1);
+        sharing.copied_shown = true;
+        let token = sharing.copied;
+        cx.notify();
+        cx.spawn_in(window, async move |bench, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(1800))
+                .await;
+            bench
+                .update(cx, |bench, cx| {
+                    if let Some(sharing) = bench.overlays.sharing.as_mut() {
+                        if sharing.copied == token {
+                            sharing.copied_shown = false;
+                            cx.notify();
+                        }
+                    }
+                })
+                .ok();
+        })
+        .detach();
+    }
+
     /// Asks the core to share the chat as the dialog has it: a new link, which is copied, or
     /// who may read the one it has.
-    fn start_share(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn start_share(
+        &mut self,
+        previous_anyone: Option<bool>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(shared) = (self.overlays.sharing.as_ref())
-            .filter(|sharing| !sharing.working)
+            .filter(|sharing| sharing.activity.is_none())
             .map(|sharing| sharing.shared.clone())
         else {
             return;
@@ -171,7 +209,12 @@ impl Workbench {
         let Some(sharing) = self.overlays.sharing.as_mut() else {
             return;
         };
-        (sharing.working, sharing.problem) = (true, None);
+        sharing.activity = Some(if fresh {
+            Activity::Creating
+        } else {
+            Activity::Updating
+        });
+        sharing.problem = None;
         cx.notify();
         cx.spawn_in(window, async move |bench, cx| {
             let answer = started.await;
@@ -197,9 +240,22 @@ impl Workbench {
                         ),
                         Err(_) => {}
                     }
-                    if let Some(sharing) = bench.overlays.sharing.as_mut() {
-                        sharing.working = false;
-                        sharing.problem = url.err();
+                    if let Some(sharing) = bench
+                        .overlays
+                        .sharing
+                        .as_mut()
+                        .filter(|sharing| sharing.shared == shared)
+                    {
+                        sharing.activity = None;
+                        match url {
+                            Ok(_) => sharing.problem = None,
+                            Err(error) => {
+                                if let Some(previous) = previous_anyone {
+                                    sharing.anyone = previous;
+                                }
+                                sharing.problem = Some(error);
+                            }
+                        }
                     }
                     cx.notify();
                 })
@@ -209,6 +265,12 @@ impl Workbench {
     }
 
     fn stop_share(&mut self, share: Shared, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(open) = (self.overlays.sharing.as_ref())
+            .filter(|sharing| sharing.activity.is_none())
+            .map(|sharing| sharing.shared.clone())
+        else {
+            return;
+        };
         let stopped: Pin<Box<dyn Future<Output = Result<(), String>>>> = match &share {
             Shared::Chat(id) => {
                 let asked = crate::core::Target::here(&self.asks)
@@ -221,23 +283,38 @@ impl Workbench {
             ),
         };
         if let Some(sharing) = self.overlays.sharing.as_mut() {
-            sharing.working = true;
+            sharing.activity = Some(Activity::Stopping);
+            sharing.problem = None;
         }
         cx.notify();
         cx.spawn_in(window, async move |bench, cx| {
             let answer = stopped.await;
             bench
-                .update(cx, |bench, cx| {
+                .update_in(cx, |bench, window, cx| {
                     match answer {
                         Ok(()) => {
                             if let Shared::Page { id, .. } = &share {
                                 bench.pages.shared_now(id, None);
                             }
-                            bench.overlays.sharing = None;
+                            if bench
+                                .overlays
+                                .sharing
+                                .as_ref()
+                                .is_some_and(|sharing| sharing.shared == open)
+                            {
+                                bench.overlays.sharing = None;
+                            }
+                            window.push_notification(t!("Stopped sharing"), cx);
                         }
                         Err(error) => {
-                            if let Some(sharing) = bench.overlays.sharing.as_mut() {
-                                (sharing.working, sharing.problem) = (false, Some(error));
+                            if let Some(sharing) = bench
+                                .overlays
+                                .sharing
+                                .as_mut()
+                                .filter(|sharing| sharing.shared == open)
+                            {
+                                sharing.activity = None;
+                                sharing.problem = Some(error);
                             }
                         }
                     }
@@ -251,10 +328,17 @@ impl Workbench {
 
 /// What the share dialog shares: an agent's chat, or a page an agent showed. As a link to stop,
 /// the chat's share by its id.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Shared {
     Chat(String),
     Page { id: String, title: String },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Activity {
+    Creating,
+    Updating,
+    Stopping,
 }
 
 /// A link the dialog shows, and what stopping it ends.
@@ -271,7 +355,9 @@ pub struct Sharing {
     shared: Shared,
     lifetime: usize,
     anyone: bool,
-    working: bool,
+    activity: Option<Activity>,
+    copied: u64,
+    copied_shown: bool,
     problem: Option<String>,
 }
 
@@ -291,75 +377,87 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     let t = Tokens::get(cx).clone();
     let share = bench.link_of(&sharing.shared);
     let page = matches!(sharing.shared, Shared::Page { .. });
-    let problem = sharing.problem.clone().or_else(|| match &sharing.shared {
-        Shared::Chat(agent) => bench.refusal_of(agent),
-        Shared::Page { id, .. } => bench
-            .pages
-            .share_of(id)
-            .and_then(|share| share.problem.clone()),
-    });
+    let activity = sharing.activity;
+    let busy = activity.is_some();
+    let creating = activity == Some(Activity::Creating);
+    let updating = activity == Some(Activity::Updating);
+    let stopping = activity == Some(Activity::Stopping);
+    let problem = (!busy)
+        .then(|| {
+            sharing.problem.clone().or_else(|| match &sharing.shared {
+                Shared::Chat(agent) => bench.refusal_of(agent),
+                Shared::Page { id, .. } => bench
+                    .pages
+                    .share_of(id)
+                    .and_then(|share| share.problem.clone()),
+            })
+        })
+        .flatten();
     let label = |words: &'static str| {
         ui::text(words, TEXT_XS, FontWeight::MEDIUM).text_color(t.text_tertiary)
     };
-    let field = match &share {
-        Some(share) => {
-            let url = share.url.clone();
-            div()
-                .flex()
-                .flex_col()
-                .gap(SPACE_2)
-                .child(label(t!("Link")))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(SPACE_2)
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .h(px(32.))
-                                .px(SPACE_2)
-                                .flex()
-                                .items_center()
-                                .border(crate::theme::border())
-                                .border_color(t.border)
-                                .rounded(theme::radius_2())
-                                .bg(t.surface_sunken)
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .child(ui::mono(share.url.clone(), TEXT_XS, cx)),
-                        )
-                        .child(
-                            Button::new("share-copy", t!("Copy"), Variant::Outline)
-                                .icon(Icon::Copy)
-                                .on_click(move |_, window, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
-                                    window.push_notification(t!("Copied the share link"), cx);
-                                }),
-                        ),
-                )
-                .child(
-                    ui::text(
-                        match &share.watching {
-                            Some(watching) => t!(
-                                "{watching} · ends in {left}",
-                                watching = watching,
-                                left = crate::ui::time::left(share.expires_at)
-                            ),
-                            None => t!(
-                                "Ends in {left}",
-                                left = crate::ui::time::left(share.expires_at)
-                            ),
-                        },
-                        TEXT_XS,
-                        FontWeight::NORMAL,
+    let field =
+        match &share {
+            Some(share) => {
+                let url = share.url.clone();
+                let copy = if sharing.copied_shown {
+                    Button::new("share-copy", t!("Copied"), Variant::Outline)
+                        .lead(ui::icon(Icon::Check, 11.).text_color(t.live))
+                } else {
+                    Button::new("share-copy", t!("Copy"), Variant::Outline).icon(Icon::Copy)
+                }
+                .disabled(stopping)
+                .on_click(cx.listener(move |bench, _, window, cx| {
+                    bench.copy_link(url.clone(), window, cx);
+                }));
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(SPACE_2)
+                    .child(label(t!("Link")))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(SPACE_2)
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .h(px(32.))
+                                    .px(SPACE_2)
+                                    .flex()
+                                    .items_center()
+                                    .border(crate::theme::border())
+                                    .border_color(t.border)
+                                    .rounded(theme::radius_2())
+                                    .bg(t.surface_sunken)
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .child(ui::mono(share.url.clone(), TEXT_XS, cx)),
+                            )
+                            .child(copy),
                     )
-                    .text_color(t.text_tertiary),
-                )
-        }
-        None => {
-            div()
+                    .child(
+                        ui::text(
+                            match &share.watching {
+                                Some(watching) => t!(
+                                    "{watching} · ends in {left}",
+                                    watching = watching,
+                                    left = crate::ui::time::left(share.expires_at)
+                                ),
+                                None => t!(
+                                    "Ends in {left}",
+                                    left = crate::ui::time::left(share.expires_at)
+                                ),
+                            },
+                            TEXT_XS,
+                            FontWeight::NORMAL,
+                        )
+                        .text_color(t.text_tertiary),
+                    )
+            }
+            None => div()
                 .flex()
                 .flex_col()
                 .gap(SPACE_2)
@@ -371,47 +469,77 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                             .iter()
                             .enumerate()
                             .map(|(at, (words, _))| {
-                                pill(("share-lifetime", at), words, at == sharing.lifetime, &t)
-                                    .clicks(cx.listener(move |bench, _, _, cx| {
+                                pill(
+                                    ("share-lifetime", at),
+                                    words,
+                                    at == sharing.lifetime,
+                                    busy,
+                                    &t,
+                                )
+                                .when(!busy, |el| {
+                                    el.clicks(cx.listener(move |bench, _, _, cx| {
                                         if let Some(sharing) = bench.overlays.sharing.as_mut() {
+                                            if sharing.activity.is_some() {
+                                                return;
+                                            }
                                             sharing.lifetime = at;
                                         }
                                         cx.notify();
                                     }))
+                                })
                             }),
                     ),
-                )
-        }
-    };
+                ),
+        };
     let readers = div()
         .flex()
         .flex_col()
         .gap(SPACE_2)
-        .child(label(match page {
-            true => t!("Who can view"),
-            false => t!("Who can read"),
-        }))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_1H)
+                .child(label(match page {
+                    true => t!("Who can view"),
+                    false => t!("Who can read"),
+                }))
+                .when(updating, |row| {
+                    row.child(ui::working(11., t.text_tertiary)).child(
+                        ui::text(t!("Saving…"), TEXT_XS, FontWeight::NORMAL)
+                            .text_color(t.text_tertiary),
+                    )
+                }),
+        )
         .child(
             div()
                 .flex()
                 .gap(SPACE_1H)
                 .children(READERS.iter().enumerate().map(|(at, &(words, anyone))| {
-                    pill(("share-readers", at), words, anyone == sharing.anyone, &t).clicks(
-                        cx.listener(move |bench, _, window, cx| {
+                    pill(
+                        ("share-readers", at),
+                        words,
+                        anyone == sharing.anyone,
+                        busy,
+                        &t,
+                    )
+                    .when(!busy, |el| {
+                        el.clicks(cx.listener(move |bench, _, window, cx| {
                             let Some(sharing) = bench.overlays.sharing.as_mut() else {
                                 return;
                             };
-                            if sharing.anyone == anyone || sharing.working {
+                            if sharing.anyone == anyone || sharing.activity.is_some() {
                                 return;
                             }
+                            let previous = sharing.anyone;
                             sharing.anyone = anyone;
                             let shared = sharing.shared.clone();
                             if bench.link_of(&shared).is_some() {
-                                bench.start_share(window, cx);
+                                bench.start_share(Some(previous), window, cx);
                             }
                             cx.notify();
-                        }),
-                    )
+                        }))
+                    })
                 })),
         );
     let (who, what) = match (page, sharing.anyone) {
@@ -472,14 +600,17 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     this.update(cx, |bench, cx| bench.stop_share(stop, window, cx))
                 })
             };
+            let stop_label = if stopping {
+                t!("Stopping…")
+            } else {
+                t!("Stop sharing")
+            };
             let foot = dialog::hinted_foot(dialog::escape(t!("close"), cx), cx)
-                .child(dialog::button(
-                    "share-stop",
-                    t!("Stop sharing").into(),
-                    None,
-                    stop,
-                    cx,
-                ))
+                .child(
+                    dialog::button("share-stop", stop_label.into(), None, stop, cx)
+                        .busy(stopping)
+                        .disabled(busy),
+                )
                 .child(dialog::button(
                     "share-done",
                     t!("Done").into(),
@@ -495,9 +626,9 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         }
         None => {
             let create: dialog::Answer = Rc::new(move |window, cx| {
-                this.update(cx, |bench, cx| bench.start_share(window, cx))
+                this.update(cx, |bench, cx| bench.start_share(None, window, cx))
             });
-            let label = if sharing.working {
+            let label = if creating {
                 t!("Creating link…")
             } else {
                 t!("Create link")
@@ -510,13 +641,16 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     close.clone(),
                     cx,
                 ))
-                .child(dialog::button(
-                    "share-create",
-                    label.into(),
-                    Some(t.accent),
-                    create.clone(),
-                    cx,
-                ));
+                .child(
+                    dialog::button(
+                        "share-create",
+                        label.into(),
+                        Some(t.accent),
+                        create.clone(),
+                        cx,
+                    )
+                    .busy(creating),
+                );
             let title = match page {
                 true => t!("Share this artifact"),
                 false => t!("Share this chat read-only"),
@@ -535,6 +669,7 @@ fn pill(
     id: (&'static str, usize),
     words: &'static str,
     on: bool,
+    disabled: bool,
     t: &Tokens,
 ) -> gpui_kit::Stateful<Div> {
     div()
@@ -547,14 +682,17 @@ fn pill(
         .border(crate::theme::border())
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_SM))
-        .cursor_pointer()
+        .when(!disabled, |pill| pill.cursor_pointer())
+        .when(disabled, |pill| pill.opacity(if on { 0.75 } else { 0.45 }))
         .map(|pill| match on {
             true => pill.bg(t.surface_chosen).text_color(t.text_primary),
             false => {
                 let (primary, strong) = (t.text_primary, t.border_strong);
                 pill.bg(t.surface_raised)
                     .text_color(t.text_secondary)
-                    .hover(move |pill| pill.text_color(primary).border_color(strong))
+                    .when(!disabled, |pill| {
+                        pill.hover(move |pill| pill.text_color(primary).border_color(strong))
+                    })
             }
         })
         .child(crate::i18n::tr(words))

@@ -358,41 +358,96 @@ fn float(
 }
 
 /// A dialog's button: the plain one, or the filled one that answers yes.
+#[derive(IntoElement)]
+pub(crate) struct DialogButton {
+    id: &'static str,
+    label: SharedString,
+    fill: Option<Hsla>,
+    answer: Answer,
+    disabled: bool,
+    busy: bool,
+}
+
+impl DialogButton {
+    pub(crate) fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    pub(crate) fn busy(mut self, busy: bool) -> Self {
+        self.busy = busy;
+        self
+    }
+}
+
+impl RenderOnce for DialogButton {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let t = Tokens::get(cx).clone();
+        let blocked = self.disabled || self.busy;
+        let answer = self.answer;
+        let ink = match self.fill {
+            Some(_) => t.on_accent,
+            None => t.text_secondary,
+        };
+        BaseButton::new(self.id)
+            .accessibility_label(self.label.clone())
+            .disabled(blocked)
+            .h(px(30.))
+            .px(SPACE_3)
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(SPACE_1H)
+            .rounded(radius_2())
+            .border(crate::theme::border())
+            .text_size(crate::theme::ui_text(TEXT_SM))
+            .font_weight(FontWeight::MEDIUM)
+            .when(!blocked, |button| {
+                button
+                    .cursor_pointer()
+                    .on_click(move |_, window, cx| answer(window, cx))
+            })
+            .when(self.disabled && !self.busy, |button| button.opacity(0.5))
+            .when(self.busy, |button| button.opacity(0.75))
+            .map(|button| match self.fill {
+                Some(fill) => button
+                    .border_color(gpui_kit::transparent_black())
+                    .bg(fill)
+                    .text_color(t.on_accent)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .when(!blocked, |button| button.hover(|style| style.opacity(0.92))),
+                None => button
+                    .border_color(t.border)
+                    .bg(t.surface_raised)
+                    .text_color(t.text_secondary)
+                    .when(!blocked, |button| {
+                        button.hover(move |style| {
+                            style
+                                .text_color(t.text_primary)
+                                .border_color(t.border_strong)
+                        })
+                    }),
+            })
+            .children(self.busy.then(|| super::working(12., ink)))
+            .child(self.label)
+    }
+}
+
 pub(crate) fn button(
     id: &'static str,
     label: SharedString,
     fill: Option<Hsla>,
     answer: Answer,
-    cx: &App,
-) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
-    BaseButton::new(id)
-        .accessibility_label(label.clone())
-        .h(px(30.))
-        .px(SPACE_3)
-        .rounded(radius_2())
-        .border(crate::theme::border())
-        .text_size(crate::theme::ui_text(TEXT_SM))
-        .font_weight(FontWeight::MEDIUM)
-        .on_click(move |_, window, cx| answer(window, cx))
-        .map(|button| match fill {
-            Some(fill) => button
-                .border_color(gpui_kit::transparent_black())
-                .bg(fill)
-                .text_color(t.on_accent)
-                .font_weight(FontWeight::SEMIBOLD)
-                .hover(|style| style.opacity(0.92)),
-            None => button
-                .border_color(t.border)
-                .bg(t.surface_raised)
-                .text_color(t.text_secondary)
-                .hover(move |style| {
-                    style
-                        .text_color(t.text_primary)
-                        .border_color(t.border_strong)
-                }),
-        })
-        .child(label)
+    _: &App,
+) -> DialogButton {
+    DialogButton {
+        id,
+        label,
+        fill,
+        answer,
+        disabled: false,
+        busy: false,
+    }
 }
 
 /// A question asked before something goes ahead: what it is, what it does, and the word

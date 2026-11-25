@@ -14,6 +14,8 @@ use crate::server::remote_state::RemoteParts;
 use crate::server::{Core, CoreError, CoreResult};
 
 pub const SIGNED_OUT_PROBLEM: &str = "Sign in to Sikemux to update this shared artifact.";
+pub const UNREACHABLE_PROBLEM: &str =
+    "Could not reach Sikemux. Check your connection and try again.";
 const TOO_LARGE_PROBLEM: &str = "This artifact is too large to share (limit is 25 MiB).";
 const MAX_SEALED_BYTES: usize = 25 * 1024 * 1024;
 const HEADER_CHARS: usize = 200;
@@ -46,12 +48,10 @@ impl From<PutError> for CoreError {
     fn from(error: PutError) -> Self {
         match error {
             PutError::Transient {
-                message,
-                unreachable: true,
-                ..
+                unreachable: true, ..
             } => CoreError {
                 unreachable: true,
-                ..CoreError::from(message)
+                ..CoreError::from(UNREACHABLE_PROBLEM)
             },
             other => CoreError::from(other.to_string()),
         }
@@ -189,14 +189,24 @@ pub async fn put(
 
 /// Ends link `id`. One the server no longer holds has ended already.
 pub async fn delete(core: &Core, id: &str) -> CoreResult<()> {
-    let answer = host_send_any(core, Method::DELETE, &format!("/v1/pages/{id}"), None).await?;
-    match answer.status() {
-        status
-            if status.is_success()
-                || matches!(status, StatusCode::NOT_FOUND | StatusCode::GONE) =>
-        {
-            Ok(())
+    let answer = match host_send_any(core, Method::DELETE, &format!("/v1/pages/{id}"), None).await {
+        Ok(answer) => answer,
+        Err(error) if error.is_unreachable() => {
+            eprintln!("sikemux core: could not stop shared page {id}: {error}");
+            return Err(CoreError {
+                unreachable: true,
+                ..CoreError::from(UNREACHABLE_PROBLEM)
+            });
         }
-        status => Err(format!("the accounts server answered {status}").into()),
+        Err(error) => return Err(error),
+    };
+    let status = answer.status();
+    if status.is_success() || matches!(status, StatusCode::NOT_FOUND | StatusCode::GONE) {
+        return Ok(());
     }
+    if status == StatusCode::UNAUTHORIZED {
+        return Err(CoreError::from(SIGNED_OUT_PROBLEM));
+    }
+    let body = answer.text().await.unwrap_or_default();
+    Err(error_message(status, &body).into())
 }
