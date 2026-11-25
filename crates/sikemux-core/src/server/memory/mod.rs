@@ -1563,71 +1563,256 @@ fn said_by(learned: &Learned) -> String {
         .unwrap_or_else(|| "the person".to_owned())
 }
 
-/// `memory_list`: every rule, piece of knowledge and decision kept for the
-/// agent's project, with the rules of the goal its live card sits under.
+fn matches_query(query: Option<&str>, fields: &[&str]) -> bool {
+    let Some(query) = query else {
+        return true;
+    };
+    fields
+        .iter()
+        .any(|field| field.to_ascii_lowercase().contains(query))
+}
+
+fn trim_with_limit(
+    items: &mut Vec<Value>,
+    limit: Option<usize>,
+    keep_newest: bool,
+) -> Option<usize> {
+    let limit = limit?;
+    let total = items.len();
+    if total <= limit {
+        return None;
+    }
+    if keep_newest {
+        let drop = total - limit;
+        items.drain(..drop);
+    } else {
+        items.truncate(limit);
+    }
+    Some(total)
+}
+
+/// `memory_list`: rules, knowledge, decisions and goal rules kept for the agent's project,
+/// optionally narrowed by `kind`, `query` and `limit`.
 pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = crate::server::caller::agent_of(request, "memory_list")?;
     let project = crate::server::caller::project_of(core, request);
-    let goal = board::goal_of(core, &agent).map(|goal| (goal.card, goal::rules(core, &goal)));
-    let decisions = goal::standing(core, &project);
-    let state = core.memory().state.locked();
-    let (mut rules, mut knowledge) = (Vec::new(), Vec::new());
-    for held in state.applying(&project) {
-        let yours = held.store == Store::Personal;
-        for rule in &held.rules {
-            rules.push(json!({
-                "id": rule.id,
-                "text": rule.text,
-                "from": said_by(&rule.learned),
-                "fromId": rule.learned.agent,
-                "at": rule.learned.at,
-                "yours": yours,
-                "sensitive": rule.sensitive,
-            }));
+    let kind = request
+        .params
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or("all");
+    if !matches!(kind, "all" | "rules" | "knowledge" | "decisions" | "goal") {
+        return Err(format!(
+            "kind must be one of rules, knowledge, decisions, goal, all (got {kind})"
+        ));
+    }
+    let query = request
+        .params
+        .get("query")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|q| !q.is_empty())
+        .map(str::to_ascii_lowercase);
+    let query_ref = query.as_deref();
+    let limit = request
+        .params
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|n| (n as usize).clamp(1, 500));
+
+    let want_rules = matches!(kind, "all" | "rules");
+    let want_knowledge = matches!(kind, "all" | "knowledge");
+    let want_decisions = matches!(kind, "all" | "decisions");
+    let want_goal = matches!(kind, "all" | "goal");
+
+    let mut listed = serde_json::Map::new();
+    let mut totals = serde_json::Map::new();
+
+    if want_rules || want_knowledge {
+        let state = core.memory().state.locked();
+        let (mut rules, mut knowledge) = (Vec::new(), Vec::new());
+        for held in state.applying(&project) {
+            let yours = held.store == Store::Personal;
+            if want_rules {
+                for rule in &held.rules {
+                    if !matches_query(query_ref, &[&rule.text]) {
+                        continue;
+                    }
+                    let mut entry = serde_json::Map::new();
+                    entry.insert("id".into(), json!(rule.id));
+                    entry.insert("text".into(), json!(rule.text));
+                    entry.insert("from".into(), json!(said_by(&rule.learned)));
+                    if let Some(from_id) = &rule.learned.agent {
+                        entry.insert("fromId".into(), json!(from_id));
+                    }
+                    entry.insert("at".into(), json!(rule.learned.at));
+                    if yours {
+                        entry.insert("yours".into(), json!(true));
+                    }
+                    if rule.sensitive {
+                        entry.insert("sensitive".into(), json!(true));
+                    }
+                    rules.push(Value::Object(entry));
+                }
+            }
+            if want_knowledge {
+                for known in &held.knowledge {
+                    let about_matched = query_ref.is_some_and(|q| {
+                        known
+                            .about
+                            .iter()
+                            .any(|tag| tag.to_ascii_lowercase().contains(q))
+                    });
+                    if !about_matched && !matches_query(query_ref, &[&known.text]) {
+                        continue;
+                    }
+                    let stale = known.stale.as_ref().map(|stale| match stale {
+                        Stale::Failed { why, .. } => why.clone(),
+                        Stale::Disputed { why, by } => format!("{} said: {why}", said_by(by)),
+                    });
+                    let mut entry = serde_json::Map::new();
+                    entry.insert("id".into(), json!(known.id));
+                    entry.insert("text".into(), json!(known.text));
+                    if !known.about.is_empty() {
+                        entry.insert("about".into(), json!(known.about));
+                    }
+                    entry.insert("from".into(), json!(said_by(&known.learned)));
+                    if let Some(from_id) = &known.learned.agent {
+                        entry.insert("fromId".into(), json!(from_id));
+                    }
+                    entry.insert("at".into(), json!(known.learned.at));
+                    if let Some(check) = &known.check {
+                        entry.insert("check".into(), json!(check));
+                    }
+                    if let Some(stale) = stale {
+                        entry.insert("stale".into(), json!(stale));
+                    }
+                    if yours {
+                        entry.insert("yours".into(), json!(true));
+                    }
+                    if known.sensitive {
+                        entry.insert("sensitive".into(), json!(true));
+                    }
+                    knowledge.push(Value::Object(entry));
+                }
+            }
         }
-        for known in &held.knowledge {
-            let stale = known.stale.as_ref().map(|stale| match stale {
-                Stale::Failed { why, .. } => why.clone(),
-                Stale::Disputed { why, by } => format!("{} said: {why}", said_by(by)),
-            });
-            knowledge.push(json!({
-                "id": known.id,
-                "text": known.text,
-                "about": known.about,
-                "from": said_by(&known.learned),
-                "fromId": known.learned.agent,
-                "at": known.learned.at,
-                "check": known.check,
-                "stale": stale,
-                "yours": yours,
-                "sensitive": known.sensitive,
-            }));
+        drop(state);
+
+        if want_rules {
+            if let Some(total) = trim_with_limit(&mut rules, limit, false) {
+                totals.insert("rules".into(), json!(total));
+            }
+            listed.insert("rules".into(), Value::Array(rules));
+            let set_aside: Vec<Value> = (now_check::set_aside(core, &project).into_iter())
+                .filter(|apart| matches_query(query_ref, &[&apart.rule.text]))
+                .map(|apart| {
+                    let mut entry = serde_json::Map::new();
+                    entry.insert("id".into(), json!(apart.rule.id));
+                    entry.insert("text".into(), json!(apart.rule.text));
+                    if apart.rule.sensitive {
+                        entry.insert("sensitive".into(), json!(true));
+                    }
+                    entry.insert(
+                        "setAsideBy".into(),
+                        json!(crate::server::names::at_name_now(core, &apart.by)),
+                    );
+                    entry.insert("at".into(), json!(apart.at));
+                    entry.insert("why".into(), json!(now_check::why(&apart)));
+                    Value::Object(entry)
+                })
+                .collect();
+            if !set_aside.is_empty() {
+                listed.insert("setAside".into(), Value::Array(set_aside));
+                listed.insert("setAsideNote".into(), json!(BRING_BACK));
+            }
+        }
+        if want_knowledge {
+            if let Some(total) = trim_with_limit(&mut knowledge, limit, false) {
+                totals.insert("knowledge".into(), json!(total));
+            }
+            listed.insert("knowledge".into(), Value::Array(knowledge));
         }
     }
-    drop(state);
-    let set_aside: Vec<Value> = (now_check::set_aside(core, &project).into_iter())
-        .map(|apart| {
-            json!({
-                "id": apart.rule.id,
-                "text": apart.rule.text,
-                "sensitive": apart.rule.sensitive,
-                "setAsideBy": crate::server::names::at_name_now(core, &apart.by),
-                "at": apart.at,
-                "why": now_check::why(&apart),
+
+    if want_decisions {
+        let mut decisions: Vec<Value> = goal::standing(core, &project)
+            .into_iter()
+            .filter(|decision| {
+                let mut fields: Vec<&str> = vec![&decision.text];
+                if let Some(why) = &decision.why {
+                    fields.push(why);
+                }
+                if let Some(asked) = &decision.asked {
+                    fields.push(asked);
+                }
+                matches_query(query_ref, &fields)
             })
-        })
-        .collect();
-    let mut listed = json!({
-        "rules": rules,
-        "knowledge": knowledge,
-        "decisions": decisions,
-        "goal": goal.map(|(card, rules)| json!({ "card": card, "rules": rules })),
-    });
-    if let Some(fields) = listed.as_object_mut().filter(|_| !set_aside.is_empty()) {
-        fields.insert("setAside".to_owned(), json!(set_aside));
-        fields.insert("setAsideNote".to_owned(), json!(BRING_BACK));
+            .map(|decision| {
+                let mut entry = serde_json::Map::new();
+                entry.insert("id".into(), json!(decision.id));
+                if let Some(goal) = decision.goal {
+                    entry.insert("goal".into(), json!(goal));
+                }
+                entry.insert("text".into(), json!(decision.text));
+                if let Some(why) = decision.why {
+                    entry.insert("why".into(), json!(why));
+                }
+                if let Some(asked) = decision.asked {
+                    entry.insert("asked".into(), json!(asked));
+                }
+                entry.insert("from".into(), json!(said_by(&decision.learned)));
+                if let Some(from_id) = decision.learned.agent {
+                    entry.insert("fromId".into(), json!(from_id));
+                }
+                entry.insert("at".into(), json!(decision.learned.at));
+                if let Some(was) = decision.was {
+                    entry.insert("was".into(), json!(was));
+                }
+                if let Some(holder) = decision.holder {
+                    entry.insert("holder".into(), json!(holder));
+                }
+                Value::Object(entry)
+            })
+            .collect();
+        if let Some(total) = trim_with_limit(&mut decisions, limit, true) {
+            totals.insert("decisions".into(), json!(total));
+        }
+        listed.insert("decisions".into(), Value::Array(decisions));
     }
-    Ok(listed)
+
+    if want_goal {
+        if let Some(goal) = board::goal_of(core, &agent) {
+            let mut rules: Vec<Value> = goal::rules(core, &goal)
+                .into_iter()
+                .filter(|rule| matches_query(query_ref, &[&rule.text]))
+                .map(|rule| {
+                    let mut entry = serde_json::Map::new();
+                    entry.insert("id".into(), json!(rule.id));
+                    entry.insert("text".into(), json!(rule.text));
+                    entry.insert("from".into(), json!(said_by(&rule.learned)));
+                    if let Some(from_id) = rule.learned.agent {
+                        entry.insert("fromId".into(), json!(from_id));
+                    }
+                    entry.insert("at".into(), json!(rule.learned.at));
+                    if let Some(was) = rule.was {
+                        entry.insert("was".into(), json!(was));
+                    }
+                    Value::Object(entry)
+                })
+                .collect();
+            if let Some(total) = trim_with_limit(&mut rules, limit, false) {
+                totals.insert("goalRules".into(), json!(total));
+            }
+            listed.insert("goal".into(), json!({ "card": goal.card, "rules": rules }));
+        }
+    }
+
+    if !totals.is_empty() {
+        listed.insert("total".into(), Value::Object(totals));
+    }
+
+    Ok(Value::Object(listed))
 }
 
 const BRING_BACK: &str =

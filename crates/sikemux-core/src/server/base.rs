@@ -288,6 +288,7 @@ pub(super) fn chat_above() -> ChatAbove {
         note_elsewhere: team_told::note_elsewhere,
         find_elsewhere: |core, agent_id| Box::pin(super::hosts::peers::find(core, agent_id)),
         open_work: team_told::open_work,
+        handoff_files: inbox::handoff_files,
         start_saved: |core, agent_id, waits| {
             Box::pin(launching::start_saved(core, agent_id, waits))
         },

@@ -279,7 +279,7 @@
       "description": "Batch navigate, click, type, wait, read.",
       "properties": {
         "steps": {
-          "description": "Up to 20, run in order until one fails; add a wait after a step that loads a page",
+          "description": "Up to 20 in order; add wait after a page load",
           "type": "array",
           "minItems": 1,
           "maxItems": 20,
@@ -2133,7 +2133,7 @@
         "about": {"description": "Agent whose work it is, when not yours", "type": "string", "minLength": 1, "maxLength": 200},
         "page": {"description": "Id of a page you showed that pictures it", "type": "string", "minLength": 32, "maxLength": 32},
         "pages": {"description": "Several such page ids, in order; on edit, the new list", "type": "array", "maxItems": 6, "items": {"type": "string", "minLength": 32, "maxLength": 32}},
-        "edit": {"description": "questionId, or title, of your open call: change it in place with the fields given", "type": "string", "minLength": 1, "maxLength": 64},
+        "edit": {"description": "Open call's questionId to edit in place", "type": "string", "minLength": 1, "maxLength": 64},
         "withdraw": {"description": "With edit: take the call back", "type": "boolean"}
       },
       "required": []
@@ -2256,7 +2256,7 @@
           "minimum": 0
         },
         "asked": {
-          "description": "Instead of task: close what the person asked for, the number agent_send's task takes",
+          "description": "Instead of task: close the person's ask number",
           "type": "integer",
           "minimum": 1
         },
@@ -2461,7 +2461,19 @@
       "row": {"verb": "list", "kind": "read", "icon": "book", "target": ["what Sikemux keeps"]},
       "method": "memory.list",
       "description": "List what is kept.",
-      "properties": {},
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["rules", "knowledge", "decisions", "goal"]
+        },
+        "query": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "limit": {
+          "type": "integer"
+        }
+      },
       "required": []
     },
     {
@@ -2622,7 +2634,7 @@
           "type": "boolean"
         },
         "push": {
-          "description": "Push when the person or project rules say to; own checkout without land: to its own branch",
+          "description": "Push per rules; own checkout without land: its branch",
           "type": "boolean"
         },
         "force": {

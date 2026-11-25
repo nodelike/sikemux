@@ -47,9 +47,8 @@ const EXCHANGES_CHARS: usize = 40_000;
 const LONGEST_LINE: usize = 600;
 /// The newest briefs kept to read again, per chat.
 const BRIEFS_KEPT: usize = 20;
-/// What a fresh Claude session sends before any history: its system prompt, tools and rules.
-/// Measured over three days of the person's chats, 62K to 68K.
-const FRESH_START_TOKENS: u64 = 65_000;
+/// Fallback fresh-start baseline when a session's first-turn context was not measured yet.
+const FRESH_START_TOKENS: u64 = 50_000;
 /// On another account a session's history is written to a cold cache again. A brief takes its
 /// place only when the history is this many times the brief and at least the floor, for what
 /// the brief leaves out.
@@ -377,7 +376,11 @@ pub fn pays(core: &Core, chat: &Chat, reason: RotationReason, brief: &RotationBr
         .filter(|section| section.kind != BriefSectionKind::Seat)
         .map(|section| section.tokens)
         .sum();
-    let history = chat.meter.context().saturating_sub(FRESH_START_TOKENS);
+    let baseline = match chat.meter.first_context() {
+        0 => FRESH_START_TOKENS,
+        measured => measured,
+    };
+    let history = chat.meter.context().saturating_sub(baseline);
     history >= (HISTORY_PER_BRIEF * briefed).max(LEAST_HISTORY)
 }
 

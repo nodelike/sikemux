@@ -169,6 +169,8 @@ pub struct ChatAbove {
     /// The calls open to the person in the chat's project, what the chat waits on, and where
     /// each of its workers stands.
     pub open_work: fn(&Core, &str) -> Vec<String>,
+    /// Files modified by this chat in `project`, relative to `cwd`, noting uncommitted ones.
+    pub handoff_files: fn(&Core, &str, &str, &Path) -> Vec<String>,
     /// Everything that follows an agent hears what it just did.
     pub note_activity: fn(&Core, &str, Activity<'_>),
     /// A turn, or the agent, ended this way.

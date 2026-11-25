@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::{Handoff, HandoffSide};
 use sikemux_wire::protocol::ChatContext;
@@ -31,6 +32,13 @@ const REQUEST_CHARS: usize = 8_000;
 const LONGEST_SAID: usize = 6_000;
 const COMMANDS: usize = 20;
 const COMMAND_CHARS: usize = 200;
+const FILES: usize = 40;
+const FILES_CHARS: usize = 1_500;
+const WORK_CHARS: usize = 1_500;
+const DECISIONS: usize = 20;
+const DECISION_DAYS: u64 = 14;
+const DECISIONS_CHARS: usize = 1_500;
+const LINE_CHARS: usize = 300;
 /// The latest turns read from a sleeping chat's saved session.
 const SESSION_TURNS: usize = 60;
 
@@ -191,6 +199,78 @@ fn cut_end(text: &str, most: usize) -> String {
     }
 }
 
+fn shell_command(title: &str) -> Option<&str> {
+    for prefix in [
+        "Bash ",
+        "shell ",
+        "exec_command ",
+        "shell_command ",
+        "run_command ",
+    ] {
+        if let Some(cmd) = title.strip_prefix(prefix) {
+            let cmd = cmd.trim();
+            if !cmd.is_empty() {
+                return Some(cmd);
+            }
+        }
+    }
+    None
+}
+
+fn bounded_lines(lines: &[String], max_items: usize, max_chars: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0usize;
+    let total = lines.len();
+    let mut shown = 0usize;
+    for raw in lines.iter().take(max_items) {
+        let line = cut_start(raw, LINE_CHARS);
+        let len = line.chars().count() + 1;
+        if used + len > max_chars {
+            break;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&line);
+        used += len;
+        shown += 1;
+    }
+    if shown < total && shown > 0 {
+        out.push_str(&format!("\n- and {} more", total - shown));
+    }
+    out
+}
+
+#[derive(Default)]
+struct WorkspaceSnapshot {
+    modified_files: Vec<String>,
+    open_work: Vec<String>,
+    decisions: Vec<String>,
+}
+
+fn snapshot(core: &Core, source: &WorkspaceAgent) -> WorkspaceSnapshot {
+    let modified_files: Vec<String> =
+        (core.chat_above().handoff_files)(core, &source.project, &source.id, &source.cwd)
+            .into_iter()
+            .map(|file| format!("- `{file}`"))
+            .collect();
+    let open_work = (core.chat_above().open_work)(core, &source.id);
+    let since = epoch_ms().saturating_sub(DECISION_DAYS * 24 * 60 * 60_000);
+    let decisions: Vec<String> =
+        (core.chat_above().board_standing_since)(core, &source.project, since, DECISIONS)
+            .into_iter()
+            .map(|decision| match &decision.why {
+                Some(why) => format!("- {} ({why})", decision.says()),
+                None => format!("- {}", decision.says()),
+            })
+            .collect();
+    WorkspaceSnapshot {
+        modified_files,
+        open_work,
+        decisions,
+    }
+}
+
 /// What the chat said, from the feed the core holds of it, or for a chat asleep without one, from
 /// its agent's saved session.
 fn said(core: &Core, agent: &WorkspaceAgent) -> Option<HandedOver> {
@@ -216,6 +296,7 @@ fn said(core: &Core, agent: &WorkspaceAgent) -> Option<HandedOver> {
         })
     });
     let mut exchanges: Vec<(String, String)> = Vec::new();
+    let mut commands: Vec<(String, String, Option<bool>)> = Vec::new();
     for (_, _, said) in latest.said {
         match said {
             Said::Asked(text) => exchanges.push((text.trim().to_owned(), String::new())),
@@ -224,6 +305,21 @@ fn said(core: &Core, agent: &WorkspaceAgent) -> Option<HandedOver> {
                     answer.push_str(&text);
                 }
             }
+            Said::Tool { id, title, failed } => match title {
+                Some(title) => {
+                    if let Some(cmd) = shell_command(&title) {
+                        commands.push((id, cmd.to_owned(), Some(failed)));
+                    }
+                }
+                None if failed => {
+                    if let Some((_, _, outcome)) =
+                        commands.iter_mut().rev().find(|(each, ..)| *each == id)
+                    {
+                        *outcome = Some(true);
+                    }
+                }
+                None => {}
+            },
             _ => {}
         }
     }
@@ -236,12 +332,22 @@ fn said(core: &Core, agent: &WorkspaceAgent) -> Option<HandedOver> {
         }
     }
     exchanges.retain(|(asked, answered)| !asked.is_empty() || !answered.trim().is_empty());
-    Some((exchanges, Vec::new()))
+    let commands = commands
+        .into_iter()
+        .map(|(_, cmd, failed)| (cmd, failed))
+        .collect();
+    Some((exchanges, commands))
 }
 
 /// What the chat hands over from what it said, which ran on `from`, or nothing when the person
 /// has not said anything in it yet.
-fn build(said: HandedOver, from: &str, source: &str, forked: bool) -> Option<Pending> {
+fn build(
+    said: HandedOver,
+    workspace: &WorkspaceSnapshot,
+    from: &str,
+    source: &str,
+    forked: bool,
+) -> Option<Pending> {
     let (exchanges, commands) = said;
     let first = exchanges.first()?;
     let mut room = BUDGET_TOKENS * 4;
@@ -263,8 +369,17 @@ fn build(said: HandedOver, from: &str, source: &str, forked: bool) -> Option<Pen
         })
         .collect();
     let ran = ran.join("\n");
+    let files = bounded_lines(&workspace.modified_files, FILES, FILES_CHARS);
+    let work = bounded_lines(&workspace.open_work, usize::MAX, WORK_CHARS);
+    let decisions = bounded_lines(&workspace.decisions, DECISIONS, DECISIONS_CHARS);
     let request = cut_start(&first.0, REQUEST_CHARS);
-    room = room.saturating_sub(ran.chars().count() + request.chars().count());
+    room = room.saturating_sub(
+        ran.chars().count()
+            + files.chars().count()
+            + work.chars().count()
+            + decisions.chars().count()
+            + request.chars().count(),
+    );
 
     let mut picked: Vec<String> = Vec::new();
     for (asked, answered) in exchanges.iter().rev() {
@@ -291,6 +406,15 @@ fn build(said: HandedOver, from: &str, source: &str, forked: bool) -> Option<Pen
         "## The latest exchanges, word for word\n\n{}",
         picked.join("\n\n---\n\n")
     ));
+    if !files.is_empty() {
+        sections.push(format!("## Modified files\n\n{files}"));
+    }
+    if !work.is_empty() {
+        sections.push(format!("## Work in hand\n\n{work}"));
+    }
+    if !decisions.is_empty() {
+        sections.push(format!("## Recent decisions\n\n{decisions}"));
+    }
     if !ran.is_empty() {
         sections.push(format!("## Commands run, newest last\n\n{ran}"));
     }
@@ -376,8 +500,9 @@ pub async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<Cha
     }
     let said = said(core, &source)
         .ok_or_else(|| CoreError::from("Sikemux no longer has what this chat said"))?;
+    let workspace = snapshot(core, &source);
     let ran_on = (earlier.as_ref()).map_or(source.provider.as_str(), |(back, _)| &back.provider);
-    let pending = build(said, ran_on, &source.id, params.fork);
+    let pending = build(said, &workspace, ran_on, &source.id, params.fork);
     if params.fork {
         let pending =
             pending.ok_or_else(|| CoreError::from("This chat has nothing to hand over yet"))?;

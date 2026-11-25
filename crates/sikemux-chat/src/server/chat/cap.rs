@@ -91,6 +91,7 @@ const IDLE_COMPACT_TOKENS: u64 = 150_000;
 pub struct Meter {
     last_call_ms: AtomicU64,
     context: AtomicU64,
+    first_context: AtomicU64,
     /// The session was compacted since its last call, so its idle stretch needs no other.
     compacted: AtomicBool,
     /// When the session last lost what it was told: it was compacted or started fresh.
@@ -111,6 +112,8 @@ pub struct Meter {
 pub struct KeptMeter {
     last_call_ms: u64,
     context: u64,
+    #[serde(default)]
+    first_context: u64,
     compacted: bool,
     #[serde(default)]
     keeps_history: bool,
@@ -129,6 +132,7 @@ impl Meter {
         KeptMeter {
             last_call_ms: self.last_call_ms.load(Ordering::Acquire),
             context: self.context.load(Ordering::Acquire),
+            first_context: self.first_context.load(Ordering::Acquire),
             compacted: self.compacted.load(Ordering::Acquire),
             keeps_history: self.keeps_history.load(Ordering::Acquire),
             forgot_at: self.forgot_at.load(Ordering::Acquire),
@@ -139,6 +143,8 @@ impl Meter {
         self.last_call_ms
             .store(kept.last_call_ms, Ordering::Release);
         self.context.store(kept.context, Ordering::Release);
+        self.first_context
+            .store(kept.first_context, Ordering::Release);
         self.compacted.store(kept.compacted, Ordering::Release);
         self.keeps_history
             .store(kept.keeps_history, Ordering::Release);
@@ -148,6 +154,14 @@ impl Meter {
     pub fn called(&self, context: u64) {
         self.last_call_ms.store(epoch_ms(), Ordering::Release);
         self.context.store(context, Ordering::Release);
+        if context > 0 {
+            let _ = self.first_context.compare_exchange(
+                0,
+                context,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+        }
         self.compacted.store(false, Ordering::Release);
         self.keeps_history.store(false, Ordering::Release);
     }
@@ -173,6 +187,10 @@ impl Meter {
         self.context.load(Ordering::Acquire)
     }
 
+    pub fn first_context(&self) -> u64 {
+        self.first_context.load(Ordering::Acquire)
+    }
+
     pub fn last_call_ms(&self) -> u64 {
         self.last_call_ms.load(Ordering::Acquire)
     }
@@ -185,6 +203,7 @@ impl Meter {
     pub fn started_fresh(&self) {
         self.last_call_ms.store(0, Ordering::Release);
         self.context.store(0, Ordering::Release);
+        self.first_context.store(0, Ordering::Release);
         self.compacted.store(false, Ordering::Release);
         self.suggests_nothing();
         self.forgot_at.store(epoch_ms(), Ordering::Release);
@@ -571,6 +590,7 @@ mod tests {
         meter.take_up(KeptMeter {
             last_call_ms: 1_000_000,
             context: 180_000,
+            first_context: 0,
             compacted: false,
             keeps_history: false,
             forgot_at: 0,

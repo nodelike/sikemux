@@ -816,6 +816,29 @@ pub(crate) fn edited_checkouts(
         .collect()
 }
 
+pub(crate) fn handoff_files(core: &Core, project: &str, agent_id: &str, cwd: &Path) -> Vec<String> {
+    let uncommitted: HashSet<String> = uncommitted_files(core, project, agent_id, cwd)
+        .into_iter()
+        .collect();
+    let mut files: Vec<String> = edited_files(core, project, agent_id)
+        .into_iter()
+        .map(|file| {
+            let path = Path::new(&file);
+            let rel = (path.strip_prefix(cwd).unwrap_or(path))
+                .to_string_lossy()
+                .into_owned();
+            if uncommitted.contains(&rel) {
+                format!("{rel} (uncommitted)")
+            } else {
+                rel
+            }
+        })
+        .collect();
+    files.sort_unstable();
+    files.dedup();
+    files
+}
+
 fn edited_files(core: &Core, project: &str, agent_id: &str) -> Vec<String> {
     let filter = serde_json::from_value(json!({ "project": project, "agentId": agent_id }));
     let Ok(filter) = filter else {
