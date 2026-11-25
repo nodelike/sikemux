@@ -248,6 +248,8 @@ fn rules(mode: PermissionMode, agent: &[Value]) -> Value {
                 .chain([
                     json!({ "action": "shell", "resource": "*", "effect": "ask" }),
                     json!({ "action": "edit", "resource": "*", "effect": "ask" }),
+                    json!({ "action": "sikemux-tools_process_start", "resource": "*", "effect": "ask" }),
+                    json!({ "action": "sikemux-tools_trigger_add", "resource": "*", "effect": "ask" }),
                 ])
                 .chain(narrower.iter().cloned())
                 .collect()
