@@ -10812,17 +10812,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sikemux-web-device"
-version = "0.1.0"
-dependencies = [
- "iroh",
- "serde_json",
- "sikemux-wire",
- "wasm-bindgen",
- "wasm-bindgen-futures",
-]
-
-[[package]]
 name = "sikemux-wire"
 version = "0.1.0"
 dependencies = [

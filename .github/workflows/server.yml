@@ -19,7 +19,6 @@ on:
       - "crates/sikemux-corekit/src/themes.rs"
       - "crates/sikemux-markdown/**"
       - "crates/sikemux-markdown-wasm/**"
-      - "crates/sikemux-web-device/**"
       - mobile/app/certs/updates-certificate.pem
       - .github/workflows/server.yml
   pull_request:
@@ -83,18 +82,6 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
-
-      # The web app reads a host's look over iroh, from Rust built for the browser. ring's C needs
-      # LLVM's clang and llvm-ar for wasm, and wasm-bindgen must match the crate's version.
-      - name: Setup wasm-bindgen and LLVM, for the web app's own device
-        run: |
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/wasm-bindgen.tar.gz" https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.129/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl.tar.gz
-          echo "82d12bb940e2d4e72e0d5605387fc1b8ca179044e012b620f0ce4e7440e8320e  $RUNNER_TEMP/wasm-bindgen.tar.gz" | shasum -a 256 -c -
-          tar -xzf "$RUNNER_TEMP/wasm-bindgen.tar.gz" -C "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/wasm-bindgen-0.2.129-x86_64-unknown-linux-musl" >>"$GITHUB_PATH"
-          llvm="$(ls -d /usr/lib/llvm-* | sort -V | tail -1)/bin"
-          echo "CC_wasm32_unknown_unknown=$llvm/clang" >>"$GITHUB_ENV"
-          echo "AR_wasm32_unknown_unknown=$llvm/llvm-ar" >>"$GITHUB_ENV"
 
       - name: Check, test and build
         run: pnpm check
