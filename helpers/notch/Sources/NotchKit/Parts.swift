@@ -51,20 +51,49 @@ struct TurnMark: View {
     let mark: Mark
     let turn: TurnState?
 
+    private var hasWaitRing: Bool {
+        guard let turn, turn.state == .waiting, let wait = turn.wait else { return false }
+        return Mark.fills(wait) && (wait.expectedMs ?? 0) > 0
+    }
+
+    private var hasMinuteLabel: Bool {
+        guard let turn else { return false }
+        switch turn.state {
+        case .waiting: return turn.wait?.until != nil
+        case .needsYou: return turn.call != nil
+        default: return false
+        }
+    }
+
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let now = context.date.timeIntervalSince1970 * 1000
-            HStack(spacing: 2) {
-                if let turn, let time = Self.short(turn, now: now) {
-                    Text(time)
-                        .font(Theme.ui(11, .medium))
-                        .monospacedDigit()
-                        .foregroundStyle(mark == .needs ? Theme.warn : mark == .timer ? Theme.command : Theme.inkFaint)
+        Group {
+            if hasWaitRing {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    content(at: context.date)
                 }
-                StateMark(mark: mark, through: turn.flatMap { Self.through($0, now: now) })
+            } else if hasMinuteLabel {
+                TimelineView(.periodic(from: .now, by: 15)) { context in
+                    content(at: context.date)
+                }
+            } else {
+                StateMark(mark: mark)
             }
         }
         .fixedSize()
+    }
+
+    @ViewBuilder
+    private func content(at date: Date) -> some View {
+        let now = date.timeIntervalSince1970 * 1000
+        HStack(spacing: 2) {
+            if let turn, let time = Self.short(turn, now: now) {
+                Text(time)
+                    .font(Theme.ui(11, .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(mark == .needs ? Theme.warn : mark == .timer ? Theme.command : Theme.inkFaint)
+            }
+            StateMark(mark: mark, through: turn.flatMap { Self.through($0, now: now) })
+        }
     }
 
     /// How far a known wait has run.
@@ -265,7 +294,11 @@ final class TwinkleGridView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { startTwinkling() }
+        if window != nil {
+            startTwinkling()
+        } else {
+            stopTwinkling()
+        }
     }
 
     override func viewDidChangeBackingProperties() {
@@ -293,6 +326,10 @@ final class TwinkleGridView: NSView {
             layer.add(twinkle, forKey: "twinkle")
         }
         CATransaction.commit()
+    }
+
+    private func stopTwinkling() {
+        cellLayers.forEach { $0.removeAnimation(forKey: "twinkle") }
     }
 
     static func stillOpacity(_ index: Int) -> Double {
@@ -409,12 +446,18 @@ struct SinceText: View {
     let mark: Mark
     let since: Date?
 
+    private var interval: TimeInterval {
+        (mark == .done || mark == .failed) ? 15 : 1
+    }
+
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            Text(Self.format(mark, since, context.date))
-                .font(Theme.ui(11.5))
-                .monospacedDigit()
-                .foregroundStyle(Theme.inkFaint)
+        if since != nil {
+            TimelineView(.periodic(from: .now, by: interval)) { context in
+                Text(Self.format(mark, since, context.date))
+                    .font(Theme.ui(11.5))
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.inkFaint)
+            }
         }
     }
 

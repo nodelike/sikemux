@@ -31,30 +31,109 @@ final class Panels {
     /// Room for the widest island and its shadow, as tall as the screen so a call's card in the list fits whole.
     /// Only the island is drawn.
     static let width: CGFloat = 760
+    private static let maxParked = 2
+    private static let fallbackInterval: TimeInterval = 8
+    private static let dragCheckInterval: TimeInterval = 0.1
+
+    private struct PanelEntry {
+        let panel: NotchPanel
+        let island: IslandModel
+        var swipe: SwipeTracker?
+        let observers: [NSObjectProtocol]
+    }
 
     private let store: NotchStore
-    private var panels: [CGDirectDisplayID: (panel: NotchPanel, island: IslandModel)] = [:]
-    private var swipes: [CGDirectDisplayID: SwipeTracker] = [:]
+    private var panels: [CGDirectDisplayID: PanelEntry] = [:]
     /// Islands whose screen went, out of sight until a screen needs one. An external screen goes and
     /// comes back as the Mac wakes, when building a new island can stall for seconds.
-    private var parked: [(id: CGDirectDisplayID, panel: NotchPanel, island: IslandModel, swipe: SwipeTracker?)] = []
+    private var parked: [(id: CGDirectDisplayID, entry: PanelEntry)] = []
     private var monitors: [Any] = []
+    private var workspaceObservers: [NSObjectProtocol] = []
+    private var fallbackTimer: Timer?
+    private var pointerTimer: Timer?
     private var dragCount = 0
+    private var dragIsFile: Bool?
+    private var lastDragCheck: TimeInterval = 0
     private var pointerScreen: CGDirectDisplayID?
     private var devRunning = false
     private var fullScreen: Set<CGDirectDisplayID> = []
     private var looking = false
+    private var asleep = false
 
     init(store: NotchStore) {
         self.store = store
         store.onPeek = { [weak self] peek in self?.peek(peek) }
+        store.onView = { [weak self] in self?.applyVisibility() }
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.rebuild() }
         store.onSettings = { [weak self] in self?.rebuild() }
-        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
+        watchWorkspace()
         watchDrags()
         rebuild()
+    }
+
+    private func watchWorkspace() {
+        let center = NSWorkspace.shared.notificationCenter
+        let refreshNames: [NSNotification.Name] = [
+            NSWorkspace.didActivateApplicationNotification,
+            NSWorkspace.activeSpaceDidChangeNotification,
+            NSWorkspace.didLaunchApplicationNotification,
+            NSWorkspace.didTerminateApplicationNotification,
+        ]
+        for name in refreshNames {
+            workspaceObservers.append(
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    self?.refreshEnvironment()
+                }
+            )
+        }
+        workspaceObservers.append(
+            center.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.asleep = true
+                self.stopTimers()
+                self.applyVisibility()
+            }
+        )
+        workspaceObservers.append(
+            center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.asleep = false
+                self.rescheduleTimers()
+                self.tick()
+            }
+        )
+    }
+
+    private func stopTimers() {
+        fallbackTimer?.invalidate()
+        fallbackTimer = nil
+        pointerTimer?.invalidate()
+        pointerTimer = nil
+    }
+
+    private func rescheduleTimers() {
+        stopTimers()
+        guard !asleep else { return }
+        if store.settings.displays == .pointer {
+            pointerTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                self?.checkPointerScreen()
+            }
+        }
+        let watchingDev = !store.options.dev && store.settings.yieldToDev
+        let checksFullScreen = store.settings.fullScreen != .always
+        if watchingDev || checksFullScreen {
+            fallbackTimer = Timer.scheduledTimer(withTimeInterval: Self.fallbackInterval, repeats: true) { [weak self] _ in
+                self?.refreshEnvironment()
+            }
+        }
+    }
+
+    private func checkPointerScreen() {
+        guard !asleep, store.settings.displays == .pointer else { return }
+        let current = wantedScreens().first.flatMap(Self.displayId)
+        if current != pointerScreen { rebuild() }
     }
 
     /// Rings and peeks on every island that shows. A request first un-hides an
@@ -103,20 +182,22 @@ final class Panels {
         let before = parked.count
         for (id, entry) in panels where wanted[id] == nil {
             entry.island.set(.closed)
-            parked.append((id, entry.panel, entry.island, swipes[id]))
+            entry.island.hidden = true
+            parked.append((id, entry))
             panels[id] = nil
-            swipes[id] = nil
         }
         var unparked: [NotchPanel] = []
         for id in wanted.keys where panels[id] == nil && !parked.isEmpty {
             // An island whose screen has just gone moves first, so a draft follows the screen that shows it.
             let own = parked.count > before ? nil : parked.firstIndex { $0.id == id }
-            let entry = parked.remove(at: own ?? parked.count - 1)
-            panels[id] = (entry.panel, entry.island)
-            swipes[id] = entry.swipe
-            unparked.append(entry.panel)
+            let moved = parked.remove(at: own ?? parked.count - 1)
+            panels[id] = moved.entry
+            unparked.append(moved.entry.panel)
         }
-        parked.forEach { $0.panel.orderOut(nil) }
+        while parked.count > Self.maxParked {
+            destroy(parked.removeFirst().entry)
+        }
+        parked.forEach { $0.entry.panel.orderOut(nil) }
         for (id, screen) in wanted {
             let geometry = NotchGeometry.of(screen)
             let frame = CGRect(
@@ -149,38 +230,52 @@ final class Panels {
                     if keyboard == .give { DispatchQueue.main.async { panel.acceptsKey = true } }
                 }
             }
-            NotificationCenter.default.addObserver(
+            let becomeKey = NotificationCenter.default.addObserver(
                 forName: NSWindow.didBecomeKeyNotification, object: panel, queue: .main
             ) { [weak island] _ in island?.hasKeyboard = true }
-            NotificationCenter.default.addObserver(
+            let resignKey = NotificationCenter.default.addObserver(
                 forName: NSWindow.didResignKeyNotification, object: panel, queue: .main
             ) { [weak island] _ in island?.keyboardLost() }
             panel.orderFrontRegardless()
-            panels[id] = (panel, island)
             let swipe = SwipeTracker()
             swipe.onPull = { [weak island] direction, travelled in island?.swipe(direction, travelled: travelled) }
             swipe.onSwipe = { [weak island] direction in island?.swiped(direction) }
             swipe.onEnd = { [weak island] in island?.swipeEnded() }
-            swipes[id] = swipe
+            panels[id] = PanelEntry(panel: panel, island: island, swipe: swipe, observers: [becomeKey, resignKey])
         }
         unparked.filter { !$0.isVisible }.forEach { $0.orderFrontRegardless() }
         pointerScreen = wantedScreens().first.flatMap(Self.displayId)
+        rescheduleTimers()
         tick()
+    }
+
+    private func destroy(_ entry: PanelEntry) {
+        entry.island.set(.closed)
+        entry.island.hidden = true
+        entry.observers.forEach { NotificationCenter.default.removeObserver($0) }
+        entry.panel.orderOut(nil)
+        entry.panel.contentView = nil
+        entry.panel.close()
     }
 
     /// Hides the islands while Sikemux Dev's helper holds the notch, or over a full-screen app.
     private func tick() {
-        if store.settings.displays == .pointer {
-            let current = wantedScreens().first.flatMap(Self.displayId)
-            if current != pointerScreen { rebuild() }
-        }
+        checkPointerScreen()
+        refreshEnvironment()
+        applyVisibility()
+    }
+
+    private func refreshEnvironment() {
+        guard !asleep else { return }
+        let watchingDev = !store.options.dev && store.settings.yieldToDev
+        let checkFullScreen = store.settings.fullScreen != .always
+        lookAround(watchingDev: watchingDev, checkFullScreen: checkFullScreen)
+    }
+
+    private func applyVisibility() {
         let watchingDev = !store.options.dev && store.settings.yieldToDev
         let yielding = watchingDev && devRunning
-        lookAround(watchingDev: watchingDev)
         let needsYou = store.entries.contains { $0.mark == .needs } || !store.devices.isEmpty
-        for (_, entry) in panels {
-            entry.island.checkPointer()
-        }
         for (id, entry) in panels {
             let covered: Bool
             switch store.settings.fullScreen {
@@ -188,7 +283,7 @@ final class Panels {
             case .never: covered = fullScreen.contains(id)
             case .needsYou: covered = fullScreen.contains(id) && !needsYou
             }
-            let hidden = yielding || covered
+            let hidden = asleep || yielding || covered
             if entry.island.hidden != hidden {
                 withAnimation(.smooth(duration: 0.2)) { entry.island.hidden = hidden }
             }
@@ -196,20 +291,28 @@ final class Panels {
     }
 
     /// Opening Dev's lock file and listing the windows have each stalled the main thread for
-    /// seconds on some Macs, so both run off it and the next tick reads the answers.
-    private func lookAround(watchingDev: Bool) {
+    /// seconds on some Macs, so both run off it and update visibility once ready.
+    private func lookAround(watchingDev: Bool, checkFullScreen: Bool) {
+        if !watchingDev && !checkFullScreen {
+            let changed = devRunning || !fullScreen.isEmpty
+            devRunning = false
+            fullScreen = []
+            if changed { applyVisibility() }
+            return
+        }
         guard !looking else { return }
         looking = true
         let stateDir = store.options.stateDir
-        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        let front = checkFullScreen ? NSWorkspace.shared.frontmostApplication?.processIdentifier : nil
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let running = watchingDev && Handover.devIsRunning(stateDir: stateDir)
-            let filled = FullScreen.displays(filledBy: front)
+            let filled = checkFullScreen ? FullScreen.displays(filledBy: front) : []
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.devRunning = running
                 self.fullScreen = filled
                 self.looking = false
+                self.applyVisibility()
             }
         }
     }
@@ -223,34 +326,51 @@ final class Panels {
         }
         let swipes = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
             guard let self, let window = event.window,
-                  let id = self.panels.first(where: { $0.value.panel === window })?.key
+                  let entry = self.panels.values.first(where: { $0.panel === window })
             else { return event }
-            self.swipes[id]?.handle(event)
+            entry.swipe?.handle(event)
             return event
         }
         if let swipes { monitors.append(swipes) }
     }
 
+    private func nearDropTargets(for mouse: NSPoint) -> [IslandModel] {
+        panels.values.compactMap { entry in
+            let island = entry.island
+            guard let screen = entry.panel.screen, !island.hidden, island.mode != .drop else { return nil }
+            let frame = screen.frame
+            let onScreen = mouse.x >= frame.minX && mouse.x < frame.maxX && mouse.y >= frame.minY && mouse.y <= frame.maxY
+            let near = onScreen && mouse.y > frame.maxY - 140 && abs(mouse.x - island.geometry.centerX) < 420
+            return near ? island : nil
+        }
+    }
+
     private func drag(_ event: NSEvent) {
-        let pasteboard = NSPasteboard(name: .drag)
         switch event.type {
         case .leftMouseDown:
-            dragCount = pasteboard.changeCount
+            dragCount = NSPasteboard(name: .drag).changeCount
+            dragIsFile = nil
+            lastDragCheck = 0
         case .leftMouseDragged:
-            guard pasteboard.changeCount != dragCount, pasteboard.types?.contains(.fileURL) == true else { return }
-            let mouse = NSEvent.mouseLocation
-            for (_, entry) in panels {
-                let island = entry.island
-                guard let screen = entry.panel.screen, !island.hidden, island.mode != .drop else { continue }
-                let frame = screen.frame
-                let onScreen = mouse.x >= frame.minX && mouse.x < frame.maxX && mouse.y >= frame.minY && mouse.y <= frame.maxY
-                let near = onScreen && mouse.y > frame.maxY - 140 && abs(mouse.x - island.geometry.centerX) < 420
-                if near {
-                    Haptics.tick()
-                    island.set(.drop)
-                }
+            if dragIsFile == false { return }
+            let targets = nearDropTargets(for: NSEvent.mouseLocation)
+            guard !targets.isEmpty else { return }
+            if dragIsFile == nil {
+                guard event.timestamp - lastDragCheck >= Self.dragCheckInterval else { return }
+                lastDragCheck = event.timestamp
+                let pasteboard = NSPasteboard(name: .drag)
+                guard pasteboard.changeCount != dragCount else { return }
+                let hasFile = pasteboard.types?.contains(.fileURL) == true
+                dragIsFile = hasFile
+                guard hasFile else { return }
+            }
+            for island in targets {
+                Haptics.tick()
+                island.set(.drop)
             }
         case .leftMouseUp:
+            dragIsFile = nil
+            lastDragCheck = 0
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.panels.values.forEach { entry in
                     if entry.island.mode == .drop {

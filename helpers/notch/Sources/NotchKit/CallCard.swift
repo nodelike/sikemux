@@ -1,4 +1,5 @@
 import AppKit
+import ImageIO
 import Observation
 import SwiftUI
 
@@ -33,15 +34,138 @@ final class CallDraft {
     }
 }
 
-/// Pictures the cards show, read once from this host's disk.
+/// Pictures the cards show, decoded off the main thread and cached in memory.
+@MainActor
 enum CallPictures {
-    private static let cache = NSCache<NSString, NSImage>()
+    private static let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 32
+        return cache
+    }()
+    private static var waiters: [String: [(NSImage?) -> Void]] = [:]
+    private static var failed: Set<String> = []
 
-    static func image(_ path: String) -> NSImage? {
-        if let kept = cache.object(forKey: path as NSString) { return kept }
-        guard let image = NSImage(contentsOfFile: path) else { return nil }
-        cache.setObject(image, forKey: path as NSString)
-        return image
+    static func cached(_ path: String) -> NSImage? {
+        cache.object(forKey: path as NSString)
+    }
+
+    static func load(_ path: String, completion: @escaping (NSImage?) -> Void) {
+        if let kept = cache.object(forKey: path as NSString) {
+            completion(kept)
+            return
+        }
+        if failed.contains(path) {
+            completion(nil)
+            return
+        }
+        if waiters[path] != nil {
+            waiters[path]?.append(completion)
+            return
+        }
+        waiters[path] = [completion]
+        DispatchQueue.global(qos: .userInitiated).async {
+            let decoded = decode(path)
+            DispatchQueue.main.async {
+                if let decoded {
+                    cache.setObject(decoded, forKey: path as NSString)
+                } else {
+                    failed.insert(path)
+                }
+                let callbacks = waiters.removeValue(forKey: path) ?? []
+                callbacks.forEach { $0(decoded) }
+            }
+        }
+    }
+
+    private nonisolated static func decode(_ path: String) -> NSImage? {
+        let url = URL(fileURLWithPath: path) as CFURL
+        guard let source = CGImageSourceCreateWithURL(url, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(
+                  source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+              )
+        else { return nil }
+        let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let dpiX = (props?[kCGImagePropertyDPIWidth] as? CGFloat) ?? 72
+        let dpiY = (props?[kCGImagePropertyDPIHeight] as? CGFloat) ?? 72
+        let size = NSSize(
+            width: CGFloat(cgImage.width) * 72 / max(dpiX, 1),
+            height: CGFloat(cgImage.height) * 72 / max(dpiY, 1)
+        )
+        return NSImage(cgImage: cgImage, size: size)
+    }
+}
+
+private struct CallPictureView: View {
+    let path: String
+    @State private var image: NSImage?
+
+    init(path: String) {
+        self.path = path
+        _image = State(initialValue: CallPictures.cached(path))
+    }
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+            } else {
+                Theme.raised
+            }
+        }
+        .onAppear { load() }
+        .onChange(of: path) { _, _ in
+            image = CallPictures.cached(path)
+            load()
+        }
+    }
+
+    private func load() {
+        guard image == nil else { return }
+        let requested = path
+        CallPictures.load(requested) { loaded in
+            if path == requested { image = loaded }
+        }
+    }
+}
+
+private struct EvidencePictureView: View {
+    let path: String
+    let width: CGFloat
+    @State private var image: NSImage?
+
+    init(path: String, width: CGFloat) {
+        self.path = path
+        self.width = width
+        _image = State(initialValue: CallPictures.cached(path))
+    }
+
+    var body: some View {
+        let ratio = image.map { $0.size.width / max(1, $0.size.height) } ?? 2
+        let height = max(148, width / ratio)
+        Group {
+            if let image {
+                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+            } else {
+                Theme.raised
+            }
+        }
+        .frame(width: height * ratio, height: height)
+        .frame(width: width, height: 148, alignment: .topLeading)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline, lineWidth: 1))
+        .onAppear { load() }
+        .onChange(of: path) { _, _ in
+            image = CallPictures.cached(path)
+            load()
+        }
+    }
+
+    private func load() {
+        guard image == nil else { return }
+        let requested = path
+        CallPictures.load(requested) { loaded in
+            if path == requested { image = loaded }
+        }
     }
 }
 
@@ -187,24 +311,12 @@ struct CallCard: View {
     }
 
     private func picture(_ path: String) -> some View {
-        Group {
-            if let image = CallPictures.image(path) {
-                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
-            } else {
-                Theme.raised
-            }
-        }
+        CallPictureView(path: path)
     }
 
     /// Evidence shows the page from its top, the card's full width, or half of it for one of two.
     private func evidence(_ path: String, width: CGFloat) -> some View {
-        let ratio = CallPictures.image(path).map { $0.size.width / max(1, $0.size.height) } ?? 2
-        let height = max(148, width / ratio)
-        return picture(path)
-            .frame(width: height * ratio, height: height)
-            .frame(width: width, height: 148, alignment: .topLeading)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline, lineWidth: 1))
+        EvidencePictureView(path: path, width: width)
     }
 
     /// A taste call's pictures: the chosen option's leads, large, the others smaller and dimmed

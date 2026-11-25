@@ -65,7 +65,9 @@ final class IslandModel {
     /// The file chooser is up: the island stays open behind it.
     var choosingFiles = false
     /// Hidden while Sikemux Dev's helper holds the notch, or over a full-screen app.
-    var hidden = false
+    var hidden = false {
+        didSet { if hidden { stopPointerWatch() } }
+    }
     var geometry: NotchGeometry
     /// How far a two-finger swipe has pulled the island: positive down, negative up.
     var pull: CGFloat = 0
@@ -92,9 +94,14 @@ final class IslandModel {
     @ObservationIgnored var shapeFrame: CGRect = .zero
     @ObservationIgnored private var peekTimer: DispatchWorkItem?
     @ObservationIgnored private var hoverTimer: DispatchWorkItem?
+    @ObservationIgnored private var pointerCheckTimer: Timer?
 
     init(geometry: NotchGeometry) {
         self.geometry = geometry
+    }
+
+    deinit {
+        pointerCheckTimer?.invalidate()
     }
 
     var isOpen: Bool { mode == .open || mode == .drop || showsCall }
@@ -116,6 +123,7 @@ final class IslandModel {
             if mode == .closed { callsOpen = false }
         }
         if mode == .open || showsCall { keyboard?(.give) } else if mode == .closed { keyboard?(.off) }
+        updatePointerWatch()
     }
 
     /// Typing in the prompt keeps the island open when the pointer leaves; an empty prompt does not.
@@ -200,6 +208,7 @@ final class IslandModel {
         if entered {
             if !hovering, mode == .closed { Haptics.tick() }
             withAnimation(Motion.hover) { hovering = true }
+            updatePointerWatch()
             // A permission peek keeps its size under the pointer, so its buttons stay where they are.
             guard opensOnHover, mode == .closed || isPeekDone else { return }
             schedule(after: 0.3) { $0.set(.open) }
@@ -222,6 +231,23 @@ final class IslandModel {
         }
     }
 
+    private func updatePointerWatch() {
+        let active = !hidden && (hovering || mode == .open || showsCall)
+        if active {
+            guard pointerCheckTimer == nil else { return }
+            pointerCheckTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                self?.checkPointer()
+            }
+        } else {
+            stopPointerWatch()
+        }
+    }
+
+    private func stopPointerWatch() {
+        pointerCheckTimer?.invalidate()
+        pointerCheckTimer = nil
+    }
+
     private func left() {
         withAnimation(Motion.hover) { hovering = false }
         switch mode {
@@ -230,6 +256,7 @@ final class IslandModel {
         default:
             break
         }
+        updatePointerWatch()
     }
 
     /// A peek ends once what it shows leaves the inbox: the request was answered, here or anywhere else, or the agent closed.

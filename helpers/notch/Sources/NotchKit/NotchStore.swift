@@ -45,6 +45,7 @@ final class NotchStore {
     @ObservationIgnored private var seen: Set<String> = []
     @ObservationIgnored var onPeek: ((Peek) -> Void)?
     @ObservationIgnored var onSettings: (() -> Void)?
+    @ObservationIgnored var onView: (() -> Void)?
 
     enum Peek {
         case ask(String)
@@ -192,6 +193,7 @@ final class NotchStore {
             entries = view.entries(questions)
             keepCalls(view)
         }
+        onView?()
         if !Set(view.inbox.items.compactMap(\.questionId)).isSubset(of: questions.map(\.id)) { readQuestions() }
         defer { heard = true }
         guard heard else { return }
@@ -238,7 +240,10 @@ final class NotchStore {
     func apply(_ pending: [PendingDevice], now: Date = Date()) {
         let fresh = pending.filter { deviceAsked[$0.id] == nil }
         deviceAsked = Dictionary(pending.map { ($0.id, deviceAsked[$0.id] ?? now) }, uniquingKeysWith: { first, _ in first })
-        if pending != devices { devices = pending }
+        if pending != devices {
+            devices = pending
+            onView?()
+        }
         if !fresh.isEmpty, let oldest = pending.first { onPeek?(.connect(oldest.id)) }
     }
 
@@ -256,6 +261,7 @@ final class NotchStore {
         seen = []
         devices = []
         deviceAsked = [:]
+        onView?()
     }
 
     func fail(_ message: String) {
