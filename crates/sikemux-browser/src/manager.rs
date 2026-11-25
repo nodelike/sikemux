@@ -87,6 +87,10 @@ pub(crate) struct AgentBrowser {
     pub(crate) downloads: downloads::DownloadLog,
     /// The tab whose page was last told it has focus.
     pub(crate) focus_lent: Option<String>,
+    /// How far up from the bottom of the page area the app draws over an artifact.
+    pub(crate) foot: f64,
+    /// The tab whose page last made room at its end, and how much.
+    pub(crate) cleared: Option<(String, f64)>,
 }
 
 impl AgentBrowser {
@@ -102,6 +106,21 @@ impl AgentBrowser {
             })
             .cloned()
             .collect()
+    }
+
+    /// The tab shown, its page's address, and how much of the page's end the app draws over, in
+    /// the page's own pixels.
+    fn covered(&self) -> Option<(String, String, f64)> {
+        let tab = self.strip.active.clone()?;
+        let area = self.bounds.as_ref()?;
+        let viewport::Layout::Shown { frame, page } = self.layout_of(&tab) else {
+            return None;
+        };
+        let scale = page.map_or(1., |(width, _)| frame.width / width);
+        let below = (area.y + area.height) - (frame.y + frame.height);
+        let covered = ((self.foot - below).max(0.) / scale).round();
+        let url = self.strip.pages.get(&tab)?.url.clone();
+        Some((tab, url, covered))
     }
 
     pub(crate) fn layout_of(&self, tab_id: &str) -> viewport::Layout {
@@ -981,6 +1000,39 @@ impl BrowserManager {
         Ok(())
     }
 
+    /// Keeps the end of the agent's artifact scrolling clear of the bottom `height` of its pane,
+    /// which the app draws over.
+    pub fn set_foot(&self, agent_id: &str, height: f64) {
+        let moved = (self.agents.locked().get_mut(agent_id))
+            .is_some_and(|agent| std::mem::replace(&mut agent.foot, height) != height);
+        if moved {
+            self.clear_foot(agent_id);
+        }
+    }
+
+    /// Gives the artifact shown room at its end for what is drawn over it, once per change.
+    pub(crate) fn clear_foot(&self, agent_id: &str) {
+        let due = (self.agents.locked().get(agent_id)).and_then(|agent| {
+            let (tab, url, covered) = agent.covered()?;
+            let cleared =
+                (agent.cleared.as_ref()).is_some_and(|(id, at)| (id, *at) == (&tab, covered));
+            (!cleared).then_some((tab, url, covered))
+        });
+        let Some((tab, _, covered)) = due.filter(|(_, url, _)| self.shows_page(url)) else {
+            return;
+        };
+        let Some(view) = self.agents.locked().get_mut(agent_id).and_then(|agent| {
+            agent.cleared = Some((tab.clone(), covered));
+            agent.views.get(&tab).cloned()
+        }) else {
+            return;
+        };
+        let script = format!("{}({covered})", crate::PAGE_FOOT_SCRIPT);
+        crate::spawn(async move {
+            let _ = view.eval(&script).await;
+        });
+    }
+
     /// Whether the person can see this tab's page in its pane right now.
     pub fn shown(&self, agent_id: &str, tab_id: &str) -> bool {
         self.agents.locked().get(agent_id).is_some_and(|agent| {
@@ -1220,6 +1272,7 @@ impl BrowserManager {
                 view.hide();
             }
         }
+        self.clear_foot(agent_id);
         self.steer_page_focus(agent_id);
     }
 

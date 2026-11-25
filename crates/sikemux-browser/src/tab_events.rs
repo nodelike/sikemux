@@ -120,6 +120,10 @@ impl TabEvents for TabListener {
             crate::manager::lend_page_focus(view, true);
         }
         if !started {
+            if let Some(agent) = manager.agents.locked().get_mut(&self.agent_id) {
+                agent.cleared.take_if(|(tab, _)| *tab == self.tab_id);
+            }
+            manager.clear_foot(&self.agent_id);
             if let Some(view) = view {
                 let (agent, tab) = (self.agent_id.clone(), self.tab_id.clone());
                 crate::spawn(async move { favicon::refresh(&manager, agent, tab, view).await });

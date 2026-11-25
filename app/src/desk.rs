@@ -11,7 +11,6 @@ use crate::ui::Clicks;
 use gpui_kit::Task;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -66,7 +65,7 @@ pub struct Desks {
     pub(crate) kinds: HashMap<String, DeskKind>,
     /// Each desk's calls page, made the first time the desk shows its calls.
     call_pages: HashMap<String, Entity<crate::calls::Page>>,
-    /// What answers the ask of each desk's artifact, made the first time one shows.
+    /// The composer over each desk's artifacts, made the first time one shows.
     page_feet: HashMap<String, Entity<crate::calls::Foot>>,
     pub(crate) task_views: HashMap<String, crate::task_list::View>,
     /// The agents in the view as last heard, so those that leave it are let go.
@@ -309,8 +308,6 @@ pub(crate) struct Page {
     pub(crate) surface: NativeSurface,
     pub(crate) focus: FocusHandle,
     pub(crate) address: Entity<InputState>,
-    /// Whether something stands under the page, in the desk's rounded corners.
-    footed: Arc<AtomicBool>,
     _typing: Subscription,
 }
 
@@ -899,7 +896,6 @@ fn desk_theme(t: &Tokens) -> String {
 struct DeskPage {
     engine: Arc<BrowserManager>,
     agent: String,
-    footed: Arc<AtomicBool>,
 }
 
 impl Surface for DeskPage {
@@ -914,10 +910,7 @@ impl Surface for DeskPage {
             holes: Vec::new(),
             dim: 0.,
             opacity: 1.,
-            bottom_radius: match self.footed.load(Ordering::Relaxed) {
-                true => 0.,
-                false => f64::from(inside_pane_radius()),
-            },
+            bottom_radius: f64::from(inside_pane_radius()),
         });
         if let Err(error) = self.engine.set_bounds(&self.agent, bounds) {
             eprintln!("sikemux: the desk's page could not be placed: {error}");
@@ -2270,16 +2263,13 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
                 }
             },
         );
-        let footed = Arc::new(AtomicBool::new(false));
         let page = Page {
             surface: NativeSurface::new(DeskPage {
                 engine: engine.clone(),
                 agent: agent.clone(),
-                footed: footed.clone(),
             }),
             focus: cx.focus_handle(),
             address,
-            footed,
             _typing: typing,
         };
         bench
@@ -2894,15 +2884,15 @@ fn pages_desk(
     });
     let title = artifact.as_ref().map(|(_, title)| title.clone());
     let keeping = artifact.and_then(|(id, title)| keep_and_share(bench, agent, id, title, cx));
-    let foot = (bench.page_on_desk(agent, cx)).map(|_| page_foot(bench, agent, cx));
+    let shown = bench.page_on_desk(agent, cx);
+    let foot = shown.as_ref().map(|_| page_foot(bench, agent, cx));
+    let asked = (shown.as_deref()).and_then(|page| bench.asked_about(page, agent, cx));
     let page = bench.desks.read(cx).pages.get(agent);
-    if let Some(page) = page {
-        page.footed.store(foot.is_some(), Ordering::Relaxed);
-    }
     let bar = second_row(cx)
         .map(|bar| match title {
             Some(title) => bar
                 .child(artifact_title(title, cx))
+                .children(asked.map(|call| back_to_ask(call.id, agent, cx)))
                 .children(keeping.into_iter().flatten()),
             None => navigation(bar, bench, agent, front, window, cx),
         })
@@ -2946,6 +2936,7 @@ fn pages_desk(
             }
         }))
         .when(no_pages, |body| body.child(on_this_desk(bench, agent, cx)))
+        .children(foot)
         .children(address::overlay(bench, agent, cx));
     div()
         .flex_1()
@@ -2954,7 +2945,6 @@ fn pages_desk(
         .flex_col()
         .when(!no_pages, |content| content.child(bar))
         .child(body)
-        .children(foot)
         .into_any_element()
 }
 
@@ -3039,6 +3029,15 @@ fn artifact_title(title: String, cx: &App) -> impl IntoElement {
         .tooltip(ui::tooltip(title))
 }
 
+/// The way from the artifact in front back to the ask linking it.
+fn back_to_ask(id: String, agent: &str, cx: &Context<Workbench>) -> impl IntoElement {
+    let agent = agent.to_owned();
+    ui::Button::new("page-ask", t!("Open in Asks"), ui::Variant::Ghost)
+        .icon(Icon::Bell)
+        .sized(24., 8., 12.)
+        .on_click(cx.listener(move |bench, _, _, cx| bench.open_in_asks(&id, &agent, cx)))
+}
+
 /// Keep and Share for the artifact of the agent's tab in front.
 fn keep_and_share(
     bench: &Workbench,
@@ -3085,7 +3084,7 @@ fn keep_and_share(
     Some([keep, share])
 }
 
-/// The foot of `agent`'s desk, made the first time an artifact shows on it.
+/// The composer over the artifacts of `agent`'s desk, made the first time an artifact shows on it.
 fn page_foot(
     bench: &Workbench,
     agent: &str,
@@ -3094,7 +3093,7 @@ fn page_foot(
     if let Some(foot) = bench.desks.read(cx).page_feet.get(agent) {
         return foot.clone();
     }
-    let foot = crate::calls::Foot::new(bench, agent, cx);
+    let foot = crate::calls::Foot::new(agent, cx);
     bench.desks.update(cx, |desks, _| {
         desks.page_feet.insert(agent.to_owned(), foot.clone());
     });

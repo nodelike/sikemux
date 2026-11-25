@@ -19,8 +19,6 @@ const SIDE: f32 = 24.;
 const PROSE: f32 = 620.;
 const ATTACHMENT_HEIGHT: f32 = 240.;
 const OPTION_PICTURE_HEIGHT: f32 = 176.;
-/// The most of an artifact's desk its foot takes, the rest staying the artifact's.
-const FOOT_SHARE: f32 = 0.75;
 /// The hover group of a call's row in a chat, which offers Open in Asks while hovered.
 const CHAT_ROW: &str = "call-chat-row";
 
@@ -164,37 +162,25 @@ impl Render for Page {
     }
 }
 
-/// The foot of an agent's desk while an artifact is in front of it: what an ask linking the
-/// artifact is answered with, else a composer that writes to the agent about it.
+/// The composer floating over the end of the artifact in front of an agent's desk, which writes
+/// to the asker of the ask linking it, else to the desk's agent.
 pub struct Foot {
     bench: WeakEntity<Workbench>,
-    cards: Entity<Cards>,
     agent: String,
-    _cards: Subscription,
 }
 
 impl Foot {
-    pub(crate) fn new(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Entity<Self> {
-        let weak = cx.entity().downgrade();
-        let cards = bench.calls.clone();
+    pub(crate) fn new(agent: &str, cx: &mut Context<Workbench>) -> Entity<Self> {
+        let bench = cx.entity().downgrade();
         let agent = agent.to_owned();
-        cx.new(|cx| {
-            let observed = cx.observe(&cards, |_, _, cx| cx.notify());
-            Self {
-                bench: weak,
-                cards,
-                agent,
-                _cards: observed,
-            }
-        })
+        cx.new(|_| Self { bench, agent })
     }
 }
 
 impl Workbench {
-    /// The ask the artifact in front of `agent`'s desk belongs to: the one picked, whoever asked
-    /// it, else the agent's latest.
-    pub(crate) fn asked_on_desk(&self, agent: &str, cx: &App) -> Option<PersonCall> {
-        let page = self.page_on_desk(agent, cx)?;
+    /// The ask artifact `page` on `agent`'s desk belongs to: the one picked, whoever asked it,
+    /// else the agent's latest.
+    pub(crate) fn asked_about(&self, page: &str, agent: &str, cx: &App) -> Option<PersonCall> {
         let asks = |call: &PersonCall| {
             call.kind != CallKind::Look && call.pages().any(|linked| linked.id == page)
         };
@@ -205,92 +191,64 @@ impl Workbench {
             .map(|(_, call)| call.clone());
         picked.or_else(|| on_desk(self, agent).into_iter().rfind(asks))
     }
-}
 
-impl Foot {
-    /// `foot` with the composer that writes to the desk's agent about artifact `page`.
-    fn about(
-        &self,
-        foot: gpui_kit::Div,
-        page: &str,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> AnyElement {
-        let owner = reply::page_owner(page, &self.agent);
-        let made = self.bench.update(cx, |bench, cx| {
-            let name = bench.agent_by_id(&self.agent)?.name.unwrap_or_default();
-            let hint = t!("Message @{name} about this artifact", name = name);
-            bench.reply_view(&owner, hint.into(), window, cx)
-        });
-        let Some(view) = made.ok().flatten() else {
-            return foot.into_any_element();
-        };
-        let composer = view.into_element().isolated().into_any_element();
-        let foot = foot.child(composer_row(composer));
-        let words = t!("Drop files to send with your message");
-        takes_files(foot, &owner, words, &self.bench, cx)
+    /// Opens call `id` in the Asks of `agent`'s desk, or of its asker's when that desk does not
+    /// list it.
+    pub(crate) fn open_in_asks(&mut self, id: &str, agent: &str, cx: &mut Context<Self>) {
+        let elsewhere = (self.call_at(id))
+            .filter(|(_, call)| !listed_in(call, agent))
+            .map(|(_, call)| call.asker.agent_id.clone());
+        self.calls.update(cx, |cards, cx| cards.open(id, cx));
+        match elsewhere {
+            Some(asker) => {
+                self.open_agent(&asker, cx);
+                self.show_calls(&asker, cx);
+            }
+            None => self.show_calls(agent, cx),
+        }
     }
 }
 
 impl Render for Foot {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = Tokens::get(cx).clone();
-        let Some(bench) = self.bench.upgrade() else {
+        let made = self.bench.update(cx, |bench, cx| {
+            let page = bench.page_on_desk(&self.agent, cx)?;
+            let hint = match bench.asked_about(&page, &self.agent, cx) {
+                Some(call) => t!("Message @{name} about this ask", name = call.asker.name),
+                None => {
+                    let name = bench.agent_by_id(&self.agent)?.name.unwrap_or_default();
+                    t!("Message @{name} about this artifact", name = name)
+                }
+            };
+            let owner = reply::page_owner(&page, &self.agent);
+            let view = bench.reply_view(&owner, hint.into(), window, cx)?;
+            Some((owner, view))
+        });
+        let Some((owner, view)) = made.ok().flatten() else {
             return div().into_any_element();
         };
-        let (page, asked, target) = {
-            let bench = bench.read(cx);
-            let page = bench.page_on_desk(&self.agent, cx);
-            (page, bench.asked_on_desk(&self.agent, cx), bench.target())
-        };
-        let Some(page) = page else {
-            return div().into_any_element();
-        };
-        let through = Through {
-            target: &target,
-            cards: &self.cards,
-            bench: &self.bench,
-        };
-        let foot = div()
-            .flex_none()
-            .relative()
-            .flex()
-            .flex_col()
-            .pt(SPACE_3_PX)
-            .border_t(theme::border())
-            .border_color(t.border);
-        let Some(open) = asked else {
-            return self.about(foot, &page, window, cx);
-        };
-        let asks = question_text(&open, "desk-foot", (13.5, 1.4), &t).flex_none();
-        let answering = Answering::new(&open, None, through, window, cx);
-        let foot = foot.max_h(relative(FOOT_SHARE)).child(
-            div()
-                .id(SharedString::from(format!("desk-foot-{}", open.id)))
-                .min_h_0()
-                .flex()
-                .flex_col()
-                .overflow_y_scroll()
-                .child(
-                    div()
-                        .w_full()
-                        .max_w(px(COLUMN + 2. * SIDE))
-                        .mx_auto()
-                        .px(px(SIDE))
-                        .flex()
-                        .flex_col()
-                        .flex_none()
-                        .child(ui::pinned_foot(asks, answering.choices)),
-                ),
-        );
-        match answering.with {
-            With::Composer(composer) => {
-                let foot = foot.child(composer_row(composer));
-                let words = t!("Drop files to send with your answer");
-                takes_files(foot, &reply::owner(&open.id), words, &self.bench, cx)
-            }
-            With::Secret(field) => foot.child(composer_row(field)).into_any_element(),
-        }
+        let composer = view.into_element().isolated().into_any_element();
+        let words = t!("Drop files to send with your message");
+        let column = takes_files(column(composer).occlude(), &owner, words, &self.bench, cx);
+        let (bench, agent) = (self.bench.clone(), self.agent.clone());
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .px(px(SIDE) - theme::SPACE_4)
+            .on_children_prepainted(move |bounds, _, cx| {
+                let height = bounds
+                    .first()
+                    .map_or(0., |column| column.size.height.into());
+                let Some(bench) = bench.upgrade() else { return };
+                bench.read(cx).with_engine(cx, |engine| {
+                    engine.set_foot(&agent, height);
+                    Ok(())
+                });
+            })
+            .child(column)
+            .into_any_element()
     }
 }
 
@@ -342,13 +300,19 @@ impl Answering {
 /// A composer or a field in line with the column above it: a composer keeps a margin of its own
 /// inside.
 fn composer_row(answered_with: AnyElement) -> gpui_kit::Div {
-    div().flex_none().px(px(SIDE) - theme::SPACE_4).child(
-        div()
-            .w_full()
-            .max_w(px(COLUMN) + theme::SPACE_4 * 2.)
-            .mx_auto()
-            .child(answered_with),
-    )
+    div()
+        .flex_none()
+        .px(px(SIDE) - theme::SPACE_4)
+        .child(column(answered_with))
+}
+
+fn column(answered_with: AnyElement) -> gpui_kit::Div {
+    div()
+        .relative()
+        .w_full()
+        .max_w(px(COLUMN) + theme::SPACE_4 * 2.)
+        .mx_auto()
+        .child(answered_with)
 }
 
 /// `area` taking files dropped on it into the composer named `owner`, `words` saying so while
@@ -403,26 +367,20 @@ fn question_lines(call: &PersonCall) -> (String, Vec<String>) {
     (first, lines.collect())
 }
 
-/// All of what `call` asks: the line that says it, in the size and line height given, and the
-/// lines under it.
-fn question_text(
-    call: &PersonCall,
-    part: &str,
-    (size, leading): (f32, f32),
-    t: &Tokens,
-) -> gpui_kit::Div {
+/// All of what `call` asks: the line that says it, and the lines under it.
+fn question_text(call: &PersonCall, t: &Tokens) -> gpui_kit::Div {
     let (headline, lines) = question_lines(call);
     let headline = div()
-        .text_size(theme::ui_text(size))
+        .text_size(theme::ui_text(21.))
         .font_weight(FontWeight::SEMIBOLD)
-        .line_height(relative(leading))
+        .line_height(relative(1.3))
         .text_color(t.text_primary)
         .child(selectable::plain(
-            SharedString::from(format!("{part}-question-{}", call.id)),
+            SharedString::from(format!("call-page-question-{}", call.id)),
             headline,
         ));
     let lines = (lines.into_iter()).enumerate().map(|(ix, line)| {
-        let part = format!("{part}-line-{ix}");
+        let part = format!("call-page-line-{ix}");
         prose(call, &part, line, t).mt(px(10.))
     });
     div().flex().flex_col().child(headline).children(lines)
@@ -508,7 +466,7 @@ fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div 
         .flex()
         .flex_col()
         .child(who)
-        .child(question_text(call, "call-page", (21., 1.3), &t).mt(px(14.)))
+        .child(question_text(call, &t).mt(px(14.)))
         .children(link)
         .children(page)
         .children(why)

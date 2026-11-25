@@ -1,14 +1,14 @@
 //! The composers outside a chat, each the chat's own, one line tall: the one a call is answered
 //! with on its page, which sends the call's answer in place of a message, or with ⌘⏎ a note to
-//! its asker that leaves the call open; and the one under an artifact on a desk, which writes to
-//! the desk's agent about it.
+//! its asker that leaves the call open; and the one over an artifact on a desk, which writes such
+//! a note about the call linking it, else to the desk's agent about it.
 
 use std::rc::Rc;
 
 use gpui_kit::{AnyElement, App, Context, Entity, IntoElement, SharedString, Window};
 use sikemux_calls::call;
 use sikemux_calls::chat::PromptChatParams;
-use sikemux_view::calls::{AnswerCallParams, CallKind};
+use sikemux_view::calls::{AnswerCallParams, CallKind, PersonCall};
 use sikemux_view::chat::ARTIFACT_URI;
 use sikemux_wire::protocol::ChatContext;
 
@@ -45,7 +45,7 @@ pub(crate) fn owner(id: &str) -> String {
     format!("{CALL}{id}")
 }
 
-/// What names the composer under artifact `id` on the desk of `agent`.
+/// What names the composer over artifact `id` on the desk of `agent`.
 pub(crate) fn page_owner(id: &str, agent: &str) -> String {
     format!("{PAGE}{id}:{agent}")
 }
@@ -76,6 +76,17 @@ pub(crate) fn composer(
         crate::chat::drafting(bench, owner, "", String::new(), (on_send, on_stop), cx)?;
     let composer = composer.slim().send_by_mouse(by_mouse);
     Some(crate::chat::mounted(owner, composer, offering, cx).into_any_element())
+}
+
+/// What tells the asker of `call` that `words` are about it and leave it open.
+fn note_on(call: &PersonCall, words: &str) -> String {
+    let about = (call.title.as_deref())
+        .or_else(|| (call.question.lines().map(str::trim)).find(|line| !line.is_empty()))
+        .unwrap_or_default();
+    format!(
+        "On your call {} \"{about}\", which stays open: {words}",
+        call.id
+    )
 }
 
 impl Workbench {
@@ -173,31 +184,17 @@ impl Workbench {
         if words.is_empty() && paths.is_empty() {
             return;
         }
-        let about = (call.title.as_deref())
-            .or_else(|| {
-                call.question
-                    .lines()
-                    .map(str::trim)
-                    .find(|line| !line.is_empty())
-            })
-            .unwrap_or_default();
         let asker = call.asker.clone();
         let params = PromptChatParams {
             paths,
-            ..PromptChatParams::new(
-                asker.agent_id,
-                format!(
-                    "On your call {} \"{about}\", which stays open: {words}",
-                    call.id
-                ),
-            )
+            ..PromptChatParams::new(asker.agent_id, note_on(call, &words))
         };
         let to = crate::core::Target::new(&self.asks, place);
         self.send_aside(&owner, params, to, asker.name, window, cx);
     }
 
-    /// Sends what the composer named `owner` holds to the agent whose desk its artifact is on,
-    /// the artifact attached.
+    /// Sends what the composer named `owner` holds, its artifact attached: as a note on the call
+    /// linking the artifact, which stays open, else to the agent whose desk the artifact is on.
     pub(crate) fn write_about_page(
         &mut self,
         owner: &str,
@@ -217,17 +214,26 @@ impl Workbench {
         let title = self.page_title(agent, id, cx).unwrap_or_default();
         context.push(ChatContext {
             uri: format!("{ARTIFACT_URI}{id}"),
-            text: format!("Written under the artifact \"{title}\" (page id {id}) on your desk."),
+            text: format!("Written over the artifact \"{title}\" (page id {id})."),
             title,
         });
-        let name = self.agent_by_id(agent).and_then(|row| row.name);
+        let (to, name, text) = match self.asked_about(id, agent, cx) {
+            Some(call) => {
+                let text = note_on(&call, &words);
+                (call.asker.agent_id, call.asker.name, text)
+            }
+            None => {
+                let name = self.agent_by_id(agent).and_then(|row| row.name);
+                (agent.to_owned(), name.unwrap_or_default(), words)
+            }
+        };
         let params = PromptChatParams {
             paths,
             context,
-            ..PromptChatParams::new(agent.to_owned(), words)
+            ..PromptChatParams::new(to, text)
         };
-        let to = self.chat_target(owner);
-        self.send_aside(owner, params, to, name.unwrap_or_default(), window, cx);
+        let at = self.chat_target(owner);
+        self.send_aside(owner, params, at, name, window, cx);
     }
 
     /// Sends `params` to the agent called `name` without opening its chat, and empties the

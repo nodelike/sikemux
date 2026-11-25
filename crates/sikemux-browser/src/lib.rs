@@ -76,6 +76,8 @@ pub const PAGE_SCRIPT: &str = include_str!("page.js");
 pub const RECORDS_SCRIPT: &str = include_str!("records.js");
 /// Called with whether the page an agent works in is told it has focus.
 pub(crate) const PAGE_FOCUS_SCRIPT: &str = include_str!("page_focus.js");
+/// Called with how much room a page leaves at its end for what the app draws over it.
+pub(crate) const PAGE_FOOT_SCRIPT: &str = include_str!("page_foot.js");
 
 /// WebKit's own agent string names no browser at all, and sites answer that
 /// with an "unsupported browser" page, so tabs — and the fetch that goes after

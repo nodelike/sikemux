@@ -351,6 +351,11 @@ impl RenderOnce for Composer {
             a: t.surface_composer.a * COMPOSER_SOLID,
             ..t.surface_composer
         };
+        // A browser page behind the box cannot be blurred, so nothing of it shows through.
+        let fill = match self.slim {
+            true => theme::page_ground(&t).blend(fill),
+            false => fill,
+        };
         let (tiles, on_add, on_paste, chip) = match self.attachments {
             Some((tiles, on_add, on_paste, chip)) => {
                 (tiles, Some(on_add), Some(on_paste), Some(chip))
@@ -566,7 +571,7 @@ impl RenderOnce for Composer {
                             })
                             .rounded(theme::radius_3())
                             .bg(fill)
-                            .backdrop_blur(px(COMPOSER_BLUR))
+                            .when(!self.slim, |box_| box_.backdrop_blur(px(COMPOSER_BLUR)))
                             .children(tiles)
                             .child(
                                 div()
