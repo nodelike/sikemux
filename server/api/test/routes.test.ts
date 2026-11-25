@@ -23,12 +23,14 @@ const table = (
 ).routes;
 
 /**
- * Routes the table leaves out: Expo's update protocol, the relay's own question, and the
- * development payment provider's checkout page.
+ * Routes the table leaves out: Expo's update protocol, the relay's and Caddy's own questions, and
+ * the development payment provider's checkout page.
  */
 const NOT_IN_THE_TABLE = [
   "GET /updates/manifest",
   "POST /internal/relay-access",
+  "GET /internal/shared-pages/:id",
+  "GET /internal/shared-pages/:id/preview.png",
   "GET /v1/billing/stand-in/checkout/:token",
 ];
 

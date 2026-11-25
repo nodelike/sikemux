@@ -3853,7 +3853,7 @@
     "/v1/pages/{id}": {
       "put": {
         "operationId": "putPage",
-        "summary": "Share a page, or replace a shared page's HTML and settings. The body is the page sealed with the key in its link, as unpadded base64url text. X-Page-Viewer-Check holds the hex SHA-256 of the proof a viewer's link makes, X-Page-Anyone says whether a viewer need not sign in, and X-Page-Expires when the link stops working, in Unix milliseconds, at most 30 days ahead.",
+        "summary": "Share a page, or replace a shared page's HTML and settings. The body is the page sealed with the key in its link, as unpadded base64url text. X-Page-Viewer-Check holds the hex SHA-256 of the proof a viewer's link makes, X-Page-Anyone says whether a viewer need not sign in, and X-Page-Expires when the link stops working, in Unix milliseconds, at most 30 days ahead. X-Page-Title and X-Page-Shared-By, percent-encoded UTF-8, are what the link previews as, readable by this server and by whoever has the id: the title's first 200 characters and the sharer's name, dropped if it holds an email address. A request without them drops what an earlier one sent, and so does the share's end.",
         "security": [{ "host": [] }],
         "description": "Only a request signed by a host on the account.",
         "parameters": [

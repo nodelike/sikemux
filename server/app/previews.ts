@@ -18,7 +18,7 @@ const ICON: Preview["picture"] = {
   alt: "Sikemux",
 };
 
-/** Each built page and what a link to it previews as. A preview robot never gets the part after `#`, so it can say nothing of what was shared. */
+/** Each built page and what a link to it previews as. A preview robot never gets the part after `#`, so it can say nothing of what was shared but what its host sent. */
 const PREVIEWS: Record<string, Preview> = {
   "index.html": {
     title: "Sign in · Sikemux",
@@ -41,6 +41,18 @@ const PREVIEWS: Record<string, Preview> = {
       "An artifact an agent made, shared from Sikemux. Open the link to see it.",
     picture: ICON,
     card: "summary",
+  },
+  // What the API serves for a share whose host sent its title, with the places filled in.
+  "titled-artifact.html": {
+    title: "__TITLE__",
+    description: "__ABOUT__",
+    picture: {
+      src: "https://app.sikemux.com/p/__ID__/preview.png",
+      width: 1200,
+      height: 630,
+      alt: "__TITLE__",
+    },
+    card: "summary_large_image",
   },
   "shared-chat.html": {
     title: "Shared chat · Sikemux",

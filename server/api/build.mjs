@@ -33,6 +33,18 @@ await build({
     }),
   ],
 });
+// Draws share links' pictures on a thread of its own, with the fonts and logos it draws with inside.
+await build({
+  entryPoints: ["src/pages/preview/worker.ts"],
+  outfile: "dist/preview-worker.mjs",
+  bundle: true,
+  platform: "node",
+  target: "node22",
+  format: "esm",
+  sourcemap: true,
+  loader: { ".ttf": "binary", ".wasm": "binary", ".svg": "text" },
+  logLevel: "warning",
+});
 // publish-update checks bundles against the certificate the phones trust, so it ships beside the API.
 copyFileSync(
   "../../mobile/app/certs/updates-certificate.pem",

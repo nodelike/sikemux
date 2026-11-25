@@ -6,6 +6,12 @@
 	}
 }
 
+(sikemux_preview) {
+	lb_try_duration 2s
+	lb_try_interval 250ms
+	header_down -X-Request-Id
+}
+
 api.sikemux.com {
 	import sikemux_headers
 	header Referrer-Policy "no-referrer"
@@ -75,8 +81,51 @@ app.sikemux.com {
 		~^/s/ /shared-chat.html
 		default /index.html
 	}
-	try_files {path} {built_page} /index.html
-	file_server
+	# The API knows what a live share with a title previews as. Anything else, the API being down
+	# too, is answered alike, so nobody learns whether an id was ever shared.
+	@titled path_regexp id ^/p/([A-Za-z0-9_-]{22})$
+	handle @titled {
+		rewrite * /internal/shared-pages/{re.id.1}
+		reverse_proxy 127.0.0.1:4000 {
+			import sikemux_preview
+			@untitled status 4xx 5xx
+			handle_response @untitled {
+				rewrite * /shared-artifact.html
+				file_server
+			}
+		}
+	}
+	@picture path_regexp id ^/p/([A-Za-z0-9_-]{22})/preview\.png$
+	handle @picture {
+		rewrite * /internal/shared-pages/{re.id.1}/preview.png
+		reverse_proxy 127.0.0.1:4000 {
+			import sikemux_preview
+			@undrawn status 4xx 5xx
+			handle_response @undrawn {
+				error 404
+			}
+		}
+	}
+	handle {
+		try_files {path} {built_page} /index.html
+		file_server
+	}
+	handle_errors 502 504 {
+		header -Server
+		@undrawn path */preview.png
+		handle @undrawn {
+			respond 404
+		}
+		handle {
+			rewrite * /shared-artifact.html
+			file_server {
+				status 200
+			}
+		}
+	}
+	handle_errors {
+		header -Server
+	}
 	log {
 		output file /var/log/caddy/sikemux-app.log {
 			roll_size 10MiB

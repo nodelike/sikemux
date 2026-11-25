@@ -21,6 +21,9 @@ export interface PageSettings {
   viewerCheck: string;
   anyone: boolean;
   expiresAt: Date;
+  /** What the link previews as, when the host sent it: these two are all the server can read. */
+  title: string | null;
+  sharedBy: string | null;
 }
 
 interface PageRow {
@@ -42,6 +45,8 @@ function state(row: PageRow): PageShareState {
 function clearedFields() {
   return {
     stored_as: null,
+    title: null,
+    shared_by: null,
   };
 }
 
@@ -112,6 +117,8 @@ export async function putPage(
         viewer_check: settings.viewerCheck,
         anyone: settings.anyone,
         expires_at: settings.expiresAt,
+        title: settings.title,
+        shared_by: settings.sharedBy,
         stored_by: hostKey,
       };
       const row = before
@@ -244,6 +251,29 @@ export async function shownPage(
   return { storedAs: row.stored_as, anyone: row.anyone };
 }
 
+export interface PreviewedPage {
+  userId: string;
+  title: string;
+  sharedBy: string | null;
+}
+
+/** What the live share at `id` previews as, or null when it is not live or its host sent no title. */
+export async function previewedPage(
+  db: Kysely<Tables>,
+  id: string,
+): Promise<PreviewedPage | null> {
+  const row = await db
+    .selectFrom("pages")
+    .select(["user_id", "title", "shared_by"])
+    .where("id", "=", id)
+    .where("stored_as", "is not", null)
+    .where("ended_at", "is", null)
+    .where("expires_at", ">", new Date())
+    .executeTakeFirst();
+  if (!row?.title) return null;
+  return { userId: row.user_id, title: row.title, sharedBy: row.shared_by };
+}
+
 export async function countView(db: Kysely<Tables>, id: string): Promise<void> {
   await db
     .updateTable("pages")
@@ -253,7 +283,7 @@ export async function countView(db: Kysely<Tables>, id: string): Promise<void> {
 }
 
 /**
- * Deletes the sealed pages of expired shares, and the rows of shares that ended or expired more
+ * Deletes the sealed pages, titles and sharers of expired shares, and the rows of shares that ended or expired more
  * than 30 days ago, so the host could read how each ended until then.
  */
 export async function purgePages(

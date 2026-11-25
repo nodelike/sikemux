@@ -13,6 +13,9 @@ on:
       - "crates/sikemux-wire/src/**"
       - "crates/sikemux-view/src/**"
       - "brand/mark/**"
+      # A shared page's preview picture draws with the lockup and the island's fonts.
+      - "brand/wordmark/**"
+      - "helpers/notch/Fonts/**"
       # The Connectors page draws each service's mark from the desktop app's icons.
       - "app/assets/icons/**"
       - "crates/sikemux-corekit/src/themes/**"

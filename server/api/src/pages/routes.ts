@@ -6,6 +6,7 @@ import { requireIdentity, type AuthEnv } from "../auth.ts";
 import { ApiFailure, badRequest, notFound } from "../http.ts";
 import { clientAddress, limit, perUser } from "../limits.ts";
 import type { StashFiles } from "../stash/files.ts";
+import { plainName, plainTitle } from "./preview/words.ts";
 import {
   countView,
   MAX_PAGE_DAYS,
@@ -16,7 +17,7 @@ import {
   type PageSettings,
 } from "./store.ts";
 
-const PAGE_ID = /^[A-Za-z0-9_-]{22}$/;
+export const PAGE_ID = /^[A-Za-z0-9_-]{22}$/;
 const HEX_64 = /^[0-9a-f]{64}$/;
 /** How far a host's clock may run ahead when it sets the longest expiry. */
 const CLOCK_SLACK_MS = 60_000;
@@ -25,6 +26,8 @@ export const PAGE_HEADERS = {
   viewerCheck: "x-page-viewer-check",
   anyone: "x-page-anyone",
   expires: "x-page-expires",
+  title: "x-page-title",
+  sharedBy: "x-page-shared-by",
   proof: "x-page-proof",
 } as const;
 
@@ -32,6 +35,17 @@ function pageId(c: Context): string {
   const id = c.req.param("id") ?? "";
   if (!PAGE_ID.test(id)) throw notFound("No page is shared under that link.");
   return id;
+}
+
+/** A header's text, sent percent-encoded as UTF-8; null when the host did not send it. */
+function readText(c: Context, header: string): string | null {
+  const sent = c.req.header(header);
+  if (sent === undefined) return null;
+  try {
+    return decodeURIComponent(sent);
+  } catch {
+    throw badRequest(`${header} is percent-encoded UTF-8.`);
+  }
 }
 
 function readSettings(c: Context): PageSettings {
@@ -53,10 +67,14 @@ function readSettings(c: Context): PageSettings {
     throw badRequest(
       `X-Page-Expires is a time in Unix milliseconds, within ${MAX_PAGE_DAYS} days from now.`,
     );
+  const title = readText(c, PAGE_HEADERS.title);
+  const sharedBy = readText(c, PAGE_HEADERS.sharedBy);
   return {
     viewerCheck,
     anyone: anyone === "true",
     expiresAt: new Date(expires),
+    title: title && plainTitle(title),
+    sharedBy: sharedBy && plainName(sharedBy),
   };
 }
 

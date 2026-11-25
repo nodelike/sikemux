@@ -26,6 +26,7 @@ import { HookHosts } from "./hooks/hosts.ts";
 import { attachHooks } from "./hooks/server.ts";
 import { Presence } from "./live/hub.ts";
 import { attachLive } from "./live/server.ts";
+import { openPreviews } from "./pages/preview/previews.ts";
 import { NO_PLACES, openPlaces } from "./places.ts";
 import type { Logger } from "./log.ts";
 import { ApnsProvider } from "./push/apns.ts";
@@ -188,6 +189,7 @@ export async function startServer(config: Config, log: Logger) {
     places,
     relayAccessToken: config.relayAccessToken,
     stash: config.stash ? new StashFiles(config.stash) : null,
+    previews: openPreviews(log),
     hookHosts,
     presence,
     txtRecords: async (name) =>

@@ -848,6 +848,8 @@ Table pages {
   stored_by text [not null]
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
+  title text [note: '(char_length(title) >= 1) AND (char_length(title) <= 200)']
+  shared_by text [note: '(char_length(shared_by) >= 1) AND (char_length(shared_by) <= 80)']
 
   indexes {
     expires_at [name: 'pages_expiry']

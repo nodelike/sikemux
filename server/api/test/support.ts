@@ -118,6 +118,7 @@ export function testApp(
     places: NO_PLACES,
     relayAccessToken: null,
     stash: null,
+    previews: null,
     hookHosts: new HookHosts(),
     presence: new Presence(),
     txtRecords: async () => [],

@@ -444,6 +444,8 @@ export interface Tables {
     size: ColumnType<string, number, number>;
     viewer_check: string;
     anyone: boolean;
+    title: string | null;
+    shared_by: string | null;
     views: ColumnType<number, never, number>;
     expires_at: ColumnType<Date, Date, Date>;
     ended_at: ColumnType<Date | null, never, Date | null>;

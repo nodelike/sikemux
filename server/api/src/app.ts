@@ -53,6 +53,8 @@ import { stashRoutes } from "./stash/routes.ts";
 import { updateRoutes } from "./updates/routes.ts";
 import { vaultRoutes } from "./vault/routes.ts";
 import { modRoutes } from "./mods/routes.ts";
+import type { Previews } from "./pages/preview/previews.ts";
+import { previewRoutes } from "./pages/preview/routes.ts";
 import { pageRoutes } from "./pages/routes.ts";
 import { clerkWebhookRoutes } from "./webhooks/clerk.ts";
 
@@ -90,6 +92,8 @@ export interface Services {
   relayAccessToken: string | null;
   /** Where stashed files are kept, or null when the stash is not set up. */
   stash: StashFiles | null;
+  /** Where a share link's preview comes from, or null when the API does not run from a release. */
+  previews: Previews | null;
   /** The hosts connected for their webhooks, which hear at once of a request for them. */
   hookHosts: HookHosts;
   /** Which devices are connected to /v1/live now. */
@@ -123,6 +127,7 @@ export function createApp(services: Services) {
   app.route("/v1/hooks", hookReceiveRoutes(services));
   app.route("/v1/billing/provider", billingProviderRoutes(services));
   app.use(limit<Env>(limiter, "address", 600, clientAddress));
+  app.route("/internal/shared-pages", previewRoutes(services));
   app.use(
     cors({
       origin: appOrigin,

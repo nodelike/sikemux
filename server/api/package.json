@@ -24,6 +24,7 @@
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@resvg/resvg-wasm": "^2.6.2",
     "@types/node": "catalog:",
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.2",
