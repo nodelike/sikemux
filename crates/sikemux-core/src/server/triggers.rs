@@ -16,7 +16,7 @@ use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::triggers::{
     AddTriggerParams, HoldTriggerParams, TriggerOn, TriggerParams, TriggerWakes,
 };
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -275,6 +275,9 @@ pub(crate) struct Triggers {
     watched: Mutex<HashSet<String>>,
     /// Mod triggers gathering a burst of changes before they fire.
     gathering: Mutex<HashSet<u64>>,
+    parked: Mutex<park::ParkIndex>,
+    ci_looking: Mutex<HashMap<u64, bool>>,
+    ci_recently_fired: Mutex<VecDeque<(String, String, u64)>>,
 }
 
 /// A trigger whose time came, and whether it was due long before the core could send it.
@@ -302,6 +305,7 @@ impl Triggers {
         let kept = Kept::new(data_dir, FILE);
         let saved: Saved = kept.load();
         let watched = Mutex::new(on_mod::watched(&saved));
+        let parked = Mutex::new(park::index(&saved));
         Self {
             kept,
             state: Mutex::new(saved),
@@ -309,6 +313,9 @@ impl Triggers {
             seen: Mutex::default(),
             watched,
             gathering: Mutex::default(),
+            parked,
+            ci_looking: Mutex::default(),
+            ci_recently_fired: Mutex::default(),
         }
     }
 
@@ -563,6 +570,7 @@ impl Triggers {
         let out = change(&mut state);
         self.kept.save(&*state);
         *self.watched.locked() = on_mod::watched(&state);
+        *self.parked.locked() = park::index(&state);
         drop(state);
         self.wake.now();
         out
@@ -645,6 +653,8 @@ impl Triggers {
         }
         if changed {
             self.kept.save(&*state);
+            *self.watched.locked() = on_mod::watched(&state);
+            *self.parked.locked() = park::index(&state);
         }
         let next = state
             .triggers

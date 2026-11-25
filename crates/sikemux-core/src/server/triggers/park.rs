@@ -5,6 +5,7 @@
 
 use crate::server::parts::Parts;
 use crate::server::serving::ServeParts;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::turn::TurnWaitKind;
 
-use super::{fire, take_for_firing, Firing, Trigger};
+use super::{fire, take_for_firing, Firing, Saved, Trigger};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
 use crate::server::follow::{self, Happened, Until};
@@ -59,6 +60,30 @@ enum On {
     Line { cwd: String, command: String },
     /// A thing only one agent uses at a time, `name` in `project`, which the line says is free.
     InUse { project: String, name: String },
+}
+
+#[derive(Default, Clone)]
+pub(super) struct ParkIndex {
+    by_project: HashMap<String, Vec<(u64, Park)>>,
+}
+
+pub(super) fn index(saved: &Saved) -> ParkIndex {
+    let mut by_project: HashMap<String, Vec<(u64, Park)>> = HashMap::new();
+    for trigger in &saved.triggers {
+        if trigger.rests() {
+            continue;
+        }
+        let Some(park) = trigger.park.as_ref() else {
+            continue;
+        };
+        if matches!(park.on, On::Process { .. } | On::Agent { .. }) {
+            by_project
+                .entry(park.project.clone())
+                .or_default()
+                .push((trigger.id, park.clone()));
+        }
+    }
+    ParkIndex { by_project }
 }
 
 /// What setting a park found: it already happened, or what to wait on and how to show it.
@@ -182,17 +207,23 @@ pub(super) async fn set(core: &Arc<Core>, request: &HarnessRequest) -> Result<Pa
                 .ok_or("trigger_add needs the calling agent's id")?;
             let until = until.filter(|until| !until.is_empty()).unwrap_or("done");
             let wait = Until::named(until)?;
-            let found = {
+            let (waited, after, status) = {
                 let (core, request, agent) = (core.clone(), request.clone(), agent.clone());
                 blocking(move || {
-                    follow::waited(&core, &request, &[agent], &caller).map_err(Into::into)
+                    let found = follow::waited(&core, &request, &[agent], &caller)?;
+                    let waited = found.into_iter().next().ok_or("agent must name an agent")?;
+                    let after = core.harness().journal_cursor(&waited.project);
+                    let status = roster::listed(&core)
+                        .into_iter()
+                        .find(|listed| listed.agent_id == waited.agent_id)
+                        .map(|listed| roster::standing(&listed, &core));
+                    Ok((waited, after, status))
                 })
                 .await
                 .map_err(|error| error.to_string())?
             };
-            let waited = found.into_iter().next().ok_or("agent must name an agent")?;
-            if wait.already(waited.status) {
-                let status = waited.status.map_or("gone", roster::status_word);
+            if wait.already(status) {
+                let status = status.map_or("gone", roster::status_word);
                 return Ok(Parked::Already(format!(
                     "@{} is {status} now.",
                     waited.name
@@ -200,7 +231,7 @@ pub(super) async fn set(core: &Arc<Core>, request: &HarnessRequest) -> Result<Pa
             }
             let shown = format!("@{}", waited.name);
             let park = Park {
-                after: core.harness().journal_cursor(&waited.project),
+                after,
                 project: waited.project,
                 on: On::Agent {
                     agent_id: waited.agent_id,
@@ -328,16 +359,72 @@ async fn met(core: &Core, park: &Park) -> Option<String> {
     }
 }
 
+#[derive(Default)]
+struct ServeSeen {
+    cursors: HashMap<String, u64>,
+    ids: HashSet<u64>,
+}
+
 /// Fires each parked trigger whose wait is over.
-async fn look(core: &Arc<Core>) {
-    let parked: Vec<(u64, Park)> = {
-        let state = core.triggers().state.locked();
-        let waiting = state.triggers.iter().filter(|trigger| !trigger.rests());
-        waiting
-            .filter_map(|trigger| Some((trigger.id, trigger.park.clone()?)))
-            .collect()
-    };
-    for (id, park) in parked {
+async fn look(core: &Arc<Core>, seen: &mut ServeSeen) {
+    let by_project = core.triggers().parked.locked().by_project.clone();
+    if by_project.is_empty() {
+        seen.cursors.clear();
+        seen.ids.clear();
+        return;
+    }
+    seen.cursors
+        .retain(|project, _| by_project.contains_key(project));
+    let active_ids: HashSet<u64> = by_project.values().flatten().map(|(id, _)| *id).collect();
+    seen.ids.retain(|id| active_ids.contains(id));
+
+    let mut due = Vec::new();
+    for (project, entries) in by_project {
+        let cursor = core.harness().journal_cursor(&project);
+        let prev = seen.cursors.insert(project.clone(), cursor);
+        let cursor_moved = prev != Some(cursor);
+        let moved_agents: Option<HashSet<String>> = if cursor_moved {
+            prev.and_then(|prev| {
+                let page = core.harness().journal_since(&project, prev).ok()?;
+                if page.truncated {
+                    return None;
+                }
+                Some(
+                    page.events
+                        .into_iter()
+                        .filter_map(|entry| entry.agent_id)
+                        .collect(),
+                )
+            })
+        } else {
+            Some(HashSet::new())
+        };
+        for (id, park) in entries {
+            let is_new = seen.ids.insert(id);
+            let should_check = match &park.on {
+                On::Agent { agent_id, .. } => {
+                    is_new
+                        || (cursor_moved
+                            && moved_agents
+                                .as_ref()
+                                .is_none_or(|agents| agents.contains(agent_id)))
+                }
+                On::Process {
+                    execution_id, text, ..
+                } => match core.harness().run_of(execution_id) {
+                    None => true,
+                    Some(run) if !run.status.is_active() => true,
+                    Some(_) => text.is_some(),
+                },
+                On::Line { .. } | On::InUse { .. } => false,
+            };
+            if should_check {
+                due.push((id, park));
+            }
+        }
+    }
+
+    for (id, park) in due {
         let Some(said) = met(core, &park).await else {
             continue;
         };
@@ -367,8 +454,9 @@ async fn look(core: &Arc<Core>) {
 /// Looks at the parked triggers each time the harness journal moves, for as long as the core runs.
 pub(super) async fn serve(core: Arc<Core>) {
     let mut changed = core.harness().subscribe();
+    let mut seen = ServeSeen::default();
     loop {
-        look(&core).await;
+        look(&core, &mut seen).await;
         if changed.changed().await.is_err() {
             return;
         }

@@ -31,6 +31,8 @@ const MAX_UNREAD: u32 = 12;
 /// How long a CI trigger waits on CI that never ends, such as a run left queued, before it stops.
 const MAX_WAIT_MS: u64 = 12 * 60 * 60 * 1000;
 const SHORT_SHA: usize = 9;
+const RECENT_FIRED_MS: u64 = 5 * 60 * 1000;
+const MAX_RECENT_FIRED: usize = 128;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -381,16 +383,56 @@ pub(crate) fn ci_moved(core: &Arc<Core>, repo: &Shown) {
     }
 }
 
-/// Fires the CI trigger `id` with how its CI ended, once it has.
+/// Fires the CI trigger `id` with how its CI ended, once it has. Coalesces concurrent
+/// requests per trigger so at most one poll runs at a time per trigger.
 pub(super) async fn look(core: Arc<Core>, id: u64) {
+    {
+        let mut looking = core.triggers().ci_looking.locked();
+        if let Some(dirty) = looking.get_mut(&id) {
+            *dirty = true;
+            return;
+        }
+        looking.insert(id, false);
+    }
+    struct LookGuard {
+        core: Arc<Core>,
+        id: u64,
+    }
+    impl Drop for LookGuard {
+        fn drop(&mut self) {
+            self.core.triggers().ci_looking.locked().remove(&self.id);
+        }
+    }
+    let _guard = LookGuard {
+        core: core.clone(),
+        id,
+    };
+    loop {
+        look_once(&core, id).await;
+        let rerun = {
+            let mut looking = core.triggers().ci_looking.locked();
+            if looking.get(&id).copied() == Some(true) {
+                looking.insert(id, false);
+                true
+            } else {
+                false
+            }
+        };
+        if !rerun {
+            break;
+        }
+    }
+}
+
+async fn look_once(core: &Arc<Core>, id: u64) {
     let watch = {
         let state = core.triggers().state.locked();
         let trigger = state.triggers.iter().find(|trigger| trigger.id == id);
         trigger.and_then(|trigger| trigger.ci.clone())
     };
     let Some(watch) = watch else { return };
-    crate::server::codehost::ci::start(&core);
-    let (said, how) = match ended(&core, &watch).await {
+    crate::server::codehost::ci::start(core);
+    let (said, how) = match ended(core, &watch).await {
         Ok(Ci::Ended(said, how)) => (said, how),
         Ok(Ci::Going { .. }) if epoch_ms().saturating_sub(watch.since) >= MAX_WAIT_MS => (
             format!(
@@ -402,9 +444,9 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
         ),
         Ok(Ci::Going { running }) => {
             let now = epoch_ms();
-            let fed = crate::server::codehost::ci::is_fed(&core, &watch.repo.id);
+            let fed = crate::server::codehost::ci::is_fed(core, &watch.repo.id);
             if (running && watch.running_since.is_none()) || watch.unread > 0 || fed != watch.fed {
-                watched(&core, id, |watch| {
+                watched(core, id, |watch| {
                     watch.unread = 0;
                     watch.fed = fed;
                     if running {
@@ -415,20 +457,30 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
             return;
         }
         Err(error) => {
-            let unread = watch.unread + 1;
-            if unread < MAX_UNREAD {
-                eprintln!("sikemux core: CI trigger {id} could not read its CI: {error}");
-                watched(&core, id, |watch| watch.unread = unread);
-                return;
+            let exceeded = core.triggers().change(|state| {
+                let watch = (state.triggers.iter_mut())
+                    .find(|trigger| trigger.id == id)
+                    .and_then(|trigger| trigger.ci.as_mut())?;
+                watch.unread = watch.unread.saturating_add(1);
+                Some(watch.unread >= MAX_UNREAD)
+            });
+            match exceeded {
+                None => return,
+                Some(false) => {
+                    eprintln!("sikemux core: CI trigger {id} could not read its CI: {error}");
+                    return;
+                }
+                Some(true) => (
+                    format!(
+                        "Its CI could not be read {MAX_UNREAD} times in a row, so this stopped waiting: {error}"
+                    ),
+                    CiEnded::Unread,
+                ),
             }
-            (
-                format!("Its CI could not be read {MAX_UNREAD} times in a row, so this stopped waiting: {error}"),
-                CiEnded::Unread,
-            )
         }
     };
     let Some((mut trigger, in_flight)) =
-        take_for_firing(&core, |trigger: &Trigger| trigger.id == id)
+        take_for_firing(core, |trigger: &Trigger| trigger.id == id)
     else {
         return;
     };
@@ -437,9 +489,10 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
             .took(&watch.waits_on(), epoch_ms().saturating_sub(since));
     }
     if watch.after_push() {
-        tell_pushers(&core, &watch, said, how).await;
+        tell_pushers(core, &watch, said, how).await;
         return;
     }
+    note_fired(core, &trigger.agent_id, &watch.run());
     core.notify().send(Signal::CiEnded {
         agent_id: trigger.agent_id.clone(),
         run: watch.run(),
@@ -448,7 +501,7 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
     });
     trigger.prompt = format!("{}\n\n{said}", trigger.prompt);
     fire(
-        core,
+        core.clone(),
         Firing {
             trigger,
             late: None,
@@ -458,6 +511,16 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
         },
     )
     .await;
+}
+
+fn note_fired(core: &Core, agent_id: &str, run: &str) {
+    let now = epoch_ms();
+    let mut recent = core.triggers().ci_recently_fired.locked();
+    recent.retain(|(_, _, at)| now.saturating_sub(*at) < RECENT_FIRED_MS);
+    while recent.len() >= MAX_RECENT_FIRED {
+        recent.pop_front();
+    }
+    recent.push_back((agent_id.to_owned(), run.to_owned(), now));
 }
 
 /// Changes what the CI trigger `id` keeps of its CI, saving it.
@@ -525,9 +588,24 @@ async fn tell_pushers(core: &Arc<Core>, watch: &CiWatch, said: String, how: CiEn
 
 /// Whether the agent set a CI trigger of its own on the same run, which tells it already.
 fn watches_itself(core: &Core, agent: &str, run: &str) -> bool {
-    let state = core.triggers().state.locked();
-    (state.triggers.iter()).any(|trigger| {
+    let matches_own = |trigger: &Trigger| {
         trigger.agent_id == agent
             && (trigger.ci.as_ref()).is_some_and(|watch| !watch.after_push() && watch.run() == run)
+    };
+    {
+        let state = core.triggers().state.locked();
+        if state.triggers.iter().any(matches_own)
+            || state
+                .firing
+                .iter()
+                .any(|in_flight| matches_own(&in_flight.trigger))
+        {
+            return true;
+        }
+    }
+    let now = epoch_ms();
+    let recent = core.triggers().ci_recently_fired.locked();
+    recent.iter().any(|(who, watched, at)| {
+        who == agent && watched == run && now.saturating_sub(*at) < RECENT_FIRED_MS
     })
 }
