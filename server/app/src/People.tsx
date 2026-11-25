@@ -39,9 +39,8 @@ import { freeSeats, MemberAvatar, people, Seats } from "./Seats.tsx";
 import {
   Btn,
   btnClass,
-  Card,
+  Section,
   Chip,
-  Column,
   Confirm,
   Empty,
   Field,
@@ -124,9 +123,9 @@ export function PeoplePage({
         scene={scene}
         tone="failed"
       >
-        <Card label="People">
+        <Section label="People">
           <Problem>{loaded.problem}</Problem>
-        </Card>
+        </Section>
       </Page>
     );
 
@@ -140,7 +139,7 @@ export function PeoplePage({
 
   const body = members && invites && teams && (
     <>
-      <Card label="People" count={members.length} w={7}>
+      <Section label="People" count={members.length}>
         <Rows>
           {members.map((member) => (
             <MemberRow
@@ -154,26 +153,19 @@ export function PeoplePage({
             />
           ))}
         </Rows>
-      </Card>
-      <Column w={5} side>
-        <Seats org={org} members={members} />
-        {runs(org) && (open || invites.length > 0) ? (
-          <Invites
-            org={org}
-            invites={invites}
-            made={made}
-            onChanged={changed}
-          />
-        ) : null}
-        <Groups
-          org={org}
-          members={members}
-          teams={teams}
-          editable={runs(org) && open}
-          onChanged={changed}
-        />
-        <Leave org={org} members={members} onLeft={onLeft} />
-      </Column>
+      </Section>
+      <Seats org={org} members={members} />
+      {runs(org) && (open || invites.length > 0) ? (
+        <Invites org={org} invites={invites} made={made} onChanged={changed} />
+      ) : null}
+      <Groups
+        org={org}
+        members={members}
+        teams={teams}
+        editable={runs(org) && open}
+        onChanged={changed}
+      />
+      <Leave org={org} members={members} onLeft={onLeft} />
     </>
   );
 
@@ -278,10 +270,8 @@ export function PeoplePage({
 
 const Loading = () => (
   <>
-    <Card label="People" w={7} busy />
-    <Column w={5} side>
-      <Card label="Seats" busy />
-    </Column>
+    <Section label="People" busy />
+    <Section label="Seats" busy />
   </>
 );
 
@@ -542,7 +532,7 @@ function Invites({
   onChanged: (text: string) => void;
 }) {
   return (
-    <Card
+    <Section
       label="Invite links"
       count={invites.length || undefined}
       foot={
@@ -568,7 +558,7 @@ function Invites({
           No open links. You make a link and send it yourself; we mail nobody.
         </Empty>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -682,7 +672,7 @@ function Groups({
   };
 
   return (
-    <Card
+    <Section
       label="Groups"
       count={teams.length || undefined}
       aside={
@@ -736,7 +726,7 @@ function Groups({
       ) : name === undefined ? (
         <Empty>No groups. One is a short list of people you name.</Empty>
       ) : null}
-    </Card>
+    </Section>
   );
 }
 
@@ -949,7 +939,7 @@ function Leave({
     org.role === "owner" &&
     members.filter((each) => each.role === "owner").length === 1;
   return (
-    <Card label="Leave">
+    <Section label="Leave">
       <Rows>
         <Row
           lead={
@@ -1001,6 +991,6 @@ function Leave({
           ) : null}
         </Row>
       </Rows>
-    </Card>
+    </Section>
   );
 }

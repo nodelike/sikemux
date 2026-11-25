@@ -17,8 +17,7 @@ import { ShedNotHost } from "./Shed.tsx";
 import {
   Btn,
   btnClass,
-  Card,
-  Column,
+  Section,
   Confirm,
   Empty,
   Page,
@@ -134,10 +133,8 @@ export function HostsPage({
   if (load.state === "loading")
     return (
       <Page title="Hosts" mark={iconMark("laptop")} scene="teal">
-        <Card label="Hosts" w={7} busy />
-        <Column w={5} side>
-          <Card label="Phones" busy />
-        </Column>
+        <Section label="Hosts" busy />
+        <Section label="Phones" busy />
       </Page>
     );
 
@@ -145,7 +142,7 @@ export function HostsPage({
   const phones = load.devices.filter((device) => device.role === "client");
   const shed = staff ? <ShedNotHost follow={follow} /> : null;
   const phonesCard = (
-    <Card label="Phones" count={phones.length || undefined}>
+    <Section label="Phones" count={phones.length || undefined}>
       {phones.length > 0 ? (
         <Rows>
           {phones.map((device) => (
@@ -155,7 +152,7 @@ export function HostsPage({
       ) : (
         <p className="note">No phones yet. Sign in to Sikemux on yours.</p>
       )}
-    </Card>
+    </Section>
   );
 
   if (hosts.length === 0)
@@ -172,13 +169,11 @@ export function HostsPage({
           </a>
         }
       >
-        <Card label="Hosts" w={7}>
+        <Section label="Hosts">
           <Empty>Windows and Linux are ready too, at sikemux.com.</Empty>
-        </Card>
-        <Column w={5} side>
-          {phonesCard}
-          {shed}
-        </Column>
+        </Section>
+        {phonesCard}
+        {shed}
       </Page>
     );
 
@@ -202,17 +197,15 @@ export function HostsPage({
         </Btn>
       }
     >
-      <Card label="Hosts" count={hosts.length} w={7}>
+      <Section label="Hosts" count={hosts.length}>
         <Rows>
           {hosts.map((device) => (
             <DeviceRow key={device.key} device={device} remove={remove} />
           ))}
         </Rows>
-      </Card>
-      <Column w={5} side>
-        {phonesCard}
-        {shed}
-      </Column>
+      </Section>
+      {phonesCard}
+      {shed}
     </Page>
   );
 }

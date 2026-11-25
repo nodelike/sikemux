@@ -15,7 +15,7 @@ import { useReverified } from "./Reverify.tsx";
 import { CodeEntry } from "./SignIn.tsx";
 import {
   Btn,
-  Card,
+  Section,
   Field,
   Problem,
   Row,
@@ -118,12 +118,7 @@ export function SignInWaysCard() {
       .catch(() => undefined);
   });
 
-  if (confirm)
-    return (
-      <Card label="Signs in with" w={7}>
-        {confirm}
-      </Card>
-    );
+  if (confirm) return <Section label="Signs in with">{confirm}</Section>;
   if (!user) return null;
 
   const ways = waysOf(user);
@@ -160,7 +155,7 @@ export function SignInWaysCard() {
   };
 
   return (
-    <Card label="Signs in with" w={7}>
+    <Section label="Signs in with">
       {removals.map((removal) => (
         <p key={removal.removedAt + removal.domain} className="note">
           {removalWords(removal)}
@@ -276,7 +271,7 @@ export function SignInWaysCard() {
         )}
       </Rows>
       <Problem>{action.problem}</Problem>
-    </Card>
+    </Section>
   );
 }
 

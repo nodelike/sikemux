@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import { PersonAvatar } from "./Avatar.tsx";
 import { frozen } from "./orgs.ts";
 import { stippledDisc } from "./stipple.ts";
-import { Card } from "./ui.tsx";
+import { Section } from "./ui.tsx";
 
 export function MemberAvatar({
   member,
@@ -34,7 +34,7 @@ export function Seats({ org, members }: { org: Org; members: OrgMember[] }) {
   const links = Math.max(0, org.seats.held - members.length);
   const seats = { "--seat-mask": stippledDisc() } as CSSProperties;
   return (
-    <Card label="Seats">
+    <Section label="Seats">
       <div className="seatw">
         <div>
           <div className="big">
@@ -60,6 +60,6 @@ export function Seats({ org, members }: { org: Org; members: OrgMember[] }) {
           ))}
         </div>
       </div>
-    </Card>
+    </Section>
   );
 }

@@ -26,7 +26,7 @@ import { iconMark } from "./marks.ts";
 import { useLoad } from "./orgs.ts";
 import {
   Btn,
-  Card,
+  Section,
   Page,
   Problem,
   Row,
@@ -116,11 +116,11 @@ export function PricingPage({
       tone={loaded.problem ? "failed" : undefined}
     >
       {loaded.problem ? (
-        <Card label="Plans">
+        <Section label="Plans">
           <Problem>{loaded.problem}</Problem>
-        </Card>
+        </Section>
       ) : !catalog ? (
-        <Card label="Plans" busy />
+        <Section label="Plans" busy />
       ) : (
         <>
           <Plans
@@ -146,7 +146,7 @@ function Plans({
   setInterval: (interval: BillingInterval) => void;
 }) {
   return (
-    <Card
+    <Section
       label="Plans"
       aside={<BilledSwitch interval={interval} onChange={setInterval} />}
     >
@@ -205,7 +205,7 @@ function Plans({
           );
         })}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -219,7 +219,7 @@ function Shed({
   const boxes = catalog.products.filter((product) => product.kind === "shed");
   if (boxes.length === 0) return null;
   return (
-    <Card label="Shed · add-on · any plan, Free included">
+    <Section label="Shed · add-on · any plan, Free included">
       <p className="note">
         A Linux box we run, joined to your account. Buy one or several by the
         box. You sign in to Claude Code and Codex on it with your own plans.
@@ -247,7 +247,7 @@ function Shed({
           );
         })}
       </div>
-    </Card>
+    </Section>
   );
 }
 
@@ -301,7 +301,7 @@ function TeamTests({
   const [naming, setNaming] = useState(false);
   const bought = orgs.filter((org) => org.role === "owner" && !org.preview);
   return (
-    <Card label="Team tests">
+    <Section label="Team tests">
       <Rows>
         <Row
           wrap
@@ -347,7 +347,7 @@ function TeamTests({
           />
         ))}
       </Rows>
-    </Card>
+    </Section>
   );
 }
 

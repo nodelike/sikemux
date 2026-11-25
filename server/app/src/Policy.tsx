@@ -16,7 +16,7 @@ import {
 import { orgScene } from "./scenes.ts";
 import {
   Btn,
-  Card,
+  Section,
   Field,
   Page,
   Problem,
@@ -62,9 +62,9 @@ export function PolicyPage({ org, team }: { org: Org; team: TeamAccess }) {
         scene={scene}
         tone="failed"
       >
-        <Card label="Rules" w={8}>
+        <Section label="Rules">
           <Problem>{loaded.problem}</Problem>
-        </Card>
+        </Section>
       </Page>
     );
 
@@ -143,7 +143,7 @@ export function PolicyPage({ org, team }: { org: Org; team: TeamAccess }) {
       scene={scene}
       tone={unsaved ? "failed" : undefined}
     >
-      <Card label="Rules" w={8} busy={!shown}>
+      <Section label="Rules" busy={!shown}>
         {shown ? (
           <Rows>
             <Row
@@ -234,7 +234,7 @@ export function PolicyPage({ org, team }: { org: Org; team: TeamAccess }) {
             />
           </Rows>
         ) : null}
-      </Card>
+      </Section>
     </Page>
   );
 }

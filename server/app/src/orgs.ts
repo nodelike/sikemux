@@ -42,7 +42,7 @@ export function manages(actor: OrgRole, role: OrgRole): boolean {
 
 /** Whether the org's page is one the API answers someone with this role. `billed` is whether billing answers them at all. */
 export function seesPage(org: Org, page: OrgPage, billed: boolean): boolean {
-  if (page === "people" || page === "policy" || page === "details") return true;
+  if (["people", "groups", "policy", "details"].includes(page)) return true;
   return page === "billing" ? billed && org.role === "owner" : runs(org);
 }
 

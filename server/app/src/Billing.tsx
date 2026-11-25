@@ -65,9 +65,8 @@ import { ShedBoxes } from "./Shed.tsx";
 import {
   Btn,
   btnClass,
-  Card,
+  Section,
   Chip,
-  Column,
   Confirm,
   Empty,
   Field,
@@ -201,10 +200,8 @@ function NotLoaded({
   if (load.state === "loading")
     return (
       <Page {...wear} title="Plan and billing">
-        <Card label="Plan" w={7} busy />
-        <Column w={5} side>
-          <Card label="Card" busy />
-        </Column>
+        <Section label="Plan" busy />
+        <Section label="Card" busy />
       </Page>
     );
   return (
@@ -399,61 +396,52 @@ function PersonBill({
           <Problem>{checkout.problem ?? portal.problem}</Problem>
         </div>
       ) : null}
-      <Column w={7}>
-        {planSub ? (
-          <Card label="Plan">
-            <Rows>
-              <PlanRows
-                sub={planSub}
-                catalog={catalog}
-                canBuy={canBuy}
-                pays={pays}
-                ask={ask}
-                onAsk={setAsk}
-                reload={reload}
-                show={show}
-              />
-            </Rows>
-          </Card>
-        ) : null}
-        <Card
-          label={
-            lapsed ? "What Pro has" : free ? "What Pro adds" : "What you have"
-          }
-        >
-          <Features features={featuresAdded(catalog, "pro").added} />
-        </Card>
-        <OrgBills team={team} orgs={orgs} follow={follow} />
-        {seatOrgs > 0 ? null : (
-          <TeamOffer
-            catalog={catalog}
-            team={team}
-            orgs={orgs}
-            follow={follow}
-          />
-        )}
-        <ShedBoxes
-          catalog={catalog}
-          bought={shedSubs}
-          buying={staff}
-          canBuy={canBuy}
-          pays={pays}
-          reload={reload}
-          show={show}
-        />
-      </Column>
-      <Column w={5} side>
-        <Money
-          overview={overview}
-          invoices={invoices}
-          readAt={readAt}
-          catalog={catalog}
-          pays={pays}
-          query={{}}
-          reload={reload}
-          show={show}
-        />
-      </Column>
+      {planSub ? (
+        <Section label="Plan">
+          <Rows>
+            <PlanRows
+              sub={planSub}
+              catalog={catalog}
+              canBuy={canBuy}
+              pays={pays}
+              ask={ask}
+              onAsk={setAsk}
+              reload={reload}
+              show={show}
+            />
+          </Rows>
+        </Section>
+      ) : null}
+      <Section
+        label={
+          lapsed ? "What Pro has" : free ? "What Pro adds" : "What you have"
+        }
+      >
+        <Features features={featuresAdded(catalog, "pro").added} />
+      </Section>
+      <OrgBills team={team} orgs={orgs} follow={follow} />
+      {seatOrgs > 0 ? null : (
+        <TeamOffer catalog={catalog} team={team} orgs={orgs} follow={follow} />
+      )}
+      <ShedBoxes
+        catalog={catalog}
+        bought={shedSubs}
+        buying={staff}
+        canBuy={canBuy}
+        pays={pays}
+        reload={reload}
+        show={show}
+      />
+      <Money
+        overview={overview}
+        invoices={invoices}
+        readAt={readAt}
+        catalog={catalog}
+        pays={pays}
+        query={{}}
+        reload={reload}
+        show={show}
+      />
     </Page>
   );
 }
@@ -470,13 +458,15 @@ function OrgBills({
   const owned = orgs.filter((org) => org.role === "owner");
   if (team !== "sold" || owned.length === 0) return null;
   return (
-    <Card label={owned.length === 1 ? "Your org's bill" : "Your orgs' bills"}>
+    <Section
+      label={owned.length === 1 ? "Your org's bill" : "Your orgs' bills"}
+    >
       <Rows>
         {owned.map((org) => (
           <OrgBillRow key={org.id} org={org} follow={follow} />
         ))}
       </Rows>
-    </Card>
+    </Section>
   );
 }
 
@@ -532,7 +522,7 @@ function TeamOffer({
     return null;
   const preview = team === "preview";
   return (
-    <Card
+    <Section
       label="Team"
       aside={
         <span className="soft">
@@ -554,7 +544,7 @@ function TeamOffer({
           (feature) => !preview || inPreview(feature),
         )}
       />
-    </Card>
+    </Section>
   );
 }
 
@@ -743,134 +733,130 @@ function OrgBill({
           <Problem>{checkout.problem ?? portal.problem}</Problem>
         </div>
       ) : null}
-      <Column w={7}>
-        {frozen(org) ? null : members.data ? (
-          <Seats org={org} members={members.data} />
-        ) : (
-          <Card label="Seats" busy={!members.problem}>
-            <Problem>{members.problem}</Problem>
-          </Card>
-        )}
-        {planSub ? (
-          <Card label="Plan">
-            <Rows>
-              <PlanRows
-                sub={planSub}
-                catalog={catalog}
-                canBuy={canBuy}
-                pays={pays}
-                held={org.seats.held}
-                ask={ask}
-                onAsk={setAsk}
-                reload={reload}
-                show={show}
-              />
-            </Rows>
-          </Card>
-        ) : preview ? (
-          <Card label="What happens next">
-            <Rows>
-              <Row
-                lead={
-                  <Tile>
-                    <IconMail size={14} />
-                  </Tile>
-                }
-                name="30 days' notice"
-                detail="We write to owners before it costs anything."
-              />
-              <Row
-                lead={
-                  <Tile>
-                    <IconCheck size={14} />
-                  </Tile>
-                }
-                name="Nothing is lost"
-                detail="People, domains and the log carry over."
-              />
-              {each ? (
-                <Row
-                  lead={
-                    <Tile>
-                      <IconCreditCard size={14} />
-                    </Tile>
-                  }
-                  name={`${each} a seat each month, after`}
-                  detail="You choose whether to keep it."
-                />
-              ) : null}
-            </Rows>
-          </Card>
-        ) : sells ? (
-          <Card label="Seats">
-            <Rows>
-              <Row
-                lead={
-                  <Tile>
-                    <IconUsers size={14} />
-                  </Tile>
-                }
-                name={seatsWord(seats)}
-                detail={
-                  org.seats.held > 0
-                    ? `${org.seats.held} held by people and links out`
-                    : undefined
-                }
-                end={
-                  <Stepper
-                    value={seats}
-                    min={least}
-                    max={product?.maxQuantity ?? 1000}
-                    onChange={setSeats}
-                  />
-                }
-              />
-            </Rows>
-          </Card>
-        ) : null}
-        {paused ? null : (
-          <Card label="What Team has">
-            <Features
-              features={featuresAdded(catalog, "team").added.filter(
-                (feature) => !preview || inPreview(feature),
-              )}
+      {frozen(org) ? null : members.data ? (
+        <Seats org={org} members={members.data} />
+      ) : (
+        <Section label="Seats" busy={!members.problem}>
+          <Problem>{members.problem}</Problem>
+        </Section>
+      )}
+      {planSub ? (
+        <Section label="Plan">
+          <Rows>
+            <PlanRows
+              sub={planSub}
+              catalog={catalog}
+              canBuy={canBuy}
+              pays={pays}
+              held={org.seats.held}
+              ask={ask}
+              onAsk={setAsk}
+              reload={reload}
+              show={show}
             />
-          </Card>
-        )}
-        {paused && org.seats.held > 0 ? (
-          <Card label="Seats">
-            <Rows>
+          </Rows>
+        </Section>
+      ) : preview ? (
+        <Section label="What happens next">
+          <Rows>
+            <Row
+              lead={
+                <Tile>
+                  <IconMail size={14} />
+                </Tile>
+              }
+              name="30 days' notice"
+              detail="We write to owners before it costs anything."
+            />
+            <Row
+              lead={
+                <Tile>
+                  <IconCheck size={14} />
+                </Tile>
+              }
+              name="Nothing is lost"
+              detail="People, domains and the log carry over."
+            />
+            {each ? (
               <Row
                 lead={
                   <Tile>
-                    <IconUsers size={14} />
+                    <IconCreditCard size={14} />
                   </Tile>
                 }
-                name={`${seatsWord(org.seats.held)} held`}
-                detail="People stay in it, and keep their own hosts."
+                name={`${each} a seat each month, after`}
+                detail="You choose whether to keep it."
               />
-            </Rows>
-          </Card>
-        ) : null}
-      </Column>
-      <Column w={5} side>
-        {preview && invoices.length === 0 ? (
-          <Card label="Invoices">
-            <Empty>None while it's free.</Empty>
-          </Card>
-        ) : (
-          <Money
-            overview={overview}
-            invoices={invoices}
-            readAt={readAt}
-            catalog={catalog}
-            pays={pays}
-            query={query}
-            reload={reload}
-            show={show}
+            ) : null}
+          </Rows>
+        </Section>
+      ) : sells ? (
+        <Section label="Seats">
+          <Rows>
+            <Row
+              lead={
+                <Tile>
+                  <IconUsers size={14} />
+                </Tile>
+              }
+              name={seatsWord(seats)}
+              detail={
+                org.seats.held > 0
+                  ? `${org.seats.held} held by people and links out`
+                  : undefined
+              }
+              end={
+                <Stepper
+                  value={seats}
+                  min={least}
+                  max={product?.maxQuantity ?? 1000}
+                  onChange={setSeats}
+                />
+              }
+            />
+          </Rows>
+        </Section>
+      ) : null}
+      {paused ? null : (
+        <Section label="What Team has">
+          <Features
+            features={featuresAdded(catalog, "team").added.filter(
+              (feature) => !preview || inPreview(feature),
+            )}
           />
-        )}
-      </Column>
+        </Section>
+      )}
+      {paused && org.seats.held > 0 ? (
+        <Section label="Seats">
+          <Rows>
+            <Row
+              lead={
+                <Tile>
+                  <IconUsers size={14} />
+                </Tile>
+              }
+              name={`${seatsWord(org.seats.held)} held`}
+              detail="People stay in it, and keep their own hosts."
+            />
+          </Rows>
+        </Section>
+      ) : null}
+      {preview && invoices.length === 0 ? (
+        <Section label="Invoices">
+          <Empty>None while it's free.</Empty>
+        </Section>
+      ) : (
+        <Money
+          overview={overview}
+          invoices={invoices}
+          readAt={readAt}
+          catalog={catalog}
+          pays={pays}
+          query={query}
+          reload={reload}
+          show={show}
+        />
+      )}
     </Page>
   );
 }
@@ -1667,12 +1653,12 @@ function Money({
   const open = openSubs(overview);
   if (open.length === 0 && invoices.length === 0)
     return (
-      <Card
+      <Section
         label="Invoices"
         foot={`What you pay for a plan in its first ${catalog.refundDays} days comes back in full if you ask within them, once for each plan.`}
       >
         <Empty>No card and no invoices yet.</Empty>
-      </Card>
+      </Section>
     );
   return (
     <>
@@ -1727,7 +1713,7 @@ function NextCharge({
   const currency = renewing[0]?.unit.currency ?? "usd";
 
   return (
-    <Card label={renewing.length > 1 ? "Next charges" : "Next charge"}>
+    <Section label={renewing.length > 1 ? "Next charges" : "Next charge"}>
       <Rows>
         {renewing.map(({ sub, next, product, unit }) => (
           <Row
@@ -1759,7 +1745,7 @@ function NextCharge({
           />
         ) : null}
       </Rows>
-    </Card>
+    </Section>
   );
 }
 
@@ -1997,7 +1983,7 @@ export function Refunds({
   );
   if (open.length === 0) return null;
   return (
-    <Card label="Refund">
+    <Section label="Refund">
       <Rows>
         {open.map((sub) => (
           <RefundRow
@@ -2009,7 +1995,7 @@ export function Refunds({
           />
         ))}
       </Rows>
-    </Card>
+    </Section>
   );
 }
 
@@ -2115,7 +2101,7 @@ function PaymentMethod({
 }) {
   const portal = usePortal(query);
   return (
-    <Card label="Card">
+    <Section label="Card">
       <Rows>
         <Row
           lead={
@@ -2146,7 +2132,7 @@ function PaymentMethod({
           {portal.problem ? <Problem>{portal.problem}</Problem> : null}
         </Row>
       </Rows>
-    </Card>
+    </Section>
   );
 }
 
@@ -2165,7 +2151,7 @@ function Invoices({
   catalog: BillingCatalog;
 }) {
   return (
-    <Card label="Invoices" count={invoices.length || undefined}>
+    <Section label="Invoices" count={invoices.length || undefined}>
       {invoices.length === 0 ? (
         <Empty>None yet.</Empty>
       ) : (
@@ -2175,7 +2161,7 @@ function Invoices({
           ))}
         </Rows>
       )}
-    </Card>
+    </Section>
   );
 }
 

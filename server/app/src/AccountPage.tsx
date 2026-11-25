@@ -12,7 +12,7 @@ import {
   useCrashReportsShared,
 } from "./reporting.ts";
 import { PROVIDERS, SignInWaysCard, waysOf } from "./SignInWays.tsx";
-import { Card, Column, Page, Row, Rows, Switch, Tile, Txt } from "./ui.tsx";
+import { Section, Page, Row, Rows, Switch, Tile, Txt } from "./ui.tsx";
 import { WorkAddressesCard } from "./WorkAddresses.tsx";
 
 /** The ways the signed-in account can sign in, as the person knows them. */
@@ -55,10 +55,8 @@ export function AccountPage({
       scene="you"
     >
       <SignInWaysCard />
-      <Column w={5} side>
-        <WorkAddressesCard team={team} />
-        <ThisBrowser onDelete={onDelete} />
-      </Column>
+      <WorkAddressesCard team={team} />
+      <ThisBrowser onDelete={onDelete} />
     </Page>
   );
 }
@@ -77,7 +75,7 @@ function ThisBrowser({
     signOut({ redirectUrl: "/" }).catch(() => setLeaving(false));
   };
   return (
-    <Card label="This browser">
+    <Section label="This browser">
       <Rows>
         <Row
           lead={
@@ -129,6 +127,6 @@ function ThisBrowser({
           }
         />
       </Rows>
-    </Card>
+    </Section>
   );
 }

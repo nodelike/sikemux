@@ -40,13 +40,13 @@ import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import { Shell, type NavItem } from "./Shell.tsx";
 import { useSignIns } from "./SignIns.tsx";
 import { StartPage } from "./Start.tsx";
-import { Card, Page, Problem } from "./ui.tsx";
+import { Section, Page, Problem } from "./ui.tsx";
 
 const TITLES: Record<string, string> = {
   "/": "Account",
   [CONNECTORS]: "Connectors",
   [HOSTS]: "Hosts",
-  [BILLING]: "Plan and billing",
+  [BILLING]: "Billing",
   [PRICING]: "Pricing",
   [START]: "Start or join an org",
   [JOIN]: "Join an org",
@@ -211,7 +211,7 @@ export function Account({
   if (billingShown)
     you.push({
       path: BILLING,
-      name: "Plan and billing",
+      name: "Billing",
       icon: <IconCreditCard size={15} />,
     });
 
@@ -252,9 +252,9 @@ export function Account({
     )
   ) : named ? (
     <Page title="Org" mark={iconMark("org")} scene="you">
-      <Card busy={!orgs.problem} w={12}>
+      <Section busy={!orgs.problem}>
         <Problem>{orgs.problem}</Problem>
-      </Card>
+      </Section>
     </Page>
   ) : page === PRICING ? (
     <PricingPage orgs={list} reload={orgs.reload} />

@@ -18,7 +18,7 @@ import { possessive, ROLE_WORDS, RULE_WORDS, useLoad } from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
 import {
   Btn,
-  Card,
+  Section,
   Empty,
   Page,
   Problem,
@@ -74,9 +74,9 @@ export function AuditLogPage({ org }: { org: Org }) {
         scene={scene}
         tone="failed"
       >
-        <Card label="Today">
+        <Section label="Today">
           <Problem>{loaded.problem}</Problem>
-        </Card>
+        </Section>
       </Page>
     );
 
@@ -93,11 +93,11 @@ export function AuditLogPage({ org }: { org: Org }) {
         mark={mark}
         scene={scene}
       >
-        <Card label="Today">
+        <Section label="Today">
           <Empty>
             Nothing has happened yet. The first invite will be the first line.
           </Empty>
-        </Card>
+        </Section>
       </Page>
     );
 
@@ -109,14 +109,14 @@ export function AuditLogPage({ org }: { org: Org }) {
       scene={scene}
     >
       {!entries ? (
-        <Card label="Today" busy />
+        <Section label="Today" busy />
       ) : (
         <>
-          <Card label="Last 14 days">
+          <Section label="Last 14 days">
             <Strip entries={entries} />
-          </Card>
+          </Section>
           {byDay(entries).map(([day, list]) => (
-            <Card key={day} label={dayName(day)} count={list.length}>
+            <Section key={day} label={dayName(day)} count={list.length}>
               <Rows>
                 {list.map((entry) => (
                   <Row
@@ -138,7 +138,7 @@ export function AuditLogPage({ org }: { org: Org }) {
                   />
                 ))}
               </Rows>
-            </Card>
+            </Section>
           ))}
           {next ? (
             <div className="after">

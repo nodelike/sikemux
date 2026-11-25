@@ -15,7 +15,7 @@ import { GoogleMark } from "./icons.tsx";
 import { WORK_ADDRESS } from "./navigation.ts";
 import {
   Btn,
-  Card,
+  Section,
   Chip,
   Problem,
   Row,
@@ -95,7 +95,7 @@ export function WorkAddressesCard({ team }: { team: TeamAccess }) {
     return null;
 
   return (
-    <Card
+    <Section
       label="Work addresses"
       count={addresses.length || undefined}
       foot={
@@ -162,7 +162,7 @@ export function WorkAddressesCard({ team }: { team: TeamAccess }) {
         </p>
       ) : null}
       <Problem>{action.problem}</Problem>
-    </Card>
+    </Section>
   );
 }
 

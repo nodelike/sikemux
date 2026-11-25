@@ -16,9 +16,8 @@ import { changeable, frozen, possessive, renewable, useLoad } from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
 import {
   Btn,
-  Card,
+  Section,
   Chip,
-  Column,
   Confirm,
   Empty,
   Field,
@@ -83,9 +82,9 @@ export function DomainsPage({ org, team }: { org: Org; team: TeamAccess }) {
         scene={scene}
         tone="failed"
       >
-        <Card label="Domains">
+        <Section label="Domains">
           <Problem>{loaded.problem}</Problem>
-        </Card>
+        </Section>
       </Page>
     );
 
@@ -129,13 +128,13 @@ export function DomainsPage({ org, team }: { org: Org; team: TeamAccess }) {
         mark={mark}
         scene={scene}
       >
-        <Card label="Domains">
+        <Section label="Domains">
           <Empty>
             {open
               ? "No domains yet. Invite links work without one."
               : "No domains."}
           </Empty>
-        </Card>
+        </Section>
       </Page>
     );
 
@@ -160,14 +159,13 @@ export function DomainsPage({ org, team }: { org: Org; team: TeamAccess }) {
       tone={missing ? "failed" : undefined}
     >
       {!domains ? (
-        <Card label="Domains" w={7} busy />
+        <Section label="Domains" busy />
       ) : (
         <>
           {verified.length > 0 ? (
-            <Card
+            <Section
               label="Verified"
               count={verified.length}
-              w={waiting.length > 0 ? 7 : 8}
             >
               <Rows>
                 {verified.map((domain) => (
@@ -180,32 +178,30 @@ export function DomainsPage({ org, team }: { org: Org; team: TeamAccess }) {
                   />
                 ))}
               </Rows>
-            </Card>
+            </Section>
           ) : null}
           {waiting.length > 0 ? (
-            <Column w={verified.length > 0 ? 5 : 8} side={verified.length > 0}>
-              <Card
-                label="Waiting for a record"
-                count={waiting.length}
-                foot="Add this TXT record where your domain lives."
-              >
-                <Rows>
-                  {waiting.map((domain) => (
-                    <Waiting
-                      key={domain.id}
-                      org={org}
-                      domain={domain}
-                      open={open}
-                      missing={missing?.domain.id === domain.id}
-                      onChanged={changed}
-                      onMissing={(words) =>
-                        setMissing(words ? { domain, words } : undefined)
-                      }
-                    />
-                  ))}
-                </Rows>
-              </Card>
-            </Column>
+            <Section
+              label="Waiting for a record"
+              count={waiting.length}
+              foot="Add this TXT record where your domain lives."
+            >
+              <Rows>
+                {waiting.map((domain) => (
+                  <Waiting
+                    key={domain.id}
+                    org={org}
+                    domain={domain}
+                    open={open}
+                    missing={missing?.domain.id === domain.id}
+                    onChanged={changed}
+                    onMissing={(words) =>
+                      setMissing(words ? { domain, words } : undefined)
+                    }
+                  />
+                ))}
+              </Rows>
+            </Section>
           ) : null}
         </>
       )}

@@ -14,7 +14,7 @@ import {
   type Load,
   type SignIn,
 } from "./SignIns.tsx";
-import { Btn, btnClass, Card, Empty, Page, Problem, Txt } from "./ui.tsx";
+import { Btn, btnClass, Section, Empty, Page, Problem, Txt } from "./ui.tsx";
 
 const COUNTED = [
   "",
@@ -58,7 +58,7 @@ export function ConnectorsPage({ signIns: load }: { signIns: Load }) {
   if (load.state === "loading")
     return (
       <Page title="Connectors" mark={iconMark("plug")} scene="you">
-        <Card label="Last 30 days" w={12} busy />
+        <Section label="Last 30 days" busy />
       </Page>
     );
 
@@ -78,12 +78,12 @@ export function ConnectorsPage({ signIns: load }: { signIns: Load }) {
           </a>
         }
       >
-        <Card label="Last 30 days" w={12}>
+        <Section label="Last 30 days">
           <Empty>
             No sign-in from your account's vault has been used in the last 30
             days.
           </Empty>
-        </Card>
+        </Section>
       </Page>
     );
 

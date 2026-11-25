@@ -1,14 +1,15 @@
-import lockup from "../../../brand/wordmark/lockup-purple.svg";
-import { useClerk, useUser } from "@clerk/react";
-import type { Org, TeamAccess } from "@sikemux/protocol";
+import logo from "../../../brand/mark/mark-purple.svg";
+import { useUser } from "@clerk/react";
+import type { Org, OrgRole, TeamAccess } from "@sikemux/protocol";
 import {
   IconCreditCard,
   IconGlobe,
-  IconLogOut,
-  IconOrg,
+  IconMore,
   IconPlus,
   IconScrollText,
+  IconSettings,
   IconShieldCheck,
+  IconTag,
   IconUsers,
 } from "@shared/ui/Icons";
 import {
@@ -22,6 +23,7 @@ import {
 import { Avatar, OrgAvatar } from "./Avatar.tsx";
 import { ORG_PAGES, orgPath, START, type OrgPage } from "./navigation.ts";
 import { frozen, renewable, seesPage } from "./orgs.ts";
+import { Dialog } from "./ui.tsx";
 
 export type NavItem = {
   path: string;
@@ -32,16 +34,23 @@ export type NavItem = {
 
 const ORG_ICONS: Record<OrgPage, ReactNode> = {
   people: <IconUsers size={15} />,
+  groups: <IconTag size={15} />,
   domains: <IconGlobe size={15} />,
-  "audit-log": <IconScrollText size={15} />,
   policy: <IconShieldCheck size={15} />,
   billing: <IconCreditCard size={15} />,
-  details: <IconOrg size={15} />,
+  "audit-log": <IconScrollText size={15} />,
+  details: <IconSettings size={15} />,
+};
+
+const YOU_ARE: Record<OrgRole, string> = {
+  owner: "You're an owner",
+  admin: "You're an admin",
+  user: "You're a member",
 };
 
 type Follow = (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
 
-/** The signed-in pages: one rail of You, each org and its pages, or two strips across the top on a phone. */
+/** The signed-in pages: a strip of you and each org, the pages of the one shown beside it, and the page. On a phone the strip runs across the top and the pages along the bottom. */
 export function Shell({
   path,
   follow,
@@ -67,100 +76,55 @@ export function Shell({
   offered: boolean;
   children: ReactNode;
 }) {
-  const orgsShown = orgs.length > 0 || canStart;
-  const tabs = current
-    ? pagesOf(current.org, billed).map(([page, name]) => ({
-        path: orgPath(current.org.id, page),
-        name,
-      }))
-    : [...you, ...staff];
+  const { user } = useUser();
+  const starting = path === START;
+  const items = starting
+    ? []
+    : current
+      ? pagesOf(current.org, billed)
+      : [...you, ...staff];
   return (
-    <div className="shell">
-      <aside className="rail">
-        <a className="lk" href="/" onClick={follow("/")}>
-          <img src={lockup} alt="Sikemux" />
-        </a>
-        <nav aria-label="Pages">
-          <Group label="You">
-            {you.map((item) => (
+    <div className={starting ? "shell alone" : "shell"}>
+      <Scopes
+        at={current?.org.id ?? (starting ? START : "you")}
+        orgs={orgs}
+        team={team}
+        canStart={canStart}
+        offered={offered}
+        follow={follow}
+      />
+      {starting ? null : (
+        <aside className="rail">
+          <div className="rh">
+            <b>
+              {current?.org.name ??
+                (user?.fullName || user?.username || "Your account")}
+            </b>
+            <small>
+              {current ? YOU_ARE[current.org.role] : "Your own account"}
+            </small>
+          </div>
+          <nav aria-label="Pages">
+            {items.map((item) => (
               <NavLink key={item.path} {...item} at={path} follow={follow} />
             ))}
-          </Group>
-          {orgsShown ? (
-            <div className={orgs.length > 4 ? "grp many" : "grp"}>
-              <div className="lab">Orgs</div>
-              <div className="orgs">
-                {orgs.map((org) => (
-                  <OrgLinks
-                    key={org.id}
-                    org={org}
-                    page={current?.org.id === org.id ? current.page : undefined}
-                    team={team}
-                    billed={billed}
-                    follow={follow}
-                  />
-                ))}
-              </div>
-              {canStart ? (
-                <a
-                  className={path === START ? "ol on" : "ol"}
-                  href={START}
-                  onClick={follow(START)}
-                >
-                  <span className="plus">
-                    <IconPlus size={15} />
-                  </span>
-                  <span className="n">Start or join an org</span>
-                  {offered ? (
-                    <i
-                      className="dot new"
-                      title="An org matches your email domain"
-                    />
-                  ) : null}
-                </a>
-              ) : null}
-            </div>
-          ) : null}
-          {staff.length ? (
-            <Group label="Staff">
-              {staff.map((item) => (
-                <NavLink key={item.path} {...item} at={path} follow={follow} />
-              ))}
-            </Group>
-          ) : null}
-        </nav>
-        <Me />
-      </aside>
-      <main className="main">
-        <div className="phonebar">
-          <Scopes
-            orgs={orgs}
-            current={current?.org}
-            team={team}
-            canStart={canStart}
-            follow={follow}
-          />
-          <Tabs tabs={tabs} at={path} follow={follow} />
-        </div>
-        {children}
-      </main>
+          </nav>
+        </aside>
+      )}
+      <main className="main">{children}</main>
+      {items.length ? <Tabs items={items} at={path} follow={follow} /> : null}
     </div>
   );
 }
 
-function pagesOf(org: Org, billed: boolean) {
-  return (Object.entries(ORG_PAGES) as [OrgPage, string][]).filter(([page]) =>
-    seesPage(org, page, billed),
-  );
-}
-
-function Group({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="grp">
-      <div className="lab">{label}</div>
-      {children}
-    </div>
-  );
+function pagesOf(org: Org, billed: boolean): NavItem[] {
+  return (Object.entries(ORG_PAGES) as [OrgPage, string][])
+    .filter(([page]) => seesPage(org, page, billed))
+    .map(([page, name]) => ({
+      path: orgPath(org.id, page),
+      name,
+      icon: ORG_ICONS[page],
+    }));
 }
 
 function NavLink({
@@ -170,159 +134,155 @@ function NavLink({
   count,
   at,
   follow,
-}: NavItem & { at: string; follow: Follow }) {
+  onFollow,
+}: NavItem & { at: string; follow: Follow; onFollow?: () => void }) {
   return (
     <a
-      className="rl"
+      className="nv"
       href={path}
-      onClick={follow(path)}
+      onClick={(event) => {
+        follow(path)(event);
+        onFollow?.();
+      }}
       aria-current={path === at ? "page" : undefined}
     >
       {icon}
-      <span className="n">{name}</span>
-      {count ? <span className="count">{count}</span> : null}
+      <span>{name}</span>
+      {count ? <i>{count}</i> : null}
     </a>
   );
 }
 
-function OrgLinks({
-  org,
-  page,
-  team,
-  billed,
-  follow,
-}: {
-  org: Org;
-  page?: OrgPage;
-  team: TeamAccess;
-  billed: boolean;
-  follow: Follow;
-}) {
-  const row = useRef<HTMLDivElement>(null);
-  const here = page !== undefined;
-  useEffect(() => {
-    if (here) row.current?.scrollIntoView({ block: "nearest" });
-  }, [here]);
-  const to = orgPath(org.id, page ?? "people");
-  return (
-    <div className="og" ref={row}>
-      <a className={here ? "ol on" : "ol"} href={to} onClick={follow(to)}>
-        <OrgAvatar org={org} />
-        <span className="n">{org.name}</span>
-        {frozen(org) ? <FrozenDot ended={renewable(org, team)} /> : null}
-      </a>
-      {here ? (
-        <div className="sub">
-          {pagesOf(org, billed).map(([each, name]) => (
-            <NavLink
-              key={each}
-              path={orgPath(org.id, each)}
-              name={name}
-              icon={ORG_ICONS[each]}
-              at={orgPath(org.id, page)}
-              follow={follow}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function FrozenDot({ ended }: { ended: boolean }) {
-  return <i className="dot" title={ended ? "Its Team plan ended" : "Paused"} />;
-}
-
 function Scopes({
+  at,
   orgs,
-  current,
   team,
   canStart,
+  offered,
   follow,
 }: {
+  at: string;
   orgs: Org[];
-  current?: Org;
   team: TeamAccess;
   canStart: boolean;
-  follow: Follow;
-}) {
-  const strip = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    strip.current
-      ?.querySelector("[aria-current=true]")
-      ?.scrollIntoView({ block: "nearest", inline: "center" });
-  }, [current?.id]);
-  if (!orgs.length && !canStart) return null;
-  return (
-    <div className={orgs.length ? "scopes" : "scopes none"} ref={strip}>
-      <a
-        className="sc"
-        href="/"
-        onClick={follow("/")}
-        aria-current={!current}
-        aria-label="You"
-      >
-        <Avatar size={20} />
-        <span>You</span>
-      </a>
-      <i className="bar1" />
-      {orgs.map((org) => (
-        <a
-          key={org.id}
-          className="sc"
-          href={orgPath(org.id)}
-          onClick={follow(orgPath(org.id))}
-          aria-current={org.id === current?.id}
-          aria-label={org.name}
-        >
-          <OrgAvatar org={org} />
-          <span>{org.name}</span>
-          {frozen(org) ? <FrozenDot ended={renewable(org, team)} /> : null}
-        </a>
-      ))}
-      {canStart ? (
-        <a
-          className="sc add"
-          href={START}
-          onClick={follow(START)}
-          aria-label="Start or join an org"
-        >
-          <IconPlus size={15} />
-          <span>Start or join an org</span>
-        </a>
-      ) : null}
-    </div>
-  );
-}
-
-function Tabs({
-  tabs,
-  at,
-  follow,
-}: {
-  tabs: { path: string; name: string }[];
-  at: string;
+  offered: boolean;
   follow: Follow;
 }) {
   const strip = useRef<HTMLElement>(null);
   useEffect(() => {
     strip.current
       ?.querySelector("[aria-current]")
-      ?.scrollIntoView({ block: "nearest", inline: "center" });
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [at]);
+  const scope = (id: string, to: string, name: string, picture: ReactNode) => (
+    <a
+      key={id}
+      className="scope"
+      href={to}
+      onClick={follow(to)}
+      aria-current={id === at ? "true" : undefined}
+      aria-label={name}
+      title={name}
+    >
+      {picture}
+    </a>
+  );
   return (
-    <nav className="tabs" aria-label="Pages" ref={strip}>
-      {tabs.map((tab) => (
+    <nav className="scopes" aria-label="You and your orgs" ref={strip}>
+      <a className="sk" href="/" onClick={follow("/")} aria-label="Sikemux">
+        <img src={logo} alt="" />
+      </a>
+      {scope("you", "/", "You", <Avatar size={30} />)}
+      {orgs.length > 0 || canStart ? <hr /> : null}
+      {orgs.map((org) => {
+        const still = !frozen(org)
+          ? ""
+          : renewable(org, team)
+            ? "Its Team plan ended"
+            : "Paused";
+        return scope(
+          org.id,
+          orgPath(org.id),
+          still ? `${org.name}. ${still}` : org.name,
+          <>
+            <OrgAvatar org={org} />
+            {still ? <i className="dot" /> : null}
+          </>,
+        );
+      })}
+      {canStart
+        ? scope(
+            START,
+            START,
+            offered
+              ? "Start or join an org. One matches your email domain"
+              : "Start or join an org",
+            <>
+              <span className="plus">
+                <IconPlus size={15} />
+              </span>
+              {offered ? <i className="dot new" /> : null}
+            </>,
+          )
+        : null}
+    </nav>
+  );
+}
+
+const TABS = 5;
+
+/** A phone's pages: along the bottom, those past the fourth behind More. */
+function Tabs({
+  items,
+  at,
+  follow,
+}: {
+  items: NavItem[];
+  at: string;
+  follow: Follow;
+}) {
+  const [more, setMore] = useState(false);
+  const first = items.length > TABS ? items.slice(0, TABS - 1) : items;
+  const rest = items.slice(first.length);
+  return (
+    <nav className="tabs" aria-label="Pages">
+      {first.map((item) => (
         <a
-          key={tab.path}
-          className="tb"
-          href={tab.path}
-          onClick={follow(tab.path)}
-          aria-current={tab.path === at ? "page" : undefined}
+          key={item.path}
+          href={item.path}
+          onClick={follow(item.path)}
+          aria-current={item.path === at ? "page" : undefined}
         >
-          {tab.name}
+          {item.icon}
+          <span>{item.name}</span>
         </a>
       ))}
+      {rest.length ? (
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          aria-current={rest.some((item) => item.path === at) || undefined}
+          onClick={() => setMore(true)}
+        >
+          <IconMore size={15} />
+          <span>More</span>
+        </button>
+      ) : null}
+      {more ? (
+        <Dialog title="More" onClose={() => setMore(false)}>
+          <div className="sheet">
+            {rest.map((item) => (
+              <NavLink
+                key={item.path}
+                {...item}
+                at={at}
+                follow={follow}
+                onFollow={() => setMore(false)}
+              />
+            ))}
+          </div>
+        </Dialog>
+      ) : null}
     </nav>
   );
 }

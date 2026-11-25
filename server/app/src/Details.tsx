@@ -11,7 +11,7 @@ import { changeable, frozen, renewable, runs } from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
 import {
   Btn,
-  Card,
+  Section,
   Field,
   Page,
   Row,
@@ -142,9 +142,8 @@ export function DetailsPage({
       scene={orgScene(org.id)}
       tone={action.problem ? "failed" : undefined}
     >
-      <Card
+      <Section
         label="Details"
-        w={8}
         className={over ? "details over" : "details"}
         {...(editable ? { onDragOver, onDragLeave, onDrop } : {})}
       >
@@ -240,7 +239,7 @@ export function DetailsPage({
             }
           />
         </Rows>
-      </Card>
+      </Section>
     </Page>
   );
 }

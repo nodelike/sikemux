@@ -29,12 +29,13 @@ const PAGES = new Set([
 ]);
 
 export const ORG_PAGES = {
-  people: "People",
+  people: "Members",
+  groups: "Groups",
   domains: "Domains",
+  policy: "Rules",
+  billing: "Billing",
   "audit-log": "Audit log",
-  policy: "Policy",
-  billing: "Plan and billing",
-  details: "Details",
+  details: "Settings",
 } as const;
 
 export type OrgPage = keyof typeof ORG_PAGES;

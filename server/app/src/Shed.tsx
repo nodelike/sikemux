@@ -19,7 +19,7 @@ import {
 import { BilledSwitch } from "./BilledSwitch.tsx";
 import { money, priceOf, productOf, SHED_WORDS, times } from "./money.ts";
 import { BILLING } from "./navigation.ts";
-import { Btn, btnClass, Card, Problem, Row, Rows, Tile } from "./ui.tsx";
+import { Btn, btnClass, Section, Problem, Row, Rows, Tile } from "./ui.tsx";
 
 type Loaded = {
   catalog: BillingCatalog;
@@ -82,7 +82,7 @@ export function ShedBoxes({
   if (!forSale && bought.length === 0) return null;
   const one = bought.length === 1 && bought[0]?.quantity === 1;
   return (
-    <Card
+    <Section
       label="Shed boxes"
       aside={
         forSale ? (
@@ -119,7 +119,7 @@ export function ShedBoxes({
           <Buy boxes={boxes} interval={interval} canBuy={canBuy} />
         ) : null}
       </Rows>
-    </Card>
+    </Section>
   );
 }
 
@@ -252,7 +252,7 @@ export function ShedNotHost({
     ? `Your ${productOf(load.catalog, first.product)?.name ?? "Shed"} box is`
     : "Your Shed boxes are";
   return (
-    <Card label="Shed">
+    <Section label="Shed">
       <Rows>
         <Row
           lead={
@@ -277,6 +277,6 @@ export function ShedNotHost({
           }
         />
       </Rows>
-    </Card>
+    </Section>
   );
 }
