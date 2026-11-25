@@ -106,8 +106,7 @@ struct ChatSearch: View {
                 onPress: { open(agent.agentId, line) },
                 mark: {
                     OwnMark(
-                        agentId: agent.agentId, provider: agent.cli, chief: agent.chief == true,
-                        size: 20, still: true)
+                        agentId: agent.agentId, provider: agent.cli, chief: agent.chief == true, size: 20)
                 }, end: { EmptyView() })
         case .saved(let chat, _):
             Row(
