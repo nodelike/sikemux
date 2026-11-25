@@ -7,7 +7,7 @@ import {
   IconMail,
 } from "@shared/ui/Icons";
 import type { ChangeWhen, Org, OrgMember, TeamAccess } from "@sikemux/protocol";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { problemText } from "./api.ts";
 import {
@@ -690,18 +690,17 @@ function OrgSeats({
   members: { data?: OrgMember[]; problem?: string };
   totalSeats: number;
 }) {
-  const box = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
 
   useEffect(() => {
-    const element = box.current;
-    if (!element) return;
-    const measure = () => setWidth(element.clientWidth);
+    if (!box) return;
+    const measure = () => setWidth(box.clientWidth);
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(element);
+    observer.observe(box);
     return () => observer.disconnect();
-  }, []);
+  }, [box]);
 
   if (!members.data)
     return members.problem ? (
@@ -723,7 +722,7 @@ function OrgSeats({
   const drawDots = totalDots > 0 && perRow > 0 && balanced;
 
   return (
-    <div className="seat-strip" ref={box}>
+    <div className="seat-strip" ref={setBox}>
       {drawDots ? (
         <div className="seat-dots" aria-hidden="true">
           {members.data.map((member) => (
