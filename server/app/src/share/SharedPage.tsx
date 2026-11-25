@@ -6,8 +6,8 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { config } from "../config.ts";
 import { DEFAULT_PALETTE, wearPicked } from "../chat/themes/bus.ts";
 import { ReaderBar } from "./ReaderBar.tsx";
+import { homeAction, ShareGate } from "./ShareGate.tsx";
 import "../chat/styles.css";
-import "../chat/styles/chat/status.css";
 import "../chat/styles/share.css";
 
 const ShareSignIn = lazy(() => import("./ShareSignIn.tsx"));
@@ -105,7 +105,7 @@ async function fetchPage(
  * after `#` never leaves the browser. Returning to the tab checks for a newer version with ETag.
  */
 export default function SharedPage() {
-  const { isLoaded, getToken } = useAuth();
+  const { isLoaded, isSignedIn, getToken } = useAuth();
   const link = useMemo(() => parsePageLink(location.href), []);
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -218,50 +218,66 @@ export default function SharedPage() {
     document.title = title ? `${title} · Sikemux` : "Shared artifact · Sikemux";
   }, [title]);
 
-  if (link && loaded.kind === "signIn")
+  if (!link)
+    return (
+      <ShareGate
+        title="This link is missing part of itself"
+        lede="Ask whoever shared it to send the whole link, including the part after #."
+        icon="link"
+        tone="failed"
+        action={homeAction(Boolean(isSignedIn))}
+      />
+    );
+
+  if (loaded.kind === "signIn")
     return (
       <Suspense fallback={null}>
-        <ShareSignIn lede="Sign in to Sikemux to read the artifact shared with you." />
+        <ShareSignIn lede="Sign in to read the artifact shared with you." />
       </Suspense>
+    );
+
+  if (loaded.kind === "loading")
+    return (
+      <ShareGate
+        title="Opening the shared artifact…"
+        icon="file"
+        tone="waiting"
+        foot={false}
+      />
+    );
+
+  if (loaded.kind === "failed")
+    return (
+      <ShareGate
+        title="The artifact didn’t load"
+        lede="Something went wrong fetching it. Reload the page, or ask whoever shared it if this keeps happening."
+        icon="file"
+        tone="failed"
+        action={{ label: "Reload", onClick: () => location.reload() }}
+      />
+    );
+
+  if (loaded.kind === "gone")
+    return (
+      <ShareGate
+        title="This artifact isn’t shared any more"
+        lede="The sharer stopped sharing it or the link expired. Ask whoever shared it for a new link."
+        icon="file"
+        tone="waiting"
+        action={homeAction(Boolean(isSignedIn))}
+      />
     );
 
   return (
     <div className="shared-page">
-      <ReaderBar>
-        <span className="shared-page-title" title={title}>
-          {title}
-        </span>
-      </ReaderBar>
-      {loaded.kind === "page" ? (
-        <iframe
-          ref={iframeRef}
-          className="shared-page-frame"
-          title={title || "Shared artifact"}
-          sandbox="allow-scripts"
-          srcDoc={loaded.srcDoc}
-        />
-      ) : (
-        <PageState loaded={link ? loaded : { kind: "gone" }} />
-      )}
-    </div>
-  );
-}
-
-function PageState({ loaded }: { loaded: Loaded }) {
-  const loading = loaded.kind === "loading";
-  return (
-    <div
-      className={`chat-connection-state ${loading ? "connecting" : "stopped"}`}
-      role="status"
-    >
-      {loading && <span className="chat-activity-loader" aria-hidden="true" />}
-      <span>
-        {loading
-          ? "Opening the shared artifact…"
-          : loaded.kind === "failed"
-            ? "The artifact didn’t load. Reload to try again."
-            : "This artifact isn’t shared any more."}
-      </span>
+      <ReaderBar title={title} />
+      <iframe
+        ref={iframeRef}
+        className="shared-page-frame"
+        title={title || "Shared artifact"}
+        sandbox="allow-scripts"
+        srcDoc={loaded.srcDoc}
+      />
     </div>
   );
 }

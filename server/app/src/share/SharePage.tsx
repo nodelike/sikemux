@@ -11,8 +11,10 @@ import { webCipher } from "@shared/share/cipher";
 import { parseShareLink, type ShareLink } from "@shared/share/link";
 import { ShareSession } from "@shared/share/session";
 import { SharedChat } from "./SharedChat.tsx";
+import { homeAction, ShareGate } from "./ShareGate.tsx";
 import { DEFAULT_PALETTE, wearPicked } from "../chat/themes/bus.ts";
 import "../chat/styles.css";
+import "../chat/styles/share.css";
 
 import { config } from "../config.ts";
 
@@ -24,7 +26,7 @@ const ShareSignIn = lazy(() => import("./ShareSignIn.tsx"));
  * leaves the browser.
  */
 export default function SharePage() {
-  const { isLoaded } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
   const link = useMemo(() => parseShareLink(location.href), []);
 
   useEffect(() => {
@@ -34,16 +36,23 @@ export default function SharePage() {
 
   if (!link)
     return (
-      <div className="shell share-page">
-        <div className="chat-connection-state stopped" role="status">
-          <span>
-            This link is missing part of itself. Ask for it again, and copy the
-            whole of it.
-          </span>
-        </div>
-      </div>
+      <ShareGate
+        title="This link is missing part of itself"
+        lede="Ask whoever shared it to send the whole link, including the part after #."
+        icon="link"
+        tone="failed"
+        action={homeAction(Boolean(isSignedIn))}
+      />
     );
-  if (!isLoaded) return <div className="shell share-page" />;
+  if (!isLoaded)
+    return (
+      <ShareGate
+        title="Opening the shared chat…"
+        icon="message"
+        tone="waiting"
+        foot={false}
+      />
+    );
   return <Watching link={link} />;
 }
 

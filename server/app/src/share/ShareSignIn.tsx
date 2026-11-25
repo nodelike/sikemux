@@ -10,7 +10,7 @@ import "../app.css";
  * loads again, so what was shared is drawn without the account pages' styles beside the Mac's.
  */
 export default function ShareSignIn({
-  lede = "Sign in to Sikemux to watch the chat shared with you.",
+  lede = "Sign in to watch the chat shared with you.",
 }: {
   lede?: string;
 }) {
