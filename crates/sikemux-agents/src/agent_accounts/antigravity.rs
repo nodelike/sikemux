@@ -22,6 +22,9 @@ const TOKEN: &str = "antigravity-oauth-token";
 const HOME: &str = "home";
 const LOG_FOLDER: &str = "chat-log";
 const SIGN_IN_LOG: &str = "acp-login-";
+/// How agy's agent server names signing in with a Google account, on a page that comes back to
+/// this computer by itself.
+pub const BROWSER_SIGN_IN: &str = "oauth-personal";
 /// agy writes to its log as it opens a session, so the line is there or about to be.
 const LOG_WAIT: Duration = Duration::from_secs(3);
 
@@ -108,6 +111,11 @@ impl Added {
         if !self.signed_in() {
             return Err("This Antigravity account is not signed in.".into());
         }
+        self.server()
+    }
+
+    /// agy's agent server on this account, for a chat or to sign in with.
+    pub fn server(&self) -> Result<OnAccount, String> {
         self.keep_private()
             .and_then(|()| std::fs::create_dir_all(self.folder.join(LOG_FOLDER)))
             .and_then(|()| crate::os::make_private_folder(&self.folder.join(LOG_FOLDER)))
@@ -239,7 +247,7 @@ fn says_file_store(log: &Path) -> bool {
     std::fs::read(log).is_ok_and(|said| String::from_utf8_lossy(&said).contains(FILE_STORE_IN_USE))
 }
 
-/// A chat's agy on an added account.
+/// agy's agent server on an added account.
 pub struct OnAccount {
     account: Added,
     log: PathBuf,
@@ -257,8 +265,14 @@ impl OnAccount {
         (FILE_STORE.0.to_owned(), FILE_STORE.1.to_owned())
     }
 
-    /// Whether agy's log says it uses the account's own sign-in, once it has opened a session,
-    /// and the account was not removed since. The log names the account, so it goes once read.
+    /// Whether agy keeps a sign-in in the account's folder, waiting for it to write one.
+    pub async fn signed_in(&self) -> bool {
+        soon(|| self.account.signed_in()).await
+    }
+
+    /// Whether agy's log says it uses the account's own sign-in, once it has opened a session or
+    /// started to sign in, and the account was not removed since. The log names the account, so it
+    /// goes once read.
     pub async fn confirmed(&self) -> bool {
         let own =
             soon(|| says_file_store(&self.log)).await && Added::at(&self.account.folder).is_ok();

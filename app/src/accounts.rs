@@ -35,6 +35,7 @@ use sikemux_calls::agent_accounts::Unpicking;
 use sikemux_calls::agent_sign_in::Account as SignInAccount;
 use sikemux_calls::agent_sign_in::AfterSignIn;
 use sikemux_calls::agent_sign_in::Code;
+use sikemux_calls::agent_sign_in::SigningIn;
 use sikemux_calls::call;
 use sikemux_calls::params::NoParams;
 use sikemux_calls::Call;
@@ -48,10 +49,12 @@ use sikemux_agents::agent_accounts::BUILT_IN;
 /// An account's sign-in while it runs or after it failed.
 pub enum SignIn {
     /// The browser is out; `url` is the page it opened, once the core has it,
-    /// and `code` the field for the code some pages show.
+    /// and `code` the field for the code some pages show. `by_code` is whether the person asked
+    /// to sign in with one.
     Waiting {
         url: Option<String>,
         code: Option<Entity<InputState>>,
+        by_code: bool,
     },
     Failed(String),
 }
@@ -718,9 +721,29 @@ fn signing_in(profile: &Profile) -> Result<SignInAccount, String> {
     })
 }
 
-/// Runs the account's own sign-in, in the add-account dialog when its page shows a code to
+/// Runs the account's own sign-in, in the add-account dialog when its page may show a code to
 /// paste. The page it opens is kept for when no browser came up.
 pub fn sign_in(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut Context<Workbench>) {
+    start_sign_in(bench, id, false, window, cx);
+}
+
+/// Signs in with a code the page shows, for when the page cannot come back to this Mac by itself.
+pub fn sign_in_by_code(
+    bench: &mut Workbench,
+    id: &str,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    again(bench, id, true, window, cx);
+}
+
+fn start_sign_in(
+    bench: &mut Workbench,
+    id: &str,
+    by_code: bool,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
     let Some(profile) = bench.accounts.profile(id).cloned() else {
         return;
     };
@@ -732,9 +755,12 @@ pub fn sign_in(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut Co
         let Some(code) = shown.map(|open| open.code.clone()) else {
             return open_sign_in(bench, &profile.provider, Some(id), window, cx);
         };
-        code.update(cx, |code, cx| code.focus(window, cx));
+        if by_code {
+            code.update(cx, |code, cx| code.focus(window, cx));
+        }
     }
-    if matches!(bench.accounts.signing.get(id), Some(SignIn::Waiting { .. })) {
+    if matches!(bench.accounts.signing.get(id), Some(SignIn::Waiting { by_code: now, .. }) if *now || !by_code)
+    {
         return;
     }
     bench.accounts.signing.insert(
@@ -742,6 +768,7 @@ pub fn sign_in(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut Co
         SignIn::Waiting {
             url: None,
             code: None,
+            by_code,
         },
     );
     redraw(bench, cx);
@@ -749,10 +776,20 @@ pub fn sign_in(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut Co
     let params = signing_in(&profile);
     cx.spawn(async move |bench, cx| {
         let answer = match params {
-            Ok(params) => target.request_typed::<call::AgentSignIn>(params).await,
+            Ok(account) => {
+                let params = SigningIn { account, by_code };
+                target.request_typed::<call::AgentSignIn>(params).await
+            }
             Err(error) => Err(error),
         };
         let _ = bench.update(cx, |bench, cx| {
+            let replaced = matches!(
+                bench.accounts.signing.get(&profile.id),
+                Some(SignIn::Waiting { by_code: now, .. }) if *now != by_code
+            );
+            if replaced && answer.is_err() {
+                return;
+            }
             match answer {
                 Err(message) if message != "Sign-in stopped" => {
                     bench
@@ -849,6 +886,7 @@ pub fn submit_code(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>)
     let Some(SignIn::Waiting {
         url: Some(_),
         code: field,
+        ..
     }) = bench.accounts.signing.get(id)
     else {
         return;
@@ -964,6 +1002,16 @@ pub fn sign_in_again(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
+    again(bench, id, false, window, cx);
+}
+
+fn again(
+    bench: &mut Workbench,
+    id: &str,
+    by_code: bool,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
     let itself = bench.accounts.profile(id).is_some_and(signs_in_itself);
     if itself {
         bench.accounts.dialog = None;
@@ -975,7 +1023,7 @@ pub fn sign_in_again(
         code.update(cx, |code, cx| code.set_value("", window, cx));
     }
     dismiss_failure(bench, id);
-    sign_in(bench, id, window, cx);
+    start_sign_in(bench, id, by_code, window, cx);
 }
 
 /// Makes the account named in the dialog: a folder of its own sharing the default one's

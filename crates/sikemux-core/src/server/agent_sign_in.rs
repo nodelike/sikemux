@@ -6,18 +6,19 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::agent_sign_in::Page;
-pub use sikemux_calls::agent_sign_in::{Account, Code};
+pub use sikemux_calls::agent_sign_in::{Account, Code, SigningIn};
 pub use sikemux_calls::agent_sign_in::{AfterSignIn, LauncherParams};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
+use serde_json::{json, Value};
 use sikemux_process::command::AsyncCommand;
 use sikemux_process::sync::Locked;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::ChildStdin;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use super::changed::Topic;
 use crate::agent_accounts::{antigravity, cli, folders::link_shared};
@@ -86,6 +87,7 @@ struct SignIn {
     input: Option<ChildStdin>,
     stop: Option<oneshot::Sender<()>>,
     page: Option<Page>,
+    by_code: bool,
     /// How the sign-in ended, once it has.
     ended: Ended,
 }
@@ -219,20 +221,25 @@ pub(super) async fn sign_in_launcher(core: &Arc<Core>, params: LauncherParams) -
             .and_then(|profile| profile.executable_path.clone()),
         config_path: profile.and_then(|profile| profile.config_path),
     };
-    sign_in(core, account).await
+    let by_code = false;
+    sign_in(core, SigningIn { account, by_code }).await
 }
 
 /// Runs the agent's own sign-in for one account and answers once it ends.
 /// The CLI opens a browser on the host itself; the page it opens is offered
 /// to every client, for when the person is elsewhere.
-pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()> {
+pub(super) async fn sign_in(core: &Arc<Core>, signing: SigningIn) -> CoreResult<()> {
+    let SigningIn { account, by_code } = signing;
     account.check()?;
+    let added = account.added_antigravity()?;
+    // agy's server would go on with a sign-in it already keeps, even one Google has ended.
+    let by_code = by_code || added.as_ref().is_some_and(antigravity::Added::signed_in);
     // Its page gives a code only the sign-in that opened it takes, so asking again carries on
     // with that one.
-    let same = match account.added_antigravity()? {
+    let same = match added {
         Some(_) => sign_ins()
             .get(&account.key())
-            .filter(|sign_in| sign_in.stop.is_some())
+            .filter(|sign_in| sign_in.stop.is_some() && (sign_in.by_code || !by_code))
             .map(|sign_in| sign_in.ended.clone()),
         None => None,
     };
@@ -245,21 +252,28 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
         };
     }
     let (end, ended) = watch::channel(None);
-    let answer = run(core, &account, ended).await;
+    let answer = run(core, &account, by_code, ended).await;
     let _ = end.send(Some(
         (answer.as_ref().copied()).map_err(|error| error.message.clone()),
     ));
     answer
 }
 
-async fn run(core: &Arc<Core>, account: &Account, ended: Ended) -> CoreResult<()> {
+async fn run(core: &Arc<Core>, account: &Account, by_code: bool, ended: Ended) -> CoreResult<()> {
     link_shared(account.agent.as_str(), account.config_path.as_deref());
     let added = account.added_antigravity()?;
-    let args = account
-        .agent
-        .ops()
-        .account_sign_in(account.config_path.as_deref())
-        .ok_or(crate::agent_accounts::NO_ACCOUNTS)?;
+    let server = match &added {
+        Some(added) if !by_code => Some(added.server()?),
+        _ => None,
+    };
+    let args = match &server {
+        Some(server) => [vec!["acp".to_owned()], server.args()].concat(),
+        None => account
+            .agent
+            .ops()
+            .account_sign_in(account.config_path.as_deref())
+            .ok_or(crate::agent_accounts::NO_ACCOUNTS)?,
+    };
     let mut command = account.command().await?;
     command.args(args);
     command
@@ -271,6 +285,8 @@ async fn run(core: &Arc<Core>, account: &Account, ended: Ended) -> CoreResult<()
     let mut child = command
         .spawn()
         .map_err(|_| format!("Could not start the {} sign-in", account.agent.as_str()))?;
+    let mut input = child.stdin.take();
+    let mut asking = server.as_ref().and_then(|_| input.take());
     let key = account.key();
     let id = uuid::Uuid::new_v4();
     let (stop, stopped) = oneshot::channel();
@@ -278,9 +294,10 @@ async fn run(core: &Arc<Core>, account: &Account, ended: Ended) -> CoreResult<()
         key.clone(),
         SignIn {
             id,
-            input: child.stdin.take(),
+            input,
             stop: Some(stop),
             page: None,
+            by_code,
             ended,
         },
     );
@@ -292,7 +309,7 @@ async fn run(core: &Arc<Core>, account: &Account, ended: Ended) -> CoreResult<()
         let _ = stop.send(());
     }
 
-    let (lines_tx, mut lines) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (lines_tx, mut lines) = mpsc::unbounded_channel::<String>();
     for stream in [
         child
             .stdout
@@ -322,7 +339,10 @@ async fn run(core: &Arc<Core>, account: &Account, ended: Ended) -> CoreResult<()
     account.added_antigravity()?;
     let watch = async {
         tokio::select! {
-            status = async {
+            signed_in = async {
+                if let (Some(server), Some(asking)) = (&server, &mut asking) {
+                    return in_browser(server, asking, &mut lines).await;
+                }
                 while let Some(line) = lines.recv().await {
                     if !shown_url {
                         if let Some(url) = first_url(&line) {
@@ -352,8 +372,8 @@ async fn run(core: &Arc<Core>, account: &Account, ended: Ended) -> CoreResult<()
                         }
                     }
                 }
-                Ok(child.wait().await)
-            } => Some(status),
+                Ok(child.wait().await.is_ok_and(|status| status.success()))
+            } => Some(signed_in),
             _ = stopped => None,
         }
     };
@@ -363,7 +383,7 @@ async fn run(core: &Arc<Core>, account: &Account, ended: Ended) -> CoreResult<()
     pages_changed(core);
     match ended {
         Ok(Some(Err(refused))) => Err(refused),
-        Ok(Some(Ok(Ok(status)))) if status.success() => {
+        Ok(Some(Ok(true))) => {
             if let Some(added) = added {
                 if let Err(removed) = account.added_antigravity() {
                     let _ = added.forget_sign_in();
@@ -389,6 +409,56 @@ async fn run(core: &Arc<Core>, account: &Account, ended: Ended) -> CoreResult<()
         Ok(None) => Err("Sign-in stopped".into()),
         Err(_) => Err("Sign-in timed out".into()),
     }
+}
+
+/// Signs in through agy's agent server, which opens the page itself and answers once the page
+/// has come back to it.
+async fn in_browser(
+    server: &antigravity::OnAccount,
+    input: &mut ChildStdin,
+    lines: &mut mpsc::UnboundedReceiver<String>,
+) -> CoreResult<bool> {
+    const STARTED: u64 = 1;
+    const SIGNED_IN: u64 = 2;
+    let hello = json!({ "protocolVersion": 1, "clientCapabilities": {} });
+    ask(input, STARTED, "initialize", hello).await?;
+    while let Some(line) = lines.recv().await {
+        let Ok(said) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        if said.get("method").is_some() {
+            continue;
+        }
+        match said.get("id").and_then(Value::as_u64) {
+            Some(STARTED) if offers_browser(&said) => {
+                let method = json!({ "methodId": antigravity::BROWSER_SIGN_IN });
+                ask(input, SIGNED_IN, "authenticate", method).await?;
+                if !server.confirmed().await {
+                    return Err(antigravity::WRONG_STORE.into());
+                }
+            }
+            Some(SIGNED_IN) => return Ok(said.get("error").is_none() && server.signed_in().await),
+            Some(STARTED) => return Ok(false),
+            _ => {}
+        }
+    }
+    Ok(false)
+}
+
+fn offers_browser(said: &Value) -> bool {
+    let methods = said
+        .pointer("/result/authMethods")
+        .and_then(Value::as_array);
+    methods.is_some_and(|methods| {
+        let mut ids = methods.iter().filter_map(|method| method.get("id"));
+        ids.any(|id| id == antigravity::BROWSER_SIGN_IN)
+    })
+}
+
+async fn ask(input: &mut ChildStdin, id: u64, method: &str, params: Value) -> CoreResult<()> {
+    let line = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
+    let written = input.write_all(format!("{line}\n").as_bytes()).await;
+    written.map_err(|_| CoreError::from("Could not start the Antigravity sign-in"))
 }
 
 /// Hands a running sign-in the code its page showed, for a CLI that asks

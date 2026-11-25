@@ -34,6 +34,16 @@ pub struct Account {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SigningIn {
+    #[serde(flatten)]
+    pub account: Account,
+    /// Signs in with a code the page shows, for when the browser cannot come back to this host.
+    #[serde(default)]
+    pub by_code: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Code {
     #[serde(flatten)]
     pub account: Account,

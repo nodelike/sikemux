@@ -312,7 +312,7 @@ crate::calls! {
     "chatLeftOut" ChatLeftOut (crate::chat::ChatLeftOutParams) -> sikemux_view::chat::ChatLeftOut;
     "dropQueued" DropQueued (crate::chat::QueuedParams) -> ();
     "addProject" AddProject (crate::workspace::AddProjectParams) -> sikemux_view::workspace::ProjectInfo;
-    "agentSignIn" AgentSignIn (crate::agent_sign_in::Account) -> ();
+    "agentSignIn" AgentSignIn (crate::agent_sign_in::SigningIn) -> ();
     "agentSignInCode" AgentSignInCode (crate::agent_sign_in::Code) -> ();
     "cancelAgentSignIn" CancelAgentSignIn (crate::agent_sign_in::Account) -> ();
     "agentSignOut" AgentSignOut (crate::agent_sign_in::Account) -> ();

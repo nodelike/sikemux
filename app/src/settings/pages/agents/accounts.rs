@@ -8,8 +8,8 @@ use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, Anchor, AnyElement, App, ClickEvent, Context, Entity, IntoElement, ParentElement,
-    SharedString, Styled, Window,
+    div, px, Anchor, AnyElement, App, ClickEvent, Context, Div, Entity, IntoElement, ParentElement,
+    SharedString, Stateful, Styled, Window,
 };
 use sikemux_agents::agent_accounts::{by_hand, Profile};
 
@@ -61,7 +61,7 @@ fn signing(bench: &Workbench, id: &str, this: &Entity<Workbench>, cx: &App) -> O
     };
     let owned = id.to_owned();
     Some(match bench.accounts.signing.get(id)? {
-        SignIn::Waiting { url, code } => div()
+        SignIn::Waiting { url, code, .. } => div()
             .flex()
             .items_center()
             .gap(SPACE_2)
@@ -514,11 +514,15 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
             })
             .child(cancel())
         }
-        (Some(profile), Some(SignIn::Waiting { url, .. })) if by_hand(&profile.provider) => {
+        (Some(profile), Some(SignIn::Waiting { url, by_code, .. }))
+            if by_hand(&profile.provider) && (*by_code || url.is_some()) =>
+        {
             pasted_sign_in(profile, url.clone(), open, mark, &label, this, cx)
         }
-        (Some(profile), Some(SignIn::Waiting { url, code })) => {
+        (Some(profile), Some(SignIn::Waiting { url, code, .. })) => {
             let id = profile.id.clone();
+            let by_code = (by_hand(&profile.provider))
+                .then(|| sign_in::links().child(with_code(profile, this, cx)));
             let help = url.clone().map(|url| match code {
                 Some(field) => {
                     let id = id.clone();
@@ -568,6 +572,7 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
                 cx,
             ))
             .children(help)
+            .children(by_code)
         }
         (Some(profile), Some(SignIn::Failed(message))) => {
             let id = profile.id.clone();
@@ -588,7 +593,9 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
                         accounts::sign_in_again(bench, &id, window, cx);
                     })),
             )
-            .child(cancel())
+            .child(cancel().when(by_hand(&profile.provider), |links| {
+                links.child(with_code(profile, this, cx))
+            }))
         }
         (Some(profile), None) => signed_in(bench, profile, mark, this),
     };
@@ -611,6 +618,14 @@ fn one_sign_in(mark: AnyElement, label: &str, this: &Entity<Workbench>) -> sign_
             .wide()
             .on_click(on(this, |bench, _, cx| accounts::close_dialog(bench, cx))),
     )
+}
+
+fn with_code(profile: &Profile, this: &Entity<Workbench>, cx: &App) -> Stateful<Div> {
+    let id = profile.id.clone();
+    sign_in::link("sign-in-by-code", t!("Use a code instead"), cx)
+        .clicks(on(this, move |bench, window, cx| {
+            accounts::sign_in_by_code(bench, &id, window, cx)
+        }))
 }
 
 /// A sign-in whose page, which its agent opens, shows a code to paste here. The field is there as
