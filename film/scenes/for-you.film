@@ -17,4 +17,6 @@ settle 4
 snap for-you
 click 1000,216
 settle 2
+front Wren
+settle 3
 snap for-you-opened
