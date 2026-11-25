@@ -2128,7 +2128,10 @@ fn pressed<A: gpui::Action, F: Fn(&A) -> Press + 'static>(
             if let Some(ask) = ask {
                 bench.ask_answering(&agent, ask, cx);
             }
-            taken.then(|| cx.notify())
+            taken.then(|| {
+                bench.redraw_composer(&agent, cx);
+                bench.parts.redraw(&bench.parts.stage, cx);
+            })
         });
         if !matches!(taken, Ok(Some(()))) {
             cx.propagate();
@@ -2241,8 +2244,11 @@ impl Workbench {
         let calls = self.calls_of(chat.target.place(), &agent.id, chat.last_said(cx));
         chat.calls.update(cx, |shown, cx| shown.show(calls, cx));
         if let Some(composing) = &chat.composer {
-            composing.view.update(cx, |view, _| {
-                view.agent = Some(agent);
+            composing.view.update(cx, |view, cx| {
+                if view.agent.as_ref() != Some(&agent) {
+                    view.agent = Some(agent);
+                    cx.notify();
+                }
             });
         }
     }

@@ -283,7 +283,8 @@ impl Workbench {
                         if let Some(composing) = bench.composing_mut(&agent) {
                             composing.stashed = id.clone();
                         }
-                        cx.notify();
+                        bench.redraw_composer(&agent, cx);
+                        bench.parts.redraw(&bench.parts.stage, cx);
                         let agent = agent.clone();
                         cx.spawn(async move |bench, cx| {
                             cx.background_executor().timer(UNDO_FOR).await;
@@ -294,7 +295,8 @@ impl Workbench {
                                         .filter(|composing| composing.stashed == id)
                                     {
                                         composing.stashed = None;
-                                        cx.notify();
+                                        bench.redraw_composer(&agent, cx);
+                                        bench.parts.redraw(&bench.parts.stage, cx);
                                     }
                                 })
                                 .ok();
@@ -338,7 +340,8 @@ impl Workbench {
             }
         })
         .detach();
-        cx.notify();
+        self.redraw_composer(agent, cx);
+        self.parts.redraw(&self.parts.stage, cx);
     }
 
     /// Takes stash item `id` off the account, on every device.

@@ -235,7 +235,7 @@ pub fn pinned(
             this.update(cx, |bench, cx| {
                 bench.pin_move = None;
                 bench.move_pin(&chat, index);
-                cx.notify();
+                bench.parts.redraw(&bench.parts.agents, cx);
             })
         })
         .child(slid)
@@ -273,7 +273,7 @@ fn pin_over(
     };
     if bench.pin_move.as_ref() != Some(&next) {
         bench.pin_move = Some(next);
-        cx.notify();
+        bench.parts.redraw(&bench.parts.agents, cx);
     }
 }
 
@@ -332,7 +332,7 @@ pub fn tab(
             this.update(cx, |bench, cx| {
                 bench.reorder = None;
                 bench.move_tab(&dropped.strip, &dropped.tab, index);
-                cx.notify();
+                bench.parts.redraw(&bench.parts.bar, cx);
             })
         })
         .child(slid)
@@ -368,7 +368,7 @@ fn over(
     };
     if bench.reorder.as_ref() != Some(&next) {
         bench.reorder = Some(next);
-        cx.notify();
+        bench.parts.redraw(&bench.parts.bar, cx);
     }
 }
 

@@ -325,7 +325,7 @@ pub(super) fn stop_turn(
             }
             let composing = bench.composing_mut(&agent)?;
             composing.dismissed = Some(composing.suggested.take()?);
-            cx.notify();
+            bench.redraw_composer(&agent, cx);
             Some(())
         });
         if !matches!(stopped, Ok(Some(()))) {
@@ -789,7 +789,7 @@ pub(super) fn composer(
                     }
                     if let Some(composing) = bench.composing_mut(&agent) {
                         composing.model_open = open;
-                        cx.notify();
+                        bench.redraw_composer(&agent, cx);
                     }
                 })
                 .ok();
@@ -1298,7 +1298,14 @@ impl Workbench {
                             if !empty {
                                 bench.began_writing(&owner);
                             }
-                            cx.notify();
+                            bench.redraw_composer(&owner, cx);
+                            if bench
+                                .feeds
+                                .questions_outside_calls()
+                                .any(|question| question.asks(&owner) && !question.secret)
+                            {
+                                bench.parts.redraw(&bench.parts.stage, cx);
+                            }
                         }
                         if let Some(composing) = bench.composing_mut(&owner) {
                             composing.settle(cx);
@@ -1319,12 +1326,12 @@ impl Workbench {
                     InputEvent::PressEnter { shift: false, .. } => {
                         bench.keep_secret(&owner, window, cx);
                     }
-                    InputEvent::Change => cx.notify(),
+                    InputEvent::Change => bench.parts.redraw(&bench.parts.stage, cx),
                     InputEvent::Focus | InputEvent::Blur => {
                         if let Some(composing) = bench.composing_mut(&owner) {
                             composing.secret_focused = matches!(event, InputEvent::Focus);
                         }
-                        cx.notify();
+                        bench.parts.redraw(&bench.parts.stage, cx);
                     }
                     _ => {}
                 },
@@ -1418,7 +1425,7 @@ impl Workbench {
         };
         append(&draft, &text, window, cx);
         draft.read(cx).focus_handle(cx).focus(window, cx);
-        cx.notify();
+        self.redraw_composer(agent, cx);
     }
 
     /// Stops the turn running in `agent`'s chat. The messages waiting behind it come back
@@ -1434,7 +1441,8 @@ impl Workbench {
         self.ask_chat(ChatAsk::Cancel {
             agent: agent.to_owned(),
         });
-        cx.notify();
+        self.redraw_composer(agent, cx);
+        self.parts.redraw(&self.parts.stage, cx);
     }
 
     /// Keeps what the empty draft of the chat in front says in step with how the chat stands.
@@ -1649,7 +1657,7 @@ impl Workbench {
                     },
                     cx,
                 );
-                cx.notify();
+                self.parts.redraw(&self.parts.stage, cx);
             }
             return;
         }
@@ -1668,7 +1676,9 @@ impl Workbench {
             {
                 composing.refusal = Some(refused.into());
             }
-            return cx.notify();
+            self.redraw_composer(agent, cx);
+            self.parts.redraw(&self.parts.stage, cx);
+            return;
         }
         let sent = composing.held(cx);
         let steers = self.preferences().mid_turn_send == MidTurnSend::Steer;
@@ -1684,7 +1694,8 @@ impl Workbench {
         );
         draft.update(cx, |draft, cx| draft.set_value("", window, cx));
         self.keep_draft(agent, cx);
-        cx.notify();
+        self.redraw_composer(agent, cx);
+        self.parts.redraw(&self.parts.stage, cx);
     }
 
     pub fn keep_secret(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -1711,7 +1722,7 @@ impl Workbench {
             cx,
         );
         field.update(cx, |field, cx| field.set_value("", window, cx));
-        cx.notify();
+        self.parts.redraw(&self.parts.stage, cx);
     }
 
     /// Changes the chat of `agent` with its open questions to hand, and asks the core what that asks.

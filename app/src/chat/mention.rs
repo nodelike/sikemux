@@ -335,7 +335,7 @@ impl Workbench {
         if let Some(composing) = self.composing_mut(agent) {
             composing.menu = menu;
         }
-        cx.notify();
+        self.redraw_composer(agent, cx);
     }
 
     fn menu(&mut self, agent: &str, typed: Typed, cx: &mut Context<Self>) -> Menu {
@@ -407,7 +407,7 @@ impl Workbench {
         composing.draft.read(cx).focus_handle(cx).focus(window, cx);
         if composing.menu.as_ref().is_some_and(|menu| menu.pinned) {
             composing.menu = None;
-            return cx.notify();
+            return self.redraw_composer(agent, cx);
         }
         let start = composing.draft.read(cx).cursor();
         let typed = Typed {
@@ -420,7 +420,7 @@ impl Workbench {
         if let Some(composing) = self.composing_mut(agent) {
             composing.menu = Some(menu);
         }
-        cx.notify();
+        self.redraw_composer(agent, cx);
     }
 
     fn tracked_of(&self, agent: &str) -> Option<&Tracked> {
@@ -478,7 +478,7 @@ impl Workbench {
                     menu.selected = 0;
                 }
                 composing.tracked = Some(tracked);
-                cx.notify();
+                bench.redraw_composer(&agent, cx);
             })
             .ok();
         }))
@@ -609,7 +609,7 @@ impl Workbench {
                         .and_then(|composing| composing.menu.as_mut());
                     if let Some(menu) = menu.filter(|_| !choices.is_empty()) {
                         menu.choices = menu.choices.iter().cloned().chain(choices).collect();
-                        cx.notify();
+                        bench.redraw_composer(&agent, cx);
                     }
                 })
                 .ok();
@@ -680,7 +680,7 @@ impl Workbench {
                 {
                     menu.choices = entries.into();
                     menu.selected = 0;
-                    cx.notify();
+                    bench.redraw_composer(&agent, cx);
                 }
             })
             .ok();
@@ -750,7 +750,7 @@ impl Workbench {
             }
             draft.focus_handle(cx).focus(window, cx);
         });
-        cx.notify();
+        self.redraw_composer(agent, cx);
     }
 
     /// Moves the menu's pick by `by`, round its ends.
@@ -763,7 +763,7 @@ impl Workbench {
             if count > 0 {
                 menu.selected = crate::ui::list_picker::stepped(menu.selected, by, count);
                 menu.scroll.scroll_to_item(menu.selected);
-                cx.notify();
+                self.redraw_composer(agent, cx);
             }
         }
     }
@@ -798,7 +798,7 @@ impl Workbench {
     pub fn dismiss_menu(&mut self, agent: &str, cx: &mut Context<Self>) {
         if let Some(composing) = self.composing_mut(agent) {
             composing.menu = None;
-            cx.notify();
+            self.redraw_composer(agent, cx);
         }
     }
 
@@ -833,7 +833,7 @@ impl Workbench {
                     .draft
                     .update(cx, |draft, cx| draft.set_value("", window, cx));
                 self.side_chat(agent, text, cx);
-                return cx.notify();
+                return self.redraw_composer(agent, cx);
             }
             match own {
                 Own::Side => {}
@@ -845,7 +845,7 @@ impl Workbench {
                     self.toggle_yolo(agent)
                 }
             }
-            return cx.notify();
+            return self.redraw_composer(agent, cx);
         }
         let stashed = match &choice {
             Choice::Stashed(shown) => Some(shown.item.id.clone()),
@@ -853,7 +853,7 @@ impl Workbench {
         };
         if let Some(id) = stashed.clone().filter(|_| menu.pinned) {
             self.add_from_stash(agent, vec![id], cx);
-            return cx.notify();
+            return self.redraw_composer(agent, cx);
         }
         if let (Choice::Tracked(item), Some(project)) = (&choice, &project) {
             let id = tracked_id(item);
@@ -964,7 +964,7 @@ impl Workbench {
         if let Some(id) = stashed {
             self.add_from_stash(agent, vec![id], cx);
         }
-        cx.notify();
+        self.redraw_composer(agent, cx);
     }
 }
 

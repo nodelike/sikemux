@@ -22,6 +22,10 @@ use crate::toast;
 use crate::workbench::{Strip, Workbench};
 use sikemux_calls::layout::HostParams;
 
+fn shown_agent<'a>(view: &'a DeviceView, id: &str) -> Option<&'a sikemux_view::inbox::AgentShown> {
+    crate::agents::rows::rows_of(view).find(|row| row.agent_id == id)
+}
+
 /// What the watches that follow the front were last made for.
 #[derive(Default)]
 pub(crate) struct Watched {
@@ -81,8 +85,9 @@ impl Workbench {
                 self.terminals.reattach(&self.asks);
                 self.files.relist_shown(&self.target());
                 crate::editor::reconnected(self, cx);
+                self.redraw_all(cx);
             }
-            Update::View(place, view) => return self.view_arrived(place, *view, cx),
+            Update::View(place, view) => self.view_arrived(place, *view, cx),
             Update::HostReach(host, reached) => {
                 if reached {
                     let feed = self.feeds.host_mut(&host);
@@ -98,15 +103,22 @@ impl Workbench {
                     feed.reached = false;
                 }
                 self.watch_hosts_page();
-                self.parts.redraw_stage(cx);
+                self.parts
+                    .redraw_set(PartSet::SIDE | PartSet::AGENTS | PartSet::STAGE, cx);
+            }
+            Update::HostsUnavailable(reason) => {
+                self.feeds.unavailable = Some(reason);
+                self.parts.redraw_set(PartSet::SIDE | PartSet::STAGE, cx);
             }
             Update::HostsUnavailable(reason) => self.feeds.unavailable = Some(reason),
             Update::OnNetwork(key) => {
                 self.feeds.unavailable = None;
                 self.feeds.app_key = key;
+                self.parts.redraw_set(PartSet::SIDE | PartSet::STAGE, cx);
             }
             Update::HostHome(host, home) => {
                 self.feeds.host_mut(&host).home = Some(home);
+                self.parts.redraw_set(PartSet::AGENTS | PartSet::STAGE, cx);
             }
             Update::Chat(agent, news) => {
                 match news {
@@ -134,43 +146,49 @@ impl Workbench {
                 if restage && self.agent().is_some_and(|front| front.id == agent) {
                     self.parts.redraw_stage(cx);
                 }
-                return;
             }
             Update::Failed(error) => {
-                return self.notify(toast::error(error).autohide(false), cx);
+                self.notify(toast::error(error).autohide(false), cx);
             }
-            Update::Read(place, read, value) => return self.read_answered(place, read, value, cx),
+            Update::Read(place, read, value) => self.read_answered(place, read, value, cx),
             Update::Refused(place, read, error) => self.read_refused(place, read, error, cx),
             Update::Terminal(place, session, screenful) => {
                 let key = self.terminals.key(&place, session);
                 self.terminals.apply(key, screenful, cx);
-                return self.terminals.redraw(key, cx);
+                self.terminals.redraw(key, cx);
             }
-            Update::Lost(reason) => self.connection.lose(reason),
-            Update::Stopped => self.connection.stop(),
-            Update::Stuck(pid) => self.connection.hang(pid),
-            Update::ShutDown => return cx.quit(),
+            Update::Lost(reason) => {
+                self.connection.lose(reason);
+                cx.notify();
+            }
+            Update::Stopped => {
+                self.connection.stop();
+                cx.notify();
+            }
+            Update::Stuck(pid) => {
+                self.connection.hang(pid);
+                cx.notify();
+            }
+            Update::ShutDown => cx.quit(),
             Update::Notice {
                 title,
                 body,
                 agent,
                 goal,
             } => {
-                return crate::notifications::notice(self, title, body, agent, goal, cx);
+                crate::notifications::notice(self, title, body, agent, goal, cx);
             }
             Update::FocusAgent(agent) => {
                 cx.activate(true);
-                return self.open_agent(&agent, cx);
+                self.open_agent(&agent, cx);
             }
             Update::AccountDevice { key, name } => {
                 if key != self.feeds.app_key {
                     self.new_account_device(key, name, cx);
                 }
-                return;
             }
             Update::Network(change) => {
-                return self
-                    .voice
+                self.voice
                     .update(cx, |voice, cx| voice.network_changed(change, cx));
             }
             Update::TerminalExited(session, code) => {
@@ -183,7 +201,10 @@ impl Workbench {
                 }
                 self.remote = Some(*status);
                 crate::pairing::remote_moved(self, cx);
-                return self.parts.redraw_stage(cx);
+                self.parts.redraw_stage(cx);
+            }
+            Update::WindowCall(call_id, call) => {
+                self.answer_window_call(call_id, call, cx);
             }
             Update::WindowCall(call_id, call) => self.answer_window_call(call_id, call, cx),
             Update::Changed {
@@ -191,7 +212,120 @@ impl Workbench {
                 topic,
                 project,
                 paths,
-            } => return self.core_changed(place, topic, project, paths, cx),
+            } => self.core_changed(place, topic, project, paths, cx),
+        }
+    }
+
+    fn hosts_in_front(&self) -> bool {
+        self.tab().is_some_and(|tab| {
+            crate::panes::views(&tab.pane).any(|view| view.kind == PaneKind::Hosts)
+        })
+    }
+
+    fn strip_agents_changed(&self, prev: &DeviceView, next: &DeviceView) -> bool {
+        let Some(strip) = self.strip() else {
+            return false;
+        };
+        self.tabs(&strip).iter().any(|tab| {
+            crate::panes::views(&tab.pane)
+                .filter(|view| view.kind == PaneKind::Agent)
+                .any(|view| shown_agent(prev, view.target) != shown_agent(next, view.target))
+        })
+    }
+
+    fn stage_reads_inbox(&self, prev: &DeviceView, next: &DeviceView, cx: &gpui_kit::App) -> bool {
+        if self.settings.read(cx).is_open() {
+            return true;
+        }
+        let Some(tab) = self.tab() else {
+            return false;
+        };
+        crate::panes::views(&tab.pane).any(|view| match view.kind {
+            PaneKind::Hosts => true,
+            PaneKind::Agent => shown_agent(prev, view.target) != shown_agent(next, view.target),
+            _ => false,
+        })
+    }
+
+    fn diff_view(&self, place: &Place, next: &DeviceView, cx: &gpui_kit::App) -> (PartSet, bool) {
+        let here = *place == Place::This;
+        let Some(prev) = self.view_at(place) else {
+            let mut dirty = PartSet::ALL_PARTS;
+            if here {
+                dirty |= PartSet::SHELL;
+            }
+            return (dirty, true);
+        };
+        let mut dirty = PartSet::NONE;
+        let mut agents_dirty = false;
+        let finder_open = self.overlays.in_layer(crate::overlays::Layer::Finder);
+        let over_shown = self.over_shown();
+        let in_front = here || self.place() == *place;
+
+        if prev.workspace != next.workspace {
+            dirty |= PartSet::BAR | PartSet::SIDE | PartSet::AGENTS | PartSet::STAGE;
+            if finder_open {
+                dirty |= PartSet::FINDER;
+            }
+            if over_shown {
+                dirty |= PartSet::OVER;
+            }
+            agents_dirty = true;
+        }
+        if prev.layout != next.layout {
+            if in_front {
+                dirty |= PartSet::BAR | PartSet::SIDE | PartSet::AGENTS | PartSet::STAGE;
+                if finder_open {
+                    dirty |= PartSet::FINDER;
+                }
+                if !self.feeds.this.questions.is_empty()
+                    || !self.feeds.in_front().questions.is_empty()
+                {
+                    dirty |= PartSet::SHELL;
+                }
+            }
+            agents_dirty = true;
+        }
+        if prev.sessions != next.sessions && in_front {
+            dirty |= PartSet::BAR | PartSet::AGENTS | PartSet::STAGE;
+            if over_shown {
+                dirty |= PartSet::OVER;
+            }
+        }
+        if prev.chats != next.chats && in_front {
+            dirty |= PartSet::BAR | PartSet::AGENTS | PartSet::STAGE;
+        }
+        if prev.attentions != next.attentions {
+            dirty |= PartSet::BAR | PartSet::SIDE | PartSet::AGENTS;
+        }
+        if prev.recent != next.recent && in_front {
+            dirty |= PartSet::AGENTS;
+            if finder_open {
+                dirty |= PartSet::FINDER;
+            }
+            agents_dirty = true;
+        }
+        if prev.inbox != next.inbox {
+            dirty |= PartSet::AGENTS;
+            agents_dirty = true;
+            if prev.inbox.projects != next.inbox.projects {
+                dirty |= PartSet::SIDE;
+            }
+            if finder_open {
+                dirty |= PartSet::FINDER;
+            }
+            if over_shown {
+                dirty |= PartSet::OVER;
+            }
+            if self.strip_agents_changed(prev, next) {
+                dirty |= PartSet::BAR;
+            }
+            if self.stage_reads_inbox(prev, next, cx) {
+                dirty |= PartSet::STAGE;
+            }
+        }
+        if prev.calls != next.calls {
+            dirty |= PartSet::BAR | PartSet::STAGE;
         }
         cx.notify();
     }

@@ -77,7 +77,7 @@ impl Workbench {
         {
             check.fixing = true;
         }
-        cx.notify();
+        self.parts.redraw(&self.parts.bar, cx);
         cx.spawn(async move |bench, cx| {
             let answer = asked.await;
             let _ = bench.update(cx, |bench, cx| {
@@ -114,7 +114,7 @@ impl Workbench {
                         );
                     }
                 }
-                cx.notify();
+                bench.parts.redraw(&bench.parts.bar, cx);
             });
         })
         .detach();
@@ -169,7 +169,7 @@ impl Workbench {
 
     fn close_run_check(&mut self, cx: &mut Context<Self>) {
         self.overlays.run_check = None;
-        cx.notify();
+        self.parts.redraw(&self.parts.bar, cx);
     }
 }
 

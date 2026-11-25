@@ -34,7 +34,7 @@ use sikemux_view::updates::UpdateStatus;
 use crate::chat::Question;
 use crate::hosts::Place;
 use crate::theme;
-use crate::workbench::Workbench;
+use crate::workbench::{PartSet, Workbench};
 use sikemux_calls::call;
 use sikemux_calls::git::call as git_call;
 use sikemux_calls::Call;
@@ -328,12 +328,16 @@ impl Workbench {
                 self.feeds.keep_linked(&self.reads.hosts);
                 self.follow_folded(cx);
                 self.watch_hosts_page();
+                let mut dirty = PartSet::BAR | PartSet::SIDE | PartSet::STAGE;
+                if self.overlays.in_layer(crate::overlays::Layer::Finder) {
+                    dirty |= PartSet::FINDER;
+                }
+                self.redraw(dirty, cx);
             }
             Read::SkillsAdded => {
                 if let Some(added) = decoded(value, "skills added") {
                     self.offer_skills(added, cx);
                 }
-                return;
             }
             Read::Plugins => {
                 crate::settings::providers_changed(self, cx);
@@ -342,6 +346,7 @@ impl Workbench {
                     return;
                 }
                 crate::settings::plugins_changed(self, cx);
+                self.redraw(PartSet::STAGE | PartSet::SHELL, cx);
             }
             Read::Update => {
                 let ready = |status: &UpdateStatus| {
@@ -393,14 +398,19 @@ impl Workbench {
                         cx.defer(move |cx| crate::updates::restart_when_keys_rest(asks, cx));
                     }
                 }
+                self.redraw(PartSet::SIDE | PartSet::STAGE | PartSet::SHELL, cx);
             }
             Read::Questions => {
                 let Some(asked) = decoded::<Vec<AgentQuestion>>(value, "questions") else {
-                    return cx.notify();
+                    return;
                 };
-                self.feeds.at_mut(&place).questions = (asked.into_iter())
+                let questions: Vec<Question> = (asked.into_iter())
                     .map(|asked| Question { asked })
                     .collect();
+                if keep(&mut self.feeds.at_mut(&place).questions, questions) {
+                    self.redraw_composers(cx);
+                    self.redraw(PartSet::STAGE | PartSet::SHELL, cx);
+                }
             }
             Read::Theme => {
                 if let Some(palette) = decoded(value, "theme") {
@@ -410,35 +420,42 @@ impl Workbench {
                         pane.update(cx, |pane, cx| pane.retheme(cx));
                     }
                     cx.refresh_windows();
+                    self.redraw_all(cx);
                 }
             }
-            Read::Picture => self
-                .picture
-                .read(decoded(value, "account picture").flatten()),
+            Read::Picture => {
+                self.picture
+                    .read(decoded(value, "account picture").flatten());
+                self.parts.redraw_set(PartSet::SIDE | PartSet::STAGE, cx);
+            }
             Read::SignIn => match decoded::<SignInPage>(value, "sign-in page") {
                 Some(page) => {
                     cx.open_url(&page.url);
                     Target::here(&self.asks)
                         .answer::<call::AccountSignInFinish>(Read::SignInFinished, NoParams {});
                 }
-                None => self.signing_in = false,
+                None => {
+                    self.signing_in = false;
+                    self.redraw(PartSet::SIDE | PartSet::STAGE | PartSet::SHELL, cx);
+                }
             },
             Read::SignInFinished => {
                 self.signing_in = false;
                 crate::pairing::offer_account_phones(self, cx);
+                self.redraw(PartSet::SIDE | PartSet::STAGE | PartSet::SHELL, cx);
             }
             Read::FilesList => {
                 self.files_retry.answered();
                 let listed = decoded(value, "file list").unwrap_or_default();
                 self.files.listed(listed, &self.target());
-                return self.parts.redraw(&self.parts.agents, cx);
+                self.parts.redraw(&self.parts.agents, cx);
             }
             Read::GitProjectRepo => {
                 let was = self.git_repo();
                 if let Some(found) = decoded(value, "project repository") {
                     self.feeds.at_mut(&place).git_project_repo = Some(found);
                 }
-                return self.follow_git_repo(was, cx);
+                self.follow_git_repo(was, cx);
             }
             Read::GitOverview => {
                 // An overview that does not read is kept too, which the Git pane says.
@@ -453,8 +470,7 @@ impl Workbench {
                 if let Some(overview) = overview {
                     self.git.overview(overview, in_front, cx);
                 }
-                self.parts.redraw(&self.parts.bar, cx);
-                return self.parts.redraw(&self.parts.agents, cx);
+                self.parts.redraw_set(PartSet::BAR | PartSet::AGENTS, cx);
             }
             Read::ProjectFiles => {
                 let answered = decoded(value, "project files")
@@ -463,7 +479,6 @@ impl Workbench {
                     self.rank(cx);
                     self.files_listed(cx);
                 }
-                return;
             }
             Read::Preferences => {
                 if let Some(preferences) = decoded::<Preferences>(value, "preferences") {
@@ -500,11 +515,12 @@ impl Workbench {
                     self.preferences = Some(preferences);
                     self.sync_chat_views(cx);
                     self.read_usage_at_start();
-                    self.parts.redraw(&self.parts.finder, cx);
+                    self.redraw_composers(cx);
                 }
                 self.terminals.redraw_all(cx);
                 crate::notifications::introduce(self, cx);
                 crate::notifications::kept_running(self, cx);
+                self.redraw_all(cx);
             }
             Read::GitDraft => {
                 let feed = self.feeds.at_mut(&place);
@@ -523,6 +539,8 @@ impl Workbench {
                 if unseen && self.stash_in_front() {
                     self.see_stash();
                 }
+                self.redraw_composers(cx);
+                self.parts.redraw(&self.parts.stage, cx);
             }
             Read::Drafts => {
                 let elsewhere = place != Place::This;
@@ -531,7 +549,9 @@ impl Workbench {
                     return;
                 }
                 if let Some(drafts) = &feed.drafts {
-                    crate::chat::draft::take(&mut self.chats, drafts, elsewhere, cx);
+                    if crate::chat::draft::take(&mut self.chats, drafts, elsewhere, cx) {
+                        self.parts.redraw(&self.parts.stage, cx);
+                    }
                 }
             }
             Read::Usage => {
@@ -540,11 +560,17 @@ impl Workbench {
                     return;
                 }
                 self.accounts.forget_takers();
+                let mut dirty = PartSet::AGENTS;
+                if self.settings.read(cx).is_open() {
+                    dirty |= PartSet::STAGE;
+                }
+                self.parts.redraw_set(dirty, cx);
             }
             Read::Shares => {
                 if !keep_decoded(&mut self.reads.shares, value, "shares") {
                     return;
                 }
+                self.redraw(PartSet::STAGE | PartSet::SHELL, cx);
             }
             Read::Mods => {
                 let read = decoded(value, "mods");
@@ -552,18 +578,30 @@ impl Workbench {
                 if !read.is_some_and(|read| keep(kept, Some(read))) {
                     return;
                 }
-                self.parts.redraw(&self.parts.side, cx);
+                self.parts
+                    .redraw_set(PartSet::SIDE | PartSet::AGENTS | PartSet::STAGE, cx);
             }
             Read::Themes => {
                 if !keep_decoded(&mut self.reads.themes, value, "themes") {
                     return;
                 }
+                let mut dirty = PartSet::STAGE;
+                if self.overlays.in_layer(crate::overlays::Layer::Finder) {
+                    dirty |= PartSet::FINDER;
+                }
+                self.parts.redraw_set(dirty, cx);
             }
             Read::Catalog => {
                 if !keep_decoded(&mut self.reads.catalog.0, value, "agent catalog") {
                     return;
                 }
                 self.git.catalog(&self.reads.catalog, cx);
+                self.redraw_composers(cx);
+                let mut dirty = PartSet::AGENTS | PartSet::STAGE;
+                if self.overlays.in_layer(crate::overlays::Layer::Finder) {
+                    dirty |= PartSet::FINDER;
+                }
+                self.parts.redraw_set(dirty, cx);
             }
             Read::Trust => {
                 let kept = &mut self.feeds.at_mut(&place).trust;
@@ -571,11 +609,13 @@ impl Workbench {
                     return;
                 }
                 self.ask_trust(cx);
+                cx.notify();
             }
             Read::Tasks => {
                 if !keep_decoded(&mut self.feeds.at_mut(&place).tasks, value, "tasks") {
                     return;
                 }
+                self.parts.redraw_set(PartSet::BAR | PartSet::STAGE, cx);
             }
             Read::TaskList => {
                 if !keep_decoded(&mut self.feeds.at_mut(&place).task_list, value, "task list") {
@@ -598,6 +638,11 @@ impl Workbench {
             Read::ProjectConfig => {
                 if let Some(config) = decoded(value, "project config") {
                     crate::keymap::bind_project_actions(&crate::commands::action_keys(&config), cx);
+                    let mut dirty = PartSet::STAGE;
+                    if self.overlays.in_layer(crate::overlays::Layer::Finder) {
+                        dirty |= PartSet::FINDER;
+                    }
+                    self.parts.redraw_set(dirty, cx);
                 }
             }
             Read::Runs => {
@@ -606,6 +651,7 @@ impl Workbench {
                 }
                 self.place_agent_runs(cx);
                 self.show_started_runs();
+                self.parts.redraw_set(PartSet::BAR | PartSet::STAGE, cx);
             }
             Read::Activity => {
                 let Some(summary) = decoded(value, "activity") else {
@@ -614,6 +660,7 @@ impl Workbench {
                 if !keep(&mut self.feeds.at_mut(&place).activity, Some(summary)) {
                     return;
                 }
+                self.parts.redraw(&self.parts.stage, cx);
             }
             Read::ActivityEverywhere => {
                 let Some(summary) = decoded(value, "activity") else {
@@ -622,33 +669,34 @@ impl Workbench {
                 if !keep(&mut self.reads.activity_everywhere, Some(Some(summary))) {
                     return;
                 }
+                self.parts.redraw(&self.parts.stage, cx);
             }
             Read::ActivityWeek => {
                 let summary = decoded(value, "the week's activity");
                 crate::settings::week_read(self, summary, cx);
-                return;
             }
             Read::Ports => {
-                if !keep_decoded(&mut self.feeds.at_mut(&place).ports, value, "ports") {
-                    return;
-                }
+                keep_decoded(&mut self.feeds.at_mut(&place).ports, value, "ports");
             }
             Read::WhatsNew => {
                 let news = decoded::<WhatsNew>(value, "release notes");
                 let unseen = news.as_ref().is_some_and(|news| news.unseen);
                 let since = news.and_then(|news| news.since);
                 if keep(&mut self.reads.news_since, since) {
-                    cx.notify();
+                    self.parts.redraw_set(PartSet::SIDE | PartSet::OVER, cx);
                 }
                 crate::screens::experience::whats_new_read(self, unseen, cx);
             }
             Read::PickerFolders => {
-                keep_decoded(&mut self.reads.picker_folders, value, "project folders");
-                self.picker_answered(cx);
+                if keep_decoded(&mut self.reads.picker_folders, value, "project folders") {
+                    self.picker_answered(cx);
+                    cx.notify();
+                }
             }
             Read::SshHosts => {
-                keep_decoded(&mut self.reads.ssh_hosts, value, "SSH hosts");
-                self.picker_answered(cx);
+                if keep_decoded(&mut self.reads.ssh_hosts, value, "SSH hosts") {
+                    self.picker_answered(cx);
+                }
             }
             Read::WorktreePulls => {
                 self.feeds.at_mut(&place).worktree_pulls =
@@ -659,26 +707,28 @@ impl Workbench {
                             })
                             .ok()
                     });
+                self.redraw_composers(cx);
+                self.parts.redraw(&self.parts.stage, cx);
             }
             Read::Outside => {
                 if !keep_decoded(&mut self.reads.outside, value, "outside access") {
                     return;
                 }
                 self.outside_read(cx);
+                self.parts.redraw_stage(cx);
             }
             Read::Admissions => {
                 if !keep_decoded(&mut self.reads.admissions, value, "admissions") {
                     return;
                 }
+                self.parts.redraw(&self.parts.stage, cx);
             }
             Read::HostStats => {
                 if let Some(stats) = decoded(value, "host stats") {
                     self.host_stats_read(place, stats, cx);
                 }
-                return;
             }
         }
-        cx.notify();
     }
 
     pub(crate) fn read_refused(
@@ -700,6 +750,7 @@ impl Workbench {
                         .autohide(false),
                         cx,
                     );
+                    self.redraw(PartSet::SIDE | PartSet::STAGE | PartSet::SHELL, cx);
                 }
             }
             Read::FilesList => self.files_retry.refused(
@@ -714,6 +765,7 @@ impl Workbench {
             // Both draw empty rather than waiting on an answer that won't come.
             Read::Activity => {
                 self.feeds.at_mut(&place).activity = Some(ActivitySummary::default());
+                self.parts.redraw(&self.parts.stage, cx);
             }
             Read::ActivityEverywhere => {
                 self.reads.activity_everywhere = Some(None);

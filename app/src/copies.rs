@@ -506,7 +506,10 @@ pub fn copy_menu(
                 .on_click(move |_, _, cx| {
                     let _ = this.update(cx, |bench, cx| {
                         bench.rails.copy_leaves_uncommitted = !leaves;
-                        cx.notify();
+                        bench.parts.redraw_set(
+                            crate::workbench::PartSet::SIDE | crate::workbench::PartSet::AGENTS,
+                            cx,
+                        );
                     });
                 }),
         )
@@ -586,7 +589,10 @@ impl Workbench {
             said: said.into(),
         };
         self.rails.copy_notes.insert(identity.to_owned(), note);
-        cx.notify();
+        self.parts.redraw_set(
+            crate::workbench::PartSet::SIDE | crate::workbench::PartSet::AGENTS,
+            cx,
+        );
     }
 }
 
@@ -611,7 +617,10 @@ pub fn copy_note(
     let dismiss = (note.state != CopyState::Going).then(|| {
         Box::new(move |bench: &mut Workbench, cx: &mut Context<Workbench>| {
             bench.rails.copy_notes.remove(&identity);
-            cx.notify();
+            bench.parts.redraw_set(
+                crate::workbench::PartSet::SIDE | crate::workbench::PartSet::AGENTS,
+                cx,
+            );
         }) as Dismiss
     });
     let id = format!("copy-note-{}", folded.key());

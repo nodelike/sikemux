@@ -354,7 +354,10 @@ fn waiting_moved(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         })
         .detach();
     }
-    cx.notify();
+    bench.redraw(
+        crate::workbench::PartSet::OVER | crate::workbench::PartSet::SHELL,
+        cx,
+    );
 }
 
 /// What is left of the two minutes, as m:ss.
@@ -659,13 +662,23 @@ pub fn sign_in_box(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
 
 fn stop_sign_in(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     bench.cancel_sign_in();
-    cx.notify();
+    bench.redraw(
+        crate::workbench::PartSet::SIDE
+            | crate::workbench::PartSet::STAGE
+            | crate::workbench::PartSet::SHELL,
+        cx,
+    );
 }
 
 impl Workbench {
     pub fn sign_in(&mut self, cx: &mut Context<Self>) {
         self.signing_in = true;
-        cx.notify();
+        self.redraw(
+            crate::workbench::PartSet::SIDE
+                | crate::workbench::PartSet::STAGE
+                | crate::workbench::PartSet::SHELL,
+            cx,
+        );
         Target::here(&self.asks).answer::<call::AccountSignIn>(Read::SignIn, NoParams {});
     }
 

@@ -88,6 +88,8 @@ impl Workbench {
                 repo: None,
             },
         );
+        self.redraw_composer(agent, cx);
+        self.parts.redraw(&self.parts.stage, cx);
         let agent = agent.to_owned();
         cx.spawn(async move |bench, cx| {
             let made = made.await;
@@ -96,7 +98,6 @@ impl Workbench {
                 .ok();
         })
         .detach();
-        cx.notify();
     }
 
     fn worktree_made(
@@ -140,7 +141,8 @@ impl Workbench {
                 });
             }
         }
-        cx.notify();
+        self.redraw_composer(agent, cx);
+        self.parts.redraw(&self.parts.stage, cx);
     }
 
     /// Sends the message that waited for `agent`'s worktree, once the core shows the agent in

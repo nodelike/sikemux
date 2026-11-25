@@ -55,7 +55,7 @@ impl From<Ask> for Answering {
 }
 
 /// A question an agent put to the person, as the core's `questions` call lists it.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Question {
     pub asked: AgentQuestion,
 }
@@ -225,7 +225,8 @@ pub(super) fn questions(
                     },
                     cx,
                 );
-                cx.notify();
+                bench.redraw_composer(&agent, cx);
+                bench.parts.redraw(&bench.parts.stage, cx);
             }))
             .child(match count {
                 1 => t!("QUESTION"),
@@ -314,7 +315,8 @@ fn question_tabs(
                         cx,
                     );
                     bench.focus_answer(&agent, window, cx);
-                    cx.notify();
+                    bench.redraw_composer(&agent, cx);
+                    bench.parts.redraw(&bench.parts.stage, cx);
                 }))
                 .child(mark)
                 .child(div().min_w_0().truncate().child(question.title(ix, count)))
@@ -361,7 +363,7 @@ fn send_button(
                 |chat, open| chat.send_answers(open).map(Into::into),
                 cx,
             );
-            cx.notify();
+            bench.parts.redraw(&bench.parts.stage, cx);
         }))
         .child(t!("Send"))
         .child(
@@ -410,7 +412,8 @@ pub(super) fn asking(
                     },
                     cx,
                 );
-                cx.notify();
+                bench.redraw_composer(&agent, cx);
+                bench.parts.redraw(&bench.parts.stage, cx);
             }))
             .child(
                 ui::icon(Icon::Chevron, 10.)
@@ -514,7 +517,7 @@ pub(super) fn asking(
                     |chat, open| chat.choose(&id, ix, open).map(Into::into),
                     cx,
                 );
-                cx.notify();
+                bench.parts.redraw(&bench.parts.stage, cx);
             }))
             .into_any_element()
         })

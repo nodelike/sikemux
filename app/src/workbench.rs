@@ -169,6 +169,7 @@ pub struct Workbench {
     /// Settings, while they take the stage's place.
     pub settings: Entity<crate::settings::Settings>,
     pub feeds: crate::hosts::Feeds,
+    pub(crate) view_rev: u64,
     /// The stage's tabs while they move between one another.
     pub(crate) track: crate::track::Slide<String>,
     pub(crate) trust: Trust,
@@ -268,7 +269,7 @@ impl Workbench {
             while power.recv().await.is_some() {
                 let read = |bench: &mut Self, cx: &mut Context<Self>| {
                     bench.battery = crate::battery::read();
-                    cx.notify();
+                    bench.parts.redraw(&bench.parts.bar, cx);
                 };
                 if this.update(cx, read).is_err() {
                     break;
@@ -282,6 +283,7 @@ impl Workbench {
                 while let Ok(update) = updates.try_recv() {
                     batch.push(update);
                 }
+                let batch = coalesce_updates(batch);
                 if this
                     .update(cx, |this, cx| {
                         batch.into_iter().for_each(|update| this.apply(update, cx))
@@ -297,11 +299,16 @@ impl Workbench {
         for read in Read::FROM_THE_START {
             here.watch_plain(read);
         }
-        cx.spawn(async move |this, cx| loop {
+        cx.spawn_in(window, async move |this, cx| loop {
             cx.background_executor()
                 .timer(Self::until_next_minute())
                 .await;
-            if this.update(cx, |_, cx| cx.notify()).is_err() {
+            let ticked = this.update_in(cx, |bench, window, cx| {
+                if window.is_visible() {
+                    bench.parts.redraw_set(PartSet::BAR | PartSet::AGENTS, cx);
+                }
+            });
+            if ticked.is_err() {
                 break;
             }
         })
@@ -397,6 +404,7 @@ impl Workbench {
             skeleton: crate::skeleton::Skeleton::default(),
             space: None,
             feeds: Default::default(),
+            view_rev: 0,
             track: crate::track::Slide::default(),
             trust: Trust::default(),
             skills_offered: HashSet::new(),
@@ -501,6 +509,7 @@ impl Workbench {
     /// and the hint in it, its pane, its mods' panes and its desk, then who waits for the keys.
     fn settle_front(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.compose(window, cx);
+        self.follow_question_drafts(window, cx);
         self.hint(window, cx);
         self.make_front_pane(window, cx);
         self.mod_panes(cx);
@@ -751,10 +760,98 @@ impl Workbench {
     pub fn focused_agent(&self) -> Option<&str> {
         self.chats.focused.as_ref().map(|(agent, _)| agent.as_str())
     }
+
+    pub fn redraw(&self, set: PartSet, cx: &mut Context<Self>) {
+        self.parts.redraw_set(set, cx);
+        if set.contains(PartSet::SHELL) {
+            cx.notify();
+        }
+    }
+
+    pub fn redraw_all(&self, cx: &mut Context<Self>) {
+        self.redraw(PartSet::ALL, cx);
+    }
+
+    pub fn redraw_composer(&self, owner: &str, cx: &mut App) {
+        if let Some(composing) = self.composing(owner) {
+            cx.notify(composing.view.entity_id());
+        }
+    }
+
+    pub(crate) fn redraw_composers(&self, cx: &mut App) {
+        for (_, composing) in self.composers() {
+            cx.notify(composing.view.entity_id());
+        }
+    }
 }
 
-/// One part of the window, drawn as a view of its own so that it draws again only when the
-/// store changes everywhere or names this part.
+/// Drops earlier `Update::View` frames for the same `Place` within one drained batch.
+fn coalesce_updates(batch: Vec<crate::core::Update>) -> Vec<crate::core::Update> {
+    if batch.len() < 2 {
+        return batch;
+    }
+    let mut last_view: HashMap<Place, usize> = HashMap::new();
+    let mut view_count = 0usize;
+    for (index, update) in batch.iter().enumerate() {
+        if let crate::core::Update::View(place, _) = update {
+            view_count += 1;
+            last_view.insert(place.clone(), index);
+        }
+    }
+    if view_count == last_view.len() {
+        return batch;
+    }
+    batch
+        .into_iter()
+        .enumerate()
+        .filter(|(index, update)| match update {
+            crate::core::Update::View(place, _) => last_view.get(place) == Some(index),
+            _ => true,
+        })
+        .map(|(_, update)| update)
+        .collect()
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PartSet(u8);
+
+impl PartSet {
+    pub const NONE: Self = Self(0);
+    pub const BAR: Self = Self(1 << 0);
+    pub const SIDE: Self = Self(1 << 1);
+    pub const AGENTS: Self = Self(1 << 2);
+    pub const STAGE: Self = Self(1 << 3);
+    pub const FINDER: Self = Self(1 << 4);
+    pub const OVER: Self = Self(1 << 5);
+    pub const SHELL: Self = Self(1 << 6);
+    pub const ALL_PARTS: Self = Self(0b0011_1111);
+    pub const ALL: Self = Self(0b0111_1111);
+
+    pub const fn contains(self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+}
+
+impl std::ops::BitOr for PartSet {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Self(self.0 | rhs.0)
+    }
+}
+
+impl std::ops::BitOrAssign for PartSet {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+
+/// One part of the window, drawn as a view of its own so that it draws again only when a store
+/// it subscribes to changes or its part is named for redraw.
 pub struct Part {
     bench: WeakEntity<Workbench>,
     draw: fn(&mut Workbench, &mut Window, &mut Context<Workbench>) -> AnyElement,
@@ -777,8 +874,8 @@ impl Render for Part {
     }
 }
 
-/// The window's parts. A plain `cx.notify()` on the store draws them all again; output that
-/// touches one part, such as a terminal's, draws only that one.
+/// The window's parts. Each part redraws only when targeted or when one of its own observed stores
+/// notifies, rather than on every shell notification.
 #[derive(Clone)]
 pub struct Parts {
     pub bar: Entity<Part>,
@@ -797,11 +894,11 @@ impl Parts {
         let mut part =
             |draw: fn(&mut Workbench, &mut Window, &mut Context<Workbench>) -> AnyElement,
              column: bool| {
-                cx.new(|cx| Part {
+                cx.new(|_| Part {
                     bench: bench.downgrade(),
                     draw,
                     column,
-                    stores: vec![cx.observe(&bench, |_, _, cx| cx.notify())],
+                    stores: Vec::new(),
                 })
             };
         Self {
@@ -872,6 +969,27 @@ impl Parts {
     /// again, and GPUI aborts on an update of an entity it is already updating.
     pub fn redraw(&self, part: &Entity<Part>, cx: &mut App) {
         cx.notify(part.entity_id());
+    }
+
+    pub fn redraw_set(&self, set: PartSet, cx: &mut App) {
+        if set.contains(PartSet::BAR) {
+            self.redraw(&self.bar, cx);
+        }
+        if set.contains(PartSet::SIDE) {
+            self.redraw(&self.side, cx);
+        }
+        if set.contains(PartSet::AGENTS) {
+            self.redraw(&self.agents, cx);
+        }
+        if set.contains(PartSet::STAGE) {
+            self.redraw(&self.stage, cx);
+        }
+        if set.contains(PartSet::FINDER) {
+            self.redraw(&self.finder, cx);
+        }
+        if set.contains(PartSet::OVER) {
+            self.redraw(&self.over, cx);
+        }
     }
 
     /// Draws the stage again whenever `store` says it changed.

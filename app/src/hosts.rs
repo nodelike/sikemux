@@ -687,7 +687,10 @@ impl Workbench {
             let _ = bench.update(cx, |bench, cx| {
                 let place = host.map_or(Place::This, Place::Account);
                 bench.feeds.at_mut(&place).approval = Some(read.require_approval);
-                cx.notify();
+                bench.parts.redraw_set(
+                    crate::workbench::PartSet::SIDE | crate::workbench::PartSet::STAGE,
+                    cx,
+                );
             });
         })
         .detach();
@@ -939,7 +942,7 @@ impl Workbench {
         Target::here(&self.asks).call_typed::<call::ChooseHost>(HostParams {
             host: choice.key().to_string(),
         });
-        cx.notify();
+        self.parts.redraw(&self.parts.side, cx);
     }
 }
 

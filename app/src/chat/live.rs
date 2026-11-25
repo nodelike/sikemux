@@ -83,7 +83,7 @@ impl Label {
                     if let Some(chat) = bench.chats.open.get_mut(&agent) {
                         chat.toggle_group(&key);
                     }
-                    cx.notify();
+                    bench.parts.redraw(&bench.parts.stage, cx);
                 }))
             })
             .when(self.folded, |label| label.child(self.icon))
@@ -411,7 +411,7 @@ fn header(
                     }),
                 }
             }
-            cx.notify();
+            bench.parts.redraw(&bench.parts.stage, cx);
         }))
         .children(words)
         .child(div().flex_1())

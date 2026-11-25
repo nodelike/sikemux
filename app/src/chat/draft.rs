@@ -149,7 +149,8 @@ pub fn take(
     drafts: &Drafts,
     elsewhere: bool,
     cx: &mut Context<Workbench>,
-) {
+) -> bool {
+    let mut arrived = false;
     let open = (chats.open.iter_mut())
         .filter(|(_, chat)| is_elsewhere(chat) == elsewhere)
         .filter_map(|(agent, chat)| Some((agent.as_str(), chat.composer.as_mut()?)));
@@ -169,10 +170,12 @@ pub fn take(
         };
         if untouched {
             composing.arrived = Some((restored(&draft), shown, rev(drafts, owner)));
-            cx.notify();
+            gpui_kit::App::notify(cx, composing.view.entity_id());
+            arrived = true;
         }
         composing.synced = draft;
     }
+    arrived
 }
 
 /// Whether the chat runs on another host, whose core keeps its draft.
@@ -293,7 +296,7 @@ impl Workbench {
         }
         draft.read(cx).focus_handle(cx).focus(window, cx);
         self.typed_draft(agent, cx);
-        cx.notify();
+        self.redraw_composer(agent, cx);
     }
 
     /// Keeps `agent`'s draft once the person pauses.

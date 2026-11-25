@@ -117,12 +117,56 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     }
 }
 
-fn agents_page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
-    let project = bench.project();
-    let pins = project
-        .filter(|_| !bench.rails.all_projects)
-        .map(|project| bench.pinned_of(&project.id))
-        .unwrap_or_default();
+#[derive(PartialEq, Eq)]
+struct TreeKey {
+    view_rev: u64,
+    all_projects: bool,
+    all_harnesses: bool,
+    tag: Option<String>,
+    filter: String,
+    launcher_choice: Option<String>,
+    folded_teams_rev: u64,
+    older: Option<(String, String, u64)>,
+}
+
+struct HeadSection {
+    project: ProjectInfo,
+    chief: Option<AgentRow>,
+    fold_id: String,
+    fold: Option<Fold>,
+    team_needs_you: bool,
+    team: Vec<tree::Placed>,
+    own: Vec<tree::Placed>,
+}
+
+pub(crate) struct DerivedAgents {
+    key: TreeKey,
+    snoozed: Vec<tree::Placed>,
+    agents: Vec<AgentRow>,
+    chief_led: HashSet<String>,
+    sections: Vec<HeadSection>,
+    loose: Vec<tree::Placed>,
+    pinned_teams: HashMap<String, Vec<tree::Placed>>,
+    held_ids: HashSet<String>,
+}
+
+fn tree_key(bench: &Workbench) -> TreeKey {
+    TreeKey {
+        view_rev: bench.view_rev,
+        all_projects: bench.rails.all_projects,
+        all_harnesses: bench.rails.all_harnesses,
+        tag: bench.rails.tag.clone(),
+        filter: bench.filter_text().to_owned(),
+        launcher_choice: bench.launcher_choice.clone(),
+        folded_teams_rev: bench.rails.folded_teams_rev,
+        older: bench
+            .older
+            .as_ref()
+            .map(|older| (older.project.clone(), older.query.clone(), older.rev)),
+    }
+}
+
+fn derive_agents(bench: &Workbench, pins: &[&RecentInfo], key: TreeKey) -> DerivedAgents {
     let mut listed = bench.listed_agents();
     let chiefs: HashSet<String> = (listed.iter())
         .filter(|agent| agent.chief)
@@ -149,16 +193,10 @@ fn agents_page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let leading = tree::above(&agents, &working);
     let (gone, agents): (Vec<_>, Vec<_>) =
         (agents.into_iter()).partition(|agent| away(agent) && !leading.contains(&agent.id));
-    let snoozed: Vec<_> = (gone.into_iter())
+    let snoozed_rows: Vec<_> = (gone.into_iter())
         .filter(|agent| agent.settled_at.is_none())
         .collect();
-    let away_rows = |agents: &[AgentRow], cx: &mut Context<Workbench>| -> Vec<AnyElement> {
-        (tree::tree(agents, 0, &HashSet::new()).into_iter())
-            .map(|placed| agent_row(bench, &placed.row, &placed.hang, None, false, cx))
-            .collect()
-    };
-    let unseen = out_of_sight(bench, &agents, &chief_led);
-    let snoozed = away_rows(&snoozed, cx);
+    let snoozed = tree::tree(&snoozed_rows, 0, &HashSet::new());
     let homes = home_projects(bench);
     let place = bench.place();
     let mut projects: Vec<ProjectInfo> = match bench.rails.all_projects {
@@ -178,41 +216,62 @@ fn agents_page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             (project, chief)
         })
         .collect();
-    let leading: Vec<String> = (heads.iter())
-        .filter_map(|(_, chief)| chief.as_ref().map(|chief| chief.id.clone()))
+    let leading_chiefs: HashSet<&str> = (heads.iter())
+        .filter_map(|(_, chief)| chief.as_ref().map(|chief| chief.id.as_str()))
         .collect();
     let mut agents: Vec<AgentRow> = (agents.into_iter())
         .filter(|agent| {
-            !agent.chief || (agent.place != Place::This && !leading.contains(&agent.id))
+            !agent.chief
+                || (agent.place != Place::This && !leading_chiefs.contains(agent.id.as_str()))
         })
         .collect();
     if bench.rails.all_projects {
-        let at = |project: &str| heads.iter().position(|(known, _)| known.id == project);
-        agents.sort_by_key(|agent| at(home_of(&homes, agent)).unwrap_or(usize::MAX));
+        let head_pos: HashMap<&str, usize> = heads
+            .iter()
+            .enumerate()
+            .map(|(ix, (known, _))| (known.id.as_str(), ix))
+            .collect();
+        agents.sort_by_key(|agent| {
+            head_pos
+                .get(home_of(&homes, agent))
+                .copied()
+                .unwrap_or(usize::MAX)
+        });
     }
-    let (copy, rows) = team_rows(bench, &agents, &homes, heads, (&chiefs, chief_led), cx);
-    let moving = bench.pin_move.as_ref().filter(|_| cx.has_active_drag());
-    let tagged = bench.rails.tag.is_some();
-    let pinned: Vec<_> = pins
-        .iter()
-        .enumerate()
-        .filter(|(_, pin)| {
-            !tagged
-                || held
-                    .iter()
-                    .any(|agent| pin.agent_id.as_deref() == Some(agent.id.as_str()))
-        })
-        .filter_map(|(index, pin)| {
-            let row = match pin.agent_id.as_deref() {
-                Some(id) if held.iter().any(|agent| agent.id == id) => {
-                    let mine = tree::under(&held, &HashSet::from([id]));
-                    let team: Vec<AgentRow> = (held.iter())
-                        .filter(|agent| mine.contains(&agent.id))
+    let teams = bench.filter_text().is_empty();
+    let mut rows: Vec<AgentRow> = agents.clone();
+    let mut team_chief_led = chief_led.clone();
+    match teams {
+        true => {
+            let workers: Vec<AgentRow> = (remote_workers(bench, &agents).into_iter())
+                .filter_map(|worker| {
+                    let mut row = (agents.iter())
+                        .find(|agent| agent.id == worker.shown.agent_id)
                         .cloned()
-                        .collect();
-                    let placed = tree::tree(&team, 0, &bench.rails.folded_teams);
-                    if placed.first().is_none_or(|top| top.row.id != id) {
-                        return None;
+                        .or_else(|| crate::agents::rows::worker(worker))?;
+                    row.lead = worker.shown.lead.clone();
+                    if (row.lead.as_ref()).is_some_and(|lead| chiefs.contains(lead)) {
+                        row.lead = None;
+                        team_chief_led.insert(row.id.clone());
+                    }
+                    Some(row)
+                })
+                .collect();
+            let worker_ids: HashSet<&str> = workers.iter().map(|w| w.id.as_str()).collect();
+            rows.retain(|row| !worker_ids.contains(row.id.as_str()));
+            rows.extend(workers);
+        }
+        false => rows.iter_mut().for_each(|row| row.lead = None),
+    }
+    let home: Vec<(String, bool)> = {
+        let at: HashMap<&str, &AgentRow> = rows.iter().map(|row| (row.id.as_str(), row)).collect();
+        (rows.iter())
+            .map(|row| {
+                let mut top = row;
+                for _ in 0..rows.len() {
+                    match top.lead.as_deref().and_then(|lead| at.get(lead)) {
+                        Some(lead) => top = lead,
+                        None => break,
                     }
                     let rows = (placed.into_iter()).map(|placed| {
                         let fold = (placed.below > 0).then(|| Fold {
@@ -223,11 +282,147 @@ fn agents_page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                     });
                     div().flex().flex_col().children(rows).into_any_element()
                 }
-                _ => recent_row(bench, pin, cx),
-            };
-            Some(crate::drag::pinned(row, &pin.id, index, moving, &cx.entity()).into_any_element())
-        })
+                (
+                    home_of(&homes, top).to_owned(),
+                    team_chief_led.contains(&top.id),
+                )
+            })
+            .collect()
+    };
+    let mut grouped: HashMap<String, (Vec<AgentRow>, Vec<AgentRow>)> = HashMap::new();
+    for (row, (row_home, is_chief_led)) in rows.into_iter().zip(home) {
+        let entry = grouped.entry(row_home).or_default();
+        if is_chief_led {
+            entry.0.push(row);
+        } else {
+            entry.1.push(row);
+        }
+    }
+    let folded = &bench.rails.folded_teams;
+    let mut sections = Vec::with_capacity(heads.len());
+    for (project, chief) in heads {
+        let (team, own) = grouped.remove(&project.id).unwrap_or_default();
+        let fold_id = format!("chief:{}", project.id);
+        let shut = teams && !team.is_empty() && folded.contains(&fold_id);
+        let fold = (teams && !team.is_empty()).then_some(Fold {
+            open: !shut,
+            count: team.len(),
+        });
+        let team_needs_you = shut && team.iter().any(|agent| agent.group == AgentGroup::Blocked);
+        let placed_team = if shut {
+            Vec::new()
+        } else {
+            tree::tree(&team, 1, folded)
+        };
+        let placed_own = tree::tree(&own, 0, folded);
+        sections.push(HeadSection {
+            project,
+            chief,
+            fold_id,
+            fold,
+            team_needs_you,
+            team: placed_team,
+            own: placed_own,
+        });
+    }
+    let loose_rows: Vec<AgentRow> = grouped
+        .into_values()
+        .flat_map(|(team, own)| team.into_iter().chain(own))
         .collect();
+    let loose = tree::tree(&loose_rows, 0, folded);
+    let mut pinned_teams = HashMap::new();
+    for pin in pins {
+        if let Some(id) = pin.agent_id.as_deref() {
+            if held.iter().any(|agent| agent.id == id) {
+                let mine = tree::under(&held, &HashSet::from([id]));
+                let team: Vec<AgentRow> = (held.iter())
+                    .filter(|agent| mine.contains(&agent.id))
+                    .cloned()
+                    .collect();
+                let placed = tree::tree(&team, 0, folded);
+                if placed.first().is_some_and(|top| top.row.id == id) {
+                    pinned_teams.insert(id.to_owned(), placed);
+                }
+            }
+        }
+    }
+    DerivedAgents {
+        key,
+        snoozed,
+        agents,
+        chief_led,
+        sections,
+        loose,
+        pinned_teams,
+        held_ids,
+    }
+}
+
+fn agents_page(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
+    let project = bench.project();
+    let pins = project
+        .filter(|_| !bench.rails.all_projects)
+        .map(|project| bench.pinned_of(&project.id))
+        .unwrap_or_default();
+    let key = tree_key(bench);
+    let needs_derive = bench
+        .rails
+        .derived
+        .borrow()
+        .as_ref()
+        .is_none_or(|cached| cached.key != key);
+    if needs_derive {
+        let derived = derive_agents(bench, &pins, key);
+        *bench.rails.derived.borrow_mut() = Some(derived);
+    }
+    let (unseen, snoozed, copy, rows, pinned) = {
+        let derived_guard = bench.rails.derived.borrow();
+        let Some(derived) = derived_guard.as_ref() else {
+            return page_body().into_any_element();
+        };
+        let unseen = out_of_sight(bench, &derived.agents, &derived.chief_led);
+        let snoozed: Vec<AnyElement> = derived
+            .snoozed
+            .iter()
+            .map(|placed| agent_row(bench, &placed.row, &placed.hang, None, false, cx))
+            .collect();
+        let (copy, rows) = team_rows(bench, derived, cx);
+        let moving = bench.pin_move.as_ref().filter(|_| cx.has_active_drag());
+        let tagged = bench.rails.tag.is_some();
+        let pinned: Vec<_> = pins
+            .iter()
+            .enumerate()
+            .filter(|(_, pin)| {
+                !tagged
+                    || pin
+                        .agent_id
+                        .as_deref()
+                        .is_some_and(|id| derived.held_ids.contains(id))
+            })
+            .filter_map(|(index, pin)| {
+                let row = match pin.agent_id.as_deref() {
+                    Some(id) if derived.held_ids.contains(id) => {
+                        let placed = derived.pinned_teams.get(id)?;
+                        let rows = placed.iter().map(|placed| {
+                            let fold = (placed.below > 0).then(|| Fold {
+                                open: !bench.rails.folded_teams.contains(&placed.row.id),
+                                count: placed.below,
+                            });
+                            agent_row(bench, &placed.row, &placed.hang, fold, false, cx)
+                        });
+                        div().flex().flex_col().children(rows).into_any_element()
+                    }
+                    _ => recent_row(bench, pin, cx),
+                };
+                Some(
+                    crate::drag::pinned(row, &pin.id, index, moving, &cx.entity())
+                        .into_any_element(),
+                )
+            })
+            .collect();
+        (unseen, snoozed, copy, rows, pinned)
+    };
+    let tagged = bench.rails.tag.is_some();
     let mut recent: Vec<_> = project
         .map(|project| bench.recent_of(&project.id))
         .unwrap_or_default()
@@ -423,7 +618,7 @@ fn header(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
                 .pressed(bench.filter.is_some())
                 .on_click(cx.listener(|bench, _, window, cx| {
                     bench.toggle_filter(window, cx);
-                    cx.notify();
+                    bench.redraw_rail(Rail::Agents, cx);
                 }))
                 .into_any_element(),
             IconButton::new("start-agent", Icon::Plus, t!("Choose agent"))
@@ -537,7 +732,7 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             bench.launcher_choice = choice.clone();
         }
         bench.keep_rails(cx);
-        cx.notify();
+        bench.redraw_rail(Rail::Agents, cx);
     }));
     let glyph_ink = t.text_tertiary;
     ui::menu_button(
@@ -930,10 +1125,7 @@ pub type RailSeen = crate::motion::ListMemory<AgentRow>;
 /// head; those the person started stand at the root below it.
 fn team_rows(
     bench: &Workbench,
-    agents: &[AgentRow],
-    homes: &HashMap<(Place, String), String>,
-    heads: Vec<(ProjectInfo, Option<AgentRow>)>,
-    (chiefs, mut chief_led): (&HashSet<String>, HashSet<String>),
+    derived: &DerivedAgents,
     cx: &mut Context<Workbench>,
 ) -> (Option<AnyElement>, Vec<AnyElement>) {
     let chosen = bench.agent().map(|agent| agent.id);
@@ -943,47 +1135,11 @@ fn team_rows(
         .borrow_mut()
         .choose(chosen, cx.reduce_motion());
     let teams = bench.filter_text().is_empty();
-    let mut rows: Vec<AgentRow> = agents.to_vec();
-    match teams {
-        true => {
-            let workers: Vec<AgentRow> = (remote_workers(bench, agents).into_iter())
-                .filter_map(|worker| {
-                    let mut row = (agents.iter())
-                        .find(|agent| agent.id == worker.shown.agent_id)
-                        .cloned()
-                        .or_else(|| crate::agents::rows::worker(worker))?;
-                    row.lead = worker.shown.lead.clone();
-                    if (row.lead.as_ref()).is_some_and(|lead| chiefs.contains(lead)) {
-                        row.lead = None;
-                        chief_led.insert(row.id.clone());
-                    }
-                    Some(row)
-                })
-                .collect();
-            rows.retain(|row| !workers.iter().any(|worker| worker.id == row.id));
-            rows.extend(workers);
-        }
-        false => rows.iter_mut().for_each(|row| row.lead = None),
-    }
-    let home: Vec<(String, bool)> = {
-        let at: HashMap<&str, &AgentRow> = rows.iter().map(|row| (row.id.as_str(), row)).collect();
-        (rows.iter())
-            .map(|row| {
-                let mut top = row;
-                for _ in 0..rows.len() {
-                    match top.lead.as_deref().and_then(|lead| at.get(lead)) {
-                        Some(lead) => top = lead,
-                        None => break,
-                    }
-                }
-                (home_of(homes, top).to_owned(), chief_led.contains(&top.id))
-            })
-            .collect()
-    };
     let folded = &bench.rails.folded_teams;
-    let mut drawn: Vec<(String, AnyElement)> = Vec::with_capacity(rows.len() + heads.len());
+    let mut drawn: Vec<(String, AnyElement)> =
+        Vec::with_capacity(derived.agents.len() + derived.sections.len());
     let mut shown = Vec::new();
-    let mut place = |placed: Vec<tree::Placed>,
+    let mut place = |placed: &[tree::Placed],
                      drawn: &mut Vec<(String, AnyElement)>,
                      cx: &mut Context<Workbench>| {
         for placed in placed {
@@ -993,38 +1149,20 @@ fn team_rows(
             });
             let row = agent_row(bench, &placed.row, &placed.hang, fold, glided, cx);
             drawn.push((placed.row.id.clone(), row));
-            shown.push((placed.row.id.clone(), placed.row));
+            shown.push((placed.row.id.clone(), placed.row.clone()));
         }
     };
-    let mut headed = HashSet::new();
-    for (project, chief) in heads {
-        let (team, own): (Vec<_>, Vec<_>) = (rows.iter().zip(&home))
-            .filter(|(_, (home, _))| *home == project.id)
-            .partition(|(_, (_, chief_led))| *chief_led);
-        let team: Vec<AgentRow> = team.into_iter().map(|(row, _)| row.clone()).collect();
-        let own: Vec<AgentRow> = own.into_iter().map(|(row, _)| row.clone()).collect();
-        let fold_id = format!("chief:{}", project.id);
-        let shut = teams && !team.is_empty() && folded.contains(&fold_id);
-        let fold = (teams && !team.is_empty()).then_some(Fold {
-            open: !shut,
-            count: team.len(),
-        });
-        let team_needs_you = shut && team.iter().any(|agent| agent.group == AgentGroup::Blocked);
-        let placed = if shut {
-            Vec::new()
-        } else {
-            tree::tree(&team, 1, folded)
-        };
+    for section in &derived.sections {
         let head = chief_row(
             bench,
-            &project,
-            chief.as_ref(),
+            &section.project,
+            section.chief.as_ref(),
             bench.rails.all_projects,
-            fold.as_ref(),
-            team_needs_you,
+            section.fold.as_ref(),
+            section.team_needs_you,
             cx,
         );
-        let head = match placed.is_empty() {
+        let head = match section.team.is_empty() {
             true => head,
             false => div()
                 .relative()
@@ -1038,16 +1176,11 @@ fn team_rows(
                 ))
                 .into_any_element(),
         };
-        drawn.push((fold_id, head));
-        place(placed, &mut drawn, cx);
-        place(tree::tree(&own, 0, folded), &mut drawn, cx);
-        headed.insert(project.id);
+        drawn.push((section.fold_id.clone(), head));
+        place(&section.team, &mut drawn, cx);
+        place(&section.own, &mut drawn, cx);
     }
-    let loose: Vec<AgentRow> = (rows.iter().zip(&home))
-        .filter(|(_, (home, _))| !headed.contains(home))
-        .map(|(row, _)| row.clone())
-        .collect();
-    place(tree::tree(&loose, 0, folded), &mut drawn, cx);
+    place(&derived.loose, &mut drawn, cx);
     let view = format!(
         "{}:{}:{}",
         bench.rails.all_projects,
@@ -1202,11 +1335,13 @@ impl Workbench {
         if !self.rails.folded_teams.remove(lead) {
             self.rails.folded_teams.insert(lead.to_owned());
         }
-        cx.notify();
+        self.rails.folded_teams_rev = self.rails.folded_teams_rev.wrapping_add(1);
+        self.redraw_rail(Rail::Agents, cx);
     }
 }
 
 /// Whether a lead's team shows, and how many workers it has.
+#[derive(Clone)]
 struct Fold {
     open: bool,
     count: usize,
@@ -2043,7 +2178,9 @@ impl OutOfSight {
             )
             .clicks(cx.listener(move |bench, _, _, cx| {
                 if let Some(key) = &unfold {
-                    bench.rails.folded_teams.remove(key);
+                    if bench.rails.folded_teams.remove(key) {
+                        bench.rails.folded_teams_rev = bench.rails.folded_teams_rev.wrapping_add(1);
+                    }
                 }
                 let scroll = &bench.rails.scroll;
                 let view = scroll.bounds();
@@ -2053,7 +2190,7 @@ impl OutOfSight {
                 };
                 let offset = scroll.offset();
                 scroll.set_offset(gpui_kit::point(offset.x, offset.y + by));
-                cx.notify();
+                bench.redraw_rail(Rail::Agents, cx);
             }));
         let at = div().absolute().left_0().right_0().flex().justify_center();
         Some(
@@ -2111,7 +2248,7 @@ fn scope_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElem
         .on_select(cx.listener(|bench, all: &usize, _, cx| {
             bench.rails.all_projects = *all == 1;
             bench.keep_rails(cx);
-            cx.notify();
+            bench.redraw_rail(Rail::Agents, cx);
         }))
 }
 

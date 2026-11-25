@@ -335,7 +335,7 @@ impl Workbench {
                 .filter(|note| attached.contains(&note.uri)),
         );
         self.typed_draft(agent, cx);
-        cx.notify();
+        self.redraw_composer(agent, cx);
     }
 
     /// Hands `agent`'s next message a picture made in the app, named at its draft's caret, with
@@ -551,7 +551,7 @@ impl Workbench {
             if index < composing.context.len() {
                 composing.context.remove(index);
                 self.typed_draft(agent, cx);
-                cx.notify();
+                self.redraw_composer(agent, cx);
             }
         }
     }
@@ -566,7 +566,7 @@ impl Workbench {
         if let Some(composing) = self.composing_mut(agent) {
             composing.detach(index, window, cx);
             self.typed_draft(agent, cx);
-            cx.notify();
+            self.redraw_composer(agent, cx);
         }
     }
 

@@ -255,6 +255,7 @@ impl Setup {
 /// the messages that waited for an install go once it ended.
 fn redraw(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     bench.parts.redraw_stage(cx);
+    cx.notify();
     crate::chat::installs_moved(bench, cx);
 }
 

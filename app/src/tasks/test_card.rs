@@ -105,7 +105,7 @@ pub(crate) fn head_closing(
                 .small()
                 .on_click(cx.listener(move |bench, _, _, cx| {
                     close(bench);
-                    cx.notify();
+                    bench.parts.redraw(&bench.parts.bar, cx);
                 })),
         )
 }
@@ -232,7 +232,7 @@ fn actions(output: Option<(u64, String)>, cx: &mut Context<Workbench>) -> gpui_k
                 .on_click(cx.listener(move |bench, _, _, cx| {
                     bench.close_run_card();
                     bench.show(PaneKind::Terminal, &session.to_string(), Some(&label));
-                    cx.notify();
+                    bench.parts.redraw(&bench.parts.bar, cx);
                 }))
         }))
 }

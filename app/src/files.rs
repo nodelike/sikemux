@@ -559,7 +559,7 @@ pub fn page(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
                             action("files-collapse", Icon::CollapseAll, t!("Collapse folders"))
                                 .on_click(cx.listener(|bench, _, _, cx| {
                                     bench.files.collapse_all();
-                                    cx.notify();
+                                    bench.parts.redraw(&bench.parts.agents, cx);
                                 })),
                         ),
                 ),
@@ -863,7 +863,7 @@ fn click_row(bench: &mut Workbench, path: &Path, clicks: usize, cx: &mut Context
     } else {
         bench.preview_file(path);
     }
-    cx.notify();
+    bench.parts.redraw(&bench.parts.agents, cx);
 }
 
 #[derive(Clone, Copy)]
@@ -931,7 +931,7 @@ fn on_key(bench: &mut Workbench, key: Key, window: &mut Window, cx: &mut Context
             .scroll
             .scroll_to_item(to, ScrollStrategy::Nearest);
     }
-    cx.notify();
+    bench.parts.redraw(&bench.parts.agents, cx);
 }
 
 /// Opens the tree's menu over the row drawn at `bounds`, at its bottom-left as the Mac does, by
@@ -982,7 +982,7 @@ fn naming_row(naming: &Naming, depth: usize, cx: &mut Context<Workbench>) -> Any
             if event.keystroke.key == "escape" {
                 bench.files.naming = None;
                 cx.stop_propagation();
-                cx.notify();
+                bench.parts.redraw(&bench.parts.agents, cx);
             }
         }))
         .child(
@@ -1082,7 +1082,7 @@ impl Workbench {
                 }
                 InputEvent::Blur => {
                     bench.files.naming = None;
-                    cx.notify();
+                    bench.parts.redraw(&bench.parts.agents, cx);
                 }
                 _ => {}
             },
@@ -1094,7 +1094,7 @@ impl Workbench {
             input,
             _typing: typing,
         });
-        cx.notify();
+        self.parts.redraw(&self.parts.agents, cx);
     }
 
     /// Makes the file or folder named in the tree, opening a new file to write in.
@@ -1107,7 +1107,7 @@ impl Workbench {
         };
         let path = naming.parent.join(name);
         let made = match &naming.from {
-            Some(from) if *from == path => return cx.notify(),
+            Some(from) if *from == path => return self.parts.redraw(&self.parts.agents, cx),
             Some(from) => Box::pin(self.target().request_typed::<call::FilesRename>(
                 FileRenameParams {
                     from: from.to_string_lossy().into_owned(),
@@ -1143,12 +1143,12 @@ impl Workbench {
                         }
                         Err(error) => bench.notify(toast::error(error), cx),
                     }
-                    cx.notify();
+                    bench.parts.redraw(&bench.parts.agents, cx);
                 })
                 .ok();
         })
         .detach();
-        cx.notify();
+        self.parts.redraw(&self.parts.agents, cx);
     }
 
     /// Moves the editors and tabs of `from`, or of the files under it, to the same names under
@@ -1231,7 +1231,7 @@ impl Workbench {
                                 }
                                 Err(error) => bench.notify(toast::error(error), cx),
                             }
-                            cx.notify();
+                            bench.parts.redraw(&bench.parts.agents, cx);
                         })
                         .ok();
                 })
@@ -1270,7 +1270,7 @@ impl Workbench {
                         }
                         Err(error) => bench.notify(toast::error(error), cx),
                     }
-                    cx.notify();
+                    bench.parts.redraw(&bench.parts.agents, cx);
                 })
                 .ok();
         })
@@ -1312,7 +1312,7 @@ impl Workbench {
                     if let Some(error) = failed {
                         bench.notify(toast::error(error), cx);
                     }
-                    cx.notify();
+                    bench.parts.redraw(&bench.parts.agents, cx);
                 })
                 .ok();
         })

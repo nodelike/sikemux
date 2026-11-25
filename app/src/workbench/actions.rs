@@ -145,7 +145,7 @@ commands! {
     SwitchTheme = "theme.switch" acts |bench, window, cx| bench.toggle_theme_palette(window, cx);
     OpenFile = "palette.files" (OverModals) acts |bench, window, cx| {
         bench.toggle_finder(window, cx);
-        cx.notify();
+        bench.redraw(super::PartSet::FINDER | super::PartSet::SHELL, cx);
     };
     NewTerminal = "terminal.new" opens |bench, _, cx| bench.new_terminal(cx);
     Triage = "sikemux.triage" opens |bench, _, cx| bench.triage(cx);

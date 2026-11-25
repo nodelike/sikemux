@@ -124,8 +124,10 @@ impl Rails {
             all_harnesses: false,
             tag: None,
             folded_teams: HashSet::new(),
+            folded_teams_rev: 0,
             folded_groups: Vec::new(),
             seen: Default::default(),
+            derived: Default::default(),
             scroll,
             glide: Default::default(),
             frame: Rc::default(),
@@ -195,10 +197,12 @@ pub struct Rails {
     pub(crate) tag: Option<String>,
     /// The leads whose teams the agent rail folds away.
     pub(crate) folded_teams: std::collections::HashSet<String>,
+    pub(crate) folded_teams_rev: u64,
     /// The rail groups folded away, by key, such as `pinned`.
     pub(crate) folded_groups: Vec<String>,
     /// The agent rows the rail drew last, for telling the rows that have just arrived.
     pub(crate) seen: std::cell::RefCell<crate::agents::RailSeen>,
+    pub(crate) derived: std::cell::RefCell<Option<crate::agents::DerivedAgents>>,
     /// The tab rail's list of agents and chats, whose foot brings older chats into view.
     pub(crate) scroll: gpui_kit::ScrollHandle,
     /// Where the rail's agent rows were drawn, for the chosen surface to glide between them.
@@ -1700,7 +1704,12 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
             .detail(t!("Cancel"))
             .on_click(cx.listener(|bench, _, _, cx| {
                 bench.cancel_sign_in();
-                cx.notify();
+                bench.redraw(
+                    crate::workbench::PartSet::SIDE
+                        | crate::workbench::PartSet::STAGE
+                        | crate::workbench::PartSet::SHELL,
+                    cx,
+                );
             })),
         false => Row::new("account", t!("Sign in")).on_click(cx.listener(|bench, _, _, cx| {
             bench.sign_in(cx);
@@ -1797,7 +1806,14 @@ impl Workbench {
         *open = !*open;
         self.rails.peeking = None;
         self.keep_rails(cx);
-        cx.notify();
+        let toggled = match rail {
+            Rail::Side => crate::workbench::PartSet::SIDE,
+            Rail::Agents => crate::workbench::PartSet::AGENTS,
+        };
+        self.redraw(
+            crate::workbench::PartSet::BAR | crate::workbench::PartSet::SHELL | toggled,
+            cx,
+        );
     }
 
     /// How wide `rail` is drawn, which a narrow window can make less than the width kept.
@@ -1951,7 +1967,7 @@ impl Workbench {
             None => folded.push(key.to_owned()),
         }
         self.keep_rails(cx);
-        cx.notify();
+        self.redraw_rail(Rail::Agents, cx);
     }
 
     /// Opens both rails when either is closed, else closes both.
@@ -1961,7 +1977,13 @@ impl Workbench {
         self.rails.tab_open = open;
         self.rails.peeking = None;
         self.keep_rails(cx);
-        cx.notify();
+        self.redraw(
+            crate::workbench::PartSet::BAR
+                | crate::workbench::PartSet::SIDE
+                | crate::workbench::PartSet::AGENTS
+                | crate::workbench::PartSet::SHELL,
+            cx,
+        );
     }
 
     /// Shows a closed rail over the stage while the pointer is at its edge or over it, and puts

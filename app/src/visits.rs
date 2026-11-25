@@ -179,7 +179,7 @@ impl Workbench {
             to.extend(visits.now.replace(visit));
             visits.stepping = Some(Instant::now());
             self.note_visit();
-            cx.notify();
+            self.parts.redraw(&self.parts.bar, cx);
             return;
         }
     }

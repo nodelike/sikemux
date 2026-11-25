@@ -40,7 +40,7 @@ impl Workbench {
     /// Lists only the chats tagged `tag`, or every chat again for none.
     pub(crate) fn show_tag(&mut self, tag: Option<String>, cx: &mut Context<Self>) {
         self.rails.tag = tag;
-        cx.notify();
+        self.parts.redraw(&self.parts.agents, cx);
     }
 }
 

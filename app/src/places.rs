@@ -236,6 +236,11 @@ impl Workbench {
             self.keep_rails(cx);
         }
         self.show_rail_page(page, cx);
-        cx.notify();
+        self.redraw(
+            crate::workbench::PartSet::BAR
+                | crate::workbench::PartSet::AGENTS
+                | crate::workbench::PartSet::SHELL,
+            cx,
+        );
     }
 }

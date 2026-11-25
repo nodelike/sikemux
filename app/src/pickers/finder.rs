@@ -246,7 +246,10 @@ impl Workbench {
             .as_ref()
             .unwrap_or(&self.keys.focus)
             .focus(window, cx);
-        cx.notify();
+        self.redraw(
+            crate::workbench::PartSet::FINDER | crate::workbench::PartSet::SHELL,
+            cx,
+        );
     }
 
     fn choose(&mut self, place: usize, window: &mut Window, cx: &mut Context<Self>) {

@@ -37,7 +37,10 @@ impl Workbench {
             title: title.into(),
             session,
         });
-        cx.notify();
+        self.redraw(
+            crate::workbench::PartSet::OVER | crate::workbench::PartSet::SHELL,
+            cx,
+        );
     }
 
     pub fn close_command_popup(&mut self, cx: &mut Context<Self>) {
@@ -45,7 +48,10 @@ impl Workbench {
             let _ = self
                 .asks
                 .send(Ask::Terminal(popup.session, TerminalAsk::Kill));
-            cx.notify();
+            self.redraw(
+                crate::workbench::PartSet::OVER | crate::workbench::PartSet::SHELL,
+                cx,
+            );
         }
     }
 }

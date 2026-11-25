@@ -36,7 +36,7 @@ impl Workbench {
             composing.refusal = None;
             composing.stage = ComposeStage::Installing { agent: kind, state };
         }
-        cx.notify();
+        self.parts.redraw(&self.parts.stage, cx);
         true
     }
 }
@@ -44,6 +44,7 @@ impl Workbench {
 /// Sends each message that waited for an install that has now ended, or says it failed.
 pub(crate) fn installs_moved(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let mut ready = Vec::new();
+    let mut changed = false;
     for (agent, chat) in bench.chats.open.iter_mut() {
         let Some(composing) = chat.composer.as_mut() else {
             continue;
@@ -61,15 +62,19 @@ pub(crate) fn installs_moved(bench: &mut Workbench, cx: &mut Context<Workbench>)
                 composing.stage = ComposeStage::Installing {
                     agent: kind.clone(),
                     state: Installing::Failed,
-                }
+                };
+                changed = true;
             }
             None => {
                 composing.stage = ComposeStage::Writing;
                 ready.push(agent.clone());
+                changed = true;
             }
         }
     }
-    cx.notify();
+    if changed {
+        bench.parts.redraw(&bench.parts.stage, cx);
+    }
     if ready.is_empty() {
         return;
     }

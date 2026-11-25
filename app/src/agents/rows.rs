@@ -14,7 +14,7 @@ use crate::hosts::Place;
 use crate::tabs::shows;
 use crate::workbench::Workbench;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct AgentRow {
     pub id: String,
     pub provider: String,

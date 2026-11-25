@@ -316,7 +316,7 @@ impl Workbench {
         if let Some(palette) = self.overlays.palette.as_ref() {
             palette.refocus(window, cx);
         }
-        cx.notify();
+        self.parts.redraw(&self.parts.finder, cx);
     }
 
     /// Makes the folder at `path` a project, answering its id, or tells the person why not.

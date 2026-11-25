@@ -56,6 +56,7 @@ pub struct OlderChats {
     /// `found` still holds the last query's rows, until the core answers this one.
     stale: bool,
     loading: bool,
+    pub(crate) rev: u64,
 }
 
 impl Workbench {
@@ -98,6 +99,7 @@ impl Workbench {
                 _searches: Vec::new(),
                 stale: true,
                 loading: true,
+                rev: 0,
             });
         }
         let params = |quick| RecentChatsParams {
@@ -186,7 +188,7 @@ impl Workbench {
                 });
             }));
         }
-        cx.notify();
+        self.parts.redraw(&self.parts.agents, cx);
     }
 
     fn take_host_page(
@@ -260,9 +262,10 @@ impl Workbench {
             });
             let found: Vec<FoundChat> = found.collect();
             older.found.extend(found);
+            older.rev = older.rev.wrapping_add(1);
         }
         self.refill_agent_palette(cx);
-        cx.notify();
+        self.parts.redraw(&self.parts.agents, cx);
     }
 
     /// Whether the rail can bring older chats of the front project than it shows.
@@ -427,7 +430,7 @@ impl Workbench {
                     filter.text = input.read(cx).value().to_lowercase();
                 }
                 bench.look_for_older(false, crate::pickers::recent::PAGE, cx);
-                cx.notify();
+                bench.parts.redraw(&bench.parts.agents, cx);
             }
         });
         input.update(cx, |state, cx| state.focus(window, cx));

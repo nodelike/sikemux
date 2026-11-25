@@ -92,7 +92,7 @@ impl Workbench {
             held,
             ..Card::default()
         };
-        cx.notify();
+        self.parts.redraw(&self.parts.agents, cx);
     }
 
     /// The agents list scrolled: any card closes, and none opens until the pointer moves.
@@ -117,7 +117,7 @@ impl Workbench {
             agent: Some(agent.clone()),
             ..Card::default()
         };
-        cx.notify();
+        self.parts.redraw(&self.parts.agents, cx);
         let Some(row) = self.agent_by_id(&agent) else {
             return;
         };
@@ -153,7 +153,7 @@ impl Workbench {
                 .update(cx, |bench, cx| {
                     if bench.agent_card.agent.as_deref() == Some(agent.as_str()) {
                         bench.agent_card.pulls = pulls;
-                        cx.notify();
+                        bench.parts.redraw(&bench.parts.agents, cx);
                     }
                 })
                 .ok();

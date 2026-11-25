@@ -239,7 +239,13 @@ impl Workbench {
                 }
                 if step == 0 || target.is_some() {
                     let moved = self.track.travel(shown, from, Some(speed));
-                    settle(self, moved, |bench: &mut Self| &mut bench.track, cx);
+                    settle_part(
+                        self,
+                        moved,
+                        |bench: &mut Self| &mut bench.track,
+                        crate::workbench::PartSet::STAGE,
+                        cx,
+                    );
                 }
             }
         }
@@ -261,7 +267,13 @@ impl Workbench {
                     self.pages.leave();
                 }
                 let moved = self.rails.slide.travel(shown, from, Some(speed));
-                settle(self, moved, |bench: &mut Self| &mut bench.rails.slide, cx);
+                settle_part(
+                    self,
+                    moved,
+                    |bench: &mut Self| &mut bench.rails.slide,
+                    crate::workbench::PartSet::AGENTS,
+                    cx,
+                );
             }
         }
         self.parts.redraw(&self.parts.agents, cx);
@@ -276,9 +288,15 @@ impl Workbench {
             self.keep_rails(cx);
         }
         if let Some(moved) = self.rails.slide.turn(was, page, &crate::pane_kind::PAGES) {
-            settle(self, moved, |bench: &mut Self| &mut bench.rails.slide, cx);
+            settle_part(
+                self,
+                moved,
+                |bench: &mut Self| &mut bench.rails.slide,
+                crate::workbench::PartSet::AGENTS,
+                cx,
+            );
         }
-        cx.notify();
+        self.parts.redraw(&self.parts.agents, cx);
     }
 
     /// Pans one tab over when the tab in front changed some other way than a swipe.
@@ -300,9 +318,35 @@ impl Workbench {
         let moved = self
             .track
             .travel(vec![(was, -way), (now, 0)], -way as f32, None);
-        settle(self, moved, |bench: &mut Self| &mut bench.track, cx);
+        settle_part(
+            self,
+            moved,
+            |bench: &mut Self| &mut bench.track,
+            crate::workbench::PartSet::STAGE,
+            cx,
+        );
         self.parts.redraw_stage(cx);
     }
+}
+
+fn settle_part<K: 'static>(
+    bench: &mut Workbench,
+    (id, lasts): (usize, Duration),
+    slide: fn(&mut Workbench) -> &mut Slide<K>,
+    part: crate::workbench::PartSet,
+    cx: &mut Context<Workbench>,
+) {
+    let task = cx.spawn(async move |this, cx| {
+        cx.background_executor().timer(lasts).await;
+        let _ = this.update(cx, |bench, cx| {
+            let row = slide(bench);
+            if row.motion.as_ref().is_some_and(|motion| motion.id == id) {
+                row.motion = None;
+                bench.parts.redraw_set(part, cx);
+            }
+        });
+    });
+    slide(bench).settle = Some(task);
 }
 
 /// Stops drawing a motion's extra things once it has arrived.

@@ -496,6 +496,6 @@ impl Workbench {
                 self.activate_project(&first.id);
             }
         }
-        cx.notify();
+        self.parts.redraw(&self.parts.side, cx);
     }
 }

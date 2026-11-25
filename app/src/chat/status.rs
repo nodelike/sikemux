@@ -854,7 +854,7 @@ fn quiet(
     .on_click(move |_, _, cx| {
         this.update(cx, |bench, cx| {
             run(bench, &agent);
-            cx.notify();
+            bench.parts.redraw(&bench.parts.stage, cx);
         })
         .ok();
     })
@@ -996,7 +996,7 @@ fn action(
     Button::new(id, label, Variant::Outline).on_click(move |_, _, cx| {
         this.update(cx, |bench, cx| {
             run(bench, &agent);
-            cx.notify();
+            bench.parts.redraw(&bench.parts.stage, cx);
         })
         .ok();
     })
