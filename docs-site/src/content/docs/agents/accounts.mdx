@@ -1,21 +1,27 @@
 ---
 title: Accounts and limits
-description: "Several Claude or Codex accounts, and how much of a plan is used."
+description: "Several Claude, Codex or Antigravity accounts, and how much of a plan is used."
 ---
 
-Claude Code and Codex can keep several accounts, such as one for work and one for yourself. Each account is a separate folder for the CLI's own sign-in. Sikemux never stores your credentials; to read plan limits (after first-run setup), it uses each CLI's own sign-in only against its vendor's usage endpoint.
+Claude Code, Codex and, on a Mac or Linux, Antigravity can keep several accounts, such as one for work and one for yourself. Each account is a separate folder for the CLI's own sign-in. Sikemux never stores your credentials; to read plan limits (after first-run setup), it uses each CLI's own sign-in only against its vendor's usage endpoint.
 
 ## Add an account
 
 In **Settings → Agents**, open Claude's or Codex's row and choose **Add** under **Accounts**. In the box that opens over the window, **Add an account for Claude**, give it a name, then sign in in your browser. Once it is signed in, **Switch to** it, or **Keep using** the account you had. Each account in the list has **Use** to switch to it, which moves your open chats there too, and its **⋯** menu signs it out or removes it.
 
+When adding one fails, the box shows the error with **Try again**. An agent that can keep only one account says so in place of the form.
+
+An **Antigravity** account is added the same way, or with the **+** in the limits card or the model picker: open Google's link, choose the account, and paste the code the page shows. Its sign-in is kept as a file in a private folder of its own, so the account `agy` is signed in to on your Mac stays as it is. Removing the account signs it out and deletes that folder. Windows keeps one Antigravity account for now.
+
 ## Move between accounts
 
-**Move between accounts** is on by default, for every agent, and only acts once an agent has two or more signed-in accounts. Each new Claude chat then starts on the account whose limit for its model refills soonest, its model's own week where the plan has one, else the plan's week, since what a week leaves unused is lost at its reset; accounts that refill within an hour of each other go to the one with more left. An account takes a new chat only while its 5-hour window is under 80% used and would not fill before it resets at the pace its running chats use it, its week, and the week of the chat's model where the plan has one, are under 95%, and it has room for a typical chat of that project. What is left counts by plan size, so half a Max week counts as more than half a Pro week. When no account has room, the chat starts on the account you chose, as with **Move between accounts** off. A new chat shows which account it will start on and why, marked Smart pick, under its activity map before you send anything.
+**Move between accounts** is on by default, for Claude and Codex, and only acts once an agent has two or more signed-in accounts. Each new Claude chat then starts on the account whose limit for its model refills soonest, its model's own week where the plan has one, else the plan's week, since what a week leaves unused is lost at its reset; accounts that refill within an hour of each other go to the one with more left. An account takes a new chat only while its 5-hour window is under 80% used and would not fill before it resets at the pace its running chats use it, its week, and the week of the chat's model where the plan has one, are under 95%, and it has room for a typical chat of that project. What is left counts by plan size, so half a Max week counts as more than half a Pro week. When no account has room, the chat starts on the account you chose, as with **Move between accounts** off. A new chat shows which account it will start on and why, marked Smart pick, under its activity map before you send anything.
 
 Saved limit resets are kept for when they are needed. Sikemux spends one by itself only when no account has room and the next refill is further away than a week divided by the number of accounts; until then the chat waits for the refill, and the limits panel says **waiting for refill**, how long the reset is kept and what using it now would give back. In a reset's last week, the account that holds it takes that model's chats first, so it isn't lost.
 
 A chat that hits a usage limit moves on in the same order, to the account that refills first and has room. When every account it may use is out, it waits and sends your last message again as soon as Sikemux reads room on one of them, or when the limit resets at the latest. A lead whose worker waits so only hears that Sikemux paused it and resumes it by itself, never the limit or the account. A chat already going never moves for balance alone: its cache lives with its account, and moving it would send its whole conversation again. When a big Claude chat does move, by a limit or by your pick, it goes on in a fresh session that starts from a brief of where it stands (its latest exchanges word for word, recent decisions and work in hand) rather than sending the whole conversation to the new account. A small chat carries on in its own session.
+
+Antigravity accounts never switch by themselves. New chats, agents' workers included, start on the account you chose, and when one runs out its chat offers the others with what each has left, such as **Carry on with Work · 80% left**, one tap each.
 
 To keep a project to some accounts, such as a work project off your personal account, open an account's **⋯** menu in its agent's row in **Settings → Agents** and untick the projects under **New chats here in**. A project then starts new chats only on the accounts left ticked for it, and a chat in it carries on at a limit only on those.
 

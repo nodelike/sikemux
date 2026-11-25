@@ -4161,6 +4161,58 @@
         }
       }
     },
+    "A key that doesn't open here": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une clé qui ne s'ouvre pas ici"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una clave que no se abre aquí"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Schlüssel, der sich hier nicht öffnen lässt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在此打开的密钥"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで開けないキー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기서 열리지 않는 키"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ, который здесь не открывается"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma chave que não abre aqui"
+          }
+        }
+      }
+    },
     "A link asks to resume a chat with {agent} in {folder}, which is not one of your projects.\nThe agent starts there at once and follows the folder's own settings and hooks. Go ahead only if you trust it.": {
       "localizations": {
         "fr": {
@@ -8213,6 +8265,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Adicionar um processo para a equipe o cria."
+          }
+        }
+      }
+    },
+    "Adding account…": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajout du compte…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadiendo cuenta…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account wird hinzugefügt …"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在添加账户…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを追加中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 추가 중…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавление учётной записи…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionando conta…"
           }
         }
       }
@@ -16745,6 +16849,110 @@
         }
       }
     },
+    "Carry on with {name}": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer avec {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar con {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiter mit {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 {name} 继续"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} で続ける"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name}(으)로 계속"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить с {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar com {name}"
+          }
+        }
+      }
+    },
+    "Carry on with {name} · {left}% left": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer avec {name} · {left} % restants"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar con {name} · queda {left} %"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiter mit {name} · noch {left} %"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 {name} 继续 · 剩余 {left}%"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} で続ける · 残り {left}%"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name}(으)로 계속 · {left}% 남음"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить с {name} · осталось {left} %"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar com {name} · restam {left}%"
+          }
+        }
+      }
+    },
     "Change Buddy…": {
       "localizations": {
         "fr": {
@@ -19081,6 +19289,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Escolher pasta…"
+          }
+        }
+      }
+    },
+    "Choose the Google account to add, then paste the code the page shows.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez le compte Google à ajouter, puis collez le code affiché par la page."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige la cuenta de Google que quieres añadir y pega el código que muestra la página."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle den Google-Account, den du hinzufügen willst, und füge dann den Code von der Seite ein."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择要添加的 Google 账户，然后粘贴页面显示的代码。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加する Google アカウントを選び、ページに表示されたコードを貼り付けてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가할 Google 계정을 선택한 다음 페이지에 표시된 코드를 붙여넣으세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите учётную запись Google, которую нужно добавить, затем вставьте код со страницы."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha a conta do Google a adicionar e cole o código que a página mostra."
           }
         }
       }
@@ -39781,6 +40041,58 @@
         }
       }
     },
+    "Free during preview": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gratuit pendant l'aperçu"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gratis durante la versión preliminar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kostenlos während der Vorschau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览期间免费"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー中は無料"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미리보기 기간 무료"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бесплатно на время предварительной версии"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grátis durante a prévia"
+          }
+        }
+      }
+    },
     "Free models may keep your prompts": {
       "localizations": {
         "fr": {
@@ -52157,6 +52469,214 @@
         }
       }
     },
+    "Let in {host}. {org}'s vault opens there shortly.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} est admis. Le coffre de {org} s'y ouvre sous peu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se admitió {host}. La bóveda de {org} se abrirá allí en breve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} ist zugelassen. Der Tresor von {org} öffnet sich dort in Kürze."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允许 {host}。{org} 的保险库很快会在那里打开。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} を許可しました。まもなくそこで {org} の保管庫が開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host}을(를) 허용했습니다. 곧 그곳에서 {org}의 보관함이 열립니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хост {host} допущен. Хранилище {org} скоро откроется там."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} foi permitido. O cofre de {org} abre lá em breve."
+          }
+        }
+      }
+    },
+    "Let in {member}'s {host}. {org}'s vault opens there shortly.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} de {member} est admis. Le coffre de {org} s'y ouvre sous peu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se admitió {host} de {member}. La bóveda de {org} se abrirá allí en breve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} von {member} ist zugelassen. Der Tresor von {org} öffnet sich dort in Kürze."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允许 {member} 的 {host}。{org} 的保险库很快会在那里打开。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{member} の {host} を許可しました。まもなくそこで {org} の保管庫が開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{member}의 {host}을(를) 허용했습니다. 곧 그곳에서 {org}의 보관함이 열립니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хост {host} пользователя {member} допущен. Хранилище {org} скоро откроется там."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} de {member} foi permitido. O cofre de {org} abre lá em breve."
+          }
+        }
+      }
+    },
+    "Let in. {org}'s vault opens there shortly.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admis. Le coffre de {org} s'y ouvre sous peu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admitido. La bóveda de {org} se abrirá allí en breve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugelassen. Der Tresor von {org} öffnet sich dort in Kürze."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允许。{org} 的保险库很快会在那里打开。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可しました。まもなくそこで {org} の保管庫が開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용했습니다. 곧 그곳에서 {org}의 보관함이 열립니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Допущено. Хранилище {org} скоро откроется там."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitido. O cofre de {org} abre lá em breve."
+          }
+        }
+      }
+    },
+    "Let in…": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admettre…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admitir…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zulassen …"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Допустить…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir…"
+          }
+        }
+      }
+    },
     "let in by {host} {when}": {
       "localizations": {
         "fr": {
@@ -53301,6 +53821,110 @@
         }
       }
     },
+    "Let a host in": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admettre un hôte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admitir un host"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einen Host zulassen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许主机进入"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストを許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트 허용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Допустить хост"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir um host"
+          }
+        }
+      }
+    },
+    "Let a host in to {org}'s vault": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admettre un hôte dans le coffre de {org}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admitir un host en la bóveda de {org}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einen Host zum Tresor von {org} zulassen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许主机进入 {org} 的保险库"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{org} の保管庫にホストを許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{org}의 보관함에 호스트 허용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Допустить хост в хранилище {org}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir um host no cofre de {org}"
+          }
+        }
+      }
+    },
     "Let agents drive simulators and Android devices": {
       "localizations": {
         "fr": {
@@ -53349,6 +53973,110 @@
           "stringUnit": {
             "state": "translated",
             "value": "Deixar os agentes controlarem simuladores e dispositivos Android"
+          }
+        }
+      }
+    },
+    "Let in": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admettre"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admitir"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zulassen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Допустить"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir"
+          }
+        }
+      }
+    },
+    "Let in a host of {member}'s. {org}'s vault opens there shortly.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un hôte de {member} est admis. Le coffre de {org} s'y ouvre sous peu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se admitió un host de {member}. La bóveda de {org} se abrirá allí en breve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Host von {member} ist zugelassen. Der Tresor von {org} öffnet sich dort in Kürze."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允许 {member} 的一台主机。{org} 的保险库很快会在那里打开。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{member} のホストを許可しました。まもなくそこで {org} の保管庫が開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{member}의 호스트를 허용했습니다. 곧 그곳에서 {org}의 보관함이 열립니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хост пользователя {member} допущен. Хранилище {org} скоро откроется там."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um host de {member} foi permitido. O cofre de {org} abre lá em breve."
           }
         }
       }
@@ -53453,6 +54181,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Agentes controlando simuladores de iOS e dispositivos Android"
+          }
+        }
+      }
+    },
+    "Letting in…": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admission…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Admitiendo…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird zugelassen …"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在允许…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용 중…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Допускаем…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitindo…"
           }
         }
       }
@@ -69057,6 +69837,58 @@
         }
       }
     },
+    "Online now": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ligne maintenant"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En línea ahora"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt online"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前在线"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在オンライン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 온라인"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сейчас в сети"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online agora"
+          }
+        }
+      }
+    },
     "Only allow a sign-in you just started. Remove an app any time in Settings → Other apps.": {
       "localizations": {
         "fr": {
@@ -69313,6 +70145,110 @@
           "stringUnit": {
             "state": "translated",
             "value": "Só um agente o segura; os outros esperam na fila e são acordados na sua vez."
+          }
+        }
+      }
+    },
+    "Only paste a code you copied from another of your hosts. The host it names can then read every key in {org}'s vault.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne collez qu'un code copié depuis un autre de vos hôtes. L'hôte qu'il désigne pourra alors lire toutes les clés du coffre de {org}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega solo un código que hayas copiado de otro de tus hosts. El host que indica podrá leer todas las claves de la bóveda de {org}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge nur einen Code ein, den du von einem anderen deiner Hosts kopiert hast. Der Host, den er nennt, kann dann jeden Schlüssel im Tresor von {org} lesen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只粘贴你从自己另一台主机复制的代码。之后，代码所指的主机可以读取 {org} 保险库中的所有密钥。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたの別のホストからコピーしたコードだけを貼り付けてください。コードが示すホストは、{org} の保管庫のすべてのキーを読めるようになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 다른 호스트에서 복사한 코드만 붙여넣으세요. 그러면 코드가 가리키는 호스트가 {org} 보관함의 모든 키를 읽을 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставляйте только код, скопированный с другого вашего хоста. Хост, на который он указывает, сможет читать все ключи в хранилище {org}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cole apenas um código que você copiou de outro dos seus hosts. O host que ele indica poderá ler todas as chaves do cofre de {org}."
+          }
+        }
+      }
+    },
+    "Only paste a code you copied yourself, or that a member of {org} gave you directly. The host it names can then read every key in the vault.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne collez qu'un code que vous avez copié vous-même ou qu'un membre de {org} vous a donné directement. L'hôte qu'il désigne pourra alors lire toutes les clés du coffre."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega solo un código que hayas copiado tú o que te haya dado directamente un miembro de {org}. El host que indica podrá leer todas las claves de la bóveda."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge nur einen Code ein, den du selbst kopiert hast oder den dir ein Mitglied von {org} direkt gegeben hat. Der Host, den er nennt, kann dann jeden Schlüssel im Tresor lesen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只粘贴你自己复制的，或 {org} 成员直接给你的代码。之后，代码所指的主机可以读取保险库中的所有密钥。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分でコピーしたコードか、{org} のメンバーから直接受け取ったコードだけを貼り付けてください。コードが示すホストは、保管庫のすべてのキーを読めるようになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 복사했거나 {org}의 구성원이 직접 준 코드만 붙여넣으세요. 그러면 코드가 가리키는 호스트가 보관함의 모든 키를 읽을 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставляйте только код, который вы скопировали сами или который участник {org} передал вам лично. Хост, на который он указывает, сможет читать все ключи в хранилище."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cole apenas um código que você mesmo copiou ou que um membro de {org} lhe deu diretamente. O host que ele indica poderá ler todas as chaves do cofre."
           }
         }
       }
@@ -72489,6 +73425,58 @@
         }
       }
     },
+    "Open the sign-in page": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir la page de connexion"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir la página de inicio de sesión"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldeseite öffnen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开登录页面"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインページを開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 페이지 열기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть страницу входа"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir a página de login"
+          }
+        }
+      }
+    },
     "Open the tab closed last on the desk in front again, including ones Sikemux closed after an agent's turn": {
       "localizations": {
         "fr": {
@@ -75553,6 +76541,162 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cole a chave de API ou a referência op:// dela"
+          }
+        }
+      }
+    },
+    "Paste the code that a host waiting for {org}'s vault shows.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collez le code affiché par un hôte qui attend le coffre de {org}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega el código que muestra un host que espera la bóveda de {org}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge den Code ein, den ein Host zeigt, der auf den Tresor von {org} wartet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴正在等待 {org} 保险库的主机所显示的代码。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{org} の保管庫を待っているホストに表示されたコードを貼り付けてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{org}의 보관함을 기다리는 호스트에 표시된 코드를 붙여넣으세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставьте код, который показывает хост, ожидающий хранилище {org}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cole o código que um host aguardando o cofre de {org} mostra."
+          }
+        }
+      }
+    },
+    "Paste the code that another of your hosts shows while it waits for {org}'s vault.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collez le code affiché par un autre de vos hôtes pendant qu'il attend le coffre de {org}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega el código que muestra otro de tus hosts mientras espera la bóveda de {org}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge den Code ein, den ein anderer deiner Hosts zeigt, während er auf den Tresor von {org} wartet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴你的另一台主机在等待 {org} 保险库时显示的代码。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{org} の保管庫を待っているあなたの別のホストに表示されたコードを貼り付けてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{org}의 보관함을 기다리는 내 다른 호스트에 표시된 코드를 붙여넣으세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставьте код, который показывает другой ваш хост, пока ожидает хранилище {org}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cole o código que outro dos seus hosts mostra enquanto aguarda o cofre de {org}."
+          }
+        }
+      }
+    },
+    "Paste the code the other host shows": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collez le code affiché par l'autre hôte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega el código que muestra el otro host"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code vom anderen Host einfügen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴另一台主机显示的代码"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一方のホストに表示されたコードを貼り付け"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 호스트에 표시된 코드 붙여넣기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставьте код с другого хоста"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cole o código que o outro host mostra"
           }
         }
       }
@@ -83821,6 +84965,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Remover deste host"
+          }
+        }
+      }
+    },
+    "Remove it, then add it again. {org}'s vault key isn't replaced until then.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimez-la, puis ajoutez-la à nouveau. La clé du coffre de {org} n'est pas remplacée d'ici là."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimínala y vuelve a añadirla. Hasta entonces, la clave de la bóveda de {org} no se reemplaza."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entferne ihn und füge ihn dann wieder hinzu. Bis dahin wird der Tresorschlüssel von {org} nicht ersetzt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先移除，再重新添加。在此之前，{org} 的保险库密钥不会被替换。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除してから、もう一度追加してください。それまで {org} の保管庫のキーは置き換えられません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제거한 다음 다시 추가하세요. 그때까지 {org}의 보관함 키는 교체되지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалите его, затем добавьте снова. До этого ключ хранилища {org} не будет заменён."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remova-a e adicione-a de novo. Até lá, a chave do cofre de {org} não é substituída."
           }
         }
       }
@@ -93497,6 +94693,58 @@
         }
       }
     },
+    "Sends daily totals and first-run steps to PostHog EU, and crashes, sessions and some startup traces to Sentry EU (code addresses, image names and builds, recent warning and error logs with paths stripped, device and OS, never memory), with a random install ID and a hash of your account that we can match to it. Never your files, prompts, commands or projects. Turning this off or setting DO_NOT_TRACK stops both at once.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoie les totaux quotidiens et les étapes du premier lancement à PostHog EU, et les plantages, les sessions et quelques traces de démarrage à Sentry EU (adresses de code, noms et builds des images, journaux récents d'avertissements et d'erreurs sans les chemins, appareil et système, jamais la mémoire), avec un identifiant d'installation aléatoire et une empreinte de votre compte que nous pouvons rattacher à celui-ci. Jamais vos fichiers, prompts, commandes ou projets. Désactiver ce réglage ou définir DO_NOT_TRACK arrête les deux aussitôt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía los totales diarios y los pasos del primer inicio a PostHog EU, y los fallos, las sesiones y algunas trazas de inicio a Sentry EU (direcciones de código, nombres y compilaciones de imágenes, registros recientes de avisos y errores sin rutas, dispositivo y sistema, nunca la memoria), con un ID de instalación aleatorio y un hash de tu cuenta que podemos relacionar con ella. Nunca tus archivos, prompts, comandos ni proyectos. Desactivar esto o definir DO_NOT_TRACK detiene ambos al momento."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sendet Tagessummen und Schritte des ersten Starts an PostHog EU sowie Abstürze, Sitzungen und einige Start-Traces an Sentry EU (Code-Adressen, Namen und Builds der Images, aktuelle Warn- und Fehlerprotokolle ohne Pfade, Gerät und Betriebssystem, nie Speicherinhalte), mit einer zufälligen Installations-ID und einem Hash deines Accounts, den wir ihm zuordnen können. Nie deine Dateien, Prompts, Befehle oder Projekte. Wenn du dies ausschaltest oder DO_NOT_TRACK setzt, endet beides sofort."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将每日汇总和首次运行步骤发送到 PostHog EU，将崩溃、会话和部分启动跟踪发送到 Sentry EU（代码地址、映像名称和构建、去除路径的近期警告与错误日志、设备和操作系统，绝不包含内存），并附带一个随机安装 ID 和一个我们可与你的账户对应的账户哈希。绝不发送你的文件、提示词、命令或项目。关闭此项或设置 DO_NOT_TRACK 会立即同时停止两者。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎日の合計と初回起動の手順を PostHog EU に、クラッシュ、セッション、一部の起動トレースを Sentry EU に送信します（コードアドレス、イメージの名前とビルド、パスを除いた最近の警告とエラーのログ、デバイスと OS。メモリは決して含みません）。ランダムなインストール ID と、当社があなたのアカウントと照合できるアカウントのハッシュが付きます。ファイル、プロンプト、コマンド、プロジェクトは決して送信しません。これをオフにするか DO_NOT_TRACK を設定すると、両方がすぐに止まります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일일 합계와 첫 실행 단계를 PostHog EU로, 충돌과 세션 및 일부 시작 추적을 Sentry EU로 보냅니다(코드 주소, 이미지 이름과 빌드, 경로를 뺀 최근 경고 및 오류 로그, 기기와 OS. 메모리는 절대 포함하지 않음). 무작위 설치 ID와, 저희가 계정과 대조할 수 있는 계정 해시가 함께 전송됩니다. 파일, 프롬프트, 명령, 프로젝트는 절대 보내지 않습니다. 이 설정을 끄거나 DO_NOT_TRACK을 설정하면 둘 다 즉시 중단됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправляет дневные итоги и шаги первого запуска в PostHog EU, а сбои, сеансы и часть трассировок запуска — в Sentry EU (адреса в коде, имена и сборки образов, недавние предупреждения и ошибки из журнала без путей, устройство и ОС, никогда содержимое памяти), вместе со случайным ID установки и хешем вашей учётной записи, который мы можем с ней сопоставить. Ваши файлы, промпты, команды и проекты не отправляются никогда. Отключение этой настройки или переменная DO_NOT_TRACK сразу останавливает и то и другое."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envia os totais diários e as etapas do primeiro uso ao PostHog EU, e falhas, sessões e alguns rastros de inicialização ao Sentry EU (endereços de código, nomes e builds das imagens, registros recentes de avisos e erros sem caminhos, dispositivo e sistema, nunca a memória), com um ID de instalação aleatório e um hash da sua conta que podemos associar a ela. Nunca seus arquivos, prompts, comandos ou projetos. Desativar isto ou definir DO_NOT_TRACK interrompe os dois na hora."
+          }
+        }
+      }
+    },
     "Sends one now, with its sound. The first one also has macOS ask whether Sikemux may notify you.": {
       "localizations": {
         "fr": {
@@ -99945,6 +101193,58 @@
         }
       }
     },
+    "Sikemux runs {agent} on its one sign-in, so there is no second account to add. To use another, sign out with {agent}'s own command in a terminal, then sign in again.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux exécute {agent} avec sa seule connexion, il n'y a donc pas de second compte à ajouter. Pour en utiliser un autre, déconnectez-vous avec la commande de {agent} dans un terminal, puis reconnectez-vous."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux ejecuta {agent} con su único inicio de sesión, así que no hay una segunda cuenta que añadir. Para usar otra, cierra la sesión con el propio comando de {agent} en una terminal y vuelve a iniciarla."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux führt {agent} mit seiner einen Anmeldung aus, daher gibt es keinen zweiten Account hinzuzufügen. Um einen anderen zu nutzen, melde dich mit dem eigenen Befehl von {agent} in einem Terminal ab und dann erneut an."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux 使用 {agent} 的唯一登录来运行它，因此无法添加第二个账户。若要使用其他账户，请在终端中用 {agent} 自己的命令退出登录，然后重新登录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux は {agent} を 1 つのサインインで実行するため、2 つ目のアカウントは追加できません。別のアカウントを使うには、ターミナルで {agent} 自身のコマンドを使ってサインアウトし、再度サインインしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux는 {agent}의 로그인 하나로 실행하므로 추가할 두 번째 계정이 없습니다. 다른 계정을 쓰려면 터미널에서 {agent}의 자체 명령으로 로그아웃한 다음 다시 로그인하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sikemux запускает {agent} с его единственным входом, поэтому второй учётной записи добавить нельзя. Чтобы использовать другую, выйдите с помощью команды {agent} в терминале, затем войдите снова."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Sikemux executa {agent} no seu único login, então não há uma segunda conta a adicionar. Para usar outra, saia com o próprio comando de {agent} em um terminal e faça login novamente."
+          }
+        }
+      }
+    },
     "Sikemux sends your last message again then. Click to not send it.": {
       "localizations": {
         "fr": {
@@ -104469,6 +105769,58 @@
         }
       }
     },
+    "Starting {agent}'s sign-in…": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrage de la connexion à {agent}…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando el inicio de sesión de {agent}…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldung bei {agent} startet …"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在启动 {agent} 登录…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} のサインインを開始中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} 로그인 시작 중…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запуск входа в {agent}…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando o login de {agent}…"
+          }
+        }
+      }
+    },
     "Starting {alias}…": {
       "localizations": {
         "fr": {
@@ -104673,6 +106025,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Iniciando…"
+          }
+        }
+      }
+    },
+    "Starts each chat on the account whose week ends soonest and moves on at a limit. Antigravity's chats move only when you move them. Check each provider's terms first.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarre chaque chat sur le compte dont la semaine se termine le plus tôt et passe au suivant à la limite. Les chats d'Antigravity ne changent de compte que si vous le faites. Vérifiez d'abord les conditions de chaque fournisseur."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia cada chat en la cuenta cuya semana termina antes y pasa a otra al llegar a un límite. Los chats de Antigravity solo cambian cuando tú los cambias. Revisa antes las condiciones de cada proveedor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet jeden Chat mit dem Account, dessen Woche am frühesten endet, und wechselt an einem Limit. Chats von Antigravity wechseln nur, wenn du sie wechselst. Prüfe vorher die Bedingungen jedes Anbieters."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个聊天都从本周额度最先重置的账户开始，达到限额时切换。Antigravity 的聊天只在你切换时才会切换。请先查看各提供商的条款。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各チャットを週の期間が最も早く終わるアカウントで開始し、上限に達したら次に移ります。Antigravity のチャットは、あなたが移したときだけ移ります。先に各プロバイダの規約を確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주간 한도가 가장 먼저 재설정되는 계정에서 각 채팅을 시작하고, 한도에 도달하면 다음 계정으로 넘어갑니다. Antigravity 채팅은 직접 옮길 때만 이동합니다. 먼저 각 제공자의 약관을 확인하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начинает каждый чат с учётной записи, у которой неделя заканчивается раньше всех, и переходит к следующей при достижении лимита. Чаты Antigravity переходят, только когда вы их переводите. Сначала проверьте условия каждого поставщика."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia cada chat na conta cuja semana termina primeiro e passa para outra ao atingir um limite. Os chats do Antigravity só mudam quando você os muda. Confira antes os termos de cada provedor."
           }
         }
       }
@@ -107329,6 +108733,110 @@
         }
       }
     },
+    "Switch to stable": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer à stable"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar a estable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu Stable wechseln"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到稳定版"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安定版に切り替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안정 버전으로 전환"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти на стабильный"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mudar para estável"
+          }
+        }
+      }
+    },
+    "Switch to stable releases?": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer aux versions stables ?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Cambiar a las versiones estables?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu stabilen Releases wechseln?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换到稳定发布版？"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安定版リリースに切り替えますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안정 릴리스로 전환할까요?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейти на стабильные выпуски?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mudar para as versões estáveis?"
+          }
+        }
+      }
+    },
     "Switch to {named}": {
       "localizations": {
         "fr": {
@@ -108833,6 +110341,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Equipe"
+          }
+        }
+      }
+    },
+    "Team is in preview for people on nightly. On stable, this computer stops showing {orgs}: no shared boards or rules, no teammates, and agents here stop using its keys. Nothing is deleted, and it all comes back on nightly. On app.sikemux.com you can still read it, leave it or hand it over.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team est en aperçu pour les personnes sur nightly. Sur stable, cet ordinateur n'affiche plus {orgs} : plus de tableaux ni de règles partagés, plus de coéquipiers, et les agents d'ici n'utilisent plus ses clés. Rien n'est supprimé, et tout revient sur nightly. Sur app.sikemux.com, vous pouvez toujours la consulter, la quitter ou la transmettre."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team está en versión preliminar para quienes usan nightly. En estable, este ordenador deja de mostrar {orgs}: sin tableros ni reglas compartidos, sin compañeros, y los agentes de aquí dejan de usar sus claves. No se elimina nada y todo vuelve en nightly. En app.sikemux.com puedes seguir leyéndola, abandonarla o cederla."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team ist für Leute auf Nightly in der Vorschau. Auf Stable zeigt dieser Computer {orgs} nicht mehr: keine geteilten Boards oder Regeln, keine Teammates, und Agenten hier nutzen ihre Schlüssel nicht mehr. Nichts wird gelöscht, und auf Nightly ist alles wieder da. Auf app.sikemux.com kannst du sie weiter lesen, verlassen oder übergeben."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team 面向每夜版用户提供预览。在稳定版上，这台电脑将不再显示 {orgs}：没有共享看板或规则，没有队友，这里的智能体也不再使用其密钥。不会删除任何内容，回到每夜版后一切都会恢复。你仍可在 app.sikemux.com 上查看、退出或移交它。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team はナイトリー版の利用者向けのプレビューです。安定版では、このコンピュータに {orgs} は表示されなくなります。共有のボードやルール、チームメイトはなくなり、ここのエージェントはそのキーを使わなくなります。何も削除されず、ナイトリー版に戻せばすべて元に戻ります。app.sikemux.com では引き続き閲覧、退出、譲渡ができます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team은 나이틀리 사용자를 위한 미리보기입니다. 안정 버전에서는 이 컴퓨터에 {orgs}이(가) 표시되지 않습니다. 공유 보드나 규칙, 팀원이 없어지고 여기의 에이전트는 해당 키를 더는 사용하지 않습니다. 아무것도 삭제되지 않으며 나이틀리로 돌아오면 모두 복원됩니다. app.sikemux.com에서는 계속 읽거나 나가거나 넘겨줄 수 있습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team доступен в предварительной версии пользователям nightly. На стабильном канале этот компьютер перестаёт показывать {orgs}: нет общих досок и правил, нет коллег, а агенты здесь больше не используют её ключи. Ничего не удаляется, и на nightly всё вернётся. На app.sikemux.com её по-прежнему можно читать, покинуть или передать."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Team está em prévia para quem usa o nightly. No estável, este computador deixa de mostrar {orgs}: sem quadros ou regras compartilhados, sem colegas de equipe, e os agentes daqui deixam de usar as chaves dela. Nada é excluído, e tudo volta no nightly. Em app.sikemux.com você ainda pode ler, sair ou transferir."
           }
         }
       }
@@ -113569,6 +115129,58 @@
         }
       }
     },
+    "The page opens in your browser and gives you a code to paste here.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La page s'ouvre dans votre navigateur et vous donne un code à coller ici."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La página se abre en tu navegador y te da un código para pegar aquí."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite öffnet sich in deinem Browser und gibt dir einen Code, den du hier einfügst."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "页面会在你的浏览器中打开，并给出一个可粘贴到此处的代码。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページがブラウザで開き、ここに貼り付けるコードが表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저에서 페이지가 열리고 여기에 붙여넣을 코드가 표시됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страница откроется в браузере и даст код, который нужно вставить сюда."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A página abre no seu navegador e mostra um código para colar aqui."
+          }
+        }
+      }
+    },
     "The terminal's 16 colours, with its cursor and selection.": {
       "localizations": {
         "fr": {
@@ -114397,6 +116009,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Este Mac"
+          }
+        }
+      }
+    },
+    "This account is signed in apart from the one {label} already has.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce compte se connecte à part de celui que {label} a déjà."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta cuenta inicia sesión aparte de la que {label} ya tiene."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Account wird getrennt von dem angemeldet, den {label} schon hat."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账户会与 {label} 已有的账户分开登录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントは、{label} の既存のアカウントとは別にサインインします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정은 {label}에 이미 있는 계정과 별도로 로그인됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход в эту учётную запись отдельный от той, что уже есть у {label}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta conta faz login separada da que {label} já tem."
           }
         }
       }
@@ -121521,6 +123185,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aguardando seu celular…"
+          }
+        }
+      }
+    },
+    "Waiting for {label}": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de {label}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando a {label}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten auf {label}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待 {label}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} を待機中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{label} 대기 중"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ожидание {label}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando {label}"
           }
         }
       }
@@ -146485,6 +148201,58 @@
         }
       }
     },
+    "online now": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "en ligne maintenant"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "en línea ahora"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "jetzt online"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前在线"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在オンライン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 온라인"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "сейчас в сети"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "online agora"
+          }
+        }
+      }
+    },
     "open": {
       "localizations": {
         "fr": {
@@ -159121,6 +160889,58 @@
         }
       }
     },
+    "{agent} can't be signed in from here. Sign in with its own command in a terminal.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de se connecter à {agent} d'ici. Connectez-vous avec sa propre commande dans un terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede iniciar sesión en {agent} desde aquí. Inicia sesión con su propio comando en una terminal."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei {agent} kannst du dich von hier aus nicht anmelden. Melde dich mit seinem eigenen Befehl in einem Terminal an."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在此登录 {agent}。请在终端中用它自己的命令登录。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここから {agent} にサインインすることはできません。ターミナルで {agent} 自身のコマンドを使ってサインインしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기서는 {agent}에 로그인할 수 없습니다. 터미널에서 자체 명령으로 로그인하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отсюда войти в {agent} нельзя. Войдите его собственной командой в терминале."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível fazer login em {agent} por aqui. Entre com o próprio comando dele em um terminal."
+          }
+        }
+      }
+    },
     "{agent} chats can run on it from the model picker.": {
       "localizations": {
         "fr": {
@@ -159273,6 +161093,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "{agent} não foi atualizado em {host}"
+          }
+        }
+      }
+    },
+    "{agent} has one account": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} n'a qu'un compte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} tiene una sola cuenta"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} hat einen Account"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} 只有一个账户"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} のアカウントは 1 つです"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent}에는 계정이 하나입니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У {agent} одна учётная запись"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{agent} tem uma só conta"
           }
         }
       }
@@ -176333,6 +178205,58 @@
         }
       }
     },
+    "@{name} took it back": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} l'a retirée"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} la retiró"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} hat sie zurückgezogen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} 已将其撤回"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} が取り下げました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name}이(가) 철회함"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} отозвал запрос"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} a retirou"
+          }
+        }
+      }
+    },
     "Anyone who has the link can view this artifact, without signing in.": {
       "localizations": {
         "fr": {
@@ -177941,6 +179865,110 @@
           "stringUnit": {
             "state": "translated",
             "value": "Faça isso apenas se nenhum host que o tem for voltar."
+          }
+        }
+      }
+    },
+    "Do this only if no host that has it is coming back. Pasting this host's code on {host} opens the vault here with nothing lost.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne le faites que si aucun hôte qui l'a ne doit revenir. Coller le code de cet hôte sur {host} ouvre le coffre ici sans rien perdre."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz esto solo si no va a volver ningún host que la tenga. Pegar el código de este host en {host} abre la bóveda aquí sin perder nada."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mach das nur, wenn kein Host, der ihn hat, zurückkommt. Fügst du den Code dieses Hosts auf {host} ein, öffnet sich der Tresor hier, ohne dass etwas verloren geht."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅当拥有它的主机都不会再回来时才这样做。在 {host} 上粘贴此主机的代码即可在此打开保险库，不会丢失任何内容。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保管庫を持つホストがもう戻らない場合にのみ行ってください。このホストのコードを {host} に貼り付ければ、何も失わずにここで保管庫が開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관함을 가진 호스트가 더는 돌아오지 않을 때만 하세요. {host}에서 이 호스트의 코드를 붙여넣으면 아무것도 잃지 않고 여기서 보관함이 열립니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Делайте это, только если ни один хост, где оно есть, уже не вернётся. Если вставить код этого хоста на {host}, хранилище откроется здесь без потерь."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faça isso só se nenhum host que o tem for voltar. Colar o código deste host em {host} abre o cofre aqui sem perder nada."
+          }
+        }
+      }
+    },
+    "Do this only if no host that has it is coming back. Pasting this host's code on {host}, last online {ago}, opens the vault here with nothing lost.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne le faites que si aucun hôte qui l'a ne doit revenir. Coller le code de cet hôte sur {host}, en ligne pour la dernière fois {ago}, ouvre le coffre ici sans rien perdre."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz esto solo si no va a volver ningún host que la tenga. Pegar el código de este host en {host} (última conexión {ago}) abre la bóveda aquí sin perder nada."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mach das nur, wenn kein Host, der ihn hat, zurückkommt. Fügst du den Code dieses Hosts auf {host} (zuletzt online {ago}) ein, öffnet sich der Tresor hier, ohne dass etwas verloren geht."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅当拥有它的主机都不会再回来时才这样做。在 {host}（上次在线：{ago}）上粘贴此主机的代码即可在此打开保险库，不会丢失任何内容。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保管庫を持つホストがもう戻らない場合にのみ行ってください。このホストのコードを {host}（最終オンライン: {ago}）に貼り付ければ、何も失わずにここで保管庫が開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관함을 가진 호스트가 더는 돌아오지 않을 때만 하세요. {host}(마지막 온라인: {ago})에서 이 호스트의 코드를 붙여넣으면 아무것도 잃지 않고 여기서 보관함이 열립니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Делайте это, только если ни один хост, где оно есть, уже не вернётся. Если вставить код этого хоста на {host} (последний раз в сети {ago}), хранилище откроется здесь без потерь."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faça isso só se nenhum host que o tem for voltar. Colar o código deste host em {host} (visto online {ago}) abre o cofre aqui sem perder nada."
           }
         }
       }
@@ -180073,6 +182101,162 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ainda não aberto neste host. Ele abre com todas as chaves mantidas assim que um destes hosts ficar online."
+          }
+        }
+      }
+    },
+    "Not open on this host. Paste this code once under Let a host in on another of your hosts that has it, or give it privately to one of {org}'s owners or admins to paste.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas ouvert sur cet hôte. Collez ce code une fois sous Admettre un hôte sur un autre de vos hôtes qui l'a, ou donnez-le en privé à un propriétaire ou admin de {org} pour qu'il le colle."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No está abierta en este host. Pega este código una vez en Admitir un host en otro de tus hosts que la tenga, o dáselo en privado a un propietario o admin de {org} para que lo pegue."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Host nicht offen. Füge diesen Code einmal unter „Einen Host zulassen“ auf einem anderen deiner Hosts ein, der ihn hat, oder gib ihn privat einem Inhaber oder Admin von {org} zum Einfügen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此主机上尚未打开。在你另一台已有它的主机上，于“允许主机进入”下粘贴一次此代码，或私下交给 {org} 的所有者或管理员来粘贴。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このホストでは開いていません。保管庫を持つあなたの別のホストの「ホストを許可」にこのコードを一度貼り付けるか、{org} のオーナーか管理者に非公開で渡して貼り付けてもらってください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 호스트에서는 열려 있지 않습니다. 이를 가진 내 다른 호스트의 호스트 허용에 이 코드를 한 번 붙여넣거나, {org}의 소유자나 관리자에게 비공개로 전달해 붙여넣게 하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не открыто на этом хосте. Вставьте этот код один раз в разделе «Допустить хост» на другом вашем хосте, где оно есть, или передайте его лично владельцу или администратору {org}, чтобы код вставили там."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não aberto neste host. Cole este código uma vez em Permitir um host em outro dos seus hosts que o tem, ou entregue-o em particular a um proprietário ou admin de {org} para colar."
+          }
+        }
+      }
+    },
+    "Not open on this host. Paste this code once under Let a host in on one of these hosts, and it opens with every key kept. If that's someone else's, give them the code privately.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas ouvert sur cet hôte. Collez ce code une fois sous Admettre un hôte sur l'un de ces hôtes, et il s'ouvre en conservant toutes ses clés. Si l'hôte est à quelqu'un d'autre, donnez-lui le code en privé."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No está abierta en este host. Pega este código una vez en Admitir un host en uno de estos hosts y se abrirá con todas sus claves intactas. Si el host es de otra persona, dale el código en privado."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Host nicht offen. Füge diesen Code einmal unter „Einen Host zulassen“ auf einem dieser Hosts ein, und er öffnet sich mit allen Schlüsseln. Gehört der Host jemand anderem, gib den Code privat weiter."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此主机上尚未打开。在以下任意主机上，于“允许主机进入”下粘贴一次此代码即可打开，所有密钥都会保留。如果主机属于他人，请私下把代码交给对方。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このホストでは開いていません。これらのホストのいずれかの「ホストを許可」にこのコードを一度貼り付けると、すべてのキーを保ったまま開きます。ほかの人のホストなら、コードを非公開で渡してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 호스트에서는 열려 있지 않습니다. 아래 호스트 중 하나의 호스트 허용에 이 코드를 한 번 붙여넣으면 모든 키를 유지한 채 열립니다. 다른 사람의 호스트라면 코드를 비공개로 전달하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не открыто на этом хосте. Вставьте этот код один раз в разделе «Допустить хост» на одном из этих хостов, и оно откроется со всеми ключами. Если хост чужой, передайте код его владельцу лично."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não aberto neste host. Cole este código uma vez em Permitir um host em um destes hosts, e ele abre com todas as chaves mantidas. Se o host for de outra pessoa, entregue o código em particular."
+          }
+        }
+      }
+    },
+    "Not open on this host. Paste this code once under Let a host in on one of your hosts that has it, or give it privately to another of {org}'s owners or admins to paste.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas ouvert sur cet hôte. Collez ce code une fois sous Admettre un hôte sur l'un de vos hôtes qui l'a, ou donnez-le en privé à un autre propriétaire ou admin de {org} pour qu'il le colle."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No está abierta en este host. Pega este código una vez en Admitir un host en uno de tus hosts que la tenga, o dáselo en privado a otro propietario o admin de {org} para que lo pegue."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Host nicht offen. Füge diesen Code einmal unter „Einen Host zulassen“ auf einem deiner Hosts ein, der ihn hat, oder gib ihn privat einem anderen Inhaber oder Admin von {org} zum Einfügen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此主机上尚未打开。在你的某台已有它的主机上，于“允许主机进入”下粘贴一次此代码，或私下交给 {org} 的另一位所有者或管理员来粘贴。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このホストでは開いていません。保管庫を持つあなたのホストの「ホストを許可」にこのコードを一度貼り付けるか、{org} の別のオーナーか管理者に非公開で渡して貼り付けてもらってください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 호스트에서는 열려 있지 않습니다. 이를 가진 내 호스트의 호스트 허용에 이 코드를 한 번 붙여넣거나, {org}의 다른 소유자나 관리자에게 비공개로 전달해 붙여넣게 하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не открыто на этом хосте. Вставьте этот код один раз в разделе «Допустить хост» на одном из ваших хостов, где оно есть, или передайте его лично другому владельцу или администратору {org}, чтобы код вставили там."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não aberto neste host. Cole este código uma vez em Permitir um host em um dos seus hosts que o tem, ou entregue-o em particular a outro proprietário ou admin de {org} para colar."
           }
         }
       }
@@ -184181,6 +186365,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "{host} está online, então o cofre abre aqui em instantes sem perder nada."
+          }
+        }
+      }
+    },
+    "{host} is online. Paste this host's code there and nothing is lost.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} est en ligne. Collez-y le code de cet hôte et rien n'est perdu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} está en línea. Pega allí el código de este host y no se pierde nada."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} ist online. Füge dort den Code dieses Hosts ein, dann geht nichts verloren."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} 在线。在那里粘贴此主机的代码，就不会丢失任何内容。"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} はオンラインです。このホストのコードをそこに貼り付ければ、何も失われません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host}이(가) 온라인입니다. 그곳에 이 호스트의 코드를 붙여넣으면 아무것도 잃지 않습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} в сети. Вставьте там код этого хоста, и ничего не потеряется."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{host} está online. Cole lá o código deste host e nada se perde."
           }
         }
       }

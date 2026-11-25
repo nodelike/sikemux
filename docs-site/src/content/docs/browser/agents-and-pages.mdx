@@ -14,14 +14,20 @@ An agent drives its desk tabs through Sikemux's `browser_*` tools. It can:
 
 You see each of these happen on the desk.
 
+In **YOLO**, an agent can upload any file to a page with `browser_upload`. In the other modes it takes files only from the project and its checkout, temporary folders, attachments, downloads and recordings; for anything else, the agent asks you to add the file.
+
 ## Artifacts
 
-When an agent has something to show you, such as a report, a comparison or a mockup, it writes it as a web page. It checks the page off screen first with `page_preview`, then shows it with `page_show`, and its reply carries a card with the top of the page and its title; click the card to read it. A page loads the pictures, frames, stylesheets and scripts it names by a relative address from the folder it was written in, unless that folder is your home folder, Downloads or the like, and holds up to 25 MiB.
+When an agent has something to show you, such as a report, a comparison or a mockup, it writes it as a web page. It checks the page off screen first with `page_preview`, then shows it with `page_show`, and its reply carries a card with the top of the page and its title. A write-up opens with the point and what to do, and folds its evidence away.
 
-**Artifacts** on the tab rail (`⌘⌥8`, or `Ctrl+Alt+8` on Linux and Windows), beside **Agents**, **Terminals** and **Files**, lists what agents showed in the project, one line each with its title and the time it has left. Search finds one by title or by its agent. They sit in **Shared**, **Expiring** and **Kept**. The view in the middle shows the one you pick, or the newest.
+An artifact opens as a tab on the desk of the chat you open it from. From a notification or the notch it opens on the desk of the agent that asks, and from the Artifacts page or a `sikemux://artifact` link, on the desk of the agent in front. A page loads the pictures, frames, stylesheets and scripts it names by a relative address from the folder it was written in, unless that folder is your home folder, Downloads or the like, and holds up to 25 MiB.
 
-- **Keep** holds an artifact until you let it go. One you don't keep goes 7 days after it was shown, or a day after its ask settles. An agent can show one already kept.
-- **Share** makes a link, for 1 hour to 30 days, that anyone with it can open or only people signed in to Sikemux, at `app.sikemux.com/p/`. Sharing keeps the artifact, and the link shows its latest version.
+**Artifacts** on the tab rail (`⌘⌥8`, or `Ctrl+Alt+8` on Linux and Windows), beside **Agents**, **Terminals** and **Files**, lists what agents showed in the project, one line each with its title and the time it has left. **Window › Artifacts** opens the same page. Search finds one by title or by its agent. **Working** comes first: the artifacts open in a tab on any agent's desk of the project, with a coloured icon, where a click goes to the tab. The rest sit in **Shared**, **Expiring** and **Kept**. Each section has the last updated first.
+
+An artifact's header on the desk has its title on the left and its icons on the right: its history, **Share** and **Keep**. The address and the back and forward buttons come once a link in it takes the tab to a website. The composer at its foot sends to the desk's agent with the artifact attached; on an artifact an ask links, it shows the ask's choices and answers the ask.
+
+- **Keep** holds an artifact until you let it go. Its icon is a timer until then, and hovering it says when the artifact goes; kept, it is a lit pin. One you don't keep goes 7 days after it was shown, or a day after its ask settles. An agent can show one already kept.
+- **Share** makes a link, for 1 hour to 30 days, that anyone with it can open or only people signed in to Sikemux, at `app.sikemux.com/p/`. Sharing keeps the artifact, and the link shows its latest version. Sent in a chat app, the link previews as **Shared artifact**, with Sikemux's icon.
 
 Showing the same title again makes a new version. Ask an agent for one you saw before and it finds it with `page_list` and shows it again rather than making it anew.
 

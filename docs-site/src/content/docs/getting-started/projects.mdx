@@ -64,7 +64,7 @@ A terminal shows the folder its shell is in and how its last command went (runni
 
 When the project folder is not a repository itself but holds several, such as `backend/` and `web/`, the Git pane lists them. Star one, or pick it on the Playbook's [Git page](#the-playbook), and it becomes the project's default: the Git pane opens it, the diff pane reviews it, and new agent worktrees are cut from it. When the folder holds only one repository, that one is used without asking. The choice stays on your Mac.
 
-A project's checkout of its default branch, such as `main`, keeps up with the remote by itself: every ten minutes Sikemux fetches that branch and fast-forwards the checkout to it. It does so only when the checkout has no changes, no untracked files, no commits of its own and no merge or rebase under way, and no agent is at work in it; otherwise it leaves the checkout as it is. A checkout on any other branch, or one whose branch follows no remote, is never touched.
+A project's checkout of its default branch, such as `main`, keeps up with the remote by itself: every ten minutes Sikemux fetches that branch and fast-forwards the checkout to it. It does so only when the checkout has no changes, no untracked files, no commits of its own and no merge or rebase under way, no agent is at work or waiting mid-turn in it, and no process started in Sikemux runs in it; otherwise it leaves the checkout as it is. Chats that are closed or asleep there don't hold it back. A checkout on any other branch, or one whose branch follows no remote, is never touched.
 
 The Git pane's fourth page, **Pull requests** (`4`), lists the repository's open pull requests. Each offers **review this** or **fix the comments**, which hands it to an agent in a checkout of its own.
 
@@ -129,7 +129,7 @@ When the full check is slow, name a quicker one beside it:
 
 The fast check runs on each commit. The full check runs on the first commit after Sikemux starts, then again once three times its last length has passed, at least 5 minutes and at most 60, and on every commit while it is failing. Each run has `SIKEMUX_CHECK_SEED` in its environment, a number that stays the same for one agent and differs between agents, so a fast check can run a repeatable sample and agents together still cover everything.
 
-When a check fails, Sikemux tests the commits since the last sound one to find the one that broke it, for up to 15 minutes, and tells only that commit's agent. If none can be singled out, one agent owns the failure and the others are told who.
+When a check fails, Sikemux tests the commits since the last sound one to find the one that broke it, for up to 15 minutes, and tells only that commit's agent. If none can be singled out, one agent owns the failure and the others are told who. If no author can be reached, it goes to the project's chief while its chat is open.
 
 ### Checks before a land
 

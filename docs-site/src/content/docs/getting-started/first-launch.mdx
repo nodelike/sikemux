@@ -11,7 +11,7 @@ The left half of the window welcomes you, says where you stand and holds the but
 
 ## Privacy and reporting
 
-Both steps show **Share anonymous usage and crash reports** with a switch, and a line noting that plan limits are read with each agent's own sign-in after setup. If setup finishes automatically because an agent is already signed in, a notice says the same with **Turn off sharing**. Nothing goes to PostHog EU (daily usage totals and first-run steps) or Sentry EU (crashes, sessions and 10% of startup traces) until setup finishes, or ever if sharing is off.
+Both steps show **Share usage and crash reports** with a switch, and a line noting that plan limits are read with each agent's own sign-in after setup. If setup finishes automatically because an agent is already signed in, a notice says the same with **Turn off sharing**. Nothing goes to PostHog EU (daily usage totals and first-run steps) or Sentry EU (crashes, sessions and 10% of startup traces) until setup finishes, or ever if sharing is off. What goes carries a random install ID and a hash of your account that we can match to it.
 
 If you set up Sikemux earlier, you never saw that switch; change it any time in **Settings → About → Privacy**. Turning it off stops both PostHog and Sentry at once, and days spent off are never sent later. Setting `DO_NOT_TRACK` (or `CI`) to any value except empty, `0`, `false`, `no`, or `off` (case-insensitive) turns off all desktop reporting. Native crash reports send code addresses, image names and builds, and device and OS details, never memory. Full details are on the [privacy policy](https://sikemux.com/privacy).
 
