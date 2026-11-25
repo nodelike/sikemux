@@ -13,7 +13,7 @@ struct ApiProblem: LocalizedError {
     var errorDescription: String? { message }
 
     /// Nothing changed on the server: it was out of reach, or failed on its side.
-    var unreachable: Bool { status == nil || status! >= 500 }
+    var unreachable: Bool { status.map { $0 >= 500 } ?? true }
 }
 
 extension WireDevice: Identifiable {
@@ -72,7 +72,7 @@ enum AccountAPI {
                 return answer.body
             }
         #endif
-        var request = signedOut ? plain(method, path) : try await signedIn(method, path)
+        var request = signedOut ? try plain(method, path) : try await signedIn(method, path)
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(body)
@@ -82,14 +82,21 @@ enum AccountAPI {
         return (response as? HTTPURLResponse)?.statusCode == 204 ? Data("{}".utf8) : data
     }
 
-    private static func plain(_ method: String, _ path: String) -> URLRequest {
-        var request = URLRequest(url: URL(string: Config.apiUrl.absoluteString + path)!, timeoutInterval: 30)
+    private static func plain(_ method: String, _ path: String) throws -> URLRequest {
+        let raw = Config.apiUrl.absoluteString + path
+        guard
+            let url = URL(string: raw)
+                ?? raw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed).flatMap(URL.init(string:))
+        else {
+            throw ApiProblem(status: nil, code: nil, message: String(localized: "Invalid request address."))
+        }
+        var request = URLRequest(url: url, timeoutInterval: 30)
         request.httpMethod = method
         return request
     }
 
     private static func signedIn(_ method: String, _ path: String) async throws -> URLRequest {
-        var request = plain(method, path)
+        var request = try plain(method, path)
         do {
             request.setValue("Bearer \(try await Account.shared.token())", forHTTPHeaderField: "Authorization")
         } catch {

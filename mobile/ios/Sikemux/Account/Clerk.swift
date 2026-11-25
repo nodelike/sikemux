@@ -112,12 +112,14 @@ enum Clerk {
 
     private static let clientItem = "sikemux.clerk-client"
 
-    static let frontendApi: URL = {
+    static let frontendApi: URL? = {
         let key = Config.clerkPublishableKey
         let encoded = key.split(separator: "_").last.map(String.init) ?? ""
         let padded = encoded + String(repeating: "=", count: (4 - encoded.count % 4) % 4)
         let host = Data(base64Encoded: padded).flatMap { String(data: $0, encoding: .utf8) } ?? ""
-        return URL(string: "https://\(host.trimmingCharacters(in: CharacterSet(charactersIn: "$")))")!
+        let cleaned = host.trimmingCharacters(in: CharacterSet(charactersIn: "$"))
+        guard !cleaned.isEmpty else { return nil }
+        return URL(string: "https://\(cleaned)")
     }()
 
     private static let decoder: JSONDecoder = {
@@ -139,10 +141,17 @@ enum Clerk {
         _ form: [String: String] = [:],
         as: Response.Type = Response.self
     ) async throws -> (Response, Client?) {
-        var parts = URLComponents(url: frontendApi.appending(path: path), resolvingAgainstBaseURL: false)!
+        guard let base = frontendApi,
+            var parts = URLComponents(url: base.appending(path: path), resolvingAgainstBaseURL: false)
+        else {
+            throw Problem(status: nil, code: nil, message: String(localized: "Something went wrong; try again."))
+        }
         let extra = method == "GET" ? form.map { URLQueryItem(name: $0.key, value: $0.value) } : []
         parts.queryItems = [URLQueryItem(name: "_is_native", value: "1")] + extra
-        var request = URLRequest(url: parts.url!, timeoutInterval: 30)
+        guard let url = parts.url else {
+            throw Problem(status: nil, code: nil, message: String(localized: "Something went wrong; try again."))
+        }
+        var request = URLRequest(url: url, timeoutInterval: 30)
         request.httpMethod = method
         if let client = try? Keychain.app.read(clientItem) {
             request.setValue(client, forHTTPHeaderField: "Authorization")

@@ -9,18 +9,44 @@ import UIKit
 final class ChatSession {
     enum Attached { case attaching, live, missing }
 
-    /// Every chat this phone opened since it started, so going back to one finds it as it was left.
+    /// Every chat this phone opened since it started, capped to avoid unbounded memory growth.
     @ObservationIgnored private static var sessions: [String: ChatSession] = [:]
+    @ObservationIgnored private static var sessionOrder: [String] = []
+    private static let maxInactiveSessions = 8
     /// Temporary holds and host watches for closed chats that have waiting offline messages to flush on reconnect.
     @ObservationIgnored private static var pendingHolds: [String: () -> Void] = [:]
     @ObservationIgnored private static var pendingWatches: [String: HostWatch] = [:]
 
     static func of(core: String, agentId: String) -> ChatSession {
         let key = "\(core):\(agentId)"
+        touchOrder(key)
         if let found = sessions[key] { return found }
         let made = ChatSession(core: core, agentId: agentId)
         sessions[key] = made
+        evictInactive()
         return made
+    }
+
+    private static func touchOrder(_ key: String) {
+        if let at = sessionOrder.firstIndex(of: key) { sessionOrder.remove(at: at) }
+        sessionOrder.append(key)
+    }
+
+    private static func evictInactive() {
+        var inactive = sessionOrder.filter { key in
+            guard let session = sessions[key] else { return false }
+            return session.holders == 0 && !session.outbox.waiting && !session.outbox.sending
+                && pendingHolds[key] == nil
+        }
+        while inactive.count > maxInactiveSessions {
+            let key = inactive.removeFirst()
+            sessionOrder.removeAll { $0 == key }
+            if let evicted = sessions.removeValue(forKey: key) {
+                evicted.keep()
+                evicted.draft.keep()
+                evicted.dispose()
+            }
+        }
     }
 
     /// Watches any host that has saved waiting messages on disk so it connects and flushes even if no chat screen opens.
@@ -124,6 +150,10 @@ final class ChatSession {
     @ObservationIgnored private var hostUp: Bool?
     /// When this phone saw the running turn begin, for a turn the host has no time for.
     @ObservationIgnored private var sawTurnBegin = Date()
+    @ObservationIgnored private nonisolated(unsafe) var backgroundObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var resyncAttempts = 0
+    @ObservationIgnored private var lastResyncAt: Date?
+    @ObservationIgnored private var resyncTask: Task<Void, Never>?
 
     private init(core: String, agentId: String) {
         self.core = core
@@ -131,7 +161,7 @@ final class ChatSession {
         feed = Feed(store: KeptChat(core: core, agentId: agentId))
         feed.applied = { [unowned self] before in applied(before) }
         feed.emit = { [unowned self] in emit() }
-        feed.fellBehind = { [unowned self] in restart() }
+        feed.fellBehind = { [unowned self] resetMark in resync(resetMark: resetMark) }
         draft = ComposerDraft(
             core: core, agentId: agentId,
             held: { [unowned self] in feed.chat.head.draft },
@@ -161,13 +191,25 @@ final class ChatSession {
             emit()
         }
         emit()
-        NotificationCenter.default.addObserver(
+        backgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.keep()
                 self?.draft.keep()
             }
+        }
+    }
+
+    deinit {
+        if let backgroundObserver { NotificationCenter.default.removeObserver(backgroundObserver) }
+    }
+
+    private func dispose() {
+        stop()
+        if let observer = backgroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+            backgroundObserver = nil
         }
     }
 
@@ -239,6 +281,8 @@ final class ChatSession {
             guard holders == 0, self.connection === connection else { return }
             stop()
             self.connection = nil
+            Self.touchOrder("\(core):\(agentId)")
+            Self.evictInactive()
         }
     }
 
@@ -253,6 +297,8 @@ final class ChatSession {
 
     /// Opens the chat again from the start, after it could not be opened.
     func retry() {
+        resyncAttempts = 0
+        lastResyncAt = nil
         feed.forget()
         if connection != nil { restart() }
     }
@@ -262,12 +308,40 @@ final class ChatSession {
         feed.keep()
     }
 
+    private func resync(resetMark: Bool) {
+        let now = Date()
+        if let last = lastResyncAt, now.timeIntervalSince(last) > 30 { resyncAttempts = 0 }
+        resyncAttempts += 1
+        lastResyncAt = now
+        if resetMark { feed.forget() }
+        if resyncAttempts > 3 {
+            stop()
+            problem = String(localized: "Could not keep up with this chat's updates.")
+            attached = .missing
+            emit()
+            return
+        }
+        if resyncAttempts == 1 {
+            restart()
+            return
+        }
+        stop()
+        let wait: Duration = resyncAttempts == 2 ? .seconds(1) : .seconds(3)
+        resyncTask = Task { [weak self] in
+            try? await Task.sleep(for: wait)
+            guard let self, !Task.isCancelled, self.connection != nil else { return }
+            self.start()
+        }
+    }
+
     private func restart() {
         stop()
         start()
     }
 
     private func stop() {
+        resyncTask?.cancel()
+        resyncTask = nil
         run += 1
         synced = false
         stopRun?()
@@ -341,6 +415,10 @@ final class ChatSession {
                 if self.connection !== connection || !connection.isOpen() {
                     if feed.mark == nil { attached = .attaching }
                     emit()
+                    return
+                }
+                if error is DecodingError, mark != nil, resyncAttempts == 0 {
+                    resync(resetMark: true)
                     return
                 }
                 problem = Sikemux.problem(error)

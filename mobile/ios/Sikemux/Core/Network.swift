@@ -31,7 +31,7 @@ final class Network {
     }
 
     func relaySettings() async -> [RelaySetting] {
-        await relays().map { RelaySetting(url: $0.url, quicPort: $0.quicPort.map(UInt16.init)) }
+        await relays().map { RelaySetting(url: $0.url, quicPort: $0.quicPort.flatMap(UInt16.init(exactly:))) }
     }
 
     /// Asks the server again on the next connection, unless its last answer came through.
@@ -124,8 +124,9 @@ enum Versions {
     }
 
     private static func parse(_ version: String) -> (core: [Int], pre: [String])? {
-        let parts = version.split(separator: "-", maxSplits: 1)
-        let core = parts[0].split(separator: ".").compactMap { Int($0) }
+        let parts = version.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let first = parts.first else { return nil }
+        let core = first.split(separator: ".").compactMap { Int($0) }
         guard core.count == 3 else { return nil }
         return (core, parts.count > 1 ? parts[1].split(separator: ".").map(String.init) : [])
     }

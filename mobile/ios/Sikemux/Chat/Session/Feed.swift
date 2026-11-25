@@ -22,8 +22,8 @@ final class Feed {
     /// The chat changed from `before`.
     var applied: (ChatRows) -> Void = { _ in }
     var emit: () -> Void = {}
-    /// Some changes never arrived, so the chat must be attached again from what was taken.
-    var fellBehind: () -> Void = {}
+    /// Some changes never arrived or could not be read; `true` asks for a full snapshot instead of resuming.
+    var fellBehind: (Bool) -> Void = { _ in }
 
     /// Characters in the newest row past which laying it out every frame costs a frame, so changes are drawn every
     /// other frame instead.
@@ -122,10 +122,11 @@ final class Feed {
                 changes = try JSONDecoder().decode([ChatChange].self, from: Data(delivery.changesJson.utf8))
             } catch {
                 print("sikemux: could not read a chat change: \(error)")
-                continue
+                fellBehind(true)
+                return
             }
             if let taken, delivery.seq != taken + 1, !Self.follows(changes, taken) {
-                fellBehind()
+                fellBehind(false)
                 return
             }
             pending.append(contentsOf: changes)
@@ -216,7 +217,7 @@ final class Feed {
 /// Runs once, just before a coming frame is drawn.
 @MainActor
 final class FrameOnce {
-    private var link: CADisplayLink?
+    private nonisolated(unsafe) var link: CADisplayLink?
     private let run: () -> Void
     /// Frames to let pass first.
     private var skipping: Int
@@ -227,6 +228,10 @@ final class FrameOnce {
         let link = CADisplayLink(target: Target(self), selector: #selector(Target.fire))
         link.add(to: .main, forMode: .common)
         self.link = link
+    }
+
+    deinit {
+        link?.invalidate()
     }
 
     func cancel() {
