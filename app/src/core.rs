@@ -1332,27 +1332,48 @@ async fn run(
                 let mut stopping = false;
                 let client = Arc::new(client);
                 let _ = updates.send(Update::Connected(client.hello().build.version.clone()));
-                if let Err(error) = client
-                    .call(
-                        "configureAgentManifests",
-                        json!({ "manifestDir": home.manifest_dir }),
-                    )
-                    .await
-                {
-                    eprintln!("sikemux: the core could not read the agent manifests: {error}");
-                }
                 if let Err(error) = client.ask(ask::WatchView).await {
                     let _ = updates.send(Update::Lost(error.to_string()));
                 }
-                if let Err(error) = client.ask(ask::RegisterWindow).await {
-                    eprintln!("sikemux: the core would not hand this window its calls: {error}");
+                let mut remote_on: Option<bool> = None;
+                let (remote_init_tx, remote_init_rx) =
+                    mpsc::unbounded_channel::<sikemux_wire::protocol::RemoteStatus>();
+                let mut remote_init = Some(remote_init_rx);
+                {
+                    let client = client.clone();
+                    let manifest_dir = home.manifest_dir.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) = client
+                            .call(
+                                "configureAgentManifests",
+                                json!({ "manifestDir": manifest_dir }),
+                            )
+                            .await
+                        {
+                            eprintln!(
+                                "sikemux: the core could not read the agent manifests: {error}"
+                            );
+                        }
+                    });
                 }
-                let mut remote_on = client
-                    .remote_status()
-                    .await
-                    .ok()
-                    .map(|status| status.enabled);
-                start_at_login(&home, remote_on);
+                {
+                    let client = client.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) = client.ask(ask::RegisterWindow).await {
+                            eprintln!(
+                                "sikemux: the core would not hand this window its calls: {error}"
+                            );
+                        }
+                    });
+                }
+                {
+                    let client = client.clone();
+                    tokio::spawn(async move {
+                        if let Ok(status) = client.remote_status().await {
+                            let _ = remote_init_tx.send(status);
+                        }
+                    });
+                }
                 for (&key, watch) in &watches.here {
                     read(&client, key, watch, (&current, &failed), &updates);
                 }
@@ -1371,6 +1392,22 @@ async fn run(
                 let mut beginnings: Vec<Beginning> = Vec::new();
                 loop {
                     tokio::select! {
+                        status = async {
+                            match remote_init.as_mut() {
+                                Some(rx) => rx.recv().await,
+                                None => std::future::pending().await,
+                            }
+                        } => match status {
+                            Some(status) => {
+                                remote_init = None;
+                                if remote_on != Some(status.enabled) {
+                                    remote_on = Some(status.enabled);
+                                    start_at_login(&home, remote_on);
+                                }
+                                let _ = updates.send(Update::Remote(Box::new(status)));
+                            }
+                            None => remote_init = None,
+                        },
                         settled = settled.recv() => match settled {
                             Some((Place::This, settled)) => streams.settle(settled),
                             Some((Place::Account(host), settled)) => {
@@ -2153,9 +2190,13 @@ fn report(what: &str, done: Result<(), ClientError>) {
 
 enum Settled {
     Attached(SessionId, Attached),
+    AttachFailed,
     Detached(StreamId),
     Resized(SessionId),
 }
+
+const MAX_EARLY_STREAMS: usize = 32;
+const MAX_EARLY_FRAMES_PER_STREAM: usize = 64;
 
 /// The least time between two resizes of one terminal, each of which has the core wrap its
 /// whole scrollback again, so dragging a divider sends the sizes it settles on, not every one.
@@ -2171,6 +2212,7 @@ struct Streams {
     sessions: HashMap<StreamId, SessionId>,
     streams: HashMap<SessionId, StreamId>,
     early: HashMap<StreamId, Vec<Vec<u8>>>,
+    attaching: usize,
     settle_tx: mpsc::UnboundedSender<(Place, Settled)>,
     /// The terminals with a resize on its way, and the size asked for since, sent after it.
     resizing: HashMap<SessionId, Option<(u16, u16)>>,
@@ -2191,6 +2233,7 @@ impl Streams {
             sessions: HashMap::new(),
             streams: HashMap::new(),
             early: HashMap::new(),
+            attaching: 0,
             settle_tx: settle_tx.clone(),
             resizing: HashMap::new(),
             inputs: HashMap::new(),
@@ -2210,13 +2253,24 @@ impl Streams {
                     self.send(session, Screenful::Frame(frame));
                 }
             }
-            None => self.early.entry(stream).or_default().push(bytes),
+            None if self.attaching == 0 => {}
+            None => {
+                if !self.early.contains_key(&stream) && self.early.len() >= MAX_EARLY_STREAMS {
+                    return;
+                }
+                let queued = self.early.entry(stream).or_default();
+                if queued.len() >= MAX_EARLY_FRAMES_PER_STREAM {
+                    queued.remove(0);
+                }
+                queued.push(bytes);
+            }
         }
     }
 
     fn settle(&mut self, settled: Settled) {
         match settled {
             Settled::Attached(session, attached) => {
+                self.attaching = self.attaching.saturating_sub(1);
                 self.sessions.insert(attached.stream, session);
                 self.streams.insert(session, attached.stream);
                 if let Some(shell) = attached.shell {
@@ -2225,6 +2279,15 @@ impl Streams {
                 self.frame(attached.stream, attached.frame);
                 for bytes in self.early.remove(&attached.stream).unwrap_or_default() {
                     self.frame(attached.stream, bytes);
+                }
+                if self.attaching == 0 {
+                    self.early.clear();
+                }
+            }
+            Settled::AttachFailed => {
+                self.attaching = self.attaching.saturating_sub(1);
+                if self.attaching == 0 {
+                    self.early.clear();
                 }
             }
             Settled::Detached(stream) => {
@@ -2268,6 +2331,7 @@ impl Streams {
         let stream = self.streams.get(&session).copied();
         match ask {
             TerminalAsk::Attach => {
+                self.attaching += 1;
                 let (settle, host) = (self.settle_tx.clone(), self.place.clone());
                 tokio::spawn(async move {
                     match client.attach(session).await {
@@ -2275,7 +2339,8 @@ impl Streams {
                             drop(settle.send((host, Settled::Attached(session, attached))))
                         }
                         Err(error) => {
-                            eprintln!("sikemux: terminal {session} would not attach: {error}")
+                            eprintln!("sikemux: terminal {session} would not attach: {error}");
+                            drop(settle.send((host, Settled::AttachFailed)));
                         }
                     }
                 });
