@@ -286,32 +286,3 @@ function Tabs({
     </nav>
   );
 }
-
-function Me() {
-  const { user } = useUser();
-  const { signOut } = useClerk();
-  const [leaving, setLeaving] = useState(false);
-  const leave = () => {
-    setLeaving(true);
-    signOut({ redirectUrl: "/" }).catch(() => setLeaving(false));
-  };
-  return (
-    <div className="me">
-      <Avatar size={22} />
-      <span className="n">
-        {user?.fullName || user?.username || "Your account"}
-      </span>
-      <button
-        type="button"
-        className="out"
-        onClick={leave}
-        disabled={leaving}
-        data-busy={leaving || undefined}
-        aria-label="Sign out"
-        title="Sign out"
-      >
-        <IconLogOut size={15} />
-      </button>
-    </div>
-  );
-}

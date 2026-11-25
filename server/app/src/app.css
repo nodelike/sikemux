@@ -373,50 +373,6 @@ canvas.dots {
   display: flex;
   flex-direction: column;
 }
-.row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 2px 12px;
-  align-items: center;
-  padding: 12px var(--pad);
-  margin: 0 calc(-1 * var(--pad));
-  min-height: var(--row);
-  transition: background 0.12s;
-}
-.row:has(> .more > .box) {
-  padding-bottom: var(--pad);
-}
-.row + .row {
-  border-top: 1px solid var(--line);
-}
-.row:hover,
-.row.lit {
-  background: var(--hover);
-}
-.row .nm {
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.row .dt {
-  color: var(--two);
-  font-size: var(--t2);
-}
-.row > .end {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--two);
-  font-size: var(--t2);
-}
-.row > .end .field {
-  width: 56px;
-  height: 28px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
 .row > .end .named {
   display: flex;
   align-items: center;
@@ -434,9 +390,6 @@ canvas.dots {
 }
 .details .lead .orgm {
   background: var(--raise);
-}
-.card.details.over {
-  box-shadow: inset 0 0 0 1px var(--acc);
 }
 .row .more {
   grid-column: 1/-1;
@@ -480,25 +433,6 @@ canvas.dots {
 }
 .seg button[aria-checked="true"] {
   background: var(--raise2);
-  color: var(--lit);
-}
-.rolebtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 26px;
-  padding: 0 7px;
-  border-radius: 5px;
-  color: var(--two);
-  font-weight: 500;
-  font-size: var(--t2);
-}
-.rolebtn .ic {
-  width: 13px;
-  height: 13px;
-}
-.rolebtn:hover {
-  background: var(--on);
   color: var(--lit);
 }
 .field {
@@ -601,144 +535,11 @@ canvas.dots {
   border-radius: 4px;
   background: var(--on);
 }
-
-.scopes {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  min-width: 0;
-}
-.sc {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 10px 0 8px;
-  border-radius: var(--r);
-  font-weight: 500;
-  color: var(--two);
-  white-space: nowrap;
-  flex: none;
-}
-.sc:hover {
-  background: var(--hover);
-  color: var(--lit);
-}
-.sc[aria-current="true"] {
-  background: var(--on);
-  color: var(--lit);
-}
-.sc .av,
-.sc .orgm {
-  --z: 20px;
-}
-.sc .dot,
-.rl .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--warn);
-}
-.bar1 {
-  width: 1px;
-  height: 18px;
-  background: var(--line2);
-  margin: 0 4px;
-  flex: none;
-}
-.tabs {
-  display: flex;
-  gap: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.tb {
-  display: grid;
-  place-items: center;
-  height: 34px;
-  padding: 0 10px;
-  border-radius: var(--r);
-  font-weight: 500;
-  color: var(--two);
-  white-space: nowrap;
-  flex: none;
-}
-.tb:hover {
-  background: var(--hover);
-  color: var(--lit);
-}
-.tb[aria-current="page"] {
-  color: var(--lit);
-  background: var(--on);
-}
-
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: 20px;
-  translate: -50% 0;
-  background: var(--pop);
-  border-radius: var(--r-card);
-  padding: 8px 12px;
-  font-weight: 500;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  box-shadow:
-    0 0 0 1px var(--line2),
-    0 12px 32px #000a;
-  z-index: 20;
-  animation: up 0.24s var(--ease);
-  max-width: calc(100vw - 24px);
-}
-.toast > svg {
-  color: var(--ok);
-}
 @keyframes up {
   from {
     opacity: 0;
     transform: translateY(8px);
   }
-}
-.pop {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 15;
-  width: 230px;
-  background: var(--pop);
-  border-radius: var(--r-card);
-  padding: 4px;
-  box-shadow:
-    0 0 0 1px var(--line2),
-    0 14px 40px #000c;
-  animation: up 0.14s var(--ease);
-}
-.pop button {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0 8px;
-  width: 100%;
-  padding: 6px 8px;
-  border-radius: 5px;
-}
-.pop button:hover {
-  background: var(--on);
-}
-.pop button > svg {
-  color: var(--acc);
-}
-.pop button.bad b {
-  color: var(--bad-ink);
-}
-.pop b {
-  font-weight: 500;
-}
-.pop small {
-  grid-column: 1;
-  color: var(--two);
-  font-size: var(--t3);
-  line-height: 1.35;
 }
 .rel {
   position: relative;
@@ -866,9 +667,6 @@ canvas.dots {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-.phonebar {
-  display: none;
 }
 
 .hero {
@@ -1879,13 +1677,11 @@ dialog.dlg::backdrop {
 }
 .closing {
   display: flex;
-  gap: 10px;
   align-items: center;
   gap: 20px;
 }
 .closing > div:first-child {
   flex: 1;
-  background: var(--line2);
 }
 .setting {
   display: grid;
@@ -2073,74 +1869,6 @@ dialog.dlg::backdrop {
     flex-direction: column;
     gap: 22px;
   }
-}
-
-.lab-line {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.lab-line .lab {
-  flex: 1;
-}
-.lead {
-  display: grid;
-  place-items: center;
-}
-.what {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-.row .dt {
-  overflow-wrap: anywhere;
-}
-.skels {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 8px 0;
-}
-.skel:nth-child(1) {
-  width: 38%;
-}
-.skel:nth-child(2) {
-  width: 62%;
-}
-.skel:nth-child(3) {
-  width: 30%;
-}
-.av img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.markbox .spot {
-  width: 100%;
-  height: 100%;
-  color: var(--acc);
-}
-.markbox .spot > * {
-  display: none;
-}
-.markbox .spot.plain > svg,
-.markbox .spot.plain > img {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-.markbox .spot.plain > b {
-  display: grid;
-  place-items: center;
-  height: 100%;
-  font-size: 64px;
-}
-.head h1 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
 }
 
 /* Sign-in's last page, drawn as the ones Sikemux serves itself (crates/sikemux-loopback). */
@@ -2666,10 +2394,4 @@ dialog.dlg::backdrop {
 .plan-card-foot {
   margin-top: auto;
   padding-top: 6px;
-}
-.row > span:first-child:empty {
-  display: none;
-}
-.row:has(> span:first-child:empty) {
-  grid-template-columns: minmax(0, 1fr) auto;
 }
