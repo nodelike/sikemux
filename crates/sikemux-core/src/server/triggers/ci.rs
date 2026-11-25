@@ -14,7 +14,7 @@ use serde_json::Value;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use super::{fire, messages, remove_where, Firing, Trigger};
+use super::{fire, messages, take_for_firing, Firing, Trigger};
 use crate::git::Git;
 use crate::server::codehost::ci::Shown;
 use crate::server::codehost::repo::{self as codehost, Checks, Conclusion, CI_START_WAIT_MS};
@@ -427,7 +427,9 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
             )
         }
     };
-    let Some(mut trigger) = remove_where(&core, |trigger: &Trigger| trigger.id == id) else {
+    let Some((mut trigger, in_flight)) =
+        take_for_firing(&core, |trigger: &Trigger| trigger.id == id)
+    else {
         return;
     };
     if let (Some(since), CiEnded::Passed | CiEnded::Failed) = (watch.running_since, how) {
@@ -452,6 +454,7 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
             late: None,
             last: true,
             request: None,
+            in_flight,
         },
     )
     .await;

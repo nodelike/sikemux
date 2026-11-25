@@ -212,9 +212,10 @@ pub(super) fn gather(core: &Arc<Core>, id: u64) {
             let said = watch.said(&core);
             let mut fired = trigger.clone();
             fired.prompt = format!("{}\n\n{said}", trigger.prompt);
-            Some(fired)
+            let in_flight = state.start_firing(&core, &fired);
+            Some((fired, in_flight))
         });
-        if let Some(trigger) = firing {
+        if let Some((trigger, in_flight)) = firing {
             fire(
                 core.clone(),
                 Firing {
@@ -222,6 +223,7 @@ pub(super) fn gather(core: &Arc<Core>, id: u64) {
                     late: None,
                     last: false,
                     request: None,
+                    in_flight,
                 },
             )
             .await;

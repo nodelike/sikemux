@@ -221,11 +221,50 @@ struct Due {
     next: Option<u64>,
 }
 
+struct InFlight {
+    token: u64,
+    trigger: Trigger,
+}
+
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Saved {
     next_id: u64,
     triggers: Vec<Trigger>,
+    #[serde(skip)]
+    firing: Vec<InFlight>,
+    #[serde(skip)]
+    next_firing: u64,
+}
+
+impl Saved {
+    fn start_firing(&mut self, core: &Arc<Core>, trigger: &Trigger) -> Option<FiringGuard> {
+        if trigger.board.is_some() || trigger.after_push() {
+            return None;
+        }
+        self.next_firing += 1;
+        let token = self.next_firing;
+        self.firing.push(InFlight {
+            token,
+            trigger: trigger.clone(),
+        });
+        Some(FiringGuard {
+            core: core.clone(),
+            token,
+        })
+    }
+}
+
+pub(crate) struct FiringGuard {
+    core: Arc<Core>,
+    token: u64,
+}
+
+impl Drop for FiringGuard {
+    fn drop(&mut self) {
+        self.core.triggers().finish_firing(self.token);
+        super::finished::moved(&self.core);
+    }
 }
 
 pub(crate) struct Triggers {
@@ -245,6 +284,8 @@ struct Firing {
     last: bool,
     /// The webhook request that fired it.
     request: Option<FiredRequest>,
+    /// Keeps this firing trigger visible as a wait until delivery finishes.
+    in_flight: Option<FiringGuard>,
 }
 
 /// Why a trigger fires after its time, and when that was.
@@ -337,7 +378,17 @@ impl Triggers {
     ) -> Option<TurnWait> {
         let state = self.state.locked();
         let mine = || {
-            (state.triggers.iter()).filter(|trigger| trigger.prompts(agent_id) && !trigger.rests())
+            state
+                .triggers
+                .iter()
+                .filter(|trigger| trigger.prompts(agent_id) && !trigger.rests())
+                .chain(
+                    state
+                        .firing
+                        .iter()
+                        .map(|in_flight| &in_flight.trigger)
+                        .filter(|trigger| trigger.agent_id == agent_id && trigger.board.is_none()),
+                )
         };
         if let Some(trigger) = mine().find(|trigger| trigger.ci.is_some()) {
             return trigger.ci.as_ref().map(|ci| TurnWait {
@@ -372,13 +423,34 @@ impl Triggers {
             .filter_map(|trigger| Some((trigger, trigger.next_at?)))
             .min_by_key(|(_, at)| *at);
         let Some((trigger, at)) = soonest else {
-            let trigger = mine()
+            if let Some(trigger) = mine()
                 .filter(|trigger| trigger.check.as_ref().is_some_and(|check| !check.fired()))
-                .min_by_key(|trigger| trigger.set.as_ref().map(|set| set.at))?;
+                .min_by_key(|trigger| trigger.set.as_ref().map(|set| set.at))
+            {
+                return Some(TurnWait {
+                    kind: TurnWaitKind::Watch,
+                    what: trigger.title.clone(),
+                    started_at: trigger.set.as_ref().map_or(rested_at, |set| set.at),
+                    expected_ms: None,
+                    until: None,
+                    place: None,
+                    by: None,
+                    agent: None,
+                    agents: Vec::new(),
+                });
+            }
+            let trigger = state
+                .firing
+                .iter()
+                .map(|in_flight| &in_flight.trigger)
+                .find(|trigger| trigger.agent_id == agent_id && trigger.board.is_none())?;
             return Some(TurnWait {
-                kind: TurnWaitKind::Watch,
+                kind: match trigger.check.is_some() {
+                    true => TurnWaitKind::Watch,
+                    false => TurnWaitKind::Timer,
+                },
                 what: trigger.title.clone(),
-                started_at: trigger.set.as_ref().map_or(rested_at, |set| set.at),
+                started_at: rested_at,
                 expected_ms: None,
                 until: None,
                 place: None,
@@ -425,8 +497,29 @@ impl Triggers {
         let mine = state
             .triggers
             .iter()
-            .filter(|trigger| trigger.prompts(agent_id) && !trigger.waits_in_line());
-        mine.count() as u32
+            .filter(|trigger| trigger.prompts(agent_id) && !trigger.waits_in_line())
+            .count();
+        let firing = state
+            .firing
+            .iter()
+            .filter(|in_flight| {
+                in_flight.trigger.agent_id == agent_id
+                    && in_flight.trigger.board.is_none()
+                    && !in_flight.trigger.waits_in_line()
+            })
+            .count();
+        (mine + firing) as u32
+    }
+
+    fn begin_firing(&self, core: &Arc<Core>, trigger: &Trigger) -> Option<FiringGuard> {
+        self.state.locked().start_firing(core, trigger)
+    }
+
+    fn finish_firing(&self, token: u64) {
+        self.state
+            .locked()
+            .firing
+            .retain(|in_flight| in_flight.token != token);
     }
 
     /// The titles of the triggers that prompt the open chat `agent_id`.
@@ -477,7 +570,7 @@ impl Triggers {
 
     /// Takes out the triggers whose time has come, moving repeating ones on
     /// to their next time.
-    fn take_due(&self, now: u64) -> Due {
+    fn take_due(&self, core: Option<&Arc<Core>>, now: u64) -> Due {
         let mut state = self.state.locked();
         let mut firing = Vec::new();
         let mut looking = Vec::new();
@@ -509,6 +602,7 @@ impl Triggers {
                     late: None,
                     last: true,
                     request: None,
+                    in_flight: None,
                 });
                 return false;
             }
@@ -520,6 +614,7 @@ impl Triggers {
                     late: None,
                     last: true,
                     request: None,
+                    in_flight: None,
                 });
                 return false;
             }
@@ -535,6 +630,7 @@ impl Triggers {
                     late: late.then_some(Late::HostOff(due)),
                     last,
                     request: None,
+                    in_flight: None,
                 });
             } else {
                 moved.push(trigger.clone());
@@ -542,6 +638,11 @@ impl Triggers {
             trigger.next_at = next;
             next.is_some()
         });
+        if let Some(core) = core {
+            for item in &mut firing {
+                item.in_flight = state.start_firing(core, &item.trigger);
+            }
+        }
         if changed {
             self.kept.save(&*state);
         }
@@ -688,6 +789,7 @@ pub(crate) fn resume(core: &Arc<Core>) {
                         late: Some(Late::Held(if index == 0 { dropped } else { 0 })),
                         last: false,
                         request: Some(request),
+                        in_flight: None,
                     }),
             );
             resumed.push(trigger.clone());
@@ -713,9 +815,13 @@ pub(crate) fn resume(core: &Arc<Core>) {
                 late: Some(Late::ChatClosed(due)),
                 last: true,
                 request: None,
+                in_flight: None,
             });
             false
         });
+        for item in missed.iter_mut().chain(&mut held) {
+            item.in_flight = state.start_firing(core, &item.trigger);
+        }
         (resumed, missed, held)
     });
     for trigger in &resumed {
@@ -760,7 +866,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         looking,
         moved,
         next,
-    } = core.triggers().take_due(epoch_ms());
+    } = core.triggers().take_due(Some(core), epoch_ms());
     if let Some(next) = next {
         core.triggers().wake.at(next);
     }
@@ -801,6 +907,7 @@ async fn on_board(
 }
 
 async fn fire(core: Arc<Core>, mut firing: Firing) {
+    let _in_flight = firing.in_flight.take();
     if firing.trigger.paused.is_some() {
         let closed = firing.trigger.agent_id.clone();
         match super::launching::reopen_agent(&core, closed.clone()).await {
@@ -1553,7 +1660,7 @@ pub(crate) fn in_use_freed(
         trigger.agent_id == agent_id
             && (trigger.park.as_ref()).is_some_and(|park| park.is_thing(project, name))
     };
-    let Some(mut trigger) = remove_where(core, parked) else {
+    let Some((mut trigger, in_flight)) = take_for_firing(core, parked) else {
         return;
     };
     trigger.prompt = format!(
@@ -1567,6 +1674,7 @@ pub(crate) fn in_use_freed(
             late: None,
             last: true,
             request: None,
+            in_flight,
         },
     ));
 }
@@ -1577,7 +1685,7 @@ pub(crate) fn line_turn_came(core: &Arc<Core>, agent_id: &str, cwd: &str, comman
         trigger.agent_id == agent_id
             && (trigger.park.as_ref()).is_some_and(|park| park.is_line(cwd, command))
     };
-    let Some(mut trigger) = remove_where(core, parked) else {
+    let Some((mut trigger, in_flight)) = take_for_firing(core, parked) else {
         return;
     };
     trigger.prompt = format!(
@@ -1591,6 +1699,7 @@ pub(crate) fn line_turn_came(core: &Arc<Core>, agent_id: &str, cwd: &str, comman
             late: None,
             last: true,
             request: None,
+            in_flight,
         },
     ));
 }
@@ -1713,6 +1822,28 @@ fn remove_where(core: &Arc<Core>, matches: impl Fn(&Trigger) -> bool) -> Option<
     unhook(core, &removed);
     show(core, &removed);
     Some(removed)
+}
+
+/// Atomically takes a trigger out of the saved list and marks it firing until delivery ends,
+/// so the agent never looks unwaited while its chat wakes up.
+fn take_for_firing(
+    core: &Arc<Core>,
+    matches: impl Fn(&Trigger) -> bool,
+) -> Option<(Trigger, Option<FiringGuard>)> {
+    let (removed, in_flight) = core.triggers().change(|state| {
+        let at = state.triggers.iter().position(&matches)?;
+        let trigger = state.triggers.remove(at);
+        let in_flight = state.start_firing(core, &trigger);
+        Some((trigger, in_flight))
+    })?;
+    unhook(core, &removed);
+    show(core, &removed);
+    Some((removed, in_flight))
+}
+
+#[cfg(test)]
+pub(crate) fn take_first_for_firing(core: &Arc<Core>, agent_id: &str) -> Option<FiringGuard> {
+    take_for_firing(core, |trigger| trigger.prompts(agent_id)).and_then(|(_, guard)| guard)
 }
 
 /// Puts the chat's triggers in its feed, as it starts or wakes.
@@ -1901,11 +2032,13 @@ pub(crate) fn delivered(core: &Arc<Core>, delivery: HookDelivery) -> Result<(), 
         );
         return Ok(());
     }
+    let in_flight = core.triggers().begin_firing(core, &trigger);
     let firing = Firing {
         trigger,
         late: None,
         last: false,
         request: Some(fired_request(delivery)),
+        in_flight,
     };
     tokio::spawn(fire(core.clone(), firing));
     Ok(())
@@ -2017,7 +2150,7 @@ mod tests {
             .collect();
         assert_eq!(ended, [1, 2]);
 
-        let due = triggers.take_due(now);
+        let due = triggers.take_due(None, now);
         let fired: Vec<u64> = due.firing.iter().map(|firing| firing.trigger.id).collect();
         assert_eq!(fired, [3]);
         assert!(due.firing[0].trigger.paused.is_some());

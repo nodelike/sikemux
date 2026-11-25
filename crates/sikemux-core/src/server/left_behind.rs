@@ -7,7 +7,7 @@
 use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -22,6 +22,14 @@ const GRACE_MS: u64 = 5 * 60 * 1000;
 const MOST_LISTED: usize = 10;
 const FILES_LISTED: usize = 5;
 
+/// Tracks when an agent stopped waiting and actually became idle with unlanded work, so the
+/// grace runs from the end of a wait rather than from before the wait began.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum IdleSeen {
+    Waiting,
+    IdleSince(u64),
+}
+
 pub(crate) struct Left {
     agent: String,
     to: String,
@@ -32,21 +40,58 @@ pub(crate) struct Left {
 pub(crate) fn read(
     core: &Core,
     turns: &HashMap<String, TurnState>,
+    seen: &mut HashMap<String, IdleSeen>,
     now: u64,
 ) -> (Vec<Left>, Option<u64>) {
     let mut left = Vec::new();
     let mut next: Option<u64> = None;
-    for agent in core.workspaces().agents() {
+    let agents = core.workspaces().agents();
+    let open: HashSet<&str> = agents.iter().map(|agent| agent.id.as_str()).collect();
+    seen.retain(|id, _| open.contains(id.as_str()));
+    for agent in agents {
         let Some(turn) = turns.get(&agent.id) else {
+            seen.remove(&agent.id);
             continue;
         };
-        let Some(changes) = idle_with_work(core, &agent.id, turn) else {
+        if turn.state == TurnPhase::Waiting {
+            seen.insert(agent.id, IdleSeen::Waiting);
             continue;
+        }
+        let Some(changes) = done_with_work(turn) else {
+            seen.remove(&agent.id);
+            continue;
+        };
+        // Re-read the live turn state in case the agent began working or waiting while `finished`
+        // ran before us, or already has mail on the way to wake it.
+        let fresh = super::turn_state::now(core, &agent.id);
+        let mail_waiting = core.agent_now(&agent.id).waits_on_something();
+        if mail_waiting
+            || fresh
+                .as_ref()
+                .is_some_and(|fresh| fresh.state == TurnPhase::Waiting)
+        {
+            seen.insert(agent.id, IdleSeen::Waiting);
+            continue;
+        }
+        let Some(changes) = fresh.as_ref().map_or(Some(changes), done_with_work) else {
+            seen.remove(&agent.id);
+            continue;
+        };
+        let idle_since = match seen.get(&agent.id).copied() {
+            Some(IdleSeen::IdleSince(since)) => since,
+            Some(IdleSeen::Waiting) => {
+                seen.insert(agent.id.clone(), IdleSeen::IdleSince(now));
+                now
+            }
+            None => {
+                seen.insert(agent.id.clone(), IdleSeen::IdleSince(turn.since));
+                turn.since
+            }
         };
         if core.inbox().told_left(&agent.id) {
             continue;
         }
-        let due = turn.since + GRACE_MS;
+        let due = idle_since + GRACE_MS;
         if now < due {
             next = Some(next.map_or(due, |next| next.min(due)));
             continue;
@@ -143,15 +188,11 @@ pub(crate) fn tell_chiefs(core: &Arc<Core>, notes: Vec<Unowned>) {
     }
 }
 
-fn idle_with_work(core: &Core, agent_id: &str, turn: &TurnState) -> Option<WorkAt> {
-    let changes = (turn.state == TurnPhase::Done && turn.call.is_none())
+fn done_with_work(turn: &TurnState) -> Option<WorkAt> {
+    (turn.state == TurnPhase::Done && turn.call.is_none())
         .then(|| turn.done.as_ref().map(|done| done.changes))
         .flatten()
-        .filter(|changes| matches!(changes, WorkAt::Committed | WorkAt::Uncommitted))?;
-    let now = core.agent_now(agent_id);
-    let waits =
-        now.at_work() || now.waits_on_something() || super::turn_state::set_a_wake(core, agent_id);
-    (!waits).then_some(changes)
+        .filter(|changes| matches!(changes, WorkAt::Committed | WorkAt::Uncommitted))
 }
 
 fn opening(hears: &Hears) -> &'static str {
@@ -468,5 +509,117 @@ mod tests {
         restarted.started("worker");
         restarted.ended("worker", None, None);
         assert!(!restarted.told_left("worker"));
+    }
+
+    /// On 25 Nov @Chief got "left work behind" for @Bansai while its process trigger was waking
+    /// its asleep chat, and for @Shimazaki in the 144 ms after its background task ended before
+    /// the next turn began.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_worker_whose_wait_is_firing_or_just_ended_is_not_reported_left_behind() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let project = project(&core, dir.path()).await;
+        let tree = dir.path().join("worker-tree");
+        git(
+            dir.path(),
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "work",
+                tree.to_str().unwrap(),
+            ],
+        );
+        git(
+            &tree,
+            &["commit", "-q", "--allow-empty", "-m", "unlanded work"],
+        );
+        let path = project.path.to_string_lossy().into_owned();
+        name(&core, "lead", &path, None);
+        open(&core, "lead", &project.id, dir.path(), None);
+        name(&core, "worker", &path, Some("lead"));
+        open(&core, "worker", &project.id, &tree, Some("lead"));
+
+        core.note_activity("worker", Activity::Started);
+        core.note_activity("worker", Activity::Finished { cancelled: false });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while (core.inbox().ending("worker")).is_none_or(|ended| ended.work.is_none()) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the work was never read"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        core.inbox().keep_work(
+            "worker",
+            Work {
+                changes: WorkAt::Committed,
+                head: None,
+                head_at: None,
+                project: path.clone(),
+                can_try: false,
+                own: Vec::new(),
+                shared: 0,
+            },
+        );
+        let ended_at = core.inbox().ending("worker").and_then(|e| e.at).unwrap();
+        let later = ended_at + GRACE_MS + 60_000;
+
+        let request = crate::cli::protocol::HarnessRequest {
+            id: "1".to_owned(),
+            project: path,
+            agent_id: Some("worker".to_owned()),
+            method: "trigger_add".to_owned(),
+            params: json!({
+                "title": "org vault tests and clippy",
+                "prompt": "continue",
+                "in": 3600,
+            }),
+        };
+        crate::server::triggers::add(&core, &request)
+            .await
+            .expect("the trigger");
+
+        let mut seen = HashMap::new();
+        let turns = HashMap::from([(
+            "worker".to_owned(),
+            crate::server::turn_state::now(&core, "worker").unwrap(),
+        )]);
+        assert_eq!(turns["worker"].state, TurnPhase::Waiting);
+        let (left, _) = read(&core, &turns, &mut seen, later);
+        assert!(left.is_empty());
+
+        // Trigger is popped to fire, while fire() is still waking the asleep chat: still Waiting.
+        let guard =
+            crate::server::triggers::take_first_for_firing(&core, "worker").expect("firing guard");
+        let while_firing = crate::server::turn_state::now(&core, "worker").unwrap();
+        assert_eq!(while_firing.state, TurnPhase::Waiting);
+        assert!(crate::server::turn_state::set_a_wake(&core, "worker"));
+        let mut fresh_seen = HashMap::new();
+        let (left, _) = read(
+            &core,
+            &HashMap::from([("worker".to_owned(), while_firing)]),
+            &mut fresh_seen,
+            later,
+        );
+        assert!(left.is_empty());
+
+        // Once the wait ends without starting a turn (e.g. brief gap before turn_started),
+        // the 5-minute grace starts from when the wait ended, not from pre-wait ended_at.
+        drop(guard);
+        let after_wait = crate::server::turn_state::now(&core, "worker").unwrap();
+        assert_eq!(after_wait.state, TurnPhase::Done);
+        let turns = HashMap::from([("worker".to_owned(), after_wait)]);
+        let (left, due) = read(&core, &turns, &mut seen, later);
+        assert!(left.is_empty());
+        assert_eq!(due, Some(later + GRACE_MS));
+
+        let (left, _) = read(&core, &turns, &mut seen, later + GRACE_MS - 1);
+        assert!(left.is_empty());
+
+        let (left, _) = read(&core, &turns, &mut seen, later + GRACE_MS);
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].to, "lead");
     }
 }

@@ -235,13 +235,9 @@ pub(crate) fn all(core: &Core) -> HashMap<String, TurnState> {
     all_from(core, &chats, &sessions)
 }
 
-/// How `agent_id`'s turn stands, worked out now from its own facts alone.
-pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
+/// What `agent_id`'s turn reads of the others, gathered from its own facts alone.
+fn gathered_for(core: &Core, agent_id: &str) -> Gathered {
     let mid_turn = |id: &str| core.agent_now(id).mid_turn();
-    let status = match mid_turn(agent_id) {
-        true => AgentStatus::Working,
-        false => AgentStatus::Idle,
-    };
     let mut asks: HashMap<String, Vec<Ask>> = HashMap::new();
     if let Some(chat) = core.chats().get(agent_id) {
         asks.insert(
@@ -271,12 +267,21 @@ pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
     };
     let mut leads = core.harness().questions.waiting_on_leads();
     leads.retain(|worker, _| worker == agent_id);
-    let gathered = Gathered {
+    Gathered {
         asks,
         workers,
         leads,
         teams: HashMap::from([(agent_id.to_owned(), team)]),
+    }
+}
+
+/// How `agent_id`'s turn stands, worked out now from its own facts alone.
+pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
+    let status = match core.agent_now(agent_id).mid_turn() {
+        true => AgentStatus::Working,
+        false => AgentStatus::Idle,
     };
+    let gathered = gathered_for(core, agent_id);
     of(core, &gathered, agent_id, status)
 }
 
@@ -491,15 +496,19 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
     set.or_else(|| background_task(core, agent_id, rested_at))
 }
 
-/// A background task of the agent's still running after its turn ended, which wakes it as it ends.
+/// A background task or subagent of the agent's still running after its turn ended, which wakes it
+/// as it ends.
 fn background_task(core: &Core, agent_id: &str, rested_at: u64) -> Option<TurnWait> {
-    let task = core.chats().get(agent_id)?.feed.running_task()?;
+    let chat = core.chats().get(agent_id)?;
+    let what = match chat.feed.running_task() {
+        Some(task) if task.is_empty() => "a background task".to_owned(),
+        Some(task) => format!("background task {task}"),
+        None if chat.feed.running_subagents() > 0 => "a subagent".to_owned(),
+        None => return None,
+    };
     Some(TurnWait {
         kind: TurnWaitKind::Process,
-        what: match task.is_empty() {
-            true => "a background task".to_owned(),
-            false => format!("background task {task}"),
-        },
+        what,
         started_at: rested_at,
         expected_ms: None,
         until: None,
@@ -809,15 +818,11 @@ pub(crate) fn left_open(core: &Core, agent_id: &str) -> Option<String> {
     core.chats().get(agent_id)?.feed.plan_left(started)
 }
 
-/// Whether the agent ends its turn on a wake it set itself: CI, a run, a one-time timer, its
-/// commits in line to land, or a worker of its at work.
+/// Whether the agent's turn waits on something set to wake it — the same wait `agent_list` and
+/// every row show as `TurnPhase::Waiting`.
 pub(crate) fn set_a_wake(core: &Core, agent_id: &str) -> bool {
-    core.triggers()
-        .wait_of(agent_id, epoch_ms(), |_| None)
-        .is_some()
-        || super::edits::queue::in_line(core, agent_id).is_some()
-        || (core.workspaces().agent_leads().iter())
-            .any(|(worker, lead)| lead == agent_id && core.agent_now(worker).mid_turn())
+    let gathered = gathered_for(core, agent_id);
+    wait_of(core, &gathered, agent_id, epoch_ms()).is_some()
 }
 
 /// How a turn that ended stands, in words for agents: the agent's own line, and another agent's

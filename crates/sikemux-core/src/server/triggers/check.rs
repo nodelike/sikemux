@@ -95,7 +95,7 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
     if ran.as_deref() == Ok(check.said.as_str()) {
         return;
     }
-    let trigger = core.triggers().change(|state| {
+    let firing = core.triggers().change(|state| {
         let trigger = state.triggers.iter_mut().find(|trigger| trigger.id == id)?;
         let check = trigger.check.as_mut()?;
         check.fired = true;
@@ -103,9 +103,13 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
         if let Ok(said) = &ran {
             check.said = said.clone();
         }
-        Some(trigger.clone())
+        let cloned = trigger.clone();
+        let in_flight = state.start_firing(&core, &cloned);
+        Some((cloned, in_flight))
     });
-    let Some(mut trigger) = trigger else { return };
+    let Some((mut trigger, in_flight)) = firing else {
+        return;
+    };
     let news = match ran {
         Ok(said) => format!("says something new:\n{said}"),
         Err(error) => format!("could not run, and fires each time until it can:\n{error}"),
@@ -118,6 +122,7 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
             late: None,
             last: false,
             request: None,
+            in_flight,
         },
     )
     .await;

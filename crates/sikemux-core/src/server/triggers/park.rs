@@ -13,7 +13,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::turn::TurnWaitKind;
 
-use super::{fire, remove_where, Firing, Trigger};
+use super::{fire, take_for_firing, Firing, Trigger};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
 use crate::server::follow::{self, Happened, Until};
@@ -341,7 +341,9 @@ async fn look(core: &Arc<Core>) {
         let Some(said) = met(core, &park).await else {
             continue;
         };
-        let Some(mut trigger) = remove_where(core, |trigger: &Trigger| trigger.id == id) else {
+        let Some((mut trigger, in_flight)) =
+            take_for_firing(core, |trigger: &Trigger| trigger.id == id)
+        else {
             continue;
         };
         if let Some(on) = park.waits_on() {
@@ -356,6 +358,7 @@ async fn look(core: &Arc<Core>) {
                 late: None,
                 last: true,
                 request: None,
+                in_flight,
             },
         ));
     }

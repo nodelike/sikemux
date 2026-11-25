@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
-use super::{fire, remove_where, Firing, Trigger};
+use super::{fire, take_for_firing, Firing, Trigger};
 use crate::server::{plugged, Core};
 
 const RUNDECK: &str = "sikemux.rundeck";
@@ -120,7 +120,9 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
             run.execution_id
         ),
     };
-    let Some(mut trigger) = remove_where(&core, |trigger: &Trigger| trigger.id == id) else {
+    let Some((mut trigger, in_flight)) =
+        take_for_firing(&core, |trigger: &Trigger| trigger.id == id)
+    else {
         return;
     };
     trigger.prompt = format!("{}\n\n{said}", trigger.prompt);
@@ -131,6 +133,7 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
             late: None,
             last: true,
             request: None,
+            in_flight,
         },
     )
     .await;
