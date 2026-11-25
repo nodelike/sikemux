@@ -1,3 +1,5 @@
+pub use sikemux_base::text::one_line;
+
 /// `text` trimmed, cut to at most `max` characters with an ellipsis when it
 /// is longer.
 pub fn clipped(text: &str, max: usize) -> String {
@@ -32,9 +34,4 @@ pub fn to_keep(text: &str, key: &str, max: usize) -> Result<String, String> {
         ));
     }
     Ok(text.to_owned())
-}
-
-/// `text` with every run of white space, line breaks among them, a single space.
-pub fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

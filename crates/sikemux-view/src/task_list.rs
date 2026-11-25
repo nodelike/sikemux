@@ -86,6 +86,9 @@ pub struct TeammateAsk {
     pub task: u64,
     pub task_title: String,
     pub question: String,
+    /// The question where one line shows: its first words, without what marks them up.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub headline: String,
     pub answer: String,
     /// The name of the agent of this person's whose work answered; none when nobody held the
     /// task.

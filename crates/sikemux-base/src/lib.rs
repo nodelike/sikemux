@@ -7,3 +7,4 @@ pub mod download;
 pub mod http;
 pub mod pages;
 pub mod runtime;
+pub mod text;

@@ -10,6 +10,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::Serialize;
 
+use crate::text::one_line;
+
 /// The folder under the data folder pages are kept in.
 pub const FOLDER: &str = "pages";
 
@@ -225,7 +227,7 @@ fn content_type(path: &Path) -> &'static str {
 /// Keeps the page an agent wrote at `source` in `dir` and names it for the
 /// chat.
 pub fn publish(dir: &Path, source: &Path, title: &str) -> Result<PageRef, String> {
-    let title: String = title.trim().chars().take(MAX_TITLE_CHARS).collect();
+    let title: String = one_line(title).chars().take(MAX_TITLE_CHARS).collect();
     if title.is_empty() {
         return Err("title must be nonempty".into());
     }
@@ -325,7 +327,7 @@ pub fn title(dir: &Path, id: &str) -> Option<String> {
         .replace("&quot;", "\"")
         .replace("&#39;", "'"))
     .replace("&amp;", "&");
-    let title: String = title.trim().chars().take(MAX_TITLE_CHARS).collect();
+    let title: String = one_line(&title).chars().take(MAX_TITLE_CHARS).collect();
     Some(match title.is_empty() {
         true => "Page".to_owned(),
         false => title,

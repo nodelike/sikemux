@@ -564,7 +564,10 @@ fn ask_row(
     let question = div()
         .font_weight(FontWeight::MEDIUM)
         .text_color(t.text_primary)
-        .child(asked.question.clone());
+        .child(match open {
+            true => asked.question.clone(),
+            false => asked.headline.clone(),
+        });
     let head = div()
         .id(SharedString::from(id.clone()))
         .min_h(px(30.))

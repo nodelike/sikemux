@@ -419,6 +419,7 @@ pub(crate) fn of_project(core: &Core, folder: &str) -> Option<TeammateAsks> {
                     agent_cli: teammate.agent_cli.clone(),
                     task,
                     task_title: (titles.get(&task).cloned()).unwrap_or_else(|| format!("#{task}")),
+                    headline: sikemux_fold::first_words(&asked.question),
                     question: asked.question.clone(),
                     answer: asked.answer.clone(),
                     from_work_of: (!asked.to.is_empty()).then(|| asked.to_name.clone()),
