@@ -1010,7 +1010,7 @@ pub(crate) fn task(
     let lead_shown = at_name(lead_name);
     let answer = if reports {
         format!(
-            "When your turn ends, your final answer goes to {lead} by itself, unless you end it on something set to wake you, such as a trigger, a land in line or a worker of yours still at work, and ask nothing: then {lead} hears only how your land went, so send it a milestone meanwhile with agent_send. An answer of only a dash is not sent either. Message it with agent_send if you need to ask it something first."
+            "When your turn ends, your final answer goes to {lead} by itself, unless you end it on something set to wake you, such as a trigger, a land in line or a worker of yours still at work, and ask nothing: then {lead} hears only how your land went, so send it a milestone meanwhile with agent_send. An answer of only a dash is not sent either. Use agent_send to {lead} only mid-turn for a question or milestone, not for your final report — write your final report as your answer and end your turn."
         )
     } else {
         format!("Your answers do not go to {lead} by themselves: send it what it needs with agent_send when you are done.")
@@ -2358,6 +2358,13 @@ async fn handed(
         .as_deref()
         .map(at_name)
         .unwrap_or_else(|| target.agent_id.clone());
+    let lead_hint = if letter.kind == MessageKind::Message
+        && core.names().reports_to(&letter.from_id).as_deref() == Some(target.agent_id.as_str())
+    {
+        " For a final report, end your turn with it instead of calling agent_send."
+    } else {
+        ""
+    };
     let answer = |delivery: &str, note: String| json!({ "to": name, "agentId": target.agent_id, "delivery": delivery, "note": note });
     let mailbox = &core.harness().mailbox;
     match mailbox.admit(&letter, &target.agent_id, &name)? {
@@ -2503,7 +2510,9 @@ async fn handed(
                 return Ok((
                     answer(
                         "steered",
-                        format!("{name} is working and reads this at its next step.{woke}"),
+                        format!(
+                            "{name} is working and reads this at its next step.{woke}{lead_hint}"
+                        ),
                     ),
                     MessageOutcome::Steered,
                 ))
@@ -2512,7 +2521,9 @@ async fn handed(
                 return Ok((
                     answer(
                         "newTurn",
-                        format!("{name} was idle and started a turn to read this.{woke}"),
+                        format!(
+                            "{name} was idle and started a turn to read this.{woke}{lead_hint}"
+                        ),
                     ),
                     outcome,
                 ))
@@ -2544,7 +2555,7 @@ async fn handed(
     Ok((
         answer(
             "waiting",
-            format!("{name} {busy}, so it gets this once it is free, with any others waiting ({waiting} now).{woke}"),
+            format!("{name} {busy}, so it gets this once it is free, with any others waiting ({waiting} now).{woke}{lead_hint}"),
         ),
         MessageOutcome::Waiting,
     ))

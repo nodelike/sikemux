@@ -785,7 +785,9 @@ step), `newTurn` (it was idle and started a turn), `waiting` (it gets it when
 its turn ends), `reopened` (a closed agent you lead was taken up again),
 `repeat` (not sent twice) or `held` (four back-and-forth messages with no other
 work; it goes on once one of you does something else). Don't wait in a loop:
-a reply arrives as its own message.
+a reply arrives as its own message. If you report to a lead, write your final
+report as your turn's answer instead of calling `agent_send` (calling it at
+turn-end forces an extra turn).
 
 ### Starting an agent
 
