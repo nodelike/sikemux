@@ -17,6 +17,8 @@ use super::Core;
 use crate::server::board::{self, GoalRef};
 
 const HEADING: &str = "What Sikemux keeps for this project";
+const AFTER_COMPACT_HEADING: &str = "Project rules after compaction";
+const AFTER_COMPACT_NOTE: &str = "Follow these; memory_list has knowledge and decisions.";
 const NOTE: &str = "Follow these. Fix a wrong one with memory_update (goal: true for a goal's rule) or decide for a decision; memory_list has the rest.";
 const MAX_RULES: usize = 30;
 const MAX_KNOWLEDGE: usize = 12;
@@ -99,6 +101,50 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<S
         "---\n\n**{HEADING}.** {NOTE}\n\n{}",
         body(core, reader)?
     ))
+}
+
+pub(crate) fn after_compaction(core: &Core, agent_id: &str) -> Option<String> {
+    let project = core.names().get(agent_id)?.project;
+    let mut rules = Vec::new();
+    {
+        let state = core.memory().state.locked();
+        for held in state.applying(&project) {
+            for rule in &held.rules {
+                if rule.learned.agent.is_none() && rules.len() < MAX_RULES {
+                    rules.push(format!(
+                        "- #{} {}",
+                        rule.id,
+                        crate::text::one_line(&rule.text)
+                    ));
+                }
+            }
+        }
+    }
+    let mut sections = Vec::new();
+    if !rules.is_empty() {
+        sections.push(format!("Rules:\n{}", rules.join("\n")));
+    }
+    if let Some(goal) = board::briefing::goal_for(core, agent_id) {
+        let goal_rules: Vec<String> = board::goal::rules(core, &goal)
+            .into_iter()
+            .filter(|rule| rule.learned.agent.is_none())
+            .take(MAX_RULES)
+            .map(|rule| format!("- #{} {}", rule.id, crate::text::one_line(&rule.text)))
+            .collect();
+        if !goal_rules.is_empty() {
+            sections.push(format!(
+                "Rules of goal card #{}:\n{}",
+                goal.card,
+                goal_rules.join("\n")
+            ));
+        }
+    }
+    (!sections.is_empty()).then(|| {
+        format!(
+            "**{AFTER_COMPACT_HEADING}.** {AFTER_COMPACT_NOTE}\n\n{}",
+            sections.join("\n\n")
+        )
+    })
 }
 
 /// What a chat the person starts in `cwd` is handed as it begins: the

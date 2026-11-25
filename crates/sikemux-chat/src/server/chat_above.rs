@@ -128,10 +128,9 @@ pub struct ChatAbove {
     /// The project's decisions still standing that were made since `since`, newest first, at
     /// most `most`: every goal's, and those made on no goal.
     pub board_standing_since: fn(&Core, &str, u64, usize) -> Vec<Decision>,
-    /// What Sikemux keeps for the agent, for after its task in the same letter.
-    /// Knowledge is picked by the words of `task`, a lead's own, when given, and
-    /// of the agent's card.
-    pub memory_brief: fn(&Core, &str, Option<&str>) -> Option<String>,
+    /// Project and goal rules kept for the agent after a compaction, without repeating
+    /// decisions, knowledge or agent notes already sent at launch.
+    pub memory_after_compaction: fn(&Core, &str) -> Option<String>,
     /// What a chat the person starts in `cwd` is handed as it begins: the
     /// project's rules and the knowledge that names nothing in particular. A
     /// goal's rules and decisions, and knowledge about what its work names, come

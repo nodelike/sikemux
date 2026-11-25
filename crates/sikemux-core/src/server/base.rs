@@ -311,7 +311,7 @@ pub(super) fn chat_above() -> ChatAbove {
         },
         agent_accounts_note_live: agent_accounts::note_live,
         board_standing_since: board::goal::standing_since,
-        memory_brief: memory::brief,
+        memory_after_compaction: memory::after_compaction,
         memory_for_chat: memory::for_chat,
         questions_ask_for_dialog: questions::ask_for_dialog,
         turn_state_now: turn_state::now,

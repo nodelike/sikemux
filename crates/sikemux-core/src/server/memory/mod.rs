@@ -49,7 +49,7 @@ mod removed;
 mod seed;
 mod waiting;
 
-pub(crate) use brief::{brief, for_chat};
+pub(crate) use brief::{after_compaction, brief, for_chat};
 pub(crate) use check::settle;
 pub(crate) use now_check::{set_aside, why as set_aside_why, SetAside};
 pub(crate) use promote::{promote, promote_all};
