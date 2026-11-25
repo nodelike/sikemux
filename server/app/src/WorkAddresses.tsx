@@ -20,6 +20,7 @@ import {
   Problem,
   Row,
   Rows,
+  Tile,
   Txt,
   useAction,
   useToast,
@@ -112,7 +113,11 @@ export function WorkAddressesCard({ team }: { team: TeamAccess }) {
         {addresses.map((address) => (
           <Row
             key={address.id}
-            lead={<IconBriefcase size={16} />}
+            lead={
+              <Tile>
+                <IconBriefcase size={16} />
+              </Tile>
+            }
             name={
               <>
                 {address.domain}
@@ -184,7 +189,7 @@ function OfferRow({
     );
   return (
     <Row
-      lead={<OrgAvatar org={{ id: offer.orgId }} size={24} />}
+      lead={<OrgAvatar org={{ id: offer.orgId }} size={28} />}
       name={offer.name}
       detail={
         offer.seatFree

@@ -12,7 +12,7 @@ import {
   useCrashReportsShared,
 } from "./reporting.ts";
 import { PROVIDERS, SignInWaysCard, waysOf } from "./SignInWays.tsx";
-import { Card, Column, Page, Row, Rows, Switch, Txt } from "./ui.tsx";
+import { Card, Column, Page, Row, Rows, Switch, Tile, Txt } from "./ui.tsx";
 import { WorkAddressesCard } from "./WorkAddresses.tsx";
 
 /** The ways the signed-in account can sign in, as the person knows them. */
@@ -80,7 +80,11 @@ function ThisBrowser({
     <Card label="This browser">
       <Rows>
         <Row
-          lead={<IconLogOut size={16} />}
+          lead={
+            <Tile>
+              <IconLogOut size={16} />
+            </Tile>
+          }
           name={
             session
               ? `Signed in since ${formatDay(session.createdAt.toISOString(), "short")}`
@@ -94,7 +98,11 @@ function ThisBrowser({
         />
         {reporting ? (
           <Row
-            lead={<IconShield size={16} />}
+            lead={
+              <Tile>
+                <IconShield size={16} />
+              </Tile>
+            }
             name="Share crash reports"
             detail="Errors and page speed, without what you typed."
             end={
@@ -107,7 +115,11 @@ function ThisBrowser({
           />
         ) : null}
         <Row
-          lead={<IconTrash size={16} />}
+          lead={
+            <Tile>
+              <IconTrash size={16} />
+            </Tile>
+          }
           name="Delete account"
           detail="Your hosts keep their files."
           end={
