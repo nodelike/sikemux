@@ -27,6 +27,7 @@ export type AuditAction =
   | "account.work_address_removed"
   | "account.work_sign_in_removed"
   | "webhook.user_deleted"
+  | "webhook.user_merged"
   | "update.published"
   | "update.promoted"
   | "update.withdrawn"

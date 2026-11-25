@@ -2,16 +2,19 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 
 import { signsIn, type ClerkBackend } from "../account/clerk.ts";
+import { markDeleted } from "../account/deletion.ts";
+import { mergeAccount } from "../account/merge.ts";
 import type { ReviewAccount } from "../account/review-sign-in.ts";
 import { noteAddresses, stripWorkSignIns } from "../account/sign-ins.ts";
-import { markDeleted } from "../account/deletion.ts";
-import type { StashFiles } from "../stash/files.ts";
 import { audit } from "../audit.ts";
+import { makeDueCalls } from "../billing/calls.ts";
 import { followAddress } from "../billing/customers.ts";
 import { endDeletedBilling } from "../billing/deleted.ts";
 import type { BillingProvider } from "../billing/provider.ts";
 import type { Database } from "../db.ts";
 import { ApiFailure, type Env, badRequest, unauthorized } from "../http.ts";
+import { alertStaff } from "../sentry.ts";
+import type { StashFiles } from "../stash/files.ts";
 
 /** How far a webhook's timestamp may be from now, either way. */
 const TOLERANCE_S = 5 * 60;
@@ -60,32 +63,39 @@ class SeenIds {
   }
 }
 
+interface ClerkUserPayload {
+  id?: unknown;
+  email_addresses?: {
+    email_address?: unknown;
+    created_at?: unknown;
+    reserved?: boolean;
+    verification?: { status?: string } | null;
+  }[];
+  external_accounts?: { email_address?: unknown; created_at?: unknown }[];
+}
+
 interface ClerkEvent {
   type?: unknown;
-  data?: {
-    id?: unknown;
-    email_addresses?: {
-      email_address?: unknown;
-      created_at?: unknown;
-      reserved?: boolean;
-      verification?: { status?: string } | null;
-    }[];
-    external_accounts?: { email_address?: unknown; created_at?: unknown }[];
+  data?: ClerkUserPayload & {
+    user?: ClerkUserPayload;
+    deleted_user?: { id?: unknown };
   };
 }
 
-/** The addresses a user.updated event shows, its connected accounts' too, each with when Clerk says it was added. */
-function shownAddresses(event: ClerkEvent) {
+const CLERK_USER_ID = /^user_[A-Za-z0-9]+$/;
+
+/** The addresses a user payload shows, its connected accounts' too, each with when Clerk says it was added. */
+function shownAddresses(user: ClerkUserPayload | undefined) {
   const listed = (list: unknown) =>
     (Array.isArray(list) ? list : []) as NonNullable<
-      NonNullable<ClerkEvent["data"]>["email_addresses"]
+      ClerkUserPayload["email_addresses"]
     >;
   return [
-    ...listed(event.data?.email_addresses).map((address) => ({
+    ...listed(user?.email_addresses).map((address) => ({
       address,
       signsIn: signsIn(address),
     })),
-    ...listed(event.data?.external_accounts).map((address) => ({
+    ...listed(user?.external_accounts).map((address) => ({
       address,
       signsIn: true,
     })),
@@ -105,7 +115,8 @@ function shownAddresses(event: ClerkEvent) {
 
 /**
  * Clerk's webhook. On user.deleted it cleans up as if the person deleted the account here; on
- * user.updated it moves their payment customer to the email they now sign in with.
+ * user.updated it moves their payment customer to the email they now sign in with; on user.merged
+ * it moves every record from the deleted user onto the kept user.
  */
 export function clerkWebhookRoutes(
   { db }: Database,
@@ -145,6 +156,89 @@ export function clerkWebhookRoutes(
     } catch {
       throw badRequest("The body is not JSON.");
     }
+
+    const reloadReview = async (...userIds: string[]) => {
+      if (review && clerk && userIds.includes(review.userId))
+        await review
+          .load(clerk, c.get("log"))
+          .catch((error: unknown) =>
+            c
+              .get("log")
+              .warn(
+                { err: error },
+                "reading the demo account from Clerk failed",
+              ),
+          );
+    };
+
+    if (event.type === "user.merged") {
+      const targetUserId = event.data?.user?.id;
+      const sourceUserId = event.data?.deleted_user?.id;
+      if (
+        typeof targetUserId !== "string" ||
+        typeof sourceUserId !== "string" ||
+        !CLERK_USER_ID.test(targetUserId) ||
+        !CLERK_USER_ID.test(sourceUserId)
+      )
+        throw badRequest("The event names no Clerk user.");
+      await reloadReview(targetUserId, sourceUserId);
+
+      const log = c.get("log");
+      const result = await mergeAccount(db, {
+        sourceUserId,
+        targetUserId,
+        messageId: id,
+      });
+
+      if (!result.alreadyMerged) {
+        if (result.sourceWasDeleted)
+          log.warn(
+            { targetUserId, sourceUserId },
+            "user.merged arrived after user.deleted; migrated remaining records",
+          );
+        if (result.vaultConflict)
+          log.warn(
+            { targetUserId, sourceUserId },
+            "merged two accounts that both had vaults; kept target vault",
+          );
+        if (result.billingConflicts.length > 0) {
+          log.error(
+            { targetUserId, sourceUserId, conflicts: result.billingConflicts },
+            "merged two accounts with separate active plans; kept target plan and scheduled source plan cancellation at period end",
+          );
+          alertStaff(
+            targetUserId,
+            "Merged two accounts with separate active plans",
+            { conflicts: result.billingConflicts },
+          );
+          await endDeletedBilling(db, provider, log, sourceUserId);
+        }
+        await noteAddresses(
+          db,
+          proofKey,
+          targetUserId,
+          shownAddresses(event.data?.user),
+        );
+        if (provider) {
+          await makeDueCalls(db, provider, log);
+          if (clerk)
+            await followAddress(db, provider, clerk, log, targetUserId);
+        }
+        log.info(
+          {
+            targetUserId,
+            sourceUserId,
+            devices: result.devices,
+            orgs: result.orgs,
+          },
+          "Clerk merged a user",
+        );
+      }
+
+      seen.remember(id);
+      return c.body(null, 204);
+    }
+
     const userId = event.data?.id;
     const handled = ["user.deleted", "user.updated"];
     if (
@@ -155,19 +249,12 @@ export function clerkWebhookRoutes(
       seen.remember(id);
       return c.body(null, 204);
     }
-    if (!/^user_[A-Za-z0-9]+$/.test(userId))
+    if (!CLERK_USER_ID.test(userId))
       throw badRequest("The event names no Clerk user.");
-    if (review && clerk && userId === review.userId)
-      await review
-        .load(clerk, c.get("log"))
-        .catch((error: unknown) =>
-          c
-            .get("log")
-            .warn({ err: error }, "reading the demo account from Clerk failed"),
-        );
+    await reloadReview(userId);
 
     if (event.type === "user.updated") {
-      await noteAddresses(db, proofKey, userId, shownAddresses(event));
+      await noteAddresses(db, proofKey, userId, shownAddresses(event.data));
       if (clerk)
         await stripWorkSignIns(db, clerk, proofKey, c.get("log"), userId);
       if (provider && clerk)
