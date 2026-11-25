@@ -276,10 +276,23 @@ impl Answering {
         window: &mut Window,
         cx: &mut App,
     ) -> Self {
-        let field = through.cards.update(cx, |cards, cx| {
-            cards.saw(open, through.target);
-            cards.field(open, window, cx)
-        });
+        let (field, seen) = {
+            let cards = through.cards.read(cx);
+            (cards.held_field(&open.id), cards.has_seen(&open.id))
+        };
+        if !seen || (open.secret && field.is_none()) {
+            let (cards, open, target) =
+                (through.cards.clone(), open.clone(), through.target.clone());
+            window.defer(cx, move |window, cx| {
+                cards.update(cx, |cards, cx| {
+                    cards.saw(&open, &target);
+                    if open.secret && cards.held_field(&open.id).is_none() {
+                        cards.field(&open, window, cx);
+                        cx.notify();
+                    }
+                });
+            });
+        }
         let reply = match open.secret {
             true => None,
             false => {
@@ -295,7 +308,10 @@ impl Answering {
         let choices = choices(open, next, through, cx).pb(SPACE_3_PX);
         let with = match reply {
             Some(view) => With::Composer(view.into_element().isolated().into_any_element()),
-            None => With::Secret(secret_field(open, &field, through, window, cx)),
+            None => match &field {
+                Some(field) => With::Secret(secret_field(open, field, through, window, cx)),
+                None => With::Secret(div().into_any_element()),
+            },
         };
         Self { choices, with }
     }

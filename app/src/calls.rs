@@ -3,8 +3,9 @@
 //! in keep it folded to one row that opens the page.
 
 use crate::ui::Clicks;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use gpui_kit::base::{Button as BaseButton, Popover};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -75,6 +76,9 @@ const EVIDENCE_HEIGHT: f32 = 148.;
 /// the frame's edges.
 const EVIDENCE_WIDTH: f32 = CARD_WIDTH - 2. * 6. - 2. - 2. * 10. - 2.;
 const PICTURE_SIZE: f32 = 800.;
+const MAX_RATIOS: usize = 256;
+const MAX_PAGE_PICTURES: usize = 64;
+const PICTURE_RETRY_AFTER: Duration = Duration::from_secs(30);
 
 /// What the person has done on each open call's card, so the chat and the popover show the same
 /// choice and the same words while the call waits.
@@ -86,10 +90,15 @@ pub struct Cards {
     /// The call picked in the popover, shown open there and answered by its agent's chat; with
     /// none picked the popover shows the newest and a chat answers its agent's oldest.
     opened: Option<String>,
-    /// Each evidence picture's width over its height, read once from its file.
+    /// Each evidence picture's width over its height, read once off the UI thread (LRU bounded).
     ratios: HashMap<String, Option<f32>>,
-    /// The top of each page a call links, as its tab shows it, asked of the core once.
+    ratios_order: VecDeque<String>,
+    ratios_loading: HashSet<String>,
+    /// The top of each page a call links, as its tab shows it, asked of the core once (LRU bounded).
     page_pictures: HashMap<String, Option<std::sync::Arc<gpui_kit::Image>>>,
+    page_pictures_order: VecDeque<String>,
+    page_pictures_loading: HashSet<String>,
+    page_pictures_failed: HashMap<String, Instant>,
 }
 
 struct Held {
@@ -199,39 +208,120 @@ impl Cards {
         field
     }
 
-    fn ratio(&mut self, path: &str) -> Option<f32> {
-        *(self.ratios.entry(path.to_owned())).or_insert_with(|| {
-            let (width, height) = image::image_dimensions(path).ok()?;
-            (height > 0).then(|| width as f32 / height as f32)
-        })
+    fn held_field(&self, id: &str) -> Option<Entity<InputState>> {
+        self.held.get(id).map(|held| held.field.clone())
     }
 
-    fn page_picture(
-        &mut self,
-        id: &str,
-        target: &Target,
-        cx: &mut Context<Self>,
-    ) -> Option<std::sync::Arc<gpui_kit::Image>> {
-        if let Some(picture) = self.page_pictures.get(id) {
-            return picture.clone();
+    fn has_seen(&self, id: &str) -> bool {
+        self.seen.contains(id)
+    }
+
+    fn ratio_cached(&self, path: &str) -> Option<f32> {
+        self.ratios.get(path).copied().flatten()
+    }
+
+    fn needs_ratio(&self, path: &str) -> bool {
+        !self.ratios.contains_key(path) && !self.ratios_loading.contains(path)
+    }
+
+    fn keep_ratio(&mut self, path: String, ratio: Option<f32>) {
+        self.ratios_loading.remove(&path);
+        self.ratios_order.retain(|kept| kept != &path);
+        while self.ratios.len() >= MAX_RATIOS {
+            let Some(oldest) = self.ratios_order.pop_front() else {
+                break;
+            };
+            self.ratios.remove(&oldest);
         }
-        self.page_pictures.insert(id.to_owned(), None);
-        let answer =
-            target.request_typed::<call::ReadPage>(sikemux_calls::harness::PageParams::new(id));
-        let id = id.to_owned();
+        self.ratios_order.push_back(path.clone());
+        self.ratios.insert(path, ratio);
+    }
+
+    fn load_ratio(&mut self, path: &str, cx: &mut Context<Self>) {
+        if !self.needs_ratio(path) {
+            return;
+        }
+        let path = path.to_owned();
+        self.ratios_loading.insert(path.clone());
+        let reading = path.clone();
         cx.spawn(async move |cards, cx| {
-            let picture = (answer.await.ok())
-                .and_then(|answer| answer.picture)
-                .and_then(|picture| crate::picture::decode("image/jpeg", &picture));
-            if picture.is_some() {
-                let _ = cards.update(cx, |cards, cx| {
-                    cards.page_pictures.insert(id, picture);
+            let ratio = cx
+                .background_executor()
+                .spawn(async move {
+                    let (width, height) = image::image_dimensions(&reading).ok()?;
+                    (height > 0).then(|| width as f32 / height as f32)
+                })
+                .await;
+            let _ = cards.update(cx, |cards, cx| {
+                cards.keep_ratio(path, ratio);
+                if ratio.is_some() {
                     cx.notify();
-                });
-            }
+                }
+            });
         })
         .detach();
-        None
+    }
+
+    fn page_picture_cached(&self, id: &str) -> Option<std::sync::Arc<gpui_kit::Image>> {
+        self.page_pictures.get(id).cloned().flatten()
+    }
+
+    fn needs_page_picture(&self, id: &str) -> bool {
+        !self.page_pictures.contains_key(id)
+            && !self.page_pictures_loading.contains(id)
+            && self
+                .page_pictures_failed
+                .get(id)
+                .is_none_or(|at| at.elapsed() >= PICTURE_RETRY_AFTER)
+    }
+
+    fn keep_page_picture(&mut self, id: String, picture: Option<std::sync::Arc<gpui_kit::Image>>) {
+        self.page_pictures_loading.remove(&id);
+        self.page_pictures_failed.remove(&id);
+        self.page_pictures_order.retain(|kept| kept != &id);
+        while self.page_pictures.len() >= MAX_PAGE_PICTURES {
+            let Some(oldest) = self.page_pictures_order.pop_front() else {
+                break;
+            };
+            self.page_pictures.remove(&oldest);
+        }
+        self.page_pictures_order.push_back(id.clone());
+        self.page_pictures.insert(id, picture);
+    }
+
+    fn load_page_picture(&mut self, id: &str, target: &Target, cx: &mut Context<Self>) {
+        if !self.needs_page_picture(id) {
+            return;
+        }
+        let id = id.to_owned();
+        self.page_pictures_loading.insert(id.clone());
+        let answer =
+            target.request_typed::<call::ReadPage>(sikemux_calls::harness::PageParams::new(&id));
+        cx.spawn(async move |cards, cx| {
+            let Ok(answer) = answer.await else {
+                let _ = cards.update(cx, |cards, _| {
+                    cards.page_pictures_loading.remove(&id);
+                    cards.page_pictures_failed.insert(id, Instant::now());
+                });
+                return;
+            };
+            let picture = match answer.picture {
+                Some(encoded) => {
+                    cx.background_executor()
+                        .spawn(async move { crate::picture::decode("image/jpeg", &encoded) })
+                        .await
+                }
+                None => None,
+            };
+            let _ = cards.update(cx, |cards, cx| {
+                let redraw = picture.is_some();
+                cards.keep_page_picture(id, picture);
+                if redraw {
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     /// Tells the core once that this window drew the call, which a production call needs
@@ -661,7 +751,19 @@ fn linked_page(
     let owner = call.about.as_ref().unwrap_or(&call.asker);
     let rows: Vec<AnyElement> = (call.pages().enumerate())
         .map(|(at, page)| {
-            let picture = cards.update(cx, |cards, cx| cards.page_picture(&page.id, target, cx));
+            let (picture, load) = {
+                let cards = cards.read(cx);
+                (
+                    cards.page_picture_cached(&page.id),
+                    cards.needs_page_picture(&page.id),
+                )
+            };
+            if load {
+                let (cards, id, target) = (cards.clone(), page.id.clone(), target.clone());
+                cx.defer(move |cx| {
+                    cards.update(cx, |cards, cx| cards.load_page_picture(&id, &target, cx));
+                });
+            }
             let place = t!("@{name}'s artifact", name = owner.name).into();
             let open: crate::chat::page::Opens = {
                 let (bench, call, page) = (bench.clone(), call.id.clone(), page.id.clone());
@@ -698,15 +800,30 @@ fn card(
         bench,
     } = through;
     let t = Tokens::get(cx).clone();
-    let field = cards.update(cx, |cards, cx| {
-        cards.saw(call, target);
-        cards.field(call, window, cx)
-    });
-    let (chosen, sending) = {
+    let (field, seen, chosen, sending) = {
         let cards = cards.read(cx);
-        (cards.chosen(call), cards.sending(&call.id))
+        (
+            cards.held_field(&call.id),
+            cards.has_seen(&call.id),
+            cards.chosen(call),
+            cards.sending(&call.id),
+        )
     };
-    let typed = !field.read(cx).value().trim().is_empty();
+    if !seen || field.is_none() {
+        let (cards, call, target) = (cards.clone(), call.clone(), target.clone());
+        window.defer(cx, move |window, cx| {
+            cards.update(cx, |cards, cx| {
+                cards.saw(&call, &target);
+                if cards.held_field(&call.id).is_none() {
+                    cards.field(&call, window, cx);
+                    cx.notify();
+                }
+            });
+        });
+    }
+    let typed = field
+        .as_ref()
+        .is_some_and(|field| !field.read(cx).value().trim().is_empty());
     let who = who(call, through, None, cx);
     let question = div()
         .mt(SPACE_2)
@@ -759,7 +876,17 @@ fn card(
                     .flex()
                     .gap(px(6.))
                     .children(shown.into_iter().enumerate().map(|(ix, (path, what))| {
-                        let fill = match cards.update(cx, |cards, _| cards.ratio(path)) {
+                        let (ratio, load) = {
+                            let cards = cards.read(cx);
+                            (cards.ratio_cached(path), cards.needs_ratio(path))
+                        };
+                        if load {
+                            let (cards, path) = (cards.clone(), path.to_owned());
+                            cx.defer(move |cx| {
+                                cards.update(cx, |cards, cx| cards.load_ratio(&path, cx));
+                            });
+                        }
+                        let fill = match ratio {
                             Some(ratio) => Fill::Top(ratio, width),
                             None => Fill::Cover,
                         };
@@ -783,8 +910,16 @@ fn card(
     let rows =
         (call.options.iter()).map(|option| option_row(call, option, &chosen, sending, cards, &t));
     let hint = note_hint(call, &chosen);
-    let focused = field.read(cx).focus_handle(cx).is_focused(window);
-    let note = note_row(&field, hint, focused || typed, !call.options.is_empty(), &t);
+    let note = match &field {
+        Some(field) => {
+            let focused = field.read(cx).focus_handle(cx).is_focused(window);
+            note_row(field, hint, focused || typed, !call.options.is_empty(), &t).into_any_element()
+        }
+        None => div()
+            .h(px(crate::theme::dense(ROW_HEIGHT)))
+            .bg(t.surface_sunken)
+            .into_any_element(),
+    };
     let block = answers(rows, note, &t);
     let kept = kept_line(call, &t);
     let against = against_line(call, &t);
