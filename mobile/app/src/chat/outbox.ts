@@ -88,6 +88,7 @@ export class Outbox {
   private epoch = 0;
   /** Messages reach the host in the order they were sent, however long their files take. */
   private line: Promise<void> = Promise.resolve();
+  private drainScheduled = false;
   private overOf: { chat: ChatRows; entries: Outgoing[]; holding: Holding[]; view: ChatRows } | undefined;
   private unsentOf: { entries: Outgoing[]; unsent: ReadonlyMap<string, Unsent> } | undefined;
 
@@ -189,6 +190,7 @@ export class Outbox {
 
   deliver(text: string, files: Attachment[], waiting = false, named: Named = NAMED_NONE, steers = false) {
     this.show(files);
+    const keep = waiting || !steers;
     const entry: Outgoing = {
       messageId: randomUUID(),
       text,
@@ -197,26 +199,32 @@ export class Outbox {
       at: this.host.now(),
       state: 'sending',
       waiting,
-      kept: waiting,
+      kept: keep,
       ...(steers ? { steers } : {}),
     };
     this.entries = [...this.entries, entry];
-    if (waiting) this.persistWaiting();
+    if (keep) this.persistWaiting();
     this.host.emit();
-    if (!waiting) this.push(entry);
+    if (!waiting) this.drain();
   }
 
   retry(messageId: string) {
     const entry = this.entries.find((outgoing) => outgoing.messageId === messageId);
     if (!entry || entry.state !== 'failed') return;
-    this.update(messageId, { state: 'sending', problem: undefined });
-    this.push(entry);
+    this.update(messageId, { state: 'sending', problem: undefined, waiting: false, ...(!entry.steers ? { kept: true } : {}) });
+    this.persistWaiting();
+    this.drain();
   }
 
   /** Sends what was shown before the chat was attached, now that it is. */
   pushWaiting() {
-    const waiting = this.entries.filter((outgoing) => outgoing.waiting);
-    if (!waiting.length) return;
+    if (!this.releaseWaiting()) return;
+    this.drain();
+  }
+
+  /** Deduplicates waiting entries against the host's chat and marks the rest ready to send. */
+  private releaseWaiting(): boolean {
+    if (!this.entries.some((outgoing) => outgoing.waiting)) return false;
     const chat = this.host.chat();
     const shown = new Set(chat.messages.flatMap((row) => (row.promptId ? [row.promptId] : [])));
     const queued = new Set(chat.queued.map((held) => held.id));
@@ -225,12 +233,8 @@ export class Outbox {
       .filter((outgoing) => !(outgoing.waiting && alreadyLanded(outgoing.messageId)))
       .map((outgoing) => (outgoing.waiting ? { ...outgoing, waiting: false } : outgoing));
     this.persistWaiting();
-    const toSend = waiting.filter((entry) => !alreadyLanded(entry.messageId));
-    if (!toSend.length) {
-      this.host.emit();
-      return;
-    }
-    toSend.forEach((entry) => this.push(entry));
+    this.host.emit();
+    return this.entries.some((outgoing) => outgoing.state === 'sending' && !outgoing.waiting);
   }
 
   failWaiting(problem: string) {
@@ -377,12 +381,43 @@ export class Outbox {
     return next;
   }
 
-  private push(entry: Outgoing) {
-    const connection = this.host.connection();
-    const id = entry.messageId;
+  private drain() {
+    if (this.drainScheduled) return;
+    this.drainScheduled = true;
     const generation = this.epoch;
+    void this.inOrder(async () => {
+      try {
+        while (this.epoch === generation) {
+          const next = this.entries.find((outgoing) => outgoing.state === 'sending' && !outgoing.waiting);
+          if (!next) return;
+          await this.sendEntry(next.messageId, generation);
+        }
+      } finally {
+        this.drainScheduled = false;
+      }
+    }).finally(() => {
+      if (this.epoch === generation && this.entries.some((outgoing) => outgoing.state === 'sending' && !outgoing.waiting)) {
+        this.drain();
+      }
+    });
+  }
+
+  private async sendEntry(id: string, generation: number) {
+    const entry = this.entries.find((outgoing) => outgoing.messageId === id && outgoing.state === 'sending' && !outgoing.waiting);
+    if (!entry) return;
+    if (!entry.steers) {
+      const chat = this.host.chat();
+      const landed = chat.messages.some((row) => row.promptId === id) || chat.queued.some((held) => held.id === id);
+      if (landed) {
+        this.entries = this.entries.filter((outgoing) => outgoing.messageId !== id);
+        this.persistWaiting();
+        this.host.emit();
+        return;
+      }
+    }
+    const connection = this.host.connection();
     let steered = false;
-    this.inOrder(async () => {
+    try {
       if (this.epoch !== generation) return;
       if (!connection?.isOpen()) throw new Error(this.host.say('the host is not connected'));
       const files = this.entries.find((outgoing) => outgoing.messageId === id)?.files ?? entry.files;
@@ -406,32 +441,32 @@ export class Outbox {
       } else {
         await this.prompt(connection, id, entry.text, paths, entry.context);
       }
-    })
-      .then(() => {
-        if (this.epoch !== generation) return;
-        if (steered) {
-          this.entries = this.entries.filter((outgoing) => outgoing.messageId !== id);
-        } else {
-          this.update(id, { state: 'sent', kept: false });
-          this.settle();
-        }
+      if (this.epoch !== generation) return;
+      if (steered) {
+        this.entries = this.entries.filter((outgoing) => outgoing.messageId !== id);
+      } else {
+        this.update(id, { state: 'sent', kept: false });
+        this.settle();
+      }
+      this.persistWaiting();
+      this.host.emit();
+    } catch (error: unknown) {
+      if (this.epoch !== generation) return;
+      if (!entry.steers && !connection?.isOpen()) {
+        this.entries = this.entries.map((outgoing) =>
+          outgoing.state === 'sending' && !outgoing.steers ? { ...outgoing, waiting: true, kept: true, problem: undefined } : outgoing,
+        );
         this.persistWaiting();
         this.host.emit();
-      })
-      .catch((error: unknown) => {
-        if (this.epoch !== generation) return;
-        if (!entry.steers && !connection?.isOpen()) {
-          this.update(id, { waiting: true, kept: true, state: 'sending', problem: undefined });
-          this.persistWaiting();
-          const current = this.host.connection();
-          if (current && current !== connection && current.isOpen() && (this.host.attached?.() ?? true)) {
-            this.pushWaiting();
-          }
-          return;
+        const current = this.host.connection();
+        if (current && current !== connection && current.isOpen() && (this.host.attached?.() ?? true)) {
+          this.releaseWaiting();
         }
-        this.update(id, { state: 'failed', problem: problemOf(error) });
-        this.persistWaiting();
-      });
+        return;
+      }
+      this.update(id, { state: 'failed', problem: problemOf(error), ...(!entry.steers ? { kept: true } : {}) });
+      this.persistWaiting();
+    }
   }
 
   private update(messageId: string, change: Partial<Outgoing>) {

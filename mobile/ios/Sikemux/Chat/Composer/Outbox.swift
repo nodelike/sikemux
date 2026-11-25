@@ -108,6 +108,7 @@ final class Outbox {
     @ObservationIgnored private var epoch = 0
     /// Messages reach the host in the order they were sent, however long their files take.
     @ObservationIgnored private var line: Task<Void, Never>?
+    @ObservationIgnored private var drainScheduled = false
 
     @ObservationIgnored private let core: String
     @ObservationIgnored private let agentId: String
@@ -198,14 +199,15 @@ final class Outbox {
         _ text: String, _ files: [Attachment], waiting: Bool = false, named: Named = Named(), steers: Bool = false
     ) {
         show(files)
+        let keep = waiting || !steers
         let entry = Outgoing(
             messageId: UUID().uuidString.lowercased(), text: text, files: files, named: named,
-            at: Self.now, waiting: waiting, kept: waiting, steers: steers
+            at: Self.now, waiting: waiting, kept: keep, steers: steers
         )
         entries.append(entry)
-        if waiting { persistWaiting() }
+        if keep { persistWaiting() }
         emit()
-        if !waiting { push(entry) }
+        if !waiting { drain() }
     }
 
     func retry(_ messageId: String) {
@@ -213,27 +215,32 @@ final class Outbox {
         update(messageId) {
             $0.state = .sending
             $0.problem = nil
+            $0.waiting = false
+            if !entry.steers { $0.kept = true }
         }
-        push(entry)
+        persistWaiting()
+        drain()
     }
 
     /// Sends what was shown before the chat was attached, now that it is.
     func pushWaiting() {
-        let waiting = entries.filter(\.waiting)
-        guard !waiting.isEmpty else { return }
+        guard releaseWaiting() else { return }
+        drain()
+    }
+
+    /// Deduplicates waiting entries against the host's chat and marks the rest ready to send.
+    @discardableResult
+    private func releaseWaiting() -> Bool {
+        guard entries.contains(where: \.waiting) else { return false }
         let chat = chat()
         let shown = Set(chat.messages.compactMap(\.promptId))
         let queued = Set(chat.queued.map(\.id))
         let alreadyLanded: (String) -> Bool = { shown.contains($0) || queued.contains($0) }
         entries.removeAll { $0.waiting && alreadyLanded($0.messageId) }
-        for at in entries.indices { entries[at].waiting = false }
+        for at in entries.indices where entries[at].waiting { entries[at].waiting = false }
         persistWaiting()
-        let toSend = waiting.filter { !alreadyLanded($0.messageId) }
-        guard !toSend.isEmpty else {
-            emit()
-            return
-        }
-        toSend.forEach(push)
+        emit()
+        return entries.contains { $0.state == .sending && !$0.waiting }
     }
 
     func failWaiting(_ problem: String) {
@@ -377,73 +384,107 @@ final class Outbox {
         try await next.value
     }
 
-    private func push(_ entry: Outgoing) {
-        let connection = connection()
-        let id = entry.messageId
+    private func drain() {
+        guard !drainScheduled else { return }
+        drainScheduled = true
         let generation = epoch
         Task {
-            var steered = false
             do {
                 try await inOrder {
-                    guard self.epoch == generation else { return }
-                    guard let connection, connection.isOpen() else { throw ChatProblem.notConnected }
-                    let files = self.entries.first(where: { $0.messageId == id })?.files ?? entry.files
-                    let sent = try await self.put(connection, files) { fileId, change in
-                        self.update(id) { outgoing in
-                            if let at = outgoing.files.firstIndex(where: { $0.id == fileId }) {
-                                change(&outgoing.files[at])
-                            }
+                    defer { self.drainScheduled = false }
+                    while self.epoch == generation {
+                        guard let next = self.entries.first(where: { $0.state == .sending && !$0.waiting }) else {
+                            return
                         }
-                    }
-                    guard self.epoch == generation else { return }
-                    let paths = Uploads.paths(sent) + entry.named.paths
-                    if entry.steers && self.chat().running {
-                        steered = true
-                        // Clear disk copy before putting a non-deduplicable steer on the wire.
-                        self.update(id) { $0.kept = false }
-                        self.persistWaiting()
-                        let ids = self.onHostQueue(self.chat().queued.map(\.id))
-                        let message = QueuedMessageParams(text: entry.text, paths: paths, context: entry.named.context)
-                        _ = try await connection.call(
-                            PhoneCall.SteerQueued.self,
-                            QueuedParams(agentId: self.agentId, ids: ids, message: message))
-                    } else {
-                        try await self.prompt(connection, id, entry.text, paths, entry.named.context)
+                        await self.sendEntry(next.messageId, generation: generation)
                     }
                 }
-                guard epoch == generation else { return }
-                if steered {
-                    entries.removeAll { $0.messageId == id }
-                } else {
-                    update(id) {
-                        $0.state = .sent
-                        $0.kept = false
+            } catch {
+                self.drainScheduled = false
+            }
+            if self.epoch == generation, self.entries.contains(where: { $0.state == .sending && !$0.waiting }) {
+                self.drain()
+            }
+        }
+    }
+
+    private func sendEntry(_ id: String, generation: Int) async {
+        guard let entry = entries.first(where: { $0.messageId == id && $0.state == .sending && !$0.waiting }) else {
+            return
+        }
+        if !entry.steers {
+            let currentChat = chat()
+            let landed =
+                currentChat.messages.contains { $0.promptId == id }
+                || currentChat.queued.contains { $0.id == id }
+            if landed {
+                entries.removeAll { $0.messageId == id }
+                persistWaiting()
+                emit()
+                return
+            }
+        }
+        let connection = connection()
+        var steered = false
+        do {
+            guard self.epoch == generation else { return }
+            guard let connection, connection.isOpen() else { throw ChatProblem.notConnected }
+            let files = self.entries.first(where: { $0.messageId == id })?.files ?? entry.files
+            let sent = try await self.put(connection, files) { fileId, change in
+                self.update(id) { outgoing in
+                    if let at = outgoing.files.firstIndex(where: { $0.id == fileId }) {
+                        change(&outgoing.files[at])
                     }
-                    settle()
+                }
+            }
+            guard self.epoch == generation else { return }
+            let paths = Uploads.paths(sent) + entry.named.paths
+            if entry.steers && self.chat().running {
+                steered = true
+                // Clear disk copy before putting a non-deduplicable steer on the wire.
+                self.update(id) { $0.kept = false }
+                self.persistWaiting()
+                let ids = self.onHostQueue(self.chat().queued.map(\.id))
+                let message = QueuedMessageParams(text: entry.text, paths: paths, context: entry.named.context)
+                _ = try await connection.call(
+                    PhoneCall.SteerQueued.self,
+                    QueuedParams(agentId: self.agentId, ids: ids, message: message))
+            } else {
+                try await self.prompt(connection, id, entry.text, paths, entry.named.context)
+            }
+            guard epoch == generation else { return }
+            if steered {
+                entries.removeAll { $0.messageId == id }
+            } else {
+                update(id) {
+                    $0.state = .sent
+                    $0.kept = false
+                }
+                settle()
+            }
+            persistWaiting()
+            emit()
+        } catch {
+            guard epoch == generation else { return }
+            if !entry.steers, connection?.isOpen() != true {
+                for at in entries.indices where entries[at].state == .sending && !entries[at].steers {
+                    entries[at].waiting = true
+                    entries[at].kept = true
+                    entries[at].problem = nil
                 }
                 persistWaiting()
                 emit()
-            } catch {
-                guard epoch == generation else { return }
-                if !entry.steers, connection?.isOpen() != true {
-                    update(id) {
-                        $0.waiting = true
-                        $0.kept = true
-                        $0.state = .sending
-                        $0.problem = nil
-                    }
-                    persistWaiting()
-                    if let current = self.connection(), current !== connection, current.isOpen(), attached() {
-                        pushWaiting()
-                    }
-                    return
+                if let current = self.connection(), current !== connection, current.isOpen(), attached() {
+                    releaseWaiting()
                 }
-                update(id) {
-                    $0.state = .failed
-                    $0.problem = problem(error)
-                }
-                persistWaiting()
+                return
             }
+            update(id) {
+                $0.state = .failed
+                $0.problem = problem(error)
+                if !entry.steers { $0.kept = true }
+            }
+            persistWaiting()
         }
     }
 
