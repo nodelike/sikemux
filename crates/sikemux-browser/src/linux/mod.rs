@@ -210,8 +210,8 @@ impl Drop for Held {
 
 /// WebKitGTK draws pages into DMA-BUF buffers when it finds a render node, and those only show
 /// where the X server has DRI3. Without it, as on virtual machines, remote X and some drivers,
-/// pages stay blank, so WebKit is told to draw them another way, unless the person already
-/// chose. It sets the environment, so it runs before any thread starts.
+/// pages stay blank, and on NVIDIA's own driver they show black, so WebKit is told to draw
+/// them another way, unless the person already chose. It sets the environment, so it runs before any thread starts.
 pub fn choose_page_rendering() {
     const DMABUF: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
     if std::env::var_os(DMABUF).is_some() {
@@ -221,6 +221,8 @@ pub fn choose_page_rendering() {
         "the X server has no DRI3"
     } else if !has_render_node() {
         "there is no render node to draw with"
+    } else if std::path::Path::new("/sys/module/nvidia_drm").exists() {
+        "NVIDIA's driver shows DMA-BUF pages black"
     } else {
         return;
     };
