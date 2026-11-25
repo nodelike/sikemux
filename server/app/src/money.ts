@@ -22,9 +22,9 @@ export const FEATURE_WORDS: Record<PlanFeature, string> = {
   org_github:
     "Connect GitHub once; git works on every host and agents never see a token",
   org_bot_triggers:
-    "Triggers run as the org bot and ask the people or teams they name",
+    "Triggers run as the org bot and ask the people or groups they name",
   chat_handover: "Hand a task to a teammate, with its decisions and context",
-  org_roles: "Owner, admin, user; teams; email domains",
+  org_roles: "Owner, admin, member; groups; email domains",
   org_policy: "Policy, audit log, one bill",
 };
 

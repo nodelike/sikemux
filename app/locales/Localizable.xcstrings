@@ -75661,54 +75661,54 @@
         }
       }
     },
-    "People, teams, billing and each org's policy are on app.sikemux.com": {
+    "People, groups, billing and each org's policy are on app.sikemux.com": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les personnes, équipes, la facturation et la politique de chaque organisation sont sur app.sikemux.com"
+            "value": "Les personnes, les groupes, la facturation et la politique de chaque organisation sont sur app.sikemux.com"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personas, equipos, facturación y la política de cada organización están en app.sikemux.com"
+            "value": "Personas, grupos, facturación y la política de cada organización están en app.sikemux.com"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Personen, Teams, Abrechnung und die Richtlinie jeder Organisation findest du auf app.sikemux.com"
+            "value": "Personen, Gruppen, Abrechnung und die Richtlinie jeder Organisation findest du auf app.sikemux.com"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "人员、团队、账单和各组织的策略请在 app.sikemux.com 上管理"
+            "value": "人员、群组、账单和各组织的策略请在 app.sikemux.com 上管理"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メンバー、チーム、請求、各組織のポリシーは app.sikemux.com にあります"
+            "value": "メンバー、グループ、請求、各組織のポリシーは app.sikemux.com にあります"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사람, 팀, 결제, 각 조직의 정책은 app.sikemux.com에서 관리합니다"
+            "value": "사람, 그룹, 결제, 각 조직의 정책은 app.sikemux.com에서 관리합니다"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Люди, команды, оплата и политика каждой организации — на app.sikemux.com"
+            "value": "Люди, группы, оплата и политика каждой организации — на app.sikemux.com"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pessoas, equipes, cobrança e a política de cada organização ficam em app.sikemux.com"
+            "value": "Pessoas, grupos, cobrança e a política de cada organização ficam em app.sikemux.com"
           }
         }
       }
@@ -113413,54 +113413,54 @@
         }
       }
     },
-    "The teams you're in. Their model keys and skills show beside your own.": {
+    "The orgs you're in. Their model keys and skills show beside your own.": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les équipes dont vous faites partie. Leurs clés de modèle et skills s'affichent à côté des vôtres."
+            "value": "Les organisations dont vous faites partie. Leurs clés de modèle et skills s'affichent à côté des vôtres."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los equipos en los que estás. Sus claves de modelo y skills aparecen junto a las tuyas."
+            "value": "Las organizaciones en las que estás. Sus claves de modelo y skills aparecen junto a las tuyas."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Teams, in denen du bist. Ihre Modellschlüssel und Skills erscheinen neben deinen."
+            "value": "Die Organisationen, in denen du bist. Ihre Modellschlüssel und Skills erscheinen neben deinen."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你所在的团队。它们的模型密钥和技能显示在你自己的旁边。"
+            "value": "你所在的组织。它们的模型密钥和技能显示在你自己的旁边。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "所属しているチーム。そのモデルキーとスキルがあなたのものの横に表示されます。"
+            "value": "所属している組織。そのモデルキーとスキルがあなたのものの横に表示されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "내가 속한 팀. 팀의 모델 키와 스킬이 내 것 옆에 표시됩니다."
+            "value": "내가 속한 조직. 조직의 모델 키와 스킬이 내 것 옆에 표시됩니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Команды, в которых вы состоите. Их ключи моделей и навыки показаны рядом с вашими."
+            "value": "Организации, в которых вы состоите. Их ключи моделей и навыки показаны рядом с вашими."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As equipes de que você faz parte. As chaves de modelo e as skills delas aparecem ao lado das suas."
+            "value": "As organizações de que você faz parte. As chaves de modelo e as skills delas aparecem ao lado das suas."
           }
         }
       }

@@ -58,7 +58,7 @@ const BUILT: Record<PlanFeature, Built> = {
 const FREE: [string, Built][] = [
   ["The whole app on Mac and Linux", ""],
   ["Every harness and every model: frontier, coding plans, local", ""],
-  ["Unlimited agents and mixed-vendor agent teams", ""],
+  ["Unlimited agents, from different vendors on one task", ""],
   [
     "Limits for every plan you pay for, and a chat that carries on in another agent when one runs out",
     "partly",

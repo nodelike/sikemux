@@ -23,7 +23,11 @@ pub(in crate::settings) const ENTRIES: &[Entry] = &[
         "Account",
         "account sign in sign out login google github email delete",
     ),
-    section(Account, "Orgs", "orgs org team teams plan billing members"),
+    section(
+        Account,
+        "Orgs",
+        "orgs org team teams groups plan billing members",
+    ),
 ];
 
 const DELETE_ACCOUNT_URL: &str = "https://app.sikemux.com/delete-account";
@@ -186,7 +190,7 @@ fn orgs_section(orgs: &[AccountOrg], lit: bool, this: &Entity<Workbench>, cx: &A
         }))
         .child(rows::row_keeping_control(
             None,
-            t!("People, teams, billing and each org's policy are on app.sikemux.com"),
+            t!("People, groups, billing and each org's policy are on app.sikemux.com"),
             None,
             open,
             cx,
@@ -194,7 +198,7 @@ fn orgs_section(orgs: &[AccountOrg], lit: bool, this: &Entity<Workbench>, cx: &A
     rows::section(
         n!("Orgs"),
         None,
-        Some(t!("The teams you're in. Their model keys and skills show beside your own.").into()),
+        Some(t!("The orgs you're in. Their model keys and skills show beside your own.").into()),
         lit,
         body,
         cx,
