@@ -103,12 +103,20 @@ pub fn host_wrap_context(account: &str, generation: i64, holder: &str) -> String
     format!("sikemux-vault-key|v2|{account}|{generation}|{holder}")
 }
 
+fn dh(point: &MontgomeryPoint, secret: &Key) -> Option<Key> {
+    let shared = point.mul_clamped(*secret).0;
+    let non_zero = shared
+        .iter()
+        .fold(0u8, |acc, &byte| acc | std::hint::black_box(byte));
+    (non_zero != 0).then_some(shared)
+}
+
 /// The vault key sealed for the holder of `to`'s secret, with a key made for this once.
 pub fn wrap(vault: &Key, to: &MontgomeryPoint, context: &str) -> Option<String> {
     let ephemeral = random_key()?;
     let ephemeral_public = public_of(&ephemeral);
-    let shared = to.mul_clamped(ephemeral);
-    let key = aead_key(shared.as_bytes(), context, &[ephemeral_public.as_bytes()])?;
+    let shared = dh(to, &ephemeral)?;
+    let key = aead_key(&shared, context, &[ephemeral_public.as_bytes()])?;
     let mut out = ephemeral_public.as_bytes().to_vec();
     out.extend(seal_with(&key, context, vault)?);
     Some(URL_SAFE_NO_PAD.encode(out))
@@ -121,8 +129,8 @@ pub fn unwrap(wrapped: &str, secret: &Key, context: &str) -> Option<Key> {
     }
     let (ephemeral, sealed) = bytes.split_at(KEY_LEN);
     let ephemeral = MontgomeryPoint(ephemeral.try_into().ok()?);
-    let shared = ephemeral.mul_clamped(*secret);
-    let key = aead_key(shared.as_bytes(), context, &[ephemeral.as_bytes()])?;
+    let shared = dh(&ephemeral, secret)?;
+    let key = aead_key(&shared, context, &[ephemeral.as_bytes()])?;
     open_with(&key, context, sealed)?.try_into().ok()
 }
 
@@ -144,7 +152,7 @@ pub fn seal_from(plain: &[u8], from: &Key, to: &MontgomeryPoint, context: &str) 
     let sender = public_of(from);
     let ephemeral = random_key()?;
     let ephemeral_public = public_of(&ephemeral);
-    let shared = [to.mul_clamped(ephemeral).0, to.mul_clamped(*from).0].concat();
+    let shared = [dh(to, &ephemeral)?, dh(to, from)?].concat();
     let key = aead_key(
         &shared,
         context,
@@ -166,11 +174,7 @@ pub fn open_from(sealed: &str, secret: &Key, context: &str) -> Option<(Vec<u8>, 
     let (ephemeral, sealed) = rest.split_at(KEY_LEN);
     let sender = MontgomeryPoint(sender.try_into().ok()?);
     let ephemeral = MontgomeryPoint(ephemeral.try_into().ok()?);
-    let shared = [
-        ephemeral.mul_clamped(*secret).0,
-        sender.mul_clamped(*secret).0,
-    ]
-    .concat();
+    let shared = [dh(&ephemeral, secret)?, dh(&sender, secret)?].concat();
     let key = aead_key(&shared, context, &[sender.as_bytes(), ephemeral.as_bytes()])?;
     Some((open_with(&key, context, sealed)?, sender))
 }
@@ -302,4 +306,134 @@ pub fn digit_bytes(typed: &str) -> Option<Vec<u8>> {
         }
     }
     Some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// RFC 7748 §6.1 low-order X25519 points whose scalar multiplication yields all zeros.
+    const LOW_ORDER_POINTS: [[u8; KEY_LEN]; 3] = [
+        [0u8; KEY_LEN],
+        {
+            let mut p = [0u8; KEY_LEN];
+            p[0] = 1;
+            p
+        },
+        [
+            0xe0, 0xeb, 0x7a, 0x7c, 0x3b, 0x41, 0xb8, 0xae, 0x16, 0x56, 0xe3, 0xfa, 0xf1, 0x9f,
+            0xc4, 0x6a, 0xda, 0x09, 0x8d, 0xeb, 0x9c, 0x32, 0xb1, 0xfd, 0x86, 0x62, 0x05, 0x16,
+            0x5f, 0x49, 0xb8, 0x00,
+        ],
+    ];
+
+    fn forge_wrap(ephemeral: [u8; KEY_LEN], vault: &Key, context: &str) -> String {
+        let key = aead_key(&[0u8; KEY_LEN], context, &[&ephemeral]).unwrap();
+        let mut out = ephemeral.to_vec();
+        out.extend(seal_with(&key, context, vault).unwrap());
+        URL_SAFE_NO_PAD.encode(out)
+    }
+
+    #[test]
+    fn rejects_low_order_x25519_wrap_forgery() {
+        let recipient_secret = random_key().unwrap();
+        let forged_vault_key = random_key().unwrap();
+        let context = wrap_context("user_1", 1, "host_1");
+
+        for point in LOW_ORDER_POINTS {
+            let forged = forge_wrap(point, &forged_vault_key, &context);
+            assert!(
+                unwrap(&forged, &recipient_secret, &context).is_none(),
+                "unwrap must reject low-order ephemeral point"
+            );
+            assert!(
+                wrap(&forged_vault_key, &MontgomeryPoint(point), &context).is_none(),
+                "wrap must reject low-order recipient point"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_low_order_x25519_in_seal_from_and_open_from() {
+        let sender_secret = random_key().unwrap();
+        let recipient_secret = random_key().unwrap();
+        let sender_public = public_of(&sender_secret);
+        let recipient_public = public_of(&recipient_secret);
+        let vault_key = random_key().unwrap();
+        let context = host_wrap_context("user_1", 1, "host_1");
+
+        for point in LOW_ORDER_POINTS {
+            assert!(
+                seal_from(
+                    &vault_key,
+                    &sender_secret,
+                    &MontgomeryPoint(point),
+                    &context
+                )
+                .is_none(),
+                "seal_from must reject low-order recipient point"
+            );
+
+            let real_static = sender_public.mul_clamped(recipient_secret).0;
+            let shared_low_eph = [[0u8; KEY_LEN], real_static].concat();
+            let aead = aead_key(
+                &shared_low_eph,
+                &context,
+                &[sender_public.as_bytes(), &point],
+            )
+            .unwrap();
+            let mut low_eph = sender_public.as_bytes().to_vec();
+            low_eph.extend_from_slice(&point);
+            low_eph.extend(seal_with(&aead, &context, &vault_key).unwrap());
+            assert!(
+                open_from(
+                    &URL_SAFE_NO_PAD.encode(low_eph),
+                    &recipient_secret,
+                    &context
+                )
+                .is_none(),
+                "open_from must reject low-order ephemeral point"
+            );
+
+            let eph_secret = random_key().unwrap();
+            let eph_public = public_of(&eph_secret);
+            let real_eph = recipient_public.mul_clamped(eph_secret).0;
+            let shared_low_sender = [real_eph, [0u8; KEY_LEN]].concat();
+            let aead = aead_key(
+                &shared_low_sender,
+                &context,
+                &[&point, eph_public.as_bytes()],
+            )
+            .unwrap();
+            let mut low_sender = point.to_vec();
+            low_sender.extend_from_slice(eph_public.as_bytes());
+            low_sender.extend(seal_with(&aead, &context, &vault_key).unwrap());
+            assert!(
+                open_from(
+                    &URL_SAFE_NO_PAD.encode(low_sender),
+                    &recipient_secret,
+                    &context
+                )
+                .is_none(),
+                "open_from must reject low-order sender point"
+            );
+        }
+    }
+
+    #[test]
+    fn valid_wraps_round_trip() {
+        let sender = random_key().unwrap();
+        let recipient = random_key().unwrap();
+        let vault_key = random_key().unwrap();
+        let ctx_v1 = wrap_context("user_1", 1, "recovery");
+        let ctx_v2 = host_wrap_context("user_1", 1, "host_1");
+
+        let wrapped = wrap(&vault_key, &public_of(&recipient), &ctx_v1).unwrap();
+        assert_eq!(unwrap(&wrapped, &recipient, &ctx_v1), Some(vault_key));
+
+        let authed = wrap_from(&vault_key, &sender, &public_of(&recipient), &ctx_v2).unwrap();
+        let (opened, who) = unwrap_from(&authed, &recipient, &ctx_v2).unwrap();
+        assert_eq!(opened, vault_key);
+        assert_eq!(who, public_of(&sender));
+    }
 }

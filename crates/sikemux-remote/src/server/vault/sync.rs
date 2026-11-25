@@ -185,14 +185,21 @@ async fn open(
         }
     };
     check_recovery_key(core, account, &vault.recovery_key).await?;
-    let (mut floor, pinned) = check_floor(core, account, &vault).await?;
+    let (mut floor, pinned, authenticated_wraps) = check_floor(core, account, &vault).await?;
     if !pinned || floor.generation < vault.generation {
         floor.generation = vault.generation;
         save_floor(core, account, &vault.recovery_key, floor.clone()).await?;
     }
     let listed: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
-    let key =
-        (vault.key.as_deref()).and_then(|wrapped| open_wrap(wrapped, secret, account, &vault, me));
+    let held = held_key(core, account, &vault.recovery_key, vault.generation).await;
+    let opened = match (vault.key.as_deref(), held) {
+        (Some(_), Some(key)) => Some(OpenedWrap::Kept(key)),
+        (Some(wrapped), None) => {
+            open_wrap(wrapped, secret, account, &vault, me, !authenticated_wraps)
+        }
+        (None, _) => None,
+    };
+    let key = opened.map(OpenedWrap::key);
     let changed = {
         let mut state = core.vault().state.locked();
         let before = (
@@ -211,6 +218,9 @@ async fn open(
             .map(|host| (host.key, host.name))
             .collect();
         state.key = key;
+        if authenticated_wraps {
+            state.authenticated_wraps = true;
+        }
         state.status = if key.is_some() {
             Status::Open
         } else {
@@ -227,12 +237,22 @@ async fn open(
         announce(core);
     }
     let Some(key) = key else { return Ok(None) };
-    if vault.rotate && rotate(core, account, me, &vault, &key, floor).await? {
+    if matches!(opened, Some(OpenedWrap::LegacyV1(_))) {
+        upgrade_own_wrap(core, account, secret, vault.generation, me, &key).await?;
+    }
+    if !matches!(opened, Some(OpenedWrap::Kept(_))) {
+        keep_key(core, account, &vault.recovery_key, vault.generation, &key).await;
+        if !authenticated_wraps {
+            core.vault().state.locked().authenticated_wraps = true;
+            save_authenticated_wraps(core, account, &vault.recovery_key).await?;
+        }
+    }
+    if vault.rotate && rotate(core, account, me, secret, &vault, &key, floor).await? {
         core.vault().wake();
         return Ok(None);
     }
     if !vault.waiting.is_empty() {
-        add_keys(core, account, &vault, &key).await?;
+        add_keys(core, account, secret, &vault, &key).await?;
     }
     Ok(Some((key, vault)))
 }
@@ -272,8 +292,13 @@ async fn check_recovery_key(core: &Core, account: &str, recovery_key: &str) -> C
 }
 
 /// Refuses a vault whose key is an earlier generation than this host last read, and hands
-/// back the floor it holds the vault's entries to, and whether it has kept one for this vault.
-async fn check_floor(core: &Core, account: &str, vault: &Remote) -> CoreResult<(Floor, bool)> {
+/// back the floor it holds the vault's entries to, whether it has kept one for this vault, and
+/// whether authenticated v2 wraps have been established for it.
+async fn check_floor(
+    core: &Core,
+    account: &str,
+    vault: &Remote,
+) -> CoreResult<(Floor, bool, bool)> {
     let data_dir = core.data_dir().clone();
     let (account, recovery_key) = (account.to_owned(), vault.recovery_key.clone());
     let kept = blocking(move || {
@@ -282,6 +307,8 @@ async fn check_floor(core: &Core, account: &str, vault: &Remote) -> CoreResult<(
     })
     .await?;
     let pinned = kept.is_some();
+    let authenticated_wraps = kept.as_ref().is_some_and(|local| local.authenticated_wraps)
+        || core.vault().state.locked().authenticated_wraps;
     let floor = kept.map(|local| local.floor).unwrap_or_default();
     if !floor.takes_generation(vault.generation) {
         return Err(format!(
@@ -290,22 +317,119 @@ async fn check_floor(core: &Core, account: &str, vault: &Remote) -> CoreResult<(
         )
         .into());
     }
-    Ok((floor, pinned))
+    Ok((floor, pinned, authenticated_wraps))
 }
 
-/// Opens the key wrapped for this host. A wrap that names who sealed it is taken only from this
-/// host or one the vault lists as holding the key. Hosts still write the form that names no
-/// sealer, which this host also reads, until every host in use reads the other.
-fn open_wrap(wrapped: &str, secret: &Key, account: &str, vault: &Remote, me: &str) -> Option<Key> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OpenedWrap {
+    Kept(Key),
+    V2(Key),
+    LegacyV1(Key),
+}
+
+impl OpenedWrap {
+    fn key(self) -> Key {
+        match self {
+            Self::Kept(key) | Self::V2(key) | Self::LegacyV1(key) => key,
+        }
+    }
+}
+
+/// Opens the key wrapped for this host. A v2 wrap naming its sealer is taken only from this host
+/// or one the vault lists as holding the key. Unauthenticated v1 wraps are accepted only while
+/// migrating an existing pre-v2 vault (`allow_v1 = true`).
+fn open_wrap(
+    wrapped: &str,
+    secret: &Key,
+    account: &str,
+    vault: &Remote,
+    me: &str,
+    allow_v1: bool,
+) -> Option<OpenedWrap> {
     let context = seal::host_wrap_context(account, vault.generation, me);
     let holders = std::iter::once(me).chain(vault.holders.iter().map(String::as_str));
-    seal::unwrap_from_holder(wrapped, secret, &context, holders).or_else(|| {
-        seal::unwrap(
+    if let Some(key) = seal::unwrap_from_holder(wrapped, secret, &context, holders) {
+        return Some(OpenedWrap::V2(key));
+    }
+    if allow_v1 {
+        if let Some(key) = seal::unwrap(
             wrapped,
             secret,
             &seal::wrap_context(account, vault.generation, me),
-        )
+        ) {
+            return Some(OpenedWrap::LegacyV1(key));
+        }
+    }
+    None
+}
+
+async fn held_key(core: &Core, account: &str, vault: &str, generation: i64) -> Option<Key> {
+    {
+        let state = core.vault().state.locked();
+        if state.generation == generation && state.recovery_key.as_deref() == Some(vault) {
+            if let Some(key) = state.key {
+                return Some(key);
+            }
+        }
+    }
+    let data_dir = core.data_dir().clone();
+    let (account, vault) = (account.to_owned(), vault.to_owned());
+    blocking(move || {
+        Ok(local::kept_key(
+            data_dir.as_deref(),
+            &account,
+            &vault,
+            generation,
+        ))
     })
+    .await
+    .ok()
+    .flatten()
+}
+
+async fn keep_key(core: &Core, account: &str, vault: &str, generation: i64, key: &Key) {
+    let data_dir = core.data_dir().clone();
+    let (account, vault, key) = (account.to_owned(), vault.to_owned(), *key);
+    let saved = blocking(move || {
+        local::keep_key(data_dir.as_deref(), &account, &vault, generation, &key)
+            .map_err(CoreError::from)
+    })
+    .await;
+    if let Err(error) = saved {
+        eprintln!("sikemux core: the account vault's key was not kept in the keychain: {error}");
+    }
+}
+
+async fn save_authenticated_wraps(core: &Core, account: &str, vault: &str) -> CoreResult<()> {
+    let data_dir = core.data_dir().clone();
+    let (account, vault) = (account.to_owned(), vault.to_owned());
+    blocking(move || {
+        let mut local = local::load(data_dir.as_deref(), &account, &vault);
+        if !local.authenticated_wraps {
+            local.authenticated_wraps = true;
+            local::save(data_dir.as_deref(), &local).map_err(CoreError::from)?;
+        }
+        Ok(())
+    })
+    .await
+}
+
+async fn upgrade_own_wrap(
+    core: &Arc<Core>,
+    account: &str,
+    secret: &Key,
+    generation: i64,
+    me: &str,
+    key: &Key,
+) -> CoreResult<()> {
+    let mine = wrap_for(key, secret, account, generation, me)
+        .ok_or_else(|| CoreError::from("the vault's key could not be wrapped for this host"))?;
+    let add = VaultKeysAdd {
+        generation,
+        keys: vec![mine],
+    };
+    host_request(core, Method::PUT, "/v1/vault/keys", Some(json!(add))).await?;
+    Ok(())
 }
 
 /// Saves `floor` at once, for when it moves in a round that may not reach its end.
@@ -345,10 +469,11 @@ async fn create(core: &Arc<Core>, account: &str, me: &str, secret: &Key) -> Core
             &seal::wrap_context(account, 1, RECOVERY_HOLDER),
         )
         .ok_or_else(wrap_failed)?,
-        key: seal::wrap(
+        key: seal::wrap_from(
             &key,
+            secret,
             &seal::public_of(secret),
-            &seal::wrap_context(account, 1, me),
+            &seal::host_wrap_context(account, 1, me),
         )
         .ok_or_else(wrap_failed)?,
     };
@@ -361,11 +486,22 @@ async fn create(core: &Arc<Core>, account: &str, me: &str, secret: &Key) -> Core
     Ok(())
 }
 
-fn wrap_for(key: &Key, account: &str, generation: i64, host: &str) -> Option<WrappedKey> {
+fn wrap_for(
+    key: &Key,
+    from: &Key,
+    account: &str,
+    generation: i64,
+    host: &str,
+) -> Option<WrappedKey> {
     let public = seal::host_public(host)?;
     Some(WrappedKey {
         host_key: host.to_owned(),
-        wrapped: seal::wrap(key, &public, &seal::wrap_context(account, generation, host))?,
+        wrapped: seal::wrap_from(
+            key,
+            from,
+            &public,
+            &seal::host_wrap_context(account, generation, host),
+        )?,
     })
 }
 
@@ -375,6 +511,7 @@ fn wrap_for(key: &Key, account: &str, generation: i64, host: &str) -> Option<Wra
 pub(super) async fn add_keys(
     core: &Arc<Core>,
     account: &str,
+    secret: &Key,
     vault: &Remote,
     key: &Key,
 ) -> CoreResult<()> {
@@ -382,7 +519,7 @@ pub(super) async fn add_keys(
         .waiting
         .iter()
         .filter(|host| core.remote().vault_open_to(host))
-        .filter_map(|host| wrap_for(key, account, vault.generation, host))
+        .filter_map(|host| wrap_for(key, secret, account, vault.generation, host))
         .collect();
     if keys.is_empty() {
         return Ok(());
@@ -403,6 +540,7 @@ pub(super) async fn rotate(
     core: &Arc<Core>,
     account: &str,
     me: &str,
+    secret: &Key,
     vault: &Remote,
     key: &Key,
     mut floor: Floor,
@@ -428,7 +566,7 @@ pub(super) async fn rotate(
         .collect();
     let keys = hosts
         .iter()
-        .filter_map(|host| wrap_for(&next, account, generation, host))
+        .filter_map(|host| wrap_for(&next, secret, account, generation, host))
         .collect();
     let recovery = seal::recovery_public(&vault.recovery_key)
         .and_then(|public| {
@@ -460,6 +598,7 @@ pub(super) async fn rotate(
         entries,
     };
     host_request(core, Method::POST, "/v1/vault/rotate", Some(json!(rotate))).await?;
+    keep_key(core, account, &vault.recovery_key, generation, &next).await;
     floor.generation = generation;
     save_floor(core, account, &vault.recovery_key, floor).await?;
     Ok(true)
@@ -1326,7 +1465,12 @@ pub async fn recover(core: &Arc<Core>, typed: &str) -> CoreResult<()> {
         &seal::wrap_context(&account, generation, RECOVERY_HOLDER),
     )
     .ok_or_else(|| CoreError::from("that recovery key does not open this account's vault"))?;
-    let mine = wrap_for(&key, &account, generation, &me)
+    let host = core
+        .remote()
+        .host_key()
+        .ok_or_else(|| CoreError::from("this host has no key"))?;
+    let host_secret = seal::host_secret(&host);
+    let mine = wrap_for(&key, &host_secret, &account, generation, &me)
         .ok_or_else(|| CoreError::from("the vault's key could not be wrapped for this host"))?;
     let add = VaultKeysAdd {
         generation,
@@ -1335,4 +1479,97 @@ pub async fn recover(core: &Arc<Core>, typed: &str) -> CoreResult<()> {
     host_request(core, Method::PUT, "/v1/vault/keys", Some(json!(add))).await?;
     core.vault().wake();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vault_with_holders(generation: i64, holders: &[&str]) -> Remote {
+        serde_json::from_value(json!({
+            "generation": generation,
+            "recoveryKey": "00".repeat(32),
+            "recoveryWrap": "",
+            "key": null,
+            "holders": holders,
+            "waiting": [],
+            "rotate": false,
+            "entries": [],
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn wrap_for_emits_authenticated_v2_and_open_wrap_rejects_v1_downgrade() {
+        let holder = iroh::SecretKey::generate();
+        let recipient = iroh::SecretKey::generate();
+        let rogue = iroh::SecretKey::generate();
+        let holder_key = holder.public().to_string();
+        let recipient_key = recipient.public().to_string();
+        let holder_secret = seal::host_secret(&holder);
+        let recipient_secret = seal::host_secret(&recipient);
+        let rogue_secret = seal::host_secret(&rogue);
+        let vault_key = seal::random_key().unwrap();
+        let account = "user_s10";
+        let vault = vault_with_holders(2, &[&holder_key, &recipient_key]);
+
+        let wrapped = wrap_for(&vault_key, &holder_secret, account, 2, &recipient_key).unwrap();
+        assert_eq!(
+            open_wrap(
+                &wrapped.wrapped,
+                &recipient_secret,
+                account,
+                &vault,
+                &recipient_key,
+                false,
+            ),
+            Some(OpenedWrap::V2(vault_key)),
+            "v2 wrap from a listed holder must open with v1 disabled"
+        );
+
+        let from_rogue = wrap_for(&vault_key, &rogue_secret, account, 2, &recipient_key).unwrap();
+        assert_eq!(
+            open_wrap(
+                &from_rogue.wrapped,
+                &recipient_secret,
+                account,
+                &vault,
+                &recipient_key,
+                false,
+            ),
+            None,
+            "v2 wrap from an unlisted sealer must be rejected"
+        );
+
+        let v1_downgrade = seal::wrap(
+            &vault_key,
+            &seal::public_of(&recipient_secret),
+            &seal::wrap_context(account, 2, &recipient_key),
+        )
+        .unwrap();
+        assert_eq!(
+            open_wrap(
+                &v1_downgrade,
+                &recipient_secret,
+                account,
+                &vault,
+                &recipient_key,
+                false,
+            ),
+            None,
+            "unauthenticated v1 wrap must be rejected once v2 is established"
+        );
+        assert_eq!(
+            open_wrap(
+                &v1_downgrade,
+                &recipient_secret,
+                account,
+                &vault,
+                &recipient_key,
+                true,
+            ),
+            Some(OpenedWrap::LegacyV1(vault_key)),
+            "pre-v2 vaults still open as LegacyV1 for one-time self-upgrade"
+        );
+    }
 }

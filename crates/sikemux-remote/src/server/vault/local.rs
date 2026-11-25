@@ -17,6 +17,12 @@ const RECOVERY_SERVICE: &str = if cfg!(debug_assertions) {
     "sikemux-vault-recovery"
 };
 
+const KEY_SERVICE: &str = if cfg!(debug_assertions) {
+    "sikemux-vault-key-dev"
+} else {
+    "sikemux-vault-key"
+};
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Local {
@@ -34,6 +40,10 @@ pub struct Local {
     pub rules: BTreeMap<String, Rule>,
     #[serde(default)]
     pub floor: Floor,
+    /// This host has opened or written an authenticated v2 key wrap for this vault, so
+    /// unauthenticated v1 wraps are never accepted again.
+    #[serde(default)]
+    pub authenticated_wraps: bool,
 }
 
 /// What an entry holds and who refreshes it, without its secrets.
@@ -104,6 +114,45 @@ pub fn recovery(account: &str) -> Option<String> {
 
 pub fn forget_recovery(account: &str) -> Result<(), String> {
     sikemux_keychain::delete(RECOVERY_SERVICE, account).map_err(|error| error.to_string())
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KeptKey {
+    vault: String,
+    generation: i64,
+    key: super::seal::Key,
+}
+
+pub fn keep_key(
+    data_dir: Option<&Path>,
+    account: &str,
+    vault: &str,
+    generation: i64,
+    key: &super::seal::Key,
+) -> Result<(), String> {
+    if data_dir.is_none() {
+        return Ok(());
+    }
+    let text = serde_json::to_string(&KeptKey {
+        vault: vault.to_owned(),
+        generation,
+        key: *key,
+    })
+    .map_err(|error| error.to_string())?;
+    sikemux_keychain::write(KEY_SERVICE, account, &text).map_err(|error| error.to_string())
+}
+
+pub fn kept_key(
+    data_dir: Option<&Path>,
+    account: &str,
+    vault: &str,
+    generation: i64,
+) -> Option<super::seal::Key> {
+    data_dir?;
+    let text = sikemux_keychain::read(KEY_SERVICE, account).ok()??;
+    let kept: KeptKey = serde_json::from_str(&text).ok()?;
+    (kept.vault == vault && kept.generation == generation).then_some(kept.key)
 }
 
 fn marks_path(data_dir: &Path) -> PathBuf {

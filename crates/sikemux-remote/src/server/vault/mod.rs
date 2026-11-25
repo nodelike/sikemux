@@ -117,6 +117,8 @@ pub struct State {
     left_out: BTreeSet<String>,
     /// The key is due to be replaced but this host holds off, as it last read the vault.
     rotation_held: bool,
+    /// This host has opened or written an authenticated v2 key wrap for this vault.
+    authenticated_wraps: bool,
 }
 
 impl State {
@@ -361,7 +363,8 @@ pub mod keys {
     use super::trust::{self, Me};
     use super::{org, seal, sync, Core, Key};
     use crate::accounts::vault::Vault;
-    use crate::server::CoreResult;
+    use crate::server::remote_state::RemoteParts;
+    use crate::server::{CoreError, CoreResult};
 
     pub async fn hand_out(
         core: &Arc<Core>,
@@ -369,7 +372,12 @@ pub mod keys {
         vault: &Vault,
         key: &Key,
     ) -> CoreResult<()> {
-        sync::add_keys(core, account, vault, key).await
+        let host = core
+            .remote()
+            .host_key()
+            .ok_or_else(|| CoreError::from("no host key"))?;
+        let secret = seal::host_secret(&host);
+        sync::add_keys(core, account, &secret, vault, key).await
     }
 
     pub async fn replace(
@@ -379,7 +387,12 @@ pub mod keys {
         vault: &Vault,
         key: &Key,
     ) -> CoreResult<bool> {
-        sync::rotate(core, account, me, vault, key, Default::default()).await
+        let host = core
+            .remote()
+            .host_key()
+            .ok_or_else(|| CoreError::from("no host key"))?;
+        let secret = seal::host_secret(&host);
+        sync::rotate(core, account, me, &secret, vault, key, Default::default()).await
     }
 
     pub async fn read_org(core: &Core, org: &AccountOrg, host: &iroh::SecretKey) -> CoreResult<()> {
