@@ -245,7 +245,8 @@ function PreviewForm({
         onChange={(event) => setName(event.target.value)}
       />
       <p className="start-hint">
-        Free for up to 20 people in the preview.{perSeat ? ` ${perSeat}` : ""}
+        Free for up to 20 people in the preview.
+        {perSeat ? ` After that, ${perSeat}` : ""}
       </p>
       <Problem>{action.problem}</Problem>
       <div className="start-acts">
