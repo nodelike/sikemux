@@ -106,10 +106,11 @@ impl Terminal {
         let cols = self.term.columns();
         let mut look = Look::PLAIN;
         let mut link: Option<String> = None;
+        let mut scratch = String::new();
         for line in first..=last {
             let mut width = 0;
             let wrapped = self
-                .walk_line(line, |style, wide, cluster, text| {
+                .walk_line(line, &mut scratch, |style, wide, cluster, text| {
                     let next = Look::of(style);
                     if next != look {
                         next.sgr(&mut out);

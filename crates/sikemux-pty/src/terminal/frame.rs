@@ -39,6 +39,7 @@ impl View {
 pub(super) struct Hashes {
     version: u64,
     rows: Vec<u64>,
+    blank_cols: usize,
     blank: u64,
 }
 
@@ -265,7 +266,10 @@ impl Terminal {
         self.frames
             .rows
             .extend((0..rows).map(|line| hash_row(&grid[Line(line as i32)], cols)));
-        self.frames.blank = hash_row(&Row::new(cols), cols);
+        if self.frames.blank_cols != cols {
+            self.frames.blank = hash_row(&Row::new(cols), cols);
+            self.frames.blank_cols = cols;
+        }
         self.frames.version = self.version;
     }
 

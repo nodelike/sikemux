@@ -142,6 +142,10 @@ impl ShellProtocolParser {
         self.metadata.clone()
     }
 
+    pub fn cwd(&self) -> Option<&str> {
+        self.metadata.cwd.as_deref()
+    }
+
     pub fn phase(&self) -> ShellPhase {
         self.metadata.phase
     }

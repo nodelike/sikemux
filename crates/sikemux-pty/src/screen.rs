@@ -79,11 +79,11 @@ impl Screen {
 
     /// A shell that reports its folder is named after it each time it moves.
     pub fn title_from_cwd(&mut self) {
-        let cwd = self.shell.as_ref().and_then(|shell| shell.snapshot().cwd);
-        if cwd == self.titled_cwd {
+        let cwd = self.shell.as_ref().and_then(ShellProtocolParser::cwd);
+        if cwd == self.titled_cwd.as_deref() {
             return;
         }
-        self.titled_cwd = cwd;
+        self.titled_cwd = cwd.map(str::to_owned);
         let Some(name) = self.titled_cwd.as_deref().map(|cwd| {
             std::path::Path::new(cwd).file_name().map_or_else(
                 || cwd.to_owned(),

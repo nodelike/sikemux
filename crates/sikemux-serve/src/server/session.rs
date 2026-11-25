@@ -312,7 +312,7 @@ impl Session {
             .locked()
             .shell
             .as_ref()
-            .and_then(|shell| shell.snapshot().cwd);
+            .and_then(|shell| shell.cwd().map(str::to_owned));
         reported
             .or_else(|| self.owner.project.clone())
             .map(PathBuf::from)

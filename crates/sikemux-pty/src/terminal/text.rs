@@ -8,33 +8,7 @@ use super::Terminal;
 
 const MAX_MATCHES: usize = 1_000;
 
-/// One cell's text and the columns it covers.
-struct Cell {
-    text: String,
-    width: u16,
-}
-
 impl Terminal {
-    /// A line's cells left to right, and whether it goes on in the next line.
-    fn cells(&self, line: u64) -> Option<(Vec<Cell>, bool)> {
-        let mut cells = Vec::new();
-        let wrapped = self.walk_line(line, |_, wide, cluster, text| {
-            let width = if wide { 2 } else { 1 };
-            if cluster {
-                cells.push(Cell {
-                    text: text.to_owned(),
-                    width,
-                });
-            } else {
-                cells.extend(text.chars().map(|character| Cell {
-                    text: character.to_string(),
-                    width,
-                }));
-            }
-        })?;
-        Some((cells, wrapped))
-    }
-
     /// The cursor's row and column on the screen.
     pub fn cursor(&self) -> (u16, u16) {
         let point = self.term.grid().cursor.point;
@@ -58,25 +32,43 @@ impl Terminal {
         let (from, to) = if to < from { (to, from) } else { (from, to) };
         let first = from.line.max(self.first_line());
         let last = to.line.min(self.last_line());
+        let cols = self.term.columns() as u16;
         let mut text = String::new();
+        let mut scratch = String::new();
         for line in first..=last {
-            let Some((cells, wrapped)) = self.cells(line) else {
-                continue;
-            };
             let start = if line == from.line { from.col } else { 0 };
             let end = if line == to.line { to.col } else { u16::MAX };
             let mut col = 0u16;
-            for cell in &cells {
-                if col >= start && col <= end {
-                    text.push_str(&cell.text);
+            let Some(wrapped) = self.walk_line(line, &mut scratch, |_, wide, cluster, span| {
+                let width = if wide { 2 } else { 1 };
+                if cluster {
+                    if col >= start && col <= end {
+                        text.push_str(span);
+                    }
+                    col = col.saturating_add(width);
+                } else if col >= start && end == u16::MAX {
+                    text.push_str(span);
+                    let count = if span.is_ascii() {
+                        span.len()
+                    } else {
+                        span.chars().count()
+                    };
+                    col = col.saturating_add((count as u16).saturating_mul(width));
+                } else {
+                    for character in span.chars() {
+                        if col >= start && col <= end {
+                            text.push(character);
+                        }
+                        col = col.saturating_add(width);
+                    }
                 }
-                col += cell.width;
-            }
+            }) else {
+                continue;
+            };
             if line == last {
                 break;
             }
             if wrapped {
-                let cols = self.term.columns() as u16;
                 if end >= cols {
                     text.extend(std::iter::repeat_n(
                         ' ',
@@ -202,22 +194,32 @@ impl Terminal {
             .map_err(|error| error.to_string())?;
         let cols = self.term.columns() as u16;
         let mut text = String::new();
+        let mut scratch = String::new();
         let mut places: Vec<(usize, GridPoint, u16)> = Vec::new();
         let mut line = self.first_line();
         'lines: while line <= self.last_line() {
             text.clear();
             places.clear();
             loop {
-                let Some((cells, wrapped)) = self.cells(line) else {
+                let mut col = 0u16;
+                let Some(wrapped) = self.walk_line(line, &mut scratch, |_, wide, cluster, span| {
+                    let width = if wide { 2 } else { 1 };
+                    if cluster {
+                        places.push((text.len(), GridPoint { line, col }, width));
+                        text.push_str(span);
+                        col = col.saturating_add(width);
+                    } else {
+                        let base = text.len();
+                        text.push_str(span);
+                        for (offset, _) in span.char_indices() {
+                            places.push((base + offset, GridPoint { line, col }, width));
+                            col = col.saturating_add(width);
+                        }
+                    }
+                }) else {
                     line += 1;
                     break;
                 };
-                let mut col = 0u16;
-                for cell in &cells {
-                    places.push((text.len(), GridPoint { line, col }, cell.width));
-                    text.push_str(&cell.text);
-                    col += cell.width;
-                }
                 line += 1;
                 if !wrapped || line > self.last_line() {
                     break;

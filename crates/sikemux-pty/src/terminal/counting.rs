@@ -20,6 +20,12 @@ use super::frame::store_row;
 use super::history::History;
 use super::Events;
 
+const EMULATOR_HISTORY_EXTRA: usize = 256;
+
+pub(super) fn emulator_history(rows: usize) -> usize {
+    rows.saturating_add(EMULATOR_HISTORY_EXTRA)
+}
+
 #[derive(Default)]
 pub(super) struct Outcome {
     pub pushed: u64,
@@ -31,24 +37,38 @@ pub(super) struct Outcome {
 pub(super) struct Counting<'a> {
     term: &'a mut Term<Events>,
     history: &'a mut History,
-    text: String,
-    scratch: Vec<u8>,
+    text: &'a mut String,
+    scratch: &'a mut Vec<u8>,
     outcome: Outcome,
 }
 
 impl<'a> Counting<'a> {
-    pub(super) fn new(term: &'a mut Term<Events>, history: &'a mut History) -> Self {
+    pub(super) fn new(
+        term: &'a mut Term<Events>,
+        history: &'a mut History,
+        text: &'a mut String,
+        scratch: &'a mut Vec<u8>,
+    ) -> Self {
         Self {
             term,
             history,
-            text: String::new(),
-            scratch: Vec::new(),
+            text,
+            scratch,
             outcome: Outcome::default(),
         }
     }
 
-    pub(super) fn finish(self) -> Outcome {
+    pub(super) fn finish(mut self) -> Outcome {
+        self.flush_history();
         self.outcome
+    }
+
+    #[inline]
+    fn flush_history(&mut self) {
+        if self.term.mode().contains(TermMode::ALT_SCREEN) {
+            return;
+        }
+        self.outcome.pushed += move_history(self.term, self.history, self.text, self.scratch);
     }
 
     #[inline]
@@ -57,8 +77,9 @@ impl<'a> Counting<'a> {
         if self.term.mode().contains(TermMode::ALT_SCREEN) {
             return;
         }
-        self.outcome.pushed +=
-            move_history(self.term, self.history, &mut self.text, &mut self.scratch);
+        if self.term.grid().history_size() >= EMULATOR_HISTORY_EXTRA {
+            self.outcome.pushed += move_history(self.term, self.history, self.text, self.scratch);
+        }
     }
 }
 
@@ -79,7 +100,7 @@ pub(super) fn move_history(
     for age in (1..=pushed).rev() {
         history.push(store_row(&grid[Line(-(age as i32))], cols, text, scratch));
     }
-    let room = term.screen_lines();
+    let room = emulator_history(term.screen_lines());
     let grid = term.grid_mut();
     grid.update_history(0);
     grid.update_history(room);
@@ -115,19 +136,32 @@ impl Handler for Counting<'_> {
         newline();
         scroll_up(lines: usize);
         delete_lines(lines: usize);
-        set_private_mode(mode: PrivateMode);
-        unset_private_mode(mode: PrivateMode);
+    }
+
+    fn set_private_mode(&mut self, mode: PrivateMode) {
+        self.flush_history();
+        self.term.set_private_mode(mode);
+        self.flush_history();
+    }
+
+    fn unset_private_mode(&mut self, mode: PrivateMode) {
+        self.flush_history();
+        self.term.unset_private_mode(mode);
+        self.flush_history();
     }
 
     fn clear_screen(&mut self, mode: ClearMode) {
         let history = matches!(mode, ClearMode::Saved);
-        self.counted(|term| term.clear_screen(mode));
+        self.flush_history();
+        self.term.clear_screen(mode);
+        self.flush_history();
         if history {
             self.outcome.cleared = true;
         }
     }
 
     fn reset_state(&mut self) {
+        self.flush_history();
         self.term.reset_state();
         self.outcome.cleared = true;
         self.outcome.palette = true;

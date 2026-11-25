@@ -98,13 +98,12 @@ pub struct Terminal {
     palette_version: u32,
     frames: frame::Hashes,
     text: String,
+    scratch: Vec<u8>,
 }
 
-/// The emulator keeps only a screen's worth of history, which is moved into
-/// the terminal's own after every call that pushes lines.
 fn config(rows: usize) -> Config {
     Config {
-        scrolling_history: rows,
+        scrolling_history: counting::emulator_history(rows),
         default_cursor_style: CursorStyle {
             shape: CursorShape::Block,
             blinking: true,
@@ -131,6 +130,7 @@ impl Terminal {
             palette_version: 0,
             frames: frame::Hashes::default(),
             text: String::new(),
+            scratch: Vec::new(),
         }
     }
 
@@ -155,7 +155,12 @@ impl Terminal {
     }
 
     pub fn process(&mut self, bytes: &[u8], colors: &TerminalColors) -> Processed {
-        let mut sink = counting::Counting::new(&mut self.term, &mut self.history);
+        let mut sink = counting::Counting::new(
+            &mut self.term,
+            &mut self.history,
+            &mut self.text,
+            &mut self.scratch,
+        );
         self.parser.advance(&mut sink, bytes);
         let outcome = sink.finish();
         self.absorb(outcome);
@@ -170,7 +175,12 @@ impl Terminal {
 
     /// Shows a synchronized update whose program never ended it.
     pub fn end_sync(&mut self, colors: &TerminalColors) -> Processed {
-        let mut sink = counting::Counting::new(&mut self.term, &mut self.history);
+        let mut sink = counting::Counting::new(
+            &mut self.term,
+            &mut self.history,
+            &mut self.text,
+            &mut self.scratch,
+        );
         self.parser.stop_sync(&mut sink);
         let outcome = sink.finish();
         self.absorb(outcome);
@@ -231,7 +241,7 @@ impl Terminal {
                 &mut self.term,
                 &mut self.history,
                 &mut self.text,
-                &mut Vec::new(),
+                &mut self.scratch,
             );
         }
         if size.cols != old_cols {
@@ -284,6 +294,7 @@ impl Terminal {
     fn walk_line(
         &self,
         line: u64,
+        scratch: &mut String,
         each: impl FnMut(&SpanStyle<'_>, bool, bool, &str),
     ) -> Option<bool> {
         if line < self.first_line() || line > self.last_line() {
@@ -295,7 +306,7 @@ impl Terminal {
         }
         let cols = self.term.columns();
         let row = &self.term.grid()[Line((line - self.pushed) as i32)];
-        frame::walk_row(row, cols, &mut String::new(), each);
+        frame::walk_row(row, cols, scratch, each);
         Some(frame::wrapped(row, cols))
     }
 }
