@@ -37,6 +37,10 @@ const SNIPPET_WORDS: i64 = 14;
 const LEAD_WORDS: usize = 4;
 const MARK_START: char = '\u{2}';
 const MARK_END: char = '\u{3}';
+/// Interactive search catches up at most this many newest sessions and bytes per file.
+const FRESH_SEARCH_SESSIONS: usize = 64;
+const FRESH_FILE_BYTES: u64 = 512 * 1024;
+const COMMIT_BATCH: usize = 16;
 
 /// A line of a session that holds the words looked for, in runs that alternate between
 /// the words found and what is around them.
@@ -84,6 +88,10 @@ static PLACE: OnceLock<PathBuf> = OnceLock::new();
 /// Keeps the index in `data_dir`. Without it nothing is indexed and no chat is found by its words.
 pub fn open(data_dir: &Path) {
     let _ = PLACE.set(data_dir.join(DATABASE));
+}
+
+pub(super) fn is_open() -> bool {
+    index().is_some()
 }
 
 fn index() -> Option<&'static Mutex<Index>> {
@@ -212,33 +220,13 @@ pub fn catch_up(
     for provider in providers {
         let scan = PageScan::all(provider.agent, projects, limit, &exclude);
         let hits: Vec<Hit> = provider_hits(provider, &scan);
-        let mut pending = hits.iter().peekable();
-        while pending.peek().is_some() {
-            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                return (read, 0);
-            }
-            let mut index = index.locked();
-            let held = Instant::now();
-            if index.connection.execute_batch("BEGIN").is_err() {
-                return (read, 0);
-            }
-            while let Some(hit) = pending.next_if(|_| held.elapsed() < HOLD) {
-                let key = (hit.agent, hit.found.session.id.clone());
-                match index.hear(provider.agent, &hit.found, &key) {
-                    Ok(changed) => read += usize::from(changed),
-                    Err(error) => {
-                        eprintln!(
-                            "sikemux: the index of what chats said could not take one: {error}"
-                        );
-                        whole = false;
-                    }
-                }
-                seen.insert(key);
-            }
-            if index.connection.execute_batch("COMMIT").is_err() {
-                let _ = index.connection.execute_batch("ROLLBACK");
-                whole = false;
-            }
+        let (written, ok) = catch_up_slice(index, hits.iter(), deadline, None, Some(&mut seen));
+        read += written;
+        if !ok {
+            whole = false;
+        }
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return (read, 0);
         }
     }
     let gone = if whole {
@@ -257,6 +245,72 @@ pub fn catch_up(
     (read, gone)
 }
 
+/// Catches up the newest scoped search hits within `deadline`, bounding bytes per file so
+/// an unindexed huge transcript never stalls a search.
+pub(super) fn catch_up_hits(hits: &[(Hit, &RecentProvider)], deadline: Instant) {
+    let Some(index) = index() else {
+        return;
+    };
+    let newest = hits.iter().take(FRESH_SEARCH_SESSIONS).map(|(hit, _)| hit);
+    let _ = catch_up_slice(index, newest, Some(deadline), Some(FRESH_FILE_BYTES), None);
+}
+
+fn catch_up_slice<'a>(
+    index: &Mutex<Index>,
+    hits: impl Iterator<Item = &'a Hit>,
+    deadline: Option<Instant>,
+    max_bytes: Option<u64>,
+    mut seen: Option<&mut HashSet<Key>>,
+) -> (usize, bool) {
+    let mut read = 0;
+    let mut ok = true;
+    let mut pending = hits.peekable();
+    while pending.peek().is_some() {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return (read, false);
+        }
+        let mut batch = Vec::new();
+        let started = Instant::now();
+        while batch.len() < COMMIT_BATCH {
+            if !batch.is_empty() && started.elapsed() >= HOLD {
+                break;
+            }
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                ok = false;
+                break;
+            }
+            let Some(hit) = pending.next() else {
+                break;
+            };
+            let Some(agent) = AgentKind::from_name(hit.agent) else {
+                continue;
+            };
+            let key = (hit.agent, hit.found.session.id.clone());
+            let existing = {
+                let guard = index.locked();
+                guard.heard.get(&key).map(|heard| (heard.stamp, heard.read))
+            };
+            if let Some(seen) = seen.as_deref_mut() {
+                seen.insert(key.clone());
+            }
+            if let Some(item) = read_session(agent, &hit.found, key, existing, deadline, max_bytes)
+            {
+                batch.push(item);
+            }
+        }
+        if !batch.is_empty() {
+            match index.locked().commit_batch(batch) {
+                Ok(written) => read += written,
+                Err(error) => {
+                    eprintln!("sikemux: the index of what chats said could not take one: {error}");
+                    ok = false;
+                }
+            }
+        }
+    }
+    (read, ok)
+}
+
 /// Collects what a reader hears, a message at a time.
 #[derive(Default)]
 struct Messages(Vec<String>);
@@ -272,99 +326,144 @@ impl Hear for Messages {
     }
 }
 
-impl Index {
-    /// Reads what changed in the session since it was last read. Whether anything had.
-    fn hear(&mut self, agent: AgentKind, found: &Found, key: &Key) -> rusqlite::Result<bool> {
-        let ops = agent.ops();
-        let Some(stamp) = ops.prose_stamp(found) else {
-            return Ok(false);
-        };
-        if self
-            .heard
-            .get(key)
-            .is_some_and(|heard| heard.stamp == stamp)
-        {
-            return Ok(false);
-        }
-        let by_line = ops
-            .prose_line()
-            .zip(found.place.as_deref())
-            .filter(|(_, place)| !is_compressed(place));
-        let mut messages = Messages::default();
-        let (from, read) = match by_line {
-            Some((parse, place)) => {
-                let from = self
-                    .heard
-                    .get(key)
-                    .map(|heard| heard.read)
-                    .filter(|read| *read <= stamp.len)
-                    .unwrap_or(0);
-                let read = read_lines(place, from, |line| parse(line, &mut messages));
-                (from, read)
-            }
-            None => {
-                ops.prose(found, &mut messages);
-                (0, 0)
-            }
-        };
-        let (number, kept) = match self.heard.get(key) {
-            Some(heard) if from > 0 => (heard.number, heard.messages),
-            Some(heard) => {
-                self.clear(heard.number)?;
-                (heard.number, 0)
-            }
-            None => {
-                self.next_number += 1;
-                (self.next_number - 1, 0)
-            }
-        };
-        let mut insert = self
-            .connection
-            .prepare_cached("INSERT INTO said (rowid, text) VALUES (?1, ?2)")?;
-        let mut count = kept;
-        for text in &messages.0 {
-            if count >= MAX_MESSAGES {
-                break;
-            }
-            insert.execute(params![(number << MESSAGE_BITS) + count, text])?;
-            count += 1;
-        }
-        drop(insert);
-        self.connection.execute(
-            "INSERT INTO heard (number, agent, session, modified_ns, len, read, messages)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT (agent, session) DO UPDATE SET
-                 modified_ns = ?4, len = ?5, read = ?6, messages = ?7",
-            params![
-                number,
-                key.0,
-                key.1,
-                stamp.modified_ns as i64,
-                stamp.len as i64,
-                read as i64,
-                count
-            ],
-        )?;
-        self.heard.insert(
-            key.clone(),
-            Heard {
-                number,
-                stamp,
-                read,
-                messages: count,
-            },
-        );
-        Ok(true)
-    }
+struct ReadSession {
+    key: Key,
+    stamp: FileStamp,
+    from: u64,
+    read: u64,
+    messages: Vec<String>,
+}
 
-    fn clear(&self, number: i64) -> rusqlite::Result<()> {
-        self.connection
-            .prepare_cached("DELETE FROM said WHERE rowid >= ?1 AND rowid < ?2")?
-            .execute(params![
-                number << MESSAGE_BITS,
-                (number + 1) << MESSAGE_BITS
-            ])?;
-        Ok(())
+fn read_session(
+    agent: AgentKind,
+    found: &Found,
+    key: Key,
+    existing: Option<(FileStamp, u64)>,
+    deadline: Option<Instant>,
+    max_bytes: Option<u64>,
+) -> Option<ReadSession> {
+    let ops = agent.ops();
+    let stamp = ops.prose_stamp(found)?;
+    if existing.is_some_and(|(kept_stamp, _)| kept_stamp == stamp) {
+        return None;
+    }
+    let by_line = ops
+        .prose_line()
+        .zip(found.place.as_deref())
+        .filter(|(_, place)| !is_compressed(place));
+    let mut messages = Messages::default();
+    match by_line {
+        Some((parse, place)) => {
+            let from = existing
+                .map(|(_, read)| read)
+                .filter(|read| *read <= stamp.len)
+                .unwrap_or(0);
+            let (read, reached_eof) =
+                read_lines_bounded(place, from, deadline, max_bytes, |line| {
+                    parse(line, &mut messages)
+                });
+            if !reached_eof && read == from {
+                return None;
+            }
+            let stored_stamp = if reached_eof || read >= stamp.len {
+                stamp
+            } else {
+                FileStamp {
+                    modified_ns: 0,
+                    len: read,
+                }
+            };
+            Some(ReadSession {
+                key,
+                stamp: stored_stamp,
+                from,
+                read,
+                messages: messages.0,
+            })
+        }
+        None => {
+            ops.prose(found, &mut messages);
+            Some(ReadSession {
+                key,
+                stamp,
+                from: 0,
+                read: 0,
+                messages: messages.0,
+            })
+        }
+    }
+}
+
+impl Index {
+    fn commit_batch(&mut self, batch: Vec<ReadSession>) -> rusqlite::Result<usize> {
+        let transaction = self.connection.unchecked_transaction()?;
+        let mut next_number = self.next_number;
+        let mut updates: Vec<(Key, Heard)> = Vec::with_capacity(batch.len());
+        for item in batch {
+            let current = self.heard.get(&item.key);
+            if current.is_some_and(|heard| {
+                heard.stamp == item.stamp || (item.from > 0 && heard.read > item.from)
+            }) {
+                continue;
+            }
+            let (number, kept) = match current {
+                Some(heard) if item.from > 0 && heard.read == item.from => {
+                    (heard.number, heard.messages)
+                }
+                Some(heard) => {
+                    clear_in(&transaction, heard.number)?;
+                    (heard.number, 0)
+                }
+                None => {
+                    let allocated = next_number;
+                    next_number += 1;
+                    (allocated, 0)
+                }
+            };
+            let mut count = kept;
+            {
+                let mut insert =
+                    transaction.prepare_cached("INSERT INTO said (rowid, text) VALUES (?1, ?2)")?;
+                for text in &item.messages {
+                    if count >= MAX_MESSAGES {
+                        break;
+                    }
+                    insert.execute(params![(number << MESSAGE_BITS) + count, text])?;
+                    count += 1;
+                }
+            }
+            transaction.execute(
+                "INSERT INTO heard (number, agent, session, modified_ns, len, read, messages)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT (agent, session) DO UPDATE SET
+                     modified_ns = ?4, len = ?5, read = ?6, messages = ?7",
+                params![
+                    number,
+                    item.key.0,
+                    item.key.1,
+                    item.stamp.modified_ns as i64,
+                    item.stamp.len as i64,
+                    item.read as i64,
+                    count
+                ],
+            )?;
+            updates.push((
+                item.key,
+                Heard {
+                    number,
+                    stamp: item.stamp,
+                    read: item.read,
+                    messages: count,
+                },
+            ));
+        }
+        transaction.commit()?;
+        let written = updates.len();
+        self.next_number = next_number;
+        for (key, heard) in updates {
+            self.heard.insert(key, heard);
+        }
+        Ok(written)
     }
 
     /// Forgets the sessions of `agents` a whole pass did not see. How many it forgot.
@@ -381,9 +480,8 @@ impl Index {
         let forgot = (|| -> rusqlite::Result<()> {
             let transaction = self.connection.unchecked_transaction()?;
             for (_, number) in &gone {
-                self.clear(*number)?;
-                self.connection
-                    .execute("DELETE FROM heard WHERE number = ?1", [number])?;
+                clear_in(&transaction, *number)?;
+                transaction.execute("DELETE FROM heard WHERE number = ?1", [number])?;
             }
             transaction.commit()
         })();
@@ -397,27 +495,54 @@ impl Index {
     }
 }
 
-/// Reads the whole lines of `path` from byte `from` on. Answers where the last whole line ends.
-fn read_lines(path: &Path, from: u64, mut visit: impl FnMut(&str)) -> u64 {
+fn clear_in(connection: &Connection, number: i64) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached("DELETE FROM said WHERE rowid >= ?1 AND rowid < ?2")?
+        .execute(params![
+            number << MESSAGE_BITS,
+            (number + 1) << MESSAGE_BITS
+        ])?;
+    Ok(())
+}
+
+/// Reads whole lines of `path` from byte `from` on, stopping if `deadline` or `max_bytes`
+/// is reached. Answers where the last whole line ended and whether EOF was reached.
+fn read_lines_bounded(
+    path: &Path,
+    from: u64,
+    deadline: Option<Instant>,
+    max_bytes: Option<u64>,
+    mut visit: impl FnMut(&str),
+) -> (u64, bool) {
     let Ok(mut file) = File::open(path) else {
-        return from;
+        return (from, true);
     };
     if file.seek(SeekFrom::Start(from)).is_err() {
-        return from;
+        return (from, true);
     }
     let mut reader = BufReader::with_capacity(64 * 1024, file);
     let mut line = Vec::new();
     let mut at = from;
+    let mut lines = 0usize;
     loop {
+        if let Some(limit) = max_bytes {
+            if at - from >= limit {
+                return (at, false);
+            }
+        }
+        if lines & 63 == 0 && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return (at, false);
+        }
         line.clear();
         match reader.read_until(b'\n', &mut line) {
-            Ok(0) | Err(_) => return at,
-            Ok(_) if line.last() != Some(&b'\n') => return at,
+            Ok(0) | Err(_) => return (at, true),
+            Ok(_) if line.last() != Some(&b'\n') => return (at, true),
             Ok(read) => at += read as u64,
         }
         if let Ok(text) = std::str::from_utf8(&line) {
             visit(text.trim_end());
         }
+        lines += 1;
     }
 }
 
@@ -456,6 +581,130 @@ pub fn matching(words: &Words) -> HashSet<Key> {
         .iter()
         .filter(|(_, heard)| numbers.contains(&heard.number))
         .map(|(key, _)| key.clone())
+        .collect()
+}
+
+pub(super) struct ScoredIndex {
+    pub indexed: Vec<bool>,
+    pub mentions: HashMap<usize, Vec<usize>>,
+}
+
+/// Counts per-word matching messages (up to `cap`) across indexed candidate sessions.
+pub(super) fn score_hits(
+    hits: &[(Hit, &RecentProvider)],
+    words: &[String],
+    cap: usize,
+) -> Option<ScoredIndex> {
+    let index = index()?.locked();
+    let mut indexed = Vec::with_capacity(hits.len());
+    let mut by_number: HashMap<i64, usize> = HashMap::new();
+    for (i, (hit, _)) in hits.iter().enumerate() {
+        if let Some(heard) = index.heard.get(&(hit.agent, hit.found.session.id.clone())) {
+            indexed.push(true);
+            by_number.insert(heard.number, i);
+        } else {
+            indexed.push(false);
+        }
+    }
+    let mut mentions: HashMap<usize, Vec<usize>> = HashMap::new();
+    if by_number.is_empty() || words.is_empty() {
+        return Some(ScoredIndex { indexed, mentions });
+    }
+    let Ok(mut statement) = index
+        .connection
+        .prepare_cached("SELECT rowid FROM said WHERE said MATCH ?1")
+    else {
+        return Some(ScoredIndex { indexed, mentions });
+    };
+    for (word_idx, word) in words.iter().enumerate() {
+        let query = format!("\"{word}\"*");
+        let Ok(rows) = statement.query_map([&query], |row| row.get::<_, i64>(0)) else {
+            continue;
+        };
+        let mut last_num = -1i64;
+        let mut last_hit: Option<usize> = None;
+        let mut last_count = 0usize;
+        for rowid in rows.flatten() {
+            let num = rowid >> MESSAGE_BITS;
+            if num == last_num {
+                if last_count < cap {
+                    last_count += 1;
+                }
+                continue;
+            }
+            if let Some(hit_idx) = last_hit {
+                if let Some(slot) = mentions
+                    .entry(hit_idx)
+                    .or_insert_with(|| vec![0; words.len()])
+                    .get_mut(word_idx)
+                {
+                    *slot = last_count;
+                }
+            }
+            last_num = num;
+            last_hit = by_number.get(&num).copied();
+            last_count = usize::from(last_hit.is_some());
+        }
+        if let Some(hit_idx) = last_hit {
+            if let Some(slot) = mentions
+                .entry(hit_idx)
+                .or_insert_with(|| vec![0; words.len()])
+                .get_mut(word_idx)
+            {
+                *slot = last_count;
+            }
+        }
+    }
+    Some(ScoredIndex { indexed, mentions })
+}
+
+/// Fetches the best matching indexed messages for each winning session for snippet extraction.
+pub(super) fn matching_messages(
+    sessions: &[(&str, &str)],
+    words: &[String],
+    per_session: usize,
+) -> Vec<Vec<String>> {
+    if sessions.is_empty() || words.is_empty() || per_session == 0 {
+        return vec![Vec::new(); sessions.len()];
+    }
+    let Some(index) = index() else {
+        return vec![Vec::new(); sessions.len()];
+    };
+    let index = index.locked();
+    let query = words
+        .iter()
+        .map(|word| format!("\"{word}\"*"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let Ok(mut statement) = index.connection.prepare_cached(
+        "SELECT text FROM said
+         WHERE said MATCH ?1 AND rowid >= ?2 AND rowid < ?3
+         ORDER BY bm25(said) LIMIT ?4",
+    ) else {
+        return vec![Vec::new(); sessions.len()];
+    };
+    sessions
+        .iter()
+        .map(|(agent, session)| {
+            let Some(heard) = agent_name(agent)
+                .and_then(|agent| index.heard.get(&(agent, (*session).to_owned())))
+            else {
+                return Vec::new();
+            };
+            statement
+                .query_map(
+                    params![
+                        &query,
+                        heard.number << MESSAGE_BITS,
+                        (heard.number + 1) << MESSAGE_BITS,
+                        per_session as i64,
+                    ],
+                    |row| row.get::<_, String>(0),
+                )
+                .ok()
+                .map(|rows| rows.flatten().collect())
+                .unwrap_or_default()
+        })
         .collect()
 }
 

@@ -16,16 +16,17 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::recent::{provider_hits, Hit, PageScan, RecentProvider};
+use super::said;
 use super::{is_compressed, transcript_lines, FileStamp};
 use crate::agent_catalog::AgentKind;
 
 /// The most sessions of one CLI a search weighs.
 const MAX_CANDIDATES: usize = 4_000;
-/// How much of a transcript's start, and then of its end, is read for what was said.
-const HEAD_READ: u64 = 4 * 1024 * 1024;
-const TAIL_READ: u64 = 1024 * 1024;
+/// Bounded per-file budgets when falling back to unindexed transcripts.
+const HEAD_READ: u64 = 256 * 1024;
+const TAIL_READ: u64 = 256 * 1024;
 /// A compressed transcript is read from its start, so its end is looked for only this far.
-const MAX_DECODED: u64 = 64 * 1024 * 1024;
+const MAX_DECODED: u64 = 4 * 1024 * 1024;
 /// How much of what was said in a session is kept for matching: its first
 /// messages, then its last.
 const PROSE_HEAD: usize = 48 * 1024;
@@ -40,8 +41,10 @@ const MAX_SNIPPETS: usize = 2;
 const SNIPPET_BEFORE: usize = 60;
 const SNIPPET_AFTER: usize = 110;
 pub const MAX_LIMIT: usize = 20;
-/// Sessions read in parallel between checks of the time left.
-const BATCH: usize = 48;
+/// Unindexed sessions read in parallel between checks of the time left.
+const BATCH: usize = 16;
+const CATCH_UP_BUDGET: Duration = Duration::from_millis(200);
+const SNIPPET_MESSAGES: usize = 24;
 
 const STOPWORDS: &[&str] = &[
     "a", "about", "an", "and", "are", "as", "at", "be", "but", "by", "can", "chat", "did", "do",
@@ -124,48 +127,170 @@ pub fn search(request: SearchRequest) -> SearchResult {
     }
     hits.sort_unstable_by_key(|(hit, _)| std::cmp::Reverse(hit.at_ms));
 
+    struct Scored {
+        found: SessionMatch,
+        prose: Option<Arc<str>>,
+        phrase_scored: bool,
+        messages: Vec<String>,
+    }
+
     let now_ms = epoch_ms();
-    let mut scored: Vec<(SessionMatch, Option<Arc<str>>)> = Vec::new();
+    let mut scored: Vec<Scored> = Vec::new();
     let mut read = 0;
     let mut strong = 0;
-    let mut next = 0;
     let enough = limit + 5;
+    let mut unindexed: Vec<usize> = Vec::new();
+
+    if !terms.words.is_empty() && said::is_open() {
+        let catch_up_budget = deadline
+            .saturating_duration_since(Instant::now())
+            .min(CATCH_UP_BUDGET);
+        if !catch_up_budget.is_zero() {
+            said::catch_up_hits(&hits, Instant::now() + catch_up_budget);
+        }
+        if let Some(indexed) = said::score_hits(&hits, &terms.words, 10) {
+            for (i, (hit, provider)) in hits.iter().enumerate() {
+                if indexed.indexed.get(i).copied().unwrap_or(false) {
+                    read += 1;
+                    let mentions = indexed.mentions.get(&i).map(Vec::as_slice);
+                    if let Some((found, all_words, title_phrase)) =
+                        terms.score_indexed(hit, provider, mentions, now_ms)
+                    {
+                        strong += usize::from(all_words);
+                        scored.push(Scored {
+                            found,
+                            prose: None,
+                            phrase_scored: title_phrase,
+                            messages: Vec::new(),
+                        });
+                    }
+                } else {
+                    unindexed.push(i);
+                }
+            }
+            if !unindexed.is_empty() {
+                said::heed(request.providers.clone());
+            }
+        } else {
+            unindexed.extend(0..hits.len());
+        }
+    } else if !terms.words.is_empty() {
+        unindexed.extend(0..hits.len());
+    }
+
+    let mut next = 0;
     while !terms.words.is_empty()
-        && next < hits.len()
+        && next < unindexed.len()
         && strong < enough
         && Instant::now() < deadline
     {
-        let batch = hits
-            .get(next..(next + BATCH).min(hits.len()))
+        let batch = unindexed
+            .get(next..(next + BATCH).min(unindexed.len()))
             .unwrap_or_default();
         let found: Vec<Option<Arc<str>>> = batch
             .par_iter()
-            .map(|(hit, _)| (Instant::now() < deadline).then(|| prose_of(hit)).flatten())
+            .map(|&idx| {
+                (Instant::now() < deadline)
+                    .then(|| hits.get(idx).and_then(|(hit, _)| prose_of(hit)))
+                    .flatten()
+            })
             .collect();
-        for ((hit, provider), prose) in batch.iter().zip(found) {
+        for (&idx, prose) in batch.iter().zip(found) {
+            let Some((hit, provider)) = hits.get(idx) else {
+                continue;
+            };
             read += usize::from(prose.is_some());
-            if let Some(scored_match) = terms.score(hit, provider, prose.as_deref(), now_ms) {
-                strong += usize::from(scored_match.1);
-                scored.push((scored_match.0, prose));
+            if let Some((found, all_words)) = terms.score(hit, provider, prose.as_deref(), now_ms) {
+                strong += usize::from(all_words);
+                scored.push(Scored {
+                    found,
+                    prose,
+                    phrase_scored: true,
+                    messages: Vec::new(),
+                });
             }
         }
         next += batch.len();
     }
-    let cut_short = !terms.words.is_empty() && next < hits.len() && strong < enough;
-    for (hit, provider) in hits.get(next..).unwrap_or_default() {
-        if let Some((title_match, _)) = terms.score(hit, provider, None, now_ms) {
-            scored.push((title_match, None));
+    let cut_short = !terms.words.is_empty() && next < unindexed.len() && strong < enough;
+    if terms.words.is_empty() {
+        for (hit, provider) in &hits {
+            if let Some((found, _)) = terms.score(hit, provider, None, now_ms) {
+                scored.push(Scored {
+                    found,
+                    prose: None,
+                    phrase_scored: true,
+                    messages: Vec::new(),
+                });
+            }
+        }
+    } else {
+        for &idx in unindexed.get(next..).unwrap_or_default() {
+            let Some((hit, provider)) = hits.get(idx) else {
+                continue;
+            };
+            if let Some((found, _)) = terms.score(hit, provider, None, now_ms) {
+                scored.push(Scored {
+                    found,
+                    prose: None,
+                    phrase_scored: true,
+                    messages: Vec::new(),
+                });
+            }
         }
     }
-    scored.sort_by(|a, b| b.0.score.total_cmp(&a.0.score));
+    scored.sort_by(|a, b| b.found.score.total_cmp(&a.found.score));
+    let inspect_limit = if terms.phrase.is_some() {
+        (limit * 3).min(scored.len())
+    } else {
+        limit.min(scored.len())
+    };
+    scored.truncate(inspect_limit);
+
+    let indexed_positions: Vec<usize> = scored
+        .iter()
+        .enumerate()
+        .filter_map(|(pos, entry)| entry.prose.is_none().then_some(pos))
+        .collect();
+    if !indexed_positions.is_empty() && !terms.words.is_empty() && said::is_open() {
+        let keys: Vec<(&str, &str)> = indexed_positions
+            .iter()
+            .filter_map(|&pos| {
+                scored
+                    .get(pos)
+                    .map(|entry| (entry.found.cli.as_ref(), entry.found.session_id.as_str()))
+            })
+            .collect();
+        let messages = said::matching_messages(&keys, &terms.words, SNIPPET_MESSAGES);
+        for (pos, msgs) in indexed_positions.into_iter().zip(messages) {
+            if let Some(entry) = scored.get_mut(pos) {
+                if let Some(phrase) = terms.phrase.as_deref() {
+                    if !entry.phrase_scored
+                        && msgs
+                            .iter()
+                            .any(|msg| msg.to_ascii_lowercase().contains(phrase))
+                    {
+                        entry.found.score += 3.0;
+                    }
+                }
+                entry.messages = msgs;
+            }
+        }
+        if terms.phrase.is_some() {
+            scored.sort_by(|a, b| b.found.score.total_cmp(&a.found.score));
+        }
+    }
+
     scored.truncate(limit);
     let matches: Vec<SessionMatch> = scored
         .into_iter()
-        .map(|(mut found, prose)| {
-            found.snippets = prose
-                .map(|prose| terms.snippets(&prose))
-                .unwrap_or_default();
-            found
+        .map(|mut entry| {
+            entry.found.snippets = match entry.prose {
+                Some(prose) => terms.snippets(&prose),
+                None if !entry.messages.is_empty() => terms.snippets(&entry.messages.join("\n")),
+                None => Vec::new(),
+            };
+            entry.found
         })
         .collect();
     remember(&matches);
@@ -329,6 +454,63 @@ impl Terms {
                 config_path: provider.config_path.clone(),
             },
             matched == count,
+        ))
+    }
+
+    fn score_indexed(
+        &self,
+        hit: &Hit,
+        provider: &RecentProvider,
+        word_mentions: Option<&[usize]>,
+        now_ms: u64,
+    ) -> Option<(SessionMatch, bool, bool)> {
+        let title = hit.found.session.title.to_ascii_lowercase();
+        let whole = title_weight(&hit.found.session.title.to_lowercase(), &self.needle);
+        let count = self.words.len();
+        let mut matched = 0;
+        let mut in_title = 0.0;
+        let mut mentions = 0;
+        for (idx, word) in self.words.iter().enumerate() {
+            let titled = title_weight(&title, word);
+            let said = word_mentions
+                .and_then(|counts| counts.get(idx).copied())
+                .unwrap_or(0);
+            in_title += titled;
+            matched += usize::from(titled > 0.0 || said > 0);
+            mentions += said;
+        }
+        let count = count.max(1);
+        if whole > 0.0 {
+            matched = count;
+        }
+        if matched == 0 || (count >= 3 && matched * 2 < count) {
+            return None;
+        }
+        let in_title = whole.max(in_title / count as f32);
+        let coverage = matched as f32 / count as f32;
+        let title_phrase = self
+            .phrase
+            .as_deref()
+            .is_some_and(|phrase| title.contains(phrase));
+        let age_days = now_ms.saturating_sub(hit.at_ms) as f32 / 86_400_000.0;
+        let score = 10.0 * coverage * coverage
+            + 4.0 * in_title
+            + if title_phrase { 3.0 } else { 0.0 }
+            + 1.5 * (1.0 + mentions as f32).ln() / (1.0 + 10.0 * count as f32).ln()
+            + 3.0 / (1.0 + age_days / 14.0);
+        Some((
+            SessionMatch {
+                cli: Cow::Borrowed(hit.agent),
+                session_id: hit.found.session.id.clone(),
+                title: hit.found.session.title.clone(),
+                project: hit.found.project.clone(),
+                active_at: hit.at_ms,
+                snippets: Vec::new(),
+                score,
+                config_path: provider.config_path.clone(),
+            },
+            matched == count,
+            title_phrase,
         ))
     }
 
