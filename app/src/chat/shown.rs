@@ -287,15 +287,20 @@ pub(crate) fn take(
 pub(super) fn ended_at<'a>(
     rows: &[ChatRow],
     ix: usize,
+    prev_ended_at: &[u64],
     shown: &'a [TurnShown],
-) -> Vec<&'a TurnShown> {
+) -> &'a [TurnShown] {
+    if shown.is_empty() {
+        return &[];
+    }
     let Some(end) = rows.get(ix).and_then(|row| row.message.ended_at) else {
-        return Vec::new();
+        return &[];
     };
-    let before = (rows.iter().take(ix).rev())
-        .find_map(|row| row.message.ended_at)
-        .unwrap_or_default();
-    (shown.iter())
-        .filter(|turn| turn.turn > before && turn.turn <= end)
-        .collect()
+    let before = prev_ended_at.get(ix).copied().unwrap_or_default();
+    if end <= before {
+        return &[];
+    }
+    let start = shown.partition_point(|turn| turn.turn <= before);
+    let stop = shown.partition_point(|turn| turn.turn <= end);
+    shown.get(start..stop).unwrap_or_default()
 }

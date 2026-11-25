@@ -146,7 +146,7 @@ pub(super) fn row(
                     if let Some(card) = notice
                         .subagent
                         .as_deref()
-                        .and_then(|session| card_of(rows, session)) =>
+                        .and_then(|session| card_of(rows, &looks.reading.row_index, session)) =>
                 {
                     self::subagent(card, pen, looks, window, cx)
                 }
@@ -261,13 +261,18 @@ pub(super) fn row(
             .children(meta::line(rows, ix, &group, looks, cx))
     };
     let user = user && !lettered;
-    let ended = shown::ended_at(rows, ix, &looks.reading.shown);
+    let ended = shown::ended_at(
+        rows,
+        ix,
+        looks.reading.row_index.prev_ended_at(),
+        &looks.reading.shown,
+    );
     let after = (!ended.is_empty()).then(|| {
         div()
             .w_full()
             .max_w(super::column::rows(cx))
             .px(px(ROW_SIDE))
-            .children(ended.into_iter().map(|turn| {
+            .children(ended.iter().map(|turn| {
                 let key = format!("shown:{}", turn.turn);
                 shown::pictures(&turn.pages, &key, looks, cx)
             }))
@@ -1063,13 +1068,16 @@ fn left_out(row: &ChatRow, looks: &Drawn, cx: &App) -> Option<AnyElement> {
 
 /// The card of the subagent running in `session`, as the chat last showed it; a subagent's
 /// notice shows its card rather than a notice of its own.
-pub(super) fn card_of<'a>(rows: &'a [ChatRow], session: &str) -> Option<&'a SubagentCard> {
-    rows.iter().rev().find_map(|row| {
-        row.message.parts.iter().find_map(|part| match part {
-            ChatPart::Subagent { subagent, .. } if subagent.session_id == session => Some(subagent),
-            _ => None,
-        })
-    })
+pub(super) fn card_of<'a>(
+    rows: &'a [ChatRow],
+    index: &RowIndex,
+    session: &str,
+) -> Option<&'a SubagentCard> {
+    let (row_ix, part_ix) = index.subagent_card(session)?;
+    match rows.get(row_ix)?.message.parts.get(part_ix)? {
+        ChatPart::Subagent { subagent, .. } if subagent.session_id == session => Some(subagent),
+        _ => None,
+    }
 }
 
 /// A background task that ended, drawn as the last row of a tool-call tree: what kind of task

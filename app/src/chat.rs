@@ -641,6 +641,52 @@ pub enum Press {
     Pick,
 }
 
+#[derive(Default)]
+pub(super) struct RowIndex {
+    subagent_cards: HashMap<String, (usize, usize)>,
+    prev_ended_at: Vec<u64>,
+    dirty: bool,
+}
+
+impl RowIndex {
+    fn sync(&mut self, rows: &[ChatRow]) {
+        if !self.dirty && self.prev_ended_at.len() == rows.len() {
+            return;
+        }
+        self.dirty = false;
+        self.subagent_cards.clear();
+        self.prev_ended_at.clear();
+        self.prev_ended_at.reserve(rows.len());
+        let mut prev_ended = 0u64;
+        for (row_ix, row) in rows.iter().enumerate() {
+            self.prev_ended_at.push(prev_ended);
+            if let Some(end) = row.message.ended_at {
+                prev_ended = end;
+            }
+            for (part_ix, part) in row.message.parts.iter().enumerate() {
+                if let ChatPart::Subagent { subagent, .. } = part {
+                    if !self
+                        .subagent_cards
+                        .get(&subagent.session_id)
+                        .is_some_and(|&(prev_row, _)| prev_row == row_ix)
+                    {
+                        self.subagent_cards
+                            .insert(subagent.session_id.clone(), (row_ix, part_ix));
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn subagent_card(&self, session: &str) -> Option<(usize, usize)> {
+        self.subagent_cards.get(session).copied()
+    }
+
+    pub(super) fn prev_ended_at(&self) -> &[u64] {
+        &self.prev_ended_at
+    }
+}
+
 /// What the rows of a chat are drawn with beside their own content: what the reader
 /// opened, each subagent's rows, and whether a turn is running.
 #[derive(Default)]
@@ -667,8 +713,9 @@ struct Reading {
     /// The runs of messages between agents the reader opened, and whether all of each shows,
     /// by the run.
     teams: HashMap<String, bool>,
-    /// The pages the chat's turns changed, as the core took them.
+    /// The pages the chat's turns changed, as the core took them, kept ordered by turn.
     shown: Vec<sikemux_view::shown::TurnShown>,
+    row_index: RowIndex,
     /// The whole briefs fresh sessions started from that the reader asked to read, by when
     /// each started, or why it could not be read.
     briefs: HashMap<u64, Result<sikemux_view::chat::RotationBrief, String>>,
@@ -884,6 +931,7 @@ impl Chat {
                 move |rows, ix, pen, window, cx| {
                     let looks = looks.borrow().clone();
                     looks.reader.clone().update(cx, |reading, cx| {
+                        reading.row_index.sync(rows);
                         row(
                             rows,
                             ix,
@@ -931,7 +979,9 @@ impl Chat {
         ];
         let rows_changed = {
             let stage = stage.clone();
+            let reader = reader.clone();
             cx.subscribe(&transcript, move |_, _: &RowsChanged, cx| {
+                reader.update(cx, |reading, _| reading.row_index.dirty = true);
                 stage
                     .update(cx, |bench, cx| {
                         if let Some(chat) = bench.chats.open.get_mut(&chat) {
@@ -1223,7 +1273,8 @@ impl Chat {
             head.capabilities.editing && head.connection == ChatConnection::Ready && !head.running
         });
         let earlier_lost = self.state.as_ref().is_some_and(|head| head.earlier_lost);
-        let shown = (self.state.as_ref()).map_or_else(Vec::new, |head| head.shown.clone());
+        let mut shown = (self.state.as_ref()).map_or_else(Vec::new, |head| head.shown.clone());
+        shown.sort_by_key(|turn| turn.turn);
         self.reader.update(cx, |reading, cx| {
             if reading.shown != shown {
                 reading.shown = shown;
