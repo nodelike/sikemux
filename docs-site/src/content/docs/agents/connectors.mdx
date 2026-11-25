@@ -7,7 +7,7 @@ Connectors give your agents tools for the services you work with: GitHub, GitLab
 
 ## Settings → Connectors
 
-**Settings → Connectors** lists every connector with whether it's signed in and as whom.
+**Settings → Connectors** lists every connector with whether it's signed in and as whom. Connector status is checked only after first-run setup finishes. If you haven't signed in to GitHub separately or signed out, Sikemux checks your `gh` CLI sign-in or `GH_TOKEN` against `api.github.com` (or your GitHub Enterprise host).
 
 - **Sign in** opens the connector's sign-in in a box over the window, which Escape closes: **Continue with** the service in your browser where it offers one, or the token form, with **Create a token** to make one on the service's site. After a sign-in in the browser, its page says it worked only once Sikemux is signed in, or why it didn't, with **Back to Sikemux**. Sikemux keeps the sign-in in the macOS Keychain, and in your account's vault when you're signed in.
 - **Sign out** forgets it.

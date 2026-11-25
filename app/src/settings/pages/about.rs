@@ -44,8 +44,8 @@ pub(in crate::settings) const ENTRIES: &[Entry] = &[
     row(
         About,
         "Privacy",
-        "Share anonymous usage",
-        "analytics telemetry tracking opt out posthog crash reports sentry",
+        "Share anonymous usage and crash reports",
+        "analytics telemetry tracking opt out posthog crash reports sentry do_not_track",
     ),
     section(
         About,
@@ -243,9 +243,16 @@ pub fn render(
         }
     };
     let privacy = rows::row(
-        t!("Share anonymous usage"),
-        Some(t!("Once a day, sends a random install ID and a one-way hash of your account with the app version, update channel and system version, and the day before's totals: tokens by agent and model, turns, sessions, commits and how often each feature was used. When Sikemux crashes, sends where in its code and what it had just logged, with no paths. Never your files, prompts, commands or projects.")),
-        rows::switch("share-usage", PreferenceChange::ShareUsageData, preferences.share_usage_data, this),
+        t!("Share anonymous usage and crash reports"),
+        Some(t!(
+            "Sends anonymous daily totals and first-run steps to PostHog EU, and crashes, sessions and some startup traces to Sentry EU (code addresses, image names and builds, recent warning and error logs with paths stripped, device and OS, never memory), with a random install ID and a one-way account hash. Never your files, prompts, commands or projects. Turning this off or setting DO_NOT_TRACK stops both at once."
+        )),
+        rows::switch(
+            "share-usage",
+            PreferenceChange::ShareUsageData,
+            preferences.share_usage_data,
+            this,
+        ),
         cx,
     );
     let help =

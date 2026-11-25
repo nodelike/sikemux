@@ -34,7 +34,7 @@ Claude signs in through its own flow in your browser:
 claude auth login
 ```
 
-You can choose your Claude subscription or the Anthropic Console (API billing). Sikemux never sees or stores your Claude credentials. To check whether you're signed in, Sikemux asks `claude auth status`.
+You can choose your Claude subscription or the Anthropic Console (API billing). Sikemux never stores your Claude credentials. To check whether you're signed in, Sikemux asks `claude auth status`. After first-run setup, Sikemux reads Claude's saved OAuth token only to ask Anthropic's usage endpoint for your plan limits and resets, and keeps it nowhere.
 
 ## How Sikemux runs it
 
