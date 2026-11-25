@@ -59,7 +59,7 @@ mod app;
 mod attach;
 mod cards;
 pub mod changes;
-mod clip;
+pub(crate) mod clip;
 pub mod column;
 pub mod composer;
 mod composing;

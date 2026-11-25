@@ -1,4 +1,5 @@
 import LinkPresentation
+import LocalAuthentication
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -15,6 +16,7 @@ private let picturesShown = 4
 final class ShareModel: ObservableObject {
     enum Phase {
         case loading
+        case locked
         case ready
         case sending(Double)
         case done(title: String, detail: String)
@@ -33,6 +35,8 @@ final class ShareModel: ObservableObject {
     private(set) var chiefs: [ShareSnapshot.Chief] = []
     private var upload: StashUpload?
     private var lastSend: (() -> Void)?
+    private var pendingInputs: [NSExtensionItem] = []
+    private var authenticating = false
     private let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 
     var tooBig: [String] {
@@ -57,7 +61,41 @@ final class ShareModel: ObservableObject {
             return
         }
         self.upload = upload
-        chiefs = snapshot.chiefs
+        chiefs = snapshot.locked ? [] : snapshot.chiefs
+        if snapshot.locked {
+            pendingInputs = inputs
+            phase = .locked
+            await unlock()
+            return
+        }
+        await finishLoad(inputs)
+    }
+
+    func unlock() async {
+        guard case .locked = phase, !authenticating else { return }
+        authenticating = true
+        let passed = await Self.authenticate()
+        authenticating = false
+        guard passed else { return }
+        let inputs = pendingInputs
+        pendingInputs = []
+        phase = .loading
+        await finishLoad(inputs)
+    }
+
+    private static func authenticate() async -> Bool {
+        let context = LAContext()
+        do {
+            return try await context.evaluatePolicy(
+                .deviceOwnerAuthentication, localizedReason: String(localized: "Unlock Sikemux"))
+        } catch let error as LAError where error.code == .passcodeNotSet || error.code == .biometryNotEnrolled {
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func finishLoad(_ inputs: [NSExtensionItem]) async {
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         } catch {
@@ -120,6 +158,8 @@ final class ShareModel: ObservableObject {
     }
 
     func cleanUp() {
+        upload?.invalidate()
+        upload = nil
         do {
             try FileManager.default.removeItem(at: folder)
         } catch {

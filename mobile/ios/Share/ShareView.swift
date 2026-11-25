@@ -10,6 +10,12 @@ struct ShareView: View {
             switch model.phase {
             case .loading:
                 Spacer()
+            case .locked:
+                Settled(
+                    icon: Icons.brand, tone: palette.secondary, title: String(localized: "Sikemux is locked"),
+                    detail: String(localized: "Unlock Sikemux to share into your stash."),
+                    actionTitle: String(localized: "Unlock"),
+                    retry: { Task { await model.unlock() } })
             case .signedOut:
                 Settled(
                     icon: Icons.brand, tone: palette.secondary, title: String(localized: "Sign in to Sikemux first"),
@@ -228,6 +234,7 @@ private struct Settled: View {
     let tone: Color
     let title: String
     let detail: String
+    var actionTitle: String = String(localized: "Try again")
     var retry: (() -> Void)?
 
     var body: some View {
@@ -249,7 +256,7 @@ private struct Settled: View {
             Text(detail).font(Theme.ui(14)).foregroundColor(palette.tertiary).multilineTextAlignment(.center)
             if let retry {
                 Button(action: retry) {
-                    Text("Try again").font(Theme.ui(14, .semibold)).foregroundColor(palette.ink)
+                    Text(actionTitle).font(Theme.ui(14, .semibold)).foregroundColor(palette.ink)
                         .padding(.horizontal, 13).frame(height: 32)
                         .background(RoundedRectangle(cornerRadius: 10).fill(palette.raised))
                         .overlay(RoundedRectangle(cornerRadius: 10).stroke(palette.borderStrong, lineWidth: 1))

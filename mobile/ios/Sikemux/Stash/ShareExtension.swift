@@ -70,6 +70,13 @@ enum ShareExtension {
     /// One row per project that has a chief across every host this phone has full access to, ordered with
     /// the project the phone last had open first, then most recently active.
     private static func write() {
+        if Lock.shared.on {
+            let next = ShareSnapshot(apiUrl: Config.apiUrl.absoluteString, chiefs: [], locked: true)
+            guard next != written else { return }
+            StashShared.write(next)
+            written = next
+            return
+        }
         var found: [(chief: ShareSnapshot.Chief, at: Int, order: Int)] = []
         var order = 0
         for device in Hub.shared.devices where device.access == .full {
@@ -127,8 +134,8 @@ enum ShareExtension {
             return a.order < b.order
         }
         // Hosts not reached yet since launch know no chiefs; the last ones written stay until one is.
-        if found.isEmpty, written != nil { return }
-        let next = ShareSnapshot(apiUrl: Config.apiUrl.absoluteString, chiefs: found.map(\.chief))
+        if found.isEmpty, let written, !written.locked { return }
+        let next = ShareSnapshot(apiUrl: Config.apiUrl.absoluteString, chiefs: found.map(\.chief), locked: false)
         guard next != written else { return }
         StashShared.write(next)
         written = next

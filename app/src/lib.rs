@@ -106,6 +106,7 @@ mod worktrees;
 pub mod xwayland_scale;
 
 pub use chat::changes as chat_changes;
+pub use chat::clip::clear_saved as clear_saved_clip;
 pub use chat::composer;
 pub use links::follow_opened;
 use sikemux_corekit::fuzzy;

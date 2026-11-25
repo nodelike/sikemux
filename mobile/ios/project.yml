@@ -238,6 +238,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         SikemuxAppGroup: group.$(SIKEMUX_BUNDLE_ID)
         SikemuxStashKeychainGroup: $(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).stash
+        NSFaceIDUsageDescription: Sikemux asks for Face ID before sharing into your locked stash.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSExtension:

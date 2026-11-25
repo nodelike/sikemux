@@ -86,6 +86,7 @@ final class Lock {
             }
             on = true
             Glances.changed()
+            ShareExtension.changed()
             return nil
         case .noPasscode: return String(localized: "Set a passcode in Settings first")
         case .failed: return nil
@@ -96,6 +97,7 @@ final class Lock {
         Keychain.app.delete(Self.item)
         on = false
         Glances.changed()
+        ShareExtension.changed()
     }
 
     /// Nil when the Keychain refuses, as it does while the phone is locked; the app then stays locked.

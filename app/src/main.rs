@@ -84,7 +84,11 @@ fn main() {
                 ("open the window", linked, std::time::SystemTime::now()),
             ],
         );
-        cx.on_app_quit(|_| async { crash_reports::stop() }).detach();
+        cx.on_app_quit(|_| async {
+            sikemux_gpui::clear_saved_clip();
+            crash_reports::stop()
+        })
+        .detach();
         sikemux_gpui::follow_opened(bench.clone(), opened, cx);
         #[cfg(feature = "drive")]
         sikemux_gpui::drive::listen(window, bench, cx);

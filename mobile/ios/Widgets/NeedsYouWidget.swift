@@ -33,8 +33,11 @@ private struct NeedsYouView: View {
                 .font(Theme.ui(38, .semibold))
                 .foregroundStyle(needed > 0 ? palette.warn : palette.tertiary)
             if waiting.isEmpty {
-                Text(working > 0 ? "\(working) working" : "Nothing waits on you")
-                    .font(Theme.ui(11.5)).foregroundStyle(palette.secondary)
+                Text(
+                    hidden && needed > 0
+                        ? "Unlock Sikemux to view" : working > 0 ? "\(working) working" : "Nothing waits on you"
+                )
+                .font(Theme.ui(11.5)).foregroundStyle(palette.secondary)
             }
             ForEach(waiting.prefix(family == .systemSmall ? 2 : 3), id: \.row.agentId) { waiting in
                 Link(destination: chatLink(host: waiting.host.host, agentId: waiting.row.agentId)) {

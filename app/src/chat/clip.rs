@@ -47,6 +47,12 @@ fn saved_path() -> Option<PathBuf> {
     Some(sikemux_process::paths::config_dir()?.join("clip.json"))
 }
 
+pub fn clear_saved() {
+    if let Some(path) = saved_path() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 impl Clip {
     fn keep(self, cx: &mut App) {
         if let Ok(bytes) = serde_json::to_vec(&self) {

@@ -34,6 +34,14 @@ final class StashUpload: Sendable {
         self.key = key
     }
 
+    deinit {
+        session.invalidateAndCancel()
+    }
+
+    func invalidate() {
+        session.invalidateAndCancel()
+    }
+
     func link(_ url: String, note: String?, target: StashTarget?) async throws {
         try await json(.link(StashAddLink(url: url, note: note, target: target)))
     }

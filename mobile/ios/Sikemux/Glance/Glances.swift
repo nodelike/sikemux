@@ -64,9 +64,9 @@ enum Glances {
         let now = Date()
         for (core, connection) in Hub.shared.openConnections {
             guard now.timeIntervalSince(usagesRead[core] ?? .distantPast) >= limitsEvery else { continue }
-            usagesRead[core] = now
             do {
                 usages[core] = try await connection.call(PhoneCall.AgentUsages.self, NoParams())
+                usagesRead[core] = now
             } catch {
                 print("sikemux: could not read the plan limits of \(core.prefix(8)): \(error)")
             }
@@ -74,7 +74,8 @@ enum Glances {
     }
 
     private static func write() async {
-        let next = Glance(hosts: hosts(), limits: limits(), hidden: Lock.shared.on)
+        let hidden = Lock.shared.on
+        let next = Glance(hosts: hosts(hidden: hidden), limits: limits(), hidden: hidden)
         if next != written {
             let agentsMoved = next.hosts != written?.hosts || next.hidden != written?.hidden
             let limitsMoved = next.limits != written?.limits
@@ -88,11 +89,16 @@ enum Glances {
     }
 
     /// Each host's agents at a glance, as the host sends them. Only live connections publish to widgets/Live Activities.
-    private static func hosts() -> [HostGlance] {
+    private static func hosts(hidden: Bool) -> [HostGlance] {
         Hub.shared.devices.compactMap { device in
             let live = Hub.shared.live(device.core)
             guard live.isOpen, let agents = live.view?.inbox.glance else { return nil }
-            return HostGlance(host: device.core, hostName: device.displayName, agents: agents)
+            let published =
+                hidden
+                ? ActivityGlance(
+                    needed: agents.needed, working: agents.working, done: agents.done, rows: [], more: 0, projects: [])
+                : agents
+            return HostGlance(host: device.core, hostName: device.displayName, agents: published)
         }
     }
 
@@ -174,9 +180,9 @@ enum Glances {
             let token = keys.get(host: core) == nil ? nil : tokens[core]
             let told = (connection: ObjectIdentifier(connection), token: token ?? "")
             if let last = handed[core], last == told { continue }
-            handed[core] = told
             do {
                 _ = try await connection.call(PhoneCall.LiveActivity.self, ActivityParams(token: token))
+                handed[core] = told
             } catch {
                 print("sikemux: could not tell \(core.prefix(8)) of its Live Activity: \(error)")
             }

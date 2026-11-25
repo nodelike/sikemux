@@ -4,7 +4,9 @@ import WidgetKit
 extension GlanceStore {
     /// What a card says of its agent, kept for the widgets until the app hears from the host itself.
     static func heard(_ card: Card) {
-        guard var glance = read(), let index = glance.hosts.firstIndex(where: { $0.host == card.hostKey }) else {
+        guard var glance = read(), !glance.hidden,
+            let index = glance.hosts.firstIndex(where: { $0.host == card.hostKey })
+        else {
             return
         }
         var agents = glance.hosts[index].agents

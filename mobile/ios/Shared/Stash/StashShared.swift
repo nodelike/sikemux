@@ -14,6 +14,20 @@ struct ShareSnapshot: Codable, Equatable {
 
     let apiUrl: String
     let chiefs: [Chief]
+    let locked: Bool
+
+    init(apiUrl: String, chiefs: [Chief], locked: Bool = false) {
+        self.apiUrl = apiUrl
+        self.chiefs = chiefs
+        self.locked = locked
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        apiUrl = try container.decode(String.self, forKey: .apiUrl)
+        chiefs = try container.decode([Chief].self, forKey: .chiefs)
+        locked = try container.decodeIfPresent(Bool.self, forKey: .locked) ?? false
+    }
 }
 
 /// What the app leaves for its share extension: the chats used last and where the accounts server
