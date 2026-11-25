@@ -551,6 +551,7 @@ pub(super) fn board_above() -> BoardAbove {
         },
         chief_card_closed: chief::card_closed,
         chief_card_reopened: chief::card_reopened,
+        task_closed: super::now::asks::task_closed,
         org_moved: |core, cwd, provider, model| {
             org_routes::refused(core, cwd, provider, model)
                 .map(|why| org_routes::moved_notice(&why))

@@ -123,6 +123,8 @@ struct Book {
     /// The list new agents' names are taken from.
     #[serde(default)]
     theme: NameTheme,
+    #[serde(skip)]
+    finishing: HashSet<String>,
 }
 
 pub trait NameThemeExt: Sized {
@@ -557,6 +559,7 @@ impl Names {
     /// Forgets a worker that never started, so its name is free again.
     pub fn forget(&self, agent_id: &str) {
         let mut book = self.book.locked();
+        book.finishing.remove(agent_id);
         if book.remove(|entry| entry.agent_id == agent_id) {
             self.save(&book);
         }
@@ -575,6 +578,9 @@ impl Names {
     /// Whether the agent works on something the person asked for.
     pub fn for_person(&self, agent_id: &str) -> bool {
         let book = self.book.locked();
+        if book.finishing.contains(agent_id) {
+            return true;
+        }
         if let Some(entry) = book.agents.iter().find(|entry| entry.agent_id == agent_id) {
             return entry.for_person;
         }
@@ -585,6 +591,7 @@ impl Names {
 
     pub fn mark_for_person(&self, agent_id: &str, for_person: bool) {
         let mut book = self.book.locked();
+        book.finishing.remove(agent_id);
         if let Some(entry) = book.entry_mut(agent_id) {
             if entry.for_person != for_person {
                 entry.for_person = for_person;
@@ -602,6 +609,37 @@ impl Names {
                 self.save(&book);
             }
         }
+    }
+
+    pub fn finish_for_person(&self, agent_id: &str, keep_until_reported: bool) {
+        let mut book = self.book.locked();
+        let mut was = book.finishing.contains(agent_id);
+        if let Some(entry) = book.entry_mut(agent_id) {
+            if entry.for_person {
+                entry.for_person = false;
+                was = true;
+                self.save(&book);
+            }
+        } else if let Some(closed) = book
+            .closed_sessions
+            .iter_mut()
+            .find(|closed| closed.agent_id == agent_id)
+        {
+            if closed.for_person {
+                closed.for_person = false;
+                was = true;
+                self.save(&book);
+            }
+        }
+        if keep_until_reported && was {
+            book.finishing.insert(agent_id.to_owned());
+        } else {
+            book.finishing.remove(agent_id);
+        }
+    }
+
+    pub fn clear_finishing_for_person(&self, agent_id: &str) {
+        self.book.locked().finishing.remove(agent_id);
     }
 
     /// The agent at the top of `agent_id`'s chain of leads, the one the person

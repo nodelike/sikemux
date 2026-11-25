@@ -2162,7 +2162,8 @@ pub(crate) fn report_land(core: &Arc<Core>, worker: &str, text: String, calm: bo
             true => crate::text::one_line(&text),
             false => text,
         };
-        report_noted(&core, worker, name, lead, text, calm, note).await;
+        report_noted(&core, worker.clone(), name, lead, text, calm, note).await;
+        super::now::asks::turn_reported(&core, &worker);
     });
 }
 
@@ -3416,6 +3417,281 @@ mod tests {
         assert!(combined.contains("@Koizumi: Landed docs."));
         assert!(combined.contains("@Kirito: Landed composer fix."));
         assert_eq!(combined.matches("<agent-message").count(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn persons_work_mark_clears_when_task_closes_or_reaches_running_build() {
+        use super::super::board::{
+            add_card, change_card, claim_card, Adding, By, CardStatus, Changes,
+        };
+        use super::super::board_state::BoardParts;
+        use super::super::names::{Starting, Worker};
+        use super::super::now::asks;
+        use super::super::workspace::{add_project, AddProjectParams, AddProjectParamsExt};
+        use super::super::{BuildIdentity, ServerCore};
+        use sikemux_git::Git;
+        use sikemux_view::turn::{TurnPhase, TurnState};
+
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("shop");
+        std::fs::create_dir_all(&repo).unwrap();
+        let git = |args: &[&str]| {
+            let mut all = vec!["-c", "user.name=t", "-c", "user.email=t@t"];
+            all.extend(args);
+            Git::quick(&repo).trimmed(&all).expect("git")
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "start"]);
+        let shipped = git(&["rev-parse", "HEAD"]);
+
+        let open =
+            |ids: &[&str]| -> HashSet<String> { ids.iter().map(|id| (*id).to_owned()).collect() };
+        let worker_listed = |id: &str| Listed {
+            name: Some(id.to_owned()),
+            project: repo.to_string_lossy().into_owned(),
+            cli: "claude".to_owned(),
+            title: None,
+            status: sikemux_wire::protocol::AgentStatus::Idle,
+            parent: Some("chief".to_owned()),
+            active_at: None,
+            rank: 0,
+            reach: Reach::Chat,
+            agent_id: id.to_owned(),
+        };
+        let busy = TurnState {
+            state: TurnPhase::Working,
+            since: 1,
+            on: None,
+            wait: None,
+            call: None,
+            done: None,
+            stopped: None,
+            failed: None,
+            seen: false,
+        };
+        let turns = HashMap::from([("shun".to_owned(), busy)]);
+        let agents = [worker_listed("koizumi"), worker_listed("shun")];
+
+        let build = BuildIdentity {
+            commit: shipped.clone(),
+            ..BuildIdentity::default()
+        };
+        let core = Core::new(build, Some(dir.path())).unwrap();
+        let project = add_project(&core, AddProjectParams::at(repo.clone()))
+            .await
+            .unwrap();
+        let folder = project.path.to_string_lossy().into_owned();
+        for id in ["chief", "koizumi"] {
+            let draft = json!({
+                "id": id,
+                "provider": "claude",
+                "project": project.id,
+                "cwd": project.path,
+                "title": id,
+                "permissionMode": "auto",
+            });
+            core.workspaces()
+                .put_agent_draft(draft.as_object().cloned().unwrap())
+                .unwrap();
+        }
+        core.names().give(
+            Starting {
+                agent_id: "chief",
+                project: folder.clone(),
+                provider: Some("claude"),
+                resume_id: None,
+            },
+            open(&["chief"]),
+        );
+        core.names()
+            .hire(
+                Worker {
+                    agent_id: "koizumi",
+                    lead: "chief",
+                    project: None,
+                    provider: "claude",
+                    session: Some("ses-koizumi"),
+                    reports: true,
+                    task: None,
+                },
+                open(&["chief"]),
+            )
+            .unwrap();
+        core.names().settle(open(&["chief", "koizumi"]));
+
+        let hand_request = |params: Value| HarnessRequest {
+            id: "1".to_owned(),
+            project: folder.clone(),
+            agent_id: Some("chief".to_owned()),
+            method: "agent.send".to_owned(),
+            params,
+        };
+
+        // 1. Worker closes its own board task during a turn: this turn's finish still wakes,
+        // then clears so a later upkeep turn stays held.
+        super::super::harness::handing(
+            &core,
+            &hand_request(json!({ "to": "koizumi", "work": true })),
+            Ok(json!({ "agentId": "koizumi" })),
+        )
+        .unwrap();
+        let (card_id, _) = add_card(
+            &core,
+            &folder,
+            &By::Agent("chief".to_owned()),
+            Adding {
+                title: "Fix docs".to_owned(),
+                details: String::new(),
+                acceptance: String::new(),
+                parent: None,
+                depends_on: Vec::new(),
+                ticket: None,
+                trigger: None,
+                fired_on: None,
+                about: None,
+                ci: None,
+            },
+            None,
+        )
+        .unwrap();
+        claim_card(&core, &folder, "koizumi", card_id).unwrap();
+        change_card(
+            &core,
+            &folder,
+            &By::Agent("koizumi".to_owned()),
+            card_id,
+            Changes {
+                status: Some(CardStatus::Done),
+                ..Changes::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "koizumi", "chief", 10),
+            10
+        );
+        asks::turn_reported(&core, "koizumi");
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "koizumi", "chief", 11),
+            u64::MAX
+        );
+
+        // 2. Lead closes a worker's task while idle: clears immediately; new work: true wakes again.
+        super::super::harness::handing(
+            &core,
+            &hand_request(json!({ "to": "koizumi", "work": true })),
+            Ok(json!({ "agentId": "koizumi" })),
+        )
+        .unwrap();
+        let (card2, _) = add_card(
+            &core,
+            &folder,
+            &By::Agent("chief".to_owned()),
+            Adding {
+                title: "Second fix".to_owned(),
+                details: String::new(),
+                acceptance: String::new(),
+                parent: None,
+                depends_on: Vec::new(),
+                ticket: None,
+                trigger: None,
+                fired_on: None,
+                about: None,
+                ci: None,
+            },
+            None,
+        )
+        .unwrap();
+        claim_card(&core, &folder, "koizumi", card2).unwrap();
+        change_card(
+            &core,
+            &folder,
+            &By::Agent("chief".to_owned()),
+            card2,
+            Changes {
+                status: Some(CardStatus::Done),
+                ..Changes::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "koizumi", "chief", 12),
+            u64::MAX
+        );
+
+        // 3. An ask whose commit reaches the running build clears the mark, unless another open
+        // ask remains; once that ask closes too, later upkeep stays held.
+        let ask1 = asks::asked(&core, "chief", "First ask", &[], None).unwrap();
+        asks::handed(&core, "chief", &["koizumi".into()], &[ask1], None, true);
+        asks::turn_ended(&core, "chief");
+        let ask2 = asks::asked(&core, "chief", "Second ask", &[], None).unwrap();
+        asks::handed(&core, "chief", &["koizumi".into()], &[ask2], None, true);
+        asks::turn_ended(&core, "chief");
+        {
+            let mut state = core.boards().state.locked();
+            let board = state.of_mut(&folder).unwrap();
+            let card = board.card_mut(ask1).unwrap();
+            card.change_asked(13, |asked| {
+                asked.commit = Some(shipped.clone());
+                asked.landed_by = Some("koizumi".to_owned());
+                asked.owners.clear();
+            });
+        }
+        asks::build_moved(&core, &project.path);
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "koizumi", "chief", 14),
+            14
+        );
+        asks::done(
+            &core,
+            &HarnessRequest {
+                id: "2".to_owned(),
+                project: folder.clone(),
+                agent_id: Some("chief".to_owned()),
+                method: "task.update".to_owned(),
+                params: json!({ "asked": ask2 }),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "koizumi", "chief", 15),
+            u64::MAX
+        );
+
+        // 4. Single ask reaching the running build clears the mark on its own; new work: true
+        // sets it again.
+        let ask3 = asks::asked(&core, "chief", "Third ask", &[], None).unwrap();
+        asks::handed(&core, "chief", &["koizumi".into()], &[ask3], None, true);
+        asks::turn_ended(&core, "chief");
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "koizumi", "chief", 16),
+            16
+        );
+        {
+            let mut state = core.boards().state.locked();
+            let board = state.of_mut(&folder).unwrap();
+            let card = board.card_mut(ask3).unwrap();
+            card.change_asked(16, |asked| {
+                asked.commit = Some(shipped.clone());
+                asked.landed_by = Some("koizumi".to_owned());
+                asked.owners.clear();
+            });
+        }
+        asks::build_moved(&core, &project.path);
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "koizumi", "chief", 17),
+            u64::MAX
+        );
+        super::super::harness::handing(
+            &core,
+            &hand_request(json!({ "to": "koizumi", "work": true })),
+            Ok(json!({ "agentId": "koizumi" })),
+        )
+        .unwrap();
+        assert_eq!(
+            calm_due_in(&core, &turns, &agents, "koizumi", "chief", 18),
+            18
+        );
     }
 
     /// A lead's chat drew a worker's report as the person's own message, raw tags and all,

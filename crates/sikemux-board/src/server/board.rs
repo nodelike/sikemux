@@ -2098,7 +2098,27 @@ fn change_in(
         });
     }
     notices.extend(unblocked(board, &blocked_before, by));
-    Ok((agent_view(core, board, &after, false), notices))
+    let view = agent_view(core, board, &after, false);
+    let closed_now = (before.status != CardStatus::Done && before.dropped.is_none())
+        && (after.status == CardStatus::Done || after.dropped.is_some());
+    if closed_now {
+        if let Some(owner) = before.owner_id().or_else(|| after.owner_id()) {
+            if !has_open_ask(state, owner) {
+                let by_self = matches!(by, By::Agent(agent) if agent == owner);
+                (core.board_above().task_closed)(core, owner, by_self);
+            }
+        }
+    }
+    Ok((view, notices))
+}
+
+fn has_open_ask(state: &State, agent: &str) -> bool {
+    state.boards.values().any(|board| {
+        board.cards.iter().filter_map(Card::asked).any(|asked| {
+            asked.owners.iter().any(|holder| holder.agent == agent)
+                || asked.in_build_at.is_none() && asked.landed_by.as_deref() == Some(agent)
+        })
+    })
 }
 
 fn dropper(core: &Core, by: &By) -> DroppedBy {
@@ -2130,7 +2150,15 @@ fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, Strin
     }
     let mut notices = unblocked(board, &blocked_before, &By::Person);
     state.work.remove(&(project.to_owned(), id));
+    let closed_owner = (removed.status != CardStatus::Done && removed.dropped.is_none())
+        .then(|| removed.owner_id().map(str::to_owned))
+        .flatten()
+        .filter(|owner| !has_open_ask(&state, owner));
     boards.save(&mut state, project);
+    drop(state);
+    if let Some(owner) = closed_owner {
+        (core.board_above().task_closed)(core, &owner, false);
+    }
     if let (Some(owner), CardStatus::Progress) =
         (removed.owner_id().map(str::to_owned), removed.status)
     {

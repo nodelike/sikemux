@@ -15,6 +15,7 @@ use crate::server::chat_state::ChatParts;
 use crate::text::{clipped, clipped_line};
 use serde_json::{json, Value};
 use sikemux_markdown::paths::is_image_path;
+use sikemux_repo::server::agent_now::AgentNowCore;
 use sikemux_view::goals::{AgentDesk, DeskPage};
 use sikemux_view::now::{AskCall, AskSaid, AskStand, NowAsk};
 use std::collections::{BTreeMap, BTreeSet};
@@ -420,6 +421,7 @@ pub(crate) fn turn_ended(core: &Core, agent: &str) {
 pub(crate) fn work_read(core: &Core, agent: &str) {
     let fix = super::fix_now(core, agent);
     let now = stood(core, agent);
+    let mut in_build = false;
     change(core, |board, at| {
         each_ask(board, at, |_, asked| {
             let Some(held) = asked.owners.iter().find(|holder| holder.agent == agent) else {
@@ -436,17 +438,16 @@ pub(crate) fn work_read(core: &Core, agent: &str) {
             }
             asked.owners.retain(|holder| holder.agent != agent);
             asked.landed_by = Some(agent.to_owned());
+            in_build |= asked.in_build_at.is_some();
             true
         })
     });
+    if in_build {
+        finish_person_work(core, agent, false);
+    }
 }
 
-/// Whether the person waits on `agent`'s work: it was handed their work, holds an ask of theirs,
-/// or landed one that is not yet in the build they run.
-pub(crate) fn person_waits_on(core: &Core, agent: &str) -> bool {
-    if core.names().for_person(agent) {
-        return true;
-    }
+fn has_open_ask(core: &Core, agent: &str) -> bool {
     let state = core.boards().state.locked();
     state.boards.values().any(|board| {
         asks(board).any(|(_, asked)| {
@@ -454,6 +455,36 @@ pub(crate) fn person_waits_on(core: &Core, agent: &str) -> bool {
                 || asked.in_build_at.is_none() && asked.landed_by.as_deref() == Some(agent)
         })
     })
+}
+
+/// Whether the person waits on `agent`'s work: it was handed their work, holds an ask of theirs,
+/// or landed one that is not yet in the build they run.
+pub(crate) fn person_waits_on(core: &Core, agent: &str) -> bool {
+    core.names().for_person(agent) || has_open_ask(core, agent)
+}
+
+pub(crate) fn finish_person_work(core: &Core, agent: &str, by_self: bool) {
+    if has_open_ask(core, agent) {
+        return;
+    }
+    task_closed(core, agent, by_self);
+}
+
+pub(crate) fn task_closed(core: &Core, agent: &str, by_self: bool) {
+    let keep = by_self
+        || core.agent_now(agent).mid_turn()
+        || core.agent_now(agent).in_background()
+        || super::super::edits::queue::in_line(core, agent).is_some();
+    core.names().finish_for_person(agent, keep);
+}
+
+pub(crate) fn turn_reported(core: &Core, agent: &str) {
+    if !core.agent_now(agent).mid_turn()
+        && !core.agent_now(agent).in_background()
+        && super::super::edits::queue::in_line(core, agent).is_none()
+    {
+        core.names().clear_finishing_for_person(agent);
+    }
 }
 
 /// Takes `fix` as how far `asked` has gone, when it is a commit of the holder's own; whether that
@@ -479,6 +510,7 @@ fn reached(asked: &mut Asked, fix: &Fix, at: u64) -> bool {
 pub(crate) fn closing(core: &Core, agent: &str) {
     let fix = super::fix_now(core, agent);
     let now = stood(core, agent);
+    let mut done = false;
     change(core, |board, at| {
         let mut answered = Vec::new();
         let changed = each_ask(board, at, |id, asked| {
@@ -495,6 +527,7 @@ pub(crate) fn closing(core: &Core, agent: &str) {
             if let Some(fix) = fix.as_ref().filter(|_| moved) {
                 reached(asked, fix, at);
             }
+            done |= asked.in_build_at.is_some();
             asked.owners.retain(|holder| holder.agent != agent);
             asked.in_turn &= !mid_turn;
             if !asked.owners.is_empty() || asked.commit.is_some() {
@@ -502,6 +535,7 @@ pub(crate) fn closing(core: &Core, agent: &str) {
             }
             if !moved && !mid_turn {
                 answered.push(id);
+                done = true;
                 return true;
             }
             asked.nobody_since = Some(at);
@@ -509,11 +543,14 @@ pub(crate) fn closing(core: &Core, agent: &str) {
         });
         board.forget_answered(|card| answered.contains(&card.id)) || changed
     });
+    if done {
+        finish_person_work(core, agent, false);
+    }
 }
 
 /// The build the person runs, or the project's tags, moved: asks of the project at `repo` whose
 /// commit is now in that build say so.
-pub(super) fn build_moved(core: &Core, repo: &Path) {
+pub(crate) fn build_moved(core: &Core, repo: &Path) {
     let Some(build) = running_build(core, repo) else {
         return;
     };
@@ -535,15 +572,23 @@ pub(super) fn build_moved(core: &Core, repo: &Path) {
     if built.is_empty() {
         return;
     }
+    let mut finished = BTreeSet::new();
     change_in(core, &folder, |board, at| {
         each_ask(board, at, |id, asked| {
             if !built.contains(&id) || asked.in_build_at.is_some() {
                 return false;
             }
             asked.in_build_at = Some(at);
+            finished.extend(asked.owners.iter().map(|holder| holder.agent.clone()));
+            if let Some(landed_by) = &asked.landed_by {
+                finished.insert(landed_by.clone());
+            }
             true
         })
     });
+    for agent in finished {
+        finish_person_work(core, &agent, false);
+    }
 }
 
 /// The asks of the project at `folder` as the Now card lists them.
@@ -677,12 +722,23 @@ pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
         .ok_or("task_update answers only an agent Sikemux started")?
         .project;
     let folder = folder_of(core, &project).ok_or("this project has no folder")?;
-    let ours = (core.boards().state.locked().of(&folder))
-        .and_then(|board| board.card(id).ok())
-        .is_some_and(|card| card.asked().is_some());
-    if !ours {
+    let affected: Option<BTreeSet<String>> = (core.boards().state.locked().of(&folder))
+        .and_then(|board| board.card(id).ok()?.asked())
+        .map(|asked| {
+            let mut agents: BTreeSet<String> = (asked.owners.iter())
+                .map(|holder| holder.agent.clone())
+                .collect();
+            if let Some(landed_by) = &asked.landed_by {
+                agents.insert(landed_by.clone());
+            }
+            if asked.to != agent {
+                agents.insert(agent.to_owned());
+            }
+            agents
+        });
+    let Some(affected) = affected else {
         return Err(format!("task #{id} is not an open task of this project"));
-    }
+    };
     let named = (request.params.get("commit").and_then(Value::as_str))
         .map(str::trim)
         .filter(|it| !it.is_empty());
@@ -690,6 +746,9 @@ pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
         change_in(core, &folder, |board, _| {
             board.forget_answered(|card| card.id == id)
         });
+        for who in affected {
+            finish_person_work(core, &who, who == agent);
+        }
         return Ok(json!({ "closed": id, "answered": "no change" }));
     };
     let repo = PathBuf::from(&folder);
@@ -702,6 +761,7 @@ pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
         card.change_asked(at, |asked| {
             asked.commit = Some(commit.clone());
             asked.landed_at.get_or_insert(at);
+            asked.landed_by = None;
             asked.nobody_since = None;
             asked.in_turn = false;
             asked.owners.clear();
@@ -709,6 +769,9 @@ pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
         .is_some()
     });
     build_moved(core, &repo);
+    for who in affected {
+        finish_person_work(core, &who, who == agent);
+    }
     Ok(json!({ "closed": id, "commit": commit }))
 }
 

@@ -77,6 +77,8 @@ pub struct BoardAbove {
     pub chief_card_closed: fn(&Core, &str, u64, &str, &str),
     /// The person reopened a card the board closed by itself.
     pub chief_card_reopened: fn(&Core, &str, u64),
+    /// A card the agent held closed, with whether the agent closed it itself.
+    pub task_closed: fn(&Core, &str, bool),
     /// What a chat says when it starts on its agent's own model because an org's key, named by
     /// the provider or routed model, may not run in the folder.
     pub org_moved: fn(&Core, &Path, Option<&str>, Option<&str>) -> Option<Value>,

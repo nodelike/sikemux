@@ -1240,6 +1240,7 @@ struct ReportOver(Arc<Core>, String);
 impl Drop for ReportOver {
     fn drop(&mut self) {
         self.0.harness().mailbox.report_over(&self.1);
+        super::now::asks::turn_reported(&self.0, &self.1);
         super::finished::moved(&self.0);
     }
 }
