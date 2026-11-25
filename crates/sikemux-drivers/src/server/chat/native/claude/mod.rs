@@ -445,6 +445,7 @@ impl Claude {
             for (key, value) in [
                 ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"),
                 ("CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS", "1"),
+                ("CLAUDE_CODE_DISABLE_AUTO_MEMORY", "1"),
             ] {
                 if !launch.env.contains_key(key)
                     && sikemux_process::user_environment::var(key).is_none()
