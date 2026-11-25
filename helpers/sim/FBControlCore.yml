@@ -3,6 +3,8 @@
 # with this into an xcframework that Package.swift then links.
 name: FBControlCore
 options:
+  postGenCommand: >-
+    echo 'Signature: 8a477f597d28d172789f06886806bc55' > FBControlCore.xcodeproj/CACHEDIR.TAG
   deploymentTarget:
     macOS: "15.0"
 settings:

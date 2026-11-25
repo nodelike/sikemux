@@ -18,7 +18,7 @@ import {
 import { join } from "node:path";
 
 import { appMetadata } from "./app-metadata.mjs";
-import { building, root } from "./lib/build.mjs";
+import { building, markRebuilt, root } from "./lib/build.mjs";
 
 const { fail, run, hostTriple, dropToolchainPaths, checkStarts } =
   building("Notch helper");
@@ -72,9 +72,10 @@ const built = join(
 
 const dev = args.includes("--dev");
 const appName = dev ? "Sikemux Notch Dev" : "Sikemux Notch";
+const binariesDir = join(root, "packaging", "binaries");
 const bundle = dev
   ? join(root, "target", "debug", `${appName}.app`)
-  : join(root, "packaging", "binaries", "notch", `${appName}.app`);
+  : join(binariesDir, "notch", `${appName}.app`);
 const { version, identifier } = appMetadata();
 // Only builds the release workflow publishes send crashes, and only those it gives the address.
 const sentryDsn = dev ? "" : (process.env.SIKEMUX_NOTCH_SENTRY_DSN ?? "");
@@ -88,6 +89,7 @@ const minimumMacos = readFileSync(
 rmSync(bundle, { recursive: true, force: true });
 mkdirSync(join(bundle, "Contents", "MacOS"), { recursive: true });
 mkdirSync(join(bundle, "Contents", "Resources", "Fonts"), { recursive: true });
+if (!dev) markRebuilt(binariesDir);
 writeFileSync(
   join(bundle, "Contents", "Info.plist"),
   `<?xml version="1.0" encoding="UTF-8"?>

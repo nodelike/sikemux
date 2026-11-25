@@ -12,7 +12,7 @@ import { join } from "node:path";
 
 import { appMetadata } from "./app-metadata.mjs";
 import { smokeCore } from "./smoke-core.mjs";
-import { building, root } from "./lib/build.mjs";
+import { building, markRebuilt, root } from "./lib/build.mjs";
 
 const { fail, run, hostTriple } = building("Core");
 
@@ -106,6 +106,7 @@ function bundleCore(binary) {
 
 const requestedTarget = hostTriple();
 mkdirSync(binariesDir, { recursive: true });
+markRebuilt(binariesDir);
 
 const suffix = requestedTarget.includes("windows") ? ".exe" : "";
 const core = join(binariesDir, `sikemux-host-${requestedTarget}${suffix}`);

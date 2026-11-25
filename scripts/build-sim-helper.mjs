@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
-import { building, root } from "./lib/build.mjs";
+import { building, markRebuilt, root } from "./lib/build.mjs";
 
 const { fail, run, hostTriple, finishHelper } = building("Simulator helper");
 
@@ -159,6 +159,7 @@ function buildFBControlCore() {
     archive,
   );
   writeFileSync(stamp, current);
+  markRebuilt(frameworks);
 }
 
 function buildHelper() {

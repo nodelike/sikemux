@@ -10,12 +10,13 @@ use crate::git::Git;
 /// The file in a checkout's record in the main checkout that says Sikemux made it.
 const MADE_HERE: &str = "sikemux-made";
 /// Folders that tools fill and fill again.
-const REBUILT_FOLDERS: [&str; 11] = [
+const REBUILT_FOLDERS: [&str; 12] = [
     "node_modules",
     "dist",
     "build",
     ".build",
     ".next",
+    ".astro",
     ".turbo",
     ".expo",
     ".gradle",

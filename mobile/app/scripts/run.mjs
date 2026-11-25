@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { markRebuilt } from '../../../scripts/lib/build.mjs';
 import { bindingsExist, buildCommand, libraries, readBuild, releaseCommand } from '../../scripts/native-build.mjs';
 import { generate } from './generate.mjs';
 
@@ -97,4 +98,5 @@ if (prebuildOnly || built !== wanted) {
   expo('prebuild', '--clean', '--platform', platform);
   writeFileSync(marker, `${wanted}\n`);
 }
+markRebuilt(join(app, platform));
 if (!prebuildOnly) expo(`run:${platform}`, ...rest);

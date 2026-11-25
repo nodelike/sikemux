@@ -170,3 +170,63 @@ async fn a_worktree_sikemux_did_not_make_stays_however_long_it_is_untouched() {
     }
     assert!(by_hand.join(".git").is_file());
 }
+
+/// Landed checkouts of closed agents stayed for days, holding only folders our own builds and
+/// Astro had filled.
+#[tokio::test]
+async fn a_landed_worktree_goes_unless_it_holds_a_file_nothing_can_make_again() {
+    let parent = tempfile::tempdir().unwrap();
+    let main = sikemux_process::files::real_path(parent.path())
+        .unwrap()
+        .join("app");
+    std::fs::create_dir(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    std::fs::write(
+        main.join(".gitignore"),
+        ".astro/\n.env\ndocs/research/\ngenerated/\n",
+    )
+    .unwrap();
+    git(&main, &["add", "."]);
+    committed(&main);
+    std::fs::write(main.join(".env"), "KEY=main").unwrap();
+    let holding = |branch: &str, files: &[(&str, &str)]| {
+        let (_, tree) = cut(&main, branch, "HEAD").unwrap();
+        for (file, text) in files {
+            let file = tree.join(file);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        }
+        untouched_for_days(&tree);
+        tree
+    };
+    let rebuilt = holding(
+        "rebuilt",
+        &[
+            ("docs-site/.astro/types.d.ts", "x"),
+            (
+                "generated/CACHEDIR.TAG",
+                "Signature: 8a477f597d28d172789f06886806bc55\n",
+            ),
+            ("generated/lib/core.a", "x"),
+            (".env", "KEY=main"),
+        ],
+    );
+    let kept = [
+        holding("notes", &[("docs/research/plan.md", "x")]),
+        holding("env", &[(".env", "KEY=mine")]),
+        holding("unmarked", &[("generated/lib/core.a", "x")]),
+    ];
+    let core = Core::new(BuildIdentity::default(), None).unwrap();
+    core.workspaces().project_for(&main).unwrap();
+
+    let taken = left(&core);
+    assert_eq!(taken.len(), 4);
+    for (repo, tree, work) in &taken {
+        remove_left(&core, repo, tree, *work).await;
+    }
+
+    assert!(!rebuilt.exists());
+    for tree in kept {
+        assert!(tree.join(".git").is_file(), "removed {}", tree.display());
+    }
+}

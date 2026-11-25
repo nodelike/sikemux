@@ -1,5 +1,7 @@
 name: Sikemux
 options:
+  postGenCommand: >-
+    echo 'Signature: 8a477f597d28d172789f06886806bc55' > Sikemux.xcodeproj/CACHEDIR.TAG
   bundleIdPrefix: com.nodelike.sikemux
   deploymentTarget:
     iOS: "17.0"

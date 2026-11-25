@@ -3,6 +3,8 @@ import { homedir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { markRebuilt } from '../../scripts/lib/build.mjs';
+
 export const mobile = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const native = join(mobile, 'native');
 export const repo = resolve(mobile, '..');
@@ -53,6 +55,7 @@ export function recordBuild(platform, profile) {
   const built = Object.fromEntries(libraries(platform).map((path) => [path, statSync(path).mtimeMs]));
   mkdirSync(join(native, 'build'), { recursive: true });
   writeFileSync(recordPath(platform), `${JSON.stringify({ profile, libraries: built }, null, 2)}\n`);
+  for (const folder of ['android', 'cpp', 'src']) markRebuilt(join(native, folder));
 }
 
 /**

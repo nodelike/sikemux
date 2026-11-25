@@ -53,6 +53,7 @@ trap 'rm -rf "$work"' EXIT
 export SIKEMUX_CONFIG_DIR="$work/config"
 folder="$ROOT/film/out/$scene"
 mkdir -p "$folder"
+printf 'Signature: 8a477f597d28d172789f06886806bc55\n' >"$ROOT/film/out/CACHEDIR.TAG"
 
 wallpaper="${FILM_WALLPAPER:-$HOME/wallpaper/midnight-garden.jpeg}"
 wallpaper_args=()

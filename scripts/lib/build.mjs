@@ -1,9 +1,17 @@
 // What the scripts that build a program do alike.
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 export const root = resolve(import.meta.dirname, "..", "..");
+
+/** Says with the usual cache tag that a folder can be built again, so Sikemux need not keep a worktree for it. */
+export function markRebuilt(folder) {
+  writeFileSync(
+    join(folder, "CACHEDIR.TAG"),
+    "Signature: 8a477f597d28d172789f06886806bc55\n",
+  );
+}
 
 /** `fail` and `run`, whose failures name what is being built. */
 export function building(what) {
@@ -59,6 +67,7 @@ export function building(what) {
       ? join(root, "target", "debug", name)
       : join(root, "packaging", "binaries", `${name}-${target}`);
     mkdirSync(dirname(destination), { recursive: true });
+    if (!dev) markRebuilt(dirname(destination));
     copyFileSync(built, destination);
     chmodSync(destination, 0o755);
     run("strip", ["-x", destination]);
