@@ -1,22 +1,23 @@
 import type { Org, TeamAccess } from "@sikemux/protocol";
 import { useAuth } from "@clerk/react";
-import { IconOrg } from "@shared/ui/Icons";
+import { IconHourglass, IconPause, IconUpload } from "@shared/ui/Icons";
 import { useRef, useState, type DragEvent } from "react";
 
 import { problemText } from "./api.ts";
 import { OrgAvatar } from "./Avatar.tsx";
 import { useClient } from "./Billing.tsx";
-import { fitLogo, LOGO_TYPES, sendLogo, useLogo, useOrgMark } from "./logos.ts";
+import { fitLogo, LOGO_TYPES, sendLogo, useLogo } from "./logos.ts";
+import { iconMark } from "./marks.ts";
 import { changeable, frozen, renewable, runs } from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
+import "./settings.css";
 import {
   Btn,
-  Section,
   Field,
+  Notice,
   Page,
-  Row,
-  Rows,
-  Tile,
+  Problem,
+  Setting,
   Txt,
   useAction,
   useToast,
@@ -42,7 +43,6 @@ export function DetailsPage({
   const [typed, setTyped] = useState<string>();
   const [over, setOver] = useState(false);
   const chooser = useRef<HTMLInputElement>(null);
-  const mark = useOrgMark(org);
   const logo = useLogo(org);
   const editable = runs(org) && changeable(org, team);
   const name = typed?.trim();
@@ -114,132 +114,131 @@ export function DetailsPage({
     choose(event.dataTransfer.files[0]);
   };
 
+  const notice =
+    runs(org) && !editable ? (
+      <Notice
+        icon={
+          renewable(org, team) ? (
+            <IconHourglass size={16} />
+          ) : (
+            <IconPause size={16} />
+          )
+        }
+        tone={renewable(org, team) ? "cold" : undefined}
+        title={
+          renewable(org, team)
+            ? `${org.name} is frozen`
+            : `${org.name} is paused`
+        }
+      >
+        {renewable(org, team)
+          ? "Its Team plan ended. Its details can change again when an owner renews Team."
+          : `${frozen(org) ? "Nothing is deleted. " : ""}Team isn't open to your account now. You can still read its details.`}
+      </Notice>
+    ) : undefined;
+
   return (
     <Page
-      title={
-        action.problem
-          ? changing === "name"
-            ? "That name wasn't saved"
-            : "That logo wasn't saved"
-          : org.name
-      }
-      lede={
-        action.problem ??
-        (runs(org)
-          ? "The name and logo everyone in the org sees."
-          : "Set by its owners and admins.")
-      }
-      actions={
-        runs(org) && !editable ? (
-          <p className="note">
-            {renewable(org, team)
-              ? "The org is frozen. Its details can change again when an owner renews Team."
-              : `${frozen(org) ? `${org.name} is paused. ` : ""}Team isn't open to your account now. You can still read its details.`}
-          </p>
-        ) : undefined
-      }
-      mark={mark}
+      title="Settings"
+      lede={runs(org) ? "Its name and logo." : "Set by its owners and admins."}
+      notice={notice}
+      mark={iconMark("org")}
       scene={orgScene(org.id)}
       tone={action.problem ? "failed" : undefined}
     >
-      <Section
-        label="Details"
-        className={over ? "details over" : "details"}
-        {...(editable ? { onDragOver, onDragLeave, onDrop } : {})}
+      <Setting name="Name" detail="On invites, shared projects and bills.">
+        {editable ? (
+          <form
+            className="set-name"
+            onSubmit={(event) => {
+              event.preventDefault();
+              rename();
+            }}
+          >
+            <Field
+              aria-label="Org name"
+              value={typed ?? org.name}
+              maxLength={NAME_LENGTH}
+              autoComplete="off"
+              disabled={action.busy}
+              onChange={(event) => setTyped(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") keep();
+              }}
+            />
+            <Btn
+              type="submit"
+              quiet={!changed}
+              busy={busy("name")}
+              disabled={!name || !changed || action.busy}
+            >
+              Save
+            </Btn>
+            {changed ? (
+              <Btn quiet disabled={action.busy} onClick={keep}>
+                Cancel
+              </Btn>
+            ) : null}
+          </form>
+        ) : (
+          <span className="set-val">{org.name}</span>
+        )}
+        {changing === "name" ? <Problem>{action.problem}</Problem> : null}
+      </Setting>
+
+      <Setting
+        name={over ? "Drop it to use it" : "Logo"}
+        detail={
+          editable
+            ? "PNG, JPG or WebP, up to 1 MB. Choose one or drop it here."
+            : "Set by its owners and admins."
+        }
       >
-        <Rows>
-          <Row
-            wrap
-            lead={<OrgAvatar org={org} size={40} />}
-            name="Logo"
-            detail={
-              editable ? (
-                <>
-                  PNG, JPG or WebP, up to 1 MB.
-                  <span className="drops"> Choose one or drop it here.</span>
-                </>
-              ) : org.logo ? (
-                "Everyone in the org sees it."
-              ) : (
-                "None yet."
-              )
-            }
-            end={
-              editable ? (
-                <>
-                  <input
-                    ref={chooser}
-                    type="file"
-                    accept={LOGO_TYPES.join(",")}
-                    hidden
-                    onChange={(event) => {
-                      choose(event.target.files?.[0]);
-                      event.target.value = "";
-                    }}
-                  />
-                  {org.logo ? (
-                    <Txt disabled={action.busy} onClick={takeAway}>
-                      Remove
-                    </Txt>
-                  ) : null}
-                  <Btn
-                    quiet={!!org.logo}
-                    busy={busy("logo")}
-                    disabled={action.busy}
-                    onClick={() => chooser.current?.click()}
-                  >
-                    {org.logo ? "Replace" : "Upload"}
-                  </Btn>
-                </>
-              ) : undefined
-            }
-          />
-          <Row
-            wrap
-            lead={
-              <Tile>
-                <IconOrg size={14} />
-              </Tile>
-            }
-            name="Name"
-            detail="On invites, shared projects and bills."
-            end={
-              editable ? (
-                <form
-                  className="named"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    rename();
+        <div
+          className={over ? "set-drop over" : "set-drop"}
+          {...(editable ? { onDragOver, onDragLeave, onDrop } : {})}
+        >
+          <span className="set-logo">
+            <OrgAvatar org={org} size={72} />
+            {busy("logo") ? (
+              <span className="set-logo-wait" aria-hidden="true" />
+            ) : null}
+          </span>
+          <div className="set-acts">
+            {editable ? (
+              <>
+                <input
+                  ref={chooser}
+                  type="file"
+                  accept={LOGO_TYPES.join(",")}
+                  hidden
+                  onChange={(event) => {
+                    choose(event.target.files?.[0]);
+                    event.target.value = "";
                   }}
+                />
+                <Btn
+                  quiet
+                  busy={busy("logo")}
+                  disabled={action.busy}
+                  onClick={() => chooser.current?.click()}
                 >
-                  <Field
-                    aria-label="Name"
-                    value={typed ?? org.name}
-                    maxLength={NAME_LENGTH}
-                    autoComplete="off"
-                    disabled={action.busy}
-                    onChange={(event) => setTyped(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") keep();
-                    }}
-                  />
-                  {changed ? (
-                    <Btn
-                      type="submit"
-                      busy={busy("name")}
-                      disabled={!name || action.busy}
-                    >
-                      Save
-                    </Btn>
-                  ) : null}
-                </form>
-              ) : (
-                org.name
-              )
-            }
-          />
-        </Rows>
-      </Section>
+                  <IconUpload size={14} />
+                  {busy("logo") ? "Uploading" : org.logo ? "Replace" : "Upload"}
+                </Btn>
+                {org.logo ? (
+                  <Txt disabled={action.busy} onClick={takeAway}>
+                    Remove
+                  </Txt>
+                ) : null}
+              </>
+            ) : !org.logo ? (
+              <span className="note">None yet.</span>
+            ) : null}
+          </div>
+        </div>
+        {changing === "logo" ? <Problem>{action.problem}</Problem> : null}
+      </Setting>
     </Page>
   );
 }
