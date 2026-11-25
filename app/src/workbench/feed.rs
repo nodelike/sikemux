@@ -100,7 +100,11 @@ impl Workbench {
                 self.watch_hosts_page();
                 self.parts.redraw_stage(cx);
             }
-            Update::HostsUnavailable(reason) => self.feeds.unavailable = reason,
+            Update::HostsUnavailable(reason) => self.feeds.unavailable = Some(reason),
+            Update::OnNetwork(key) => {
+                self.feeds.unavailable = None;
+                self.feeds.app_key = key;
+            }
             Update::HostHome(host, home) => {
                 self.feeds.host_mut(&host).home = Some(home);
             }
@@ -157,7 +161,12 @@ impl Workbench {
                 cx.activate(true);
                 return self.open_agent(&agent, cx);
             }
-            Update::AccountDevice { key, name } => return self.new_account_device(key, name, cx),
+            Update::AccountDevice { key, name } => {
+                if key != self.feeds.app_key {
+                    self.new_account_device(key, name, cx);
+                }
+                return;
+            }
             Update::Network(change) => {
                 return self
                     .voice

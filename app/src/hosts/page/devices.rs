@@ -106,7 +106,7 @@ pub fn devices(bench: &Workbench, query: &str, t: &Tokens, cx: &mut Context<Work
 }
 
 /// Those this host let in who left, and those its linked hosts let in, unless they are on this
-/// host now.
+/// host now or are this app.
 fn let_in_before(
     bench: &Workbench,
     query: &str,
@@ -117,6 +117,7 @@ fn let_in_before(
     let hosts = bench.reads.hosts.iter().filter_map(|host| host.id.as_ref());
     let mut listed: Vec<&str> = devices.map(|device| device.id.as_str()).collect();
     listed.extend(hosts.map(String::as_str));
+    listed.push(&bench.feeds.app_key);
     let gone: Vec<&Admission> = (bench.reads.admissions.iter())
         .filter(|one| one.left_at.is_some() || one.told_by.is_some())
         .filter(|one| !listed.contains(&one.key.as_str()))

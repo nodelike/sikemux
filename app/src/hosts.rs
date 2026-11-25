@@ -157,6 +157,8 @@ pub struct Feeds {
     front: Option<String>,
     /// Why this app reaches none of the account's other hosts, when it cannot.
     pub unavailable: Option<String>,
+    /// This app's own key on the network, empty until it is there.
+    pub app_key: String,
     /// An SSH host just set up, whose terminals follow it onto its linked host once it is one.
     following: Option<String>,
 }

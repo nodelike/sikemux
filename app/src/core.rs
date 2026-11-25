@@ -103,8 +103,10 @@ pub enum Update {
     HostReach(String, bool),
     /// Another host's home folder, by the host's key, as its core says it once reached.
     HostHome(String, String),
-    /// Why this app cannot reach the account's other hosts at all, or `None` once it can.
-    HostsUnavailable(Option<String>),
+    /// Why this app cannot reach the account's other hosts at all.
+    HostsUnavailable(String),
+    /// The app is on the network, under this key.
+    OnNetwork(String),
     /// This host went offline, came back, or woke.
     Network(NetworkChange),
 }
@@ -778,7 +780,7 @@ async fn reach_hosts(
         return None;
     }
     let unavailable = |reason: String| {
-        let _ = updates.send(Update::HostsUnavailable(Some(reason)));
+        let _ = updates.send(Update::HostsUnavailable(reason));
     };
     let key = if sikemux_keychain::ready().is_ok() {
         tokio::task::spawn_blocking(device_key)
@@ -800,7 +802,7 @@ async fn reach_hosts(
         .unwrap_or_default();
     match Linked::bind(key, relays, NAME, std::env::consts::OS).await {
         Ok(linked) => {
-            let _ = updates.send(Update::HostsUnavailable(None));
+            let _ = updates.send(Update::OnNetwork(linked.0.id()));
             Some(linked)
         }
         Err(error) => {
