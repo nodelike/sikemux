@@ -118,6 +118,21 @@ impl Workbench {
         cx.notify();
     }
 
+    /// Shows the open task among the whole of `agent`'s chat, whose rows the caller then places.
+    pub(crate) fn widen_task(&mut self, agent: &str, cx: &mut Context<Self>) {
+        let Some(opened) = (self.opened_task.as_mut()).filter(|opened| opened.agent == agent)
+        else {
+            return;
+        };
+        opened.narrowed = false;
+        if let Some(chat) = self.chats.open.get_mut(agent) {
+            chat.narrow(agent, None);
+        }
+        self.desks_moved(cx);
+        self.parts.redraw_stage(cx);
+        cx.notify();
+    }
+
     /// Closes the open task, widening its chat and desk, and answers with it.
     pub(crate) fn close_ask(&mut self, cx: &mut Context<Self>) -> Option<u64> {
         let opened = self.opened_task.take()?;

@@ -1,0 +1,28 @@
+# A reply that quotes an answer from before a task, its pill clicked while the chief's chat shows
+# only that task: the whole chat comes back, at the passage.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies reply-task.json
+project storefront shop
+core openChief {"project":"storefront"}
+chat Wren
+title "Order emails"
+settle 4
+front Chief
+say "How do order emails go out?"
+settle 14
+move 700,593 0.3
+wait 0.5
+click "Reply to this part"
+settle 1
+type "Make it day five."
+key enter
+settle 8
+task "“The follow-up"
+settle 4
+snap reply-task-narrowed
+click 860,480
+settle 3
+snap reply-task-clicked

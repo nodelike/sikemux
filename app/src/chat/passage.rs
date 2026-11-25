@@ -174,12 +174,13 @@ impl Look {
             if chat.mark.as_ref().map(|mark| &mark.feed) != Some(&self.params.feed) {
                 return None;
             }
-            let rows: Vec<ChatRow> = (page.rows.iter())
-                .filter(|row| chat.shows(row))
-                .cloned()
-                .map(ChatRow::new)
-                .collect();
+            let rows: Vec<ChatRow> = page.rows.iter().cloned().map(ChatRow::new).collect();
             let found = found_in(&rows, &self.uri, &self.quote, None)?;
+            let shown = (rows.iter()).any(|row| row.id() == found.row && chat.shows(&row.message));
+            if !shown {
+                bench.widen_task(agent, cx);
+            }
+            let chat = bench.chats.open.get_mut(agent)?;
             chat.around_page(page, cx);
             chat.transcript.update(cx, |transcript, cx| {
                 transcript.settled(cx);

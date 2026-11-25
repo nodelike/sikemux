@@ -1,0 +1,39 @@
+[
+  {
+    "when": "day five",
+    "steps": [
+      {
+        "tool": "mcp__sikemux-tools__agent_send",
+        "call": "agent.send",
+        "input": {
+          "to": "Wren",
+          "text": "Send the follow-up on day five, in src/mail.",
+          "work": true
+        },
+        "ms": 600
+      },
+      {
+        "say": "@Wren is moving it to day five.",
+        "perSecond": 400
+      }
+    ]
+  },
+  {
+    "when": "how do order emails",
+    "steps": [
+      {
+        "say": "Order emails leave in four steps, each one its own job.\n\n**The receipt:** it's written once the payment settles, never when the order is placed, so a declined card sends nothing.\n\n**The packing note:** it waits for the warehouse to pick the order, and lists only what's in that parcel.\n\n**The tracking mail:** the carrier's number comes back about ten minutes after the label prints, so this one is held until then.\n\n**The follow-up:** it goes nine days after delivery, unless the person has already written to us.",
+        "perSecond": 400
+      }
+    ]
+  },
+  {
+    "when": "follow-up on day",
+    "steps": [
+      {
+        "say": "On it.",
+        "perSecond": 400
+      }
+    ]
+  }
+]
