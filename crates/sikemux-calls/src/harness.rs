@@ -73,6 +73,9 @@ pub struct PageShare {
     pub expires_at: u64,
     /// Whether anyone with the link may read it, or only people signed in to Sikemux.
     pub anyone: bool,
+    /// Why the latest version could not update the link, once the core stopped retrying.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub problem: Option<String>,
 }
 
 /// How long Sikemux keeps a page.

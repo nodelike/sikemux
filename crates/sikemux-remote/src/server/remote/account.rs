@@ -65,6 +65,9 @@ pub async fn set_owner(
     core.remote().refresh.notify_one();
     ensure_live(core);
     core.vault().wake();
+    if core.remote().owner().is_some() {
+        (core.remote_above().page_shares_signed_in)(core);
+    }
     if leaving {
         let confirmed = async {
             loop {

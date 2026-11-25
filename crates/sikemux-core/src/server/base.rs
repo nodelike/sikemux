@@ -350,6 +350,8 @@ pub(super) fn chat_above() -> ChatAbove {
 pub(super) fn remote_above() -> RemoteAbove {
     RemoteAbove {
         hosts_retry_now: |core| core.hosts().retry_now(),
+        page_shares_retry_now: harness::pages::network_back,
+        page_shares_signed_in: harness::pages::signed_in,
         hosts_wake: |core| core.hosts().wake.now(),
         hosts_relink: |core| core.hosts().relink.now(),
         serve_link: |core, connection| Box::pin(hosts::serve(core, connection)),
@@ -373,6 +375,7 @@ pub(super) fn remote_above() -> RemoteAbove {
             stash::catch_up(core);
             mods::catch_up(core);
             followed_releases::tell(core);
+            harness::pages::signed_in(core);
         },
         inbox_told: inbox::told,
         activity_glance: |core| {

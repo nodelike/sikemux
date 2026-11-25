@@ -52,6 +52,10 @@ pub struct RemoteAbove {
     pub turn_state_set_a_wake: fn(&Core, &str) -> bool,
     /// Linked hosts are dialled again at once.
     pub hosts_retry_now: fn(&Core),
+    /// Shared pages waiting to upload try again at once.
+    pub page_shares_retry_now: fn(&Core),
+    /// The host signed in to an account, so shared pages waiting on sign-in try again.
+    pub page_shares_signed_in: fn(&Core),
     /// The links to other hosts are looked at again.
     pub hosts_wake: fn(&Core),
     /// The hosts of the account are linked again.

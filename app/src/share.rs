@@ -292,7 +292,10 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     let page = matches!(sharing.shared, Shared::Page { .. });
     let problem = sharing.problem.clone().or_else(|| match &sharing.shared {
         Shared::Chat(agent) => bench.refusal_of(agent),
-        Shared::Page { .. } => None,
+        Shared::Page { id, .. } => bench
+            .pages
+            .share_of(id)
+            .and_then(|share| share.problem.clone()),
     });
     let label = |words: &'static str| {
         ui::text(words, TEXT_XS, FontWeight::MEDIUM).text_color(t.text_tertiary)

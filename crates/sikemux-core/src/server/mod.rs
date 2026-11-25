@@ -920,6 +920,12 @@ pub(crate) async fn run_core(
     }
     let mut stopping = socket::Stopping::new()?;
     let mut background = core.start_parts();
+    if let Some(data_dir) = config.data_dir.clone() {
+        background.push(tokio::spawn(harness::pages::serve_uploads(
+            core.clone(),
+            data_dir,
+        )));
+    }
     background.extend([
         tokio::spawn(poll_sessions(core.clone())),
         tokio::spawn(sweep(core.clone())),

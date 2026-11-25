@@ -165,6 +165,7 @@ pub async fn network_back(core: &Arc<Core>) {
     core.remote().refresh.notify_one();
     ensure_live(core);
     (core.remote_above().hosts_retry_now)(core);
+    (core.remote_above().page_shares_retry_now)(core);
     crate::server::share::network_back(core);
 }
 

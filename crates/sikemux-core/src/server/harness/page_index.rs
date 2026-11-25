@@ -67,12 +67,36 @@ fn open(data_dir: &Path) -> Result<Connection, String> {
                 anyone INTEGER NOT NULL,
                 expires INTEGER NOT NULL,
                 theme TEXT NOT NULL,
+                behind INTEGER NOT NULL DEFAULT 0,
+                problem TEXT,
                 PRIMARY KEY (agent, title)
             );",
         )
         .map_err(failed)?;
     add_lifetimes(&mut connection).map_err(failed)?;
+    add_share_sync(&mut connection).map_err(failed)?;
     Ok(connection)
+}
+
+fn add_share_sync(connection: &mut Connection) -> rusqlite::Result<()> {
+    let has = |connection: &Connection| {
+        connection.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('page_shares') WHERE name = 'behind'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+    };
+    if has(connection)? > 0 {
+        return Ok(());
+    }
+    let adding = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    if has(&adding)? == 0 {
+        adding.execute_batch(
+            "ALTER TABLE page_shares ADD COLUMN behind INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE page_shares ADD COLUMN problem TEXT;",
+        )?;
+    }
+    adding.commit()
 }
 
 /// Gives an index made before pages were thrown away what says how long each stays, starting
@@ -103,23 +127,33 @@ fn add_lifetimes(connection: &mut Connection) -> rusqlite::Result<()> {
 /// Indexes a page just shown. A new version of a kept page is kept too.
 pub(crate) fn add(data_dir: &Path, shown: &Shown) -> Result<(), String> {
     let now = epoch_ms() as i64;
-    open(data_dir)?
-        .execute(
-            "INSERT OR REPLACE INTO pages (id, title, project, agent, name, at, ask, seen, kept)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?6, COALESCE(
-                (SELECT MAX(kept) FROM pages WHERE agent = ?4 AND title = ?2), 0))",
-            params![
-                shown.id,
-                shown.title,
-                shown.project,
-                shown.agent,
-                shown.name,
-                now,
-                shown.ask.map(|ask| ask as i64)
-            ],
-        )
-        .map(drop)
-        .map_err(|error| error.to_string())
+    let mut connection = open(data_dir)?;
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    tx.execute(
+        "INSERT OR REPLACE INTO pages (id, title, project, agent, name, at, ask, seen, kept)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?6, COALESCE(
+            (SELECT MAX(kept) FROM pages WHERE agent = ?4 AND title = ?2), 0))",
+        params![
+            shown.id,
+            shown.title,
+            shown.project,
+            shown.agent,
+            shown.name,
+            now,
+            shown.ask.map(|ask| ask as i64)
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    tx.execute(
+        "UPDATE page_shares
+         SET behind = behind + 1, problem = NULL
+         WHERE agent = ?1 AND title = ?2 AND expires > ?3",
+        params![shown.agent, shown.title, now],
+    )
+    .map_err(|error| error.to_string())?;
+    tx.commit().map_err(|error| error.to_string())
 }
 
 /// Page `id` was shown again: its week starts over, and it goes with `ask` too when it went
@@ -130,14 +164,28 @@ pub(crate) fn shown_again(
     ask: Option<u64>,
     changed: bool,
 ) -> Result<(), String> {
-    open(data_dir)?
-        .execute(
-            "UPDATE pages SET ask = COALESCE(ask, ?2), seen = ?3, at = IIF(?4, ?3, at)
-             WHERE id = ?1",
-            params![id, ask.map(|ask| ask as i64), epoch_ms() as i64, changed],
+    let now = epoch_ms() as i64;
+    let mut connection = open(data_dir)?;
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    tx.execute(
+        "UPDATE pages SET ask = COALESCE(ask, ?2), seen = ?3, at = IIF(?4, ?3, at)
+         WHERE id = ?1",
+        params![id, ask.map(|ask| ask as i64), now, changed],
+    )
+    .map_err(|error| error.to_string())?;
+    if changed {
+        tx.execute(
+            "UPDATE page_shares
+             SET behind = behind + 1, problem = NULL
+             WHERE (agent, title) = (SELECT agent, title FROM pages WHERE id = ?1)
+               AND expires > ?2",
+            params![id, now],
         )
-        .map(drop)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    }
+    tx.commit().map_err(|error| error.to_string())
 }
 
 /// Keeps every version of page `id`, or lets them go again, each starting its time over. A
@@ -209,9 +257,9 @@ pub(crate) fn list(
     settle(&connection, open_calls).map_err(|error| error.to_string())?;
     let mut sql = String::from(
         "SELECT p.id, p.title, p.project, p.name, p.at, p.versions, p.kept, p.call, p.settled,
-            p.seen, s.id, s.key, s.anyone, s.expires FROM (
+            p.seen, s.id, s.key, s.anyone, s.expires, s.problem FROM (
             SELECT *, COUNT(*) OVER version AS versions,
-                ROW_NUMBER() OVER (version ORDER BY at DESC) AS newest
+                ROW_NUMBER() OVER (version ORDER BY at DESC, rowid DESC) AS newest
             FROM pages WINDOW version AS (PARTITION BY agent, title)
         ) AS p LEFT JOIN page_shares AS s
             ON (s.agent, s.title) = (p.agent, p.title) AND s.expires > ?1
@@ -249,6 +297,7 @@ pub(crate) fn list(
                         url: crate::server::share::page::url(&link, &row.get::<_, String>(11)?),
                         anyone: row.get(12)?,
                         expires_at: row.get::<_, i64>(13)? as u64,
+                        problem: row.get(14)?,
                     }),
                     None => None,
                 },
@@ -295,24 +344,199 @@ fn share_of_with(connection: &Connection, id: &str) -> Result<Option<Link>, Stri
         .map_err(|error| error.to_string())
 }
 
-/// Page `id` is shared through `link` now, which keeps it.
-pub(crate) fn shared(data_dir: &Path, id: &str, link: &Link) -> Result<(), String> {
-    keep(data_dir, id, true)?;
+/// A shared page whose stored copy on the server is behind its latest version.
+#[derive(Clone, Debug)]
+pub(crate) struct PendingShare {
+    pub link: Link,
+    pub behind: i64,
+    pub page_id: Option<String>,
+    pub title: String,
+}
+
+/// The latest version of page `id`, with its live share's `behind` counter if shared.
+pub(crate) fn latest_for_page(
+    data_dir: &Path,
+    id: &str,
+) -> Result<Option<(String, String, Option<i64>)>, String> {
     open(data_dir)?
+        .query_row(
+            "SELECT latest.id, latest.title, s.behind
+             FROM pages AS target
+             JOIN (
+                 SELECT id, agent, title,
+                        ROW_NUMBER() OVER (PARTITION BY agent, title ORDER BY at DESC, rowid DESC) AS newest
+                 FROM pages
+             ) AS latest ON (latest.agent, latest.title) = (target.agent, target.title) AND latest.newest = 1
+             LEFT JOIN page_shares AS s
+                 ON (s.agent, s.title) = (target.agent, target.title) AND s.expires > ?2
+             WHERE target.id = ?1",
+            params![id, epoch_ms() as i64],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|error| error.to_string())
+}
+
+/// Page `id` is shared through `link` now, which keeps it. Answers whether a newer version
+/// arrived while this upload was in flight and still needs to upload.
+pub(crate) fn shared(
+    data_dir: &Path,
+    id: &str,
+    link: &Link,
+    expected_behind: Option<i64>,
+) -> Result<bool, String> {
+    keep(data_dir, id, true)?;
+    let connection = open(data_dir)?;
+    connection
         .execute(
-            "INSERT OR REPLACE INTO page_shares (agent, title, id, key, anyone, expires, theme)
-             SELECT agent, title, ?2, ?3, ?4, ?5, ?6 FROM pages WHERE id = ?1",
+            "INSERT INTO page_shares (agent, title, id, key, anyone, expires, theme, behind, problem)
+             SELECT agent, title, ?2, ?3, ?4, ?5, ?6, 0, NULL FROM pages WHERE id = ?1
+             ON CONFLICT(agent, title) DO UPDATE SET
+                 id = excluded.id,
+                 key = excluded.key,
+                 anyone = excluded.anyone,
+                 expires = excluded.expires,
+                 theme = excluded.theme,
+                 behind = CASE
+                     WHEN page_shares.id = excluded.id AND page_shares.behind = ?7 THEN 0
+                     WHEN page_shares.id != excluded.id THEN 0
+                     ELSE page_shares.behind
+                 END,
+                 problem = NULL",
             params![
                 id,
                 link.id,
                 link.key,
                 link.anyone,
                 link.expires as i64,
-                link.theme
+                link.theme,
+                expected_behind.unwrap_or(0)
             ],
         )
-        .map(drop)
+        .map_err(|error| error.to_string())?;
+    let behind: i64 = connection
+        .query_row(
+            "SELECT behind FROM page_shares WHERE id = ?1",
+            [&link.id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .unwrap_or(0);
+    Ok(behind > 0)
+}
+
+/// Drops expired shares and lists the link ids of live shares waiting to upload.
+pub(crate) fn pending_shares(data_dir: &Path) -> Result<(Vec<String>, bool), String> {
+    let connection = open(data_dir)?;
+    let dropped = connection
+        .execute(
+            "DELETE FROM page_shares WHERE expires <= ?1",
+            [epoch_ms() as i64],
+        )
+        .map_err(|error| error.to_string())?;
+    let mut statement = connection
+        .prepare("SELECT id FROM page_shares WHERE behind > 0 AND problem IS NULL")
+        .map_err(|error| error.to_string())?;
+    let ids = statement
+        .query_map([], |row| row.get(0))
+        .map_err(|error| error.to_string())?
+        .collect::<rusqlite::Result<Vec<String>>>()
+        .map_err(|error| error.to_string())?;
+    Ok((ids, dropped > 0))
+}
+
+/// The share `link_id` if it is still behind and not refused, with its newest page version.
+pub(crate) fn pending_for(data_dir: &Path, link_id: &str) -> Result<Option<PendingShare>, String> {
+    open(data_dir)?
+        .query_row(
+            "SELECT s.id, s.key, s.anyone, s.expires, s.theme, s.behind, s.title, p.id, p.title
+             FROM page_shares AS s
+             LEFT JOIN (
+                 SELECT id, agent, title,
+                        ROW_NUMBER() OVER (PARTITION BY agent, title ORDER BY at DESC, rowid DESC) AS newest
+                 FROM pages
+             ) AS p ON (p.agent, p.title) = (s.agent, s.title) AND p.newest = 1
+             WHERE s.id = ?1 AND s.behind > 0 AND s.problem IS NULL",
+            [link_id],
+            |row| {
+                let page_title: Option<String> = row.get(8)?;
+                Ok(PendingShare {
+                    link: Link {
+                        id: row.get(0)?,
+                        key: row.get(1)?,
+                        anyone: row.get(2)?,
+                        expires: row.get::<_, i64>(3)? as u64,
+                        theme: row.get(4)?,
+                    },
+                    behind: row.get(5)?,
+                    title: page_title.unwrap_or(row.get(6)?),
+                    page_id: row.get(7)?,
+                })
+            },
+        )
+        .optional()
         .map_err(|error| error.to_string())
+}
+
+/// Marks `link_id` caught up when no newer version arrived since `seen_behind`.
+/// Answers whether a newer version is still waiting.
+pub(crate) fn mark_synced(
+    data_dir: &Path,
+    link_id: &str,
+    seen_behind: i64,
+) -> Result<bool, String> {
+    let connection = open(data_dir)?;
+    connection
+        .execute(
+            "UPDATE page_shares SET behind = 0, problem = NULL WHERE id = ?1 AND behind = ?2",
+            params![link_id, seen_behind],
+        )
+        .map_err(|error| error.to_string())?;
+    let behind: i64 = connection
+        .query_row(
+            "SELECT behind FROM page_shares WHERE id = ?1",
+            [link_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .unwrap_or(0);
+    Ok(behind > 0)
+}
+
+/// Records why `link_id` stopped retrying, if no newer version arrived since `seen_behind`.
+pub(crate) fn set_problem(
+    data_dir: &Path,
+    link_id: &str,
+    seen_behind: i64,
+    problem: &str,
+) -> Result<bool, String> {
+    let changed = open(data_dir)?
+        .execute(
+            "UPDATE page_shares SET problem = ?3 WHERE id = ?1 AND behind = ?2",
+            params![link_id, seen_behind, problem],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(changed > 0)
+}
+
+/// Clears `problem` on shares still behind so they retry again, such as after signing back in.
+pub(crate) fn clear_problem(data_dir: &Path, problem: &str) -> Result<usize, String> {
+    open(data_dir)?
+        .execute(
+            "UPDATE page_shares SET problem = NULL WHERE problem = ?1 AND behind > 0",
+            [problem],
+        )
+        .map_err(|error| error.to_string())
+}
+
+/// Drops a share by its link id, such as once it expired or ended on the server.
+pub(crate) fn drop_share(data_dir: &Path, link_id: &str) -> Result<bool, String> {
+    let dropped = open(data_dir)?
+        .execute("DELETE FROM page_shares WHERE id = ?1", [link_id])
+        .map_err(|error| error.to_string())?;
+    Ok(dropped > 0)
 }
 
 /// Page `id` is no longer shared. The link it was shared through, if it was.
