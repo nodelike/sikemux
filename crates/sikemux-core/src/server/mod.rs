@@ -472,6 +472,8 @@ impl ServerCore for Core {
             vec![
                 Box::new(serving::ServeFields {
                     sessions: Mutex::new(HashMap::new()),
+                    sessions_wake: Notify::new(),
+                    idle_wake: Notify::new(),
                     next_session_id: AtomicU64::new(first_session_id()),
                     capacity: Arc::new(Capacity {
                         active: AtomicUsize::new(0),
@@ -809,6 +811,16 @@ async fn poll_sessions(core: Arc<Core>) {
     let mut ticker = tokio::time::interval(SESSION_POLL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
+        if core.sessions().locked().is_empty() {
+            let notified = core.sessions_wake().notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if core.sessions().locked().is_empty() {
+                notified.await;
+                ticker.reset();
+                continue;
+            }
+        }
         ticker.tick().await;
         let now = core.uptime_ms();
         for session in core.all_sessions() {
@@ -865,7 +877,6 @@ pub async fn serve(config: ServerConfig) -> Result<(), ServerError> {
     let (listener, lock) = tokio::task::spawn_blocking(move || claim_socket(&socket))
         .await
         .map_err(std::io::Error::other)??;
-    data_format::upgrade(&config);
     let core = Core::open(config, socket::listening(&listener, &lock), 0)?;
     *core.tools().locked() = start_tools(&core).await;
     chat::restore(&core);
@@ -949,15 +960,18 @@ pub(crate) async fn run_core(
     let mut shutdown = core.shutdown().subscribe();
     let mut frozen = core.updating().watch();
     crate::waiting::wake(&config.socket);
-    let mut ticker = tokio::time::interval(
-        (config.idle_exit / 10).clamp(Duration::from_millis(10), Duration::from_secs(1)),
-    );
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut idle_since: Option<Instant> = None;
     loop {
         // While the core hands itself over, connections wait in the socket's
         // backlog for its replacement.
         let accepting = !*frozen.borrow_and_update();
+        let idle_deadline = if core.is_idle() && accepting && config.idle_exit != NEVER_IDLE_EXIT {
+            let since = *idle_since.get_or_insert_with(Instant::now);
+            tokio::time::Instant::from_std(since).checked_add(config.idle_exit)
+        } else {
+            idle_since = None;
+            None
+        };
         tokio::select! {
             accepted = listener.accept(), if accepting => match accepted {
                 Ok(stream) if !socket::admits(&stream) => {
@@ -980,18 +994,19 @@ pub(crate) async fn run_core(
                 eprintln!("sikemux core: stopping, as something sent it {asked}");
                 break;
             }
-            _ = ticker.tick() => {
+            _ = core.idle_wake().notified() => {}
+            _ = async {
+                match idle_deadline {
+                    Some(deadline) => tokio::time::sleep_until(deadline).await,
+                    None => std::future::pending().await,
+                }
+            } => {
                 if core.is_idle() && !core.updating().is_frozen() {
-                    let since = *idle_since.get_or_insert_with(Instant::now);
-                    if since.elapsed() >= config.idle_exit {
-                        eprintln!(
-                            "sikemux core: stopping, as nothing used it for {}s",
-                            config.idle_exit.as_secs()
-                        );
-                        break;
-                    }
-                } else {
-                    idle_since = None;
+                    eprintln!(
+                        "sikemux core: stopping, as nothing used it for {}s",
+                        config.idle_exit.as_secs()
+                    );
+                    break;
                 }
             }
         }

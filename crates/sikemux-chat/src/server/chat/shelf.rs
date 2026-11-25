@@ -168,18 +168,43 @@ impl Shelf {
     /// The chats whose agent keeps no record of their session, or no longer does, so they are
     /// not in Recent. A record not found before is looked for again.
     pub fn gone_from_recent(&self) -> Vec<String> {
-        let mut kept = self.kept.locked();
-        let mut gone = Vec::new();
-        for (agent_id, shelved) in kept.iter_mut() {
+        let snapshot: Vec<(String, Shelved)> = self
+            .kept
+            .locked()
+            .iter()
+            .map(|(id, shelved)| (id.clone(), shelved.clone()))
+            .collect();
+        let mut updates: Vec<(String, String, Option<PathBuf>)> = Vec::new();
+        let mut maybe_gone: Vec<(String, String)> = Vec::new();
+        for (agent_id, shelved) in snapshot {
             if shelved.transcript.as_deref().is_some_and(Path::exists) {
                 continue;
             }
-            shelved.transcript = shelved.find_transcript();
-            if shelved.transcript.is_none() && shelved.agent_keeps_records() {
-                gone.push(agent_id.clone());
+            let found = shelved.find_transcript();
+            if found != shelved.transcript {
+                updates.push((agent_id.clone(), shelved.session.clone(), found.clone()));
+            }
+            if found.is_none() && shelved.agent_keeps_records() {
+                maybe_gone.push((agent_id, shelved.session));
             }
         }
-        gone
+        let mut kept = self.kept.locked();
+        for (agent_id, session, transcript) in updates {
+            if let Some(entry) = kept.get_mut(&agent_id) {
+                if entry.session == session {
+                    entry.transcript = transcript;
+                }
+            }
+        }
+        maybe_gone
+            .into_iter()
+            .filter_map(|(agent_id, session)| {
+                let same = kept
+                    .get(&agent_id)
+                    .is_some_and(|entry| entry.session == session);
+                same.then_some(agent_id)
+            })
+            .collect()
     }
 
     /// Waits until the list is on disk.

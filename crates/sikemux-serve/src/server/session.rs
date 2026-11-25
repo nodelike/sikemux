@@ -769,6 +769,7 @@ pub fn report_exit(core: &Core, session: &Session, status: Option<&ExitStatus>) 
         signal: signal.clone(),
     });
     session.exited.store(true, Ordering::Release);
+    core.idle_wake().notify_one();
     for waiter in std::mem::take(&mut *session.line_waiters.locked()) {
         let _ = waiter.found.send(None);
     }

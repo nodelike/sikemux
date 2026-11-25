@@ -1564,7 +1564,8 @@ async fn count_weeks(core: Arc<Core>) {
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         ticker.tick().await;
-        prune(&core);
+        let pruning = core.clone();
+        let _ = tokio::task::spawn_blocking(move || prune(&pruning)).await;
         let Some((before, began)) =
             week_began(epoch_ms()).and_then(|began| Some((week_before(began)?, began)))
         else {

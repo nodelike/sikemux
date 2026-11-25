@@ -47,10 +47,7 @@ impl FrameKind {
 }
 
 pub fn encode_frozen<T: Serialize>(message: &T) -> serde_json::Result<Vec<u8>> {
-    Ok(encode_frame(
-        FrameKind::Frozen,
-        &[&serde_json::to_vec(message)?],
-    ))
+    encode_json_frame(FrameKind::Frozen, &[], message, &[])
 }
 
 #[derive(Debug)]
@@ -79,11 +76,27 @@ pub fn encode_frame(kind: FrameKind, parts: &[&[u8]]) -> Vec<u8> {
     frame
 }
 
+fn encode_json_frame<T: Serialize>(
+    kind: FrameKind,
+    prefix: &[u8],
+    message: &T,
+    suffix: &[u8],
+) -> serde_json::Result<Vec<u8>> {
+    let mut frame = Vec::with_capacity(5 + prefix.len() + suffix.len() + 64);
+    frame.extend_from_slice(&[0u8; 4]);
+    frame.push(kind as u8);
+    frame.extend_from_slice(prefix);
+    serde_json::to_writer(&mut frame, message)?;
+    frame.extend_from_slice(suffix);
+    let length = (frame.len() - 4) as u32;
+    if let Some(header) = frame.get_mut(..4) {
+        header.copy_from_slice(&length.to_be_bytes());
+    }
+    Ok(frame)
+}
+
 pub fn encode_control<T: Serialize>(message: &T) -> serde_json::Result<Vec<u8>> {
-    Ok(encode_frame(
-        FrameKind::Control,
-        &[&serde_json::to_vec(message)?],
-    ))
+    encode_json_frame(FrameKind::Control, &[], message, &[])
 }
 
 /// How [`encode_device_view`] opens and closes a device view's control frame. Clients and the
@@ -93,14 +106,12 @@ const DEVICE_VIEW_CLOSES: &[u8] = b"}}";
 
 /// A control frame holding [`super::Event::DeviceView`], from the view's own type.
 pub fn encode_device_view<T: Serialize>(view: &T) -> serde_json::Result<Vec<u8>> {
-    Ok(encode_frame(
+    encode_json_frame(
         FrameKind::Control,
-        &[
-            DEVICE_VIEW_OPENS,
-            &serde_json::to_vec(view)?,
-            DEVICE_VIEW_CLOSES,
-        ],
-    ))
+        DEVICE_VIEW_OPENS,
+        view,
+        DEVICE_VIEW_CLOSES,
+    )
 }
 
 /// The view a control frame from [`encode_device_view`] holds, as the core's JSON.
@@ -232,17 +243,9 @@ fn next_chunk(body: &mut Vec<u8>, length: usize) -> Option<&mut [u8]> {
     body.get_mut(start..)
 }
 
-fn split_frame(mut body: Vec<u8>) -> io::Result<Frame> {
-    let kind = body
-        .first()
-        .copied()
-        .and_then(FrameKind::from_byte)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "unknown frame kind"))?;
-    body.remove(0);
-    Ok(Frame {
-        kind,
-        payload: body,
-    })
+fn parse_kind(byte: u8) -> io::Result<FrameKind> {
+    FrameKind::from_byte(byte)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "unknown frame kind"))
 }
 
 pub fn read_frame_sync<R: Read>(reader: &mut R) -> io::Result<Option<Frame>> {
@@ -253,11 +256,15 @@ pub fn read_frame_sync<R: Read>(reader: &mut R) -> io::Result<Option<Frame>> {
         Err(error) => return Err(error),
     }
     let length = frame_length(header, MAX_FRAME_BYTES)?;
-    let mut body = Vec::new();
-    while let Some(chunk) = next_chunk(&mut body, length) {
+    let mut kind_byte = [0u8; 1];
+    reader.read_exact(&mut kind_byte)?;
+    let kind = parse_kind(kind_byte[0])?;
+    let payload_len = length - 1;
+    let mut payload = Vec::new();
+    while let Some(chunk) = next_chunk(&mut payload, payload_len) {
         reader.read_exact(chunk)?;
     }
-    split_frame(body).map(Some)
+    Ok(Some(Frame { kind, payload }))
 }
 
 pub async fn read_frame<R: tokio::io::AsyncRead + Unpin>(
@@ -279,9 +286,13 @@ pub async fn read_frame_within<R: tokio::io::AsyncRead + Unpin>(
         Err(error) => return Err(error),
     }
     let length = frame_length(header, max_payload)?;
-    let mut body = Vec::new();
-    while let Some(chunk) = next_chunk(&mut body, length) {
+    let mut kind_byte = [0u8; 1];
+    reader.read_exact(&mut kind_byte).await?;
+    let kind = parse_kind(kind_byte[0])?;
+    let payload_len = length - 1;
+    let mut payload = Vec::new();
+    while let Some(chunk) = next_chunk(&mut payload, payload_len) {
         reader.read_exact(chunk).await?;
     }
-    split_frame(body).map(Some)
+    Ok(Some(Frame { kind, payload }))
 }

@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use sikemux_wire::pty::shell_protocol::ShellMetadataSnapshot;
 use sikemux_wire::terminal::{FindResult, GridPoint};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
@@ -263,12 +263,14 @@ impl CoreClient {
 
     async fn open(
         read_half: impl AsyncRead + Send + Unpin + 'static,
-        mut write_half: impl AsyncWrite + Send + Unpin + 'static,
+        write_half: impl AsyncWrite + Send + Unpin + 'static,
         sink: Arc<dyn EventSink>,
         hello: Vec<u8>,
     ) -> Result<Self, ClientError> {
         let mut reader = BufReader::with_capacity(256 * 1024, read_half);
-        write_half.write_all(&hello).await?;
+        let mut writer = BufWriter::with_capacity(64 * 1024, write_half);
+        writer.write_all(&hello).await?;
+        writer.flush().await?;
         let frame = tokio::time::timeout(HANDSHAKE_TIMEOUT, read_frame(&mut reader))
             .await
             .map_err(|_| ClientError::Handshake("timed out".into()))??
@@ -284,11 +286,19 @@ impl CoreClient {
         // reaches the core.
         tokio::spawn(async move {
             while let Some(frame) = outgoing_queue.recv().await {
-                if write_half.write_all(&frame).await.is_err() {
+                if writer.write_all(&frame).await.is_err() {
+                    return;
+                }
+                while let Ok(frame) = outgoing_queue.try_recv() {
+                    if writer.write_all(&frame).await.is_err() {
+                        return;
+                    }
+                }
+                if writer.flush().await.is_err() {
                     return;
                 }
             }
-            let _ = write_half.shutdown().await;
+            let _ = writer.shutdown().await;
         });
         let reader_pending = pending.clone();
         let reader = tokio::spawn(async move {
@@ -353,6 +363,27 @@ impl CoreClient {
         T: Send + 'static,
         F: FnOnce(Result<Reply, ClientError>) -> T + Send + 'static,
     {
+        struct CancelGuard {
+            pending: Pending,
+            request_id: RequestId,
+            armed: bool,
+        }
+        impl CancelGuard {
+            fn disarm(&mut self) {
+                self.armed = false;
+            }
+        }
+        impl Drop for CancelGuard {
+            fn drop(&mut self) {
+                if self.armed {
+                    if let Ok(mut pending) = self.pending.lock() {
+                        if let Some(pending) = pending.as_mut() {
+                            pending.remove(&self.request_id);
+                        }
+                    }
+                }
+            }
+        }
         let (sender, receiver) = oneshot::channel();
         self.queue(
             request_id,
@@ -361,7 +392,16 @@ impl CoreClient {
                 let _ = sender.send(on_reply(reply));
             }),
         )?;
-        Ok(async move { receiver.await.map_err(|_| ClientError::Disconnected) })
+        let mut guard = CancelGuard {
+            pending: self.pending.clone(),
+            request_id,
+            armed: true,
+        };
+        Ok(async move {
+            let result = receiver.await.map_err(|_| ClientError::Disconnected);
+            guard.disarm();
+            result
+        })
     }
 
     /// Sends a request now and runs `on_reply` on the reader task when the

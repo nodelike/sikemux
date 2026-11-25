@@ -12,6 +12,7 @@ use sikemux_pty::task::{
     task_reclamation_plan, TaskRetentionCandidate, MAX_RETAINED_EXITED_TASK_PTYS,
 };
 use sikemux_wire::protocol::{BuildIdentity, SessionId};
+use tokio::sync::Notify;
 
 use super::changed::{self, ChangedCore, What};
 use super::connection::{ClientConn, ClientId};
@@ -20,6 +21,8 @@ use super::{waits, window, Capacity, Core};
 
 pub struct ServeFields {
     pub sessions: Mutex<HashMap<SessionId, Arc<Session>>>,
+    pub sessions_wake: Notify,
+    pub idle_wake: Notify,
     pub next_session_id: AtomicU64,
     pub capacity: Arc<Capacity>,
     pub connections: Mutex<HashMap<ClientId, Arc<ClientConn>>>,
@@ -38,6 +41,8 @@ pub struct ServeFields {
 
 pub trait ServeParts {
     fn sessions(&self) -> &Mutex<HashMap<SessionId, Arc<Session>>>;
+    fn sessions_wake(&self) -> &Notify;
+    fn idle_wake(&self) -> &Notify;
     fn next_session_id(&self) -> &AtomicU64;
     fn capacity(&self) -> &Arc<Capacity>;
     fn connections(&self) -> &Mutex<HashMap<ClientId, Arc<ClientConn>>>;
@@ -55,6 +60,14 @@ pub trait ServeParts {
 impl ServeParts for Core {
     fn sessions(&self) -> &Mutex<HashMap<SessionId, Arc<Session>>> {
         &self.kept::<ServeFields>().sessions
+    }
+
+    fn sessions_wake(&self) -> &Notify {
+        &self.kept::<ServeFields>().sessions_wake
+    }
+
+    fn idle_wake(&self) -> &Notify {
+        &self.kept::<ServeFields>().idle_wake
     }
 
     fn next_session_id(&self) -> &AtomicU64 {
@@ -176,6 +189,8 @@ impl ServeCore for Core {
         }
         let ssh = session.ssh_link().is_some();
         self.sessions().locked().insert(session.id, session);
+        self.sessions_wake().notify_one();
+        self.idle_wake().notify_one();
         if ssh {
             (self.above().ssh_moved)(self);
         }
@@ -194,6 +209,7 @@ impl ServeCore for Core {
         };
         if removed {
             session::detach_all(session);
+            self.idle_wake().notify_one();
         }
         removed
     }
@@ -206,6 +222,7 @@ impl ServeCore for Core {
             sessions.remove(&id);
             drop(sessions);
             session::detach_all(&session);
+            self.idle_wake().notify_one();
         }
         Some(session)
     }
@@ -216,6 +233,7 @@ impl ServeCore for Core {
 
     fn register_client(&self, client: Arc<ClientConn>) {
         self.connections().locked().insert(client.id, client);
+        self.idle_wake().notify_one();
         (self.above().client_joined)(self);
     }
 
@@ -228,6 +246,7 @@ impl ServeCore for Core {
                 session::detach(&session, stream);
             }
         }
+        self.idle_wake().notify_one();
         self.changed(What::View);
     }
 
