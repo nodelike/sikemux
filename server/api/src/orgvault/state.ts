@@ -281,7 +281,13 @@ export async function orgVaultState(
     ended,
     changes,
     since,
-    hosts: hosts.map((host) => ({ hostKey: host.key, member: host.member })),
+    hosts: hosts.map((host) => ({
+      hostKey: host.key,
+      member: host.member,
+      ...((role !== "user" || host.user_id === userId) && {
+        computer: host.name,
+      }),
+    })),
     vouches: vouches
       .filter((vouch) => members.get(vouch.host_key) === vouch.member)
       .map((vouch) => ({

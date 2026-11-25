@@ -1474,6 +1474,9 @@ export interface OrgVault {
   vouches?: OrgVaultVouch[];
 }
 
+/** The asking host seals the key only for hosts a person let in. A host that does not say so is refused. */
+export type OrgVaultApprovedOnly = boolean;
+
 /** A count of the changes to an org vault's entries. */
 export type OrgVaultChanges = number;
 
@@ -1484,6 +1487,7 @@ export type OrgVaultChangesParam = string;
 export interface OrgVaultCreate {
   /** The org's key sealed for the asking host. */
   key: OrgVaultWrapped;
+  approvedOnly?: OrgVaultApprovedOnly;
 }
 
 /** An entry removed from an org's vault, one revision above the last it had. */
@@ -1545,6 +1549,8 @@ export interface OrgVaultHolder {
 export interface OrgVaultHost {
   hostKey: DeviceKey;
   member: OrgMemberId;
+  /** The computer's name, as its account named it. Only for the asking host's own account's, and for every host to an owner's or admin's. */
+  computer?: string;
 }
 
 /** The hosts the signing host trusts, sealed for the host it lets in and bound to the code that host showed, in URL-safe base64. */
@@ -1556,6 +1562,7 @@ export interface OrgVaultKeysAdd {
   keys: OrgWrappedKey[];
   /** What the asking host signed of the hosts it lets in with this, added first. */
   vouches?: OrgVaultVouchPut[];
+  approvedOnly?: OrgVaultApprovedOnly;
 }
 
 /** An owner's or admin's host whose computer cannot open the org's vault makes it again: every entry and every wrap is dropped, and the generation goes up with a new key held by the asking host alone. */
@@ -1564,6 +1571,7 @@ export interface OrgVaultRemake {
   from: VaultGeneration;
   /** The new key sealed for the asking host at the next generation. */
   key: OrgVaultWrapped;
+  approvedOnly?: OrgVaultApprovedOnly;
 }
 
 /** An owner's or admin's host replaces the org's key: every wrap and every entry moves to the next generation at once. */
@@ -1572,10 +1580,13 @@ export interface OrgVaultRotate {
   from: VaultGeneration;
   /** The new key sealed for each member's host that keeps it, the asking host among them. One for a host that neither held the key nor was vouched for is left out. Every other wrap is dropped. */
   keys: OrgWrappedKey[];
-  /** Every entry in the vault, each once. */
+  /** Every entry in the vault but those in drops, each once. */
   entries: VaultEntryReseal[];
+  /** A shared project's entries that do not open on the asking host, removed from the vault at the revision given. */
+  drops?: OrgVaultEntryRead[];
   /** What the asking host signed of the hosts it lets in with this, added first. */
   vouches?: OrgVaultVouchPut[];
+  approvedOnly?: OrgVaultApprovedOnly;
 }
 
 export interface OrgVaultState {
@@ -2736,6 +2747,7 @@ export interface Definitions {
   OrgTeamName: OrgTeamName;
   OrgTeamRename: OrgTeamRename;
   OrgVault: OrgVault;
+  OrgVaultApprovedOnly: OrgVaultApprovedOnly;
   OrgVaultChanges: OrgVaultChanges;
   OrgVaultChangesParam: OrgVaultChangesParam;
   OrgVaultCreate: OrgVaultCreate;

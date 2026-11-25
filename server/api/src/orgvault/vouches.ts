@@ -72,10 +72,17 @@ async function mayVouch(
     (
       await trx
         .selectFrom("org_vault_vouches")
-        .select("by_key")
-        .where("org_id", "=", orgId)
-        .where("host_key", "=", hostKey)
-        .where("member", "=", id)
+        .innerJoin("devices", "devices.key", "org_vault_vouches.by_key")
+        .innerJoin("org_users", (join) =>
+          join
+            .onRef("org_users.user_id", "=", "devices.user_id")
+            .onRef("org_users.org_id", "=", "org_vault_vouches.org_id")
+            .onRef("org_users.id", "=", "org_vault_vouches.by_member"),
+        )
+        .select("org_vault_vouches.by_key")
+        .where("org_vault_vouches.org_id", "=", orgId)
+        .where("org_vault_vouches.host_key", "=", hostKey)
+        .where("org_vault_vouches.member", "=", id)
         .execute()
     ).map((vouch) => vouch.by_key),
   );

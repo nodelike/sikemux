@@ -29,6 +29,7 @@ pub use sikemux_calls::account::AccountPictureParams;
 pub use sikemux_calls::account::{SignInCode, SignInPage};
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -43,7 +44,7 @@ use tokio::sync::{oneshot, watch};
 use crate::accounts::protocol::{
     AccountProfile, Device, MacSignIn, MacSignInFinish, MacSignInState,
 };
-use sikemux_view::device::AccountInfo;
+use sikemux_view::device::{AccountInfo, AccountOrg};
 use sikemux_wire::protocol::HostRegistration;
 
 use self::api::as_host;
@@ -108,6 +109,9 @@ pub struct Account {
     saved: Mutex<Option<Option<Saved>>>,
     /// What clients are sent.
     shown: Mutex<Option<AccountInfo>>,
+    /// The orgs in what clients are sent are what the account answered, not empty because this
+    /// host has not heard.
+    orgs_heard: AtomicBool,
     flight: Mutex<Option<Flight>>,
     profile_tried: Mutex<Option<Instant>>,
 }
@@ -115,6 +119,13 @@ pub struct Account {
 impl Account {
     pub fn shown(&self) -> Option<AccountInfo> {
         self.shown.locked().clone()
+    }
+
+    /// The orgs the account holds a seat in, or None while this host has not heard which.
+    pub fn orgs(&self) -> Option<Vec<AccountOrg>> {
+        let shown = self.shown.locked();
+        let heard = self.orgs_heard.load(Ordering::Acquire);
+        (shown.as_ref().filter(|_| heard)).map(|shown| shown.orgs.clone())
     }
 }
 
@@ -194,6 +205,7 @@ pub async fn show(core: &Core) {
         }
         saved = None;
     }
+    let mut orgs_heard = false;
     let shown = match (owner, folder(core)) {
         (None, _) => None,
         (Some(owner), Some(folder)) => {
@@ -214,6 +226,7 @@ pub async fn show(core: &Core) {
             };
             let allowance = allowance::read(&folder, &owner).await;
             let orgs = orgs::read(&folder, &owner).await;
+            orgs_heard = orgs.is_some();
             Some(AccountInfo {
                 name,
                 email,
@@ -223,7 +236,7 @@ pub async fn show(core: &Core) {
                 pro_given: allowance.as_ref().is_some_and(allowance::pro_given),
                 features: allowance
                     .map(|allowance| allowance.features.into_iter().map(feature_name).collect()),
-                orgs,
+                orgs: orgs.unwrap_or_default(),
             })
         }
         (Some(_), None) => Some(AccountInfo {
@@ -241,6 +254,7 @@ pub async fn show(core: &Core) {
         let mut kept = core.account().shown.locked();
         let changed = *kept != shown;
         *kept = shown;
+        (core.account().orgs_heard).store(orgs_heard, Ordering::Release);
         changed
     };
     if changed {

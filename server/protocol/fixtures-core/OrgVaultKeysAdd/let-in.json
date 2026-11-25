@@ -13,5 +13,6 @@
       "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       "introduction": "c2VhbGVkLWludHJvZHVjdGlvbg"
     }
-  ]
+  ],
+  "approvedOnly": true
 }

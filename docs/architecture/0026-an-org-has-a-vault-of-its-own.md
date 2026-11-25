@@ -43,10 +43,24 @@ group's and must reach a different set of hosts: every host of every member, and
 - **When a member or a member's host goes, the key is replaced.** The server keeps the wraps of
   hosts that are no longer a member's and says the vault needs a new key. The next owner's or
   admin's host to read it makes a new key, wraps it for the hosts it trusts that are left, and seals
-  every entry again under it in one request; the server drops every other wrap. One request wraps
+  every entry again under it in one request; the server drops every other wrap. Until then it takes
+  no write, so nothing new is sealed under a key someone gone holds. One request wraps
   the new key for at most 500 hosts, its own first, then those that held the old key; the rest wait
-  for the next round. A host whose account left the org, whose account let it go, or that signed out
-  drops its copy of every org vault.
+  for the next round. A host that signed out or was let go by its account drops its copy of every
+  org vault. One whose account left the org drops that org's.
+- **A shared project's entry never stops the key being replaced.** Any member may write one. Where
+  one does not open, or is older than the replacing host's copy, that host puts its own copy back,
+  and with none removes the entry, whose id is kept as ended like any other removal. An entry only
+  owners and admins write does stop it, until one of them removes it or writes it again; one no host
+  could open can be removed too.
+- **A key that may have gone to hosts nobody let in is replaced once.** A core keeps with its key
+  whether every host it was sealed for was let in: it made the key itself, or a host it trusts sealed
+  it. Without that mark, as on every key from before hosts were let in, the host seals it for no
+  other, and an owner's or admin's host replaces it on its own. The server makes one of two such
+  hosts first; the other waits, as every host not yet let in does, for one paste of its code. A
+  member's host goes on reading with such a key until it is replaced. A request that makes, seals,
+  replaces or makes again the key says its core seals only for hosts let in, and the server refuses
+  one that does not.
 - **Each host keeps its copy in its own secret store**, in one item apart from the account
   vault's, holding each org's key and opened entries, so a host that cannot reach the server
   still has them.
@@ -81,6 +95,7 @@ keeps only sealed entries and wrapped keys. Against a server that lies in what i
   host takes a wrap only from itself or from a host it trusts that the vault lists as holding the
   key. The host that makes the vault, or replaces its key, keeps the key it made rather than reading
   it back, and a host holding the key at a generation ignores any other wrap at that generation.
+  Wraps made before hosts were let in are bound to an older context and are not taken.
 - **A host trusts only hosts a person let in.** The code a waiting host shows carries a secret of
   its own and a fingerprint of its host key, its membership in the org and that secret. The host
   it is pasted on finds the listed host the fingerprint fits, so the server can put no other in
@@ -111,7 +126,7 @@ keeps only sealed entries and wrapped keys. Against a server that lies in what i
   saw go, whether the server listed it as removed or a full read left it out, it keeps a mark at
   least one revision above the last it held, or the server's own if higher, and refuses the entry
   at or below it, dropping a held copy that is not above the mark. It does not replace the key
-  while the server lists an entry it refuses. The server can still keep a removal from a host, or
+  while the server lists an entry only owners and admins write that it refuses. The server can still keep a removal from a host, or
   understate its revision to a host that missed writes before it, and then hand it a write the
   removal made it refuse, as a later revision of the entry. A host that neither held an entry nor
   was told it went has no mark for it, so the server can list it again. A host replacing the key
@@ -120,8 +135,11 @@ keeps only sealed entries and wrapped keys. Against a server that lies in what i
 - **A failed answer at the generation a host holds does not erase its copy.** A missing or
   untrusted wrap at that generation, or the server saying the vault does not exist while the host
   holds its key, leaves the copy as it is and shows the failure. A host lets go only when the
-  server names a higher generation it cannot open, as below, or says the account is not in the
-  org, which is how a removed member is told.
+  server names a higher generation it cannot open, as below, or when two answers agree: the account's
+  list of orgs no longer names the org, and the vault is refused, as forbidden or as unknown. That is
+  how a removed member is told. With only one of the two it keeps the key, and on an org left out of
+  the list, or a vault answered as unknown, hands it to nothing meanwhile. A list not read yet says
+  nothing. Whom it trusts and the generation stay whichever way it lets go, until it signs out.
 
 What still rests on the server:
 
@@ -139,8 +157,9 @@ What still rests on the server:
 - **A host that holds nothing takes the generation the server gives.** A host that is waiting has
   only its generation to compare against, though the key itself it takes only as above. One answer
   with a higher generation and no wrap for the host empties the copy it keeps, and pins that
-  generation until it signs out; a 404 or a sign-out empties it too. So the server can roll a host
-  back in two answers: one that empties it, then an old copy.
+  generation until it signs out. The account's list and the vault both saying the org is gone empty it
+  too, and leave the generation as it was. So the server can roll a host back to older entries of
+  the generation it held by emptying it first, and, once it signs out, to an older generation.
 - **Restoring the server from an older backup** strands the hosts that held newer. Each keeps
   the key generation and the entry copies it held and refuses the backup's older ones, and the
   server refuses admins' writes to those entries, since they name revisions it no longer has.

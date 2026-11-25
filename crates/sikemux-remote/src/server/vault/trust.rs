@@ -31,9 +31,10 @@ impl Me {
     }
 }
 
-/// What the org's key sealed for a host is bound to.
+/// What the org's key sealed for a host is bound to. Its first version also named keys sealed for
+/// hosts nobody let in, so no key sealed under that is taken.
 pub fn wrap_context(org: &str, generation: i64, holder: &str) -> String {
-    format!("sikemux-org-vault-key|v1|{org}|{generation}|{holder}")
+    format!("sikemux-org-vault-key|v2|{org}|{generation}|{holder}")
 }
 
 /// Every host the org's vault lists, with its account's membership in the org.
@@ -75,6 +76,14 @@ pub struct Pins {
     floor: i64,
 }
 
+/// `floor`, unless a clock that was wrong once left it further off than a vouch may be.
+fn sound(floor: i64, now: i64) -> i64 {
+    match floor > now + AHEAD {
+        true => now,
+        false => floor,
+    }
+}
+
 fn under(host: &str, member: &str) -> String {
     format!("{host}|{member}")
 }
@@ -93,7 +102,7 @@ impl Pins {
         Pins {
             hosts: BTreeMap::new(),
             dropped: self.dropped.clone(),
-            floor: now.max(self.floor),
+            floor: now.max(sound(self.floor, now)),
         }
     }
 
@@ -138,9 +147,13 @@ impl Pins {
 
     /// Takes in the hosts that those trusted so far vouch for, then drops each the vault no
     /// longer lists under the membership it was trusted under. A host that left meanwhile still
-    /// vouches for what it signed before, as nothing here heard it leave.
+    /// vouches for what it signed before, as nothing here heard it leave. A list without this
+    /// host itself says nothing of the others.
     pub fn refresh(&mut self, org: &str, me: &str, vault: &OrgVault, now: i64) {
-        let Some(listed) = listed(vault) else { return };
+        self.floor = sound(self.floor, now);
+        let Some(listed) = listed(vault).filter(|listed| listed.contains_key(me)) else {
+            return;
+        };
         let before = self.clone();
         let (dropped, hosts) = (&mut self.dropped, &mut self.hosts);
         hosts.retain(|host, pin| {
@@ -437,4 +450,16 @@ fn open_introduction(
         return None;
     }
     serde_json::from_slice(&plain).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_clock_once_wrong_does_not_put_off_what_is_signed_later() {
+        let now = 1_800_000_000_000;
+        let pins = Pins::default().cleared(now + 365 * 24 * 60 * 60 * 1000);
+        assert_eq!(pins.cleared(now).floor, now);
+    }
 }

@@ -2658,6 +2658,11 @@ export const schema = {
       ],
       additionalProperties: false,
     },
+    OrgVaultApprovedOnly: {
+      description:
+        "The asking host seals the key only for hosts a person let in. A host that does not say so is refused.",
+      type: "boolean",
+    },
     OrgVaultChanges: {
       description: "A count of the changes to an org vault's entries.",
       type: "integer",
@@ -2677,6 +2682,7 @@ export const schema = {
           description: "The org's key sealed for the asking host.",
           $ref: "#/$defs/OrgVaultWrapped",
         },
+        approvedOnly: { $ref: "#/$defs/OrgVaultApprovedOnly" },
       },
       required: ["key"],
       additionalProperties: false,
@@ -2814,6 +2820,11 @@ export const schema = {
       properties: {
         hostKey: { $ref: "#/$defs/DeviceKey" },
         member: { $ref: "#/$defs/OrgMemberId" },
+        computer: {
+          description:
+            "The computer's name, as its account named it. Only for the asking host's own account's, and for every host to an owner's or admin's.",
+          type: "string",
+        },
       },
       required: ["hostKey", "member"],
       additionalProperties: false,
@@ -2845,6 +2856,7 @@ export const schema = {
           items: { $ref: "#/$defs/OrgVaultVouchPut" },
           maxItems: 8,
         },
+        approvedOnly: { $ref: "#/$defs/OrgVaultApprovedOnly" },
       },
       required: ["generation", "keys"],
       additionalProperties: false,
@@ -2863,6 +2875,7 @@ export const schema = {
             "The new key sealed for the asking host at the next generation.",
           $ref: "#/$defs/OrgVaultWrapped",
         },
+        approvedOnly: { $ref: "#/$defs/OrgVaultApprovedOnly" },
       },
       required: ["from", "key"],
       additionalProperties: false,
@@ -2885,9 +2898,17 @@ export const schema = {
           maxItems: 500,
         },
         entries: {
-          description: "Every entry in the vault, each once.",
+          description:
+            "Every entry in the vault but those in drops, each once.",
           type: "array",
           items: { $ref: "#/$defs/VaultEntryReseal" },
+          maxItems: 500,
+        },
+        drops: {
+          description:
+            "A shared project's entries that do not open on the asking host, removed from the vault at the revision given.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgVaultEntryRead" },
           maxItems: 500,
         },
         vouches: {
@@ -2897,6 +2918,7 @@ export const schema = {
           items: { $ref: "#/$defs/OrgVaultVouchPut" },
           maxItems: 8,
         },
+        approvedOnly: { $ref: "#/$defs/OrgVaultApprovedOnly" },
       },
       required: ["from", "keys", "entries"],
       additionalProperties: false,

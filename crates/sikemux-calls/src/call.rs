@@ -236,7 +236,7 @@ crate::calls! {
     "orgModelKeyAdd" OrgModelKeyAdd (crate::vault::OrgModelKeyAdd) -> ();
     "orgModelKeyRemove" OrgModelKeyRemove (crate::vault::OrgEntryParams) -> ();
     "orgVaultRemake" OrgVaultRemake (crate::vault::OrgParams) -> ();
-    "orgVaultLetIn" OrgVaultLetIn (crate::vault::OrgLetIn) -> ();
+    "orgVaultLetIn" OrgVaultLetIn (crate::vault::OrgLetIn) -> crate::vault::OrgLetInAnswer;
     "vaultRecoverySaved" VaultRecoverySaved (crate::params::NoParams) -> ();
     "vaultShowRecovery" VaultShowRecovery (crate::params::NoParams) -> ();
     "setPreference" SetPreference (sikemux_view::prefs::PreferenceChange) -> sikemux_view::prefs::Preferences;

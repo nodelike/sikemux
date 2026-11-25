@@ -3,6 +3,7 @@
 use crate::server::remote_state::RemoteParts;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
 use reqwest::Method;
 use serde::de::DeserializeOwned;
@@ -14,6 +15,10 @@ use sikemux_process::sync::Locked;
 use crate::accounts::HostRequest;
 
 use super::super::{Core, CoreError, CoreResult};
+
+/// How long a request may take, and the slowest it may send its body past that, in bytes a second.
+const PATIENCE: Duration = Duration::from_secs(20);
+const SLOWEST: u64 = 64 * 1024;
 
 /// How long the accounts server remembers a signature, refusing it if it comes again.
 const SIGNATURE_MEMORY_SECS: u64 = 60;
@@ -138,7 +143,8 @@ pub async fn host_send_any(
         for (name, value) in body.headers {
             sent = sent.header(name, value);
         }
-        sent = sent.body(body.bytes);
+        let sending = Duration::from_secs(body.bytes.len() as u64 / SLOWEST);
+        sent = sent.timeout(PATIENCE + sending).body(body.bytes);
     }
     sent.send().await.map_err(|error| {
         CoreError::unreachable(
@@ -149,7 +155,7 @@ pub async fn host_send_any(
 }
 
 /// How long a refusal asks to wait before asking again, from its Retry-After.
-pub fn retry_after(response: &reqwest::Response) -> Option<std::time::Duration> {
+pub fn retry_after(response: &reqwest::Response) -> Option<Duration> {
     let seconds = response
         .headers()
         .get(reqwest::header::RETRY_AFTER)?
@@ -158,5 +164,5 @@ pub fn retry_after(response: &reqwest::Response) -> Option<std::time::Duration> 
         .trim()
         .parse()
         .ok()?;
-    Some(std::time::Duration::from_secs(seconds))
+    Some(Duration::from_secs(seconds))
 }

@@ -40,6 +40,9 @@ pub struct OrgVault {
     pub vouches: Option<Vec<OrgVaultVouch>>,
 }
 
+/// The asking host seals the key only for hosts a person let in. A host that does not say so is refused.
+pub type OrgVaultApprovedOnly = bool;
+
 /// A count of the changes to an org vault's entries.
 pub type OrgVaultChanges = i64;
 
@@ -52,6 +55,8 @@ pub type OrgVaultChangesParam = String;
 pub struct OrgVaultCreate {
     /// The org's key sealed for the asking host.
     pub key: OrgVaultWrapped,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approved_only: Option<OrgVaultApprovedOnly>,
 }
 
 /// An entry removed from an org's vault, one revision above the last it had.
@@ -126,6 +131,9 @@ pub struct OrgVaultHolder {
 pub struct OrgVaultHost {
     pub host_key: DeviceKey,
     pub member: OrgMemberId,
+    /// The computer's name, as its account named it. Only for the asking host's own account's, and for every host to an owner's or admin's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub computer: Option<String>,
 }
 
 /// The hosts the signing host trusts, sealed for the host it lets in and bound to the code that host showed, in URL-safe base64.
@@ -140,6 +148,8 @@ pub struct OrgVaultKeysAdd {
     /// What the asking host signed of the hosts it lets in with this, added first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vouches: Option<Vec<OrgVaultVouchPut>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approved_only: Option<OrgVaultApprovedOnly>,
 }
 
 /// An owner's or admin's host whose computer cannot open the org's vault makes it again: every entry and every wrap is dropped, and the generation goes up with a new key held by the asking host alone.
@@ -150,6 +160,8 @@ pub struct OrgVaultRemake {
     pub from: VaultGeneration,
     /// The new key sealed for the asking host at the next generation.
     pub key: OrgVaultWrapped,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approved_only: Option<OrgVaultApprovedOnly>,
 }
 
 /// An owner's or admin's host replaces the org's key: every wrap and every entry moves to the next generation at once.
@@ -160,11 +172,16 @@ pub struct OrgVaultRotate {
     pub from: VaultGeneration,
     /// The new key sealed for each member's host that keeps it, the asking host among them. One for a host that neither held the key nor was vouched for is left out. Every other wrap is dropped.
     pub keys: Vec<OrgWrappedKey>,
-    /// Every entry in the vault, each once.
+    /// Every entry in the vault but those in drops, each once.
     pub entries: Vec<VaultEntryReseal>,
+    /// A shared project's entries that do not open on the asking host, removed from the vault at the revision given.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drops: Option<Vec<OrgVaultEntryRead>>,
     /// What the asking host signed of the hosts it lets in with this, added first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vouches: Option<Vec<OrgVaultVouchPut>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approved_only: Option<OrgVaultApprovedOnly>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -230,6 +247,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
     use super::through;
     Some(match name {
         "OrgVault" => through::<OrgVault>(json),
+        "OrgVaultApprovedOnly" => through::<OrgVaultApprovedOnly>(json),
         "OrgVaultChanges" => through::<OrgVaultChanges>(json),
         "OrgVaultChangesParam" => through::<OrgVaultChangesParam>(json),
         "OrgVaultCreate" => through::<OrgVaultCreate>(json),

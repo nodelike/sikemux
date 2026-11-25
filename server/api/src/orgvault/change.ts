@@ -57,6 +57,14 @@ export interface Asker {
   hostKey: string;
 }
 
+/** Refuses a host whose Sikemux may seal the key for hosts nobody let in. */
+function requireApprovedOnly({ approvedOnly }: { approvedOnly?: boolean }) {
+  if (!approvedOnly)
+    throw forbidden(
+      "This computer's Sikemux is too old for the org's vault. Update Sikemux here first.",
+    );
+}
+
 function conflict(message: string): ApiFailure {
   return new ApiFailure(409, "conflict", message);
 }
@@ -186,8 +194,9 @@ export function auditOrg(
 export async function createOrgVault(
   trx: Transaction<Tables>,
   asker: Asker,
-  { key }: OrgVaultCreate,
+  body: OrgVaultCreate,
 ): Promise<void> {
+  requireApprovedOnly(body);
   const made = await trx
     .insertInto("org_vaults")
     .values({ org_id: asker.orgId, created_by: asker.hostKey })
@@ -197,7 +206,7 @@ export async function createOrgVault(
   if (!made) throw conflict("The org already has a vault.");
   await trx
     .insertInto("org_vault_keys")
-    .values(wrapRows(asker, 1, [{ hostKey: asker.hostKey, wrapped: key }]))
+    .values(wrapRows(asker, 1, [{ hostKey: asker.hostKey, wrapped: body.key }]))
     .execute();
   await vaultChanged(trx, asker.orgId);
   await auditOrg(trx, asker, "org_vault.created", {});
@@ -234,8 +243,10 @@ export async function addOrgKeys(
   trx: Transaction<Tables>,
   asker: Asker,
   member: Member,
-  { generation, keys, vouches }: OrgVaultKeysAdd,
+  body: OrgVaultKeysAdd,
 ): Promise<void> {
+  requireApprovedOnly(body);
+  const { generation, keys, vouches } = body;
   atCurrent((await lockedVault(trx, asker.orgId)).generation, generation);
   await requireHolder(trx, asker, generation);
   await requireMemberHosts(trx, asker.orgId, keys);
@@ -272,14 +283,18 @@ export async function addOrgKeys(
 
 /**
  * Every wrap is replaced by the new key's, so a host that left keeps only a key nothing is sealed
- * under. A host that neither held the key nor was vouched for is left out.
+ * under. A host that neither held the key nor was vouched for is left out. Project entries that do
+ * not open on the asking host are dropped, so no member's write can keep the key from being
+ * replaced.
  */
 export async function rotateOrgVault(
   trx: Transaction<Tables>,
   asker: Asker,
   member: Member,
-  { from, keys, entries, vouches }: OrgVaultRotate,
+  body: OrgVaultRotate,
 ): Promise<void> {
+  requireApprovedOnly(body);
+  const { from, keys, entries, drops = [], vouches } = body;
   const { orgId, hostKey } = asker;
   if (!keys.some((key) => key.hostKey === hostKey))
     throw badRequest("The new key is sealed for this host too.");
@@ -298,18 +313,28 @@ export async function rotateOrgVault(
   const kept = keys.filter((key) => held.has(key.hostKey) || vouched.has(key));
   const current = await trx
     .selectFrom("org_vault_entries")
-    .select(["id", "revision"])
+    .select(["id", "kind", "revision"])
     .where("org_id", "=", orgId)
     .execute();
-  const revisions = new Map(current.map((row) => [row.id, row.revision]));
-  const named = new Set(entries.map((entry) => entry.id));
+  const listed = new Map(current.map((row) => [row.id, row]));
+  const given = [...entries, ...drops];
+  const named = new Set(given.map((entry) => entry.id));
   if (
-    named.size !== entries.length ||
-    entries.length !== current.length ||
-    entries.some((entry) => revisions.get(entry.id) !== entry.revision)
+    named.size !== given.length ||
+    given.length !== current.length ||
+    given.some((entry) => listed.get(entry.id)?.revision !== entry.revision)
   )
     throw conflict(
       "The entries are not every entry in the vault at its current revision.",
+    );
+  const dropped = new Set(drops.map((entry) => entry.id));
+  if (
+    current.some(
+      (row) => dropped.has(row.id) && !PROJECT_KINDS.includes(row.kind),
+    )
+  )
+    throw forbidden(
+      "Replacing the key removes only a shared project's entries.",
     );
   const next = from + 1;
   await trx
@@ -322,6 +347,13 @@ export async function rotateOrgVault(
     .insertInto("org_vault_keys")
     .values(wrapRows(asker, next, kept))
     .execute();
+  if (drops.length)
+    await trx
+      .deleteFrom("org_vault_entries")
+      .where("org_id", "=", orgId)
+      .where("id", "in", [...dropped])
+      .execute();
+  await keepEnded(trx, orgId, drops);
   if (entries.length)
     await sql`
       update org_vault_entries
@@ -337,6 +369,7 @@ export async function rotateOrgVault(
     generation: next,
     hosts: kept.length,
     entries: entries.length,
+    dropped: drops.length,
   });
 }
 
@@ -349,9 +382,11 @@ export async function rotateOrgVault(
 export async function remakeOrgVault(
   trx: Transaction<Tables>,
   asker: Asker,
-  { from, key }: OrgVaultRemake,
+  body: OrgVaultRemake,
   presence: Presence,
 ): Promise<void> {
+  requireApprovedOnly(body);
+  const { from, key } = body;
   const { orgId, userId, hostKey } = asker;
   atCurrent((await lockedVault(trx, orgId)).generation, from);
   const holders = await memberHosts(trx, orgId)
@@ -417,6 +452,29 @@ export async function remakeOrgVault(
   });
 }
 
+/**
+ * Refuses a write while a host that left still has a wrap, until an owner's or admin's host
+ * replaces the key, so nothing new is sealed under a key it holds and no write races that.
+ */
+async function requireNoneLeft(trx: Transaction<Tables>, orgId: string) {
+  const left = await trx
+    .selectFrom("org_vault_keys")
+    .select("host_key")
+    .where("org_id", "=", orgId)
+    .where(
+      "host_key",
+      "not in",
+      memberHosts(trx, orgId).clearSelect().select("devices.key"),
+    )
+    .executeTakeFirst();
+  if (left)
+    throw new ApiFailure(
+      503,
+      "unavailable",
+      "A computer that held the org's key left, so it is being replaced. An owner's or admin's computer does that once online.",
+    );
+}
+
 async function unmoved(
   trx: Transaction<Tables>,
   orgId: string,
@@ -460,6 +518,7 @@ export async function putOrgEntry(
   const { orgId, hostKey } = asker;
   atCurrent((await lockedVault(trx, orgId)).generation, generation);
   await requireHolder(trx, asker, generation);
+  await requireNoneLeft(trx, orgId);
   await unmoved(trx, orgId, checked);
   const existing = await trx
     .selectFrom("org_vault_entries")

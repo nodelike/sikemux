@@ -86,6 +86,9 @@ pub struct ShownOrgVault {
     /// The account is an owner or admin there, so this host may add and remove entries.
     pub writes: bool,
     pub model_keys: Vec<ShownOrgModelKey>,
+    /// The entries an owner or admin wrote that this host cannot open, by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unreadable: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed: Option<String>,
     /// While it waits, to an owner or admin: the computers that hold the key and would let this
@@ -144,6 +147,14 @@ pub struct OrgParams {
 pub struct OrgLetIn {
     pub org: String,
     pub code: String,
+}
+
+/// The computer let in, as far as this host knows it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct OrgLetInAnswer {
+    pub computer: Option<String>,
+    /// The member it is on, by name; None when it is this account's or the name is not known.
+    pub member: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]

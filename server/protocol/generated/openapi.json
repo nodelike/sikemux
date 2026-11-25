@@ -5173,7 +5173,7 @@
             }
           },
           "403": {
-            "description": "The account is not the org's owner or admin, or the org's Team plan has lapsed.",
+            "description": "The account is not the org's owner or admin, or the org's Team plan has lapsed, or the host does not say it seals only for hosts let in.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -5247,7 +5247,7 @@
             }
           },
           "403": {
-            "description": "This host does not hold the key at that generation, or seals it for another account's host without being an owner's or admin's. A vouch sent along is for a host this account may not let in or that vaults are not open to, or the org's Team plan has lapsed.",
+            "description": "This host does not hold the key at that generation, does not say it seals only for hosts let in, or seals it for another account's host without being an owner's or admin's. A vouch sent along is for a host this account may not let in or that vaults are not open to, or the org's Team plan has lapsed.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -5350,7 +5350,7 @@
     "/v1/orgs/{orgId}/vault/rotate": {
       "post": {
         "operationId": "rotateOrgVault",
-        "summary": "Replace the org's key, as an owner's or admin's host, sealing every entry again under the new one",
+        "summary": "Replace the org's key, as an owner's or admin's host, sealing every entry again under the new one and dropping the projects' entries that do not open",
         "security": [{ "host": [] }],
         "description": "Only a request signed by a host on the account.",
         "parameters": [
@@ -5387,7 +5387,7 @@
             }
           },
           "403": {
-            "description": "The account is not the org's owner or admin, or this host does not hold the key at that generation. A vouch sent along is for a host this account may not let in or that vaults are not open to, or the org's Team plan has lapsed.",
+            "description": "The account is not the org's owner or admin, this host does not hold the key at that generation, or it does not say it seals only for hosts let in. An entry to drop is not a shared project's. A vouch sent along is for a host this account may not let in or that vaults are not open to, or the org's Team plan has lapsed.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -5403,7 +5403,7 @@
             }
           },
           "409": {
-            "description": "The generation is not the current one, or the entries are not every current entry at its current revision.",
+            "description": "The generation is not the current one, or the entries with those dropped are not every current entry at its current revision.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -5453,7 +5453,7 @@
             }
           },
           "403": {
-            "description": "The account is not the org's owner or admin, or its Team plan has lapsed.",
+            "description": "The account is not the org's owner or admin, its Team plan has lapsed, or the host does not say it seals only for hosts let in.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -5542,6 +5542,14 @@
           },
           "409": {
             "description": "The revision is not the entry's current one, the generation is not current, or the vault already holds 500 entries.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "A host that holds the key is no longer a member's, so nothing is written until the key is replaced. Try again later.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -9467,6 +9475,10 @@
         ],
         "additionalProperties": false
       },
+      "OrgVaultApprovedOnly": {
+        "description": "The asking host seals the key only for hosts a person let in. A host that does not say so is refused.",
+        "type": "boolean"
+      },
       "OrgVaultChanges": {
         "description": "A count of the changes to an org vault's entries.",
         "type": "integer",
@@ -9484,6 +9496,9 @@
           "key": {
             "description": "The org's key sealed for the asking host.",
             "$ref": "#/components/schemas/OrgVaultWrapped"
+          },
+          "approvedOnly": {
+            "$ref": "#/components/schemas/OrgVaultApprovedOnly"
           }
         },
         "required": ["key"],
@@ -9610,7 +9625,11 @@
         "type": "object",
         "properties": {
           "hostKey": { "$ref": "#/components/schemas/DeviceKey" },
-          "member": { "$ref": "#/components/schemas/OrgMemberId" }
+          "member": { "$ref": "#/components/schemas/OrgMemberId" },
+          "computer": {
+            "description": "The computer's name, as its account named it. Only for the asking host's own account's, and for every host to an owner's or admin's.",
+            "type": "string"
+          }
         },
         "required": ["hostKey", "member"],
         "additionalProperties": false
@@ -9638,6 +9657,9 @@
             "type": "array",
             "items": { "$ref": "#/components/schemas/OrgVaultVouchPut" },
             "maxItems": 8
+          },
+          "approvedOnly": {
+            "$ref": "#/components/schemas/OrgVaultApprovedOnly"
           }
         },
         "required": ["generation", "keys"],
@@ -9654,6 +9676,9 @@
           "key": {
             "description": "The new key sealed for the asking host at the next generation.",
             "$ref": "#/components/schemas/OrgVaultWrapped"
+          },
+          "approvedOnly": {
+            "$ref": "#/components/schemas/OrgVaultApprovedOnly"
           }
         },
         "required": ["from", "key"],
@@ -9675,9 +9700,15 @@
             "maxItems": 500
           },
           "entries": {
-            "description": "Every entry in the vault, each once.",
+            "description": "Every entry in the vault but those in drops, each once.",
             "type": "array",
             "items": { "$ref": "#/components/schemas/VaultEntryReseal" },
+            "maxItems": 500
+          },
+          "drops": {
+            "description": "A shared project's entries that do not open on the asking host, removed from the vault at the revision given.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgVaultEntryRead" },
             "maxItems": 500
           },
           "vouches": {
@@ -9685,6 +9716,9 @@
             "type": "array",
             "items": { "$ref": "#/components/schemas/OrgVaultVouchPut" },
             "maxItems": 8
+          },
+          "approvedOnly": {
+            "$ref": "#/components/schemas/OrgVaultApprovedOnly"
           }
         },
         "required": ["from", "keys", "entries"],

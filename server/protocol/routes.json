@@ -2259,7 +2259,7 @@
           "body": "OrgVaultState"
         },
         "403": {
-          "description": "The account is not the org's owner or admin, or the org's Team plan has lapsed.",
+          "description": "The account is not the org's owner or admin, or the org's Team plan has lapsed, or the host does not say it seals only for hosts let in.",
           "body": "ApiError"
         },
         "404": {
@@ -2289,7 +2289,7 @@
           "body": "ApiError"
         },
         "403": {
-          "description": "This host does not hold the key at that generation, or seals it for another account's host without being an owner's or admin's. A vouch sent along is for a host this account may not let in or that vaults are not open to, or the org's Team plan has lapsed.",
+          "description": "This host does not hold the key at that generation, does not say it seals only for hosts let in, or seals it for another account's host without being an owner's or admin's. A vouch sent along is for a host this account may not let in or that vaults are not open to, or the org's Team plan has lapsed.",
           "body": "ApiError"
         },
         "404": {
@@ -2332,7 +2332,7 @@
       "method": "post",
       "path": "/v1/orgs/{orgId}/vault/rotate",
       "operationId": "rotateOrgVault",
-      "summary": "Replace the org's key, as an owner's or admin's host, sealing every entry again under the new one",
+      "summary": "Replace the org's key, as an owner's or admin's host, sealing every entry again under the new one and dropping the projects' entries that do not open",
       "auth": "host",
       "request": "OrgVaultRotate",
       "responses": {
@@ -2345,7 +2345,7 @@
           "body": "ApiError"
         },
         "403": {
-          "description": "The account is not the org's owner or admin, or this host does not hold the key at that generation. A vouch sent along is for a host this account may not let in or that vaults are not open to, or the org's Team plan has lapsed.",
+          "description": "The account is not the org's owner or admin, this host does not hold the key at that generation, or it does not say it seals only for hosts let in. An entry to drop is not a shared project's. A vouch sent along is for a host this account may not let in or that vaults are not open to, or the org's Team plan has lapsed.",
           "body": "ApiError"
         },
         "404": {
@@ -2353,7 +2353,7 @@
           "body": "ApiError"
         },
         "409": {
-          "description": "The generation is not the current one, or the entries are not every current entry at its current revision.",
+          "description": "The generation is not the current one, or the entries with those dropped are not every current entry at its current revision.",
           "body": "ApiError"
         }
       }
@@ -2371,7 +2371,7 @@
           "body": "OrgVaultState"
         },
         "403": {
-          "description": "The account is not the org's owner or admin, or its Team plan has lapsed.",
+          "description": "The account is not the org's owner or admin, its Team plan has lapsed, or the host does not say it seals only for hosts let in.",
           "body": "ApiError"
         },
         "404": {
@@ -2406,6 +2406,10 @@
         },
         "409": {
           "description": "The revision is not the entry's current one, the generation is not current, or the vault already holds 500 entries.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "A host that holds the key is no longer a member's, so nothing is written until the key is replaced. Try again later.",
           "body": "ApiError"
         }
       }

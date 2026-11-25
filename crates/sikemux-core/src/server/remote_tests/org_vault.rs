@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use iroh::SecretKey;
 use serde_json::{json, Value};
-use sikemux_calls::vault::OrgVaultStatus;
+use sikemux_calls::vault::{OrgLetInAnswer, OrgVaultStatus};
 use sikemux_process::sync::Locked;
 use sikemux_view::device::{AccountOrg, OrgRole};
 use sikemux_wire::protocol::BuildIdentity;
@@ -14,7 +14,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use crate::server::remote;
 use crate::server::remote_state::RemoteParts;
-use crate::server::vault::{keys, random_key};
+use crate::server::vault::{keys, random_key, Key};
 use crate::server::{Core, CoreResult, ServerCore};
 
 const OWNER: &str = "member-owner";
@@ -29,6 +29,10 @@ struct Kept {
     hosts: BTreeMap<String, String>,
     wraps: BTreeMap<String, String>,
     vouches: Vec<Value>,
+    entries: Vec<Value>,
+    ended: Vec<Value>,
+    /// What it answers requests that end so, in place of taking them.
+    refuses: Option<(&'static str, u16)>,
 }
 
 fn text<'a>(of: &'a Value, field: &str) -> &'a str {
@@ -51,7 +55,9 @@ impl Kept {
         let (holders, waiting): (Vec<&String>, Vec<&String>) =
             (self.hosts.keys()).partition(|host| self.wraps.contains_key(*host));
         let hosts: Vec<Value> = (self.hosts.iter())
-            .map(|(host, member)| json!({ "hostKey": host, "member": member }))
+            .map(|(host, member)| {
+                json!({ "hostKey": host, "member": member, "computer": format!("{member}'s Mac") })
+            })
             .collect();
         let vouches: Vec<Value> = (self.vouches.iter())
             .filter(|vouch| {
@@ -67,12 +73,19 @@ impl Kept {
             .collect();
         json!({ "vault": {
             "generation": self.generation, "key": self.wraps.get(asker), "holders": holders,
-            "waiting": waiting, "rotate": self.rotate, "remadeAt": null, "entries": [],
-            "ended": [], "changes": 0, "since": null, "hosts": hosts, "vouches": vouches,
+            "waiting": waiting, "rotate": self.rotate, "remadeAt": null,
+            "entries": self.entries, "ended": self.ended, "changes": 0, "since": null, "hosts": hosts, "vouches": vouches,
         }})
     }
 
-    fn keep(&mut self, request: &str, asker: &str, body: &Value) {
+    fn keep(&mut self, request: &str, asker: &str, body: &Value) -> u16 {
+        if let Some((_, status)) = self.refuses.filter(|(end, _)| request.ends_with(end)) {
+            return status;
+        }
+        if let Some(key) = body["key"].as_str() {
+            self.generation = 1;
+            self.wraps.insert(asker.to_owned(), key.to_owned());
+        }
         for vouch in body["vouches"].as_array().into_iter().flatten() {
             let mut vouch = vouch.clone();
             vouch["member"] = json!(self.hosts[text(&vouch, "hostKey")]);
@@ -87,15 +100,44 @@ impl Kept {
             self.vouches.push(vouch);
         }
         if request.ends_with("/rotate") {
+            if body["from"] != self.generation {
+                return 409;
+            }
             self.generation += 1;
             self.rotate = false;
             self.wraps.clear();
+            for dropped in body["drops"].as_array().into_iter().flatten() {
+                let revision = dropped["revision"].as_i64().unwrap() + 1;
+                let mark = json!({ "id": dropped["id"], "revision": revision });
+                self.entries.retain(|entry| entry["id"] != dropped["id"]);
+                self.ended.push(mark);
+            }
+            let resealed = body["entries"].as_array().unwrap();
+            assert_eq!(resealed.len(), self.entries.len());
+            for resealed in resealed {
+                let entry = (self.entries.iter_mut())
+                    .find(|entry| entry["id"] == resealed["id"])
+                    .unwrap();
+                entry["sealed"] = resealed["sealed"].clone();
+                entry["revision"] = json!(resealed["revision"].as_i64().unwrap() + 1);
+                entry["generation"] = json!(self.generation);
+            }
         }
         for key in body["keys"].as_array().into_iter().flatten() {
             self.wraps
                 .entry(text(key, "hostKey").to_owned())
                 .or_insert_with(|| text(key, "wrapped").to_owned());
         }
+        200
+    }
+
+    /// Puts an entry, sealed as given, in place of any with its id.
+    fn put(&mut self, (id, kind): (&str, &str), revision: i64, sealed: String) {
+        self.entries.retain(|entry| entry["id"] != id);
+        self.entries.push(json!({
+            "id": id, "kind": kind, "generation": self.generation, "sealed": sealed,
+            "revision": revision, "updatedBy": "", "updatedAt": "",
+        }));
     }
 }
 
@@ -123,14 +165,14 @@ async fn serve(kept: Shared, asker: String) -> String {
             let mut body = vec![0; length];
             stream.read_exact(&mut body).await.unwrap();
             let request = first.rsplit_once(' ').unwrap().0.to_owned();
-            let answer = {
+            let (status, answer) = {
                 let mut kept = kept.locked();
                 let body = serde_json::from_slice(&body).unwrap_or_default();
-                kept.keep(&request, &asker, &body);
-                kept.state(&asker).to_string()
+                let status = kept.keep(&request, &asker, &body);
+                (status, kept.state(&asker).to_string())
             };
             let answer = format!(
-                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                "HTTP/1.1 {status} Answer\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
                 answer.len()
             );
             stream.write_all(answer.as_bytes()).await.unwrap();
@@ -177,12 +219,29 @@ impl Host {
 
     async fn founder_of(kept: &Shared, secret: &SecretKey) -> Host {
         let host = Host::known_as(kept, secret.clone(), OWNER, OrgRole::Owner).await;
-        kept.locked().generation = 1;
-        let wrap = keys::org_wrap(&random_key().unwrap(), secret, &host.me(), &host.org.id, 1);
-        kept.locked().wraps.insert(host.me(), wrap);
         host.read().await;
+        keys::make_org(&host.core, &host.org.id, secret)
+            .await
+            .unwrap();
         assert!(host.open());
         host
+    }
+
+    /// An owner's host that holds `key` from before hosts were let in by their codes.
+    async fn from_before(kept: &Shared, key: &Key) -> Host {
+        kept.locked().generation = 1;
+        let host = Host::new(kept, OWNER, OrgRole::Owner).await;
+        host.keep_from_before(kept, key);
+        host
+    }
+
+    fn keep_from_before(&self, kept: &Shared, key: &Key) {
+        keys::keep_from_before(&self.core, &self.org.id, *key, 1);
+        (kept.locked().wraps).insert(self.me(), "from before".into());
+    }
+
+    fn entries(&self) -> BTreeMap<String, (i64, Value)> {
+        keys::org_entries(&self.core, &self.org.id)
     }
 
     fn me(&self) -> String {
@@ -206,7 +265,7 @@ impl Host {
         self.core.vault().orgs().seen(&self.org.id).1.unwrap()
     }
 
-    async fn let_in(&self, code: &str) -> CoreResult<()> {
+    async fn let_in(&self, code: &str) -> CoreResult<OrgLetInAnswer> {
         keys::let_in_to_org(&self.core, &self.org, &self.secret, code).await
     }
 }
@@ -556,4 +615,166 @@ async fn an_introduction_made_with_another_code_counts_for_nothing() {
     }
     host.read().await;
     assert!(!host.open());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_projects_entry_that_does_not_open_does_not_stop_the_key_being_replaced() {
+    let kept = server();
+    let key = random_key().unwrap();
+    let org = kept.locked().org.clone();
+    let seal =
+        |id, revision, body: &Value| keys::org_entry(&key, &org, id, (1, revision), body).unwrap();
+    let store = ("store", "project-memory");
+    let said = json!({ "rules": ["kept"] });
+    let owner = Host::from_before(&kept, &key).await;
+    kept.locked().put(store, 3, seal(store, 3, &said));
+    kept.locked().refuses = Some(("/rotate", 500));
+    owner.read().await;
+    assert_eq!(owner.entries()["store"], (3, said.clone()));
+
+    kept.locked().refuses = None;
+    kept.locked().put(store, 4, "A".repeat(64));
+    let waiting = ("waiting", "project-memory-waiting");
+    kept.locked().put(waiting, 7, "A".repeat(64));
+    owner.read().await;
+    assert_eq!(kept.locked().generation, 2);
+    assert_eq!(
+        owner.entries(),
+        [("store".to_owned(), (5, said.clone()))].into()
+    );
+    assert_eq!(
+        kept.locked().ended,
+        [json!({ "id": "waiting", "revision": 8 })]
+    );
+    owner.read().await;
+    assert_eq!(owner.entries(), [("store".to_owned(), (5, said))].into());
+
+    assert!(keys::open_to_writes(&owner.core, &owner.org));
+    kept.locked().put(("key", "model-key"), 1, "A".repeat(64));
+    kept.locked().rotate = true;
+    owner.read().await;
+    assert_eq!(kept.locked().generation, 2);
+    assert!(owner.open());
+    assert!(!keys::open_to_writes(&owner.core, &owner.org));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_list_without_the_host_reading_it_drops_no_host_it_trusts() {
+    let kept = server();
+    let founder = Host::founder(&kept).await;
+    let host = Host::new(&kept, MEMBER, OrgRole::User).await;
+    founder.let_in(&host.code().await).await.unwrap();
+    let listed = std::mem::take(&mut kept.locked().hosts);
+    founder.read().await;
+    {
+        let mut kept = kept.locked();
+        kept.hosts = listed;
+        kept.rotate = true;
+    }
+    founder.read().await;
+    assert_eq!(holders(&kept), sorted(&[&founder, &host]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_from_before_hosts_were_let_in_is_replaced_once_and_sealed_for_no_other() {
+    let kept = server();
+    let key = random_key().unwrap();
+    let first = Host::from_before(&kept, &key).await;
+    let second = Host::from_before(&kept, &key).await;
+    let waits = list(&kept, MEMBER);
+    first.read().await;
+    assert_eq!(kept.locked().generation, 2);
+    assert_eq!(holders(&kept), [first.me()]);
+
+    let code = second.code().await;
+    first.read().await;
+    assert_eq!(kept.locked().generation, 2);
+    assert_eq!(holders(&kept), [first.me()]);
+
+    first.let_in(&code).await.unwrap();
+    second.read().await;
+    assert!(second.open());
+    second.read().await;
+    assert_eq!(kept.locked().generation, 2);
+    assert!(!holders(&kept).contains(&waits.public().to_string()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_sealed_before_hosts_were_let_in_is_not_taken() {
+    let kept = server();
+    let founder = Host::founder(&kept).await;
+    let host = Host::new(&kept, MEMBER, OrgRole::User).await;
+    founder.let_in(&host.code().await).await.unwrap();
+    let hand = |seal: fn(&Key, &SecretKey, &str, &str, i64) -> String| {
+        let mut kept = kept.locked();
+        let key = random_key().unwrap();
+        let wrap = seal(&key, &founder.secret, &host.me(), &kept.org, 1);
+        kept.wraps.insert(host.me(), wrap);
+    };
+    hand(keys::org_wrap_from_before);
+    host.read().await;
+    assert!(!host.open());
+    hand(keys::org_wrap);
+    host.read().await;
+    assert!(host.open());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_members_host_seals_no_key_from_before_hosts_were_let_in() {
+    let kept = server();
+    let key = random_key().unwrap();
+    kept.locked().generation = 1;
+    let member = Host::new(&kept, MEMBER, OrgRole::User).await;
+    member.keep_from_before(&kept, &key);
+    member.read().await;
+    assert!(member.open());
+    let own = Host::new(&kept, MEMBER, OrgRole::User).await;
+    let code = own.code().await;
+    assert!(member.let_in(&code).await.is_err());
+    member.read().await;
+    assert_eq!(holders(&kept), [member.me()]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_orgs_key_goes_only_once_the_list_and_the_vault_both_say_it_is_gone() {
+    for status in [403, 404] {
+        let kept = server();
+        let founder = Host::founder(&kept).await;
+        let host = Host::new(&kept, MEMBER, OrgRole::User).await;
+        founder.let_in(&host.code().await).await.unwrap();
+        host.read().await;
+        assert!(host.open());
+
+        keys::leave_unlisted(&host.core, &[]).await;
+        assert!(host.open());
+        kept.locked().refuses = Some(("/vault", status));
+        assert!(keys::read_org(&host.core, &host.org, &host.secret)
+            .await
+            .is_err());
+        assert!(host.open());
+        keys::leave_unlisted(&host.core, std::slice::from_ref(&host.org)).await;
+        assert!(host.open());
+
+        keys::leave_unlisted(&host.core, &[]).await;
+        assert!(!host.open());
+        kept.locked().refuses = None;
+        host.read().await;
+        assert!(host.open());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_let_in_the_server_did_not_take_trusts_no_host() {
+    let kept = server();
+    let founder = Host::founder(&kept).await;
+    let host = Host::new(&kept, MEMBER, OrgRole::User).await;
+    let code = host.code().await;
+    kept.locked().refuses = Some(("/keys", 500));
+    assert!(founder.let_in(&code).await.is_err());
+    kept.locked().refuses = None;
+    founder.read().await;
+    assert_eq!(holders(&kept), [founder.me()]);
+
+    let answer = founder.let_in(&code).await.unwrap();
+    assert_eq!(answer.computer, Some(format!("{MEMBER}'s Mac")));
 }

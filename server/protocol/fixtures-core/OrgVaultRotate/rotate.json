@@ -12,5 +12,12 @@
       "sealed": "cmVzZWFsZWQ",
       "revision": 3
     }
+  ],
+  "approvedOnly": true,
+  "drops": [
+    {
+      "id": "fedcba9876543210fedcba9876543210",
+      "revision": 2
+    }
   ]
 }

@@ -14,13 +14,10 @@ use crate::server::Core;
 const FILE: &str = "orgs.json";
 const PATH: &str = "/v1/account/orgs";
 
-/// `user_id`'s orgs as clients are sent them; none while the account has not said.
-pub async fn read(dir: &Path, user_id: &str) -> Vec<AccountOrg> {
-    let Some(kept) = kept::read::<OrgMemberships>(dir, FILE, user_id).await else {
-        return Vec::new();
-    };
-    kept.orgs
-        .into_iter()
+/// `user_id`'s orgs as clients are sent them; None while the account has not said.
+pub async fn read(dir: &Path, user_id: &str) -> Option<Vec<AccountOrg>> {
+    let kept = kept::read::<OrgMemberships>(dir, FILE, user_id).await?;
+    let orgs = (kept.orgs.into_iter())
         .map(|org| AccountOrg {
             id: org.id,
             name: org.name,
@@ -33,7 +30,8 @@ pub async fn read(dir: &Path, user_id: &str) -> Vec<AccountOrg> {
             preview: org.preview == Some(true),
             hidden: org.hidden == Some(true),
         })
-        .collect()
+        .collect();
+    Some(orgs)
 }
 
 /// How an org's agents work together, as its owners and admins set it on app.sikemux.com.

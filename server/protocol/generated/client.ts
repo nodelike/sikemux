@@ -554,7 +554,7 @@ export function apiClient(send: Send) {
         `/v1/orgs/${encodeURIComponent(orgId)}/vault/vouches`,
         body,
       ),
-    /** Replace the org's key, as an owner's or admin's host, sealing every entry again under the new one. */
+    /** Replace the org's key, as an owner's or admin's host, sealing every entry again under the new one and dropping the projects' entries that do not open. */
     rotateOrgVault: (orgId: string, body: OrgVaultRotate) =>
       send<OrgVaultState>(
         "POST",

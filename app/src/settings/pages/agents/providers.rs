@@ -188,16 +188,16 @@ fn change<C: Call + 'static>(
     C::Params: Serialize,
     C::Answer: DeserializeOwned + 'static,
 {
-    change_then::<C>(bench, id, params, cx, |_, _| ());
+    change_then::<C>(bench, id, params, cx, |_, _, _| ());
 }
 
-/// As `change`, running `then` once it went through.
+/// As `change`, running `then` on the answer once it went through.
 fn change_then<C: Call + 'static>(
     bench: &mut Workbench,
     id: String,
     params: C::Params,
     cx: &mut Context<Workbench>,
-    then: impl FnOnce(&mut Workbench, &mut Context<Workbench>) + 'static,
+    then: impl FnOnce(&mut Workbench, C::Answer, &mut Context<Workbench>) + 'static,
 ) where
     C::Params: Serialize,
     C::Answer: DeserializeOwned + 'static,
@@ -210,20 +210,19 @@ fn change_then<C: Call + 'static>(
     cx.spawn(async move |bench, cx| {
         let answer = asked.await;
         let _ = bench.update(cx, |bench, cx| {
-            let went = answer.is_ok();
             change_fields(bench, cx, |fields, _| {
                 fields.busy = None;
-                match answer {
+                match &answer {
                     Ok(_) => {
                         fields.editing = None;
                         fields.org_adding = None;
                         fields.org_letting = None;
                     }
-                    Err(message) => fields.failure = Some((id, message)),
+                    Err(message) => fields.failure = Some((id, message.clone())),
                 }
             });
-            if went {
-                then(bench, cx);
+            if let Ok(answer) = answer {
+                then(bench, answer, cx);
             }
             read(bench, cx);
         });
@@ -881,8 +880,26 @@ fn let_host_in(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         return;
     };
     let id = let_in_id(&params.org);
-    change_then::<call::OrgVaultLetIn>(bench, id, params, cx, move |bench, cx| {
-        let said = t!("Let in. {org}'s vault opens there shortly.", org = name);
+    change_then::<call::OrgVaultLetIn>(bench, id, params, cx, move |bench, answer, cx| {
+        let said = match (answer.computer, answer.member) {
+            (Some(host), Some(member)) => t!(
+                "Let in {member}'s {host}. {org}'s vault opens there shortly.",
+                member = member,
+                host = host,
+                org = name
+            ),
+            (Some(host), None) => t!(
+                "Let in {host}. {org}'s vault opens there shortly.",
+                host = host,
+                org = name
+            ),
+            (None, Some(member)) => t!(
+                "Let in a host of {member}'s. {org}'s vault opens there shortly.",
+                member = member,
+                org = name
+            ),
+            (None, None) => t!("Let in. {org}'s vault opens there shortly.", org = name),
+        };
         bench.notify(crate::toast::success(said), cx);
     });
 }
@@ -915,6 +932,49 @@ fn let_in_row(vault: &ShownOrgVault, this: &Entity<Workbench>, cx: &App) -> AnyE
     row(
         t!("Let a host in").to_owned(),
         Some(lines(vec![about], false, cx)),
+        controls,
+        Tokens::get(cx),
+    )
+}
+
+/// An entry that does not open here, which an owner or admin may remove.
+fn unreadable_row(
+    fields: &Fields,
+    vault: &ShownOrgVault,
+    id: &str,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let busy_id = format!("org-unreadable-{id}");
+    let busy = fields.busy.as_deref() == Some(busy_id.as_str());
+    let failed = (fields.failure.as_ref())
+        .filter(|(at, _)| *at == busy_id)
+        .map(|(_, message)| lines(vec![message.clone()], true, cx));
+    let about = failed.unwrap_or_else(|| {
+        let said = t!(
+            "Remove it, then add it again. {org}'s vault key isn't replaced until then.",
+            org = vault.name
+        );
+        lines(vec![said], false, cx)
+    });
+    let (org, id) = (vault.org.clone(), id.to_owned());
+    let controls = button(
+        busy_id.clone(),
+        t!("Remove"),
+        ui::Variant::Outline,
+        busy,
+        this,
+        move |bench, _, cx| {
+            let params = OrgEntryParams {
+                org: org.clone(),
+                id: id.clone(),
+            };
+            change::<call::OrgModelKeyRemove>(bench, busy_id.clone(), params, cx)
+        },
+    );
+    row(
+        t!("A key that doesn't open here").to_owned(),
+        Some(about),
         controls,
         Tokens::get(cx),
     )
@@ -1177,12 +1237,12 @@ fn org_group(
     };
     let shut = match vault.writes {
         true if vault.openers.is_empty() => t!(
-            "Not open on this host yet. Paste this code under Let a host in on one of your hosts that has it, or give it privately to another of {org}'s owners or admins to paste.",
+            "Not open on this host. Paste this code once under Let a host in on one of your hosts that has it, or give it privately to another of {org}'s owners or admins to paste.",
             org = vault.name
         ),
-        true => t!("Not open on this host yet. Paste this code under Let a host in on one of these hosts, and it opens with every key kept. If that's someone else's, give them the code privately.").to_owned(),
+        true => t!("Not open on this host. Paste this code once under Let a host in on one of these hosts, and it opens with every key kept. If that's someone else's, give them the code privately.").to_owned(),
         false => t!(
-            "Not open on this host yet. Paste this code under Let a host in on another of your hosts that has it, or give it privately to one of {org}'s owners or admins to paste.",
+            "Not open on this host. Paste this code once under Let a host in on another of your hosts that has it, or give it privately to one of {org}'s owners or admins to paste.",
             org = vault.name
         ),
     };
@@ -1215,6 +1275,11 @@ fn org_group(
             keys.iter()
                 .map(|key| org_key_row(bench, fields, vault, key, this, cx)),
         )
+        .when(states && vault.active && vault.writes, |body| {
+            let rows =
+                (vault.unreadable.iter()).map(|id| unreadable_row(fields, vault, id, this, cx));
+            body.children(rows)
+        })
         .when(lets_in, |body| body.child(let_in_row(vault, this, cx)))
         .when(adds, |body| body.child(org_add_row(vault, kind, this)));
     let card = rows::section("", None, Some(sub.into()), false, body, cx);

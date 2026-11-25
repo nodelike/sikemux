@@ -352,8 +352,10 @@ pub fn waits(core: &Core) -> Vec<Wait> {
 /// reads.
 #[cfg(any(test, feature = "testing"))]
 pub mod keys {
+    use std::collections::BTreeMap;
     use std::sync::Arc;
 
+    use sikemux_calls::vault::OrgLetInAnswer;
     use sikemux_view::device::AccountOrg;
 
     use super::trust::{self, Me};
@@ -384,13 +386,49 @@ pub mod keys {
         org::sync_org(core, org, &Me::of(host)).await
     }
 
+    pub async fn make_org(core: &Core, org: &str, host: &iroh::SecretKey) -> CoreResult<()> {
+        org::make_vault(core, org, &Me::of(host)).await
+    }
+
+    /// Reads the vaults of orgs this host holds that the account's list, `orgs`, leaves out.
+    pub async fn leave_unlisted(core: &Core, orgs: &[AccountOrg]) {
+        org::leave_unlisted(core, orgs).await;
+    }
+
     pub async fn let_in_to_org(
         core: &Core,
         org: &AccountOrg,
         host: &iroh::SecretKey,
         code: &str,
-    ) -> CoreResult<()> {
+    ) -> CoreResult<OrgLetInAnswer> {
         org::let_in_to(core, org, &Me::of(host), code).await
+    }
+
+    /// An org's entry that holds `body`, as a host puts it at `revision`.
+    pub fn org_entry(
+        key: &Key,
+        org: &str,
+        (id, kind): (&str, &str),
+        (generation, revision): (i64, i64),
+        body: &serde_json::Value,
+    ) -> CoreResult<String> {
+        let plain = serde_json::to_vec(body)?;
+        org::seal_entry(key, org, id, kind, generation, revision - 1, &plain)
+    }
+
+    /// Each entry of the org's vault this host opened: its revision and what it holds.
+    pub fn org_entries(core: &Core, org: &str) -> BTreeMap<String, (i64, serde_json::Value)> {
+        org::opened(core, org)
+    }
+
+    /// Whether this host writes to the org's vault as it last read it.
+    pub fn open_to_writes(core: &Core, org: &AccountOrg) -> bool {
+        org::open_to_writes(core, org).is_ok()
+    }
+
+    /// Has this host hold `key` as it kept it from before hosts were let in by their codes.
+    pub fn keep_from_before(core: &Core, org: &str, key: Key, generation: i64) {
+        org::keep_from_before(core, org, key, generation);
     }
 
     /// The org's key as `from` seals it for `to`.
@@ -402,8 +440,24 @@ pub mod keys {
         generation: i64,
     ) -> String {
         let context = trust::wrap_context(org, generation, to);
+        sealed(key, from, to, &context)
+    }
+
+    /// The org's key as `from` sealed it for `to` before hosts were let in by their codes.
+    pub fn org_wrap_from_before(
+        key: &Key,
+        from: &iroh::SecretKey,
+        to: &str,
+        org: &str,
+        generation: i64,
+    ) -> String {
+        let context = trust::wrap_context(org, generation, to).replace("|v2|", "|v1|");
+        sealed(key, from, to, &context)
+    }
+
+    fn sealed(key: &Key, from: &iroh::SecretKey, to: &str, context: &str) -> String {
         seal::host_public(to)
-            .and_then(|to| seal::wrap_from(key, &seal::host_secret(from), &to, &context))
+            .and_then(|to| seal::wrap_from(key, &seal::host_secret(from), &to, context))
             .unwrap_or_default()
     }
 }
