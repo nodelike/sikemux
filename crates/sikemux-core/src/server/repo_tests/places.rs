@@ -507,8 +507,12 @@ fn reads_never_reach_the_judge() {
             "git push origin main -o --dry-run",
         ),
         (
+            "gh release create v1 --draft --help",
+            "gh release create v1 -F --help",
+        ),
+        (
+            "gh release create --help",
             "gh release create v1 --draft --dry-run",
-            "gh release create v1 -F --dry-run",
         ),
         (
             "curl https://api.acme.com",
