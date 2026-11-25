@@ -918,11 +918,10 @@ canvas.dots {
   min-width: 0;
 }
 .page {
+  width: 100%;
   max-width: calc(var(--max) + 2 * var(--gutter));
-  padding: 20px var(--gutter) 90px;
-}
-.shell.alone .page {
   margin: 0 auto;
+  padding: 20px var(--gutter) 90px;
 }
 .head {
   display: grid;
@@ -981,7 +980,7 @@ canvas.dots {
     90deg,
     transparent,
     #000 var(--gutter),
-    #000 70%,
+    #000 calc(100% - var(--gutter)),
     transparent
   );
   opacity: 0;
