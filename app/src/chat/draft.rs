@@ -362,24 +362,3 @@ impl Composing {
         self.tracked_context = draft.tracked_context;
     }
 }
-
-/// The first few words of `quote`, without its markdown, as a reply's token shows them.
-fn opening_words(quote: &str) -> String {
-    const MOST: usize = 28;
-    let plain: String = quote
-        .chars()
-        .filter(|letter| !matches!(letter, '*' | '_' | '`' | '#' | '>' | '[' | ']'))
-        .collect();
-    let mut words = plain.split_whitespace().filter(|word| *word != "-");
-    let mut opening = String::new();
-    for word in words.by_ref() {
-        if !opening.is_empty() && opening.chars().count() + 1 + word.chars().count() > MOST {
-            return format!("{opening}…");
-        }
-        if !opening.is_empty() {
-            opening.push(' ');
-        }
-        opening.push_str(word);
-    }
-    opening
-}
