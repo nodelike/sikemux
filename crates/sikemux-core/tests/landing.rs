@@ -939,6 +939,12 @@ async fn a_land_trims_the_merge_queues_old_builds_and_keeps_the_newest() {
     std::fs::create_dir(&project).expect("project");
     git(&project, &["init", "--quiet", "-b", "main"]);
     commit_file(&project, ".gitignore", "/target\n", "base");
+    commit_file(
+        &project,
+        "sikemux.json",
+        r#"{"version":1,"landChecks":[{"label":"noop","command":"true","when":["*.txt"]}]}"#,
+        "land check",
+    );
 
     let socket: PathBuf = root.join("core.sock");
     let _core = start_core(&root, &socket);

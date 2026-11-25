@@ -345,7 +345,7 @@ impl Tab {
             let view = wry::WebViewBuilder::new()
                 .with_url(&url)
                 .with_user_agent(&user_agent)
-                .with_initialization_script(&crate::recorder_script())
+                .with_initialization_script(crate::recorder_script())
                 .with_incognito(private)
                 .with_focused(false)
                 .with_visible(false)

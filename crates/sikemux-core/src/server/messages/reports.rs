@@ -226,6 +226,30 @@ fn calm_due(core: &Core, agents: &[Listed], worker: &str, lead: &str, at: u64) -
     )
 }
 
+fn has_busy_siblings(
+    turns: &HashMap<String, sikemux_view::turn::TurnState>,
+    agents: &[Listed],
+    worker: &str,
+    lead: &str,
+) -> bool {
+    agents.iter().any(|agent| {
+        agent.agent_id != worker
+            && agent.parent.as_deref() == Some(lead)
+            && (turns.get(&agent.agent_id)).is_some_and(|turn| {
+                matches!(
+                    turn.state,
+                    sikemux_view::turn::TurnPhase::Working | sikemux_view::turn::TurnPhase::Waiting
+                )
+            })
+    })
+}
+
+pub(crate) fn siblings_busy(core: &Core, worker: &str, lead: &str) -> bool {
+    let turns = crate::server::turn_state::all(core);
+    let agents = roster::listed(core);
+    has_busy_siblings(&turns, &agents, worker, lead)
+}
+
 /// [`calm_due`] with each agent's turn standing as `turns` says.
 pub(super) fn calm_due_in(
     core: &Core,
@@ -238,17 +262,7 @@ pub(super) fn calm_due_in(
     if crate::server::now::asks::person_waits_on(core, worker) {
         return CalmWait::At { at };
     }
-    let at_work = agents.iter().any(|agent| {
-        agent.agent_id != worker
-            && agent.parent.as_deref() == Some(lead)
-            && (turns.get(&agent.agent_id)).is_some_and(|turn| {
-                matches!(
-                    turn.state,
-                    sikemux_view::turn::TurnPhase::Working | sikemux_view::turn::TurnPhase::Waiting
-                )
-            })
-    });
-    match at_work {
+    match has_busy_siblings(turns, agents, worker, lead) {
         true => CalmWait::UntilSiblingsIdle {
             capped_at: at.saturating_add(CALM_CEILING_MS),
         },

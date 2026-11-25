@@ -675,12 +675,23 @@ pub(crate) fn recorded(core: &Arc<Core>, agent_id: &str, answer: &Value) {
 
 /// What the agent left when its last turn ended, worked out once.
 pub(crate) fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
+    handoff_with(core, agent_id, false)
+}
+
+pub(crate) fn handoff_sync(core: &Core, agent_id: &str) -> InboxHandoff {
+    handoff_with(core, agent_id, true)
+}
+
+fn handoff_with(core: &Core, agent_id: &str, sync: bool) -> InboxHandoff {
     let kept = |turn: Option<&Turn>| turn.map(|turn| (turn.ended_at, turn.let_go));
     let before = {
         let turns = core.inbox().turns.locked();
         let turn = turns.get(agent_id);
-        if let Some(handoff) = turn.and_then(|turn| turn.handoff.clone()) {
-            return handoff;
+        let refreshing = sync && core.inbox().handoff_refreshing.locked().contains(agent_id);
+        if !refreshing {
+            if let Some(handoff) = turn.and_then(|turn| turn.handoff.clone()) {
+                return handoff;
+            }
         }
         kept(turn)
     };
@@ -711,54 +722,57 @@ pub(crate) fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
         }
     }
     if let Some((project, cwd)) = check_git {
-        if let (Some(arc), Ok(handle)) = (core.arc(), tokio::runtime::Handle::try_current()) {
-            {
-                let mut turns = core.inbox().turns.locked();
-                if kept(turns.get(agent_id)) == before {
-                    turn(&mut turns, agent_id).handoff = Some(handoff.clone());
+        if !sync {
+            if let (Some(arc), Ok(handle)) = (core.arc(), tokio::runtime::Handle::try_current()) {
+                {
+                    let mut turns = core.inbox().turns.locked();
+                    if kept(turns.get(agent_id)) == before {
+                        turn(&mut turns, agent_id).handoff = Some(handoff.clone());
+                    }
                 }
-            }
-            if core
-                .inbox()
-                .handoff_refreshing
-                .locked()
-                .insert(agent_id.to_owned())
-            {
-                let agent = agent_id.to_owned();
-                handle.spawn(async move {
-                    let is_uncommitted = {
-                        let (arc, agent, project, cwd) =
-                            (arc.clone(), agent.clone(), project.clone(), cwd.clone());
-                        tokio::task::spawn_blocking(move || {
-                            uncommitted(&arc, &project, &agent, &cwd)
-                        })
-                        .await
-                        .unwrap_or(false)
-                    };
-                    let changed = {
-                        let mut turns = arc.inbox().turns.locked();
-                        let updated = if kept(turns.get(&agent)) == before {
-                            if let Some(cached) =
-                                turns.get_mut(&agent).and_then(|t| t.handoff.as_mut())
-                            {
-                                let prev = cached.uncommitted;
-                                cached.uncommitted = is_uncommitted;
-                                prev != is_uncommitted
+                if core
+                    .inbox()
+                    .handoff_refreshing
+                    .locked()
+                    .insert(agent_id.to_owned())
+                {
+                    let agent = agent_id.to_owned();
+                    handle.spawn(async move {
+                        let is_uncommitted = {
+                            let (arc, agent, project, cwd) =
+                                (arc.clone(), agent.clone(), project.clone(), cwd.clone());
+                            tokio::task::spawn_blocking(move || {
+                                uncommitted(&arc, &project, &agent, &cwd)
+                            })
+                            .await
+                            .unwrap_or(false)
+                        };
+                        let changed = {
+                            let mut turns = arc.inbox().turns.locked();
+                            let updated = if kept(turns.get(&agent)) == before {
+                                if let Some(cached) =
+                                    turns.get_mut(&agent).and_then(|t| t.handoff.as_mut())
+                                {
+                                    let prev = cached.uncommitted;
+                                    cached.uncommitted = is_uncommitted;
+                                    prev != is_uncommitted
+                                } else {
+                                    false
+                                }
                             } else {
                                 false
-                            }
-                        } else {
-                            false
+                            };
+                            arc.inbox().handoff_refreshing.locked().remove(&agent);
+                            updated
                         };
-                        arc.inbox().handoff_refreshing.locked().remove(&agent);
-                        updated
-                    };
-                    if changed {
-                        arc.changed(What::View);
-                    }
-                });
+                        if changed {
+                            arc.changed(What::View);
+                            super::turn_state::read_work(&arc, &agent);
+                        }
+                    });
+                }
+                return handoff;
             }
-            return handoff;
         }
         handoff.uncommitted = uncommitted(core, &project, agent_id, &cwd);
     }

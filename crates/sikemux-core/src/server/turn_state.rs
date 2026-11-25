@@ -692,7 +692,7 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
     };
     let project = (core.names().get(agent_id).map(|named| named.project))
         .unwrap_or_else(|| core.workspaces().project_of(&cwd));
-    let handoff = inbox::handoff(core, agent_id);
+    let handoff = inbox::handoff_sync(core, agent_id);
     let head = Git::quick(&cwd).trimmed(&["rev-parse", "HEAD"]).ok();
     let head_at = Git::quick(&cwd)
         .trimmed(&["log", "-1", "--format=%ct", "HEAD"])

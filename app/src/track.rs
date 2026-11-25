@@ -331,30 +331,32 @@ impl Workbench {
 
 fn settle_part<K: 'static>(
     bench: &mut Workbench,
-    (id, lasts): (usize, Duration),
+    moved: (usize, Duration),
     slide: fn(&mut Workbench) -> &mut Slide<K>,
     part: crate::workbench::PartSet,
     cx: &mut Context<Workbench>,
 ) {
-    let task = cx.spawn(async move |this, cx| {
-        cx.background_executor().timer(lasts).await;
-        let _ = this.update(cx, |bench, cx| {
-            let row = slide(bench);
-            if row.motion.as_ref().is_some_and(|motion| motion.id == id) {
-                row.motion = None;
-                bench.parts.redraw_set(part, cx);
-            }
-        });
+    settle_with(bench, moved, slide, cx, move |bench, cx| {
+        bench.parts.redraw_set(part, cx);
     });
-    slide(bench).settle = Some(task);
 }
 
 /// Stops drawing a motion's extra things once it has arrived.
 pub(crate) fn settle<T: 'static, K: 'static>(
     owner: &mut T,
+    moved: (usize, Duration),
+    slide: fn(&mut T) -> &mut Slide<K>,
+    cx: &mut Context<T>,
+) {
+    settle_with(owner, moved, slide, cx, |_, cx| cx.notify());
+}
+
+fn settle_with<T: 'static, K: 'static>(
+    owner: &mut T,
     (id, lasts): (usize, Duration),
     slide: fn(&mut T) -> &mut Slide<K>,
     cx: &mut Context<T>,
+    redraw: impl FnOnce(&mut T, &mut Context<T>) + 'static,
 ) {
     let task = cx.spawn(async move |this, cx| {
         cx.background_executor().timer(lasts).await;
@@ -362,7 +364,7 @@ pub(crate) fn settle<T: 'static, K: 'static>(
             let row = slide(owner);
             if row.motion.as_ref().is_some_and(|motion| motion.id == id) {
                 row.motion = None;
-                cx.notify();
+                redraw(owner, cx);
             }
         });
     });

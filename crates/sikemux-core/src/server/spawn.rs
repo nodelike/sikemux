@@ -1214,18 +1214,21 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
             elsewhere::send_commits(&core, &worker).await;
             return;
         }
-        let settled = {
-            let (core, worker) = (core.clone(), worker.clone());
-            blocking(move || Ok(work_settled(&core, &worker))).await
+        let (settled, siblings_busy) = {
+            let (core, worker, lead) = (core.clone(), worker.clone(), lead.clone());
+            blocking(move || {
+                let settled = work_settled(&core, &worker);
+                let busy = settled == Settled::ReadOnly
+                    && !super::now::asks::person_waits_on(&core, &worker)
+                    && messages::siblings_busy(&core, &worker, &lead);
+                Ok((settled, busy))
+            })
+            .await
+            .unwrap_or((Settled::Unsettled, false))
         };
         let has_open_ask = core.harness().questions.has_open(&worker);
-        let calm = !has_open_ask
-            && is_calm(
-                &ending,
-                answer.as_ref(),
-                settled.unwrap_or(Settled::Unsettled),
-                unwoken,
-            );
+        let calm =
+            !has_open_ask && is_calm(&ending, answer.as_ref(), settled, siblings_busy, unwoken);
         if let Some(line) = calm
             .then(|| calm_line(&core, &worker, answer.as_ref()))
             .flatten()
@@ -1308,6 +1311,7 @@ fn is_calm(
     ending: &Ending,
     answer: Option<&TerminalAnswer>,
     settled: Settled,
+    siblings_busy: bool,
     unwoken: bool,
 ) -> bool {
     let Some(TerminalAnswer::Said(said)) = answer else {
@@ -1316,7 +1320,7 @@ fn is_calm(
     let clean = match settled {
         Settled::Unsettled => false,
         Settled::Landed => true,
-        Settled::ReadOnly => !reports_problem(said),
+        Settled::ReadOnly => siblings_busy && !reports_problem(said),
     };
     matches!(ending, Ending::Finished)
         && clean
@@ -1502,6 +1506,12 @@ mod tests {
     fn a_turn_that_changed_nothing_reaches_its_lead_at_once() {
         let answer = TerminalAnswer::Said(FAILED_APPLY.to_owned());
         let settled = went_in(Some(WorkAt::None));
-        assert!(!is_calm(&Ending::Finished, Some(&answer), settled, false));
+        assert!(!is_calm(
+            &Ending::Finished,
+            Some(&answer),
+            settled,
+            true,
+            false
+        ));
     }
 }
