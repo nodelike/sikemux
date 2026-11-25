@@ -235,7 +235,7 @@ fn worktree_at(core: &Core, dir: &Path) -> Result<AgentWorktree, String> {
     let top = top(dir)?;
     let shown = top.display();
     if is_main_checkout(&top) {
-        return Err(format!("{shown} is its repository's own checkout, which is on its branch already; there is nothing to sync. To sync a worktree, name a path in it in paths."));
+        return Err(format!("{shown} is its repository's own checkout. Sync is for an agent's own checkout; Sikemux fast-forwards this one by itself every ten minutes while it is clean, on its default branch and has no commits of its own. To sync a worktree, name a path in it in paths."));
     }
     let agents = core.workspaces().view().agents;
     let owner = agents.iter().find(|agent| {

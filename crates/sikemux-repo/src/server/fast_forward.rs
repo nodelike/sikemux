@@ -5,8 +5,9 @@
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::workspace_state::WorkspaceParts;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use tokio::task::JoinHandle;
@@ -69,65 +70,83 @@ async fn serve(core: Arc<Core>) {
 }
 
 /// Fast-forwards `checkout` to its remote branch when that is its default branch and it is
-/// left as it was committed.
+/// left as it was committed. Says why when it leaves it be, once for as long as the reason
+/// stays the same.
 fn bring_up_to_date(core: &Core, checkout: &Path) {
-    let Some((remote, branch)) = default_branch_upstream(checkout) else {
-        return;
-    };
-    if !untouched(core, checkout) {
-        return;
+    static LAST_REASON: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
+    let outcome = try_bring_up_to_date(core, checkout);
+    let mut last = LAST_REASON.get_or_init(Default::default).lock().unwrap();
+    match outcome {
+        Ok(()) => {
+            last.remove(checkout);
+        }
+        Err(reason) => {
+            if last.get(checkout) != Some(&reason) {
+                eprintln!(
+                    "sikemux core: not bringing {} up to date: {reason}",
+                    checkout.display()
+                );
+                last.insert(checkout.to_owned(), reason);
+            }
+        }
     }
+}
+
+fn try_bring_up_to_date(core: &Core, checkout: &Path) -> Result<(), String> {
+    let (remote, branch) = default_branch_upstream(checkout)?;
+    untouched(core, checkout)?;
     let ssh = sikemux_process::user_environment::var("GIT_SSH_COMMAND")
         .unwrap_or_else(|| "ssh -o BatchMode=yes -o ConnectTimeout=20".into());
-    let fetched = Git::slow(checkout).env("GIT_SSH_COMMAND", &ssh).trimmed(&[
-        "fetch",
-        "--quiet",
-        "--no-tags",
-        &remote,
-        &branch,
-    ]);
-    if fetched.is_err() {
-        return;
-    }
+    Git::slow(checkout)
+        .env("GIT_SSH_COMMAND", &ssh)
+        .trimmed(&["fetch", "--quiet", "--no-tags", &remote, &branch])
+        .map_err(|error| format!("fetching {remote}/{branch} failed: {error}"))?;
     let upstream = format!("refs/remotes/{remote}/{branch}");
-    let Ok(counts) = Git::quick(checkout).trimmed(&[
-        "rev-list",
-        "--left-right",
-        "--count",
-        &format!("HEAD...{upstream}"),
-    ]) else {
-        return;
-    };
+    let counts = Git::quick(checkout)
+        .trimmed(&[
+            "rev-list",
+            "--left-right",
+            "--count",
+            &format!("HEAD...{upstream}"),
+        ])
+        .map_err(|error| format!("counting commits against {remote}/{branch} failed: {error}"))?;
     let mut counts = counts.split_whitespace().map(str::parse::<u64>);
     let (Some(Ok(ahead)), Some(Ok(behind))) = (counts.next(), counts.next()) else {
-        return;
+        return Err(format!(
+            "could not read the commit counts against {remote}/{branch}"
+        ));
     };
-    if ahead > 0 || behind == 0 || !untouched(core, checkout) {
-        return;
+    if ahead > 0 {
+        return Err(format!(
+            "it has {ahead} commit(s) of its own not on {remote}/{branch}"
+        ));
     }
-    if let Err(error) = Git::quick(checkout).trimmed(&["merge", "--ff-only", "--quiet", &upstream])
-    {
-        eprintln!(
-            "sikemux core: {} was not brought up to date with {remote}/{branch}: {error}",
-            checkout.display()
-        );
+    if behind == 0 {
+        return Ok(());
     }
+    untouched(core, checkout)?;
+    Git::quick(checkout)
+        .trimmed(&["merge", "--ff-only", "--quiet", &upstream])
+        .map(drop)
+        .map_err(|error| format!("fast-forwarding to {remote}/{branch} failed: {error}"))
 }
 
 /// The remote and branch `checkout`'s branch follows, when that branch is the remote's
 /// default: the one its `HEAD` names, or `main` or `master` when it names none.
-fn default_branch_upstream(checkout: &Path) -> Option<(String, String)> {
+fn default_branch_upstream(checkout: &Path) -> Result<(String, String), String> {
     let branch = Git::quick(checkout)
         .trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"])
-        .ok()?;
+        .map_err(|_| "it is not on a branch".to_owned())?;
     let remote = Git::quick(checkout)
         .trimmed(&["config", "--get", &format!("branch.{branch}.remote")])
         .ok()
-        .filter(|remote| !remote.is_empty() && remote != ".")?;
-    let merged = Git::quick(checkout)
+        .filter(|remote| !remote.is_empty() && remote != ".")
+        .ok_or_else(|| format!("{branch} follows no remote"))?;
+    let followed = Git::quick(checkout)
         .trimmed(&["config", "--get", &format!("branch.{branch}.merge")])
-        .ok()?;
-    let followed = merged.strip_prefix("refs/heads/")?.to_owned();
+        .ok()
+        .and_then(|merged| merged.strip_prefix("refs/heads/").map(str::to_owned))
+        .ok_or_else(|| format!("{branch} follows no branch on {remote}"))?;
     let default = Git::quick(checkout)
         .trimmed(&[
             "symbolic-ref",
@@ -137,11 +156,18 @@ fn default_branch_upstream(checkout: &Path) -> Option<(String, String)> {
         ])
         .ok()
         .and_then(|head| Some(head.strip_prefix(&format!("{remote}/"))?.to_owned()));
-    let is_default = match default {
-        Some(default) => default == followed,
+    let is_default = match &default {
+        Some(default) => *default == followed,
         None => followed == "main" || followed == "master",
     };
-    is_default.then_some((remote, followed))
+    if is_default {
+        Ok((remote, followed))
+    } else {
+        let default = default.unwrap_or_else(|| "main".into());
+        Err(format!(
+            "{branch} follows {remote}/{followed}, but {remote}'s default branch is {default}"
+        ))
+    }
 }
 
 /// Whether git is partway through changing `checkout`, or it can't be told.
@@ -150,24 +176,25 @@ pub(super) fn under_way(checkout: &Path) -> bool {
         .is_none_or(|folder| UNDER_WAY.iter().any(|file| folder.join(file).exists()))
 }
 
-/// Whether nobody is at work in `checkout`: no agent busy there, nothing changed or added in
-/// it, and no merge or rebase under way.
-fn untouched(core: &Core, checkout: &Path) -> bool {
+/// Whether nobody is at work in `checkout`: no agent busy or starting there, nothing changed
+/// or added in it, and no merge or rebase under way.
+fn untouched(core: &Core, checkout: &Path) -> Result<(), String> {
     let agents_busy = (core.workspaces().agent_ids().into_iter())
-        .filter(|id| {
-            core.agent_now(id)
-                .chat_state()
-                .is_some_and(|state| state.busy())
-        })
+        .filter(|id| core.agent_now(id).working_or_starting())
         .filter_map(|id| core.workspaces().agent(&id))
         .any(|agent| agent.cwd.starts_with(checkout));
     if agents_busy {
-        return false;
+        return Err("an agent is at work or starting in it".into());
     }
     if under_way(checkout) {
-        return false;
+        return Err("git is partway through a merge or rebase there".into());
     }
-    Git::quick(checkout)
+    let status = Git::quick(checkout)
         .trimmed(&["status", "--porcelain", "--untracked-files=normal"])
-        .is_ok_and(|status| status.is_empty())
+        .map_err(|error| format!("reading its status failed: {error}"))?;
+    if status.is_empty() {
+        Ok(())
+    } else {
+        Err("it has changes or untracked files".into())
+    }
 }
