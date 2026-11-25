@@ -228,13 +228,13 @@ func asker(_ id: String, _ name: String, _ cli: String) -> CallAsker { CallAsker
 /// The calls the demo agents put to the person: Maple's question, naming and font, Kite's two ships to production,
 /// each with a picture where it has one.
 let demoCalls = [
-    PersonCall(id: "q1", project: "/Users/me/server", kind: .taste, asker: asker("a9", "Maple", "codex"), joined: nil, about: nil, page: nil, morePages: nil,
+    PersonCall(id: "q1", project: "/Users/me/server", kind: .taste, asker: asker("a9", "Maple", "codex"), joined: nil, about: nil, page: nil, morePages: nil, shownIn: nil,
                question: "Should amounts be stored in cents or as decimals?", headline: nil,
                context: "The API sends decimals but the ledger table uses integers.", assumption: nil,
                options: [CallOption(id: "1", label: "Cents", detail: nil, picture: nil), CallOption(id: "2", label: "Decimals", detail: nil, picture: nil)],
                pick: "1", against: "every import converts what the API sends.", evidence: nil, action: nil, brief: nil, place: nil,
                canHandBack: false, multi: nil, secret: nil, raisedAt: now - 60_000, state: .open, answer: nil, outcome: nil),
-    PersonCall(id: "7", project: "/Users/me/storefront", kind: .production, asker: asker("a12", "Kite", "claude"), joined: nil, about: nil, page: nil, morePages: nil,
+    PersonCall(id: "7", project: "/Users/me/storefront", kind: .production, asker: asker("a12", "Kite", "claude"), joined: nil, about: nil, page: nil, morePages: nil, shownIn: nil,
                question: "Ship the new welcome screen to everyone?", headline: nil,
                context: "You asked for a friendlier welcome screen. It's on staging, and sign-ups there held at 4.1% over two days.", assumption: nil,
                options: [CallOption(id: "all", label: "Ship it to everyone", detail: nil, picture: nil),
@@ -245,13 +245,13 @@ let demoCalls = [
                           CallEvidence(what: "New", picture: welcomePicture(file: "welcome"))],
                action: "vercel deploy --prod", brief: nil,
                place: CallPlace(id: "production", name: "production"), canHandBack: false, multi: nil, secret: nil, raisedAt: now - 720_000, state: .open, answer: nil, outcome: nil),
-    PersonCall(id: "m1", project: "/Users/me/storefront", kind: .money, asker: asker("a12", "Kite", "claude"), joined: nil, about: nil, page: nil, morePages: nil,
+    PersonCall(id: "m1", project: "/Users/me/storefront", kind: .money, asker: asker("a12", "Kite", "claude"), joined: nil, about: nil, page: nil, morePages: nil, shownIn: nil,
                question: "Buy the display font, $40?", headline: nil, context: "The welcome screen's heading uses it. The licence covers the web and the app for good.", assumption: nil,
                options: [CallOption(id: "buy", label: "Buy it", detail: "$40 once", picture: nil),
                          CallOption(id: "free", label: "Use a free font instead", detail: nil, picture: nil)],
                pick: "buy", against: "a free font is close enough that most people won't see the difference.", evidence: nil, action: nil, brief: nil,
                place: nil, canHandBack: false, multi: nil, secret: nil, raisedAt: now - 180_000, state: .open, answer: nil, outcome: nil),
-    PersonCall(id: "w1", project: "/Users/me/server", kind: .production, asker: asker("a13", "Yuki", "claude"), joined: nil, about: nil, page: nil, morePages: nil,
+    PersonCall(id: "w1", project: "/Users/me/server", kind: .production, asker: asker("a13", "Yuki", "claude"), joined: nil, about: nil, page: nil, morePages: nil, shownIn: nil,
                question: "Ship bank transfer on invoices to everyone?", headline: nil, context: nil, assumption: nil,
                options: [CallOption(id: "allow", label: "Ship it to everyone", detail: nil, picture: nil),
                          CallOption(id: "tenth", label: "Ship to a tenth of customers first", detail: nil, picture: nil),
@@ -264,7 +264,7 @@ let demoCalls = [
                                 cannotUndo: "If it is rolled back, invoices already paid by transfer stay paid."),
                place: CallPlace(id: "production", name: "production"), canHandBack: false, multi: nil, secret: nil,
                raisedAt: now - 120_000, state: .open, answer: nil, outcome: nil),
-    PersonCall(id: "t1", project: "/Users/me/server", kind: .taste, asker: asker("a9", "Maple", "codex"), joined: nil, about: nil, page: nil, morePages: nil,
+    PersonCall(id: "t1", project: "/Users/me/server", kind: .taste, asker: asker("a9", "Maple", "codex"), joined: nil, about: nil, page: nil, morePages: nil, shownIn: nil,
                question: "What do we call the new way to pay?", headline: nil, context: "It sits beside Card on every invoice. Testers asked when the money arrives.", assumption: nil,
                options: [CallOption(id: "1", label: "Bank transfer (2–3 days)", detail: nil, picture: invoicePicture("Bank transfer (2–3 days)", file: "name-1")),
                          CallOption(id: "2", label: "Pay by bank", detail: nil, picture: invoicePicture("Pay by bank", file: "name-2")),
@@ -275,7 +275,7 @@ let demoCalls = [
 
 /// A call for a secret, which takes no words on the island: the person answers it in Sikemux.
 let secretCalls = [
-    PersonCall(id: "s1", project: "/Users/me/server", kind: .access, asker: asker("a15", "Rowan", "claude"), joined: nil, about: nil, page: nil, morePages: nil,
+    PersonCall(id: "s1", project: "/Users/me/server", kind: .access, asker: asker("a15", "Rowan", "claude"), joined: nil, about: nil, page: nil, morePages: nil, shownIn: nil,
                question: "Paste the npm token so the package can publish", headline: nil, context: nil, assumption: nil, options: [], pick: nil,
                against: nil, evidence: nil, action: nil, brief: nil, place: nil, canHandBack: false, multi: nil, secret: true,
                raisedAt: now - 60_000, state: .open, answer: nil, outcome: nil),
@@ -286,7 +286,7 @@ let secretCalls = [
 let chiefCalls = [
     PersonCall(id: "c1q", project: "/Users/me/sikemux", kind: .taste,
                asker: CallAsker(agentId: "c1", name: "Chief", cli: "claude", chief: true), joined: nil,
-               about: asker("a9", "Maple", "codex"), page: CallPage(id: "5f0c2b8e9d1a4c7b8e6f3a2d1c0b9a87", title: "Welcome greeting, both ways"), morePages: nil,
+               about: asker("a9", "Maple", "codex"), page: CallPage(id: "5f0c2b8e9d1a4c7b8e6f3a2d1c0b9a87", title: "Welcome greeting, both ways"), morePages: nil, shownIn: nil,
                question: "Should the welcome screen say hello by name?", headline: nil, context: "Sign-up already has the name; the screen greets everyone the same today.",
                assumption: nil,
                options: [CallOption(id: "name", label: "Greet them by name", detail: nil, picture: nil),
