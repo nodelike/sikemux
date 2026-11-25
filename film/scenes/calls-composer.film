@@ -1,0 +1,46 @@
+# Every kind of ask has the composer: a do ask, with Not doing chosen too, an access ask and a look ask.
+# Words alone answer the look and the access, and a reason is what Not doing waits for.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies calls-composer.json
+project storefront shop
+chat Wren
+title "Take card payments"
+say "Wire card payments into checkout"
+settle 10
+front Wren
+settle 2
+click 700,655
+settle 1
+click "Put the new line in the shop's profile. Paste: Cards, wallets and bank transfer, all in one checkout."
+settle 2
+snap calls-composer-do
+click 806,695
+settle 1
+snap calls-composer-not-doing
+click "Next ask"
+settle 2
+snap calls-composer-access
+click "Next ask"
+settle 2
+snap calls-composer-look
+click 900,805
+type "Looks right, ship it"
+settle 1
+key enter
+settle 3
+snap calls-composer-answered
+click 900,805
+type "You can do it yourself"
+key enter
+settle 3
+snap calls-composer-left
+click 900,805
+type "The shop closes in May"
+settle 1
+snap calls-composer-reason
+click 1041,745
+settle 3
+snap calls-composer-refused

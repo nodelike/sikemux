@@ -113,6 +113,12 @@ impl Workbench {
         }
     }
 
+    /// Whether call `id`'s composer holds words.
+    pub(crate) fn noted(&self, id: &str, cx: &App) -> bool {
+        (self.composing(&owner(id)))
+            .is_some_and(|composing| !composing.draft.read(cx).value().trim().is_empty())
+    }
+
     /// Answers call `id` from its page: the choice made there with what its composer holds as
     /// the note, or with none made those words alone, and the composer's files either way. A
     /// call for a secret has no composer and is answered from its field.

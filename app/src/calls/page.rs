@@ -7,7 +7,6 @@ use super::*;
 use crate::chat::composer::{self, Act};
 use crate::ui::selectable;
 use crate::ui::Clicks;
-use gpui_kit::MouseButton;
 use gpui_kit::StatefulInteractiveElement;
 use sikemux_view::calls::{
     CallChange, CallChangedFile, CallLink, CallOpened, CallOption, DO_NOT_DOING,
@@ -160,7 +159,6 @@ impl Render for Page {
                 takes_files(page, &reply::owner(&open.id), words, &self.bench, cx)
             }
             With::Secret(field) => page.child(composer_row(field)).into_any_element(),
-            With::Nothing => page.into_any_element(),
         }
     }
 }
@@ -293,13 +291,12 @@ impl Render for Foot {
                 takes_files(foot, &reply::owner(&open.id), words, &self.bench, cx)
             }
             With::Secret(field) => foot.child(composer_row(field)).into_any_element(),
-            With::Nothing => self.about(foot, &page, window, cx),
         }
     }
 }
 
-/// What answers an open call: its choices, and under them its composer, the field its secret
-/// is typed in, or neither.
+/// What answers an open call: its choices, and under them its composer or the field its secret
+/// is typed in.
 struct Answering {
     choices: gpui_kit::Div,
     with: With,
@@ -308,8 +305,6 @@ struct Answering {
 enum With {
     Composer(AnyElement),
     Secret(AnyElement),
-    /// Its choices alone answer it.
-    Nothing,
 }
 
 impl Answering {
@@ -324,8 +319,7 @@ impl Answering {
             cards.saw(open, through.target);
             cards.field(open, window, cx)
         });
-        let formed = matches!(open.kind, CallKind::Do | CallKind::Look);
-        let reply = match open.secret || formed {
+        let reply = match open.secret {
             true => None,
             false => {
                 let hint = reply_hint(open, &through.cards.read(cx).chosen(open)).into();
@@ -337,11 +331,9 @@ impl Answering {
                     .flatten()
             }
         };
-        let choices =
-            choices(open, next, &field, through, cx).pb(if formed { px(SIDE) } else { SPACE_3_PX });
+        let choices = choices(open, next, through, cx).pb(SPACE_3_PX);
         let with = match reply {
             Some(view) => With::Composer(view.into_element().isolated().into_any_element()),
-            None if formed => With::Nothing,
             None => With::Secret(secret_field(open, &field, through, window, cx)),
         };
         Self { choices, with }
@@ -382,12 +374,21 @@ fn takes_files(
 /// What the empty composer of `call` says: what its words will be, and how files join them.
 fn reply_hint(call: &PersonCall, chosen: &[String]) -> &'static str {
     let production = call.kind == CallKind::Production;
-    match (call.options.is_empty(), chosen.is_empty(), production) {
+    let worded = call.options.is_empty() || call.kind == CallKind::Look;
+    if not_doing(chosen) {
+        return t!("Say why you're not doing it…");
+    }
+    match (worded, chosen.is_empty(), production) {
         (true, ..) => t!("Answer or drop a screenshot · ⏎ sends and closes · ⌘⏎ keeps it open"),
         (false, true, _) => t!("Pick one above, or answer in your own words…"),
         (false, false, true) => t!("Add a note, then click Go…"),
         (false, false, false) => t!("Add a note · ⏎ sends and closes · ⌘⏎ keeps it open"),
     }
+}
+
+/// Whether the choice made is not to do what a do call asks, which takes a reason.
+fn not_doing(chosen: &[String]) -> bool {
+    chosen.iter().any(|id| id == DO_NOT_DOING)
 }
 
 /// The line that says what `call` asks, and the lines under it.
@@ -501,35 +502,15 @@ fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div 
 }
 
 /// What answers the open call: its choices, the point against its pick, what a yes runs, and Go.
-fn choices(
-    call: &PersonCall,
-    next: Option<String>,
-    field: &Entity<InputState>,
-    through: Through,
-    cx: &App,
-) -> gpui_kit::Div {
+fn choices(call: &PersonCall, next: Option<String>, through: Through, cx: &App) -> gpui_kit::Div {
     let t = Tokens::get(cx).clone();
     let (chosen, sending) = {
         let cards = through.cards.read(cx);
         (cards.chosen(call), cards.sending(&call.id))
     };
-    let noted = !field.read(cx).value().trim().is_empty();
-    let note =
-        (call.kind == CallKind::Do && chosen.iter().any(|id| id == DO_NOT_DOING)).then(|| {
-            div()
-                .w_full()
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(note_row(
-                    field,
-                    t!("Say why you're not doing it…"),
-                    noted,
-                    true,
-                    &t,
-                ))
-                .into_any_element()
-        });
+    let noted = (through.bench.upgrade()).is_some_and(|bench| bench.read(cx).noted(&call.id, cx));
     let tiles = (!call.options.is_empty() && call.kind != CallKind::Look)
-        .then(|| tiles(call, &chosen, sending, note, through, &t));
+        .then(|| tiles(call, &chosen, sending, through, &t));
     let against = against_line(call, &t);
     let runs = (call.kind == CallKind::Production)
         .then_some(call.action.as_deref())
@@ -570,28 +551,18 @@ fn changes(call: &PersonCall, t: &Tokens) -> Option<gpui_kit::Div> {
     )
 }
 
-/// The call's choices as tiles, each a full-width row; `note` goes in the row of Not doing.
+/// The call's choices as tiles, each a full-width row.
 fn tiles(
     call: &PersonCall,
     chosen: &[String],
     sending: bool,
-    mut note: Option<AnyElement>,
     through: Through,
     t: &Tokens,
 ) -> gpui_kit::Div {
     let pictured = !call.secret && call.options.iter().any(|option| option.picture.is_some());
     let tiles = call.options.iter().enumerate().map(|(ix, option)| {
         let on = chosen.contains(&option.id);
-        let note = (option.id == DO_NOT_DOING).then(|| note.take()).flatten();
-        tile(
-            call,
-            (ix, option),
-            (on, pictured),
-            sending,
-            note,
-            through,
-            t,
-        )
+        tile(call, (ix, option), (on, pictured), sending, through, t)
     });
     div().flex().flex_col().gap(px(10.)).children(tiles)
 }
@@ -603,7 +574,6 @@ fn tile(
     (ix, option): (usize, &CallOption),
     (on, pictured): (bool, bool),
     sending: bool,
-    note: Option<AnyElement>,
     through: Through,
     t: &Tokens,
 ) -> AnyElement {
@@ -708,7 +678,6 @@ fn tile(
                 .child(name)
                 .children(detail),
         )
-        .children(note)
         .into_any_element()
 }
 
@@ -836,14 +805,14 @@ fn go_row(
                 Some(option) => option.label.clone().into(),
                 None => t!("Done").into(),
             };
-            let ready = option.is_some_and(|option| option.id != DO_NOT_DOING || noted);
+            let ready = option.is_some() && (noted || !not_doing(chosen));
             Some(go_button(
                 call,
                 words,
                 ready,
                 sending,
                 bench,
-                Workbench::go_with,
+                Workbench::reply,
             ))
         }
         _ => (!call.options.is_empty()).then(|| {

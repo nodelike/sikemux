@@ -1,4 +1,4 @@
-# A do call on the desk's Calls page with Not doing chosen: the note asking why sits in its tile.
+# A do call on the desk's Calls page with Not doing chosen: its composer asks why.
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir
@@ -11,8 +11,8 @@ say "Wire card payments into checkout"
 settle 8
 front Wren
 settle 2
-click "Open the Stripe dashboard in test mode and copy the publishable and secret keys."
+click "Open the Stripe dashboard in test mode and copy the publishable and secret keys. Paste them into the shop's .env as STRIPE_PK and STRIPE_SK."
 settle 2
-click 864,801
+click 806,695
 settle 1
 snap calls-do-not-doing

@@ -1,0 +1,16 @@
+[
+  {
+    "when": "read the receipts spec",
+    "steps": [{ "say": "Read it." }]
+  },
+  {
+    "when": "card payments",
+    "steps": [
+      { "say": "Three things need you before checkout can take cards.", "perSecond": 40 },
+      { "tool": "mcp__sikemux-tools__agent_spawn", "call": "agent.spawn", "input": { "cli": "claude", "title": "Receipts", "prompt": "You are the owner and long-term maintainer of this codebase, and its design is up to you.\n\nRead the receipts spec." }, "ms": 800 },
+      { "tool": "mcp__sikemux-tools__ask", "call": "agent.ask", "input": { "kind": "do", "title": "Your shop bio", "question": "Put the new line in the shop's profile.\nPaste: Cards, wallets and bank transfer, all in one checkout.", "link": { "label": "Edit profile", "url": "https://dashboard.stripe.com/settings/branding" }, "blocked": false }, "ms": 600 },
+      { "tool": "mcp__sikemux-tools__ask", "call": "agent.ask", "input": { "kind": "access", "title": "Merge access", "question": "Press Squash merge on the checkout pull request.", "blocked": false }, "ms": 600 },
+      { "tool": "mcp__sikemux-tools__ask", "call": "agent.ask", "input": { "kind": "look", "title": "New checkout", "question": "The new checkout is live on staging.", "link": { "label": "Staging checkout", "url": "https://staging.storefront.test/checkout" } }, "ms": 600 }
+    ]
+  }
+]

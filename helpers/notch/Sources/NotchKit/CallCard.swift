@@ -582,9 +582,8 @@ private struct CallRow: View {
 }
 
 extension PersonCall {
-    /// What the person types for it is kept private, a secret's or an access call's, so the notch takes
-    /// no words for it: they are typed in the asker's chat.
-    var keepsWordsPrivate: Bool { secret == true || kind == .access }
+    /// A secret is kept private, so the notch takes no words for it: they are typed in the asker's chat.
+    var keepsWordsPrivate: Bool { secret == true }
 }
 
 /// Who asks a call: the project's chief wears Sikemux's S, as its rows do; any other agent its own face.
