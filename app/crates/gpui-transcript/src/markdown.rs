@@ -606,7 +606,11 @@ impl Builder {
         let end = self.0.len();
         match self.1.last_mut() {
             _ if marks == Marks::default() || start == end => {}
-            Some((range, last)) if range.end == start && *last == marks => range.end = end,
+            Some((range, last))
+                if range.end == start && *last == marks && !marks.has(Marks::CODE) =>
+            {
+                range.end = end
+            }
             _ => self.1.push((start..end, marks)),
         }
     }

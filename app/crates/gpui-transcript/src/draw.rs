@@ -1259,11 +1259,10 @@ impl Draw<'_> {
         let on = self.on;
         let style = &*on.style;
         let (place, own) = self.marked(rich);
-        let mono = rich
-            .marks
-            .iter()
-            .filter(|(_, marks)| marks.has(Marks::CODE));
         let chips = chips_in(rich, &style.chips, style.link_chip.as_ref());
+        let mono = rich.marks.iter().filter(|(range, marks)| {
+            marks.has(Marks::CODE) && !chips.iter().any(|(chip, _)| overlap(chip, range))
+        });
         let files: Vec<(Range<usize>, SharedString, FileKind)> = match &style.file_of {
             Some(file_of) => rich
                 .paths
@@ -2126,8 +2125,8 @@ fn highlights(
         .collect()
 }
 
-/// Where the text wrote each chip's words, outside code, longer words first where two would
-/// share letters.
+/// Where the text wrote each chip's words, outside code (except a bare `@` mention that fills an
+/// inline-code span), longer words first where two would share letters.
 fn chips_in(
     rich: &Rich,
     chips: &[Chip],
@@ -2142,16 +2141,17 @@ fn chips_in(
     if chips.is_empty() {
         return linked;
     }
-    let code: Vec<&Range<usize>> = rich
+    let code: Vec<(&Range<usize>, Marks)> = rich
         .marks
         .iter()
         .filter(|(_, marks)| marks.has(Marks::CODE))
-        .map(|(range, _)| range)
+        .map(|(range, marks)| (range, *marks))
         .collect();
     let mut longest: Vec<&Chip> = chips.iter().collect();
     longest.sort_by_key(|chip| std::cmp::Reverse(chip.written.len()));
     let mut found = linked;
     for chip in longest {
+        let bare_mention = chip.written.starts_with('@');
         for (at, written) in rich.text.match_indices(chip.written.as_ref()) {
             let range = at..at + written.len();
             let Some((before, after)) = rich
@@ -2172,8 +2172,11 @@ fn chips_in(
                     '/' => after.get(1..).is_some_and(|rest| rest.starts_with('@')),
                     letter => !letter.is_alphanumeric(),
                 });
-            let taken = code.iter().any(|code| overlap(code, &range))
-                || found.iter().any(|(held, _)| overlap(held, &range));
+            let in_code = code.iter().any(|(code, marks)| {
+                overlap(code, &range)
+                    && !(bare_mention && **code == range && !marks.has(Marks::LINK))
+            });
+            let taken = in_code || found.iter().any(|(held, _)| overlap(held, &range));
             if apart && !taken {
                 found.push((range, chip.clone()));
             }
@@ -2296,5 +2299,92 @@ fn task_box(checked: bool, style: &Style) -> Div {
             .child("✓")
     } else {
         tick.border_color(style.ink_faint)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Markdown;
+    use serde_json::json;
+
+    fn chip(written: &str) -> Chip {
+        Chip {
+            written: SharedString::from(written.to_owned()),
+            width: px(60.),
+            draw: Rc::new(|_, _| div().into_any_element()),
+        }
+    }
+
+    fn paragraph(inline: serde_json::Value) -> Rich {
+        let doc = Markdown::new(&json!([{ "t": "p", "c": inline }]), 0);
+        match doc.blocks()[0].flow() {
+            [Piece::Text(rich)] => rich.clone(),
+            other => panic!("expected a single text flow, got {} pieces", other.len()),
+        }
+    }
+
+    #[test]
+    fn bare_inline_code_agent_mention_renders_as_chip_without_code_background() {
+        let rich = paragraph(json!([
+            { "t": "code", "v": "@Netero" },
+            " is centering the content column across the ",
+            { "t": "code", "v": "app.sikemux.com" },
+            " Rail screens."
+        ]));
+        let chips = vec![chip("@Netero")];
+        let found = chips_in(&rich, &chips, None);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].0, 0..7);
+        assert_eq!(found[0].1.written.as_ref(), "@Netero");
+
+        let style = Style::default();
+        let looks = hide_chip_words(highlights(&rich, None, &[], &style), &found);
+        let netero = looks.iter().find(|(range, _)| *range == (0..7)).unwrap();
+        assert_eq!(netero.1.background_color, None);
+        let host = looks
+            .iter()
+            .find(|(range, _)| rich.text.get(range.clone()) == Some("app.sikemux.com"))
+            .unwrap();
+        assert_eq!(host.1.background_color, Some(style.mark_ground));
+    }
+
+    #[test]
+    fn styled_and_punctuated_inline_code_mentions_render_as_chips() {
+        let rich = paragraph(json!([
+            { "t": "strong", "c": [{ "t": "code", "v": "@Netero" }] },
+            " and (",
+            { "t": "code", "v": "@Setsuna" },
+            ")/",
+            { "t": "code", "v": "@Netero" },
+            "'s change"
+        ]));
+        let chips = vec![chip("@Netero"), chip("@Setsuna")];
+        let matched: Vec<&str> = chips_in(&rich, &chips, None)
+            .into_iter()
+            .filter_map(|(range, _)| rich.text.get(range))
+            .collect();
+        assert_eq!(matched, vec!["@Netero", "@Setsuna", "@Netero"]);
+    }
+
+    #[test]
+    fn real_code_spans_links_and_non_mentions_stay_code() {
+        let rich = paragraph(json!([
+            { "t": "code", "v": "email@Netero.com" },
+            " ",
+            { "t": "code", "v": "@Netero/pkg" },
+            " ",
+            { "t": "code", "v": "@scope/pkg" },
+            " ",
+            { "t": "code", "v": "let x = @Netero" },
+            " ",
+            { "t": "code", "v": "@Unknown" },
+            " ",
+            { "t": "a", "href": "https://example.com", "c": [{ "t": "code", "v": "@Netero" }] },
+            " ",
+            { "t": "code", "v": "+foo.rs" },
+        ]));
+        let chips = vec![chip("@Netero"), chip("+foo.rs")];
+        assert!(chips_in(&rich, &chips, None).is_empty());
     }
 }
