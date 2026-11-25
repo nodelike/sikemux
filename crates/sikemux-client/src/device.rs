@@ -375,10 +375,10 @@ impl Device {
         endpoint.network_change().await;
     }
 
-    /// Closes the current endpoint in the background (waiting up to 200ms) and
-    /// binds a fresh one on the same key using `relays` when provided, keeping
-    /// remembered direct host addresses for the next dial. Refuses to close if a
-    /// live session or join is active on the endpoint.
+    /// Binds a fresh endpoint on the same key using `relays` when provided, swaps
+    /// it in, and closes the retired endpoint in the background (waiting up to 200ms),
+    /// keeping remembered direct host addresses for the next dial. Refuses to swap if
+    /// a live session or join is active on the endpoint.
     pub async fn refresh(&self, relays: Option<Vec<Relay>>) {
         self.replace_endpoint(None, false, relays).await;
     }
@@ -478,16 +478,36 @@ impl Device {
         }
     }
 
-    /// Closes the existing endpoint in a detached task (waiting up to 200ms)
-    /// before binding a fresh one on the same key.
+    /// Binds a fresh endpoint on the same key, swaps it in, and only then
+    /// closes the retired endpoint in a detached task (waiting up to 200ms).
     async fn replace_endpoint(
         &self,
         expected_generation: Option<u64>,
         allow_with_live: bool,
         new_relays: Option<Vec<Relay>>,
     ) -> bool {
+        self.replace_endpoint_with(
+            expected_generation,
+            allow_with_live,
+            new_relays,
+            |key, relays| async move { bind(key, &relays).await },
+        )
+        .await
+    }
+
+    async fn replace_endpoint_with<F, Fut>(
+        &self,
+        expected_generation: Option<u64>,
+        allow_with_live: bool,
+        new_relays: Option<Vec<Relay>>,
+        make_endpoint: F,
+    ) -> bool
+    where
+        F: FnOnce(SecretKey, Vec<Relay>) -> Fut,
+        Fut: std::future::Future<Output = Result<Endpoint, ClientError>>,
+    {
         let _renewing = self.renewing.lock().await;
-        let (retired, relays) = {
+        let relays = {
             let online = self.lock();
             if online.closed
                 || expected_generation.is_some_and(|g| online.generation != g)
@@ -500,31 +520,35 @@ impl Device {
             {
                 return false;
             }
-            let relays = new_relays
+            new_relays
                 .filter(|list| !list.is_empty())
                 .map(usable)
-                .unwrap_or_else(|| online.relays.clone());
-            (online.endpoint.clone(), relays)
+                .unwrap_or_else(|| online.relays.clone())
+        };
+        let Ok(fresh) = make_endpoint(self.key.clone(), relays.clone()).await else {
+            return false;
+        };
+        let retired = {
+            let mut online = self.lock();
+            if online.closed
+                || expected_generation.is_some_and(|g| online.generation != g)
+                || (!allow_with_live && online.has_live_work())
+            {
+                drop(online);
+                tokio::spawn(async move {
+                    fresh.close().await;
+                });
+                return false;
+            }
+            online.generation += 1;
+            online.reached.clear();
+            online.open_connections.clear();
+            online.joins_in_flight = 0;
+            online.last_renewed = Some(Instant::now());
+            online.relays = relays;
+            std::mem::replace(&mut online.endpoint, fresh)
         };
         close_bounded(retired).await;
-        let Ok(fresh) = bind(self.key.clone(), &relays).await else {
-            return false;
-        };
-        let mut online = self.lock();
-        if online.closed {
-            drop(online);
-            tokio::spawn(async move {
-                fresh.close().await;
-            });
-            return false;
-        }
-        online.generation += 1;
-        online.reached.clear();
-        online.open_connections.clear();
-        online.joins_in_flight = 0;
-        online.last_renewed = Some(Instant::now());
-        online.relays = relays;
-        online.endpoint = fresh;
         true
     }
 }
@@ -616,5 +640,90 @@ mod tests {
 
         let fallback = host_addr(host, &usable(vec![relay("not a url")]));
         assert_eq!(fallback.relay_urls().count(), 1);
+    }
+
+    async fn loopback_endpoint(key: SecretKey) -> Endpoint {
+        Endpoint::builder(presets::Minimal)
+            .relay_mode(RelayMode::Disabled)
+            .secret_key(key)
+            .bind()
+            .await
+            .expect("bind loopback endpoint")
+    }
+
+    #[tokio::test]
+    async fn failed_replace_endpoint_keeps_existing_endpoint_open() {
+        let key = SecretKey::generate();
+        let initial = loopback_endpoint(key.clone()).await;
+        let device = Device::on_endpoint(key, initial.clone(), usable(Vec::new()));
+
+        let replaced = device
+            .replace_endpoint_with(None, true, None, |_, _| async {
+                Err(ClientError::Handshake("simulated bind failure".into()))
+            })
+            .await;
+
+        assert!(!replaced);
+        assert_eq!(device.generation(), 0);
+        let (current, generation) = device.endpoint().expect("endpoint still online");
+        assert_eq!(generation, 0);
+        assert!(
+            !current.is_closed(),
+            "existing endpoint must stay open when fresh bind fails"
+        );
+        assert!(!initial.is_closed());
+        device.close().await;
+    }
+
+    #[tokio::test]
+    async fn successful_replace_endpoint_swaps_in_fresh_before_closing_retired() {
+        let key = SecretKey::generate();
+        let initial = loopback_endpoint(key.clone()).await;
+        let device = Device::on_endpoint(key.clone(), initial.clone(), usable(Vec::new()));
+
+        let replaced = device
+            .replace_endpoint_with(Some(0), true, None, |key, _| async move {
+                Ok(loopback_endpoint(key).await)
+            })
+            .await;
+
+        assert!(replaced);
+        assert_eq!(device.generation(), 1);
+        let (current, generation) = device.endpoint().expect("fresh endpoint online");
+        assert_eq!(generation, 1);
+        assert!(!current.is_closed(), "fresh endpoint must be open");
+        assert!(
+            initial.is_closed(),
+            "retired endpoint should close after swap"
+        );
+        device.close().await;
+    }
+
+    #[tokio::test]
+    async fn replace_endpoint_aborts_if_live_work_arrives_during_bind() {
+        let key = SecretKey::generate();
+        let initial = loopback_endpoint(key.clone()).await;
+        let device = Arc::new(Device::on_endpoint(
+            key.clone(),
+            initial.clone(),
+            usable(Vec::new()),
+        ));
+
+        let device_for_bind = device.clone();
+        let replaced = device
+            .replace_endpoint_with(Some(0), false, None, |key, _| async move {
+                let fresh = loopback_endpoint(key).await;
+                device_for_bind.lock().joins_in_flight += 1;
+                Ok(fresh)
+            })
+            .await;
+
+        assert!(!replaced);
+        assert_eq!(device.generation(), 0);
+        assert!(
+            !initial.is_closed(),
+            "existing endpoint with live work must stay open"
+        );
+        device.close().await;
     }
 }
