@@ -534,6 +534,7 @@ fn follow_late_answers(core: &Arc<Core>) {
     });
 }
 
+/// Asks each agent without an answer, or last heard signed out, whether it is signed in.
 pub(super) async fn check_launchers(core: &Arc<Core>) {
     let checks = core
         .workspaces()
@@ -541,12 +542,11 @@ pub(super) async fn check_launchers(core: &Arc<Core>) {
         .into_iter()
         .filter_map(|launcher| {
             let program = launcher.program?;
-            if status::cached(
+            let cached = status::cached(
                 &launcher.agent.provider,
                 launcher.agent.config_path.as_deref(),
-            )
-            .is_some()
-            {
+            );
+            if cached.is_some_and(|cached| cached != status::AgentStatus::SignedOut) {
                 return None;
             }
             let core = core.clone();

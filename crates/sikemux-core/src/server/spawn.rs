@@ -441,9 +441,10 @@ fn start(
         let agent_id = (core.names()).returning_id(Some(&saved.cli), &saved.session_id, open(core));
         core.workspaces().closed_agent(&agent_id)
     });
-    let branch = (was.as_ref()).and_then(|was| Some(was.worktree.as_ref()?.branch.as_str()));
+    let resumed_branch =
+        (was.as_ref()).and_then(|was| Some(was.worktree.as_ref()?.branch.as_str()));
     let resumed = resume
-        .map(|saved| worktree::agent::resumed_in(&saved.project, branch))
+        .map(|saved| worktree::agent::resumed_in(&saved.project, resumed_branch))
         .transpose()?;
     let cwd = resumed
         .as_ref()
@@ -558,6 +559,9 @@ fn start(
         core.names().forget(&agent_id);
         error.to_string()
     })?;
+    if let Some(tree) = &checkout.0 {
+        worktree::agent::warm_up(tree);
+    }
     let own_tree = (checkout.0.as_ref()).or_else(|| resumed.as_ref()?.worktree.as_ref());
     if let Some(checkout) = own_tree {
         let mut checkout = checkout.clone();
@@ -689,6 +693,16 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         .map_err(|error| {
             if let Some(hired) = &hired {
                 elsewhere::never_started(core, hired);
+            }
+            if error
+                .to_string()
+                .ends_with(sikemux_agents::agent_accounts::status::NEEDS_SIGN_IN)
+            {
+                let core = core.clone();
+                tokio::spawn(async move {
+                    super::agent_accounts::check_launchers(&core).await;
+                    super::workspace::refresh_launchers(core).await;
+                });
             }
             error.to_string()
         })?

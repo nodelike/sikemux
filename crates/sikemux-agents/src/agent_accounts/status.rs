@@ -36,6 +36,9 @@ pub enum AgentStatus {
     Unknown,
 }
 
+/// How a refusal for a signed-out agent ends.
+pub const NEEDS_SIGN_IN: &str = " and needs signing in first";
+
 impl AgentStatus {
     /// What a device is told: `ready`, `signedOut` and so on.
     pub fn state(&self) -> &'static str {
@@ -52,9 +55,7 @@ impl AgentStatus {
     pub fn refusal(&self, label: &str) -> Option<String> {
         match self {
             Self::Missing => Some(format!("{label} is not installed on this host")),
-            Self::SignedOut => Some(format!(
-                "{label} is signed out on this host and needs signing in first"
-            )),
+            Self::SignedOut => Some(format!("{label} is signed out on this host{NEEDS_SIGN_IN}")),
             Self::Broken { .. } => Some(format!("{label} does not start on this host")),
             Self::Ready { .. } | Self::Unknown => None,
         }
@@ -304,15 +305,31 @@ async fn exit_code_and_output(
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
     let output = tokio::time::timeout(CHECK_TIMEOUT, command.output())
         .await
         .ok()?
         .ok()?;
-    Some((
-        output.status.code(),
-        String::from_utf8_lossy(&output.stdout).into_owned(),
-    ))
+    let mut said = String::from_utf8_lossy(&output.stdout).into_owned();
+    said.push_str(&String::from_utf8_lossy(&output.stderr));
+    Some((output.status.code(), said))
+}
+
+/// Whether what a CLI printed says it has no sign-in, as opposed to failing for another reason
+/// such as having no network.
+fn says_signed_out(said: &str) -> bool {
+    let said = said.to_lowercase();
+    [
+        "sign in",
+        "sign-in",
+        "signed in",
+        "log in",
+        "login",
+        "logged in",
+        "authenticat",
+    ]
+    .iter()
+    .any(|phrase| said.contains(phrase))
 }
 
 /// Asks the agent's own CLI whether it is signed in, with the profile's environment so it answers
@@ -348,7 +365,8 @@ pub(crate) async fn pi_sign_in(program: &Path, config_path: Option<&str>) -> Age
     }
 }
 
-/// `agy models` answers only when agy is signed in with Google; a Gemini key Sikemux
+/// `agy models` answers only when agy is signed in with Google, and a failure that does not
+/// say so, such as no network, is `Unknown`; a Gemini key Sikemux
 /// passes in `providers` stands in for it otherwise.
 pub(crate) async fn antigravity_sign_in(
     program: &Path,
@@ -364,8 +382,8 @@ pub(crate) async fn antigravity_sign_in(
         Some(_) if keyed => AgentStatus::Ready {
             account: Some("apiKey".into()),
         },
-        Some(_) => AgentStatus::SignedOut,
-        None => AgentStatus::Unknown,
+        Some((_, said)) if says_signed_out(&said) => AgentStatus::SignedOut,
+        Some(_) | None => AgentStatus::Unknown,
     }
 }
 

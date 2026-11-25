@@ -270,6 +270,7 @@ async fn start_worker(
                 }
             };
             unclaimed.0 = None;
+            agent::warm_up(&checkout);
             core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));
             core.changed(What::View);
             Ok(Started {

@@ -48,7 +48,6 @@ pub fn cut_for(
     let base = base_branch(&repo).ok();
     let (branch, path) = cut(&repo, branch, &start_sha)?;
     copy_included(&main, &path);
-    warm::seed_in_background(&main, &path);
     let inside = if cwd.starts_with(&repo) {
         inside(cwd, &repo)
     } else {
@@ -66,6 +65,12 @@ pub fn cut_for(
         },
         path.join(inside),
     ))
+}
+
+/// Starts filling `tree` with the build output and packages cloned from its repository. Done once
+/// the agent owns the tree: a cut that is removed again would otherwise race the cloning.
+pub fn warm_up(tree: &AgentWorktree) {
+    warm::seed_in_background(&tree.repo, &tree.path);
 }
 
 /// A worktree cut for an agent that has not started yet, removed again if
@@ -293,6 +298,7 @@ pub async fn for_agent(
     let branch = branch_for(&params.message);
     let (mut worktree, tree_cwd) = blocking(move || Ok(cut_for(&checkout, &cwd, &branch)?)).await?;
     checkout::claim(core, &mut worktree);
+    warm_up(&worktree);
     let project = core
         .workspaces()
         .view()
