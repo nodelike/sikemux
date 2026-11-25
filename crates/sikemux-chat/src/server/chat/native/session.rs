@@ -535,7 +535,6 @@ pub async fn run<B: Backend>(
                     sikemux_corekit::cli::manifest::instructions(false)
                 }
             }
-            None => false,
         };
         Some(instructions)
     } else {
