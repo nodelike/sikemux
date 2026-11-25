@@ -19,7 +19,8 @@ const SIDE: f32 = 24.;
 const PROSE: f32 = 620.;
 const ATTACHMENT_HEIGHT: f32 = 240.;
 const OPTION_PICTURE_HEIGHT: f32 = 176.;
-const FOOT_HEIGHT: f32 = 300.;
+/// The most of an artifact's desk its foot takes, the rest staying the artifact's.
+const FOOT_SHARE: f32 = 0.75;
 /// The hover group of a call's row in a chat, which offers Open in Asks while hovered.
 const CHAT_ROW: &str = "call-chat-row";
 
@@ -261,18 +262,14 @@ impl Render for Foot {
         let Some(open) = asked else {
             return self.about(foot, &page, window, cx);
         };
-        let asks = div()
-            .text_size(theme::ui_text(13.5))
-            .font_weight(FontWeight::SEMIBOLD)
-            .line_height(relative(1.4))
-            .text_color(t.text_primary)
-            .line_clamp(2)
-            .child(question_lines(&open).0);
+        let asks = question_text(&open, "desk-foot", (13.5, 1.4), &t).flex_none();
         let answering = Answering::new(&open, None, through, window, cx);
-        let foot = foot.child(
+        let foot = foot.max_h(relative(FOOT_SHARE)).child(
             div()
                 .id(SharedString::from(format!("desk-foot-{}", open.id)))
-                .max_h(px(FOOT_HEIGHT))
+                .min_h_0()
+                .flex()
+                .flex_col()
                 .overflow_y_scroll()
                 .child(
                     div()
@@ -280,8 +277,10 @@ impl Render for Foot {
                         .max_w(px(COLUMN + 2. * SIDE))
                         .mx_auto()
                         .px(px(SIDE))
-                        .child(asks)
-                        .child(answering.choices),
+                        .flex()
+                        .flex_col()
+                        .flex_none()
+                        .child(ui::pinned_foot(asks, answering.choices)),
                 ),
         );
         match answering.with {
@@ -404,6 +403,43 @@ fn question_lines(call: &PersonCall) -> (String, Vec<String>) {
     (first, lines.collect())
 }
 
+/// All of what `call` asks: the line that says it, in the size and line height given, and the
+/// lines under it.
+fn question_text(
+    call: &PersonCall,
+    part: &str,
+    (size, leading): (f32, f32),
+    t: &Tokens,
+) -> gpui_kit::Div {
+    let (headline, lines) = question_lines(call);
+    let headline = div()
+        .text_size(theme::ui_text(size))
+        .font_weight(FontWeight::SEMIBOLD)
+        .line_height(relative(leading))
+        .text_color(t.text_primary)
+        .child(selectable::plain(
+            SharedString::from(format!("{part}-question-{}", call.id)),
+            headline,
+        ));
+    let lines = (lines.into_iter()).enumerate().map(|(ix, line)| {
+        let part = format!("{part}-line-{ix}");
+        prose(call, &part, line, t).mt(px(10.))
+    });
+    div().flex().flex_col().child(headline).children(lines)
+}
+
+fn prose(call: &PersonCall, part: &str, text: String, t: &Tokens) -> gpui_kit::Div {
+    div()
+        .max_w(px(PROSE))
+        .text_size(theme::ui_text(13.5))
+        .line_height(relative(1.6))
+        .text_color(t.text_secondary)
+        .child(selectable::plain(
+            SharedString::from(format!("{part}-{}", call.id)),
+            text,
+        ))
+}
+
 /// What the open call asks: who asks, the question, what it links, why it came up and what its
 /// asker opened.
 fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div {
@@ -430,46 +466,25 @@ fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div 
         .children(changes(call, &t))
         .child(div().ml_auto().child(open_chat));
     let who = who(call, through, Some(tail.into_any_element()), cx);
-    let prose = |part: &str, text: String| {
-        div()
-            .max_w(px(PROSE))
-            .text_size(theme::ui_text(13.5))
-            .line_height(relative(1.6))
-            .text_color(t.text_secondary)
-            .child(selectable::plain(
-                SharedString::from(format!("call-page-{part}-{}", call.id)),
-                text,
-            ))
-    };
-    let (headline, lines) = question_lines(call);
-    let question = div()
-        .mt(px(14.))
-        .text_size(theme::ui_text(21.))
-        .font_weight(FontWeight::SEMIBOLD)
-        .line_height(relative(1.3))
-        .text_color(t.text_primary)
-        .child(selectable::plain(
-            SharedString::from(format!("call-page-question-{}", call.id)),
-            headline,
-        ));
-    let more: Vec<gpui_kit::Div> = (lines.into_iter())
-        .enumerate()
-        .map(|(ix, line)| prose(&format!("line-{ix}"), line).mt(px(10.)))
-        .collect();
     let link = (call.link.as_ref())
         .map(|link| div().mt(px(16.)).child(link_tile(call, link, through, &t)));
     let pages = SharedString::from(format!("call-page-pages-{}", call.id));
     let page =
         linked_page(pages, call, None, through, cx).map(|page| div().mt(px(16.)).child(page));
-    let context = context_words(call).map(|words| prose("context", words));
+    let context = context_words(call).map(|words| prose(call, "call-page-context", words, &t));
     let why: Vec<gpui_kit::Div> = (context.into_iter())
         .chain(
             (call.evidence.iter())
                 .enumerate()
                 .filter(|(_, evidence)| evidence.picture.is_none())
                 .map(|(ix, evidence)| {
-                    prose(&format!("evidence-{ix}"), evidence.what.clone())
-                        .text_color(t.text_tertiary)
+                    prose(
+                        call,
+                        &format!("call-page-evidence-{ix}"),
+                        evidence.what.clone(),
+                        &t,
+                    )
+                    .text_color(t.text_tertiary)
                 }),
         )
         .collect();
@@ -493,8 +508,7 @@ fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div 
         .flex()
         .flex_col()
         .child(who)
-        .child(question)
-        .children(more)
+        .child(question_text(call, "call-page", (21., 1.3), &t).mt(px(14.)))
         .children(link)
         .children(page)
         .children(why)
