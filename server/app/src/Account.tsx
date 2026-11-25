@@ -16,6 +16,7 @@ import { DeleteAccount } from "./DeleteAccount.tsx";
 import { DetailsPage } from "./Details.tsx";
 import { HostsPage, useDevices } from "./Devices.tsx";
 import { DomainsPage } from "./Domains.tsx";
+import { GroupsPage } from "./Groups.tsx";
 import { JoinPage } from "./Join.tsx";
 import { useLive } from "./live.ts";
 import { iconMark } from "./marks.ts";
@@ -228,6 +229,13 @@ export function Account({
           await orgs.reload();
           go("/", { replace: true });
         }}
+      />
+    ) : current.page === "groups" ? (
+      <GroupsPage
+        key={current.org.id}
+        org={current.org}
+        team={team}
+        follow={follow}
       />
     ) : current.page === "domains" ? (
       <DomainsPage key={current.org.id} org={current.org} team={team} />

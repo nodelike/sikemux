@@ -437,7 +437,7 @@ export function PeoplePage({
                 member={member}
                 groups={teamsOf(member.id)}
                 open={open}
-                canEditGroups={canManageOrg}
+                canEditGroups={canManageOrg && teams.length > 0}
                 phone={phone}
                 onOpenGroups={() => setGroupsFor(member.id)}
                 onChanged={changed}
@@ -474,7 +474,12 @@ export function PeoplePage({
         <Ending
           title={`Leave ${org.name}`}
           actions={
-            <Btn bad disabled={soleOwner} onClick={() => setAskingLeave(true)}>
+            <Btn
+              bad={!soleOwner}
+              quiet={soleOwner}
+              disabled={soleOwner}
+              onClick={() => setAskingLeave(true)}
+            >
               Leave
             </Btn>
           }
@@ -627,41 +632,39 @@ function MemberRow({
     setAsking(undefined);
   };
 
-  const menuOptions = [
-    ...(phone && canManage
-      ? manageableRoles.map((each) => ({
-          key: `role-${each}`,
-          name: ROLE_WORDS[each],
-          detail: ROLE_DETAIL[each],
-          chosen: each === member.role,
-          choose: () => chooseRole(each),
-        }))
-      : []),
-    ...(canEditGroups
-      ? [
-          {
-            key: "groups",
-            name: "Change groups",
-            icon: <IconTag size={14} />,
-            choose: onOpenGroups,
+  const menuOptions = !canManage
+    ? []
+    : [
+        ...(phone
+          ? manageableRoles.map((each) => ({
+              key: `role-${each}`,
+              name: ROLE_WORDS[each],
+              detail: ROLE_DETAIL[each],
+              chosen: each === member.role,
+              choose: () => chooseRole(each),
+            }))
+          : []),
+        ...(canEditGroups
+          ? [
+              {
+                key: "groups",
+                name: "Change groups",
+                icon: <IconTag size={14} />,
+                choose: onOpenGroups,
+              },
+            ]
+          : []),
+        {
+          key: "remove",
+          name: `Remove from ${org.name}`,
+          icon: <IconTrash size={14} />,
+          bad: true,
+          choose: () => {
+            action.clear();
+            setAsking("remove");
           },
-        ]
-      : []),
-    ...(canManage
-      ? [
-          {
-            key: "remove",
-            name: `Remove from ${org.name}`,
-            icon: <IconTrash size={14} />,
-            bad: true,
-            choose: () => {
-              action.clear();
-              setAsking("remove");
-            },
-          },
-        ]
-      : []),
-  ];
+        },
+      ];
 
   return (
     <Tr>

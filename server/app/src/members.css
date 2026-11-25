@@ -313,6 +313,135 @@ a.m-seats:hover {
   box-shadow: inset 0 0 0 1.5px var(--line2);
 }
 
+/* Groups. */
+.m-gr {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 40px;
+  min-height: 420px;
+}
+
+.m-gr nav {
+  border-right: 1px solid var(--line);
+  padding-right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.m-gr nav button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 14px;
+  border-radius: 10px;
+  text-align: left;
+}
+
+.m-gr nav button b {
+  flex: 1;
+  min-width: 0;
+  font-size: 14.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-gr nav em {
+  font-style: normal;
+  font-size: var(--t);
+  color: var(--two);
+  min-width: 18px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.m-gr nav button:hover {
+  background: var(--hover);
+}
+
+.m-gr nav button[aria-current="true"] {
+  background: var(--on);
+}
+
+.m-gh {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 52px;
+}
+
+.m-gh h2 {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.m-gh > span {
+  color: var(--two);
+  font-size: 13.5px;
+}
+
+.m-gh .gap {
+  flex: 1;
+}
+
+.m-pp {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  column-gap: 32px;
+  margin-top: 8px;
+}
+
+.m-pp > div {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-height: 58px;
+  border-bottom: 1px solid var(--line);
+}
+
+.m-pp > div > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+
+.m-pp b {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-pp small {
+  font-size: 12.5px;
+  color: var(--two);
+}
+
+.m-say {
+  margin: 14px 0;
+  color: var(--two);
+  font-size: 14px;
+}
+
+.m-sklist > div {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 64px;
+  border-bottom: 1px solid var(--line);
+}
+
+.m-sklist > div > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 @media (max-width: 860px) {
   .tools .m-seats {
     order: 5;
@@ -329,5 +458,33 @@ a.m-seats:hover {
 
   .m-fl .seg button {
     height: 36px;
+  }
+
+  .m-gr {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .m-gr nav {
+    display: none;
+  }
+
+  .m-gr.list nav {
+    display: flex;
+    border-right: 0;
+    padding-right: 0;
+  }
+
+  .m-gr.list .m-gb {
+    display: none;
+  }
+
+  .m-gh {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+  }
+
+  .m-gh > .txt {
+    flex-basis: 100%;
   }
 }
