@@ -25,23 +25,29 @@ define_class!(
         #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
         unsafe fn decide(
             &self,
-            _webview: &WKWebView,
+            webview: &WKWebView,
             action: &WKNavigationAction,
             handler: &block2::DynBlock<dyn Fn(WKNavigationActionPolicy)>,
         ) {
             // SAFETY: main thread, and WebKit keeps `action` alive for the callback.
-            let (download, url) = unsafe {
+            let (download, url, method) = unsafe {
+                let request = action.request();
                 (
                     action.shouldPerformDownload(),
-                    action
-                        .request()
+                    request
                         .URL()
                         .and_then(|url| url.absoluteString())
                         .map(|url| url.to_string())
                         .unwrap_or_default(),
+                    request
+                        .HTTPMethod()
+                        .map(|m| m.to_string())
+                        .unwrap_or_default(),
                 )
             };
-            let policy = if download {
+            let policy = if navigation_write_blocked(webview, &method, &url) {
+                WKNavigationActionPolicy::Cancel
+            } else if download {
                 WKNavigationActionPolicy::Download
             } else if self.ivars().events.may_load(&url) {
                 WKNavigationActionPolicy::Allow

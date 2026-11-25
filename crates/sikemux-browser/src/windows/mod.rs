@@ -605,7 +605,7 @@ fn set_up(
         let _ = settings.SetAreDefaultScriptDialogsEnabled(false);
         page::introduce_as(&page, &opening.user_agent);
         let _ = page.webview.AddScriptToExecuteOnDocumentCreated(
-            &HSTRING::from(crate::RECORDER_SCRIPT),
+            &HSTRING::from(crate::recorder_script()),
             &AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(Box::new(|_, _| Ok(()))),
         );
     }

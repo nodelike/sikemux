@@ -33,6 +33,7 @@ enum Reach {
     Plugin {
         plugin: String,
         method: String,
+        tool: Option<String>,
     },
     /// One of a connector's agent tools, by the name agents know it by.
     Tool(String),
@@ -139,6 +140,7 @@ fn connector(manifests: &[&Manifest], name: &str) -> Option<Asked> {
     let reach = Reach::Plugin {
         plugin: manifest.id.clone(),
         method: method.to_owned(),
+        tool: tool.map(|found| found.name.clone()),
     };
     Some(match reads {
         true => Asked::read(wanted, reach),
@@ -175,7 +177,16 @@ pub(in super::super) async fn read(
         )
         .into());
     }
-    run(core, client, wanted.reach, asked.params, asked.project).await
+    run(
+        core,
+        client,
+        &asked.id,
+        manifest.allows_all_projects(),
+        wanted.reach,
+        asked.params,
+        asked.project,
+    )
+    .await
 }
 
 /// Runs the write `asked.name` for the mod `asked.id`, or answers `ask` with every write it
@@ -217,18 +228,46 @@ pub(in super::super) async fn write(
             connect: manifest.connect,
         });
     }
-    let done = run(core, client, wanted.reach, asked.params, asked.project).await?;
+    let done = run(
+        core,
+        client,
+        &asked.id,
+        manifest.allows_all_projects(),
+        wanted.reach,
+        asked.params,
+        asked.project,
+    )
+    .await?;
     Ok(BridgeWrite::Done(done))
 }
 
-/// `params` with the project the pane is in, unless they name one.
-fn in_project(mut params: Value, project: &Option<String>) -> CoreResult<Value> {
+/// `params` pinned to the project the pane is in, unless the mod declares `"projects": "all"`.
+fn in_project(
+    mut params: Value,
+    project: &Option<String>,
+    all_projects: bool,
+) -> CoreResult<Value> {
     if params.is_null() {
         params = json!({});
     }
     let fields = params
         .as_object_mut()
         .ok_or_else(|| CoreError::from("a mod's params must be an object"))?;
+    if !all_projects {
+        let pane_project = project
+            .as_deref()
+            .ok_or_else(|| CoreError::from("this mod's pane is in no project"))?;
+        if let Some(asked) = fields.get("project").and_then(Value::as_str) {
+            if asked != pane_project {
+                return Err(
+                    "this mod can only access its own project; declare \"projects\": \"all\" in mod.json for cross-project access"
+                        .into(),
+                );
+            }
+        }
+        fields.insert("project".into(), pane_project.into());
+        return Ok(params);
+    }
     if !fields.contains_key("project") {
         let project = project
             .clone()
@@ -241,13 +280,15 @@ fn in_project(mut params: Value, project: &Option<String>) -> CoreResult<Value> 
 async fn run(
     core: &Arc<Core>,
     client: &ClientConn,
+    mod_id: &str,
+    all_projects: bool,
     reach: Reach,
     params: Value,
     project: Option<String>,
 ) -> CoreResult<Value> {
     match reach {
         Reach::Agents => {
-            let every = params.get("all").and_then(Value::as_bool).unwrap_or(false);
+            let every = all_projects && params.get("all").and_then(Value::as_bool).unwrap_or(false);
             let core = core.clone();
             blocking(move || {
                 let project = project.filter(|_| !every);
@@ -260,11 +301,11 @@ async fn run(
             .await
         }
         Reach::Tasks => {
-            let params = super::super::calls::parse(in_project(params, &project)?)?;
+            let params = super::super::calls::parse(in_project(params, &project, all_projects)?)?;
             Ok(serde_json::to_value(board::board(core, params).await?)?)
         }
         Reach::Processes => {
-            let project = (in_project(params, &project)?.get("project"))
+            let project = (in_project(params, &project, all_projects)?.get("project"))
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned();
@@ -280,7 +321,7 @@ async fn run(
         )?),
         Reach::Load => Ok(serde_json::to_value(super::super::host_stats::load(core))?),
         Reach::Repo => {
-            let project = (in_project(params, &project)?.get("project"))
+            let project = (in_project(params, &project, all_projects)?.get("project"))
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned();
@@ -302,12 +343,44 @@ async fn run(
             if params.is_null() {
                 params = json!({});
             }
-            if let (Some(fields), Some(project)) = (params.as_object_mut(), project) {
+            let fields = params
+                .as_object_mut()
+                .ok_or_else(|| CoreError::from("a mod's params must be an object"))?;
+            if !all_projects {
+                let pane_project = project
+                    .as_deref()
+                    .ok_or_else(|| CoreError::from("this mod's pane is in no project"))?;
+                if let Some(asked) = fields.get("repo").and_then(Value::as_str) {
+                    if asked != pane_project {
+                        return Err(
+                            "this mod can only read git for its own project; declare \"projects\": \"all\" in mod.json for cross-project access"
+                                .into(),
+                        );
+                    }
+                }
+                fields.insert("repo".into(), pane_project.into());
+            } else if let Some(project) = project {
                 fields.entry("repo").or_insert(project.into());
             }
             git::call(core, &client.peer, &method, params).await
         }
-        Reach::Plugin { plugin, method } => {
+        Reach::Plugin {
+            plugin,
+            method,
+            tool,
+        } => {
+            if let Some(tool_name) = tool {
+                let request = sikemux_base::cli::protocol::HarnessRequest {
+                    id: String::new(),
+                    project: project.unwrap_or_default(),
+                    agent_id: Some(format!("mod:{mod_id}")),
+                    method: "plugins.call".into(),
+                    params: json!({ "tool": &tool_name, "arguments": &params }),
+                };
+                super::super::ship::check_tool(core, &request, &tool_name, &params)
+                    .await
+                    .map_err(CoreError::from)?;
+            }
             let done = plugins::call(core, &plugin, &method, params.clone())
                 .await
                 .map_err(|failure| plugins::explain(&failure))?;
@@ -318,6 +391,16 @@ async fn run(
             let Some(Provided(plugins)) = core.config().plugins else {
                 return Err("connectors are not loaded on this host".into());
             };
+            let request = sikemux_base::cli::protocol::HarnessRequest {
+                id: String::new(),
+                project: project.unwrap_or_default(),
+                agent_id: Some(format!("mod:{mod_id}")),
+                method: "plugins.call".into(),
+                params: json!({ "tool": &name, "arguments": &params }),
+            };
+            super::super::ship::check_tool(core, &request, &name, &params)
+                .await
+                .map_err(CoreError::from)?;
             plugins
                 .call_agent_tool(&name, params)
                 .await
@@ -335,13 +418,13 @@ async fn run(
             Ok(Value::Null)
         }
         Reach::TaskAdd => {
-            let params = super::super::calls::parse(in_project(params, &project)?)?;
+            let params = super::super::calls::parse(in_project(params, &project, all_projects)?)?;
             Ok(serde_json::to_value(
                 board::person_add(core, params).await?,
             )?)
         }
         Reach::TaskUpdate => {
-            let params = super::super::calls::parse(in_project(params, &project)?)?;
+            let params = super::super::calls::parse(in_project(params, &project, all_projects)?)?;
             Ok(serde_json::to_value(
                 board::person_update(core, params).await?,
             )?)

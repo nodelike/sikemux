@@ -63,7 +63,7 @@ impl LocalFiles {
         media: Option<&Path>,
         written_in: Option<&Path>,
     ) -> Result<String, String> {
-        self.page_url_with(path, media, written_in, None)
+        self.page_url_with(path, None, media, written_in, None)
     }
 
     /// Like [`Self::page_url`], injecting `theme` into the served HTML document on the fly so no
@@ -75,12 +75,23 @@ impl LocalFiles {
         written_in: Option<&Path>,
         theme: ThemeProvider,
     ) -> Result<String, String> {
-        self.page_url_with(path, media, written_in, Some(theme))
+        self.page_url_with(path, None, media, written_in, Some(theme))
+    }
+
+    pub fn page_url_within(
+        &self,
+        path: &Path,
+        allowed_roots: Option<&[PathBuf]>,
+        media: Option<&Path>,
+        written_in: Option<&Path>,
+    ) -> Result<String, String> {
+        self.page_url_with(path, allowed_roots, media, written_in, None)
     }
 
     fn page_url_with(
         &self,
         path: &Path,
+        allowed_roots: Option<&[PathBuf]>,
         media: Option<&Path>,
         written_in: Option<&Path>,
         theme: Option<ThemeProvider>,
@@ -94,6 +105,31 @@ impl LocalFiles {
                     "{} has no index.html to show; open a file inside it",
                     path.parent().unwrap_or(&path).display()
                 ));
+            }
+        }
+        if let Some(roots) = allowed_roots {
+            let canonical_roots: Vec<PathBuf> = roots
+                .iter()
+                .filter_map(|root| sikemux_process::files::real_path(root).ok())
+                .collect();
+            let matching_root = canonical_roots
+                .iter()
+                .find(|root| path.starts_with(root))
+                .ok_or_else(|| {
+                    format!(
+                        "{} is outside the project folder and cannot be opened in the browser",
+                        path.display()
+                    )
+                })?;
+            if let Ok(rel) = path.strip_prefix(matching_root) {
+                if rel.components().any(|component| {
+                    component
+                        .as_os_str()
+                        .to_str()
+                        .is_some_and(|part| part.starts_with('.'))
+                }) {
+                    return Err("hidden files are not shown in a tab".into());
+                }
             }
         }
         let root = path

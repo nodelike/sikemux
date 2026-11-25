@@ -191,6 +191,7 @@ thread_local! {
     static HOLES: RefCell<HashMap<usize, Vec<NSRect>>> = RefCell::new(HashMap::new());
     static SHADES: RefCell<HashMap<usize, Retained<CALayer>>> = RefCell::new(HashMap::new());
     static MASKS: RefCell<HashMap<usize, PageMask>> = RefCell::new(HashMap::new());
+    static WRITE_GATES: RefCell<HashMap<usize, Vec<String>>> = RefCell::new(HashMap::new());
     static PAGE_HIT_TEST: std::cell::Cell<Option<Imp>> = const { std::cell::Cell::new(None) };
     static PAGE_UNUSED_GESTURE: std::cell::Cell<Option<Imp>> = const { std::cell::Cell::new(None) };
     /// Whether the swipe under way belongs to the stage, once its first sideways move says so.
@@ -332,11 +333,12 @@ fn tab_configuration(mtm: MainThreadMarker) -> Retained<WKWebViewConfiguration> 
     let yes = NSNumber::numberWithBool(true);
     // SAFETY: main thread, and every value set is one WebKit reads with that type.
     unsafe {
+        let recorder = crate::recorder_script();
         let script = WKUserScript::initWithSource_injectionTime_forMainFrameOnly(
             WKUserScript::alloc(mtm),
-            &NSString::from_str(crate::RECORDER_SCRIPT),
+            &NSString::from_str(&recorder),
             WKUserScriptInjectionTime::AtDocumentStart,
-            true,
+            false,
         );
         configuration.userContentController().addUserScript(&script);
         scripts::listen(&configuration, mtm);
@@ -434,8 +436,44 @@ pub fn forget(tab_id: &str) {
             HOLES.with(|holes| holes.borrow_mut().remove(&view_key(&tab.webview)));
             SHADES.with(|shades| shades.borrow_mut().remove(&view_key(&tab.webview)));
             MASKS.with(|masks| masks.borrow_mut().remove(&view_key(&tab.webview)));
+            WRITE_GATES.with(|gates| gates.borrow_mut().remove(&view_key(&tab.webview)));
         }
     });
+}
+
+pub fn set_write_gate(webview: &WKWebView, allowed: Option<Vec<String>>) {
+    let key = view_key(webview);
+    WRITE_GATES.with(|gates| match allowed {
+        Some(origins) => {
+            gates.borrow_mut().insert(key, origins);
+        }
+        None => {
+            gates.borrow_mut().remove(&key);
+        }
+    });
+}
+
+pub(super) fn navigation_write_blocked(webview: &WKWebView, method: &str, url: &str) -> bool {
+    let verb = method.to_ascii_uppercase();
+    if verb.is_empty() || matches!(verb.as_str(), "GET" | "HEAD" | "OPTIONS") {
+        return false;
+    }
+    let Ok(parsed) = url::Url::parse(url) else {
+        return false;
+    };
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return false;
+    }
+    if parsed.host_str().is_some_and(crate::address::is_local_host) {
+        return false;
+    }
+    let origin = parsed.origin().ascii_serialization();
+    WRITE_GATES.with(|gates| {
+        gates
+            .borrow()
+            .get(&view_key(webview))
+            .is_some_and(|allowed| !allowed.contains(&origin))
+    })
 }
 
 struct AddressObserverIvars {

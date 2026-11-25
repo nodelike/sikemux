@@ -118,9 +118,31 @@ fn escape_text(text: &str) -> String {
 
 /// Reads the page an agent wrote and inlines every local picture and font it
 /// names, by absolute, `~/` or relative path, so the page outlives those files.
+/// When `allowed_roots` is given, `source` and every local asset it inlines or
+/// copies must canonicalize inside one of those directories.
 /// Videos and sounds are too big to inline: with `media` they are copied into
 /// that folder and named relative to its parent, and without it left as named.
-pub fn build(source: &Path, media: Option<&Path>) -> Result<String, String> {
+pub fn build(
+    source: &Path,
+    media: Option<&Path>,
+    allowed_roots: Option<&[&Path]>,
+) -> Result<String, String> {
+    let canonical_roots: Option<Vec<PathBuf>> = allowed_roots.map(|roots| {
+        roots
+            .iter()
+            .filter_map(|root| sikemux_process::files::real_path(root).ok())
+            .collect()
+    });
+    if let Some(roots) = &canonical_roots {
+        let canon_source = sikemux_process::files::real_path(source)
+            .map_err(|_| format!("{} does not exist", source.display()))?;
+        if !roots.iter().any(|root| canon_source.starts_with(root)) {
+            return Err(format!(
+                "{} is outside the allowed folder",
+                source.display()
+            ));
+        }
+    }
     let size = std::fs::metadata(source)
         .map_err(|_| format!("{} does not exist", source.display()))?
         .len();
@@ -147,6 +169,21 @@ pub fn build(source: &Path, media: Option<&Path>) -> Result<String, String> {
             return format!("{open}{data}{close}");
         }
         let path = resolve(folder, reference);
+        if let Some(roots) = &canonical_roots {
+            match sikemux_process::files::real_path(&path) {
+                Ok(canon) if !roots.iter().any(|root| canon.starts_with(root)) => {
+                    failure.get_or_insert_with(|| {
+                        format!("{reference} is outside the allowed folder")
+                    });
+                    return found[0].to_owned();
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    missing.push(reference.to_owned());
+                    return found[0].to_owned();
+                }
+            }
+        }
         let read = match is_media(&path) {
             true => match media {
                 Some(media) => copy_media(&path, media, inlined.len()),
@@ -305,7 +342,7 @@ fn kept_as(dir: &Path, id: &str) -> (Option<Vec<u8>>, u64) {
 }
 
 fn keep(dir: &Path, id: &str, source: &Path, title: &str) -> Result<(), String> {
-    let mut page = build(source, Some(&media_folder(dir, id)))?;
+    let mut page = build(source, Some(&media_folder(dir, id)), None)?;
     if !page.to_ascii_lowercase().contains("<title") {
         page = insert_head(&page, &format!("<title>{}</title>", escape_text(title)));
     }
@@ -766,7 +803,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let page = build(&source, None).unwrap();
+        let page = build(&source, None, None).unwrap();
         assert_eq!(page.matches("data:image/png;base64,AQID").count(), 3);
         assert!(page.contains("https://x.test/b.png"));
         assert!(page.contains("//cdn.test/c.png"));
@@ -782,7 +819,7 @@ mod tests {
             "<style>@font-face{font-family:F;src:url(Figtree.woff2) format(\"woff2\")}</style>",
         )
         .unwrap();
-        let page = build(&source, None).unwrap();
+        let page = build(&source, None, None).unwrap();
         assert!(
             page.contains("url(data:font/woff2;base64,Bw==) format(\"woff2\")"),
             "{page}"
@@ -822,7 +859,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("page.html");
         std::fs::write(&source, "<img src=\"gone.webp\">").unwrap();
-        let error = build(&source, None).unwrap_err();
+        let error = build(&source, None, None).unwrap_err();
         assert!(error.contains("gone.webp"), "{error}");
     }
 

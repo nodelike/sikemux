@@ -90,6 +90,7 @@ pub fn execute(
     let mut result = sikemux_base::runtime::block_on(run(
         manager,
         agent_id,
+        &request.project,
         check,
         &request.method,
         &request.params,
@@ -156,6 +157,7 @@ fn opened_tabs(manager: &BrowserManager, agent_id: &str, before: &[String]) -> V
 async fn run(
     manager: &BrowserManager,
     agent_id: &str,
+    project: &str,
     check: &CheckWrite,
     method: &str,
     params: &Value,
@@ -209,7 +211,10 @@ async fn run(
                 (None, None) => return Err("url or go is required".into()),
                 (Some(url), None) => url,
             };
-            let url = manager.page_url(&url).map_err(|error| error.to_string())?;
+            let roots = allowed_local_roots(project, true);
+            let url = manager
+                .page_url_within(&url, &roots)
+                .map_err(|error| error.to_string())?;
             let wanted = url.clone();
             let current = manager
                 .active_view(agent_id)
@@ -563,7 +568,7 @@ async fn run(
                 report(manager, agent_id, params).await?,
             )
         }
-        "browser.act" => act(manager, agent_id, check, params).await,
+        "browser.act" => act(manager, agent_id, project, check, params).await,
         "browser.dialog" => {
             let accept = params
                 .get("accept")
@@ -910,15 +915,18 @@ async fn run(
             if !source.is_absolute() {
                 return Err(format!("{} is not an absolute path", source.display()));
             }
+            let roots = allowed_page_roots(project, &source);
             let width = params
                 .get("width")
                 .and_then(Value::as_u64)
                 .unwrap_or(crate::REPLY_COLUMN_WIDTH as u64);
             let written_in = source.parent().unwrap_or(&source).to_path_buf();
-            let html =
-                tokio::task::spawn_blocking(move || sikemux_base::pages::build(&source, None))
-                    .await
-                    .map_err(|error| error.to_string())??;
+            let html = tokio::task::spawn_blocking(move || {
+                let root_refs: Vec<&std::path::Path> = roots.iter().map(PathBuf::as_path).collect();
+                sikemux_base::pages::build(&source, None, Some(&root_refs))
+            })
+            .await
+            .map_err(|error| error.to_string())??;
             let themed = sikemux_base::pages::themed(&html, &manager.host().page_theme(), None);
             let preview_page = manager.temporary_page(
                 &format!("preview-{}.html", agent_id.replace(':', "-")),
@@ -931,14 +939,36 @@ async fn run(
                 preview_page.url(),
                 (width as f64, PAGE_VIEWPORT_HEIGHT as f64),
                 crate::user_agent(),
-                false,
+                true,
             )?;
             preview.loaded(LOAD_TIMEOUT).await?;
             tokio::time::sleep(SETTLE).await;
             let view = preview.view();
             let ran = match text("script") {
                 Some(script) => {
-                    let ran = run_agent_script(view, &script, PAGE_SCRIPT_LIMIT, None).await?;
+                    let started = Instant::now();
+                    let mut allowed: Vec<String> =
+                        serde_json::from_value(params["allowedSites"].clone()).unwrap_or_default();
+                    let ran = loop {
+                        let left = PAGE_SCRIPT_LIMIT.saturating_sub(started.elapsed());
+                        let answer = run_agent_script(view, &script, left, Some(&allowed)).await?;
+                        let write = answer
+                            .pointer("/result/sikemuxHeldWrite")
+                            .unwrap_or(&Value::Null);
+                        if !write.is_object() {
+                            break answer;
+                        }
+                        let origin = write
+                            .get("origin")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .to_owned();
+                        if allowed.contains(&origin) {
+                            return Err(format!("the script kept writing to {origin} while held"));
+                        }
+                        put_to_person(write.clone(), check).await?;
+                        allowed.push(origin);
+                    };
                     tokio::time::sleep(SETTLE).await;
                     Some(ran)
                 }
@@ -1019,6 +1049,67 @@ fn brings_the_desk_out(method: &str, has_a_tab: bool) -> bool {
     }
 }
 
+fn allowed_local_roots(project: &str, include_temp: bool) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if !project.is_empty() {
+        let project_path = PathBuf::from(project);
+        if let Ok(real) = sikemux_process::files::real_path(&project_path) {
+            if let Some(repo) = sikemux_process::files::repo_root(&real) {
+                if let Ok(real_repo) = sikemux_process::files::real_path(repo) {
+                    let fonts = real_repo.join("helpers/notch/Fonts");
+                    if fonts.is_dir() {
+                        roots.push(fonts);
+                    }
+                    roots.push(real_repo);
+                }
+            }
+            let fonts = real.join("helpers/notch/Fonts");
+            if fonts.is_dir() && !roots.contains(&fonts) {
+                roots.push(fonts);
+            }
+            if !roots.contains(&real) {
+                roots.push(real);
+            }
+        }
+    }
+    if include_temp {
+        if let Ok(temp) = sikemux_process::files::real_path(std::env::temp_dir()) {
+            if !roots.contains(&temp) {
+                roots.push(temp);
+            }
+        }
+    }
+    roots
+}
+
+fn allowed_page_roots(project: &str, source: &std::path::Path) -> Vec<PathBuf> {
+    let mut roots = allowed_local_roots(project, false);
+    if let (Ok(temp), Ok(real_source)) = (
+        sikemux_process::files::real_path(std::env::temp_dir()),
+        sikemux_process::files::real_path(source),
+    ) {
+        if real_source.starts_with(&temp) {
+            if let Some(parent) = real_source.parent() {
+                let parent = parent.to_path_buf();
+                if !roots.contains(&parent) {
+                    roots.push(parent);
+                }
+            }
+        }
+    }
+    roots
+}
+
+#[cfg(target_os = "macos")]
+async fn set_native_write_gate(view: &Tab, allowed: Option<Vec<String>>) {
+    let _ = view
+        .ask(move |webview| crate::macos::set_write_gate(webview, allowed))
+        .await;
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn set_native_write_gate(_view: &Tab, _allowed: Option<Vec<String>>) {}
+
 /// Runs an agent's script in `view`, an expression or statements ending in
 /// return, and answers with what it returned as JSON.
 async fn run_agent_script(
@@ -1031,13 +1122,37 @@ async fn run_agent_script(
         .await?
         .as_str()
     {
-        "expression" => script_body(&format!("return ({script}\n);"), allowed_sites),
-        "statements" => script_body(script, allowed_sites),
+        "expression" => script_body(&format!("return ({script}\n);")),
+        "statements" => script_body(script),
         error => return Err(error.to_owned()),
     };
-    let answer = native::run_script(view, &body, limit)
+    let token_json = serde_json::to_string(crate::gate_token()).unwrap_or_default();
+    if let Some(sites) = allowed_sites {
+        let allowed_json = serde_json::to_string(sites).unwrap_or_else(|_| "[]".into());
+        set_native_write_gate(view, Some(sites.to_vec())).await;
+        let _ = eval(
+            view,
+            &format!("window.__sikemuxNet?.watch({token_json}, {allowed_json}) ?? null"),
+        )
+        .await;
+    }
+    let ran = native::run_script(view, &body, limit)
         .await
-        .map_err(|error| script_failure(&error, limit))?;
+        .map_err(|error| script_failure(&error, limit));
+    if allowed_sites.is_some() {
+        set_native_write_gate(view, None).await;
+        let held_raw = eval(
+            view,
+            &format!("JSON.stringify(window.__sikemuxNet?.release({token_json}) ?? null)"),
+        )
+        .await
+        .unwrap_or_default();
+        let held = parse_held_write(&held_raw);
+        if held.is_object() {
+            return Ok(json!({ "result": { "sikemuxHeldWrite": held } }));
+        }
+    }
+    let answer = ran?;
     if answer.len() > MAX_SCRIPT_RESULT {
         let cut = (0..=MAX_SCRIPT_RESULT)
             .rev()
@@ -1056,6 +1171,14 @@ async fn run_agent_script(
         );
     }
     Ok(answer)
+}
+
+fn parse_held_write(raw: &str) -> Value {
+    match serde_json::from_str::<Value>(raw) {
+        Ok(Value::String(text)) => serde_json::from_str(&text).unwrap_or(Value::Null),
+        Ok(other) => other,
+        Err(_) => Value::Null,
+    }
 }
 
 /// Back, forward or reload in the current tab, then the page as it arrives.
@@ -1092,6 +1215,7 @@ async fn step(
 async fn act(
     manager: &BrowserManager,
     agent_id: &str,
+    project: &str,
     check: &CheckWrite,
     params: &Value,
 ) -> Result<Value, String> {
@@ -1130,14 +1254,15 @@ async fn act(
             );
         }
         let before = outcome(manager, agent_id).ok();
-        let failed = match Box::pin(run(manager, agent_id, check, method, &step_params)).await {
-            Ok(result) => {
-                let failed = step_failure(&result);
-                done.push(step_summary(step, result));
-                failed
-            }
-            Err(error) => Some(error),
-        };
+        let failed =
+            match Box::pin(run(manager, agent_id, project, check, method, &step_params)).await {
+                Ok(result) => {
+                    let failed = step_failure(&result);
+                    done.push(step_summary(step, result));
+                    failed
+                }
+                Err(error) => Some(error),
+            };
         if let Some(error) = failed {
             stopped = Some(json!({ "step": number, "action": step.get("action"), "error": error }));
             break;
@@ -1342,31 +1467,11 @@ fn typing_missed(typed: &str, result: &Value) -> Option<&'static str> {
 
 /// Wraps an agent's script so whatever it returns, awaited, comes back as JSON.
 /// Elements become their markup, since JSON has no way to spell a node.
-fn script_body(script: &str, allowed_sites: Option<&[String]>) -> String {
-    let allowed = allowed_sites.map(|sites| serde_json::to_string(sites).unwrap_or_default());
-    let watches = allowed.is_some();
-    let (watch, release) = match watches {
-        true => (
-            format!(
-                "window.__sikemuxNet?.watch({});",
-                allowed.unwrap_or_default()
-            ),
-            r#"const held = window.__sikemuxNet?.release();
-if (held) return JSON.stringify({ sikemuxHeldWrite: held });"#
-                .to_owned(),
-        ),
-        false => (String::new(), String::new()),
-    };
+fn script_body(script: &str) -> String {
     format!(
-        r#"let value, thrown, failed = false;
-{watch}
-try {{
-value = await (async () => {{
+        r#"const value = await (async () => {{
 {script}
 }})();
-}} catch (error) {{ thrown = error; failed = true; }}
-{release}
-if (failed) throw thrown;
 const seen = new WeakSet();
 try {{
     return JSON.stringify(value === undefined ? null : value, (key, item) => {{
@@ -1425,7 +1530,12 @@ async fn holding_page_writes(
     sent: Option<&str>,
     action: impl Future<Output = Result<(), String>>,
 ) -> Result<(), String> {
-    let _ = eval(view, "JSON.stringify(window.__sikemuxNet?.hold() ?? null)").await;
+    let token_json = serde_json::to_string(crate::gate_token()).unwrap_or_default();
+    let _ = eval(
+        view,
+        &format!("JSON.stringify(window.__sikemuxNet?.hold({token_json}) ?? null)"),
+    )
+    .await;
     let acted = action.await;
     let (went, put) = put_page_writes(manager, tab_id, view, check, sent).await;
     if went {
@@ -1450,9 +1560,13 @@ async fn put_page_writes(
         manager.keep_form_write(tab_id, sent);
         return (false, Ok(()));
     }
-    let raw = eval(view, "JSON.stringify(window.__sikemuxNet?.held() ?? [])")
-        .await
-        .unwrap_or_default();
+    let token_json = serde_json::to_string(crate::gate_token()).unwrap_or_default();
+    let raw = eval(
+        view,
+        &format!("JSON.stringify(window.__sikemuxNet?.held({token_json}) ?? [])"),
+    )
+    .await
+    .unwrap_or_default();
     let writes = page_writes(&raw);
     let form_at = (writes.iter()).position(|write| sent == Some(&with_query(write)));
     let mut unasked = writes.clone();
@@ -1486,7 +1600,9 @@ async fn put_page_writes(
         let ids = Value::Array(ids);
         let _ = eval(
             view,
-            &format!("JSON.stringify(window.__sikemuxNet?.answer({ids}, {go}) ?? null)"),
+            &format!(
+                "JSON.stringify(window.__sikemuxNet?.answer({token_json}, {ids}, {go}) ?? null)"
+            ),
         )
         .await;
     }

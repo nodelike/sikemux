@@ -71,6 +71,21 @@ pub const PARKED_ORIGIN: f64 = -100_000.0;
 /// Injected into every document before its own scripts, so a page's calls are
 /// already recorded by the time an agent asks about them.
 pub const RECORDER_SCRIPT: &str = include_str!("recorder.js");
+
+pub(crate) fn gate_token() -> &'static str {
+    static TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    TOKEN.get_or_init(|| {
+        format!(
+            "{}{}",
+            uuid::Uuid::new_v4().simple(),
+            uuid::Uuid::new_v4().simple()
+        )
+    })
+}
+
+pub(crate) fn recorder_script() -> String {
+    RECORDER_SCRIPT.replace("__SIKEMUX_GATE_TOKEN__", gate_token())
+}
 /// The agents' helpers, run in a world of their own beside the page.
 pub const PAGE_SCRIPT: &str = include_str!("page.js");
 pub const RECORDS_SCRIPT: &str = include_str!("records.js");

@@ -74,10 +74,16 @@
   };
 
   // While an agent's script runs, a write it makes to a site stops here, so the
-  // person is asked first. A frame of that script has no address on the stack,
-  // unlike the page's own, so the page's requests in those moments go on.
+  // person is asked first. Control methods require a per-session token held only
+  // in Rust, timers scheduled from agent scripts remain tainted after release,
+  // and dynamic same-origin/about:blank iframes are patched on access.
+  const GATE_TOKEN = "__SIKEMUX_GATE_TOKEN__";
+  const checkToken = (token) =>
+    typeof token === "string" && token === GATE_TOKEN;
   const HELD = "Sikemux held this write for the person";
   let watch = null;
+  let lastAllowed = [];
+  let agentDepth = 0;
   const localHost = (host) =>
     host === "localhost" ||
     host === "[::1]" ||
@@ -88,6 +94,8 @@
       .split("\n")
       .slice(ownFrames + 2)
       .some((frame) => frame.endsWith("@"));
+  const isAgentContext = (ownFrames) =>
+    agentDepth > 0 || fromAgent(ownFrames + 1);
   const siteWrite = (method, target) => {
     const verb = String(method || "GET").toUpperCase();
     if (verb === "GET" || verb === "HEAD" || verb === "OPTIONS") return null;
@@ -100,12 +108,33 @@
     if (!/^https?:$/.test(url.protocol) || localHost(url.hostname)) return null;
     return { method: verb, origin: url.origin, path: url.pathname, query: url.search };
   };
+  const wsWrite = (target) => {
+    let url;
+    try {
+      url = new URL(String(target), document.baseURI);
+    } catch {
+      return null;
+    }
+    if (!/^wss?:$/.test(url.protocol) || localHost(url.hostname)) return null;
+    return {
+      method: "WEBSOCKET",
+      origin: url.origin,
+      path: url.pathname,
+      query: url.search,
+    };
+  };
   const held = (method, target, ownFrames = 1) => {
-    if (!watch || !fromAgent(ownFrames)) return false;
-    const write = siteWrite(method, target);
-    if (!write || watch.allowed.includes(write.origin)) return false;
-    if (!watch.write) watch.write = write;
-    return true;
+    if (!isAgentContext(ownFrames)) return false;
+    const write =
+      method === "WEBSOCKET" ? wsWrite(target) : siteWrite(method, target);
+    if (!write) return false;
+    if (watch) {
+      if (watch.allowed.includes(write.origin)) return false;
+      if (!watch.write) watch.write = write;
+      return true;
+    }
+    if (agentDepth > 0 && !lastAllowed.includes(write.origin)) return true;
+    return false;
   };
 
   // While an agent's click or key plays out, a write the page's own scripts
@@ -151,198 +180,338 @@
     );
   };
 
-  const nativeFetch = window.fetch;
-  if (typeof nativeFetch === "function") {
-    window.fetch = function (input, init) {
-      const request =
-        typeof input === "object" && input !== null && "url" in input
-          ? input
-          : null;
-      const method =
-        (init && init.method) || (request && request.method) || "GET";
-      const address = (request && request.url) || input;
-      if (held(method, address)) return Promise.reject(new TypeError(HELD));
-      const waiting = waitForPerson(method, address);
-      if (!waiting)
-        return recordedFetch(this, arguments, method, address, request, init);
-      return waiting.then((go) =>
-        go
-          ? recordedFetch(this, arguments, method, address, request, init)
-          : Promise.reject(new TypeError(HELD)),
-      );
-    };
-    const recordedFetch = (self, args, method, address, request, init) => {
-      const entry = begin("fetch", method, address);
-      entry.requestBody = describeRequest(init && init.body);
-      label(entry, (init && init.headers) || (request && request.headers));
-      return nativeFetch.apply(self, args).then(
-        (response) => {
-          finish(entry);
-          entry.status = response.status;
-          entry.statusText = response.statusText || "";
-          entry.contentType = response.headers.get("content-type") || "";
-          // Read a copy in the background: awaiting it here would hold
-          // up the page's own handler, and a binary stream would be
-          // buffered for nothing.
-          if (TEXTUAL.test(entry.contentType)) {
-            response
-              .clone()
-              .text()
-              .then((text) => {
-                entry.body = clip(text);
-              })
-              .catch(() => {});
-          }
-          return response;
-        },
-        (error) => {
-          finish(entry);
-          entry.error = failure(error);
-          throw error;
-        },
-      );
-    };
-  }
+  const patchedWindows = new WeakSet();
 
-  const open = XMLHttpRequest.prototype.open;
-  const send = XMLHttpRequest.prototype.send;
-  const setRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
-  const abort = XMLHttpRequest.prototype.abort;
-  XMLHttpRequest.prototype.open = function (method, url, async) {
-    delete this.readyState;
-    this.__sikemuxCall = {
-      method,
-      url,
-      headers: {},
-      sync: arguments.length > 2 && !async,
-    };
-    return open.apply(this, arguments);
-  };
-  XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
-    if (this.__sikemuxCall) this.__sikemuxCall.headers[name] = value;
-    return setRequestHeader.apply(this, arguments);
-  };
-  XMLHttpRequest.prototype.abort = function () {
-    this.__sikemuxCall = null;
-    return abort.apply(this, arguments);
-  };
-  XMLHttpRequest.prototype.send = function () {
-    const call = this.__sikemuxCall;
-    if (call && held(call.method, call.url)) throw new TypeError(HELD);
-    const waiting = call && !call.sync && waitForPerson(call.method, call.url);
-    if (!waiting) return recordedSend.apply(this, arguments);
-    const args = arguments;
-    waiting.then((go) => {
-      // The page let this request go, or opened another, while it waited.
-      if (this.__sikemuxCall !== call) return;
-      if (go) {
+  const wrapTainted = (callback, win) => {
+    if (typeof callback === "function") {
+      return function () {
+        agentDepth += 1;
         try {
-          recordedSend.apply(this, args);
-          return;
-        } catch {}
-      }
-      // A request that failed on the network reads as done with no status.
-      Object.defineProperty(this, "readyState", {
-        value: 4,
-        configurable: true,
-      });
-      this.dispatchEvent(new Event("readystatechange"));
-      for (const type of ["error", "loadend"])
-        this.dispatchEvent(new ProgressEvent(type));
-    });
-  };
-  const recordedSend = function (body) {
-    const call = this.__sikemuxCall;
-    if (call) {
-      const entry = begin("xhr", call.method, call.url);
-      entry.requestBody = describeRequest(body);
-      label(entry, call.headers);
-      let ended = "the request did not complete";
-      this.addEventListener("error", () => {
-        ended = "network error";
-      });
-      this.addEventListener("abort", () => {
-        ended = "aborted";
-      });
-      this.addEventListener("timeout", () => {
-        ended = "timed out";
-      });
-      this.addEventListener("loadend", () => {
-        finish(entry);
-        entry.status = this.status;
-        entry.statusText = this.statusText || "";
-        try {
-          entry.contentType = this.getResponseHeader("content-type") || "";
-        } catch {
-          entry.contentType = "";
+          return callback.apply(this, arguments);
+        } finally {
+          agentDepth -= 1;
         }
-        if (this.status === 0) entry.error = ended;
-        try {
-          if (this.responseType === "" || this.responseType === "text")
-            entry.body = clip(String(this.responseText));
-          else if (this.responseType === "json")
-            entry.body = clip(JSON.stringify(this.response));
-        } catch {
-          entry.body = null;
-        }
-      });
+      };
     }
-    return send.apply(this, arguments);
+    if (typeof callback === "string") {
+      const code = callback;
+      return function () {
+        agentDepth += 1;
+        try {
+          return win.Function(code).call(this);
+        } finally {
+          agentDepth -= 1;
+        }
+      };
+    }
+    return callback;
   };
 
-  if (typeof navigator.sendBeacon === "function") {
-    const sendBeacon = Navigator.prototype.sendBeacon;
-    Navigator.prototype.sendBeacon = function (url) {
-      if (held("POST", url)) throw new TypeError(HELD);
-      return sendBeacon.apply(this, arguments);
-    };
-  }
-  const submit = HTMLFormElement.prototype.submit;
-  HTMLFormElement.prototype.submit = function () {
-    if (formHeld(this, null)) throw new TypeError(HELD);
-    return submit.apply(this, arguments);
-  };
-  const requestSubmit = HTMLFormElement.prototype.requestSubmit;
-  if (typeof requestSubmit === "function") {
-    HTMLFormElement.prototype.requestSubmit = function (submitter) {
-      if (formHeld(this, submitter || null)) throw new TypeError(HELD);
-      return requestSubmit.apply(this, arguments);
-    };
-  }
-  window.addEventListener(
-    "submit",
-    (event) => {
-      if (formHeld(event.target, event.submitter || null)) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      }
-    },
-    true,
-  );
+  const installIn = (win) => {
+    if (!win || patchedWindows.has(win)) return;
+    patchedWindows.add(win);
 
-  window.__sikemuxNet = {
-    entries: () => entries,
-    watch: (allowed) => {
-      watch = { allowed, write: null };
-    },
-    release: () => {
-      const write = watch && watch.write;
-      watch = null;
-      return write;
-    },
-    hold: () => {
-      const refuse = () =>
-        answer(
-          stopHolding().map((write) => write.id),
-          false,
+    const nativeFetch = win.fetch;
+    if (typeof nativeFetch === "function") {
+      win.fetch = function (input, init) {
+        const request =
+          typeof input === "object" && input !== null && "url" in input
+            ? input
+            : null;
+        const method =
+          (init && init.method) || (request && request.method) || "GET";
+        const address = (request && request.url) || input;
+        if (held(method, address)) return Promise.reject(new TypeError(HELD));
+        const waiting = waitForPerson(method, address);
+        if (!waiting)
+          return recordedFetch(this, arguments, method, address, request, init);
+        return waiting.then((go) =>
+          go
+            ? recordedFetch(this, arguments, method, address, request, init)
+            : Promise.reject(new TypeError(HELD)),
         );
-      refuse();
-      holding = [];
-      holdEnds = setTimeout(refuse, HOLD_MS);
-    },
-    held: stopHolding,
-    answer,
+      };
+      const recordedFetch = (self, args, method, address, request, init) => {
+        const entry = begin("fetch", method, address);
+        entry.requestBody = describeRequest(init && init.body);
+        label(entry, (init && init.headers) || (request && request.headers));
+        return nativeFetch.apply(self, args).then(
+          (response) => {
+            finish(entry);
+            entry.status = response.status;
+            entry.statusText = response.statusText || "";
+            entry.contentType = response.headers.get("content-type") || "";
+            if (TEXTUAL.test(entry.contentType)) {
+              response
+                .clone()
+                .text()
+                .then((text) => {
+                  entry.body = clip(text);
+                })
+                .catch(() => {});
+            }
+            return response;
+          },
+          (error) => {
+            finish(entry);
+            entry.error = failure(error);
+            throw error;
+          },
+        );
+      };
+    }
+
+    if (win.XMLHttpRequest && win.XMLHttpRequest.prototype) {
+      const open = win.XMLHttpRequest.prototype.open;
+      const send = win.XMLHttpRequest.prototype.send;
+      const setRequestHeader = win.XMLHttpRequest.prototype.setRequestHeader;
+      const abort = win.XMLHttpRequest.prototype.abort;
+      win.XMLHttpRequest.prototype.open = function (method, url, async) {
+        delete this.readyState;
+        this.__sikemuxCall = {
+          method,
+          url,
+          headers: {},
+          sync: arguments.length > 2 && !async,
+        };
+        return open.apply(this, arguments);
+      };
+      win.XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+        if (this.__sikemuxCall) this.__sikemuxCall.headers[name] = value;
+        return setRequestHeader.apply(this, arguments);
+      };
+      win.XMLHttpRequest.prototype.abort = function () {
+        this.__sikemuxCall = null;
+        return abort.apply(this, arguments);
+      };
+      win.XMLHttpRequest.prototype.send = function () {
+        const call = this.__sikemuxCall;
+        if (call && held(call.method, call.url)) throw new TypeError(HELD);
+        const waiting =
+          call && !call.sync && waitForPerson(call.method, call.url);
+        if (!waiting) return recordedSend.apply(this, arguments);
+        const args = arguments;
+        waiting.then((go) => {
+          if (this.__sikemuxCall !== call) return;
+          if (go) {
+            try {
+              recordedSend.apply(this, args);
+              return;
+            } catch {}
+          }
+          Object.defineProperty(this, "readyState", {
+            value: 4,
+            configurable: true,
+          });
+          this.dispatchEvent(new Event("readystatechange"));
+          for (const type of ["error", "loadend"])
+            this.dispatchEvent(new ProgressEvent(type));
+        });
+      };
+      const recordedSend = function (body) {
+        const call = this.__sikemuxCall;
+        if (call) {
+          const entry = begin("xhr", call.method, call.url);
+          entry.requestBody = describeRequest(body);
+          label(entry, call.headers);
+          let ended = "the request did not complete";
+          this.addEventListener("error", () => {
+            ended = "network error";
+          });
+          this.addEventListener("abort", () => {
+            ended = "aborted";
+          });
+          this.addEventListener("timeout", () => {
+            ended = "timed out";
+          });
+          this.addEventListener("loadend", () => {
+            finish(entry);
+            entry.status = this.status;
+            entry.statusText = this.statusText || "";
+            try {
+              entry.contentType = this.getResponseHeader("content-type") || "";
+            } catch {
+              entry.contentType = "";
+            }
+            if (this.status === 0) entry.error = ended;
+            try {
+              if (this.responseType === "" || this.responseType === "text")
+                entry.body = clip(String(this.responseText));
+              else if (this.responseType === "json")
+                entry.body = clip(JSON.stringify(this.response));
+            } catch {
+              entry.body = null;
+            }
+          });
+        }
+        return send.apply(this, arguments);
+      };
+    }
+
+    if (win.Navigator && typeof win.Navigator.prototype.sendBeacon === "function") {
+      const sendBeacon = win.Navigator.prototype.sendBeacon;
+      win.Navigator.prototype.sendBeacon = function (url) {
+        if (held("POST", url)) throw new TypeError(HELD);
+        return sendBeacon.apply(this, arguments);
+      };
+    }
+
+    if (typeof win.WebSocket === "function") {
+      const NativeWebSocket = win.WebSocket;
+      const WrappedWebSocket = function (url, protocols) {
+        if (held("WEBSOCKET", url)) throw new TypeError(HELD);
+        return arguments.length > 1
+          ? new NativeWebSocket(url, protocols)
+          : new NativeWebSocket(url);
+      };
+      WrappedWebSocket.prototype = NativeWebSocket.prototype;
+      Object.setPrototypeOf(WrappedWebSocket, NativeWebSocket);
+      win.WebSocket = WrappedWebSocket;
+    }
+
+    if (win.HTMLFormElement && win.HTMLFormElement.prototype) {
+      const submit = win.HTMLFormElement.prototype.submit;
+      win.HTMLFormElement.prototype.submit = function () {
+        if (formHeld(this, null)) throw new TypeError(HELD);
+        return submit.apply(this, arguments);
+      };
+      const requestSubmit = win.HTMLFormElement.prototype.requestSubmit;
+      if (typeof requestSubmit === "function") {
+        win.HTMLFormElement.prototype.requestSubmit = function (submitter) {
+          if (formHeld(this, submitter || null)) throw new TypeError(HELD);
+          return requestSubmit.apply(this, arguments);
+        };
+      }
+    }
+    win.addEventListener(
+      "submit",
+      (event) => {
+        if (formHeld(event.target, event.submitter || null)) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      },
+      true,
+    );
+
+    if (typeof win.setTimeout === "function") {
+      const nativeSetTimeout = win.setTimeout;
+      win.setTimeout = function (fn) {
+        if (watch || agentDepth > 0 || fromAgent(1)) {
+          const args = Array.prototype.slice.call(arguments);
+          args[0] = wrapTainted(fn, win);
+          return nativeSetTimeout.apply(this, args);
+        }
+        return nativeSetTimeout.apply(this, arguments);
+      };
+    }
+    if (typeof win.setInterval === "function") {
+      const nativeSetInterval = win.setInterval;
+      win.setInterval = function (fn) {
+        if (watch || agentDepth > 0 || fromAgent(1)) {
+          const args = Array.prototype.slice.call(arguments);
+          args[0] = wrapTainted(fn, win);
+          return nativeSetInterval.apply(this, args);
+        }
+        return nativeSetInterval.apply(this, arguments);
+      };
+    }
+    if (typeof win.requestAnimationFrame === "function") {
+      const nativeRaf = win.requestAnimationFrame;
+      win.requestAnimationFrame = function (fn) {
+        if (watch || agentDepth > 0 || fromAgent(1)) {
+          return nativeRaf.call(this, wrapTainted(fn, win));
+        }
+        return nativeRaf.apply(this, arguments);
+      };
+    }
+    if (typeof win.queueMicrotask === "function") {
+      const nativeQueue = win.queueMicrotask;
+      win.queueMicrotask = function (fn) {
+        if (watch || agentDepth > 0 || fromAgent(1)) {
+          return nativeQueue.call(this, wrapTainted(fn, win));
+        }
+        return nativeQueue.apply(this, arguments);
+      };
+    }
+
+    if (win.HTMLIFrameElement && win.HTMLIFrameElement.prototype) {
+      const winDesc = Object.getOwnPropertyDescriptor(
+        win.HTMLIFrameElement.prototype,
+        "contentWindow",
+      );
+      if (winDesc && winDesc.get) {
+        Object.defineProperty(win.HTMLIFrameElement.prototype, "contentWindow", {
+          configurable: true,
+          get: function () {
+            const child = winDesc.get.call(this);
+            try {
+              if (child && child.document) installIn(child);
+            } catch {}
+            return child;
+          },
+        });
+      }
+      const docDesc = Object.getOwnPropertyDescriptor(
+        win.HTMLIFrameElement.prototype,
+        "contentDocument",
+      );
+      if (docDesc && docDesc.get) {
+        Object.defineProperty(
+          win.HTMLIFrameElement.prototype,
+          "contentDocument",
+          {
+            configurable: true,
+            get: function () {
+              const doc = docDesc.get.call(this);
+              try {
+                if (doc && doc.defaultView) installIn(doc.defaultView);
+              } catch {}
+              return doc;
+            },
+          },
+        );
+      }
+    }
   };
+
+  installIn(window);
+
+  Object.defineProperty(window, "__sikemuxNet", {
+    value: Object.freeze({
+      entries: () => entries,
+      watch: (token, allowed) => {
+        if (!checkToken(token)) return;
+        const list = Array.isArray(allowed) ? allowed.slice() : [];
+        lastAllowed = list;
+        watch = { allowed: list, write: null };
+      },
+      release: (token) => {
+        if (!checkToken(token)) return null;
+        const write = watch && watch.write;
+        watch = null;
+        return write;
+      },
+      hold: (token) => {
+        if (!checkToken(token)) return;
+        const refuse = () =>
+          answer(
+            stopHolding().map((write) => write.id),
+            false,
+          );
+        refuse();
+        holding = [];
+        holdEnds = setTimeout(refuse, HOLD_MS);
+      },
+      held: (token) => (checkToken(token) ? stopHolding() : []),
+      answer: (token, ids, go) => {
+        if (!checkToken(token)) return;
+        answer(ids, go);
+      },
+    }),
+    writable: false,
+    configurable: false,
+  });
 })();
 
 (() => {

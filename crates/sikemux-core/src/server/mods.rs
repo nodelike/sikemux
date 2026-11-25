@@ -84,7 +84,15 @@ struct Manifest {
     #[serde(default)]
     connect: Vec<String>,
     #[serde(default)]
+    projects: Option<String>,
+    #[serde(default)]
     collections: BTreeMap<String, Collection>,
+}
+
+impl Manifest {
+    fn allows_all_projects(&self) -> bool {
+        self.projects.as_deref() == Some("all")
+    }
 }
 
 /// What the person decided about the mods, kept in the data folder rather than beside the mods,
@@ -250,6 +258,13 @@ fn parse_manifest(text: &str) -> Result<Manifest, String> {
     manifest.connect.truncate(MAX_DECLARED);
     manifest.connect.sort();
     manifest.connect.dedup();
+    if let Some(scope) = manifest.projects.as_deref() {
+        if !matches!(scope, "own" | "all") {
+            return Err(format!(
+                "its {MANIFEST}'s projects must be \"own\" or \"all\", not \"{scope}\""
+            ));
+        }
+    }
     if manifest.collections.len() > MAX_DECLARED {
         return Err(format!(
             "its {MANIFEST} names more than {MAX_DECLARED} collections"
@@ -494,7 +509,10 @@ pub(super) async fn page(core: &Arc<Core>, params: ModParams) -> CoreResult<ModP
         if let Some(problem) = &shown.problem {
             return Err(CoreError::from(format!("this mod cannot show: {problem}")));
         }
-        Ok((crate::pages::build(&folder.join(PAGE), None)?, shown))
+        Ok((
+            crate::pages::build(&folder.join(PAGE), None, Some(&[folder.as_path()]))?,
+            shown,
+        ))
     })
     .await?;
     let allowed = core.mods().allowed(&id, &shown.writes, &shown.connect);

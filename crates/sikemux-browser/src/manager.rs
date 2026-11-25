@@ -303,6 +303,24 @@ impl BrowserManager {
         }
     }
 
+    pub(crate) fn page_url_within(
+        &self,
+        input: &str,
+        allowed_roots: &[PathBuf],
+    ) -> BrowserResult<String> {
+        match address::resolve(input) {
+            address::Address::Local(path) => {
+                if self.local_files.full() {
+                    self.release_unused_files();
+                }
+                self.local_files
+                    .page_url_within(&path, Some(allowed_roots), None, None)
+                    .map_err(Error::Other)
+            }
+            address::Address::Url(url) | address::Address::Search(url) => Ok(url),
+        }
+    }
+
     pub fn snapshot(&self, agent_id: &str) -> BrowserResult<BrowserSnapshot> {
         validate_agent_id(agent_id)?;
         let mut snapshot = self
