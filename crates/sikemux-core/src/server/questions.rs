@@ -363,6 +363,7 @@ pub(crate) struct Questions {
     state: Mutex<State>,
     kept: Kept,
     secrets: Option<std::path::PathBuf>,
+    secrets_cache: Mutex<Vec<String>>,
     pictures: Option<std::path::PathBuf>,
     /// Moves questions on and tells the window and phones of them.
     pub(crate) wake: Wake,
@@ -487,8 +488,15 @@ impl Questions {
                 }
             }
         }
+        let secrets_cache = Mutex::new(
+            secrets
+                .as_deref()
+                .map(Self::load_secrets)
+                .unwrap_or_default(),
+        );
         Self {
             secrets,
+            secrets_cache,
             pictures,
             state: Mutex::new(State {
                 dirty: !record.open.is_empty(),
@@ -499,6 +507,14 @@ impl Questions {
             kept,
             wake: Wake::default(),
         }
+    }
+
+    pub(crate) fn has_open(&self, agent_id: &str) -> bool {
+        self.state
+            .locked()
+            .open
+            .iter()
+            .any(|question| question.agent_id == agent_id)
     }
 
     /// Keeps the person's answer to a secret question in a file only their
@@ -524,15 +540,25 @@ impl Questions {
         for (_, old) in kept.iter().skip(MAX_SECRETS_PER_AGENT) {
             let _ = std::fs::remove_file(old);
         }
+        if let Some(root) = self.secrets.as_deref() {
+            *self.secrets_cache.locked() = Self::load_secrets(root);
+        }
         Ok(path)
     }
 
     /// The text with every secret the person answered an agent with drawn as dots, so an agent
     /// passing one on never puts it in front of another agent or the person.
     pub(crate) fn hide_secrets(&self, text: &str) -> String {
-        let Some(root) = self.secrets.as_deref() else {
+        let kept = self.secrets_cache.locked();
+        if kept.is_empty() {
             return text.to_owned();
-        };
+        }
+        kept.iter().fold(text.to_owned(), |text, secret| {
+            text.replace(secret.as_str(), HIDDEN)
+        })
+    }
+
+    fn load_secrets(root: &Path) -> Vec<String> {
         let mut kept: Vec<String> = (std::fs::read_dir(root).into_iter().flatten().flatten())
             .flat_map(|agent| {
                 std::fs::read_dir(agent.path())
@@ -544,10 +570,9 @@ impl Questions {
             .map(|secret| secret.trim().to_owned())
             .filter(|secret| secret.chars().count() >= MIN_HIDDEN_SECRET_CHARS)
             .collect();
-        kept.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
-        kept.iter().fold(text.to_owned(), |text, secret| {
-            text.replace(secret.as_str(), HIDDEN)
-        })
+        kept.sort_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.cmp(b)));
+        kept.dedup();
+        kept
     }
 
     /// Copies the pictures of the raise's evidence, as [`Self::keep_pictures`] copies choices'.
@@ -1392,10 +1417,27 @@ async fn edit(
         let at = own_call(&state.open, agent_id, id)?;
         if withdraw {
             let question = state.open.remove(at);
+            let mut held_withdrawn = Vec::new();
+            if !question.holds.is_empty() {
+                let held: HashSet<&str> = question.holds.iter().map(String::as_str).collect();
+                state.open.retain(|open| {
+                    if held.contains(open.id.as_str()) {
+                        held_withdrawn.push(open.clone());
+                        false
+                    } else {
+                        true
+                    }
+                });
+            }
             questions.changed(&mut state);
             drop(state);
             if let Some(lead) = question.lead_id() {
                 messages::withdraw(core, lead, &question.id);
+            }
+            for held in &held_withdrawn {
+                if let Some(lead) = held.lead_id() {
+                    messages::withdraw(core, lead, &held.id);
+                }
             }
             return Ok(json!({ "withdrawn": question.id }));
         }
@@ -1951,7 +1993,18 @@ fn says_it_waits(sentence: &str) -> bool {
         " i'm still waiting ",
         " i am still waiting ",
     ]);
-    let goes_on_once = has(&[" i'll ", " i will "])
+    let polite_handoff = has(&[
+        " you ",
+        " your ",
+        " you're ",
+        " needed ",
+        " ready ",
+        " asked ",
+        " let me know ",
+        " happy to ",
+    ]);
+    let goes_on_once = !polite_handoff
+        && has(&[" i'll ", " i will "])
         && has(&[" once ", " when ", " as soon as ", " after ", " until "]);
     let still_going = has(&[
         " still compiling ",
@@ -2007,6 +2060,14 @@ fn follow_rule(
             eprintln!("sikemux core: an agent was not sent back over a rule: {error}");
         }
     });
+}
+
+pub(crate) fn prune_agents(core: &Core, active: &HashSet<String>) {
+    let mut state = core.harness().questions.state.locked();
+    state
+        .followed_rules
+        .retain(|agent, _| active.contains(agent));
+    state.unwoken.retain(|agent, _| active.contains(agent));
 }
 
 /// The open questions and the answers their askers have not read, for the
@@ -2142,10 +2203,36 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
     };
     // Each answer as the asker gets it, with what was done about it when that is not the answer itself.
     let mut letters: Vec<Letter> = Vec::new();
-    for (question, given, text) in taken {
+    let mut remaining = taken.into_iter();
+    while let Some((question, given, text)) = remaining.next() {
+        let reopen_all =
+            |letters: Vec<Letter>,
+             question: Question,
+             remaining: std::vec::IntoIter<(Question, AnswerParams, String)>| {
+                reopen(
+                    letters
+                        .into_iter()
+                        .map(|letter| letter.question)
+                        .chain(std::iter::once(question))
+                        .chain(remaining.map(|(question, ..)| question))
+                        .collect(),
+                );
+            };
         if let Some(host) = &question.from_host {
-            let params = serde_json::to_value(&given).map_err(|error| error.to_string())?;
-            let asked = serde_json::to_value(&question).map_err(|error| error.to_string())?;
+            let params = match serde_json::to_value(&given) {
+                Ok(params) => params,
+                Err(error) => {
+                    reopen_all(letters, question, remaining);
+                    return Err(error.to_string());
+                }
+            };
+            let asked = match serde_json::to_value(&question) {
+                Ok(asked) => asked,
+                Err(error) => {
+                    reopen_all(letters, question, remaining);
+                    return Err(error.to_string());
+                }
+            };
             super::hosts::route::relay_answer(core, host, params, asked);
             continue;
         }
@@ -2183,13 +2270,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
                 private,
             }),
             Err(error) => {
-                reopen(
-                    letters
-                        .into_iter()
-                        .map(|letter| letter.question)
-                        .chain([question])
-                        .collect(),
-                );
+                reopen_all(letters, question, remaining);
                 return Err(error);
             }
         }

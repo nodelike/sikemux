@@ -56,6 +56,8 @@ pub struct ChatAbove {
     /// What an agent's turn starts with: a chief's digest of what happened since its last turn,
     /// and any lead's calm reports from the agents it started.
     pub turn_digest: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, Vec<ChatContext>>,
+    /// Reports whether the turn carrying `turn_digest` was delivered to the backend.
+    pub turn_digest_result: fn(&Core, &str, bool),
     /// How a turn of a chat on `account` ended: answered, or refused for the account's sign-in
     /// or unpaid plan, which keeps that account off new chats.
     pub agent_accounts_turn_ended:

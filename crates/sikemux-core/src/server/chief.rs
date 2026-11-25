@@ -62,7 +62,7 @@ pub(crate) const SEAT: &str = "You are @Chief, this project's chief in Sikemux. 
 - Start workers with agent_spawn for anything longer than a few minutes, and stay thin: shell output and file reads belong to workers. Their reports reach you; read more with agent_read only when you need it.
 - Pass work: true on the agent_spawn or agent_send that starts work the person asked for this turn; that alone makes it their task. Never pass it for a question, a remark, a reply to a call or a message about other work.
 - A worker's turn that ends waiting on something set to wake it, such as a trigger, a run or a land in line, sends you nothing, and agent_list says what it waits on. A turn that fails, asks something, stops, or a land sent back reaches you at once. A turn that finished calmly, or a land that went in, is one line with your next turn, and wakes you at once when it is on work the person asked for, else only once no other worker of yours is at work. When a turn a worker's message started changes nothing for the person, end it without writing anything.
-- A bug the person reports starts its fix in the same turn, without a go. A design question gets your one-line take and a Fable consult started in that turn.
+- A bug the person reports starts its fix in the same turn, without a go. A design question gets your one-line take and a design review started in that turn.
 - Send a bug to the worker that already holds that area with a built checkout, when one does, rather than starting a new one.
 - A bug the person reports a second time is fixed with a check that reproduces their report, and the fix names each earlier one and why it missed.
 - End every failure report with its cause in Sikemux and who has it, or \"agent slip, no change\".
@@ -82,6 +82,13 @@ pub(crate) fn brief(core: &Core, cwd: &std::path::Path) -> String {
     }
 }
 
+struct PendingDigest {
+    prev_digested: u64,
+    feeds: Vec<(String, String)>,
+    wrote: Vec<String>,
+    notes: Vec<(u64, String)>,
+}
+
 /// What the core keeps for the project's chiefs, saved, by chief: see [`Seat`]; and each
 /// Overrule the person made, by the decision it overruled.
 pub(crate) struct Chiefs {
@@ -89,6 +96,8 @@ pub(crate) struct Chiefs {
     state: Mutex<Saved>,
     /// The rule lines put in an agent's own chat, where a project has no chief, by their key.
     lines_in_chats: Mutex<HashMap<String, (String, RuleChange)>>,
+    /// Digests handed to a chief's turn that have not yet been confirmed delivered.
+    in_flight_digest: Mutex<HashMap<String, PendingDigest>>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -171,6 +180,7 @@ impl Chiefs {
             kept,
             state,
             lines_in_chats: Mutex::default(),
+            in_flight_digest: Mutex::default(),
         }
     }
 
@@ -720,19 +730,69 @@ fn standing_roles_untold(core: &Core, chief: &str) -> Option<ChatContext> {
     })
 }
 
+/// Confirms or rolls back a chief's in-flight digest depending on whether the prompt was sent.
+pub(crate) fn digest_delivered(core: &Core, chief: &str, ok: bool) {
+    let Some(pending) = core.chiefs().in_flight_digest.locked().remove(chief) else {
+        return;
+    };
+    if ok {
+        let saved = core.chiefs().state.locked();
+        core.chiefs().kept.save_soon(&*saved);
+        return;
+    }
+    core.chiefs().seat(chief, |seat| {
+        if pending.prev_digested < seat.digested {
+            seat.digested = pending.prev_digested;
+        }
+        let mut feeds = pending.feeds;
+        feeds.append(&mut seat.feeds);
+        if feeds.len() > MOST_FEEDS {
+            let over = feeds.len() - MOST_FEEDS;
+            feeds.drain(..over);
+        }
+        seat.feeds = feeds;
+        let mut wrote = pending.wrote;
+        for agent in seat.wrote.drain(..) {
+            if !wrote.contains(&agent) {
+                wrote.push(agent);
+            }
+        }
+        seat.wrote = wrote;
+        let mut notes = pending.notes;
+        notes.append(&mut seat.notes);
+        if notes.len() > MOST_NOTES {
+            let over = notes.len() - MOST_NOTES;
+            notes.drain(..over);
+        }
+        seat.notes = notes;
+    });
+}
+
 fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
     let project = project_of_chief(core, chief)?;
     ensure_seat(core, chief, &project.id);
+    if core.chiefs().in_flight_digest.locked().contains_key(chief) {
+        return None;
+    }
     let now = epoch_ms();
-    let (since, feeds, wrote, notes) = core.chiefs().seat(chief, |seat| {
+    let (since, feeds, wrote, notes) = {
+        let mut saved = core.chiefs().state.locked();
+        let seat = saved.seats.get_mut(chief)?;
         let since = std::mem::replace(&mut seat.digested, now);
-        (
-            since,
-            std::mem::take(&mut seat.feeds),
-            std::mem::take(&mut seat.wrote),
-            std::mem::take(&mut seat.notes),
-        )
-    })?;
+        let feeds = std::mem::take(&mut seat.feeds);
+        let wrote = std::mem::take(&mut seat.wrote);
+        let notes = std::mem::take(&mut seat.notes);
+        core.chiefs().in_flight_digest.locked().insert(
+            chief.to_owned(),
+            PendingDigest {
+                prev_digested: since,
+                feeds: feeds.clone(),
+                wrote: wrote.clone(),
+                notes: notes.clone(),
+            },
+        );
+        (since, feeds, wrote, notes)
+    };
     let path = project.path.to_string_lossy().into_owned();
     let agents: Vec<String> = (core.workspaces().agent_projects().into_iter())
         .filter(|(agent, id)| *id == project.id && agent != chief)
@@ -1626,6 +1686,10 @@ fn count_week(core: &Core, chief: &str, project: &str, from: u64, began: u64) {
 /// Lets go of what is kept for a chief that is no longer one, of Overrules in projects gone, and of
 /// the lines kept for agents the workspace no longer keeps.
 fn prune(core: &Core) {
+    const LAST_ACTIVITY_TTL_MS: u64 = 24 * 60 * 60 * 1000;
+    const MAX_LAST_ENTRIES: usize = 256;
+
+    let now = epoch_ms();
     let chiefs = core.workspaces().chiefs();
     let agents = core.workspaces().agent_ids();
     core.chats().forget_gone(|agent| agents.contains(agent));
@@ -1638,19 +1702,72 @@ fn prune(core: &Core) {
             .next()
             .is_some_and(|path| paths.contains(path))
     };
+    let fresh = |at: u64| now.saturating_sub(at) < LAST_ACTIVITY_TTL_MS;
+    {
+        let mut lines = core.chiefs().lines_in_chats.locked();
+        lines.retain(|key, (agent, _)| in_project(key) && reopened(agent));
+    }
     let stale = {
         let saved = core.chiefs().state.locked();
         saved.seats.keys().any(|chief| !chiefs.contains(chief))
             || saved.overrules.keys().any(|key| !in_project(key))
             || saved.lines.keys().any(|agent| !reopened(agent))
+            || saved.last_pages.len() > MAX_LAST_ENTRIES
+            || saved
+                .last_pages
+                .iter()
+                .any(|(agent, (_, at))| !reopened(agent) || !fresh(*at))
+            || saved.last_opened.len() > MAX_LAST_ENTRIES
+            || saved
+                .last_opened
+                .iter()
+                .any(|(agent, opened)| !reopened(agent) || opened.iter().any(|(_, at)| !fresh(*at)))
     };
     if stale {
         core.chiefs().change(|saved| {
             saved.seats.retain(|chief, _| chiefs.contains(chief));
             saved.overrules.retain(|key, _| in_project(key));
             saved.lines.retain(|agent, _| reopened(agent));
+            saved
+                .last_pages
+                .retain(|agent, (_, at)| reopened(agent) && fresh(*at));
+            if saved.last_pages.len() > MAX_LAST_ENTRIES {
+                let mut by_age: Vec<(String, u64)> = saved
+                    .last_pages
+                    .iter()
+                    .map(|(agent, (_, at))| (agent.clone(), *at))
+                    .collect();
+                by_age.sort_by_key(|(_, at)| *at);
+                let drop_n = saved.last_pages.len() - MAX_LAST_ENTRIES;
+                for (agent, _) in by_age.into_iter().take(drop_n) {
+                    saved.last_pages.remove(&agent);
+                }
+            }
+            saved.last_opened.retain(|agent, opened| {
+                if !reopened(agent) {
+                    return false;
+                }
+                opened.retain(|(_, at)| fresh(*at));
+                !opened.is_empty()
+            });
+            if saved.last_opened.len() > MAX_LAST_ENTRIES {
+                let mut by_age: Vec<(String, u64)> = saved
+                    .last_opened
+                    .iter()
+                    .map(|(agent, opened)| {
+                        let newest = opened.iter().map(|(_, at)| *at).max().unwrap_or(0);
+                        (agent.clone(), newest)
+                    })
+                    .collect();
+                by_age.sort_by_key(|(_, at)| *at);
+                let drop_n = saved.last_opened.len() - MAX_LAST_ENTRIES;
+                for (agent, _) in by_age.into_iter().take(drop_n) {
+                    saved.last_opened.remove(&agent);
+                }
+            }
         });
     }
+    super::questions::prune_agents(core, &agents);
 }
 
 #[cfg(test)]

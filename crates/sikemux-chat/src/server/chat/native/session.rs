@@ -1063,11 +1063,14 @@ impl<B: Backend> Running<'_, B> {
                 .context
                 .extend(self.chat.take_brief().map(brief_context));
         }
-        if let Err(error) = self
+        let prompt_res = self
             .backend
             .prompt(self.state.turn, Prompt::from(&replay))
-            .await
-        {
+            .await;
+        if let Some(core) = self.chat.core.upgrade() {
+            (core.chat_above().turn_digest_result)(&core, self.chat.agent_id(), prompt_res.is_ok());
+        }
+        if let Err(error) = prompt_res {
             self.chat.fail_turn(error_message(error));
         }
         self.state.last_prompt = Some(Replay {

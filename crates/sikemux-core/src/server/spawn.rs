@@ -1218,7 +1218,14 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
             let (core, worker) = (core.clone(), worker.clone());
             blocking(move || Ok(work_settled(&core, &worker))).await
         };
-        let calm = is_calm(&ending, answer.as_ref(), settled.unwrap_or(false), unwoken);
+        let has_open_ask = core.harness().questions.has_open(&worker);
+        let calm = !has_open_ask
+            && is_calm(
+                &ending,
+                answer.as_ref(),
+                settled.unwrap_or(Settled::Unsettled),
+                unwoken,
+            );
         if let Some(line) = calm
             .then(|| calm_line(&core, &worker, answer.as_ref()))
             .flatten()
@@ -1244,6 +1251,7 @@ impl Drop for ReportOver {
     fn drop(&mut self) {
         self.0.harness().mailbox.report_over(&self.1);
         super::now::asks::turn_reported(&self.0, &self.1);
+        super::messages::recheck_calm_for_child(&self.0, &self.1);
         super::finished::moved(&self.0);
     }
 }
@@ -1251,31 +1259,67 @@ impl Drop for ReportOver {
 /// What of a worker's report quotes its final answer, for a calm one.
 const CALM_QUOTE_CHARS: usize = 200;
 
-/// Whether the worker's work went in and its turn left nothing of its plan open.
-fn work_settled(core: &Arc<Core>, worker: &str) -> bool {
-    went_in(super::turn_state::work_now(core, worker))
-        && super::turn_state::left_open(core, worker).is_none()
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Settled {
+    Unsettled,
+    Landed,
+    ReadOnly,
 }
 
-/// A turn that changed nothing leaves only its answer, which may say a run failed or ask
-/// something in words no check reads, so only work that went in lets a report wait.
-fn went_in(work: Option<sikemux_view::turn::WorkAt>) -> bool {
+/// Whether the worker's work went in (or was clean read-only) and its turn left nothing of its plan open.
+fn work_settled(core: &Arc<Core>, worker: &str) -> Settled {
+    if super::turn_state::left_open(core, worker).is_some() {
+        return Settled::Unsettled;
+    }
+    went_in(super::turn_state::work_now(core, worker))
+}
+
+fn went_in(work: Option<sikemux_view::turn::WorkAt>) -> Settled {
     use sikemux_view::turn::WorkAt;
-    matches!(
-        work,
-        Some(WorkAt::Landed | WorkAt::Staged | WorkAt::Shipped)
-    )
+    match work {
+        Some(WorkAt::Landed | WorkAt::Staged | WorkAt::Shipped) => Settled::Landed,
+        Some(WorkAt::None) => Settled::ReadOnly,
+        _ => Settled::Unsettled,
+    }
+}
+
+fn reports_problem(said: &str) -> bool {
+    let lower = said.to_lowercase();
+    let padded = format!(" {} ", lower.replace([',', ';', ':', '.', '*', '\n'], " "));
+    [
+        " failed ",
+        " failure ",
+        " blocked ",
+        " blocker ",
+        " urgent ",
+        " cannot proceed ",
+        " can't proceed ",
+        " could not ",
+        " couldn't ",
+    ]
+    .iter()
+    .any(|word| padded.contains(word))
 }
 
 /// Whether a report can wait for its lead's next turn: the turn finished with its work
 /// `settled`, and its answer asks nothing and does not say it waits with nothing set to wake it,
-/// being `unwoken`. Any other report wakes the lead at once.
-fn is_calm(ending: &Ending, answer: Option<&TerminalAnswer>, settled: bool, unwoken: bool) -> bool {
+/// being `unwoken`. Clean read-only completions also qualify unless they report a failure/blocker.
+fn is_calm(
+    ending: &Ending,
+    answer: Option<&TerminalAnswer>,
+    settled: Settled,
+    unwoken: bool,
+) -> bool {
     let Some(TerminalAnswer::Said(said)) = answer else {
         return false;
     };
+    let clean = match settled {
+        Settled::Unsettled => false,
+        Settled::Landed => true,
+        Settled::ReadOnly => !reports_problem(said),
+    };
     matches!(ending, Ending::Finished)
-        && settled
+        && clean
         && !unwoken
         && !super::questions::asks_in(said)
         && !out_of_usage(said)

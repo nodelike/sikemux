@@ -100,6 +100,7 @@ pub(super) fn workspace_above() -> WorkspaceAbove {
         agent_closed: |core, agent_id| {
             chat::rotation::forget(core, agent_id);
             finished::moved(core);
+            messages::recheck_calm_for_child(core, agent_id);
             core.line().agent_closed(core, agent_id);
             launching::clear_temp(core, agent_id);
         },
@@ -310,6 +311,7 @@ pub(super) fn chat_above() -> ChatAbove {
                 context
             })
         },
+        turn_digest_result: chief::digest_delivered,
         agent_accounts_note_live: agent_accounts::note_live,
         board_standing_since: board::goal::standing_since,
         memory_after_compaction: memory::after_compaction,

@@ -4,6 +4,7 @@
 //! core already keeps; only how each agent's latest turn went is kept here.
 
 pub(crate) use super::chat::Fault;
+use crate::server::changed::{ChangedCore, What};
 use crate::server::chat_state::ChatParts;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
@@ -323,6 +324,7 @@ struct Turn {
 pub(crate) struct Turns {
     kept: Kept,
     turns: Mutex<HashMap<String, Turn>>,
+    handoff_refreshing: Mutex<HashSet<String>>,
 }
 
 /// The agent's latest turn, making room for it among the kept ones.
@@ -349,7 +351,11 @@ impl Turns {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let kept = Kept::new(data_dir, TURNS_FILE);
         let turns = Mutex::new(kept.load());
-        Self { kept, turns }
+        Self {
+            kept,
+            turns,
+            handoff_refreshing: Mutex::default(),
+        }
     }
 
     /// Changes the turns kept, saving them.
@@ -679,6 +685,7 @@ pub(crate) fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
         kept(turn)
     };
     let mut handoff = InboxHandoff::default();
+    let mut check_git: Option<(String, PathBuf)> = None;
     if let Some(chat) = core.chats().get(agent_id) {
         let reply = chat.feed.last_answer();
         handoff.offer = reply.as_deref().and_then(super::questions::offer_in);
@@ -698,8 +705,62 @@ pub(crate) fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
                 }
             }
             handoff.edited = seen.len();
-            handoff.uncommitted = uncommitted(core, &project, agent_id, &chat.launch.cwd);
+            if ever_edited(core, &project, agent_id) {
+                check_git = Some((project, chat.launch.cwd.clone()));
+            }
         }
+    }
+    if let Some((project, cwd)) = check_git {
+        if let (Some(arc), Ok(handle)) = (core.arc(), tokio::runtime::Handle::try_current()) {
+            {
+                let mut turns = core.inbox().turns.locked();
+                if kept(turns.get(agent_id)) == before {
+                    turn(&mut turns, agent_id).handoff = Some(handoff.clone());
+                }
+            }
+            if core
+                .inbox()
+                .handoff_refreshing
+                .locked()
+                .insert(agent_id.to_owned())
+            {
+                let agent = agent_id.to_owned();
+                handle.spawn(async move {
+                    let is_uncommitted = {
+                        let (arc, agent, project, cwd) =
+                            (arc.clone(), agent.clone(), project.clone(), cwd.clone());
+                        tokio::task::spawn_blocking(move || {
+                            uncommitted(&arc, &project, &agent, &cwd)
+                        })
+                        .await
+                        .unwrap_or(false)
+                    };
+                    let changed = {
+                        let mut turns = arc.inbox().turns.locked();
+                        let updated = if kept(turns.get(&agent)) == before {
+                            if let Some(cached) =
+                                turns.get_mut(&agent).and_then(|t| t.handoff.as_mut())
+                            {
+                                let prev = cached.uncommitted;
+                                cached.uncommitted = is_uncommitted;
+                                prev != is_uncommitted
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+                        arc.inbox().handoff_refreshing.locked().remove(&agent);
+                        updated
+                    };
+                    if changed {
+                        arc.changed(What::View);
+                    }
+                });
+            }
+            return handoff;
+        }
+        handoff.uncommitted = uncommitted(core, &project, agent_id, &cwd);
     }
     let mut turns = core.inbox().turns.locked();
     if kept(turns.get(agent_id)) == before {
@@ -771,15 +832,24 @@ fn edited_files(core: &Core, project: &str, agent_id: &str) -> Vec<String> {
 /// Which of `files` git at `checkout` lists as changed, relative to the checkout; None when
 /// git there cannot say.
 fn uncommitted_in(checkout: &Path, files: &[String]) -> Option<Vec<String>> {
-    let mut status = vec!["status", "--porcelain", "--"];
+    let mut status = vec!["status", "--porcelain", "-z", "--"];
     status.extend(files.iter().map(String::as_str));
     let listed = Git::at(checkout).text(&status).ok()?;
-    Some(
-        (listed.lines())
-            .filter_map(|line| line.get(3..))
-            .map(str::to_owned)
-            .collect(),
-    )
+    let mut out = Vec::new();
+    let mut entries = listed.split('\0');
+    while let Some(entry) = entries.next() {
+        let Some(path) = entry.get(3..) else {
+            continue;
+        };
+        let bytes = entry.as_bytes();
+        let renamed_or_copied =
+            matches!(bytes.first(), Some(b'R' | b'C')) || matches!(bytes.get(1), Some(b'R' | b'C'));
+        if renamed_or_copied {
+            let _ = entries.next();
+        }
+        out.push(path.to_owned());
+    }
+    Some(out)
 }
 
 /// `files` by the git checkout each is in, keeping the checkouts around or under `cwd`: a file
