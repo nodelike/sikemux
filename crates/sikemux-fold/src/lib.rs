@@ -3457,6 +3457,7 @@ pub fn call_answered(text: &str, paths: &[String]) -> Option<AgentLetter> {
 
 fn sent_row(text: &str, paths: &[String]) -> Row {
     let mut row = Row::new(String::new(), ChatRole::User, 0);
+    row.local = true;
     row.msg.attachments = paths.to_vec();
     row.raw.push(ChatPart::Text {
         id: String::new(),
@@ -3477,6 +3478,7 @@ fn answer_in(row: &Row) -> Option<&AgentLetter> {
 /// are read out. A row read again goes out whole.
 fn read_sent(row: &mut Row, commands: &[ChatCommandInfo]) {
     let mut context = row.sent_context.clone();
+    let mut linked = Vec::new();
     let mut parts = Vec::new();
     for part in &row.raw {
         match part {
@@ -3494,8 +3496,13 @@ fn read_sent(row: &mut Row, commands: &[ChatCommandInfo]) {
                 context.push(sent.with_text(resource.text.as_deref().unwrap_or_default()));
             }
             ChatPart::Text { text, .. } => {
-                let (rest, found) = prompt::split_sent_context(text);
+                let (mut rest, found) = prompt::split_sent_context(text);
                 context.extend(found);
+                if !row.local {
+                    let (said, paths) = prompt::split_file_links(&rest);
+                    rest = said;
+                    linked.extend(paths);
+                }
                 if !rest.is_empty() {
                     parts.push(ChatPart::Text {
                         id: String::new(),
@@ -3515,6 +3522,9 @@ fn read_sent(row: &mut Row, commands: &[ChatCommandInfo]) {
             _ => "",
         })
         .collect();
+    if !row.local {
+        row.msg.attachments = linked;
+    }
     let commands: Vec<String> = (commands.iter())
         .map(|command| command.name.clone())
         .collect();
@@ -3538,17 +3548,13 @@ fn read_sent(row: &mut Row, commands: &[ChatCommandInfo]) {
     let only_text = parts
         .iter()
         .all(|part| matches!(part, ChatPart::Text { .. }));
-    let (lettered, linked) = prompt::split_trailing_file_links(&whole);
     let mut letters = only_text
-        .then(|| prompt::agent_letters(lettered))
+        .then(|| prompt::agent_letters(&whole))
         .flatten()
         .unwrap_or_default();
     let answer = (letters.iter_mut()).find(|letter| letter.kind == LetterKind::Answer);
     if let Some(answer) = answer.filter(|answer| answer.attachments.is_empty()) {
-        answer.attachments = match row.msg.attachments.is_empty() {
-            true => linked,
-            false => row.msg.attachments.clone(),
-        };
+        answer.attachments = row.msg.attachments.clone();
         answer.text = prompt::without_image_tags(&answer.text, answer.attachments.len());
     }
     for (at, part) in parts.iter_mut().enumerate() {

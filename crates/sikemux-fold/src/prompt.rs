@@ -2,6 +2,8 @@
 //! letters from other agents, the context sent with it, and the notes an
 //! agent's harness writes to itself, which the person never sees.
 
+use std::collections::{BTreeMap, VecDeque};
+
 use sikemux_markdown::paths::is_image_path;
 use sikemux_view::chat::{
     tracked_title, AgentLetter, LetterKind, SentChip, SentChipKind, SentContext, SentSpan,
@@ -216,26 +218,78 @@ pub(super) fn agent_letters(text: &str) -> Option<Vec<AgentLetter>> {
     (!letters.is_empty() && outside.trim().is_empty()).then_some(letters)
 }
 
-/// `text` without the `[@name](file://path)` links at its end, and their paths. A saved
-/// Claude session keeps the files sent with a message as such links after its text.
-pub(super) fn split_trailing_file_links(text: &str) -> (&str, Vec<String>) {
-    let mut rest = text.trim_end();
-    let mut paths = Vec::new();
-    while let Some(inner) = rest.strip_suffix(')') {
-        let Some((head, path)) = inner.rsplit_once("](file://") else {
-            break;
+/// `text` without the `[@name](file://path)` links a saved session keeps the files sent with a
+/// message as, and their paths: a picture's where the `[Image #n]` before its link numbers it,
+/// the others in the order of the text.
+pub(super) fn split_file_links(text: &str) -> (String, Vec<String>) {
+    let mut said = String::new();
+    let mut pictures = BTreeMap::new();
+    let mut others = VecDeque::new();
+    let mut rest = text;
+    while let Some((before, after)) = rest.split_once("[@") {
+        said.push_str(before);
+        let Some((path, after_link)) = file_link(after) else {
+            said.push_str("[@");
+            rest = after;
+            continue;
         };
-        let Some((before, label)) = head.rsplit_once("[@") else {
-            break;
-        };
-        if path.is_empty() || path.contains([')', '\n']) || label.contains('\n') {
-            break;
+        match image_number(&said).filter(|number| !pictures.contains_key(number)) {
+            Some(number) => {
+                pictures.insert(number, path);
+            }
+            None => others.push_back(path),
         }
-        paths.push(path.to_owned());
-        rest = before.trim_end();
+        rest = after_link;
     }
-    paths.reverse();
-    (rest, paths)
+    said.push_str(rest);
+    let mut paths = Vec::new();
+    while let Some((number, path)) = pictures.pop_first() {
+        while paths.len() + 1 < number {
+            let Some(other) = others.pop_front() else {
+                break;
+            };
+            paths.push(other);
+        }
+        paths.push(path);
+    }
+    paths.extend(others);
+    (said, paths)
+}
+
+/// The path of the link that starts `text`, after its `[@`, and what follows the link. Its words
+/// are the file's name, which tells its closing bracket from one in the path.
+fn file_link(text: &str) -> Option<(String, &str)> {
+    let line = text.split('\n').next()?;
+    let (label, linked) = line.split_once("](file://")?;
+    linked.match_indices(')').find_map(|(end, _)| {
+        let path = percent_decoded(linked.get(..end)?)?;
+        let path = match path.as_bytes() {
+            [b'/', drive, b':', ..] if drive.is_ascii_alphabetic() => path.get(1..)?.to_owned(),
+            _ => path,
+        };
+        let name = path.trim_end_matches('/').rsplit('/').next()?;
+        let after = label.len() + "](file://".len() + end + 1;
+        (name == label).then_some((path.clone(), text.get(after..)?))
+    })
+}
+
+fn percent_decoded(uri: &str) -> Option<String> {
+    let mut bytes = Vec::with_capacity(uri.len());
+    let mut rest = uri;
+    while let Some((before, after)) = rest.split_once('%') {
+        bytes.extend_from_slice(before.as_bytes());
+        let (hex, after) = after.split_at_checked(2)?;
+        bytes.push(u8::from_str_radix(hex, 16).ok()?);
+        rest = after;
+    }
+    bytes.extend_from_slice(rest.as_bytes());
+    String::from_utf8(bytes).ok()
+}
+
+/// The number of the `[Image #n]` that ends `text`.
+fn image_number(text: &str) -> Option<usize> {
+    let (_, number) = text.trim_end().strip_suffix(']')?.rsplit_once("[Image #")?;
+    number.parse().ok()
 }
 
 /// An answer's typed text and the files listed under the `Attached:` the core wrote after it,
@@ -510,8 +564,8 @@ mod tests {
     #[test]
     fn reads_a_resumed_answer_whose_image_follows_it_as_a_link() {
         let saved = "<question-answer asker=\"Zouken\" asker-id=\"agent-1\" cli=\"claude\" question=\"Keep it?\" note=\"\">\nKeep the App line\n</question-answer>[@shot.png](file:///Users/me/shot.png)";
-        let (lettered, linked) = split_trailing_file_links(saved);
-        let letters = agent_letters(lettered).expect("an answer");
+        let (lettered, linked) = split_file_links(saved);
+        let letters = agent_letters(&lettered).expect("an answer");
         assert_eq!(letters[0].text, "Keep the App line");
         assert_eq!(linked, ["/Users/me/shot.png"]);
     }
