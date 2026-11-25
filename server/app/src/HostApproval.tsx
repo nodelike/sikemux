@@ -181,7 +181,6 @@ export function HostApproval() {
         <Problem>{problem}</Problem>
         <GateActions>
           <Btn
-            autoFocus
             disabled={busy !== undefined}
             busy={busy === "approve"}
             onClick={() =>
