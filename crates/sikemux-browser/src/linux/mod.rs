@@ -208,16 +208,17 @@ impl Drop for Held {
     }
 }
 
-/// WebKitGTK draws pages into DMA-BUF buffers when it finds a render node, and those only show
-/// where the X server has DRI3. Without it, as on virtual machines, remote X and some drivers,
-/// pages stay blank, and on NVIDIA's own driver they show black, so WebKit is told to draw
-/// them another way, unless the person already chose. It sets the environment, so it runs before any thread starts.
+/// WebKitGTK draws pages into DMA-BUF buffers when it finds a render node. Those stay blank
+/// where the X server has no DRI3, as on virtual machines, remote X and some drivers, and show
+/// black on NVIDIA's own driver. There WebKit is told to draw pages another way, unless the
+/// person already chose. It sets the environment, so it runs first in `main`, before GTK and
+/// the core start.
 pub fn choose_page_rendering() {
     const DMABUF: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
     if std::env::var_os(DMABUF).is_some() {
         return;
     }
-    let missing = if !has_dri3() {
+    let reason = if !has_dri3() {
         "the X server has no DRI3"
     } else if !has_render_node() {
         "there is no render node to draw with"
@@ -227,7 +228,7 @@ pub fn choose_page_rendering() {
         return;
     };
     std::env::set_var(DMABUF, "1");
-    eprintln!("sikemux: {missing}, so web pages are drawn without DMA-BUF buffers");
+    eprintln!("sikemux: {reason}, so web pages are drawn without DMA-BUF buffers");
 }
 
 fn has_dri3() -> bool {

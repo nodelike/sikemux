@@ -172,7 +172,8 @@ core's browser calls by running them on it.
   where the stage ends. GTK runs on a thread of its own. Our GPUI's X11 window cuts native
   child windows where its menus draw, and lets the pointer through where they take it. Before
   GTK starts, `choose_page_rendering` turns off WebKit's DMA-BUF renderer where the X server
-  has no DRI3 or there is no render node, since pages would stay blank there.
+  has no DRI3 or there is no render node, since pages would stay blank there, and where
+  NVIDIA's own driver is loaded, since pages would show black there.
 - **Pages agents show** (`page_view/`) draw inline in a chat reply, in a view of their own
   that keeps no storage and never navigates.
 
