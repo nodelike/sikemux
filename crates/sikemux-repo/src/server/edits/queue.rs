@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
@@ -35,7 +36,6 @@ use crate::server::worktree::published;
 use crate::server::Core;
 use crate::tasks::config::LandCheck;
 
-const ATTEMPTS: usize = 4;
 /// Files that change how every crate builds.
 const WORKSPACE_FILES: [&str; 5] = [
     "Cargo.toml",
@@ -633,11 +633,40 @@ fn lay(
     }))
 }
 
+struct QueueCheckout {
+    at: Option<(String, PathBuf)>,
+}
+
+impl QueueCheckout {
+    fn new() -> Self {
+        Self { at: None }
+    }
+
+    async fn at(&mut self, core: &Arc<Core>, repo: &Path, commit: &str) -> Result<PathBuf, String> {
+        if let Some((current, path)) = &self.at {
+            if current == commit {
+                return Ok(path.clone());
+            }
+        }
+        let path = crate::server::worktree::agent::merge_queue(core, repo, commit).await?;
+        self.at = Some((commit.to_owned(), path.clone()));
+        Ok(path)
+    }
+
+    fn set_at(&mut self, commit: String, path: PathBuf) {
+        self.at = Some((commit, path));
+    }
+
+    fn invalidate(&mut self) {
+        self.at = None;
+    }
+}
+
 /// Formats the Rust each land of `stacked` changed and runs the fix of each land check it is
 /// due, in the merge-queue checkout at the land, committing what they changed on top of it. A
 /// land after one that gained a commit is laid again on it, or waits for the next pass when it
 /// no longer lays cleanly.
-async fn tidy(core: &Arc<Core>, key: &Key, stacked: Stack) -> Stack {
+async fn tidy(core: &Arc<Core>, key: &Key, stacked: Stack, checkout: &mut QueueCheckout) -> Stack {
     let Stack {
         here,
         tip,
@@ -671,20 +700,28 @@ async fn tidy(core: &Arc<Core>, key: &Key, stacked: Stack) -> Stack {
                 }
             }
         };
-        tidied.laid.push(match fixed(core, key, &on, &laid).await {
-            Some(commit) => Laid {
-                commits: [laid.commits, vec![commit.clone()]].concat(),
-                tip: commit,
-                waiting: laid.waiting,
-            },
-            None => laid,
-        });
+        tidied
+            .laid
+            .push(match fixed(core, key, &on, &laid, checkout).await {
+                Some(commit) => Laid {
+                    commits: [laid.commits, vec![commit.clone()]].concat(),
+                    tip: commit,
+                    waiting: laid.waiting,
+                },
+                None => laid,
+            });
     }
     tidied
 }
 
 /// The commit made on top of `laid` with its land checks' fixes run, when they changed anything.
-async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<String> {
+async fn fixed(
+    core: &Arc<Core>,
+    key: &Key,
+    from: &str,
+    laid: &Laid,
+    queue_checkout: &mut QueueCheckout,
+) -> Option<String> {
     let (repo, from, to) = (key.0.clone(), from.to_owned(), laid.tip.clone());
     let fixes = blocking(move || {
         Ok((land_checks_due(&repo, &from, &to).into_iter())
@@ -696,16 +733,16 @@ async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<S
     if fixes.is_empty() {
         return None;
     }
-    let checkout = crate::server::worktree::agent::merge_queue(core, &key.0, &laid.tip)
-        .await
-        .ok()?;
+    let checkout = queue_checkout.at(core, &key.0, &laid.tip).await.ok()?;
+    let checkout_for_track = checkout.clone();
     let signers: Vec<_> = super::footer::known(core, &key.0, &laid.waiting.agent)
         .into_iter()
         .collect();
     let (owner, project, tip) = (core.clone(), key.0.clone(), laid.tip.clone());
     let host_key = Signing::of(core).key;
-    blocking(move || {
+    let result = blocking(move || {
         let mut ran = Vec::new();
+        let mut failed = false;
         let trusted = super::generate::trust_needed_for(&owner, &project, &checkout, |config| {
             !config.land_checks.is_empty()
         })
@@ -714,6 +751,8 @@ async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<S
             let fix = check.fix.as_deref().unwrap_or_default();
             if shell(&checkout, fix, &check.label, files, None, LAND_CHECK_LIMIT).is_ok() {
                 ran.push(format!("the fix of {}", check.label));
+            } else {
+                failed = true;
             }
         }
         git(&checkout, &["add", "-u"])?;
@@ -721,7 +760,7 @@ async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<S
         if ran.is_empty()
             || tree == line(git(&checkout, &["rev-parse", &format!("{tip}^{{tree}}")])?)
         {
-            return Ok(None);
+            return Ok((None, failed));
         }
         let parents = vec![tip.clone()];
         let footer = super::footer::of_core_commit(
@@ -745,11 +784,22 @@ async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<S
         if let (true, Some(key)) = (footer.is_empty(), &host_key) {
             super::committer::record_with(&checkout, &made, &signers, key);
         }
-        Ok(Some(made))
+        let _ = git(&checkout, &["update-ref", "--no-deref", "HEAD", &made]);
+        let _ = git(&checkout, &["clean", "-fdq"]);
+        Ok((Some(made), false))
     })
-    .await
-    .ok()
-    .flatten()
+    .await;
+    match result {
+        Ok((Some(made), _)) => {
+            queue_checkout.set_at(made.clone(), checkout_for_track);
+            Some(made)
+        }
+        Ok((None, false)) => None,
+        Ok((None, true)) | Err(_) => {
+            queue_checkout.invalidate();
+            None
+        }
+    }
 }
 
 /// Stacks the lands in `batch` and checks them together: the stack to land when it passed.
@@ -784,31 +834,34 @@ async fn check(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) -> Option<Stack
     if stacked.laid.is_empty() {
         return None;
     }
-    let stacked = tidy(core, key, stacked).await;
+    let mut checkout = QueueCheckout::new();
+    let stacked = tidy(core, key, stacked, &mut checkout).await;
     let first = stacked.laid.first()?;
     let ranges: Vec<(String, String)> = (stacked.laid.iter())
         .scan(stacked.tip.clone(), |from, laid| {
             Some((std::mem::replace(from, laid.tip.clone()), laid.tip.clone()))
         })
         .collect();
-    if let Some((laid, why)) = failing_land_check(core, key, &stacked, &ranges).await {
+    if let Some((laid, why)) = failing_land_check(core, key, &stacked, &ranges, &mut checkout).await
+    {
         send_back(core, key, &laid.waiting, &why);
         return None;
     }
     let to = stacked.top().to_owned();
-    let command = match crate::server::worktree::agent::merge_queue(core, &key.0, &to).await {
-        Ok(checkout) => {
-            let (repo, base, tip) = (key.0.clone(), key.1.clone(), stacked.tip.clone());
-            blocking(move || {
-                let from = checked_below(&repo, &base, &tip);
-                rust_check(&repo, &checkout, &from, &to).map_err(Into::into)
-            })
-            .await
-            .map_err(|error| error.to_string())
+    let from = {
+        let (repo, base, tip) = (key.0.clone(), key.1.clone(), stacked.tip.clone());
+        match blocking(move || Ok(checked_below(&repo, &base, &tip))).await {
+            Ok(from) => from,
+            Err(error) => {
+                for laid in &stacked.laid {
+                    let why = format!("reading which crates it changes failed: {error}");
+                    send_back(core, key, &laid.waiting, &why);
+                }
+                return None;
+            }
         }
-        Err(why) => Err(why),
     };
-    let command = match command {
+    let command = match rust_check_at(core, &key.0, &from, &to, &mut checkout).await {
         Ok(command) => command,
         Err(error) => {
             for laid in &stacked.laid {
@@ -822,8 +875,22 @@ async fn check(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) -> Option<Stack
         mark_checked(key, stacked.top());
         return Some(stacked);
     };
+    let path = match checkout.at(core, &key.0, &to).await {
+        Ok(path) => path,
+        Err(why) => {
+            for laid in &stacked.laid {
+                send_back(
+                    core,
+                    key,
+                    &laid.waiting,
+                    &format!("its check did not run: {why}"),
+                );
+            }
+            return None;
+        }
+    };
     let front = first.waiting.agent.clone();
-    let ran = checks::run_in_queue(core, &key.0, stacked.top(), &command, &front).await;
+    let ran = checks::run_in_queue(core, &key.0, path, &command, &front).await;
     let ran = match ran {
         Ok(ran) if ran.passed => {
             mark_checked(key, stacked.top());
@@ -912,6 +979,7 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
         landed,
         refused,
         pushed,
+        rebased,
     }) = put
     else {
         return;
@@ -926,6 +994,16 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
         line.lane.one_at_a_time = false;
         line.waiting
             .retain(|w| !landed.iter().any(|(laid, _, _)| laid.is(w)));
+        for w in &mut line.waiting {
+            if let Some(new_head) = rebased.get(&(w.agent.clone(), w.head.clone())) {
+                w.head = new_head.clone();
+            }
+            if let Some(since) = &w.since {
+                if let Some(new_since) = rebased.get(&(w.agent.clone(), since.clone())) {
+                    w.since = Some(new_since.clone());
+                }
+            }
+        }
     });
     core.changed(What::View);
     if let Some(pushed) = &pushed {
@@ -1000,99 +1078,89 @@ struct Put {
     landed: Landed,
     refused: Vec<(Waiting, String)>,
     pushed: Option<super::push::Pushed>,
+    rebased: HashMap<(String, String), String>,
 }
 
 fn put_stack(core: &Core, key: &Key, stacked: Stack) -> Put {
     let (repo, base) = key;
-    let signing = Signing::of(core);
-    let mut stacked = stacked;
     let mut put = Put {
         landed: Vec::new(),
         refused: Vec::new(),
         pushed: None,
+        rebased: HashMap::new(),
     };
-    for _ in 0..ATTEMPTS {
-        let tip = match git(repo, &["rev-parse", &format!("refs/heads/{base}")]) {
-            Ok(tip) => line(tip),
-            Err(_) => break,
-        };
-        if tip != stacked.here {
-            if checked_below(repo, base, &tip) != tip {
-                return put;
-            }
-            let batch: Vec<Waiting> = (stacked.laid.iter())
-                .map(|laid| laid.waiting.clone())
-                .collect();
-            stacked = match stack(&signing, key, &batch) {
-                Ok(again) => again,
-                Err(_) => break,
-            };
-            put.refused.append(&mut stacked.refused);
+    let Ok(tip) = git(repo, &["rev-parse", &format!("refs/heads/{base}")]).map(line) else {
+        return put;
+    };
+    if tip != stacked.here {
+        return put;
+    }
+    let Some(top) = stacked.laid.last().map(|laid| laid.tip.clone()) else {
+        return put;
+    };
+    let pushers: Vec<String> = (stacked.laid.iter())
+        .filter(|laid| laid.waiting.push)
+        .map(|laid| laid.waiting.agent.clone())
+        .collect();
+    let moved = match pushers.is_empty() {
+        true => land::put(repo, base, &stacked.here, &top).map(drop),
+        false => land::planned(repo, base, &stacked.here, &top).map(drop),
+    };
+    match moved {
+        Ok(()) if pushers.is_empty() => {
+            let (landed, rebased) = landed(core, repo, base, &stacked, None);
+            put.landed = landed;
+            put.rebased = rebased;
+            put
         }
-        let Some(top) = stacked.laid.last().map(|laid| laid.tip.clone()) else {
-            break;
-        };
-        let pushers: Vec<String> = (stacked.laid.iter())
-            .filter(|laid| laid.waiting.push)
-            .map(|laid| laid.waiting.agent.clone())
-            .collect();
-        let moved = match pushers.is_empty() {
-            true => land::put(repo, base, &stacked.here, &top).map(drop),
-            false => land::planned(repo, base, &stacked.here, &top).map(drop),
-        };
-        match moved {
-            Ok(()) if pushers.is_empty() => {
-                put.landed = landed(core, repo, &stacked);
-                return put;
-            }
-            Ok(()) => {
-                let landing = super::push::Landing {
-                    branch: base,
-                    from: &stacked.here,
-                    to: &top,
-                };
-                match super::push::land_and_push(core, repo, &pushers, "origin", &landing) {
-                    Ok(pushed) => {
-                        put.landed = landed(core, repo, &stacked);
-                        put.pushed = Some(pushed);
-                    }
-                    Err(why) => {
-                        let why = format!("pushing it failed, so nothing landed: {why}");
-                        put.refused.extend(
-                            (stacked.laid.into_iter())
-                                .filter(|laid| laid.waiting.push)
-                                .map(|laid| (laid.waiting, why.clone())),
-                        );
-                    }
+        Ok(()) => {
+            let landing = super::push::Landing {
+                branch: base,
+                from: &stacked.here,
+                to: &top,
+            };
+            match super::push::land_and_push(core, repo, &pushers, "origin", &landing) {
+                Ok(pushed) => {
+                    let (landed, rebased) = landed(core, repo, base, &stacked, Some(&pushed));
+                    put.landed = landed;
+                    put.rebased = rebased;
+                    put.pushed = Some(pushed);
                 }
-                return put;
-            }
-            Err(NotPut::Moved) => continue,
-            Err(NotPut::Clash(paths)) => {
-                let why = format!(
-                    "the project's checkout has changes nobody committed in {} that clash with it. Find who made them with who_wrote on those paths and agree with them, then land again.",
-                    paths
-                        .iter()
-                        .map(|path| path.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-                let mut clashing = clashing(repo, &stacked, &paths);
-                if clashing.is_empty() {
-                    clashing = stacked.laid.into_iter().map(|laid| laid.waiting).collect();
+                Err(why) => {
+                    let why = format!("pushing it failed, so nothing landed: {why}");
+                    put.refused.extend(
+                        (stacked.laid.into_iter())
+                            .filter(|laid| laid.waiting.push)
+                            .map(|laid| (laid.waiting, why.clone())),
+                    );
                 }
-                (put.refused).extend(clashing.into_iter().map(|waiting| (waiting, why.clone())));
-                return put;
             }
-            Err(NotPut::Failed(why)) => {
-                for laid in stacked.laid {
-                    put.refused.push((laid.waiting, why.clone()));
-                }
-                return put;
+            put
+        }
+        Err(NotPut::Moved) => put,
+        Err(NotPut::Clash(paths)) => {
+            let why = format!(
+                "the project's checkout has changes nobody committed in {} that clash with it. Find who made them with who_wrote on those paths and agree with them, then land again.",
+                paths
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            let mut clashing = clashing(repo, &stacked, &paths);
+            if clashing.is_empty() {
+                clashing = stacked.laid.into_iter().map(|laid| laid.waiting).collect();
             }
+            (put.refused).extend(clashing.into_iter().map(|waiting| (waiting, why.clone())));
+            put
+        }
+        Err(NotPut::Failed(why)) => {
+            for laid in stacked.laid {
+                put.refused.push((laid.waiting, why.clone()));
+            }
+            put
         }
     }
-    put
 }
 
 /// The lands of `stacked` that change any of `paths`.
@@ -1113,15 +1181,51 @@ fn clashing(repo: &Path, stacked: &Stack, paths: &[PathBuf]) -> Vec<Waiting> {
     found
 }
 
-/// Brings each landed agent's checkout up to its landed commits and says they landed.
-fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
+/// Brings each landed agent's checkout up to the final landed tip (falling back
+/// to its own landed tip on clash) and says they landed.
+fn landed(
+    core: &Core,
+    repo: &Path,
+    base: &str,
+    stacked: &Stack,
+    pushed: Option<&super::push::Pushed>,
+) -> (Landed, HashMap<(String, String), String>) {
     let project = core.workspaces().project_of(repo);
+    let signing = Signing::of(core);
+    let final_tip = match pushed {
+        Some(pushed) if pushed.blocked.is_empty() && pushed.note.is_none() => {
+            git(repo, &["rev-parse", &format!("refs/heads/{base}")])
+                .map(line)
+                .unwrap_or_else(|_| stacked.top().to_owned())
+        }
+        _ => stacked.top().to_owned(),
+    };
     let mut onto = stacked.tip.clone();
     let mut landed = Vec::with_capacity(stacked.laid.len());
+    let mut rebased = HashMap::new();
     for laid in &stacked.laid {
         let waiting = &laid.waiting;
-        let stays = (waiting.checkout.as_deref())
-            .and_then(|checkout| land::follow(checkout, &waiting.head, &laid.tip));
+        let blocked = pushed.is_some_and(|pushed| {
+            pushed
+                .blocked
+                .iter()
+                .any(|blocked| blocked.owners.iter().any(|owner| owner == &waiting.agent))
+        });
+        let preferred = if blocked {
+            laid.tip.as_str()
+        } else {
+            final_tip.as_str()
+        };
+        let stays = waiting.checkout.as_deref().and_then(|checkout| {
+            let mut followed = land::follow(&signing, checkout, &waiting.head, preferred);
+            if followed.stays.is_some() && preferred != laid.tip {
+                followed = land::follow(&signing, checkout, &waiting.head, &laid.tip);
+            }
+            for (old, new) in followed.rebased {
+                rebased.insert((waiting.agent.clone(), old), new);
+            }
+            followed.stays
+        });
         core.build_outputs().landed(&waiting.agent);
         (core.repo_above().turn_state_committed)(core, &waiting.agent);
         let made = format!("{onto}..{}", laid.tip);
@@ -1136,7 +1240,7 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
         onto = laid.tip.clone();
         landed.push((waiting.clone(), laid.commits.clone(), stays));
     }
-    landed
+    (landed, rebased)
 }
 
 /// Runs the land check on the commits of `base` up to `head` that no passing
@@ -1174,29 +1278,25 @@ async fn check_from(
     agent: &str,
 ) -> Result<(), String> {
     let repo = &key.0;
+    let mut checkout = QueueCheckout::new();
     let due = {
         let (repo, from, head) = (repo.to_owned(), from.to_owned(), head.to_owned());
         blocking(move || Ok(land_checks_due(&repo, &from, &head)))
             .await
             .unwrap_or_default()
     };
-    if let Some((check, files, why)) = land_checks_at(core, key, head, due).await {
-        if land_checks_at(core, key, from, vec![(check, files)])
+    if let Some((check, files, why)) = land_checks_at(core, key, head, due, &mut checkout).await {
+        if land_checks_at(core, key, from, vec![(check, files)], &mut checkout)
             .await
             .is_none()
         {
             return Err(why);
         }
     }
-    let checkout = crate::server::worktree::agent::merge_queue(core, repo, head).await?;
-    let command = {
-        let (repo, from, head) = (repo.to_owned(), from.to_owned(), head.to_owned());
-        blocking(move || rust_check(&repo, &checkout, &from, &head).map_err(Into::into))
-            .await
-            .map_err(|error| error.to_string())?
-    };
+    let command = rust_check_at(core, repo, from, head, &mut checkout).await?;
     if let Some((label, command)) = command {
-        let ran = checks::run_in_queue(core, repo, head, &command, agent).await?;
+        let path = checkout.at(core, repo, head).await?;
+        let ran = checks::run_in_queue(core, repo, path, &command, agent).await?;
         if !ran.passed {
             return Err(format!(
                 "{label} failed on the commits it would push, so they stay unpushed until a fix passes it:\n\n{}{}",
@@ -1255,6 +1355,7 @@ async fn failing_land_check<'a>(
     key: &Key,
     stacked: &'a Stack,
     ranges: &[(String, String)],
+    checkout: &mut QueueCheckout,
 ) -> Option<(&'a Laid, String)> {
     for (laid, (from, to)) in stacked.laid.iter().zip(ranges) {
         let (repo, range) = (key.0.clone(), (from.clone(), to.clone()));
@@ -1264,7 +1365,7 @@ async fn failing_land_check<'a>(
         if due.is_empty() {
             continue;
         }
-        let Some((check, files, why)) = land_checks_at(core, key, to, due).await else {
+        let Some((check, files, why)) = land_checks_at(core, key, to, due, checkout).await else {
             continue;
         };
         let (repo, at) = (key.0.clone(), from.clone());
@@ -1278,7 +1379,7 @@ async fn failing_land_check<'a>(
         if older.is_empty() {
             return Some((laid, why));
         }
-        if land_checks_at(core, key, from, vec![(check, older)])
+        if land_checks_at(core, key, from, vec![(check, older)], checkout)
             .await
             .is_none()
         {
@@ -1294,10 +1395,9 @@ async fn land_checks_at(
     key: &Key,
     commit: &str,
     due: Vec<(LandCheck, Vec<String>)>,
+    queue_checkout: &mut QueueCheckout,
 ) -> Option<(LandCheck, Vec<String>, String)> {
-    let checkout = crate::server::worktree::agent::merge_queue(core, &key.0, commit)
-        .await
-        .ok()?;
+    let checkout = queue_checkout.at(core, &key.0, commit).await.ok()?;
     let (owner, project) = (core.clone(), key.0.clone());
     blocking(move || {
         let untrusted = super::generate::trust_needed_for(&owner, &project, &checkout, |config| {
@@ -1405,20 +1505,100 @@ pub(super) fn shell(
 
 pub(super) const LAND_CHECK_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// The check for what changed from `from` to `to`, read in `checkout` at `to`,
-/// with what to call it: rustfmt and `cargo check` of the crates it changes or whose
-/// files they read, of every crate when it changes how they all build, none when it
-/// changes no Rust. Clippy, the tests and the crates that use the changed ones are
-/// left to CI, so a land takes minutes and a red main is fixed forward.
+const MEMBERS_CACHE_CAP: usize = 64;
+
+fn cargo_manifest_hash(repo: &Path, commit: &str) -> Option<[u8; 32]> {
+    let git_repo = git2::Repository::open(repo).ok()?;
+    let tree = git_repo
+        .revparse_single(commit)
+        .ok()?
+        .peel_to_commit()
+        .ok()?
+        .tree()
+        .ok()?;
+    tree.get_name("Cargo.toml")?;
+    let mut entries: Vec<(String, git2::Oid)> = Vec::new();
+    let _ = tree.walk(git2::TreeWalkMode::PreOrder, |root, entry| {
+        if let Ok(name @ ("Cargo.toml" | "Cargo.lock")) = entry.name() {
+            let mut path = root.to_owned();
+            path.push_str(name);
+            entries.push((path, entry.id()));
+        }
+        git2::TreeWalkResult::Ok
+    });
+    entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let mut hasher = Sha256::new();
+    for (path, oid) in entries {
+        hasher.update(path.as_bytes());
+        hasher.update([0u8]);
+        hasher.update(oid.as_bytes());
+    }
+    Some(hasher.finalize().into())
+}
+
+async fn cached_members(
+    core: &Arc<Core>,
+    repo: &Path,
+    commit: &str,
+    hash: [u8; 32],
+    checkout: &mut QueueCheckout,
+) -> Result<Arc<Vec<Member>>, String> {
+    type MembersCache = HashMap<PathBuf, ([u8; 32], Arc<Vec<Member>>)>;
+    static CACHE: Mutex<Option<MembersCache>> = Mutex::new(None);
+    let key = sikemux_process::files::real_path(repo).unwrap_or_else(|_| repo.to_owned());
+    if let Some((kept_hash, members)) = CACHE.locked().as_ref().and_then(|cache| cache.get(&key)) {
+        if *kept_hash == hash {
+            return Ok(members.clone());
+        }
+    }
+    let path = checkout.at(core, repo, commit).await?;
+    let found = blocking(move || members(&path).map_err(Into::into))
+        .await
+        .map_err(|error| error.to_string())?;
+    let found = Arc::new(found);
+    let mut cache = CACHE.locked();
+    let cache = cache.get_or_insert_with(HashMap::new);
+    if cache.len() >= MEMBERS_CACHE_CAP && !cache.contains_key(&key) {
+        if let Some(evict) = cache.keys().next().cloned() {
+            cache.remove(&evict);
+        }
+    }
+    cache.insert(key, (hash, found.clone()));
+    Ok(found)
+}
+
+async fn rust_check_at(
+    core: &Arc<Core>,
+    repo: &Path,
+    from: &str,
+    to: &str,
+    checkout: &mut QueueCheckout,
+) -> Result<Option<(String, String)>, String> {
+    let (repo_owned, to_owned) = (repo.to_owned(), to.to_owned());
+    let hash = blocking(move || Ok(cargo_manifest_hash(&repo_owned, &to_owned)))
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(hash) = hash else {
+        return Ok(None);
+    };
+    let members = cached_members(core, repo, to, hash, checkout).await?;
+    let (repo_owned, from_owned, to_owned) = (repo.to_owned(), from.to_owned(), to.to_owned());
+    blocking(move || rust_check(&repo_owned, &members, &from_owned, &to_owned).map_err(Into::into))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// The check for what changed from `from` to `to`, with what to call it:
+/// rustfmt and `cargo check` of the crates it changes or whose files they read,
+/// of every crate when it changes how they all build, none when it changes no
+/// Rust. Clippy, the tests and the crates that use the changed ones are left to
+/// CI, so a land takes minutes and a red main is fixed forward.
 fn rust_check(
     repo: &Path,
-    checkout: &Path,
+    members: &[Member],
     from: &str,
     to: &str,
 ) -> Result<Option<(String, String)>, String> {
-    if !checkout.join("Cargo.toml").is_file() {
-        return Ok(None);
-    }
     let changed = git(
         repo,
         &["diff", "-z", "--name-only", "--no-renames", from, to],
@@ -1429,8 +1609,7 @@ fn rust_check(
         .collect();
     let every =
         (changed.iter()).any(|path| WORKSPACE_FILES.contains(path) || path.starts_with(".cargo/"));
-    let members = members(checkout)?;
-    let reads = reads(repo, to, &members);
+    let reads = reads(repo, to, members);
     let mut changed_crates = BTreeSet::new();
     for path in changed {
         let readers: Vec<&str> = (reads.iter())
@@ -1440,7 +1619,7 @@ fn rust_check(
         if !readers.is_empty() {
             changed_crates.extend(readers.into_iter().map(str::to_owned));
         } else if !path.ends_with(".md") && !path.ends_with(".mdx") {
-            changed_crates.extend(owner(&members, path).map(|member| member.name.clone()));
+            changed_crates.extend(owner(members, path).map(|member| member.name.clone()));
         }
     }
     if !every && changed_crates.is_empty() {
@@ -1474,6 +1653,7 @@ const METADATA_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
 const METADATA_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
 
 /// A crate of the workspace.
+#[derive(Clone)]
 struct Member {
     name: String,
     /// Its folder from the workspace's root, empty for the root itself.

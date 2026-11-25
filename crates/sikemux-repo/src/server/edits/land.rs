@@ -10,11 +10,12 @@
 
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use super::owners::{git, run};
 use super::push::{is_main_checkout, line, on_release_line, replay, shared, Signing, Unpushed};
@@ -173,32 +174,124 @@ enum Step {
     Keep(String),
 }
 
+struct DiskSnap {
+    exists: bool,
+    len: u64,
+    modified: Option<SystemTime>,
+    hash: Option<[u8; 32]>,
+}
+
+impl DiskSnap {
+    fn capture(file: &Path, bytes: Option<&[u8]>) -> Self {
+        let meta = std::fs::symlink_metadata(file).ok();
+        Self {
+            exists: meta.is_some(),
+            len: meta.as_ref().map_or(0, std::fs::Metadata::len),
+            modified: meta.and_then(|meta| meta.modified().ok()),
+            hash: bytes.map(sha256),
+        }
+    }
+
+    fn verify(&self, file: &Path) -> Result<(), Option<Vec<u8>>> {
+        let meta = std::fs::symlink_metadata(file).ok();
+        match (self.exists, meta) {
+            (false, None) => return Ok(()),
+            (true, Some(meta))
+                if meta.len() == self.len && meta.modified().ok() == self.modified =>
+            {
+                return Ok(());
+            }
+            _ => {}
+        }
+        let current = on_disk(file);
+        if current.as_deref().map(sha256) == self.hash {
+            Ok(())
+        } else {
+            Err(current)
+        }
+    }
+}
+
+fn sha256(bytes: &[u8]) -> [u8; 32] {
+    Sha256::digest(bytes).into()
+}
+
+struct StepEntry {
+    path: String,
+    step: Step,
+    dirty: bool,
+    snap: DiskSnap,
+    old_blob: Option<String>,
+    new_blob: Option<String>,
+    new_bytes: Option<Vec<u8>>,
+    new_mode: String,
+}
+
 /// What moving the project's checkout to new commits does to each file, and
 /// whether someone had changed it there.
 #[derive(Default)]
-pub struct Steps(Vec<(String, Step, bool)>);
+pub struct Steps(Vec<StepEntry>);
 
 /// Carries out `steps` in the project's checkout at `repo`, which its branch
 /// just moved from `before` to `after`, and brings its index along. The files
 /// someone had changed, which took the new lines merged in.
 pub fn apply(repo: &Path, steps: Steps, before: &str, after: &str) -> Vec<String> {
-    let mut merged = Vec::new();
-    for (path, step, dirty) in steps.0 {
-        let file = repo.join(&path);
-        let done = match step {
-            Step::Write(bytes, mode) => write(&file, &bytes, &mode),
-            Step::Delete => remove(&file),
-            Step::Keep(mode) => set_executable(&file, &mode),
+    let mut merged_paths = Vec::new();
+    for entry in steps.0 {
+        let file = repo.join(&entry.path);
+        let (done, was_merged) = match entry.snap.verify(&file) {
+            Ok(()) => {
+                let done = match entry.step {
+                    Step::Write(bytes, mode) => write(&file, &bytes, &mode),
+                    Step::Delete => remove(&file),
+                    Step::Keep(mode) => set_executable(&file, &mode),
+                };
+                (done, entry.dirty)
+            }
+            Err(current) => {
+                if matches!(entry.step, Step::Keep(_)) || current == entry.new_bytes {
+                    let done = if current.is_some() {
+                        set_executable(&file, &entry.new_mode)
+                    } else {
+                        Ok(())
+                    };
+                    (done, false)
+                } else if let (Some(now), Some(old_blob), Some(new_blob)) = (
+                    current.as_deref(),
+                    entry.old_blob.as_deref(),
+                    entry.new_blob.as_deref(),
+                ) {
+                    match merged(repo, now, old_blob, new_blob) {
+                        Ok(Some(bytes)) => (write(&file, &bytes, &entry.new_mode), true),
+                        _ => {
+                            eprintln!(
+                                "sikemux core: {} changed while landing; left live edits on disk",
+                                entry.path
+                            );
+                            (Ok(()), false)
+                        }
+                    }
+                } else {
+                    eprintln!(
+                        "sikemux core: {} changed while landing; left live edits on disk",
+                        entry.path
+                    );
+                    (Ok(()), false)
+                }
+            }
         };
         if let Err(error) = done {
-            eprintln!("sikemux core: {path} did not take the new commits: {error}");
+            eprintln!(
+                "sikemux core: {} did not take the new commits: {error}",
+                entry.path
+            );
         }
-        if dirty {
-            merged.push(path);
+        if was_merged {
+            merged_paths.push(entry.path);
         }
     }
     share_index(repo, before, after);
-    merged
+    merged_paths
 }
 
 pub fn own_checkout(core: &Core, agent_id: &str) -> Option<AgentWorktree> {
@@ -428,38 +521,101 @@ fn sync_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Synced, Stri
     Err("your checkout kept moving while syncing; call this again".into())
 }
 
+pub struct Followed {
+    pub stays: Option<String>,
+    pub rebased: HashMap<String, String>,
+}
+
 /// Moves the agent's checkout at `tree` from `before` to `after`, as landing
-/// moves the project's, keeping what it has not committed. Why it stayed
-/// where it was, when it did.
-pub fn follow(tree: &Path, before: &str, after: &str) -> Option<String> {
+/// moves the project's, keeping what it has not committed and rebasing any
+/// follow-up commits made on top of `before`.
+pub fn follow(signing: &Signing, tree: &Path, before: &str, after: &str) -> Followed {
     let stays = |why: String| {
-        Some(format!(
+        Followed {
+        stays: Some(format!(
             "Your checkout stays on your old commits: {why}. Then call git_commit with sync: true to bring it up to the landed ones"
-        ))
-    };
-    let (steps, clashes) = match plan(tree, before, after) {
-        Ok(planned) => planned,
-        Err(error) => return stays(error),
-    };
-    if !clashes.is_empty() {
-        return stays(format!(
-            "what you have not committed in {} clashes with them; commit it",
-            clashes.join(", ")
-        ));
+        )),
+        rebased: HashMap::new(),
     }
-    let reflog = "land: follow the landed commits";
-    if run(
-        tree,
-        &["update-ref", "-m", reflog, "HEAD", after, before],
-        None,
-        None,
-    )
-    .is_err()
-    {
-        return stays("it moved while landing".into());
+    };
+    for _ in 0..ATTEMPTS {
+        let head = match git(tree, &["rev-parse", "HEAD"]) {
+            Ok(head) => line(head),
+            Err(error) => return stays(error),
+        };
+        if head == after {
+            return Followed {
+                stays: None,
+                rebased: HashMap::new(),
+            };
+        }
+        let (target, rebased) = if head == before {
+            (after.to_owned(), HashMap::new())
+        } else if contains(tree, &head, before) {
+            let range = format!("{before}..{head}");
+            let has_merges = git(tree, &["rev-list", "--merges", "--count", &range])
+                .ok()
+                .is_some_and(|count| count.trim() != "0");
+            if has_merges {
+                return stays("it has merge commits on top of the landed ones".into());
+            }
+            let listed = match git(tree, &["log", "--reverse", "--format=%H%x00%s", &range]) {
+                Ok(listed) => listed,
+                Err(error) => return stays(error),
+            };
+            let commits: Vec<Unpushed> = listed
+                .lines()
+                .filter_map(|entry| entry.split_once('\0'))
+                .map(|(id, subject)| Unpushed {
+                    id: id.to_owned(),
+                    mine: true,
+                    by: String::new(),
+                    subject: subject.to_owned(),
+                    waits: false,
+                })
+                .collect();
+            let mut onto = after.to_owned();
+            let mut map = HashMap::new();
+            for commit in &commits {
+                match replay(signing, tree, &onto, &[commit], "onto the landed commits") {
+                    Ok(next) => {
+                        map.insert(commit.id.clone(), next.clone());
+                        onto = next;
+                    }
+                    Err(why) => return stays(why),
+                }
+            }
+            (onto, map)
+        } else {
+            return stays("it moved while landing".into());
+        };
+        let (steps, clashes) = match plan(tree, &head, &target) {
+            Ok(planned) => planned,
+            Err(error) => return stays(error),
+        };
+        if !clashes.is_empty() {
+            return stays(format!(
+                "what you have not committed in {} clashes with them; commit it",
+                clashes.join(", ")
+            ));
+        }
+        let reflog = "land: follow the landed commits";
+        if run(
+            tree,
+            &["update-ref", "-m", reflog, "HEAD", &target, &head],
+            None,
+            None,
+        )
+        .is_ok()
+        {
+            apply(tree, steps, &head, &target);
+            return Followed {
+                stays: None,
+                rebased,
+            };
+        }
     }
-    apply(tree, steps, before, after);
-    None
+    stays("it moved while landing".into())
 }
 
 /// The commits of `head` that `onto` lacks, after `since` when given, made again on it in the
@@ -549,73 +705,104 @@ pub fn steps(repo: &Path, base: &str, before: &str, after: &str) -> Result<Optio
     })
 }
 
+fn commit_tree<'a>(git_repo: &'a git2::Repository, rev: &str) -> Result<git2::Tree<'a>, String> {
+    git_repo
+        .revparse_single(rev)
+        .and_then(|obj| obj.peel_to_commit())
+        .and_then(|commit| commit.tree())
+        .map_err(|error| format!("git tree {rev}: {error}"))
+}
+
+fn format_mode(mode: git2::FileMode) -> String {
+    format!("{:06o}", u32::from(mode))
+}
+
 /// What each file changed from `before` to `after` needs in the checkout at
 /// `repo`, and the files whose uncommitted changes there clash with it.
 fn plan(repo: &Path, before: &str, after: &str) -> Result<(Steps, Vec<String>), String> {
-    let changed = git(
-        repo,
-        &["diff", "-z", "--name-only", "--no-renames", before, after],
-    )?;
+    let git_repo = git2::Repository::open(repo).map_err(|error| format!("git open: {error}"))?;
+    let before_tree = commit_tree(&git_repo, before)?;
+    let after_tree = commit_tree(&git_repo, after)?;
+    let mut opts = git2::DiffOptions::new();
+    opts.include_typechange(true);
+    let diff = git_repo
+        .diff_tree_to_tree(Some(&before_tree), Some(&after_tree), Some(&mut opts))
+        .map_err(|error| format!("git diff: {error}"))?;
     let mut steps = Vec::new();
     let mut clashes = Vec::new();
-    for path in changed.split('\0').filter(|path| !path.is_empty()) {
-        let old = entry(repo, before, path);
-        let new = entry(repo, after, path);
-        let work = on_disk(&repo.join(path));
-        let old_bytes = old
-            .as_ref()
-            .map(|old| contents(repo, &old.blob))
+    for delta in diff.deltas() {
+        let old_file = delta.old_file();
+        let new_file = delta.new_file();
+        let Some(path) = new_file
+            .path()
+            .or_else(|| old_file.path())
+            .and_then(|p| p.to_str())
+        else {
+            continue;
+        };
+        if old_file.mode() == git2::FileMode::Commit || new_file.mode() == git2::FileMode::Commit {
+            continue;
+        }
+        let old_oid = (!old_file.id().is_zero()).then_some(old_file.id());
+        let new_oid = (!new_file.id().is_zero()).then_some(new_file.id());
+        let old_bytes = old_oid
+            .map(|oid| {
+                git_repo
+                    .find_blob(oid)
+                    .map(|blob| blob.content().to_vec())
+                    .map_err(|error| format!("git blob {oid}: {error}"))
+            })
             .transpose()?;
-        let new_bytes = new
-            .as_ref()
-            .map(|new| contents(repo, &new.blob))
+        let new_bytes = new_oid
+            .map(|oid| {
+                git_repo
+                    .find_blob(oid)
+                    .map(|blob| blob.content().to_vec())
+                    .map_err(|error| format!("git blob {oid}: {error}"))
+            })
             .transpose()?;
-        let new_mode = new.as_ref().map(|new| new.mode.clone()).unwrap_or_default();
-        let step = if work == old_bytes {
-            match new_bytes {
-                Some(bytes) => (Step::Write(bytes, new_mode), false),
+        let file_path = repo.join(path);
+        let work = on_disk(&file_path);
+        let snap = DiskSnap::capture(&file_path, work.as_deref());
+        let old_blob = old_oid.map(|oid| oid.to_string());
+        let new_blob = new_oid.map(|oid| oid.to_string());
+        let new_mode = new_oid
+            .map(|_| format_mode(new_file.mode()))
+            .unwrap_or_default();
+        let (step, dirty) = if work == old_bytes {
+            match new_bytes.clone() {
+                Some(bytes) => (Step::Write(bytes, new_mode.clone()), false),
                 None => (Step::Delete, false),
             }
         } else if work == new_bytes {
-            (Step::Keep(new_mode), false)
+            (Step::Keep(new_mode.clone()), false)
         } else {
-            match (work, old, new) {
-                (Some(work), Some(old), Some(new)) => {
-                    match merged(repo, &work, &old.blob, &new.blob)? {
-                        Some(bytes) => (Step::Write(bytes, new_mode), true),
-                        None => {
-                            clashes.push(path.to_owned());
-                            continue;
-                        }
+            match (work, old_blob.as_deref(), new_blob.as_deref()) {
+                (Some(work), Some(old), Some(new)) => match merged(repo, &work, old, new)? {
+                    Some(bytes) => (Step::Write(bytes, new_mode.clone()), true),
+                    None => {
+                        clashes.push(path.to_owned());
+                        continue;
                     }
-                }
+                },
                 _ => {
                     clashes.push(path.to_owned());
                     continue;
                 }
             }
         };
-        steps.push((path.to_owned(), step.0, step.1));
+        steps.push(StepEntry {
+            path: path.to_owned(),
+            step,
+            dirty,
+            snap,
+            old_blob,
+            new_blob,
+            new_bytes,
+            new_mode,
+        });
     }
     Ok((Steps(steps), clashes))
-}
-
-/// A file as a commit holds it.
-struct Entry {
-    mode: String,
-    blob: String,
-}
-
-fn entry(repo: &Path, commit: &str, path: &str) -> Option<Entry> {
-    let listed = git(
-        repo,
-        &["ls-tree", commit, "--", &format!(":(top,literal){path}")],
-    )
-    .ok()?;
-    let mut info = listed.split_whitespace();
-    let mode = info.next()?.to_owned();
-    let blob = info.nth(1)?.to_owned();
-    Some(Entry { mode, blob })
 }
 
 /// What the checkout holds at `file`, in the terms a commit does: a link is
@@ -684,26 +871,51 @@ fn merged(repo: &Path, work: &[u8], old: &str, new: &str) -> Result<Option<Vec<u
 /// branch's old copy of a file, so nothing shows as undoing the landing, and
 /// leaves alone whatever someone staged.
 fn share_index(repo: &Path, before: &str, after: &str) {
-    let Ok(changed) = git(
-        repo,
-        &["diff", "-z", "--name-only", "--no-renames", before, after],
+    let Ok(git_repo) = git2::Repository::open(repo) else {
+        return;
+    };
+    let (Ok(before_tree), Ok(after_tree), Ok(index)) = (
+        commit_tree(&git_repo, before),
+        commit_tree(&git_repo, after),
+        git_repo.index(),
     ) else {
         return;
     };
+    let mut opts = git2::DiffOptions::new();
+    opts.include_typechange(true);
+    let Ok(diff) =
+        git_repo.diff_tree_to_tree(Some(&before_tree), Some(&after_tree), Some(&mut opts))
+    else {
+        return;
+    };
     let mut info = String::new();
-    for path in changed.split('\0').filter(|path| !path.is_empty()) {
-        let staged = git(
-            repo,
-            &["ls-files", "-s", "--", &format!(":(top,literal){path}")],
-        )
-        .ok()
-        .and_then(|entry| entry.split_whitespace().nth(1).map(str::to_owned));
-        if staged != entry(repo, before, path).map(|old| old.blob) {
+    for delta in diff.deltas() {
+        let old_file = delta.old_file();
+        let new_file = delta.new_file();
+        let Some(path) = new_file
+            .path()
+            .or_else(|| old_file.path())
+            .and_then(|p| p.to_str())
+        else {
+            continue;
+        };
+        let path_ref = Path::new(path);
+        if index.get_path(path_ref, 1).is_some() {
             continue;
         }
-        match entry(repo, after, path) {
-            Some(new) => info.push_str(&format!("{} {}\t{path}\0", new.mode, new.blob)),
-            None => info.push_str(&format!("0 {}\t{path}\0", "0".repeat(40))),
+        let staged = index.get_path(path_ref, 0).map(|entry| entry.id);
+        let old_oid = (!old_file.id().is_zero()).then_some(old_file.id());
+        if staged != old_oid {
+            continue;
+        }
+        if !new_file.id().is_zero() {
+            info.push_str(&format!(
+                "{} {}\t{path}\0",
+                format_mode(new_file.mode()),
+                new_file.id()
+            ));
+        } else {
+            info.push_str(&format!("0 {}\t{path}\0", "0".repeat(40)));
         }
     }
     if info.is_empty() {
@@ -737,7 +949,7 @@ mod tests {
             NotPut::Moved => "moved".to_owned(),
             NotPut::Failed(why) => why,
         })?;
-        follow(&worktree.path, &head, &laid.tip);
+        follow(signing, &worktree.path, &head, &laid.tip);
         Ok(merged)
     }
 

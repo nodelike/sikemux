@@ -1430,17 +1430,16 @@ pub struct QueueRun {
     pub took_ms: u64,
 }
 
-/// Runs `command` on `commit` in the merge queue's checkout, the way the
+/// Runs `command` in the already-checked-out merge queue `checkout`, the way the
 /// project's own check runs.
 pub async fn run_in_queue(
     core: &Arc<Core>,
     dir: &Path,
-    commit: &str,
+    checkout: PathBuf,
     command: &str,
     agent: &str,
 ) -> Result<QueueRun, NotRun> {
     use crate::server::edits::generate::refresh;
-    let checkout = crate::server::worktree::agent::merge_queue(core, dir, commit).await?;
     let (owner, dir, command) = (core.clone(), dir.to_owned(), command.to_owned());
     let seed = sample_seed(agent);
     let env = before_commit(agent);
