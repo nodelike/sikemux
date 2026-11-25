@@ -73,6 +73,25 @@ pub fn replay_saved(launch: &ChatLaunch, session: &str, sink: &Telling) -> Resul
     Ok(())
 }
 
+/// Condensed compaction instructions for Antigravity `/compact <focus>`.
+const ANTIGRAVITY_COMPACT_FOCUS_CHARS: usize = 4_000;
+
+fn antigravity_compact_focus(keep_list: &str) -> String {
+    let trimmed = keep_list.trim();
+    if trimmed.is_empty() {
+        return crate::server::chat::cap::IDLE_FOCUS.to_owned();
+    }
+    let kept: String = trimmed
+        .chars()
+        .take(ANTIGRAVITY_COMPACT_FOCUS_CHARS)
+        .collect();
+    if kept.len() < trimmed.len() {
+        format!("{kept} [cut]")
+    } else {
+        kept
+    }
+}
+
 fn is_antigravity(launch: &ChatLaunch) -> bool {
     crate::agent_catalog::AgentKind::from_name(&launch.provider)
         == Some(crate::agent_catalog::AgentKind::Antigravity)
@@ -255,6 +274,8 @@ struct Turns {
     #[serde(default)]
     compacting: bool,
     #[serde(default)]
+    manual_compact_turn: Option<u64>,
+    #[serde(default)]
     last_used: u64,
     #[serde(skip)]
     compact_done: Arc<tokio::sync::Notify>,
@@ -307,6 +328,18 @@ impl Driver {
         self.gateway_calls.clear();
         let end = match answer {
             Ok(response) => {
+                let manual_compact = {
+                    let mut turns = self.turns.locked();
+                    (turns.manual_compact_turn == Some(turn)).then(|| {
+                        turns.manual_compact_turn = None;
+                        turns.last_used
+                    })
+                };
+                if let Some(used) = manual_compact {
+                    if response.get("stopReason").and_then(Value::as_str) != Some("cancelled") {
+                        self.sink.compacted(used);
+                    }
+                }
                 if let Some(failure) = response.get("_meta").and_then(air::failure) {
                     TurnEnd::Failed {
                         failure,
@@ -621,6 +654,9 @@ struct Kept {
     /// Whether the session's models are picked through `session/set_model`
     /// rather than as a config option.
     model_outside_config: bool,
+    /// The pinned system-prompt brief carried into Antigravity `systemPrompt.append`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    brief: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -705,7 +741,11 @@ pub struct Acp {
 }
 
 impl Acp {
-    async fn begin(launch: &ChatLaunch, sink: Sink) -> Result<(Self, Opened), String> {
+    async fn begin(
+        launch: &ChatLaunch,
+        brief: Option<&str>,
+        sink: Sink,
+    ) -> Result<(Self, Opened), String> {
         let account = account_of(launch).inspect_err(|_| sink.needs_sign_in())?;
         let (process, writer, lines) = spawn(launch, account.as_ref())?;
         let driver = Driver {
@@ -762,14 +802,14 @@ impl Acp {
             Reopens::No
         };
 
-        let opened = match Self::open(&driver, launch, reopens).await {
+        let opened = match Self::open(&driver, launch, brief, reopens).await {
             Err(Refused::SignIn(_)) if key_sign_in.is_some() => {
                 let method = json!({ "methodId": key_sign_in });
                 (driver
                     .call(AGENT_METHOD_NAMES.authenticate, method, Some(ANSWER_WAIT))
                     .await)
                     .map_err(failed)?;
-                Self::open(&driver, launch, reopens).await
+                Self::open(&driver, launch, brief, reopens).await
             }
             opened => opened,
         };
@@ -794,7 +834,19 @@ impl Acp {
                 .is_some_and(|id| *id != session_id)
             && driver.sink.account_moved()
         {
-            driver.sink.update(&session_id, sikemux_fold::update::notice("warning", "This chat starts fresh on this account", Some("Antigravity could not open the conversation on this account, so it does not remember what is above.")));
+            let detail = if driver.sink.has_answered() {
+                "Antigravity could not open the conversation on this account, so Sikemux carried your rules, decisions, and recent exchanges into a fresh session."
+            } else {
+                "Antigravity could not open the conversation on this account, so it started a fresh session."
+            };
+            driver.sink.update(
+                &session_id,
+                sikemux_fold::update::notice(
+                    "warning",
+                    "This chat starts fresh on this account",
+                    Some(detail),
+                ),
+            );
         }
 
         let mut acp = Self {
@@ -813,6 +865,7 @@ impl Acp {
                     .embedded_context,
                 images: initialized.agent_capabilities.prompt_capabilities.image,
                 can_load: !matches!(reopens, Reopens::No),
+                brief: brief.map(str::to_owned),
             },
         };
 
@@ -845,17 +898,39 @@ impl Acp {
             .or(launch.effort);
         self.process.stop().await;
         self.driver.sink.hush();
-        *self = Self::begin(&launch, self.driver.sink.clone()).await?.0;
+        let brief = self.kept.brief.clone();
+        *self = Self::begin(&launch, brief.as_deref(), self.driver.sink.clone())
+            .await?
+            .0;
         Ok(())
     }
 
-    fn session_meta(driver: &Driver, launch: &ChatLaunch, servers: &[McpServer]) -> Option<Meta> {
+    fn antigravity_system_prompt(tools: Option<&str>, brief: Option<&str>) -> Option<String> {
+        let tools = tools.filter(|text| !text.trim().is_empty());
+        let brief = brief.filter(|text| !text.trim().is_empty());
+        match (tools, brief) {
+            (Some(tools), Some(brief)) => Some(format!("{tools}\n\n{brief}")),
+            (Some(tools), None) => Some(tools.to_owned()),
+            (None, Some(brief)) => Some(brief.to_owned()),
+            (None, None) => None,
+        }
+    }
+
+    fn session_meta(
+        driver: &Driver,
+        launch: &ChatLaunch,
+        servers: &[McpServer],
+        brief: Option<&str>,
+    ) -> Option<Meta> {
         let mut meta = native::session_meta(&launch.provider);
-        if driver.antigravity && servers::offers_sikemux_tools(servers) {
-            if let Some(instructions) = driver.sink.tool_instructions() {
+        if driver.antigravity {
+            let tools = servers::offers_sikemux_tools(servers)
+                .then(|| driver.sink.tool_instructions())
+                .flatten();
+            if let Some(append) = Self::antigravity_system_prompt(tools, brief) {
                 meta.get_or_insert_with(Meta::new).insert(
                     "antigravity".into(),
-                    json!({ "systemPrompt": { "append": instructions } }),
+                    json!({ "systemPrompt": { "append": append } }),
                 );
             }
         }
@@ -865,9 +940,10 @@ impl Acp {
     async fn open_new(
         driver: &Driver,
         launch: &ChatLaunch,
+        brief: Option<&str>,
         servers: Vec<McpServer>,
     ) -> Result<(String, Value), Refused> {
-        let meta = Self::session_meta(driver, launch, &servers);
+        let meta = Self::session_meta(driver, launch, &servers, brief);
         let request = NewSessionRequest::new(&launch.cwd)
             .mcp_servers(servers)
             .meta(meta);
@@ -893,13 +969,14 @@ impl Acp {
     async fn open(
         driver: &Driver,
         launch: &ChatLaunch,
+        brief: Option<&str>,
         reopens: Reopens,
     ) -> Result<(String, Value), Refused> {
         let servers = servers::tool_servers(launch);
         let Some(existing) = launch.resume_id.clone() else {
-            return Self::open_new(driver, launch, servers).await;
+            return Self::open_new(driver, launch, brief, servers).await;
         };
-        let meta = Self::session_meta(driver, launch, &servers);
+        let meta = Self::session_meta(driver, launch, &servers, brief);
         let (method, request) = match reopens {
             Reopens::Load => (
                 AGENT_METHOD_NAMES.session_load,
@@ -933,7 +1010,7 @@ impl Acp {
             // A chat whose turns all failed may have nothing saved to load,
             // and starting again is all there is to do.
             Err(_) if driver.sink.reloading() && !driver.sink.has_answered() => {
-                Self::open_new(driver, launch, servers).await
+                Self::open_new(driver, launch, brief, servers).await
             }
             Err(error) => match Refused::of(&error) {
                 Refused::Other(said)
@@ -941,7 +1018,7 @@ impl Acp {
                         && driver.sink.account_moved()
                         && !sounds_offline(&said) =>
                 {
-                    Self::open_new(driver, launch, servers).await
+                    Self::open_new(driver, launch, brief, servers).await
                 }
                 refused => Err(refused),
             },
@@ -1078,12 +1155,16 @@ impl Acp {
 impl Backend for Acp {
     type Reply = Asked;
 
+    fn supports_instructions(launch: &ChatLaunch) -> bool {
+        is_antigravity(launch)
+    }
+
     async fn start(
         launch: &ChatLaunch,
-        _brief: Option<&str>,
+        brief: Option<&str>,
         sink: Sink,
     ) -> Result<(Self, Opened), String> {
-        Self::begin(launch, sink).await
+        Self::begin(launch, brief, sink).await
     }
 
     async fn prompt(&mut self, turn: u64, prompt: Prompt) -> Result<(), String> {
@@ -1119,6 +1200,9 @@ impl Backend for Acp {
                 }
             }
         }
+        let manual_compact = command_parts(&prompt.text).is_some_and(|(name, _)| {
+            name.eq_ignore_ascii_case(COMPACT) || name.eq_ignore_ascii_case(self.driver.compact)
+        });
         let blocks = prompt_blocks(
             in_own_words(prompt.text, self.driver.compact),
             prompt.paths,
@@ -1143,6 +1227,7 @@ impl Backend for Acp {
             turns.prompted = turn;
             turns.unanswered = 1;
             turns.unprompted = false;
+            turns.manual_compact_turn = manual_compact.then_some(turn);
             turns.log = log;
         }
         self.driver.rpc.send_for(
@@ -1169,11 +1254,8 @@ impl Backend for Acp {
             }
             turns.compacting = true;
         }
-        let text = format!(
-            "/{} {}",
-            self.driver.compact,
-            crate::server::chat::cap::IDLE_FOCUS
-        );
+        let focus = antigravity_compact_focus(&self.driver.sink.keep_list());
+        let text = format!("/{} {focus}", self.driver.compact);
         let request =
             PromptRequest::new(self.kept.session_id.clone(), vec![ContentBlock::from(text)]);
         self.driver
@@ -1344,5 +1426,67 @@ impl Backend for Acp {
 
     fn responder(&self, reply: Asked) -> Respond {
         self.driver.responder(reply)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn test_launch(provider: &str) -> ChatLaunch {
+        ChatLaunch {
+            agent_id: "agent-1".into(),
+            provider: provider.into(),
+            program: PathBuf::from("/usr/bin/true"),
+            args: Vec::new(),
+            cwd: PathBuf::from("/tmp"),
+            env: Default::default(),
+            mcp_servers: Vec::new(),
+            permission_mode: PermissionMode::Auto,
+            resume_id: None,
+            model: None,
+            model_provider: None,
+            effort: None,
+            account: None,
+            fallbacks: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn antigravity_supports_native_instructions_while_other_acp_agents_do_not() {
+        assert!(Acp::supports_instructions(&test_launch("antigravity")));
+        assert!(!Acp::supports_instructions(&test_launch("omp")));
+        assert!(!Acp::supports_instructions(&test_launch("grok")));
+        assert!(!Acp::supports_instructions(&test_launch("hermes")));
+        assert_eq!(
+            Acp::antigravity_system_prompt(Some("TOOLS"), Some("BRIEF")).as_deref(),
+            Some("TOOLS\n\nBRIEF")
+        );
+        assert_eq!(
+            Acp::antigravity_system_prompt(None, Some("BRIEF")).as_deref(),
+            Some("BRIEF")
+        );
+        assert_eq!(
+            Acp::antigravity_system_prompt(Some("TOOLS"), Some("   ")).as_deref(),
+            Some("TOOLS")
+        );
+        assert_eq!(Acp::antigravity_system_prompt(None, None), None);
+    }
+
+    #[test]
+    fn antigravity_compact_focus_keeps_rules_and_falls_back_when_empty() {
+        assert_eq!(
+            antigravity_compact_focus("   "),
+            crate::server::chat::cap::IDLE_FOCUS
+        );
+        let focus = antigravity_compact_focus("Rules:\n- #1 Always use Neon.\nStill open:\n- #42");
+        assert!(focus.contains("Always use Neon"));
+        assert!(focus.contains("#42"));
+
+        let huge = "a".repeat(ANTIGRAVITY_COMPACT_FOCUS_CHARS + 500);
+        let cut = antigravity_compact_focus(&huge);
+        assert!(cut.ends_with(" [cut]"));
+        assert!(cut.chars().count() <= ANTIGRAVITY_COMPACT_FOCUS_CHARS + 6);
     }
 }

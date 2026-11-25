@@ -184,6 +184,7 @@ impl Told for ChatTelling {
 
     fn after_compaction(&self) -> Option<String> {
         let core = self.chat.core.upgrade()?;
+        self.chat.meter.mark_after_compaction_delivered();
         cap::after_compaction(&core, &self.chat)
     }
 
@@ -593,7 +594,8 @@ pub async fn run<B: Backend>(
             if first && chat.history_in_place() {
                 chat.feed.let_out();
             }
-            let brief = B::INSTRUCTIONS.then(|| chat.brief()).flatten();
+            let supports_instructions = B::supports_instructions(&launch);
+            let brief = supports_instructions.then(|| chat.brief()).flatten();
             let reaching_provider = chat.with_model_token(&launch)?;
             let started = tokio::time::timeout(
                 super::super::START_TIMEOUT,
@@ -608,12 +610,23 @@ pub async fn run<B: Backend>(
             });
             chat.feed.let_out();
             let (backend, opened) = started?;
+            let fresh_after_resume = launch
+                .resume_id
+                .as_deref()
+                .is_some_and(|old| old != opened.session_id);
             if let Some(core) = chat.core.upgrade() {
                 core.workspaces().note_moved(chat.agent_id(), false);
-                if B::INSTRUCTIONS {
+                if supports_instructions {
                     core.chats()
                         .sessions
                         .pin_brief(chat.agent_id(), &opened.session_id, brief);
+                }
+                if fresh_after_resume && chat.has_answered() {
+                    if let Some(context) = handoff::for_fresh_session(&core, &chat) {
+                        core.chats()
+                            .handoffs
+                            .carry(chat.agent_id(), context, &opened.session_id);
+                    }
                 }
             }
             sink.loaded();
@@ -922,7 +935,7 @@ impl<B: Backend> Running<'_, B> {
             }
         };
         self.sink.loaded();
-        if B::INSTRUCTIONS {
+        if B::supports_instructions(self.launch) {
             let rotated_brief =
                 (!brief.instructions.is_empty()).then(|| brief.instructions.clone());
             self.chat.set_brief(rotated_brief.clone());
@@ -1048,6 +1061,11 @@ impl<B: Backend> Running<'_, B> {
                 (replay.context).retain(|context| own_session || !rotation::is_brief(context));
                 replay.brief_for = (own_session || new_brief).then(|| session.clone());
                 replay.context.extend(handoff);
+                if self.chat.meter.take_after_compaction() {
+                    replay
+                        .context
+                        .extend(cap::after_compaction_context(&core, &self.chat));
+                }
                 replay
                     .context
                     .extend((core.chat_above().turn_digest)(&core, self.chat.agent_id()).await);
@@ -1055,7 +1073,7 @@ impl<B: Backend> Running<'_, B> {
         }
         // A slash command takes what follows it as its arguments, so the brief waits for
         // the next message. Kept on the replay, it goes again with the message.
-        let carries = !B::INSTRUCTIONS
+        let carries = !B::supports_instructions(self.launch)
             && replay.context.len() < MAX_CONTEXT_ITEMS
             && !crate::server::chat::prompt::is_command(&replay.text);
         if carries {

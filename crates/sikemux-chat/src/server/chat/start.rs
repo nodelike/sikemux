@@ -280,7 +280,7 @@ pub fn start(
     if let Some(brief) = pinned {
         chat.set_brief(brief);
     } else {
-        if resume_id.is_none() && !briefed {
+        if !briefed && (resume_id.is_none() || matches!(chat.provider(), "antigravity" | "codex")) {
             *chat.brief.locked() = (core.chat_above().memory_for_chat)(core, &chat.launch.cwd);
         }
         if core.workspaces().is_chief(chat.agent_id()) {

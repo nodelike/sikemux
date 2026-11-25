@@ -138,6 +138,7 @@ impl Driver {
                 Effect::End(turn, end) => self.sink.end_turn(turn, end),
                 Effect::WorkStarted => self.sink.work_started(),
                 Effect::WorkEnded(reason) => self.sink.work_ended(reason),
+                Effect::Compacted(context) => self.sink.compacted(context),
                 Effect::Interrupt(turn) => self.interrupt(turn),
                 Effect::Own(Own::Send { command, purpose }) => self.wire.send_for(command, purpose),
                 Effect::Own(Own::CloseDialogs(ids)) => {

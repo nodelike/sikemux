@@ -546,6 +546,9 @@ impl Session {
             .into_iter()
             .map(|held| send(held.command, held.purpose))
             .collect();
+        if status == "completed" {
+            effects.push(Effect::Compacted(0));
+        }
         effects.push(Effect::Update(
             self.session_id.clone(),
             compaction(&id, false, status, error),

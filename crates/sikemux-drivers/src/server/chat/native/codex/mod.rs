@@ -707,12 +707,15 @@ impl Backend for Codex {
         let mut lost = false;
         let opened = match &launch.resume_id {
             Some(thread_id) => {
-                let resumed = rpc
-                    .request(
-                        "thread/resume",
-                        json!({ "threadId": thread_id, "cwd": cwd, "config": session_config, "excludeTurns": true }),
-                    )
-                    .await;
+                let mut params = json!({ "threadId": thread_id, "cwd": cwd, "config": session_config, "excludeTurns": true });
+                if let (Some(instructions), Some(fields)) = (&instructions, params.as_object_mut())
+                {
+                    fields.insert(
+                        "developerInstructions".to_owned(),
+                        instructions.as_str().into(),
+                    );
+                }
+                let resumed = rpc.request("thread/resume", params).await;
                 match resumed {
                     Err(error) if thread_gone(&error) => {
                         lost = true;

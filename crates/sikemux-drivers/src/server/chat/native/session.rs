@@ -151,6 +151,12 @@ pub trait Backend: Sized + Send {
     /// chat's brief goes there rather than with its first message.
     const INSTRUCTIONS: bool = false;
 
+    /// Whether this specific launch accepts system instructions at start.
+    /// Defaults to [`Self::INSTRUCTIONS`]; shared drivers like ACP override per provider.
+    fn supports_instructions(_launch: &ChatLaunch) -> bool {
+        Self::INSTRUCTIONS
+    }
+
     /// The agent takes a new effort while a turn runs, so the person need not stop it first.
     const EFFORT_MID_TURN: bool = false;
 

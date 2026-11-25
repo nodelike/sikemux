@@ -1372,20 +1372,46 @@ fn about_code(text: &str, about: &[String]) -> bool {
         || WORDS.iter().any(|word| lower.contains(word))
 }
 
-/// Whether what the person said in this turn, as the chat's record has it, holds most of the
-/// rule's longer words, so an agent's own idea, or a message another agent or a trigger sent,
-/// is kept as an agent's note rather than as the person's rule.
+/// Filler words excluded when matching terse person corrections against distilled rules.
+const PROVENANCE_STOP_WORDS: [&str; 30] = [
+    "the", "and", "for", "not", "but", "with", "that", "this", "from", "have", "been", "were",
+    "they", "them", "their", "your", "you", "are", "was", "will", "can", "all", "just", "now",
+    "use", "only", "also", "bruv", "please", "yes",
+];
+
+fn content_words(text: &str) -> HashSet<String> {
+    text.split(|c: char| !c.is_alphanumeric())
+        .map(str::to_lowercase)
+        .filter(|word| word.chars().count() >= 3 && !PROVENANCE_STOP_WORDS.contains(&word.as_str()))
+        .collect()
+}
+
+/// Whether what the person said in this turn supports keeping `rule` as the person's own rule.
+/// Accepts both verbatim phrasing (at least half the rule's content words appeared in the person's
+/// turn) and terse corrections (e.g. "Bruv neon bruv, not fable" distilled into a full policy
+/// sentence, where at least half the person's content words appear in the rule).
+fn words_match_person_turn(said: &[String], rule: &str) -> bool {
+    if said.is_empty() {
+        return false;
+    }
+    let said_words = content_words(&said.join("\n"));
+    let rule_words = content_words(rule);
+    if rule_words.is_empty() || said_words.is_empty() {
+        return false;
+    }
+    let held = rule_words
+        .iter()
+        .filter(|word| said_words.contains(*word))
+        .count();
+    held >= 1 && (held * 2 >= rule_words.len() || held * 2 >= said_words.len() || held >= 2)
+}
+
+/// Whether what the person said in this turn, as the chat's record has it, grounds `rule`, so an
+/// agent's own idea or a message from another agent/trigger stays an agent note while terse
+/// corrections from the person remain first-class rules (with chat Undo).
 fn said_by_person(core: &Core, agent: &str, rule: &str) -> bool {
     let said = person_said(core, agent);
-    let words = |text: &str| -> HashSet<String> {
-        (text.split(|c: char| !c.is_alphanumeric()))
-            .filter(|word| word.chars().count() >= 4)
-            .map(str::to_lowercase)
-            .collect()
-    };
-    let (said, rule) = (words(&said.join("\n")), words(rule));
-    let held = rule.iter().filter(|word| said.contains(*word)).count();
-    !rule.is_empty() && held * 2 >= rule.len()
+    words_match_person_turn(&said, rule)
 }
 
 /// What the person said in `agent`'s turn now, read from its chat, or from the linked host it
@@ -1971,5 +1997,30 @@ mod tests {
         for kind in kinds {
             params::<ToolAdd>(json!({ "kind": kind, "text": "kept" })).unwrap();
         }
+    }
+
+    #[test]
+    fn terse_person_correction_passes_provenance_while_unrelated_rules_fail() {
+        assert!(words_match_person_turn(
+            &["Bruv neon bruv, not fable".to_owned()],
+            "Always use Gemini 4 Neon via Antigravity for design consults, never Fable.",
+        ));
+        assert!(words_match_person_turn(
+            &["No bruv, should not be via antigravity bruv. claude via claude code harness bruv."
+                .to_owned()],
+            "Design drawing is done by Claude Opus 5.5 via the Claude Code harness, never Claude via Antigravity.",
+        ));
+        assert!(words_match_person_turn(
+            &["use mcp".to_owned()],
+            "Always connect through the MCP server instead of raw CLI.",
+        ));
+        assert!(!words_match_person_turn(
+            &[],
+            "Use Gemini 4 Neon for consults.",
+        ));
+        assert!(!words_match_person_turn(
+            &["ok sounds good".to_owned()],
+            "Always add emojis to commit messages.",
+        ));
     }
 }

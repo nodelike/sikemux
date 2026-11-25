@@ -34,11 +34,13 @@ const COMMANDS: usize = 20;
 const COMMAND_CHARS: usize = 200;
 const FILES: usize = 40;
 const FILES_CHARS: usize = 1_500;
-const WORK_CHARS: usize = 1_500;
-const DECISIONS: usize = 20;
+const WORK_CHARS: usize = 4_000;
+const DECISIONS: usize = 40;
 const DECISION_DAYS: u64 = 14;
-const DECISIONS_CHARS: usize = 1_500;
-const LINE_CHARS: usize = 300;
+const DECISIONS_CHARS: usize = 6_000;
+const RULES_CHARS: usize = 3_000;
+const NOTE_CHARS: usize = 2_000;
+const LINE_CHARS: usize = 600;
 /// The latest turns read from a sleeping chat's saved session.
 const SESSION_TURNS: usize = 60;
 
@@ -246,29 +248,48 @@ struct WorkspaceSnapshot {
     modified_files: Vec<String>,
     open_work: Vec<String>,
     decisions: Vec<String>,
+    rules: Option<String>,
+    handoff_note: Option<String>,
 }
 
-fn snapshot(core: &Core, source: &WorkspaceAgent) -> WorkspaceSnapshot {
+fn snapshot_for(core: &Core, project: &str, agent_id: &str, cwd: &Path) -> WorkspaceSnapshot {
     let modified_files: Vec<String> =
-        (core.chat_above().handoff_files)(core, &source.project, &source.id, &source.cwd)
+        (core.chat_above().handoff_files)(core, project, agent_id, cwd)
             .into_iter()
             .map(|file| format!("- `{file}`"))
             .collect();
-    let open_work = (core.chat_above().open_work)(core, &source.id);
+    let open_work = (core.chat_above().open_work)(core, agent_id);
     let since = epoch_ms().saturating_sub(DECISION_DAYS * 24 * 60 * 60_000);
     let decisions: Vec<String> =
-        (core.chat_above().board_standing_since)(core, &source.project, since, DECISIONS)
+        (core.chat_above().board_standing_since)(core, project, since, DECISIONS)
             .into_iter()
             .map(|decision| match &decision.why {
-                Some(why) => format!("- {} ({why})", decision.says()),
-                None => format!("- {}", decision.says()),
+                Some(why) => format!("- #{} {} ({why})", decision.id, decision.says()),
+                None => format!("- #{} {}", decision.id, decision.says()),
             })
             .collect();
+    let rules = (core.chat_above().memory_after_compaction)(core, agent_id);
+    let handoff_note = core
+        .chats()
+        .get(agent_id)
+        .and_then(|chat| chat.rotation.handoff())
+        .or_else(|| {
+            core.chats()
+                .sessions
+                .kept(agent_id)
+                .and_then(|kept| kept.handoff())
+        });
     WorkspaceSnapshot {
         modified_files,
         open_work,
         decisions,
+        rules,
+        handoff_note,
     }
+}
+
+fn snapshot(core: &Core, source: &WorkspaceAgent) -> WorkspaceSnapshot {
+    snapshot_for(core, &source.project, &source.id, &source.cwd)
 }
 
 /// What the chat said, from the feed the core holds of it, or for a chat asleep without one, from
@@ -372,12 +393,24 @@ fn build(
     let files = bounded_lines(&workspace.modified_files, FILES, FILES_CHARS);
     let work = bounded_lines(&workspace.open_work, usize::MAX, WORK_CHARS);
     let decisions = bounded_lines(&workspace.decisions, DECISIONS, DECISIONS_CHARS);
+    let rules = workspace
+        .rules
+        .as_deref()
+        .map(|rules| cut_start(rules, RULES_CHARS))
+        .unwrap_or_default();
+    let handoff_note = workspace
+        .handoff_note
+        .as_deref()
+        .map(|note| cut_start(note, NOTE_CHARS))
+        .unwrap_or_default();
     let request = cut_start(&first.0, REQUEST_CHARS);
     room = room.saturating_sub(
         ran.chars().count()
             + files.chars().count()
             + work.chars().count()
             + decisions.chars().count()
+            + rules.chars().count()
+            + handoff_note.chars().count()
             + request.chars().count(),
     );
 
@@ -399,6 +432,14 @@ fn build(
     }
     picked.reverse();
     let left_out = exchanges.len() - picked.len();
+    if !rules.is_empty() {
+        sections.push(format!("## Active rules and standing policy\n\n{rules}"));
+    }
+    if !handoff_note.is_empty() {
+        sections.push(format!(
+            "## Previous session's handoff note\n\n{handoff_note}"
+        ));
+    }
     if left_out > 0 {
         sections.push(format!("## The person's first request\n\n{request}"));
     }
@@ -615,6 +656,16 @@ async fn restart(
     Ok(ChatHandedOff { agent_id, project })
 }
 
+/// Builds a full handoff context when a resumed chat had to start a fresh vendor session
+/// (for example after an Antigravity account switch or a missing Codex thread).
+pub fn for_fresh_session(core: &Core, chat: &super::Chat) -> Option<ChatContext> {
+    let said = chat.feed.handed_over();
+    let project = core.workspaces().project_of(&chat.launch.cwd);
+    let workspace = snapshot_for(core, &project, chat.agent_id(), &chat.launch.cwd);
+    let pending = build(said, &workspace, chat.provider(), chat.agent_id(), false)?;
+    Some(pending.context)
+}
+
 /// The chat's next message goes without the handoff waiting for it.
 pub fn drop_handoff(core: &Core, params: DropHandoffParams) -> CoreResult<()> {
     if core.chats().handoffs.forget(&params.agent_id) {
@@ -656,4 +707,40 @@ pub fn offer_another_agent(chat: &super::Chat, launch: &sikemux_wire::protocol::
         fields.insert("carryOnWith".to_owned(), serde_json::json!(other));
     }
     super::offers::tell_update(chat, update);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handoff_carries_rules_handoff_note_and_6kb_decisions_budget() {
+        let decisions: Vec<String> = (1..=30)
+            .map(|i| {
+                format!(
+                    "- #{i} Standing architecture decision number {i} covering cross-harness memory durability and routing."
+                )
+            })
+            .collect();
+        let workspace = WorkspaceSnapshot {
+            modified_files: vec!["- `crates/sikemux-core/src/server/memory/brief.rs`".into()],
+            open_work: vec!["- Your worker @Sabito: working on memory durability".into()],
+            decisions,
+            rules: Some("Rules:\n- #1 Consult Gemini 4 Neon, never Fable.".into()),
+            handoff_note: Some("Finishing Wave 1 verification before landing Commit 1.".into()),
+        };
+        let said = (
+            vec![("switch to antigravity".into(), "switched cleanly".into())],
+            Vec::new(),
+        );
+        let pending = build(said, &workspace, "claude", "chief-1", false).expect("handoff built");
+        let text = &pending.context.text;
+        assert!(text.contains("## Active rules and standing policy"));
+        assert!(text.contains("Consult Gemini 4 Neon, never Fable"));
+        assert!(text.contains("## Previous session's handoff note"));
+        assert!(text.contains("Finishing Wave 1 verification"));
+        assert!(text.contains("## Recent decisions"));
+        // More than the old 1,500-char (~15 short lines / ~5 normal lines) cap must fit
+        assert!(text.contains("#25 Standing architecture decision"));
+    }
 }

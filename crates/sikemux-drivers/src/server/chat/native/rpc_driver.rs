@@ -30,6 +30,8 @@ pub enum Effect<Own> {
     End(u64, TurnEnd),
     WorkStarted,
     WorkEnded(StopReason),
+    /// The session was compacted down to this many context tokens (0 if unknown).
+    Compacted(u64),
     /// Ask the agent to stop the turn with this id.
     Interrupt(String),
     Own(Own),
@@ -206,6 +208,7 @@ impl<S: RpcAgent> Driver<S> {
                 Effect::End(turn, end) => self.sink.end_turn(turn, end),
                 Effect::WorkStarted => self.sink.work_started(),
                 Effect::WorkEnded(stop_reason) => self.sink.work_ended(stop_reason),
+                Effect::Compacted(context) => self.sink.compacted(context),
                 Effect::Interrupt(turn_id) => self.interrupt(turn_id),
                 Effect::Own(own) => S::carry_out(self, own),
             }

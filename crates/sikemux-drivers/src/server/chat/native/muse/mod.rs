@@ -678,9 +678,13 @@ impl Backend for Muse {
         let mut session = Session::new(session_id.clone(), cwd.clone());
         let offers_tools =
             host.session_tools && servers::offers_sikemux_tools(&servers::tool_servers(launch));
+        let resumed_after_compaction = launch.resume_id.is_some() && needs_after_compaction(&items);
         session.needs_tool_instructions =
-            offers_tools && (launch.resume_id.is_none() || needs_after_compaction(&items));
+            offers_tools && (launch.resume_id.is_none() || resumed_after_compaction);
         *host.driver.session.locked() = session;
+        if resumed_after_compaction {
+            host.driver.sink.compacted(0);
+        }
 
         let model = launch
             .model

@@ -157,6 +157,7 @@ impl Session {
                 let kind = params.item.get("kind").and_then(Value::as_str);
                 if root && stage == Stage::Completed && kind == Some("compaction") {
                     self.needs_tool_instructions = true;
+                    effects.push(Effect::Compacted(0));
                 }
                 if kind != Some("userMessage") {
                     let shown = match stage {

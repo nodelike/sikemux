@@ -106,11 +106,16 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<S
 pub(crate) fn after_compaction(core: &Core, agent_id: &str) -> Option<String> {
     let project = core.names().get(agent_id)?.project;
     let mut rules = Vec::new();
+    let mut notes = Vec::new();
     {
         let state = core.memory().state.locked();
         for held in state.applying(&project) {
             for rule in &held.rules {
-                if rule.learned.agent.is_none() && rules.len() < MAX_RULES {
+                if rule.learned.agent.is_some() {
+                    if notes.len() < MAX_AGENT_NOTES {
+                        notes.push(agent_note(rule.id, &rule.text, &rule.learned));
+                    }
+                } else if rules.len() < MAX_RULES {
                     rules.push(format!(
                         "- #{} {}",
                         rule.id,
@@ -125,7 +130,15 @@ pub(crate) fn after_compaction(core: &Core, agent_id: &str) -> Option<String> {
         sections.push(format!("Rules:\n{}", rules.join("\n")));
     }
     if let Some(goal) = board::briefing::goal_for(core, agent_id) {
-        let goal_rules: Vec<String> = board::goal::rules(core, &goal)
+        let (agent_rules, person_rules): (Vec<_>, Vec<_>) = board::goal::rules(core, &goal)
+            .into_iter()
+            .partition(|rule| rule.learned.agent.is_some());
+        for rule in agent_rules {
+            if notes.len() < MAX_AGENT_NOTES {
+                notes.push(agent_note(rule.id, &rule.text, &rule.learned));
+            }
+        }
+        let goal_rules: Vec<String> = person_rules
             .into_iter()
             .filter(|rule| rule.learned.agent.is_none())
             .take(MAX_RULES)
@@ -138,6 +151,9 @@ pub(crate) fn after_compaction(core: &Core, agent_id: &str) -> Option<String> {
                 goal_rules.join("\n")
             ));
         }
+    }
+    if !notes.is_empty() {
+        sections.push(format!("{AGENT_NOTES}\n{}", notes.join("\n")));
     }
     (!sections.is_empty()).then(|| {
         format!(

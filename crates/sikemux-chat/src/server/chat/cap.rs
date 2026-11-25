@@ -28,6 +28,8 @@ pub const LONGEST_OPEN: usize = 300;
 /// What is open takes at most this much of the keep-list, so the person's words always keep
 /// the rest, however many workers are blocked.
 const OPEN_SHARE: usize = 3_000;
+/// Active rules and policy notes keep at most this much of the keep-list.
+const RULES_SHARE: usize = 2_500;
 /// A compaction Claude never answered stops holding the chat awake after this.
 const COMPACTING_MS: u64 = 10 * 60_000;
 /// Claude Code keeps the prompt cache an hour; idle this long, a compaction still reads it warm.
@@ -96,6 +98,8 @@ pub struct Meter {
     compacted: AtomicBool,
     /// When the session last lost what it was told: it was compacted or started fresh.
     forgot_at: AtomicU64,
+    /// A compaction happened and the next turn has not yet received the post-compaction brief.
+    needs_after_compaction: AtomicBool,
     /// When the core asked for the compaction still running, or 0.
     compacting_since: AtomicU64,
     /// The person chose to keep the full history for the next message after the cache expired.
@@ -119,6 +123,8 @@ pub struct KeptMeter {
     keeps_history: bool,
     #[serde(default)]
     forgot_at: u64,
+    #[serde(default)]
+    needs_after_compaction: bool,
 }
 
 impl KeptMeter {
@@ -136,6 +142,7 @@ impl Meter {
             compacted: self.compacted.load(Ordering::Acquire),
             keeps_history: self.keeps_history.load(Ordering::Acquire),
             forgot_at: self.forgot_at.load(Ordering::Acquire),
+            needs_after_compaction: self.needs_after_compaction.load(Ordering::Acquire),
         }
     }
 
@@ -149,6 +156,8 @@ impl Meter {
         self.keeps_history
             .store(kept.keeps_history, Ordering::Release);
         self.forgot_at.store(kept.forgot_at, Ordering::Release);
+        self.needs_after_compaction
+            .store(kept.needs_after_compaction, Ordering::Release);
     }
 
     pub fn called(&self, context: u64) {
@@ -169,8 +178,17 @@ impl Meter {
     pub fn compacted(&self, context: u64) {
         self.context.store(context, Ordering::Release);
         self.compacted.store(true, Ordering::Release);
+        self.needs_after_compaction.store(true, Ordering::Release);
         self.suggests_nothing();
         self.forgot_at.store(epoch_ms(), Ordering::Release);
+    }
+
+    pub fn take_after_compaction(&self) -> bool {
+        self.needs_after_compaction.swap(false, Ordering::AcqRel)
+    }
+
+    pub fn mark_after_compaction_delivered(&self) {
+        self.needs_after_compaction.store(false, Ordering::Release);
     }
 
     pub fn forgot_at(&self) -> u64 {
@@ -205,6 +223,7 @@ impl Meter {
         self.context.store(0, Ordering::Release);
         self.first_context.store(0, Ordering::Release);
         self.compacted.store(false, Ordering::Release);
+        self.needs_after_compaction.store(false, Ordering::Release);
         self.suggests_nothing();
         self.forgot_at.store(epoch_ms(), Ordering::Release);
     }
@@ -246,15 +265,20 @@ impl Meter {
     }
 }
 
-/// What a compaction must keep: what is still open, and the person's own words as the core's
-/// record holds them.
+/// What a compaction must keep: active rules, what is still open, and the person's own words as
+/// the core's record holds them.
 pub fn keep_list(core: &Core, chat: &Chat) -> String {
     let mut text = "Sikemux keeps the record of this chat. In the summary, keep under their own \
-                    heading, word for word: every message of the person's below, every call still \
-                    open to the person, and what you and your workers are waiting on, with what \
-                    each waits for. A message ending in [cut] was longer: only its start is here, \
-                    so keep that start and say it was cut."
+                    heading, word for word: active project/routing rules, every message of the \
+                    person's below, every call still open to the person, and what you and your \
+                    workers are waiting on, with what each waits for. A message ending in [cut] \
+                    was longer: only its start is here, so keep that start and say it was cut."
         .to_owned();
+    if let Some(rules) = (core.chat_above().memory_after_compaction)(core, chat.agent_id()) {
+        let kept: String = rules.chars().take(RULES_SHARE).collect();
+        text.push_str("\n\n");
+        text.push_str(&kept);
+    }
     let open = (core.chat_above().open_work)(core, chat.agent_id());
     if !open.is_empty() {
         text.push_str("\n\nStill open, as Sikemux has it now:");
@@ -282,14 +306,19 @@ pub fn keep_list(core: &Core, chat: &Chat) -> String {
     text
 }
 
-/// What a session is handed back after its compaction: what Sikemux keeps for the project,
-/// unless its system prompt holds that already, and for a chief what is open now.
-pub fn after_compaction(core: &Core, chat: &Chat) -> Option<String> {
+/// What a session is handed back after its compaction: active project/goal rules and notes,
+/// and what is open now. When `always_include_rules` is false (Claude's native hook where the
+/// system prompt already holds the pinned brief), rules are included only when no brief is pinned.
+pub fn after_compaction_text(
+    core: &Core,
+    chat: &Chat,
+    always_include_rules: bool,
+) -> Option<String> {
     let agent_id = chat.agent_id();
-    let brief = (chat.brief().is_none())
+    let brief = (always_include_rules || chat.brief().is_none())
         .then(|| (core.chat_above().memory_after_compaction)(core, agent_id))
         .flatten();
-    let open = if chat.chief() {
+    let open = if chat.chief() || always_include_rules {
         (core.chat_above().open_work)(core, agent_id)
     } else {
         Vec::new()
@@ -305,6 +334,25 @@ pub fn after_compaction(core: &Core, chat: &Chat) -> Option<String> {
         return None;
     }
     Some(text.join("\n\n").chars().take(HOOK_CHARS).collect())
+}
+
+/// What a Claude session's native `SessionStart:compact` hook hands back after compaction.
+pub fn after_compaction(core: &Core, chat: &Chat) -> Option<String> {
+    after_compaction_text(core, chat, true)
+}
+
+/// Universal post-compaction memory and open-work context injected on the first turn after
+/// compaction for any harness.
+pub fn after_compaction_context(
+    core: &Core,
+    chat: &Chat,
+) -> Option<sikemux_wire::protocol::ChatContext> {
+    let text = after_compaction_text(core, chat, true)?;
+    Some(crate::sessions::for_agent::sikemux_context(
+        "after-compaction",
+        "Project rules and work after compaction",
+        &text,
+    ))
 }
 
 pub fn standing(turn: &TurnState, now: u64) -> String {
@@ -594,6 +642,7 @@ mod tests {
             compacted: false,
             keeps_history: false,
             forgot_at: 0,
+            needs_after_compaction: false,
         });
         let claude_life = cache_ms_for("claude").unwrap();
         let claude_min = sleep_compact_ms_for("claude").unwrap();
@@ -634,5 +683,21 @@ mod tests {
         assert!(meter.compacting());
         meter.compaction_over();
         assert!(!meter.compacting());
+    }
+
+    #[test]
+    fn compacted_marks_after_compaction_pending_across_sleep_and_clears_once_taken() {
+        let meter = Meter::default();
+        assert!(!meter.take_after_compaction());
+        meter.compacted(20_000);
+        let kept = meter.kept();
+        let restored = Meter::default();
+        restored.take_up(kept);
+        assert!(restored.take_after_compaction());
+        assert!(!restored.take_after_compaction());
+
+        restored.compacted(15_000);
+        restored.mark_after_compaction_delivered();
+        assert!(!restored.take_after_compaction());
     }
 }

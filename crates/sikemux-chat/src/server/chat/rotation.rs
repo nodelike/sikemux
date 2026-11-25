@@ -97,7 +97,7 @@ impl State {
         self.inner.locked().handoff = Some((note, epoch_ms()));
     }
 
-    fn handoff(&self) -> Option<String> {
+    pub(super) fn handoff(&self) -> Option<String> {
         let inner = self.inner.locked();
         let (note, at) = inner.handoff.as_ref()?;
         (epoch_ms().saturating_sub(*at) < NOTE_KEPT_MS).then(|| note.clone())
@@ -151,6 +151,13 @@ pub struct KeptSession {
     meter: cap::KeptMeter,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     briefs: Vec<PinnedBrief>,
+}
+
+impl KeptSession {
+    pub(super) fn handoff(&self) -> Option<String> {
+        let (note, at) = self.handoff.as_ref()?;
+        (epoch_ms().saturating_sub(*at) < NOTE_KEPT_MS).then(|| note.clone())
+    }
 }
 
 pub fn kept(chat: &Chat) -> KeptSession {

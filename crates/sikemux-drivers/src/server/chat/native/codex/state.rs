@@ -343,6 +343,7 @@ impl Session {
                     }),
                 )]
             }
+            Notification::Compacted => vec![Effect::Compacted(0)],
             _ => Vec::new(),
         }
     }
