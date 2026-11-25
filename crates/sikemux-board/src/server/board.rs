@@ -30,7 +30,7 @@ use sikemux_process::sync::Locked;
 
 use super::changed::Topic;
 use crate::cli::protocol::HarnessRequest;
-use crate::text::clipped;
+use crate::text::{clipped, one_line};
 
 use super::connection::blocking;
 use super::kept;

@@ -3618,7 +3618,7 @@ fn calls_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> An
             pill_face(
                 SharedString::from(format!("desk-call-{}", call.id)),
                 crate::calls::kind_mark(call.kind, cx),
-                crate::calls::tab_title(call),
+                call.name().to_owned(),
                 Some(&call.id) == opened.as_ref(),
                 None,
                 false,

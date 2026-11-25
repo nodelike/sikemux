@@ -29,7 +29,7 @@ use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::HarnessRequest;
 use crate::sessions::asked::may_hold_secret;
-use crate::text::clipped;
+use crate::text::{clipped, clipped_line};
 use sikemux_view::calls::{
     CallAsker, CallKind, CallLink, CallOpened, CallOption, CallPage, CallState, PersonCall,
     DO_DONE, DO_NOT_DOING, LOOK_SEEN,
@@ -1243,7 +1243,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     let mut choices = choices(params.get("choices"))?;
     let header = (text_param(params, "title", MAX_QUESTION_BYTES)?)
         .or(text_param(params, "header", MAX_QUESTION_BYTES)?)
-        .map(|header| clipped(&header, MAX_HEADER_CHARS));
+        .map(|header| clipped_line(&header, MAX_HEADER_CHARS));
     let flag = |key: &str| match params.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Bool(on)) => Ok(Some(*on)),
@@ -1343,7 +1343,7 @@ async fn edit(
         }
     }
     let header = (text_param(params, "title", MAX_QUESTION_BYTES)?)
-        .map(|header| clipped(&header, MAX_HEADER_CHARS));
+        .map(|header| clipped_line(&header, MAX_HEADER_CHARS));
     let mut choices = match params.get("choices") {
         None | Some(Value::Null) => None,
         given => Some(choices(given)?),
@@ -1642,7 +1642,7 @@ pub(crate) fn put_to_person(
         project,
         vec![Asked {
             text: clipped(&text, MAX_QUESTION_BYTES),
-            header: Some(clipped(&header, MAX_HEADER_CHARS)),
+            header: Some(clipped_line(&header, MAX_HEADER_CHARS)),
             choices,
             blocked: true,
             secret: false,
@@ -1677,7 +1677,7 @@ pub(crate) fn ask_for_dialog(
         &project,
         vec![Asked {
             text: clipped(text, MAX_QUESTION_BYTES),
-            header: Some(clipped(header, MAX_HEADER_CHARS)),
+            header: Some(clipped_line(header, MAX_HEADER_CHARS)),
             choices,
             blocked: true,
             secret: false,
@@ -1737,7 +1737,7 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
                 .get("header")
                 .and_then(Value::as_str)
                 .filter(|header| !header.trim().is_empty())
-                .map(|header| clipped(header, MAX_HEADER_CHARS));
+                .map(|header| clipped_line(header, MAX_HEADER_CHARS));
             Some(Asked {
                 text: text.to_owned(),
                 header,

@@ -53,7 +53,7 @@ fn call_row(call: &PersonCall) -> TaskRow {
             id: call.id.clone(),
         },
         section: TaskSection::ForYou,
-        title: call.title.clone().unwrap_or_else(|| call.question.clone()),
+        title: call.name().to_owned(),
         fact: Some(TaskFact::Call {
             call: call.kind,
             choices: count(call.options.len()),

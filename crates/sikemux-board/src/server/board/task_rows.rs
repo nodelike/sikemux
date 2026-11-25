@@ -38,7 +38,7 @@ fn row(core: &Core, board: &Board, card: &Card) -> TaskRow {
                 DroppedBy::Person | DroppedBy::Board => None,
             },
             by_board: dropped.by == DroppedBy::Board,
-            why: dropped.why.clone(),
+            why: one_line(&dropped.why),
             instead: (dropped.instead)
                 .and_then(|id| board.card(id).ok())
                 .map(|card| card.title.clone()),

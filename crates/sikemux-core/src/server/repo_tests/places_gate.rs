@@ -1095,3 +1095,27 @@ fn a_github_write_to_the_projects_own_repository_runs_and_others_ask_in_words() 
     let call = open_calls(&core).remove(0);
     assert_eq!(call.question, "Change who may push what to acme/web?");
 }
+
+/// @Bansai gave a gate's call a second paragraph, and its row in the For you list drew both, one
+/// over the row below.
+#[test]
+fn a_gates_call_explained_in_a_second_paragraph_keeps_a_one_line_row() {
+    let dir = repo();
+    let (cwd, project) = work_of(&dir);
+    let core = core_at(None, &project, vec![vercel_place()]);
+    assert!(run(&core, deploy("vercel deploy --prod"), &cwd).is_err());
+    let call = open_calls(&core).remove(0);
+    let row = || {
+        crate::server::task_list::of_folder(&core, &call.project).rows[0]
+            .title
+            .clone()
+    };
+    let asked = row();
+    assert_eq!(asked, call.question);
+
+    let reason = "No longer needed: nothing waits on this.";
+    assert!(ship::explain_held(&core, "agent", &call.id, reason));
+    assert_eq!(row(), asked);
+    let explained = open_calls(&core).remove(0).question;
+    assert!(explained.ends_with(reason), "{explained}");
+}

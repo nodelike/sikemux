@@ -14,6 +14,7 @@ core openChief {"project":"storefront"}
 settle 6
 key cmd-alt-7
 settle 4
-zoom 1060,200 1.8
-settle 1
 snap for-you
+click 1000,216
+settle 2
+snap for-you-opened

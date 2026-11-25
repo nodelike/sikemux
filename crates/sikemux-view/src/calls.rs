@@ -327,6 +327,13 @@ pub struct PersonCall {
 }
 
 impl PersonCall {
+    /// What the call goes by where one line shows: its short title, else its headline.
+    pub fn name(&self) -> &str {
+        (self.title.as_deref())
+            .filter(|title| !title.trim().is_empty())
+            .unwrap_or(&self.headline)
+    }
+
     /// Every page the call names, the first one first.
     pub fn pages(&self) -> impl Iterator<Item = &CallPage> {
         self.page.iter().chain(&self.more_pages)

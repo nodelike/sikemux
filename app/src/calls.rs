@@ -65,14 +65,6 @@ pub(crate) fn kind_mark(kind: CallKind, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// What a call's tab reads: its short title, else its headline.
-pub(crate) fn tab_title(call: &PersonCall) -> String {
-    match &call.title {
-        Some(title) if !title.trim().is_empty() => title.clone(),
-        _ => call.headline.clone(),
-    }
-}
-
 const CARD_WIDTH: f32 = 452.;
 const ROW_HEIGHT: f32 = 34.;
 const FACE: f32 = 20.;

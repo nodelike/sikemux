@@ -31,7 +31,7 @@ use super::changed::What;
 use super::inbox::{self, Fault};
 use super::{Core, CoreError, CoreResult};
 use crate::git::Git;
-use crate::text::clipped_line;
+use crate::text::{clipped_line, one_line};
 
 /// The most of the agent's own words a line it is told carries.
 const MAX_TOLD_CHARS: usize = 200;
@@ -289,7 +289,7 @@ fn ask_of(attention: sikemux_wire::protocol::Attention) -> Ask {
     let choices = attention.choices;
     Ask {
         id: attention.id,
-        question: choices.title.or(choices.command).unwrap_or_default(),
+        question: one_line(&choices.title.or(choices.command).unwrap_or_default()),
         at: attention.at,
     }
 }
