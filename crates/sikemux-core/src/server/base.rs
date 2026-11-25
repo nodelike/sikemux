@@ -102,6 +102,7 @@ pub(super) fn workspace_above() -> WorkspaceAbove {
             finished::moved(core);
             messages::recheck_calm_for_child(core, agent_id);
             core.line().agent_closed(core, agent_id);
+            core.ship().agent_closed(agent_id);
             launching::clear_temp(core, agent_id);
         },
         worktrees_closed: worktree::build_output::closed,

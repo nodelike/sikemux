@@ -555,7 +555,7 @@ calls! { core, client, method, params;
     "answerQuestions" = AnswerQuestions: Full, counted => person_calls::answer_questions(&core, &client.peer, params).await?,
     "allowShip" = AllowShip: Full, counted => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALLOW).await?,
     "refuseShip" = RefuseShip: Full, counted => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_REFUSE).await?,
-    "letShipGo" = LetShipGo: Full => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALWAYS).await?,
+    "letShipGo" = LetShipGo: Full => Err("this action can't be always allowed; its place's level is set on the Playbook")?,
     "answerCall" = AnswerCall: Full, counted => person_calls::answer(&core, &client.peer, params).await?,
     "liveActivity" = LiveActivity: Watch => super::notify::live_activity(&core, &client.peer, params)?,
     "callSeen" = CallSeen: Watch => person_calls::seen(&core, &client.peer, params)?,

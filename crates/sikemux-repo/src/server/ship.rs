@@ -46,6 +46,9 @@ use sikemux_view::places::Recognise;
 const MAX_HOLDS_PER_AGENT: usize = 16;
 /// The person's answers remembered, across every agent, while the core runs.
 const MAX_ANSWERED: usize = 256;
+const MAX_SPOKE: usize = 512;
+const MAX_TOLD: usize = 256;
+const PRUNE_USED_AT: usize = 128;
 const DATABASE: &str = "sikemux.database";
 const RUNDECK: &str = "sikemux.rundeck";
 const VERCEL: &str = "sikemux.vercel";
@@ -99,6 +102,7 @@ struct State {
     spoke: HashMap<String, u64>,
     /// The settled call each deploy at a place at "tell me" was told by, by its key.
     told: HashMap<String, String>,
+    told_order: VecDeque<String>,
 }
 
 /// A change at a place at "tell me", told once its deploy ends.
@@ -260,26 +264,83 @@ impl Ships {
 
     /// The person wrote to the agent in its own chat or terminal.
     pub fn person_spoke(&self, agent_id: &str) {
-        (self.state.locked().spoke).insert(agent_id.to_owned(), epoch_ms());
+        let mut state = self.state.locked();
+        if !state.spoke.contains_key(agent_id) && state.spoke.len() >= MAX_SPOKE {
+            if let Some(oldest) = state
+                .spoke
+                .iter()
+                .min_by_key(|(_, at)| **at)
+                .map(|(id, _)| id.clone())
+            {
+                state.spoke.remove(&oldest);
+            }
+        }
+        state.spoke.insert(agent_id.to_owned(), epoch_ms());
     }
 
     pub fn spoke_at(&self, agent_id: &str) -> Option<u64> {
         self.state.locked().spoke.get(agent_id).copied()
     }
 
+    pub fn agent_closed(&self, agent_id: &str) {
+        let mut state = self.state.locked();
+        state.spoke.remove(agent_id);
+        state.allowed.retain(|allowed| allowed.agent_id != agent_id);
+        let ended: Vec<String> = (state.covering.iter())
+            .filter(|(agent, _, _)| agent == agent_id)
+            .map(|(_, call, _)| call.clone())
+            .collect();
+        state.covering.retain(|(agent, _, _)| agent != agent_id);
+        for call in ended {
+            if !state.covering.iter().any(|(_, other, _)| *other == call) {
+                state.used.insert(call);
+            }
+        }
+    }
+
+    pub fn prune_settled(&self, live: &HashSet<String>) {
+        let now = epoch_ms();
+        let mut state = self.state.locked();
+        state.used.retain(|id| live.contains(id));
+        state
+            .unfollowed
+            .retain(|id, at| live.contains(id) && now < at.saturating_add(SAME_RUN_MS));
+        state.told.retain(|_, id| live.contains(id));
+        let mut order = std::mem::take(&mut state.told_order);
+        order.retain(|key| state.told.contains_key(key));
+        state.told_order = order;
+    }
+
+    fn record_told(&self, key: String, id: String) {
+        let mut state = self.state.locked();
+        if state.told.insert(key.clone(), id).is_none() {
+            state.told_order.push_back(key);
+            while state.told.len() > MAX_TOLD {
+                let Some(oldest) = state.told_order.pop_front() else {
+                    break;
+                };
+                state.told.remove(&oldest);
+            }
+        }
+    }
+
     /// Takes the yes of `call` for one action: once only for an action it covers once, so two
     /// tries at the same moment can't both pass. A check that `follows` the action to its end
     /// shortly after one that doesn't is the same run checked twice, by the hook and the shim.
     fn claim(&self, call: &str, once: bool, follows: bool) -> bool {
+        let now = epoch_ms();
         let mut state = self.state.locked();
+        state
+            .unfollowed
+            .retain(|_, at| now < at.saturating_add(SAME_RUN_MS));
         if state.used.contains(call) {
             let taken = state.unfollowed.remove(call);
-            return follows && taken.is_some_and(|at| epoch_ms() < at + SAME_RUN_MS);
+            return follows && taken.is_some_and(|at| now < at.saturating_add(SAME_RUN_MS));
         }
         if once {
             state.used.insert(call.to_owned());
             if !follows {
-                state.unfollowed.insert(call.to_owned(), epoch_ms());
+                state.unfollowed.insert(call.to_owned(), now);
             }
         }
         true
@@ -640,6 +701,10 @@ fn check_call(
             Ok(deploy(None, Some(Telling { key, raise })))
         }
         Goes::Asks => {
+            if core.ship().state.locked().used.len() >= PRUNE_USED_AT {
+                let live = core.person_calls().known_ids();
+                core.ship().prune_settled(&live);
+            }
             #[expect(
                 clippy::expect_used,
                 reason = "a judgement that asks always names its place"
@@ -2002,8 +2067,12 @@ pub async fn ended(core: Arc<Core>, deploy: Deploy, verdict: Option<Verdict>) {
         match told {
             Some(id) => person_calls::set_outcome(&core, &id, outcome),
             None => {
+                if core.ship().state.locked().told.len() >= MAX_TOLD {
+                    let live = core.person_calls().known_ids();
+                    core.ship().prune_settled(&live);
+                }
                 let id = person_calls::told(&core, telling.raise, outcome);
-                core.ship().state.locked().told.insert(telling.key, id);
+                core.ship().record_told(telling.key, id);
             }
         }
     }
@@ -2196,12 +2265,6 @@ async fn permitted(
     if heard {
         core.ship().turn_started(&agent_id);
     }
-}
-
-/// A released client's "always allow". No hold offers it: a place that isn't production
-/// runs without asking, and a production place's level is set on the Playbook.
-pub async fn let_go(_core: &Arc<Core>, _params: HoldParams) -> CoreResult<()> {
-    Err("this action can't be always allowed; its place's level is set on the Playbook".into())
 }
 
 /// The person refuses the held action, and the agent is told not to take it.

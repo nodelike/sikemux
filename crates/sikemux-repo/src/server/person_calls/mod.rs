@@ -9,7 +9,7 @@ mod log;
 use crate::server::changed::ChangedCore;
 use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
@@ -781,6 +781,10 @@ impl PersonCalls {
             .max_by_key(|outcome| outcome.at)
     }
 
+    pub fn known_ids(&self) -> HashSet<String> {
+        self.book.locked().entries.keys().cloned().collect()
+    }
+
     /// The first call of `project` that `matches`, open or not.
     pub fn find(&self, project: &str, matches: impl Fn(&PersonCall) -> bool) -> Option<PersonCall> {
         (self.book.locked().iter())
@@ -970,12 +974,10 @@ impl PersonCalls {
     }
 }
 
-/// Whether answering `option` lets what the call holds run: its yes, or always allowing a held
-/// action.
+/// Whether answering `option` lets what the call holds run.
 fn allows(kept: &Kept, option: &str) -> bool {
     kept.yes.as_deref() == Some(option)
         || (kept.yes.is_some() && option == super::ship::FROM_NOW_ON)
-        || (matches!(kept.source, Source::Hold(_)) && option == HOLD_ALWAYS)
 }
 
 /// Whether `source` raised the call, first or since.
@@ -1538,7 +1540,6 @@ async fn deliver(
             let params = ship::HoldParams { hold: hold.clone() };
             match answer.option.as_deref() {
                 Some(HOLD_ALLOW) => ship::allow(core, params).await?,
-                Some(HOLD_ALWAYS) => ship::let_go(core, params).await?,
                 _ => {
                     ship::refuse(core, params).await?;
                     core.person_calls().settle(&call.id, CallResult::NotShipped);
@@ -1607,8 +1608,6 @@ fn said(call: &PersonCall, typed: Option<String>) -> Option<String> {
 /// The option of a held action that lets it run once.
 pub const HOLD_ALLOW: &str = "allow";
 pub const HOLD_REFUSE: &str = "refuse";
-/// The option that always lets what it lands in go, where that reads as no production.
-pub const HOLD_ALWAYS: &str = "always";
 
 /// An answer from a released client that names the question, the hold or the action: it counts as
 /// the call's, and drawing the call is taken as given, since only a client that drew it has its id.
@@ -1797,11 +1796,8 @@ async fn answer_gate(core: &Arc<Core>, peer: &Peer, id: &str, option: &str) -> C
     deliver(core, &call, &source, None, Vec::new()).await
 }
 
-fn hold_signing_words(core: &Core, source: &Source, hold_id: &str, option: &str) -> String {
-    let action_label = match option {
-        HOLD_ALWAYS => "Let this go out from now on",
-        _ => "Let this go out once",
-    };
+fn hold_signing_words(core: &Core, source: &Source, hold_id: &str) -> String {
+    let action_label = "Let this go out once";
     if let Some(id) = core.person_calls().id_of(source) {
         if let Ok(call) = call_of(core, &id) {
             let mut words = format!("@{} asks: {}", call.asker.name, call.question);
@@ -1827,13 +1823,10 @@ fn hold_signing_words(core: &Core, source: &Source, hold_id: &str, option: &str)
         }
         return words;
     }
-    match option {
-        HOLD_ALWAYS => "Let an agent's held work go out from now on.".into(),
-        _ => "Let an agent's held work go out once.".into(),
-    }
+    "Let an agent's held work go out once.".into()
 }
 
-/// `allowShip`, `refuseShip` and `letShipGo`, from clients released before calls.
+/// `allowShip` and `refuseShip`, from clients released before calls.
 pub async fn answer_hold(
     core: &Arc<Core>,
     peer: &Peer,
@@ -1856,7 +1849,7 @@ pub async fn answer_hold(
     }
     if option != HOLD_REFUSE {
         core.remote().may_sign(peer)?;
-        let words = hold_signing_words(core, &source, &params.hold, option);
+        let words = hold_signing_words(core, &source, &params.hold);
         core.remote().sign(peer, &words).await?;
     }
     let taken = answered_before(core, (peer, client), &source, |call, by| CallAnswer {
@@ -1871,7 +1864,6 @@ pub async fn answer_hold(
     })?;
     let ran = match option {
         HOLD_ALLOW => ship::allow(core, params).await,
-        HOLD_ALWAYS => ship::let_go(core, params).await,
         _ => ship::refuse(core, params).await,
     };
     if let Some(id) = &taken {
