@@ -1,19 +1,12 @@
-import { useAuth } from "@clerk/react";
 import type {
   BillingCatalog,
-  BillingInterval,
   BillingOverview,
-  BillingProductId,
-  ChangePreview,
   ChangeWhen,
   Invoice,
   Org,
   OrgMember,
   PlanFeature,
-  ScheduledChange,
-  SeatPause,
   Subscription,
-  SubscriptionChange,
   TeamAccess,
 } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
@@ -31,162 +24,80 @@ import {
   IconUser,
   IconUsers,
 } from "@shared/ui/Icons";
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type MouseEvent,
-  type ReactNode,
-} from "react";
+import { useState, type ReactNode } from "react";
 
-import { ApiProblem } from "@shared/account/api";
-import { api, problemText, signedInToken } from "./api.ts";
-import { OrgAvatar } from "./Avatar.tsx";
-import { BilledSwitch } from "./BilledSwitch.tsx";
-import { useCheer } from "./Field.tsx";
+import { problemText } from "./api.ts";
+import {
+  canPay,
+  chargedToday,
+  countWord,
+  heldChange,
+  intervalWord,
+  mayChange,
+  NOT_OPEN,
+  openSubs,
+  pausedLine,
+  planSubOf,
+  previewReady,
+  PreviewWords,
+  seatsWord,
+  Stepper,
+  TestMode,
+  useBill,
+  useChangePreview,
+  useCheckout,
+  useClient,
+  usePortal,
+  useShow,
+  type BillLoad as Load,
+  type BillWear as Wear,
+  type LoadedBill as Loaded,
+  type Show,
+} from "./BillingShared.tsx";
 import { useOrgMark } from "./logos.ts";
-import { brandMark } from "./marks.ts";
 import {
   FEATURE_WORDS,
   featuresAdded,
   inPreview,
   money,
-  PER,
   priceOf,
   priceText,
   productOf,
   times,
 } from "./money.ts";
-import { orgPath, START } from "./navigation.ts";
 import { frozen, useLoad } from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
 import { Seats } from "./Seats.tsx";
-import { ShedBoxes } from "./Shed.tsx";
 import {
   Btn,
-  btnClass,
   Section,
   Chip,
   Confirm,
   Empty,
-  Field,
   Page,
   Problem,
   Row,
   Rows,
-  Seg,
   Tile,
   Txt,
   useAction,
-  useToast,
 } from "./ui.tsx";
 
-export const FREE_DURING_PREVIEW = "Free during preview";
-export const NOT_OPEN = "Buying is not open yet";
+export { BillingPage } from "./PersonBilling.tsx";
+export {
+  FREE_DURING_PREVIEW,
+  heldChange,
+  NewTeam,
+  NOT_OPEN,
+  ShedBox,
+  Stepper,
+  useBillingShown,
+  useCheckout,
+  useClient,
+  type Show,
+} from "./BillingShared.tsx";
 
-type Loaded = {
-  catalog: BillingCatalog;
-  overview: BillingOverview;
-  invoices: Invoice[];
-  /** When it was read, which decides whether a refund is still open. */
-  readAt: number;
-};
-
-type Load =
-  | { state: "loading" }
-  | { state: "failed"; problem: string }
-  | ({ state: "loaded" } & Loaded);
-
-export function useClient() {
-  const { getToken } = useAuth();
-  return useCallback(
-    async (what: string) => api(await signedInToken(getToken, what)),
-    [getToken],
-  );
-}
-
-/** Whether billing answers this account: it does for staff, and for everyone once it is live. */
-export function useBillingShown(
-  ready: boolean,
-  version: number,
-): boolean | undefined {
-  const client = useClient();
-  const [shown, setShown] = useState<boolean>();
-  useEffect(() => {
-    if (!ready) return;
-    let current = true;
-    void client("see your plan")
-      .then((routes) => routes.getBilling())
-      .then(
-        () => current && setShown(true),
-        (error: unknown) =>
-          current &&
-          setShown((last) =>
-            error instanceof ApiProblem && error.status === 404
-              ? false
-              : (last ?? false),
-          ),
-      );
-    return () => {
-      current = false;
-    };
-  }, [ready, client, version]);
-  return shown;
-}
-
-/** What one payer, the person or an org, is billed. Read again whenever `version` moves. */
-function useBill(version: number, orgId?: string) {
-  const client = useClient();
-  const [load, setLoad] = useState<Load>({ state: "loading" });
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let current = true;
-    const query = orgId ? { org: orgId } : {};
-    void (async () => {
-      try {
-        const routes = await client("see your plan");
-        const [catalog, overview, { invoices }] = await Promise.all([
-          routes.getBillingCatalog(),
-          routes.getBilling(query),
-          routes.listInvoices(query),
-        ]);
-        if (current)
-          setLoad({
-            state: "loaded",
-            catalog,
-            overview,
-            invoices,
-            readAt: Date.now(),
-          });
-      } catch (error) {
-        if (current) setLoad({ state: "failed", problem: problemText(error) });
-      }
-    })();
-    return () => {
-      current = false;
-    };
-  }, [orgId, version, tick, client]);
-  const reload = useCallback(() => setTick((n) => n + 1), []);
-  return { load, reload };
-}
-
-export type Show = (text: string, undo?: () => Promise<void>) => void;
-
-function useShow(): Show {
-  const say = useToast();
-  const cheer = useCheer();
-  return useCallback(
-    (text, undo) => {
-      say(text, undo);
-      cheer();
-    },
-    [say, cheer],
-  );
-}
-
-type Ask = "seats" | "cancel" | { interval: BillingInterval };
-
-type Wear = Pick<Parameters<typeof Page>[0], "mark" | "scene">;
+type Ask = "seats" | "cancel";
 
 function NotLoaded({
   load,
@@ -216,335 +127,6 @@ function NotLoaded({
         <Problem>{load.problem}</Problem>
       </div>
     </Page>
-  );
-}
-
-const TestMode = ({ live }: { live: boolean }) =>
-  live ? null : <Chip tone="warn">TEST MODE</Chip>;
-
-/** What has not ended. The API ends a plan whose payer left, though the provider may not have said so yet. */
-const openSubs = (overview: BillingOverview) =>
-  overview.subscriptions
-    .filter((sub) => sub.status !== "ended")
-    .map((sub) =>
-      overview.payer === "departed" ? { ...sub, cancelAtPeriodEnd: true } : sub,
-    );
-
-function usePlanSub({ catalog, overview }: Loaded) {
-  return openSubs(overview).find(
-    (sub) => productOf(catalog, sub.product)?.kind === "plan",
-  );
-}
-
-const canPay = (overview: BillingOverview) =>
-  overview.payer !== "another_owner" && overview.payer !== "departed";
-
-/** The person's own plan and bill. */
-export function BillingPage({
-  version,
-  staff,
-  team,
-  orgs,
-  follow,
-}: {
-  version: number;
-  staff: boolean;
-  team: TeamAccess;
-  orgs: Org[];
-  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
-}) {
-  const { load, reload } = useBill(version);
-  const wear: Wear = { mark: brandMark, scene: "plan" };
-  if (load.state !== "loaded")
-    return <NotLoaded load={load} reload={reload} wear={wear} />;
-  return (
-    <PersonBill
-      loaded={load}
-      wear={wear}
-      staff={staff}
-      team={team}
-      orgs={orgs}
-      follow={follow}
-      reload={reload}
-    />
-  );
-}
-
-function PersonBill({
-  loaded,
-  wear,
-  staff,
-  team,
-  orgs,
-  follow,
-  reload,
-}: {
-  loaded: Loaded;
-  wear: Wear;
-  staff: boolean;
-  team: TeamAccess;
-  orgs: Org[];
-  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
-  reload: () => void;
-}) {
-  const { catalog, overview, invoices, readAt } = loaded;
-  const { allowance, live, canBuy } = overview;
-  const show = useShow();
-  const checkout = useCheckout();
-  const portal = usePortal({});
-  const [interval, setInterval] = useState<BillingInterval>("month");
-  const [ask, setAsk] = useState<Ask>();
-  const open = openSubs(overview);
-  const planSub = usePlanSub(loaded);
-  const shedSubs = open.filter(
-    (sub) => productOf(catalog, sub.product)?.kind === "shed",
-  );
-  const pays = canPay(overview);
-  const planName =
-    catalog.plans.find((plan) => plan.id === allowance.plan)?.name ??
-    allowance.plan;
-  const free = allowance.plan === "free";
-  const seatIn = orgs
-    .filter((each) => allowance.seatOrgs?.includes(each.id))
-    .map((each) => each.name);
-  const seat = seatIn.length > 0;
-  const seatOrgs = allowance.seatOrgs?.length ?? 0;
-  const giftEnds =
-    !planSub && allowance.giftEnds
-      ? formatDay(allowance.giftEnds, "long")
-      : undefined;
-  const pro = productOf(catalog, "pro");
-  const proPrice =
-    (pro ? priceText(pro, interval) : undefined) ??
-    (pro ? priceText(pro, "month") : undefined);
-  const subProduct = planSub ? productOf(catalog, planSub.product) : undefined;
-  const subPrice =
-    planSub && subProduct ? priceText(subProduct, planSub.interval) : undefined;
-  const ends = planSub ? formatDay(planSub.currentPeriodEnd, "long") : "";
-  const lapsed = planSub?.status === "lapsed";
-  const yearly = priceOf(subProduct, "year");
-  const goesYearly =
-    planSub?.status === "active" &&
-    planSub.interval === "month" &&
-    yearly &&
-    mayChange(planSub, pays, canBuy);
-
-  const lede = lapsed
-    ? `Its last payment failed, so ${subProduct?.name ?? planName}'s features are off until it's paid. Your hosts keep working.`
-    : seat
-      ? `Your ${seatIn.length > 1 ? "seats there give" : "seat there gives"} you Pro on your own hosts${planSub?.seatPause && subPrice ? `, so your own ${subPrice} plan is paused` : ""}.`
-      : free
-        ? "Every agent, on every host, for nothing."
-        : giftEnds
-          ? `Yours free until ${giftEnds}. After that you're on Free, and nothing you have is deleted.`
-          : planSub
-            ? `${subPrice ? `${subPrice}. ` : ""}${planSub.refundRequestedAt ? "It ends when its refund is paid." : planSub.seatPause ? pausedLine(planSub.seatPause) : planSub.cancelAtPeriodEnd ? `Ends on ${ends}.` : `Renews on ${ends}.`}`
-            : undefined;
-
-  return (
-    <Page
-      {...wear}
-      tone={lapsed ? "failed" : undefined}
-      title={
-        lapsed
-          ? "The card was declined"
-          : seat
-            ? `${planName}, through ${new Intl.ListFormat("en").format(seatIn)}`
-            : planName
-      }
-      tag={<TestMode live={live} />}
-      lede={lede}
-      actions={
-        lapsed && pays ? (
-          <Btn busy={portal.busy} onClick={() => void portal.open()}>
-            Change the card
-          </Btn>
-        ) : free && !planSub && pro ? (
-          <>
-            <Btn
-              disabled={!canBuy}
-              busy={checkout.busy}
-              onClick={() =>
-                void checkout.go((routes) =>
-                  routes.startCheckout({
-                    product: "pro",
-                    interval,
-                    quantity: 1,
-                  }),
-                )
-              }
-            >
-              {canBuy
-                ? `Go Pro${proPrice ? ` for ${proPrice}` : ""}`
-                : NOT_OPEN}
-            </Btn>
-            <BilledSwitch
-              interval={interval}
-              onChange={setInterval}
-              saving={pro}
-            />
-          </>
-        ) : goesYearly ? (
-          <Btn quiet onClick={() => setAsk({ interval: "year" })}>
-            Pay yearly, {money(yearly, { cents: false })}
-          </Btn>
-        ) : null
-      }
-    >
-      {checkout.problem || portal.problem ? (
-        <div className="full-err">
-          <Problem>{checkout.problem ?? portal.problem}</Problem>
-        </div>
-      ) : null}
-      {planSub ? (
-        <Section label="Plan">
-          <Rows>
-            <PlanRows
-              sub={planSub}
-              catalog={catalog}
-              canBuy={canBuy}
-              pays={pays}
-              ask={ask}
-              onAsk={setAsk}
-              reload={reload}
-              show={show}
-            />
-          </Rows>
-        </Section>
-      ) : null}
-      <Section
-        label={
-          lapsed ? "What Pro has" : free ? "What Pro adds" : "What you have"
-        }
-      >
-        <Features features={featuresAdded(catalog, "pro").added} />
-      </Section>
-      <OrgBills team={team} orgs={orgs} follow={follow} />
-      {seatOrgs > 0 ? null : (
-        <TeamOffer catalog={catalog} team={team} orgs={orgs} follow={follow} />
-      )}
-      <ShedBoxes
-        catalog={catalog}
-        bought={shedSubs}
-        buying={staff}
-        canBuy={canBuy}
-        pays={pays}
-        reload={reload}
-        show={show}
-      />
-      <Money
-        overview={overview}
-        invoices={invoices}
-        readAt={readAt}
-        catalog={catalog}
-        pays={pays}
-        query={{}}
-        reload={reload}
-        show={show}
-      />
-    </Page>
-  );
-}
-
-function OrgBills({
-  team,
-  orgs,
-  follow,
-}: {
-  team: TeamAccess;
-  orgs: Org[];
-  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
-}) {
-  const owned = orgs.filter((org) => org.role === "owner");
-  if (team !== "sold" || owned.length === 0) return null;
-  return (
-    <Section
-      label={owned.length === 1 ? "Your org's bill" : "Your orgs' bills"}
-    >
-      <Rows>
-        {owned.map((org) => (
-          <OrgBillRow key={org.id} org={org} follow={follow} />
-        ))}
-      </Rows>
-    </Section>
-  );
-}
-
-function OrgBillRow({
-  org,
-  follow,
-}: {
-  org: Org;
-  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
-}) {
-  const to = orgPath(org.id, "billing");
-  return (
-    <Row
-      lead={<OrgAvatar org={org} size={28} />}
-      name={org.name}
-      detail={
-        org.preview
-          ? "Team preview"
-          : frozen(org)
-            ? "Team ended"
-            : `Team, ${seatsWord(org.seats.limit)}`
-      }
-      end={
-        <a
-          className={btnClass({ small: true, quiet: true })}
-          href={to}
-          onClick={follow(to)}
-        >
-          Open
-        </a>
-      }
-    />
-  );
-}
-
-function TeamOffer({
-  catalog,
-  team,
-  orgs,
-  follow,
-}: {
-  catalog: BillingCatalog;
-  team: TeamAccess;
-  orgs: Org[];
-  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
-}) {
-  const product = productOf(catalog, "team");
-  if (
-    !product ||
-    (team !== "sold" && team !== "preview") ||
-    orgs.some((org) => org.role === "owner")
-  )
-    return null;
-  const preview = team === "preview";
-  return (
-    <Section
-      label="Team"
-      aside={
-        <span className="soft">
-          {preview ? FREE_DURING_PREVIEW : priceText(product, "month")}
-        </span>
-      }
-      foot={
-        <a
-          className={btnClass({ small: true })}
-          href={START}
-          onClick={follow(START)}
-        >
-          Start an org
-        </a>
-      }
-    >
-      <Features
-        features={featuresAdded(catalog, "team").added.filter(
-          (feature) => !preview || inPreview(feature),
-        )}
-      />
-    </Section>
   );
 }
 
@@ -637,7 +219,7 @@ function OrgBill({
   const checkout = useCheckout();
   const portal = usePortal(query);
   const [ask, setAsk] = useState<Ask>();
-  const planSub = usePlanSub(loaded);
+  const planSub = planSubOf(loaded);
   const pays = canPay(overview);
   const product = productOf(catalog, "team");
   const unit = priceOf(product, "month");
@@ -861,37 +443,6 @@ function OrgBill({
   );
 }
 
-function usePortal(query: { org?: string }) {
-  const client = useClient();
-  const action = useAction();
-  const open = () =>
-    action.run(
-      async () => {
-        const { url } = await (
-          await client("change your card")
-        ).getBillingPortal(query);
-        location.assign(url);
-      },
-      (error) => `${problemText(error)} Your card is unchanged.`,
-    );
-  return { ...action, open };
-}
-
-function intervalWord(interval: BillingInterval) {
-  return interval === "month" ? "monthly" : "yearly";
-}
-
-/** Whether the payer can change it now: not while it is refunding, paused, or holding a change. */
-function mayChange(sub: Subscription, pays: boolean, canBuy: boolean) {
-  return (
-    pays &&
-    canBuy &&
-    !sub.refundRequestedAt &&
-    !sub.seatPause &&
-    !heldChange(sub)
-  );
-}
-
 function PlanRows({
   sub,
   catalog,
@@ -924,11 +475,6 @@ function PlanRows({
   const price = product ? priceText(product, sub.interval) : undefined;
   const pause = sub.seatPause;
   const open = mayChange(sub, pays, canBuy);
-  const bothWays =
-    sub.status === "active" &&
-    !!priceOf(product, "month") &&
-    !!priceOf(product, "year");
-  const billing = typeof ask === "object" ? ask.interval : undefined;
   const resume = async () => {
     await (await client("keep your plan")).resumeSubscription(sub.id);
     reload();
@@ -996,44 +542,6 @@ function PlanRows({
           name="Pro on your own hosts"
           detail="While you hold a seat."
         />
-      ) : null}
-      {bothWays && open ? (
-        <Row
-          lead={
-            <Tile>
-              <IconCreditCard size={14} />
-            </Tile>
-          }
-          name="Billed"
-          detail={intervalWord(sub.interval).replace(/^./, (first) =>
-            first.toUpperCase(),
-          )}
-          end={
-            <IntervalSeg
-              label={`How ${name} is billed`}
-              sub={sub}
-              catalog={catalog}
-              value={billing ?? sub.interval}
-              onChange={(interval) =>
-                onAsk(interval === sub.interval ? undefined : { interval })
-              }
-            />
-          }
-        >
-          {billing && billing !== sub.interval ? (
-            <ChangePlan
-              sub={sub}
-              catalog={catalog}
-              asked={{ interval: billing }}
-              onAsk={() => undefined}
-              onClose={close}
-              onChanged={(text) => {
-                reload();
-                show(text);
-              }}
-            />
-          ) : null}
-        </Row>
       ) : null}
       <AtRenewal
         sub={sub}
@@ -1154,166 +662,6 @@ function PlanRows({
       )}
     </>
   );
-}
-
-function IntervalSeg({
-  label,
-  sub,
-  catalog,
-  value,
-  onChange,
-}: {
-  label: string;
-  sub: Subscription;
-  catalog: BillingCatalog;
-  value: BillingInterval;
-  onChange: (interval: BillingInterval) => void;
-}) {
-  const product = productOf(catalog, sub.product);
-  return (
-    <Seg
-      label={label}
-      value={value}
-      onChange={onChange}
-      options={(["month", "year"] as const).flatMap((interval) => {
-        const unit = priceOf(product, interval);
-        return unit
-          ? [
-              {
-                value: interval,
-                name: `${interval === "month" ? "Monthly" : "Yearly"} · ${money(unit, { cents: false })}`,
-              },
-            ]
-          : [];
-      })}
-    />
-  );
-}
-
-/** What a Pro paused for a seat runs on, in one line. */
-function pausedLine(pause: SeatPause) {
-  const orgs = [...pause.orgs];
-  const last = orgs.pop();
-  if (last)
-    return orgs.length
-      ? `Paused while your seats in ${orgs.join(", ")} and ${last} include Pro.`
-      : `Paused while your seat in ${last} includes Pro.`;
-  return pause.resumesAt
-    ? `Pro until ${formatDay(pause.resumesAt, "long")} from days you'd already paid. Billing resumes then.`
-    : "Paused, keeping the days you'd already paid.";
-}
-
-function seatsWord(count: number) {
-  return `${count} ${count === 1 ? "seat" : "seats"}`;
-}
-
-function countWord(count: number, seats: boolean) {
-  return seats ? seatsWord(count) : `${count} ${count === 1 ? "box" : "boxes"}`;
-}
-
-/** A change asked for at renewal that differs from what is paid now. */
-export function heldChange(sub: Subscription): ScheduledChange | undefined {
-  const next = sub.atRenewal;
-  return next &&
-    (next.quantity !== sub.quantity ||
-      next.interval !== sub.interval ||
-      next.product !== sub.product)
-    ? next
-    : undefined;
-}
-
-type Preview =
-  | { for: string; state: "loading" }
-  | { for: string; state: "ready"; preview: ChangePreview }
-  | { for: string; state: "failed"; problem: string };
-
-/** What a change would charge, asked once the change has stopped moving: the route shares the change's rate limit. */
-function useChangePreview(
-  subId: string,
-  change?: SubscriptionChange,
-): Preview | undefined {
-  const client = useClient();
-  const key = change ? JSON.stringify(change) : "";
-  const [seen, setSeen] = useState<Preview>();
-  useEffect(() => {
-    if (!key) return;
-    let current = true;
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const preview = await (
-            await client("see what the change costs")
-          ).previewSubscriptionChange(
-            subId,
-            JSON.parse(key) as SubscriptionChange,
-          );
-          if (current) setSeen({ for: key, state: "ready", preview });
-        } catch (error) {
-          if (current)
-            setSeen({ for: key, state: "failed", problem: problemText(error) });
-        }
-      })();
-    }, 450);
-    return () => {
-      current = false;
-      clearTimeout(timer);
-    };
-  }, [key, subId, client]);
-  if (!key) return undefined;
-  return seen?.for === key ? seen : { for: key, state: "loading" };
-}
-
-function PreviewWords({
-  seen,
-  when,
-  interval,
-  until,
-}: {
-  seen?: Preview;
-  when: ChangeWhen;
-  interval: BillingInterval;
-  until?: string;
-}) {
-  if (!seen || seen.state === "failed") return null;
-  if (seen.state === "loading")
-    return <span className="soft">Working out the amount…</span>;
-  const { now, renewal } = seen.preview;
-  if (when === "renewal")
-    return (
-      <span className="soft">
-        {renewal
-          ? `From ${formatDay(renewal.at, "long")}: ${money(renewal.amount, { cents: false })} a ${interval}.`
-          : "It ends at the end of this period, so nothing more is charged."}
-        {until ? ` ${until}` : ""}
-      </span>
-    );
-  const then = renewal
-    ? `${money(renewal.amount, { cents: false })} a ${interval} from ${formatDay(renewal.at, "long")}`
-    : undefined;
-  return now.amount > 0 ? (
-    <span>
-      {money(now)} today
-      <span className="soft">
-        {" "}
-        for what's left of this period{then ? `, then ${then}` : ""}.
-      </span>
-    </span>
-  ) : (
-    <span>
-      Nothing to pay today
-      <span className="soft">{then ? `, then ${then}` : ""}.</span>
-    </span>
-  );
-}
-
-function previewReady(seen?: Preview): ChangePreview | undefined {
-  return seen?.state === "ready" ? seen.preview : undefined;
-}
-
-function chargedToday(preview?: ChangePreview) {
-  return preview && preview.now.amount > 0
-    ? ` ${money(preview.now)} charged today.`
-    : "";
 }
 
 function AtRenewal({
@@ -1476,160 +824,6 @@ export function ChangeSeats({
   );
 }
 
-export function Stepper({
-  value,
-  min,
-  max,
-  onChange,
-}: {
-  value: number;
-  min: number;
-  max: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <span className="stepper">
-      <button
-        type="button"
-        aria-label="Fewer"
-        onClick={() => onChange(Math.max(min, value - 1))}
-        disabled={value <= min}
-      >
-        −
-      </button>
-      <input
-        inputMode="numeric"
-        aria-label="How many"
-        value={value}
-        onChange={(event) => {
-          const next = Number.parseInt(event.target.value, 10);
-          if (Number.isFinite(next))
-            onChange(Math.min(max, Math.max(min, next)));
-        }}
-      />
-      <button
-        type="button"
-        aria-label="More"
-        onClick={() => onChange(Math.min(max, value + 1))}
-        disabled={value >= max}
-      >
-        +
-      </button>
-    </span>
-  );
-}
-
-export function useCheckout() {
-  const client = useClient();
-  const action = useAction();
-  const go = (
-    start: (
-      routes: Awaited<ReturnType<typeof client>>,
-    ) => Promise<{ url: string }>,
-  ) =>
-    action.run(
-      async () => {
-        const { url } = await start(await client("buy a plan"));
-        location.assign(url);
-      },
-      (error) => `${problemText(error)} Nothing was charged.`,
-    );
-  return { ...action, go };
-}
-
-function NameForm({
-  submit,
-  action,
-  onCancel,
-  onSubmit,
-  children,
-}: {
-  submit: string;
-  action: { busy: boolean; problem?: string };
-  onCancel: () => void;
-  onSubmit: (name: string) => void;
-  children?: ReactNode;
-}) {
-  const [name, setName] = useState("");
-  return (
-    <form
-      className="box"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (name.trim()) onSubmit(name.trim());
-      }}
-    >
-      <Field
-        placeholder="Org name"
-        aria-label="Org name"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        autoFocus
-        maxLength={64}
-      />
-      {children}
-      <Problem>{action.problem}</Problem>
-      <div className="do">
-        <Btn type="submit" small busy={action.busy} disabled={!name.trim()}>
-          {submit}
-        </Btn>
-        <Btn small quiet onClick={onCancel} disabled={action.busy}>
-          Cancel
-        </Btn>
-      </div>
-    </form>
-  );
-}
-
-export function NewTeam({
-  catalog,
-  checkout,
-  submit = "Start Team",
-  onCancel,
-}: {
-  catalog: BillingCatalog;
-  checkout: ReturnType<typeof useCheckout>;
-  submit?: string;
-  onCancel: () => void;
-}) {
-  const [seats, setSeats] = useState(3);
-  const team = productOf(catalog, "team");
-  const unit = priceOf(team, "month");
-  return (
-    <NameForm
-      submit={submit}
-      action={checkout}
-      onCancel={onCancel}
-      onSubmit={(name) =>
-        void checkout.go(async (routes) => {
-          const org = await routes.createOrg({ name });
-          return routes.startCheckout({
-            product: "team",
-            interval: "month",
-            quantity: seats,
-            orgId: org.id,
-          });
-        })
-      }
-    >
-      <span className="step-line">
-        <Stepper
-          value={seats}
-          min={1}
-          max={team?.maxQuantity ?? 1000}
-          onChange={setSeats}
-        />
-        <span className="soft">
-          seats
-          {unit
-            ? ` · ${money(times(unit, seats), { cents: false })} ${PER.month}`
-            : ""}
-        </span>
-      </span>
-    </NameForm>
-  );
-}
-
 /** Everything about the money itself: what is charged next, the card, refunds and invoices. */
 function Money({
   overview,
@@ -1746,207 +940,6 @@ function NextCharge({
         ) : null}
       </Rows>
     </Section>
-  );
-}
-
-type PlanAsk = { interval: BillingInterval } | { product: BillingProductId };
-
-export function ShedBox({
-  sub,
-  catalog,
-  canBuy,
-  pays,
-  reload,
-  show,
-}: {
-  sub: Subscription;
-  catalog: BillingCatalog;
-  canBuy: boolean;
-  pays: boolean;
-  reload: () => void;
-  show: Show;
-}) {
-  const [asked, setAsked] = useState<PlanAsk>();
-  const product = productOf(catalog, sub.product);
-  const name = product?.name ?? sub.product;
-  const refunding = !!sub.refundRequestedAt;
-  const open = mayChange(sub, pays, canBuy);
-  const sizing = !!asked && "product" in asked;
-  return (
-    <>
-      <Row
-        wrap
-        name={name}
-        detail={
-          [
-            refunding
-              ? "Ends when its refund is paid"
-              : open
-                ? undefined
-                : intervalWord(sub.interval),
-            sub.quantity > 1 ? countWord(sub.quantity, false) : undefined,
-          ]
-            .filter(Boolean)
-            .join(" · ") || undefined
-        }
-        end={
-          open ? (
-            <>
-              <IntervalSeg
-                label={`How ${name} is billed`}
-                sub={sub}
-                catalog={catalog}
-                value={
-                  asked && "interval" in asked ? asked.interval : sub.interval
-                }
-                onChange={(interval) =>
-                  setAsked(interval === sub.interval ? undefined : { interval })
-                }
-              />
-              <Btn
-                small
-                quiet
-                aria-expanded={sizing}
-                onClick={() =>
-                  setAsked(sizing ? undefined : { product: sub.product })
-                }
-              >
-                Change size
-              </Btn>
-            </>
-          ) : null
-        }
-      >
-        {asked ? (
-          <ChangePlan
-            sub={sub}
-            catalog={catalog}
-            asked={asked}
-            onAsk={setAsked}
-            onClose={() => setAsked(undefined)}
-            onChanged={(text) => {
-              reload();
-              show(text);
-            }}
-          />
-        ) : null}
-      </Row>
-      <AtRenewal
-        sub={sub}
-        catalog={catalog}
-        pays={pays}
-        reload={reload}
-        show={show}
-      />
-    </>
-  );
-}
-
-function ChangePlan({
-  sub,
-  catalog,
-  asked,
-  onAsk,
-  onClose,
-  onChanged,
-}: {
-  sub: Subscription;
-  catalog: BillingCatalog;
-  asked: PlanAsk;
-  onAsk: (asked: PlanAsk) => void;
-  onClose: () => void;
-  onChanged: (text: string) => void;
-}) {
-  const client = useClient();
-  const action = useAction();
-  const from = productOf(catalog, sub.product);
-  const name = from?.name ?? sub.product;
-  const ends = formatDay(sub.currentPeriodEnd, "long");
-  const to = "product" in asked ? productOf(catalog, asked.product) : from;
-  const interval = "interval" in asked ? asked.interval : sub.interval;
-  const larger =
-    (priceOf(to, "month")?.amount ?? 0) > (priceOf(from, "month")?.amount ?? 0);
-  const when: ChangeWhen = larger ? "now" : "renewal";
-  const change: SubscriptionChange | undefined =
-    "interval" in asked
-      ? { interval, when: "renewal" }
-      : to && to.id !== sub.product
-        ? { product: to.id, when }
-        : undefined;
-  const seen = useChangePreview(sub.id, change);
-  const toName = to?.name ?? sub.product;
-  const sizes = catalog.products.filter(
-    (product) => product.kind === "shed" && priceOf(product, sub.interval),
-  );
-  return (
-    <Confirm
-      problem={
-        action.problem ?? (seen?.state === "failed" ? seen.problem : undefined)
-      }
-      busy={action.busy}
-      unchanged={!previewReady(seen)}
-      label={
-        "interval" in asked
-          ? `Go ${intervalWord(interval)} at renewal`
-          : when === "now"
-            ? `Move to ${toName}`
-            : `Move to ${toName} at renewal`
-      }
-      onCancel={() => {
-        action.clear();
-        onClose();
-      }}
-      onConfirm={() =>
-        void action.run(
-          async () => {
-            if (!change) return;
-            const preview = previewReady(seen);
-            await (
-              await client("change your plan")
-            ).changeSubscription(sub.id, change);
-            onClose();
-            onChanged(
-              "interval" in asked
-                ? `${name} goes ${intervalWord(interval)} on ${ends}.`
-                : when === "now"
-                  ? `${name} is now ${toName}.${chargedToday(preview)}`
-                  : `${name} becomes ${toName} on ${ends}.`,
-            );
-          },
-          (error) => `${problemText(error)} Nothing was charged.`,
-        )
-      }
-    >
-      <span className="step-line">
-        {"product" in asked ? (
-          <Seg
-            label="Box size"
-            value={asked.product}
-            onChange={(product) => onAsk({ product })}
-            options={sizes.map((size) => ({
-              value: size.id,
-              name: size.name,
-            }))}
-          />
-        ) : null}
-        {change ? (
-          <PreviewWords
-            seen={seen}
-            when={change.when ?? "now"}
-            interval={interval}
-            until={
-              change.when === "renewal" && "product" in asked
-                ? `It stays ${name} until then.`
-                : undefined
-            }
-          />
-        ) : (
-          <span className="soft">
-            A larger box starts today; a smaller one at renewal.
-          </span>
-        )}
-      </span>
-    </Confirm>
   );
 }
 

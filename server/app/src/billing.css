@@ -114,3 +114,196 @@
     gap: 28px;
   }
 }
+
+.pay-do {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.bill-hero {
+  padding: 6px 0 10px;
+}
+
+.bill-hero h2 {
+  font-size: 38px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+.bill-hero.bad h2 {
+  color: var(--bad-ink);
+}
+
+.bill-hero > p {
+  margin-top: 10px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--two);
+  max-width: 560px;
+  text-wrap: pretty;
+}
+
+.bill-hero > .why {
+  margin-top: 14px;
+  max-width: 560px;
+}
+
+.bill-buy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+  margin-top: 22px;
+}
+
+.bill-buy .btn {
+  height: 38px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+.bill-price-note b {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.bill-price-note small {
+  display: block;
+  font-size: 12.5px;
+  color: var(--two);
+}
+
+.bill-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 64px;
+  align-items: start;
+}
+
+.bill-side {
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+  min-width: 0;
+}
+
+.bill-adds li {
+  display: flex;
+  gap: 14px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  align-items: flex-start;
+}
+
+.bill-adds svg {
+  color: var(--acc);
+  margin-top: 2px;
+  flex: none;
+}
+
+.bill-adds small {
+  display: block;
+  color: var(--two);
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+
+.bill-bad {
+  color: var(--bad-ink);
+}
+
+.bill-amt {
+  color: var(--ink);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.bill-ph-amt {
+  display: none;
+}
+
+.bill-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bill-step button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r);
+  background: var(--on);
+  font-size: 16px;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.bill-step button:hover:not(:disabled) {
+  background: var(--raise2);
+}
+
+.bill-step button:disabled {
+  opacity: 0.35;
+}
+
+.bill-step input {
+  width: 38px;
+  height: 28px;
+  border: 0;
+  background: none;
+  color: var(--lit);
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.bill-step.large {
+  gap: 10px;
+}
+
+.bill-step.large button {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  font-size: 19px;
+}
+
+.bill-step.large input {
+  width: 56px;
+  height: 36px;
+  font-size: 34px;
+  letter-spacing: -0.03em;
+}
+
+@media (max-width: 860px) {
+  .bill-hero h2 {
+    font-size: 28px;
+  }
+
+  .bill-buy {
+    gap: 14px;
+  }
+
+  .bill-buy .btn {
+    width: 100%;
+    height: 44px;
+  }
+
+  .bill-cols {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+
+  .bill-ph-amt {
+    display: inline;
+    margin-right: 10px;
+  }
+}

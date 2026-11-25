@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
-
 import { connectApi } from "@shared/account/api";
+import { useEffect, useState } from "react";
 
 import { problemText } from "./api.ts";
 import { config } from "./config.ts";
 import { Foot } from "./Frame.tsx";
 import { iconMark } from "./marks.ts";
 import { BILLING } from "./navigation.ts";
-import { btnClass, Hero, Problem } from "./ui.tsx";
+import { Btn, btnClass, Hero, Problem } from "./ui.tsx";
+import "./billing.css";
 
 const PADDLE_JS = "https://cdn.paddle.com/paddle/v2/paddle.js";
 
@@ -79,20 +79,27 @@ export function Pay() {
   return (
     <Hero
       title="Checkout"
-      lede={problem ? undefined : "Opening Paddle's checkout…"}
+      lede={
+        problem
+          ? "Paddle's checkout didn't load, so nothing was charged."
+          : "Opening Paddle's checkout…"
+      }
       mark={iconMark("card")}
       scene="plan"
       tone={problem ? "failed" : "waiting"}
       foot={<Foot />}
     >
-      <div className="do">
-        <Problem>{problem}</Problem>
-        {problem ? (
-          <a className={btnClass({ quiet: true })} href={back}>
-            Back to billing
-          </a>
-        ) : null}
-      </div>
+      {problem ? (
+        <>
+          <Problem>{problem}</Problem>
+          <div className="pay-do">
+            <Btn onClick={() => location.reload()}>Try again</Btn>
+            <a className={btnClass({ quiet: true })} href={back}>
+              Back to billing
+            </a>
+          </div>
+        </>
+      ) : null}
     </Hero>
   );
 }
