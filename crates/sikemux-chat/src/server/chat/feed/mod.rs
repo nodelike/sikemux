@@ -912,6 +912,7 @@ impl Feed {
     pub fn woke(&self) {
         if let Some(history) = self.inner.locked().replay.history.as_mut() {
             history.outlive_chat(false);
+            history.decompress();
         }
     }
 

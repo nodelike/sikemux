@@ -234,6 +234,39 @@ impl BrowserManager {
         self.local_files.page_url(path, media, written_in)
     }
 
+    /// Like [`Self::local_page_url`], injecting the host's live theme into the HTML on serve.
+    pub fn themed_page_url(
+        &self,
+        path: &Path,
+        media: Option<&Path>,
+        written_in: Option<&Path>,
+    ) -> Result<String, String> {
+        if self.local_files.full() {
+            self.release_unused_files();
+        }
+        let host = self.host.clone();
+        self.local_files.themed_page_url(
+            path,
+            media,
+            written_in,
+            Arc::new(move || host.page_theme()),
+        )
+    }
+
+    pub(crate) fn temporary_page(
+        &self,
+        name: &str,
+        html: String,
+        written_in: Option<&Path>,
+    ) -> Result<local_files::TemporaryPage, String> {
+        self.local_files
+            .temporary_html(name, html.into_bytes(), written_in)
+    }
+
+    pub fn active_local_files(&self) -> HashSet<PathBuf> {
+        self.local_files.active_paths()
+    }
+
     /// The file on this computer `url` serves, when it serves one.
     pub fn file_of(&self, url: &str) -> Option<PathBuf> {
         self.local_files.path_of(url)

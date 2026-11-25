@@ -107,7 +107,10 @@ fn connect(path: &Path) -> rusqlite::Result<Connection> {
     let connection = Connection::open(path)?;
     connection.busy_timeout(Duration::from_secs(3))?;
     connection.execute_batch(
-        "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -2048;",
+        "PRAGMA journal_mode = WAL;
+         PRAGMA synchronous = NORMAL;
+         PRAGMA journal_size_limit = 16777216;
+         PRAGMA cache_size = -2048;",
     )?;
     let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version != READ_VERSION {
@@ -244,6 +247,13 @@ pub fn catch_up(
     } else {
         0
     };
+    if read > 0 || gone > 0 {
+        let mode = if whole { "TRUNCATE" } else { "PASSIVE" };
+        let _ = index
+            .locked()
+            .connection
+            .execute_batch(&format!("PRAGMA wal_checkpoint({mode});"));
+    }
     (read, gone)
 }
 

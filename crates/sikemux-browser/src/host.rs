@@ -1,7 +1,7 @@
 //! What the engine needs from the app that hosts it: the window tabs go in,
 //! where to keep things, and someone to tell when tabs change.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::{BrowserDownload, BrowserShortcut, ParentView};
 
@@ -13,8 +13,10 @@ pub trait Host: Send + Sync + 'static {
     fn cache_dir(&self) -> Option<PathBuf>;
     /// Where a recording goes when the agent names no path.
     fn videos_dir(&self) -> Option<PathBuf>;
-    /// An address a tab can load the page an agent wrote as `html` in `written_in` from.
-    fn page_url(&self, agent_id: &str, html: &str, written_in: &Path) -> Result<String, String>;
+    /// The `:root` rule of the window's theme for agent-drawn pages.
+    fn page_theme(&self) -> String {
+        String::new()
+    }
     /// An agent's strip changed: its tabs, their pages or which one is shown.
     fn tabs_changed(&self);
     fn downloaded(&self, download: &BrowserDownload);

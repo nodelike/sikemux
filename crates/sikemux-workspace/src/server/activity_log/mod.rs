@@ -200,6 +200,13 @@ impl ActivityLog {
         result.ok()
     }
 
+    pub fn checkpoint(&self) {
+        let cache = self.database.locked();
+        if let Some(db) = cache.as_ref() {
+            let _ = db.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
+        }
+    }
+
     /// An agent opened a session, `resumed` when it loaded one. A loaded
     /// session's transcript already holds turns from before it came here, so
     /// only what is written from now on is counted.
@@ -402,6 +409,7 @@ fn open(path: &Path) -> rusqlite::Result<Connection> {
     connection.execute_batch(
         "PRAGMA journal_mode = WAL;
          PRAGMA synchronous = NORMAL;
+         PRAGMA journal_size_limit = 16777216;
          CREATE TABLE IF NOT EXISTS launches (
              at_ms INTEGER NOT NULL,
              agent TEXT NOT NULL,

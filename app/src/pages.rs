@@ -84,6 +84,7 @@ impl Workbench {
         at: Target,
         cx: &mut Context<Self>,
     ) {
+        let local = matches!(at.place(), crate::hosts::Place::This);
         let asked = at.request_typed::<call::ReadPage>(PageParams {
             id: id.to_owned(),
             agent: agent.map(str::to_owned),
@@ -98,7 +99,7 @@ impl Workbench {
                         let agent = agent.or_else(|| Some(bench.nearest_agent(cx)?.2))?;
                         let files = bench.desks.read(cx).page_files.clone();
                         Some(bench.bring_page_forward(&agent, cx, move |_| async move {
-                            files.kept_url(&id, &page)
+                            files.kept_url(&id, &page, local)
                         }))
                     });
                     match opening {

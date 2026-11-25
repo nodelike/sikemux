@@ -72,7 +72,7 @@ impl Replay {
             self.entries.clear();
             self.bytes = 0;
         }
-        self.history.as_ref().map_or(0, History::size)
+        self.history.as_mut().map_or(0, History::compress)
     }
 
     /// Holds the chat's latest turns again, read from its history, once it let go of them to

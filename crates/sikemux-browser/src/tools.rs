@@ -919,11 +919,16 @@ async fn run(
                 tokio::task::spawn_blocking(move || sikemux_base::pages::build(&source, None))
                     .await
                     .map_err(|error| error.to_string())??;
-            let url = manager.host().page_url(agent_id, &html, &written_in)?;
+            let themed = sikemux_base::pages::themed(&html, &manager.host().page_theme(), None);
+            let preview_page = manager.temporary_page(
+                &format!("preview-{}.html", agent_id.replace(':', "-")),
+                themed,
+                Some(&written_in),
+            )?;
             let mut preview = crate::preview::Preview::open(
                 manager.host(),
                 agent_id,
-                &url,
+                preview_page.url(),
                 (width as f64, PAGE_VIEWPORT_HEIGHT as f64),
                 crate::user_agent(),
                 false,

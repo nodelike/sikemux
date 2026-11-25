@@ -64,14 +64,6 @@ input,button{font:inherit;padding:8px 12px}button{position:absolute;left:40px;to
         fn videos_dir(&self) -> Option<PathBuf> {
             Some(self.folder.clone())
         }
-        fn page_url(
-            &self,
-            _agent_id: &str,
-            _html: &str,
-            _written_in: &std::path::Path,
-        ) -> Result<String, String> {
-            Err("no pages here".into())
-        }
         fn tabs_changed(&self) {}
         fn downloaded(&self, _download: &BrowserDownload) {}
         fn acting(&self, _agent_id: &str) {}

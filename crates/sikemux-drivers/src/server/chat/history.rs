@@ -2,8 +2,9 @@
 //! keeps only the newest part of a long chat; a phone that scrolls back past
 //! it reads the rest from here, a page of whole turns at a time.
 
+use std::collections::VecDeque;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -16,6 +17,7 @@ use sikemux_process::files::{create_private, private_folder, private_options};
 /// Past this the oldest half of the file goes, so a chat that never ends
 /// cannot fill the disk. Its earliest turns are then out of reach.
 pub const MAX_HISTORY_BYTES: u64 = 512 * 1024 * 1024;
+const ZST_LEVEL: i32 = 3;
 
 /// One line of the file: an event and where it stands, so a core that
 /// starts after this one can read the file back.
@@ -49,9 +51,15 @@ struct Point {
     starts_turn: bool,
 }
 
+enum Backing {
+    None,
+    Plain(File),
+    Compressed { path: PathBuf, disk_bytes: u64 },
+}
+
 pub struct History {
     path: PathBuf,
-    file: Option<File>,
+    backing: Backing,
     bytes: u64,
     max_bytes: u64,
     /// The index of the first event still in the file.
@@ -66,10 +74,15 @@ pub struct History {
     outlives_chat: bool,
 }
 
+enum ReaderSource {
+    Plain(File),
+    Compressed(PathBuf),
+}
+
 /// What a page needs of a history file, taken under the chat's lock so the reading itself can
 /// happen outside it while the chat goes on streaming.
 pub struct Reader {
-    file: File,
+    source: ReaderSource,
     first: u64,
     next: u64,
     bytes: u64,
@@ -174,36 +187,146 @@ pub fn turn_prompt(dir: &Path, name: &str, max_bytes: u64) -> Option<PersonSaid>
     })
 }
 
+fn plain_path(dir: &Path, name: &str) -> PathBuf {
+    dir.join(format!("{name}.jsonl"))
+}
+
+fn compressed_path(dir: &Path, name: &str) -> PathBuf {
+    dir.join(format!("{name}.jsonl.zst"))
+}
+
+fn zst_of(plain: &Path) -> PathBuf {
+    let mut path = plain.as_os_str().to_os_string();
+    path.push(".zst");
+    PathBuf::from(path)
+}
+
+fn feed_stem(path: &Path) -> Option<&str> {
+    let name = path.file_name()?.to_str()?;
+    name.strip_suffix(".jsonl.zst")
+        .or_else(|| name.strip_suffix(".jsonl"))
+        .or_else(|| path.file_stem()?.to_str())
+}
+
+pub fn exists(dir: &Path, name: &str) -> bool {
+    plain_path(dir, name).is_file() || compressed_path(dir, name).is_file()
+}
+
+pub fn remove(dir: &Path, name: &str) {
+    let _ = fs::remove_file(plain_path(dir, name));
+    let _ = fs::remove_file(compressed_path(dir, name));
+}
+
+pub fn compress_file(dir: &Path, name: &str) -> io::Result<Option<u64>> {
+    let plain = plain_path(dir, name);
+    let zst = compressed_path(dir, name);
+    if let Ok(meta) = fs::metadata(&plain) {
+        if meta.is_file() && meta.len() > 0 {
+            let disk_bytes = encode_zst(&plain, &zst)?;
+            let _ = fs::remove_file(&plain);
+            return Ok(Some(disk_bytes));
+        }
+    }
+    if let Ok(meta) = fs::metadata(&zst) {
+        if meta.is_file() {
+            return Ok(Some(meta.len()));
+        }
+    }
+    Ok(None)
+}
+
+fn encode_zst(plain: &Path, zst: &Path) -> io::Result<u64> {
+    let tmp = zst.with_extension("zst.tmp");
+    let encoded = (|| -> io::Result<u64> {
+        let mut from = File::open(plain)?;
+        let mut to = create_private(&tmp)?;
+        zstd::stream::copy_encode(&mut from, &mut to, ZST_LEVEL)?;
+        to.flush()?;
+        drop(to);
+        fs::rename(&tmp, zst)?;
+        Ok(fs::metadata(zst)?.len())
+    })();
+    if encoded.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    encoded
+}
+
+fn decode_zst(zst: &Path, plain: &Path) -> io::Result<()> {
+    let tmp = plain.with_extension("jsonl.tmp");
+    let decoded = (|| -> io::Result<()> {
+        let mut from = File::open(zst)?;
+        let mut to = create_private(&tmp)?;
+        zstd::stream::copy_decode(&mut from, &mut to)?;
+        to.flush()?;
+        drop(to);
+        fs::rename(&tmp, plain)
+    })();
+    if decoded.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    decoded
+}
+
 /// The events of the history file `name` in `dir` in its last `max_bytes`, oldest first, by
 /// index. Reads the file alone, never the chat's lock, so a chat streaming meanwhile is not held
 /// up; an event still being written is not there yet.
 pub fn tail(dir: &Path, name: &str, max_bytes: u64) -> Vec<(u64, ChatEvent)> {
-    let path = dir.join(format!("{name}.jsonl"));
-    let Ok(mut file) = File::open(&path) else {
+    let path = plain_path(dir, name);
+    if let Ok(mut file) = File::open(&path) {
+        let len = file.metadata().map_or(0, |meta| meta.len());
+        let start = len.saturating_sub(max_bytes);
+        if file.seek(SeekFrom::Start(start)).is_err() {
+            return Vec::new();
+        }
+        let mut reader = BufReader::new(file);
+        let mut line = Vec::new();
+        if start > 0 && reader.read_until(b'\n', &mut line).is_err() {
+            return Vec::new();
+        }
+        let mut events = Vec::new();
+        loop {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                Ok(read) if read > 0 && line.last() == Some(&b'\n') => {}
+                _ => break,
+            }
+            if let Ok(kept) = serde_json::from_slice::<Line<ChatEvent>>(&line) {
+                events.push((kept.index, kept.event));
+            }
+        }
+        return events;
+    }
+    let zst = compressed_path(dir, name);
+    let Ok(file) = File::open(&zst) else {
         return Vec::new();
     };
-    let len = file.metadata().map_or(0, |meta| meta.len());
-    let start = len.saturating_sub(max_bytes);
-    if file.seek(SeekFrom::Start(start)).is_err() {
+    let Ok(decoder) = zstd::stream::read::Decoder::new(file) else {
         return Vec::new();
-    }
-    let mut reader = BufReader::new(file);
+    };
+    let mut reader = BufReader::new(decoder);
     let mut line = Vec::new();
-    if start > 0 && reader.read_until(b'\n', &mut line).is_err() {
-        return Vec::new();
-    }
-    let mut events = Vec::new();
+    let mut kept: VecDeque<(usize, u64, ChatEvent)> = VecDeque::new();
+    let mut total: u64 = 0;
     loop {
         line.clear();
-        match reader.read_until(b'\n', &mut line) {
-            Ok(read) if read > 0 && line.last() == Some(&b'\n') => {}
+        let read = match reader.read_until(b'\n', &mut line) {
+            Ok(read) if read > 0 && line.last() == Some(&b'\n') => read,
             _ => break,
-        }
-        if let Ok(kept) = serde_json::from_slice::<Line<ChatEvent>>(&line) {
-            events.push((kept.index, kept.event));
+        };
+        if let Ok(parsed) = serde_json::from_slice::<Line<ChatEvent>>(&line) {
+            total += read as u64;
+            kept.push_back((read, parsed.index, parsed.event));
+            while total > max_bytes && kept.len() > 1 {
+                if let Some((old, ..)) = kept.pop_front() {
+                    total = total.saturating_sub(old as u64);
+                }
+            }
         }
     }
-    events
+    kept.into_iter()
+        .map(|(_, index, event)| (index, event))
+        .collect()
 }
 
 /// Removes what an earlier core left, but for the files of chats `keep`
@@ -214,10 +337,7 @@ pub fn clear(dir: &Path, keep: &[String]) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        let kept = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .is_some_and(|stem| keep.iter().any(|name| name == stem));
+        let kept = feed_stem(&path).is_some_and(|stem| keep.iter().any(|name| name == stem));
         if !kept {
             let _ = fs::remove_file(path);
         }
@@ -226,7 +346,7 @@ pub fn clear(dir: &Path, keep: &[String]) {
 
 impl History {
     pub fn open(dir: &Path, name: &str, max_bytes: u64) -> Self {
-        let path = dir.join(format!("{name}.jsonl"));
+        let path = plain_path(dir, name);
         let file = private_folder(dir)
             .and_then(|()| {
                 private_options()
@@ -245,7 +365,10 @@ impl History {
             .ok();
         Self {
             path,
-            file,
+            backing: match file {
+                Some(file) => Backing::Plain(file),
+                None => Backing::None,
+            },
             bytes: 0,
             max_bytes,
             first: 0,
@@ -265,31 +388,67 @@ impl History {
         max_bytes: u64,
         mut each: impl FnMut(Recovered),
     ) -> Self {
-        let path = dir.join(format!("{name}.jsonl"));
-        let file = match OpenOptions::new().read(true).write(true).open(&path) {
-            Ok(file) => file,
-            Err(error) => {
-                if error.kind() != io::ErrorKind::NotFound {
-                    eprintln!(
-                        "sikemux core: a chat's history at {} could not be read again: {error}",
-                        path.display()
-                    );
+        let path = plain_path(dir, name);
+        match OpenOptions::new().read(true).write(true).open(&path) {
+            Ok(mut file) => {
+                let mut history = Self {
+                    path,
+                    backing: Backing::None,
+                    bytes: 0,
+                    max_bytes,
+                    first: 0,
+                    next: 0,
+                    points: Vec::new(),
+                    rewrites: Arc::default(),
+                    outlives_chat: false,
+                };
+                history.scan_lines(BufReader::new(&file), &mut each);
+                let cut = file
+                    .set_len(history.bytes)
+                    .and_then(|()| file.seek(SeekFrom::Start(history.bytes)).map(drop));
+                history.backing = Backing::Plain(file);
+                if let Err(error) = cut {
+                    history.fail(&error);
                 }
-                return Self::open(dir, name, max_bytes);
+                history
             }
-        };
-        let mut history = Self {
-            path,
-            file: None,
-            bytes: 0,
-            max_bytes,
-            first: 0,
-            next: 0,
-            points: Vec::new(),
-            rewrites: Arc::default(),
-            outlives_chat: false,
-        };
-        let mut reader = BufReader::new(&file);
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let zst = compressed_path(dir, name);
+                let Ok(file) = File::open(&zst) else {
+                    return Self::open(dir, name, max_bytes);
+                };
+                let disk_bytes = file.metadata().map_or(0, |meta| meta.len());
+                let Ok(decoder) = zstd::stream::read::Decoder::new(file) else {
+                    return Self::open(dir, name, max_bytes);
+                };
+                let mut history = Self {
+                    path,
+                    backing: Backing::Compressed {
+                        path: zst,
+                        disk_bytes,
+                    },
+                    bytes: 0,
+                    max_bytes,
+                    first: 0,
+                    next: 0,
+                    points: Vec::new(),
+                    rewrites: Arc::default(),
+                    outlives_chat: false,
+                };
+                history.scan_lines(BufReader::new(decoder), &mut each);
+                history
+            }
+            Err(error) => {
+                eprintln!(
+                    "sikemux core: a chat's history at {} could not be read again: {error}",
+                    path.display()
+                );
+                Self::open(dir, name, max_bytes)
+            }
+        }
+    }
+
+    fn scan_lines(&mut self, mut reader: impl BufRead, each: &mut impl FnMut(Recovered)) {
         let mut line = Vec::new();
         loop {
             line.clear();
@@ -300,19 +459,19 @@ impl History {
             let Ok(kept) = serde_json::from_slice::<Line<ChatEvent>>(&line) else {
                 break;
             };
-            let offset = history.bytes;
+            let offset = self.bytes;
             if offset == 0 {
-                history.first = kept.index;
+                self.first = kept.index;
             }
             if kept.point || offset == 0 {
-                history.points.push(Point {
+                self.points.push(Point {
                     index: kept.index,
                     offset,
                     starts_turn: kept.starts_turn || offset == 0,
                 });
             }
-            history.bytes += read as u64;
-            history.next = kept.index + 1;
+            self.bytes += read as u64;
+            self.next = kept.index + 1;
             each(Recovered {
                 index: kept.index,
                 seq: kept.seq,
@@ -322,21 +481,89 @@ impl History {
                 event: kept.event,
             });
         }
-        drop(reader);
-        let mut file = file;
-        let cut = file
-            .set_len(history.bytes)
-            .and_then(|()| file.seek(SeekFrom::Start(history.bytes)).map(drop));
-        history.file = Some(file);
-        if let Err(error) = cut {
-            history.fail(&error);
+    }
+
+    /// Compresses a resting history file with zstd and answers how many bytes it holds on disk.
+    pub fn compress(&mut self) -> u64 {
+        if self.bytes == 0 {
+            return self.size();
         }
-        history
+        let Backing::Plain(_) = self.backing else {
+            return self.size();
+        };
+        let zst = zst_of(&self.path);
+        self.backing = Backing::None;
+        match encode_zst(&self.path, &zst) {
+            Ok(disk_bytes) => {
+                let _ = fs::remove_file(&self.path);
+                self.backing = Backing::Compressed {
+                    path: zst,
+                    disk_bytes,
+                };
+                self.rewrites.fetch_add(1, Ordering::SeqCst);
+                disk_bytes
+            }
+            Err(error) => {
+                eprintln!(
+                    "sikemux core: a resting chat's history at {} was left uncompressed: {error}",
+                    self.path.display()
+                );
+                if let Ok(mut file) = OpenOptions::new().read(true).write(true).open(&self.path) {
+                    let _ = file.seek(SeekFrom::End(0));
+                    self.backing = Backing::Plain(file);
+                }
+                self.size()
+            }
+        }
+    }
+
+    /// Expands a compressed history file back to plain JSONL so a waking chat can append to it.
+    pub fn decompress(&mut self) {
+        let _ = self.ensure_plain();
+    }
+
+    fn ensure_plain(&mut self) -> bool {
+        match &self.backing {
+            Backing::Plain(_) => return true,
+            Backing::None => return false,
+            Backing::Compressed { .. } => {}
+        }
+        let Backing::Compressed { path: zst, .. } =
+            std::mem::replace(&mut self.backing, Backing::None)
+        else {
+            return false;
+        };
+        let reopened = (|| -> io::Result<File> {
+            decode_zst(&zst, &self.path)?;
+            let mut file = OpenOptions::new().read(true).write(true).open(&self.path)?;
+            file.seek(SeekFrom::End(0))?;
+            Ok(file)
+        })();
+        match reopened {
+            Ok(file) => {
+                let _ = fs::remove_file(&zst);
+                self.backing = Backing::Plain(file);
+                self.rewrites.fetch_add(1, Ordering::SeqCst);
+                true
+            }
+            Err(error) => {
+                self.backing = Backing::Compressed {
+                    disk_bytes: fs::metadata(&zst).map_or(0, |meta| meta.len()),
+                    path: zst,
+                };
+                self.fail(&error);
+                false
+            }
+        }
     }
 
     /// Lets go of the file without removing it.
     pub fn release(mut self) -> HistoryState {
-        let file = self.file.take();
+        let _ = self.ensure_plain();
+        let file = match std::mem::replace(&mut self.backing, Backing::None) {
+            Backing::Plain(file) => Some(file),
+            Backing::Compressed { .. } | Backing::None => None,
+        };
         let state = HistoryState {
             path: self.path.clone(),
             bytes: if file.is_some() { self.bytes } else { 0 },
@@ -347,6 +574,7 @@ impl History {
         };
         if file.is_none() {
             let _ = fs::remove_file(&self.path);
+            let _ = fs::remove_file(zst_of(&self.path));
         }
         state
     }
@@ -368,7 +596,10 @@ impl History {
         let kept = file.is_some();
         Self {
             path: state.path,
-            file,
+            backing: match file {
+                Some(file) => Backing::Plain(file),
+                None => Backing::None,
+            },
             bytes: if kept { state.bytes } else { 0 },
             max_bytes: state.max_bytes,
             first: state.first,
@@ -384,14 +615,18 @@ impl History {
         self.outlives_chat = outlives;
     }
 
-    /// How many bytes the file holds.
+    /// How many bytes the file holds on disk.
     pub fn size(&self) -> u64 {
-        self.bytes
+        match &self.backing {
+            Backing::Plain(_) => self.bytes,
+            Backing::Compressed { disk_bytes, .. } => *disk_bytes,
+            Backing::None => 0,
+        }
     }
 
     /// The index of the oldest event a page can still return.
     pub fn first(&self) -> Option<u64> {
-        self.file.as_ref().map(|_| self.first)
+        (!matches!(self.backing, Backing::None)).then_some(self.first)
     }
 
     pub fn append(
@@ -402,7 +637,7 @@ impl History {
         point: bool,
         starts_turn: bool,
     ) {
-        if self.file.is_none() {
+        if !self.ensure_plain() {
             return;
         }
         if self.bytes == 0 {
@@ -419,10 +654,10 @@ impl History {
         };
         line.push(b'\n');
         let offset = self.bytes;
-        let written = self
-            .file
-            .as_mut()
-            .map_or(Ok(()), |file| file.write_all(&line));
+        let written = match &mut self.backing {
+            Backing::Plain(file) => file.write_all(&line),
+            Backing::Compressed { .. } | Backing::None => Ok(()),
+        };
         if let Err(error) = written {
             self.fail(&error);
             return;
@@ -448,10 +683,11 @@ impl History {
             "sikemux core: a chat's history stopped being kept on disk at {}: {error}",
             self.path.display()
         );
-        self.file = None;
+        self.backing = Backing::None;
         self.points.clear();
         self.rewrites.fetch_add(1, Ordering::SeqCst);
         let _ = fs::remove_file(&self.path);
+        let _ = fs::remove_file(zst_of(&self.path));
     }
 
     fn drop_oldest_half(&mut self) -> io::Result<()> {
@@ -465,7 +701,7 @@ impl History {
             .or_else(|| self.points.iter().find(after_half))
             .copied();
         let Some(cut) = cut else {
-            if let Some(file) = self.file.as_mut() {
+            if let Backing::Plain(file) = &mut self.backing {
                 file.set_len(0)?;
                 file.seek(SeekFrom::Start(0))?;
             }
@@ -484,7 +720,7 @@ impl History {
         fs::rename(&kept, &self.path)?;
         let mut file = OpenOptions::new().read(true).write(true).open(&self.path)?;
         file.seek(SeekFrom::End(0))?;
-        self.file = Some(file);
+        self.backing = Backing::Plain(file);
         self.bytes -= cut.offset;
         self.first = cut.index;
         self.points.retain(|point| point.index >= cut.index);
@@ -504,7 +740,7 @@ impl History {
         let Some(&(first, ..)) = events.first() else {
             return;
         };
-        if self.file.is_none() {
+        if !self.ensure_plain() {
             return;
         }
         self.rewrites.fetch_add(1, Ordering::SeqCst);
@@ -557,14 +793,14 @@ impl History {
         fs::rename(&fresh, &self.path)?;
         let mut file = OpenOptions::new().read(true).write(true).open(&self.path)?;
         file.seek(SeekFrom::End(0))?;
-        self.file = Some(file);
+        self.backing = Backing::Plain(file);
         Ok(())
     }
 
     /// Forgets the event at `index` and everything after it. One that does
     /// not start a page cannot be found in the file, so everything goes.
     pub fn truncate(&mut self, index: u64) {
-        if self.file.is_none() || index >= self.next {
+        if index >= self.next || !self.ensure_plain() {
             return;
         }
         self.rewrites.fetch_add(1, Ordering::SeqCst);
@@ -572,10 +808,12 @@ impl History {
             Some(point) if index > self.first => point.offset,
             _ => 0,
         };
-        let cut = self.file.as_mut().map_or(Ok(()), |file| {
-            file.set_len(offset)
-                .and_then(|()| file.seek(SeekFrom::Start(offset)).map(drop))
-        });
+        let cut = match &mut self.backing {
+            Backing::Plain(file) => file
+                .set_len(offset)
+                .and_then(|()| file.seek(SeekFrom::Start(offset)).map(drop)),
+            Backing::Compressed { .. } | Backing::None => Ok(()),
+        };
         if let Err(error) = cut {
             self.fail(&error);
             return;
@@ -590,29 +828,63 @@ impl History {
 
     /// The newest event that starts a page and that `picks`, by its index.
     pub fn find(&self, picks: impl Fn(&ChatEvent) -> bool) -> Option<u64> {
-        self.file.as_ref()?;
-        let mut reader = BufReader::new(File::open(&self.path).ok()?);
-        let mut line = Vec::new();
-        for point in self.points.iter().rev() {
-            reader.seek(SeekFrom::Start(point.offset)).ok()?;
-            line.clear();
-            reader.read_until(b'\n', &mut line).ok()?;
-            if serde_json::from_slice::<Line<ChatEvent>>(&line).is_ok_and(|line| picks(&line.event))
-            {
-                return Some(point.index);
+        match &self.backing {
+            Backing::None => None,
+            Backing::Plain(_) => {
+                let mut reader = BufReader::new(File::open(&self.path).ok()?);
+                let mut line = Vec::new();
+                for point in self.points.iter().rev() {
+                    reader.seek(SeekFrom::Start(point.offset)).ok()?;
+                    line.clear();
+                    reader.read_until(b'\n', &mut line).ok()?;
+                    if serde_json::from_slice::<Line<ChatEvent>>(&line)
+                        .is_ok_and(|line| picks(&line.event))
+                    {
+                        return Some(point.index);
+                    }
+                }
+                None
+            }
+            Backing::Compressed { path, .. } => {
+                let decoder = zstd::stream::read::Decoder::new(File::open(path).ok()?).ok()?;
+                let mut reader = BufReader::new(decoder);
+                let mut line = Vec::new();
+                let mut offset = 0u64;
+                let mut next_point = 0usize;
+                let mut found = None;
+                while let Some(point) = self.points.get(next_point) {
+                    line.clear();
+                    let read = reader.read_until(b'\n', &mut line).ok()?;
+                    if read == 0 {
+                        break;
+                    }
+                    if offset == point.offset {
+                        if serde_json::from_slice::<Line<ChatEvent>>(&line)
+                            .is_ok_and(|line| picks(&line.event))
+                        {
+                            found = Some(point.index);
+                        }
+                        next_point += 1;
+                    } else if offset > point.offset {
+                        next_point += 1;
+                    }
+                    offset += read as u64;
+                }
+                found
             }
         }
-        None
     }
 
     /// What a page read needs of the file, to read outside the chat's lock; none while no file
     /// is kept.
     pub fn reader(&self) -> io::Result<Option<Reader>> {
-        if self.file.is_none() {
-            return Ok(None);
-        }
+        let source = match &self.backing {
+            Backing::None => return Ok(None),
+            Backing::Plain(_) => ReaderSource::Plain(File::open(&self.path)?),
+            Backing::Compressed { path, .. } => ReaderSource::Compressed(path.clone()),
+        };
         Ok(Some(Reader {
-            file: File::open(&self.path)?,
+            source,
             first: self.first,
             next: self.next,
             bytes: self.bytes,
@@ -676,8 +948,23 @@ impl Reader {
             .iter()
             .find(|point| point.index >= hi)
             .map_or(self.bytes, |point| point.offset);
-        let mut text = vec![0; to.saturating_sub(from) as usize];
-        crate::os::read_exact_at(&self.file, &mut text, from)?;
+        let len = to.saturating_sub(from);
+        let text = match &self.source {
+            ReaderSource::Plain(file) => {
+                let mut text = vec![0; len as usize];
+                crate::os::read_exact_at(file, &mut text, from)?;
+                text
+            }
+            ReaderSource::Compressed(path) => {
+                let mut decoder = zstd::stream::read::Decoder::new(File::open(path)?)?;
+                if from > 0 {
+                    io::copy(&mut decoder.by_ref().take(from), &mut io::sink())?;
+                }
+                let mut text = Vec::with_capacity(len as usize);
+                decoder.take(len).read_to_end(&mut text)?;
+                text
+            }
+        };
         Ok(text
             .split(|byte| *byte == b'\n')
             .filter(|line| !line.is_empty())
@@ -700,8 +987,16 @@ impl Reader {
 
 impl Drop for History {
     fn drop(&mut self) {
-        if self.file.take().is_some() && !self.outlives_chat {
-            let _ = fs::remove_file(&self.path);
+        if !self.outlives_chat {
+            match std::mem::replace(&mut self.backing, Backing::None) {
+                Backing::Plain(_) => {
+                    let _ = fs::remove_file(&self.path);
+                }
+                Backing::Compressed { path, .. } => {
+                    let _ = fs::remove_file(path);
+                }
+                Backing::None => {}
+            }
         }
     }
 }

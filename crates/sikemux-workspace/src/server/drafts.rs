@@ -6,8 +6,8 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::workspace_state::WorkspaceParts;
-use std::collections::BTreeMap;
-use std::path::Path;
+use std::collections::{BTreeMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
@@ -274,6 +274,26 @@ impl Drafts {
             self.save_soon();
         }
         forgotten
+    }
+
+    /// Every attachment path currently referenced by an open draft or pending delivery.
+    pub fn referenced_paths(&self) -> HashSet<PathBuf> {
+        let mut paths = HashSet::new();
+        for draft in self.0.drafts.locked().values() {
+            if let Some(extra) = &draft.shown.extra {
+                for path in &extra.attachments {
+                    paths.insert(PathBuf::from(path));
+                }
+            }
+        }
+        for deliveries in self.0.delivered.locked().values() {
+            for (_, delivery) in deliveries {
+                for path in &delivery.paths {
+                    paths.insert(PathBuf::from(path));
+                }
+            }
+        }
+        paths
     }
 
     fn save_soon(&self) {

@@ -23,6 +23,7 @@ time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 url = "2"
 uuid = { version = "1", features = ["v4", "v7"] }
+zstd = { version = "0.14.3", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

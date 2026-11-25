@@ -633,7 +633,13 @@ async fn qa239_a_closed_chat_gone_from_recent_lets_go_of_its_history() {
     let history = sandbox.root.join("data").join("chat-history");
     let kept = |history: &Path| {
         (std::fs::read_dir(history).into_iter().flatten().flatten())
-            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "jsonl"))
+            .filter(|entry| {
+                entry
+                    .path()
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|name| name.ends_with(".jsonl") || name.ends_with(".jsonl.zst"))
+            })
             .count()
     };
     assert_eq!(kept(&history), 1, "{}", sandbox.log());

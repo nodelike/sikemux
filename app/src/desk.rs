@@ -781,8 +781,8 @@ impl Host for DeskHost {
         Some(sikemux_process::paths::home()?.join("Movies"))
     }
 
-    fn page_url(&self, agent_id: &str, html: &str, written_in: &Path) -> Result<String, String> {
-        self.pages.url(&draft_name(agent_id), html, written_in)
+    fn page_theme(&self) -> String {
+        self.pages.theme()
     }
 
     fn tabs_changed(&self) {
@@ -835,38 +835,56 @@ impl PageFiles {
         matches
     }
 
-    /// An address for `html`, written in `written_in`, in a desk tab, kept as `name` so showing
-    /// it again replaces the copy.
-    pub(crate) fn url(&self, name: &str, html: &str, written_in: &Path) -> Result<String, String> {
-        self.page_url(name, html, None, Some(written_in))
-    }
-
     /// An address for a page the core keeps, with the videos and sounds in `media` beside it.
+    /// Local pages are served straight from the core's folder with the window's theme applied on
+    /// serve; remote pages are staged into the tab folder and swept once closed.
     pub(crate) fn kept_url(
         &self,
         id: &str,
         page: &sikemux_calls::harness::PageHtml,
+        local: bool,
     ) -> Result<String, String> {
         let media = (page.media.as_deref()).filter(|media| media.is_dir());
-        self.page_url(id, &page.html, media, page.written_in.as_deref())
-    }
-
-    fn page_url(
-        &self,
-        name: &str,
-        html: &str,
-        media: Option<&Path>,
-        written_in: Option<&Path>,
-    ) -> Result<String, String> {
+        let engine = self.engine()?;
+        if local {
+            if let Some(path) = page.path.as_deref().filter(|path| path.is_file()) {
+                return engine.themed_page_url(path, media, page.written_in.as_deref());
+            }
+        }
         let folder = self
             .folder
             .as_ref()
             .ok_or("Sikemux has no folder to keep pages in")?;
         std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
-        let path = folder.join(format!("{name}.html"));
-        let themed = sikemux_base::pages::themed(html, &self.theme.locked(), None);
-        std::fs::write(&path, themed).map_err(|error| error.to_string())?;
-        self.engine()?.local_page_url(&path, media, written_in)
+        let path = folder.join(format!("{id}.html"));
+        std::fs::write(&path, &page.html).map_err(|error| error.to_string())?;
+        engine.themed_page_url(&path, media, page.written_in.as_deref())
+    }
+
+    /// Removes staged tab HTML files and old previews that no open tab serves.
+    pub(crate) fn sweep_unused(&self) {
+        let Some(folder) = self.folder.as_deref() else {
+            return;
+        };
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            return;
+        };
+        let active = self
+            .engine()
+            .map(|engine| engine.active_local_files())
+            .unwrap_or_default();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let in_use = active.contains(&path)
+                || sikemux_process::files::real_path(&path)
+                    .is_ok_and(|real| active.contains(&real));
+            if !in_use {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
     }
 
     /// The `:root` rule of the theme pages are drawn in.
@@ -880,11 +898,6 @@ impl PageFiles {
             .and_then(Weak::upgrade)
             .ok_or_else(|| "the browser has stopped".into())
     }
-}
-
-/// One draft per agent, which each `page_preview` replaces.
-fn draft_name(agent: &str) -> String {
-    format!("preview-{}", agent.replace(':', "-"))
 }
 
 /// A tab has nothing behind it, so its pages draw the window's surface themselves.
@@ -1092,12 +1105,21 @@ impl Workbench {
                 desks.known.insert(agent.clone(), now.clone())
             });
             let files = self.desks.read(cx).page_files.clone();
+            let closed = before
+                .as_ref()
+                .is_some_and(|before| before.iter().any(|id| !now.contains(id)));
             let opened = (before.as_ref()).is_some_and(|before| {
                 (strip.tabs.iter())
                     .filter(|tab| !before.contains(&tab.id))
                     .any(|tab| !files.hushed(&agent, &tab.url))
             });
             let emptied = now.is_empty() && before.is_some_and(|before| !before.is_empty());
+            if closed {
+                let sweep = files.clone();
+                cx.background_executor()
+                    .spawn(async move { sweep.sweep_unused() })
+                    .detach();
+            }
             if opened && !self.desk_open_anywhere(&agent) {
                 self.reveal_desk(&agent);
             }

@@ -519,7 +519,7 @@ impl Workbench {
         crate::desk::spawn(async move {
             let shown = async {
                 let page = page.await?;
-                let url = files.kept_url(&id, &page)?;
+                let url = files.kept_url(&id, &page, true)?;
                 let engine = files.engine()?;
                 files.hush(&agent, &url, shut);
                 crate::desk::show_once(&engine, &agent, &url, picture).await?;

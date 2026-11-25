@@ -101,7 +101,9 @@ fn connect(path: &Path) -> rusqlite::Result<Connection> {
     let _ = sikemux_process::files::private_database(path);
     let connection = Connection::open(path)?;
     connection.busy_timeout(Duration::from_secs(3))?;
-    connection.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
+    connection.execute_batch(
+        "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA journal_size_limit = 8388608;",
+    )?;
     let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version != READ_VERSION {
         connection.execute_batch(&format!(
@@ -165,9 +167,36 @@ fn keep(mut connection: Connection, known: Vec<Key>, written: Receiver<(Key, Row
         drop(rows);
         let _ = forget(&mut connection, &gone);
     }
-    while let Ok(first) = written.recv() {
+    let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+    let mut dirty = false;
+    let mut batches: usize = 0;
+    loop {
+        let next = if dirty {
+            match written.recv_timeout(Duration::from_secs(30)) {
+                Ok(item) => Some(item),
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    let _ = connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+                    dirty = false;
+                    batches = 0;
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => None,
+            }
+        } else {
+            written.recv().ok()
+        };
+        let Some(first) = next else {
+            break;
+        };
         let batch: Vec<(Key, Row)> = std::iter::once(first).chain(written.try_iter()).collect();
-        let _ = store(&mut connection, &batch);
+        if store(&mut connection, &batch).is_ok() {
+            dirty = true;
+            batches += 1;
+            if batches >= 64 {
+                let _ = connection.execute_batch("PRAGMA wal_checkpoint(PASSIVE);");
+                batches = 0;
+            }
+        }
     }
 }
 

@@ -228,6 +228,7 @@ pub const NEVER_IDLE_EXIT: Duration = Duration::from_millis(u64::MAX);
 const MAX_ACTIVE_SESSIONS: usize = 256;
 const SESSION_POLL: Duration = Duration::from_millis(250);
 const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+const DISK_SWEEP_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const IDLE_TRIM: Duration = Duration::from_secs(10 * 60);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 /// How long one step of stopping may take before the core gives up on it and stops anyway.
@@ -833,13 +834,26 @@ async fn poll_sessions(core: Arc<Core>) {
 async fn sweep(core: Arc<Core>) {
     let mut ticker = tokio::time::interval(SWEEP_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    ticker.tick().await;
+    let mut last_disk_sweep: Option<Instant> = None;
     loop {
         ticker.tick().await;
         let now = core.uptime_ms();
         core.reclaim_exited_sessions(now);
         for session in core.all_sessions() {
             session::trim_if_idle(&session, now, IDLE_TRIM);
+        }
+        if last_disk_sweep.is_none_or(|at| at.elapsed() >= DISK_SWEEP_INTERVAL) {
+            last_disk_sweep = Some(Instant::now());
+            let pasted = core.attachment_dir().clone();
+            let preserve = core.drafts().referenced_paths();
+            let activity = core.activity_log().clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Some(dir) = pasted {
+                    attachments::sweep(&dir, &preserve);
+                }
+                activity.checkpoint();
+            })
+            .await;
         }
     }
 }

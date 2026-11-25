@@ -217,7 +217,7 @@ impl Chats {
         let before = self.shelf.put(chat.agent_id(), shelved);
         if let (Some(dir), Some(before)) = (self.history.as_deref(), before) {
             if before.feed != feed {
-                let _ = std::fs::remove_file(dir.join(format!("{}.jsonl", before.feed)));
+                history::remove(dir, &before.feed);
             }
         }
         while let Some(oldest) = self.shelf.over(SHELF_BYTES) {
@@ -245,7 +245,7 @@ impl Chats {
         if session.is_some_and(|session| session != shelved.session) {
             return None;
         }
-        if !dir.join(format!("{}.jsonl", shelved.feed)).is_file() {
+        if !history::exists(dir, &shelved.feed) {
             self.shelf.take(agent_id);
             return None;
         }
@@ -357,7 +357,7 @@ impl Chats {
             return;
         };
         if self.get(agent_id).is_none() {
-            let _ = std::fs::remove_file(dir.join(format!("{}.jsonl", shelved.feed)));
+            history::remove(dir, &shelved.feed);
         }
     }
 
@@ -682,7 +682,44 @@ impl Chats {
 impl crate::server::part::Part for Chats {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         self.resets.arm_saved(core);
-        vec![super::reset::wake_on_readings(core)]
+        let mut tasks = vec![super::reset::wake_on_readings(core)];
+        if let Some(dir) = self.history.clone() {
+            let core = core.clone();
+            tasks.push(tokio::spawn(async move {
+                let resting = core.chats().shelf.resting_feeds();
+                if resting.is_empty() {
+                    return;
+                }
+                let active: std::collections::HashSet<String> = core
+                    .chats()
+                    .all()
+                    .into_iter()
+                    .map(|chat| chat.agent_id().to_owned())
+                    .collect();
+                let to_compress: Vec<(String, String)> = resting
+                    .into_iter()
+                    .filter(|(agent_id, _)| !active.contains(agent_id))
+                    .collect();
+                if to_compress.is_empty() {
+                    return;
+                }
+                let compressed = tokio::task::spawn_blocking(move || {
+                    let mut updated = Vec::new();
+                    for (agent_id, feed) in to_compress {
+                        if let Ok(Some(bytes)) = history::compress_file(&dir, &feed) {
+                            updated.push((agent_id, bytes));
+                        }
+                    }
+                    updated
+                })
+                .await
+                .unwrap_or_default();
+                for (agent_id, bytes) in compressed {
+                    core.chats().shelf.update_bytes(&agent_id, bytes);
+                }
+            }));
+        }
+        tasks
     }
 
     fn flush(&self) {

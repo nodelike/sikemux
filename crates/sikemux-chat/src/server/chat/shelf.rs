@@ -82,7 +82,7 @@ impl Shelf {
         let mut kept: HashMap<String, Shelved> = file.load();
         let listed = kept.len();
         if let Some(history) = history {
-            kept.retain(|_, shelved| history.join(format!("{}.jsonl", shelved.feed)).is_file());
+            kept.retain(|_, shelved| super::history::exists(history, &shelved.feed));
         }
         let shelf = Self {
             file,
@@ -135,6 +135,24 @@ impl Shelf {
         (self.kept.locked().values())
             .map(|shelved| shelved.feed.clone())
             .collect()
+    }
+
+    pub fn resting_feeds(&self) -> Vec<(String, String)> {
+        (self.kept.locked().iter())
+            .filter(|(_, shelved)| !shelved.running)
+            .map(|(agent_id, shelved)| (agent_id.clone(), shelved.feed.clone()))
+            .collect()
+    }
+
+    pub fn update_bytes(&self, agent_id: &str, bytes: u64) {
+        let mut kept = self.kept.locked();
+        if let Some(shelved) = kept.get_mut(agent_id) {
+            if shelved.bytes != bytes {
+                shelved.bytes = bytes;
+                drop(kept);
+                self.save();
+            }
+        }
     }
 
     /// The chat read least lately while all those kept hold more than `most` bytes.

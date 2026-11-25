@@ -2,10 +2,10 @@
 //! Each folder gets its own loopback server that answers only under a random
 //! first path segment, so other pages and processes cannot guess its address.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use sikemux_process::sync::Locked;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -18,6 +18,20 @@ use sikemux_base::http::{content_type, parse_range, percent_decode};
 const MAX_SHARES: usize = 64;
 const MAX_REQUEST_HEAD: usize = 16 * 1024;
 
+pub type ThemeProvider = Arc<dyn Fn() -> String + Send + Sync>;
+
+/// An in-memory page served over loopback until dropped.
+pub struct TemporaryPage {
+    url: String,
+    _stop: tokio::sync::oneshot::Sender<()>,
+}
+
+impl TemporaryPage {
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+}
+
 #[derive(Default)]
 pub struct LocalFiles {
     shares: Mutex<HashMap<PathBuf, Share>>,
@@ -29,6 +43,7 @@ struct Share {
     token: String,
     media: Option<(String, PathBuf)>,
     written_in: Option<PathBuf>,
+    themed: bool,
     /// Dropping it stops the share's server.
     _stop: tokio::sync::oneshot::Sender<()>,
 }
@@ -47,6 +62,28 @@ impl LocalFiles {
         path: &Path,
         media: Option<&Path>,
         written_in: Option<&Path>,
+    ) -> Result<String, String> {
+        self.page_url_with(path, media, written_in, None)
+    }
+
+    /// Like [`Self::page_url`], injecting `theme` into the served HTML document on the fly so no
+    /// themed copy has to be written to disk.
+    pub fn themed_page_url(
+        &self,
+        path: &Path,
+        media: Option<&Path>,
+        written_in: Option<&Path>,
+        theme: ThemeProvider,
+    ) -> Result<String, String> {
+        self.page_url_with(path, media, written_in, Some(theme))
+    }
+
+    fn page_url_with(
+        &self,
+        path: &Path,
+        media: Option<&Path>,
+        written_in: Option<&Path>,
+        theme: Option<ThemeProvider>,
     ) -> Result<String, String> {
         let mut path = sikemux_process::files::real_path(path)
             .map_err(|_| format!("{} does not exist", path.display()))?;
@@ -70,7 +107,7 @@ impl LocalFiles {
         if name.starts_with('.') {
             return Err("hidden files are not shown in a tab".into());
         }
-        let only = (!serves_its_folder(&root)).then(|| path.clone());
+        let only = (theme.is_some() || !serves_its_folder(&root)).then(|| path.clone());
         let media = media.and_then(|media| {
             let name = media.file_name()?.to_string_lossy().into_owned();
             Some((name, sikemux_process::files::real_path(media).ok()?))
@@ -78,7 +115,7 @@ impl LocalFiles {
         let written_in = written_in
             .and_then(|folder| sikemux_process::files::real_path(folder).ok())
             .filter(|folder| !is_broad(folder));
-        let (port, token) = self.share(&root, only, media, written_in)?;
+        let (port, token) = self.share(&root, only, media, written_in, theme)?;
         let mut url =
             Url::parse(&format!("http://127.0.0.1:{port}/")).map_err(|error| error.to_string())?;
         url.path_segments_mut()
@@ -87,6 +124,62 @@ impl LocalFiles {
             .push(&token)
             .push(&name);
         Ok(url.into())
+    }
+
+    /// Serves `html` directly from memory over loopback, with relative assets from `written_in`.
+    pub fn temporary_html(
+        &self,
+        name: &str,
+        html: Vec<u8>,
+        written_in: Option<&Path>,
+    ) -> Result<TemporaryPage, String> {
+        let written_in = written_in
+            .and_then(|folder| sikemux_process::files::real_path(folder).ok())
+            .filter(|folder| !is_broad(folder));
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|error| error.to_string())?;
+        listener
+            .set_nonblocking(true)
+            .map_err(|error| error.to_string())?;
+        let port = listener
+            .local_addr()
+            .map_err(|error| error.to_string())?
+            .port();
+        let token = uuid::Uuid::new_v4().simple().to_string();
+        let folder = Folder {
+            root: PathBuf::new(),
+            only: None,
+            memory: Some((name.to_owned(), Arc::new(html))),
+            media: None,
+            written_in,
+            theme: None,
+            token: token.clone(),
+            port,
+        };
+        let (stop, stopped) = tokio::sync::oneshot::channel();
+        crate::spawn(async move {
+            let Ok(listener) = TcpListener::from_std(listener) else {
+                return;
+            };
+            let serving = tokio::spawn(folder.serve(listener));
+            let _ = stopped.await;
+            serving.abort();
+        });
+        let mut url =
+            Url::parse(&format!("http://127.0.0.1:{port}/")).map_err(|error| error.to_string())?;
+        url.path_segments_mut()
+            .map_err(|()| "the loopback address has no path")?
+            .pop_if_empty()
+            .push(&token)
+            .push(name);
+        Ok(TemporaryPage {
+            url: url.into(),
+            _stop: stop,
+        })
+    }
+
+    pub fn active_paths(&self) -> HashSet<PathBuf> {
+        self.shares.locked().keys().cloned().collect()
     }
 
     pub fn path_of(&self, url: &str) -> Option<PathBuf> {
@@ -120,10 +213,14 @@ impl LocalFiles {
         only: Option<PathBuf>,
         media: Option<(String, PathBuf)>,
         written_in: Option<PathBuf>,
+        theme: Option<ThemeProvider>,
     ) -> Result<(u16, String), String> {
         let key = only.clone().unwrap_or_else(|| root.to_path_buf());
+        let themed = theme.is_some();
         let mut shares = self.shares.locked();
-        let same = |share: &&Share| share.media == media && share.written_in == written_in;
+        let same = |share: &&Share| {
+            share.media == media && share.written_in == written_in && share.themed == themed
+        };
         if let Some(share) = shares.get(&key).filter(same) {
             return Ok((share.port, share.token.clone()));
         }
@@ -146,8 +243,10 @@ impl LocalFiles {
         let folder = Folder {
             root: root.to_path_buf(),
             only,
+            memory: None,
             media: media.clone(),
             written_in: written_in.clone(),
+            theme,
             token: token.clone(),
             port,
         };
@@ -166,6 +265,7 @@ impl LocalFiles {
             token: token.clone(),
             media,
             written_in,
+            themed,
             _stop: stop,
         };
         shares.insert(key, share);
@@ -228,9 +328,11 @@ const TEMPORARY_FOLDERS: &[&str] = &["/private/tmp", "/private/var/folders"];
 struct Folder {
     root: PathBuf,
     only: Option<PathBuf>,
+    memory: Option<(String, Arc<Vec<u8>>)>,
     /// A folder's name and where it is, served whole under that name.
     media: Option<(String, PathBuf)>,
     written_in: Option<PathBuf>,
+    theme: Option<ThemeProvider>,
     token: String,
     port: u16,
 }
@@ -238,6 +340,8 @@ struct Folder {
 #[derive(Debug, PartialEq)]
 enum Answer {
     File(PathBuf),
+    ThemedFile(PathBuf),
+    Bytes(Arc<Vec<u8>>, &'static str),
     Redirect(String),
     Refused(u16),
 }
@@ -261,6 +365,29 @@ impl Folder {
         let answer = self.answer(&request);
         match answer {
             Answer::File(path) => send_file(&mut stream, &path, request.range, head_only).await,
+            Answer::ThemedFile(path) => {
+                let theme = self.theme.as_ref().map(|provider| provider());
+                if let (Some(theme), Ok(html)) = (theme, std::fs::read_to_string(&path)) {
+                    let body = if html.contains("id=\"sikemux-theme\"") {
+                        html
+                    } else {
+                        sikemux_base::pages::themed(&html, &theme, None)
+                    };
+                    send_bytes(
+                        &mut stream,
+                        body.as_bytes(),
+                        content_type(&path),
+                        request.range,
+                        head_only,
+                    )
+                    .await
+                } else {
+                    send_file(&mut stream, &path, request.range, head_only).await
+                }
+            }
+            Answer::Bytes(bytes, kind) => {
+                send_bytes(&mut stream, &bytes, kind, request.range, head_only).await
+            }
             Answer::Redirect(location) => {
                 let head = response_head(
                     301,
@@ -313,6 +440,11 @@ impl Folder {
         let Some(relative) = safe_relative(rest) else {
             return Answer::Refused(404);
         };
+        if let Some((name, bytes)) = &self.memory {
+            if relative == Path::new(name) {
+                return Answer::Bytes(bytes.clone(), content_type(Path::new(name)));
+            }
+        }
         let media = (self.media.as_ref())
             .and_then(|(name, media)| Some((media, relative.strip_prefix(name).ok()?)));
         if let Some((media, inside)) = media {
@@ -321,7 +453,9 @@ impl Folder {
                 _ => Answer::Refused(404),
             };
         }
-        let found = sikemux_process::files::real_path(self.root.join(&relative)).ok();
+        let found = (!self.root.as_os_str().is_empty())
+            .then(|| sikemux_process::files::real_path(self.root.join(&relative)).ok())
+            .flatten();
         let found = found.filter(|found| {
             found.starts_with(&self.root) && self.only.as_ref().is_none_or(|only| only == found)
         });
@@ -334,6 +468,9 @@ impl Folder {
             return Answer::Refused(404);
         };
         if found.is_file() {
+            if self.theme.is_some() && self.only.as_deref() == Some(found.as_path()) {
+                return Answer::ThemedFile(found);
+            }
             return Answer::File(found);
         }
         if !path.ends_with('/') {
@@ -409,6 +546,56 @@ async fn read_head(stream: &mut TcpStream) -> std::io::Result<Option<String>> {
         head.extend_from_slice(buffer.get(..read).unwrap_or_default());
     }
     Ok(Some(String::from_utf8_lossy(&head).into_owned()))
+}
+
+async fn send_bytes(
+    stream: &mut TcpStream,
+    bytes: &[u8],
+    kind: &str,
+    range: Option<(u64, Option<u64>)>,
+    head_only: bool,
+) -> std::io::Result<()> {
+    let size = bytes.len() as u64;
+    let (start, end) = match range {
+        Some((start, end)) if start < size => (start, end.unwrap_or(size - 1).min(size - 1)),
+        Some(_) => {
+            let range = format!("bytes */{size}");
+            let head = response_head(
+                416,
+                "Range Not Satisfiable",
+                kind,
+                0,
+                &[("Content-Range", &range)],
+            );
+            return stream.write_all(head.as_bytes()).await;
+        }
+        None => (0, size.saturating_sub(1)),
+    };
+    let length = if size == 0 {
+        0
+    } else {
+        end.saturating_sub(start) + 1
+    };
+    let head = if range.is_some() {
+        let content_range = format!("bytes {start}-{end}/{size}");
+        response_head(
+            206,
+            "Partial Content",
+            kind,
+            length,
+            &[("Content-Range", &content_range)],
+        )
+    } else {
+        response_head(200, "OK", kind, length, &[])
+    };
+    stream.write_all(head.as_bytes()).await?;
+    if head_only || length == 0 {
+        return Ok(());
+    }
+    let slice = bytes
+        .get(start as usize..(start + length) as usize)
+        .unwrap_or_default();
+    stream.write_all(slice).await
 }
 
 async fn send_file(
@@ -501,8 +688,10 @@ mod tests {
         let folder = Folder {
             root,
             only: None,
+            memory: None,
             media: None,
             written_in: None,
+            theme: None,
             token: "t0k".into(),
             port: 4000,
         };

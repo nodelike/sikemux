@@ -160,6 +160,10 @@ fn restore(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     bench
         .desks
         .update(cx, |desks, _| desks.expect(tabs.into_iter().chain(devices)));
+    let files = bench.desks.read(cx).page_files.clone();
+    cx.background_executor()
+        .spawn(async move { files.sweep_unused() })
+        .detach();
 }
 
 fn restore_simulators(bench: &mut Workbench, cx: &mut Context<Workbench>) -> Vec<String> {

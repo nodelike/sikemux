@@ -7,9 +7,11 @@ use super::connection::blocking;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::attachments::{ChatFile, ChatFileParams};
 pub use sikemux_calls::attachments::{KeepPastedParams, Kept};
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 
@@ -19,6 +21,8 @@ use super::{Core, CoreError, CoreResult};
 
 const MAX_STEM_CHARS: usize = 100;
 const MAX_EXTENSION_CHARS: usize = 10;
+const MAX_PASTED_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+const MAX_PASTED_BYTES: u64 = 250 * 1024 * 1024;
 
 pub const TOO_LARGE: &str = "a file sent to a chat can be at most 10 MB";
 
@@ -67,6 +71,77 @@ pub fn save_bytes(dir: &Path, name: &str, mime: &str, bytes: &[u8]) -> CoreResul
         return Err(format!("could not keep the file: {error}").into());
     }
     Ok(path)
+}
+
+/// Drops pasted cache files older than 30 days and evicts the oldest files past 250 MiB,
+/// preserving anything referenced by open drafts.
+pub fn sweep(dir: &Path, preserve: &HashSet<PathBuf>) {
+    sweep_with(
+        dir,
+        preserve,
+        MAX_PASTED_AGE,
+        MAX_PASTED_BYTES,
+        SystemTime::now(),
+    );
+}
+
+fn sweep_with(
+    dir: &Path,
+    preserve: &HashSet<PathBuf>,
+    max_age: Duration,
+    max_bytes: u64,
+    now: SystemTime,
+) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut kept = HashSet::with_capacity(preserve.len() * 2);
+    for path in preserve {
+        kept.insert(path.clone());
+        if let Ok(real) = sikemux_process::files::real_path(path) {
+            kept.insert(real);
+        }
+    }
+    let is_preserved = |path: &Path| {
+        kept.contains(path)
+            || sikemux_process::files::real_path(path).is_ok_and(|real| kept.contains(&real))
+    };
+
+    let mut total_bytes: u64 = 0;
+    let mut evictable: Vec<(SystemTime, u64, PathBuf)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let len = meta.len();
+        let modified = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+        if is_preserved(&path) {
+            total_bytes = total_bytes.saturating_add(len);
+            continue;
+        }
+        if now.duration_since(modified).is_ok_and(|age| age > max_age) {
+            let _ = fs::remove_file(&path);
+            continue;
+        }
+        total_bytes = total_bytes.saturating_add(len);
+        evictable.push((modified, len, path));
+    }
+    if total_bytes <= max_bytes {
+        return;
+    }
+    evictable.sort_by_key(|(modified, _, _)| *modified);
+    for (_, len, path) in evictable {
+        if total_bytes <= max_bytes {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            total_bytes = total_bytes.saturating_sub(len);
+        }
+    }
 }
 
 /// Whether `path` is in `dir`, however it is spelled or linked.
