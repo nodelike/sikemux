@@ -1226,20 +1226,30 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
     }
     for stall in core.stalls().for_person() {
         let agent = &stall.agent_id;
+        let (title, detail) = match stall.kind {
+            super::stalls::StallKind::NoTool => (
+                format!(
+                    "Working, but no tool call for {}",
+                    super::stalls::quiet_for(stall.since)
+                ),
+                "It may be stuck, such as on a queued build. Open it to see where, or stop it.",
+            ),
+            super::stalls::StallKind::Silent => (
+                format!(
+                    "Working, but no output for {}",
+                    super::stalls::quiet_for(stall.since)
+                ),
+                "It has streamed no output or tool calls and may be stuck waiting on the model. Open it to check, or stop it.",
+            ),
+        };
         let mut item = item(
             format!("no-progress:{agent}"),
             Case::NoProgress,
-            format!(
-                "Working, but no tool call for {}",
-                super::stalls::quiet_for(stall.since)
-            ),
+            title,
             stall.since,
         )
         .by(agent, find(agent));
-        item.detail = Some(
-            "It may be stuck, such as on a queued build. Open it to see where, or stop it."
-                .to_owned(),
-        );
+        item.detail = Some(detail.to_owned());
         items.push(item);
     }
     for pair in core.collisions().pairs() {

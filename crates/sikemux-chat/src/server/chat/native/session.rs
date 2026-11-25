@@ -595,7 +595,17 @@ pub async fn run<B: Backend>(
             }
             let brief = B::INSTRUCTIONS.then(|| chat.brief()).flatten();
             let reaching_provider = chat.with_model_token(&launch)?;
-            let started = B::start(&reaching_provider, brief.as_deref(), sink.clone()).await;
+            let started = tokio::time::timeout(
+                super::super::START_TIMEOUT,
+                B::start(&reaching_provider, brief.as_deref(), sink.clone()),
+            )
+            .await
+            .unwrap_or_else(|_| {
+                Err(format!(
+                    "{provider} did not start within {} seconds",
+                    super::super::START_TIMEOUT.as_secs()
+                ))
+            });
             chat.feed.let_out();
             let (backend, opened) = started?;
             if let Some(core) = chat.core.upgrade() {

@@ -3,6 +3,7 @@
 //! once; in a project with no chief, the person sees it with what else needs them.
 
 use crate::server::changed::ChangedCore;
+use crate::server::chat_state::ChatParts;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -19,15 +20,25 @@ use super::{messages, settling, Core};
 
 /// How long an agent at work may go without calling a tool before it counts as stalled.
 pub(crate) const STALL_AFTER_MS: u64 = 30 * 60_000;
+/// How long an agent at work with no running tools, tasks or subagents may stay completely
+/// silent before warning whoever watches it.
+pub(crate) const SILENCE_AFTER_MS: u64 = 10 * 60_000;
 
 #[derive(Default)]
 pub(crate) struct Stalls(Mutex<HashMap<String, Stall>>);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StallKind {
+    NoTool,
+    Silent,
+}
 
 /// An agent that stalled, since its last sign of work.
 #[derive(Clone)]
 pub(crate) struct Stall {
     pub agent_id: String,
     pub since: u64,
+    pub kind: StallKind,
     /// Whether it waits on the person, as nobody else hears of it.
     pub for_person: bool,
 }
@@ -54,27 +65,54 @@ impl Stalls {
 /// once. Runs with the core's regular sweep over its agents.
 pub(crate) async fn look(core: &Arc<Core>, now: u64) {
     let (chats, _) = core.ranked_infos();
-    let working: HashMap<&str, u64> = (chats.iter())
+    let working: HashMap<&str, (u64, u64, bool)> = (chats.iter())
         .filter(|chat| chat.status == AgentStatus::Working && chat.subagents == 0)
         .filter_map(|chat| {
             let id = chat.agent_id.as_str();
-            let last = [core.seen().started_at(id), core.seen().tool_at(id)]
+            let last_tool = [core.seen().started_at(id), core.seen().tool_at(id)]
                 .into_iter()
                 .flatten()
                 .max()?;
-            Some((id, last))
+            let live = core.chats().get(id);
+            let last_byte = [
+                Some(last_tool),
+                live.as_deref().and_then(|chat| chat.streamed_at()),
+            ]
+            .into_iter()
+            .flatten()
+            .max()?;
+            let silent_eligible =
+                chat.tasks == 0 && live.as_deref().is_some_and(|chat| !chat.has_open_tools());
+            Some((id, (last_tool, last_byte, silent_eligible)))
         })
         .collect();
     let (forgot, new) = {
         let mut stalls = core.stalls().0.locked();
         let before = stalls.len();
-        stalls.retain(|id, stall| working.get(id.as_str()) == Some(&stall.since));
+        stalls.retain(|id, stall| {
+            working
+                .get(id.as_str())
+                .is_some_and(
+                    |&(last_tool, last_byte, silent_eligible)| match stall.kind {
+                        StallKind::NoTool => last_tool == stall.since,
+                        StallKind::Silent => silent_eligible && last_byte == stall.since,
+                    },
+                )
+        });
         let forgot = stalls.len() != before;
-        let new: Vec<(String, u64)> = (working.iter())
-            .filter(|(id, last)| {
-                now.saturating_sub(**last) >= STALL_AFTER_MS && !stalls.contains_key(**id)
+        let new: Vec<(String, StallKind, u64)> = (working.iter())
+            .filter_map(|(id, &(last_tool, last_byte, silent_eligible))| {
+                if stalls.contains_key(*id) {
+                    return None;
+                }
+                if now.saturating_sub(last_tool) >= STALL_AFTER_MS {
+                    Some(((*id).to_owned(), StallKind::NoTool, last_tool))
+                } else if silent_eligible && now.saturating_sub(last_byte) >= SILENCE_AFTER_MS {
+                    Some(((*id).to_owned(), StallKind::Silent, last_byte))
+                } else {
+                    None
+                }
             })
-            .map(|(id, last)| ((*id).to_owned(), *last))
             .collect();
         (forgot, new)
     };
@@ -85,7 +123,7 @@ pub(crate) async fn look(core: &Arc<Core>, now: u64) {
         return;
     }
     let mut for_person = forgot;
-    for (agent_id, since) in new {
+    for (agent_id, kind, since) in new {
         let hears = roster::hears_of(core, &agent_id);
         let why = match hears {
             Hears::Lead(_) => "because a worker of yours has stalled",
@@ -93,7 +131,7 @@ pub(crate) async fn look(core: &Arc<Core>, now: u64) {
         };
         let told = match hears.agent() {
             Some(to) => {
-                let text = note(core, &agent_id, since, now);
+                let text = note(core, &agent_id, kind, since, now);
                 messages::work_from_sikemux(core, to.to_owned(), text, why)
                     .await
                     .is_ok()
@@ -109,6 +147,7 @@ pub(crate) async fn look(core: &Arc<Core>, now: u64) {
             Stall {
                 agent_id,
                 since,
+                kind,
                 for_person: !told,
             },
         );
@@ -118,12 +157,17 @@ pub(crate) async fn look(core: &Arc<Core>, now: u64) {
     }
 }
 
-fn note(core: &Core, agent_id: &str, since: u64, now: u64) -> String {
-    format!(
-        "@{} has been working for {} min without calling a tool; it may be stuck, such as on a queued build. Read it with agent_read and tell it what to do, or close it.",
-        core.names().name_or_id(agent_id),
-        now.saturating_sub(since) / 60_000
-    )
+fn note(core: &Core, agent_id: &str, kind: StallKind, since: u64, now: u64) -> String {
+    let name = core.names().name_or_id(agent_id);
+    let mins = now.saturating_sub(since) / 60_000;
+    match kind {
+        StallKind::NoTool => format!(
+            "@{name} has been working for {mins} min without calling a tool; it may be stuck, such as on a queued build. Read it with agent_read and tell it what to do, or close it."
+        ),
+        StallKind::Silent => format!(
+            "@{name} has been working for {mins} min with no streamed output or tool calls; it may be stuck waiting on the model. Read it with agent_read and tell it what to do, or stop it."
+        ),
+    }
 }
 
 /// How long ago `since` was, for the person.

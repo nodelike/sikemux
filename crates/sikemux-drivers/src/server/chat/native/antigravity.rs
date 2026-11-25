@@ -25,7 +25,7 @@ use super::super::permission;
 use super::super::states::{self, Subagent, UNNAMED_TASK};
 use super::mcp_calls::split;
 use super::session::Sink;
-use crate::acp::failure::{Failure, FailureKind};
+use crate::acp::failure::{sounds_offline, Failure, FailureKind};
 use crate::launch::tools::TOOLS_SERVER;
 use crate::launch::PermissionMode;
 use crate::sessions::antigravity::{subagent_log, subagent_run, subagent_started, SubagentRun};
@@ -351,14 +351,20 @@ pub(super) async fn follow(
         if gone() {
             return sink.update(&parent, Subagent::Disconnected.update(&card));
         }
-        let found = {
-            let mut taken = taken.locked();
-            let found = subagent_started(&parent, &prompt, &taken);
-            taken.extend(found.clone());
-            found
-        };
+        let already = taken.locked().clone();
+        let (lookup_parent, lookup_prompt) = (parent.clone(), prompt.clone());
+        let found = tokio::task::spawn_blocking(move || {
+            subagent_started(&lookup_parent, &lookup_prompt, &already)
+        })
+        .await
+        .ok()
+        .flatten();
         if let Some(child) = found {
-            break child;
+            let mut taken = taken.locked();
+            if !taken.contains(&child) {
+                taken.push(child.clone());
+                break child;
+            }
         }
         if waited >= START_WAIT {
             return sink.update(&parent, Subagent::Failed.update(&card));
@@ -371,8 +377,18 @@ pub(super) async fn follow(
     };
     let mut idle = 0;
     let end = loop {
-        let run = subagent_run(&child);
-        for (in_card, update) in log.read() {
+        let child_id = child.clone();
+        let Ok((run, updates, returned)) = tokio::task::spawn_blocking(move || {
+            let run = subagent_run(&child_id);
+            let updates = log.read();
+            (run, updates, log)
+        })
+        .await
+        else {
+            break Subagent::Disconnected;
+        };
+        log = returned;
+        for (in_card, update) in updates {
             sink.update(if in_card { &card } else { &parent }, update);
         }
         match run {
@@ -582,14 +598,27 @@ fn trim_head(text: &mut Value) {
 /// The failure an error step names, such as `RESOURCE_EXHAUSTED (code 429): …` or
 /// `Error 502, Message: …, Status: …`, titled by its message and kept whole in the details.
 pub(super) fn turn_failure(line: String) -> Failure {
+    if sounds_offline(&line) {
+        return Failure::lost_connection(line);
+    }
+    let lower = line.to_lowercase();
     let limited = [
         "(code 429)",
-        "Error 429,",
-        "RESOURCE_EXHAUSTED",
-        "QUOTA_EXHAUSTED",
+        "error 429",
+        "status 429",
+        "http 429",
+        "(429)",
+        "429:",
+        "429 too many",
+        "resource_exhausted",
+        "quota_exhausted",
+        "quota exceeded",
+        "rate limit",
+        "rate_limit",
+        "too many requests",
     ]
     .iter()
-    .any(|sign| line.contains(sign));
+    .any(|sign| lower.contains(sign));
     let message = line
         .split_once("): ")
         .or_else(|| line.split_once(", Message: "))

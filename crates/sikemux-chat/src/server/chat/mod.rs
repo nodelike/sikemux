@@ -39,7 +39,7 @@ use sikemux_fold::update::{notice, turn_answer};
 use sikemux_fold::UpdateKind;
 use sikemux_view::chat::{FailureKind, StopReason};
 use sikemux_view::questions::QuestionChoice;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -410,11 +410,44 @@ pub struct Chat {
     /// compacts more eagerly when idle.
     chief: AtomicBool,
     pub rotation: rotation::State,
+    streamed_at: AtomicU64,
+    open_tools: Mutex<HashSet<String>>,
 }
 
 impl Chat {
     pub fn agent_id(&self) -> &str {
         &self.launch.agent_id
+    }
+
+    pub fn streamed_at(&self) -> Option<u64> {
+        let at = self.streamed_at.load(Ordering::Relaxed);
+        (at > 0).then_some(at)
+    }
+
+    pub fn has_open_tools(&self) -> bool {
+        !self.open_tools.locked().is_empty()
+    }
+
+    fn note_streamed(&self) {
+        self.streamed_at
+            .store(sikemux_process::clock::epoch_ms(), Ordering::Relaxed);
+    }
+
+    fn note_tool_state(&self, payload: &Value, started: bool) {
+        let update = &payload["update"];
+        let Some(id) = update.get("toolCallId").and_then(Value::as_str) else {
+            return;
+        };
+        let ended = matches!(
+            update.get("status").and_then(Value::as_str),
+            Some("completed" | "failed" | "cancelled" | "error")
+        );
+        let mut open = self.open_tools.locked();
+        if ended {
+            open.remove(id);
+        } else if started {
+            open.insert(id.to_owned());
+        }
     }
 
     /// Its agent's session hands over to fresh sessions and compacts more eagerly when idle: a
@@ -512,7 +545,18 @@ impl Chat {
             return;
         }
         match UpdateKind::within(&payload) {
-            Some(UpdateKind::ToolCall) => self.note_tool_call(&payload),
+            Some(UpdateKind::ToolCall) => {
+                self.note_streamed();
+                self.note_tool_state(&payload, true);
+                self.note_tool_call(&payload);
+            }
+            Some(UpdateKind::ToolCallUpdate) => {
+                self.note_streamed();
+                self.note_tool_state(&payload, false);
+            }
+            Some(UpdateKind::AgentMessageChunk | UpdateKind::AgentThoughtChunk) => {
+                self.note_streamed();
+            }
             Some(UpdateKind::SessionInfoUpdate | UpdateKind::AccountSwitched) => {
                 self.note_session(&payload)
             }
@@ -561,6 +605,7 @@ impl Chat {
                 state.turn = Turn::Idle;
             }
         }
+        self.open_tools.locked().clear();
         if let Some(core) = self.core.upgrade() {
             (core.chat_above().note_activity)(&core, self.agent_id(), Activity::Started);
         }
@@ -592,6 +637,7 @@ impl Chat {
             }
             ((holds && !was_held).then_some(state.holds), by_person)
         };
+        self.open_tools.locked().clear();
         self.turn_over.notify_waiters();
         if let Some(hold) = new_hold {
             self.end_held_after(SUBAGENT_WAIT, hold, true);
@@ -623,6 +669,7 @@ impl Chat {
                 state.turn = Turn::Idle;
             }
         });
+        self.open_tools.locked().clear();
         self.turn_over.notify_waiters();
     }
 
@@ -931,6 +978,7 @@ impl Chat {
                 state.turn = Turn::Idle;
             }
         }
+        self.open_tools.locked().clear();
         self.turn_over.notify_waiters();
     }
 

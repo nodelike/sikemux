@@ -24,7 +24,7 @@ use sikemux_fold::UpdateKind;
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::StopReason;
 
-use crate::acp::failure::{sounds_offline, Failure};
+use crate::acp::failure::{sounds_offline, Failure, FailureKind};
 use crate::acp::pickers;
 use crate::acp::{air, native, permission_mode_id};
 use crate::agent_accounts::antigravity as accounts;
@@ -306,17 +306,36 @@ impl Driver {
         }
         self.gateway_calls.clear();
         let end = match answer {
-            Ok(response) => match response
-                .get("_meta")
-                .and_then(air::failure)
-                .or_else(|| self.logged_error())
-            {
-                Some(failure) => TurnEnd::Failed {
-                    failure,
-                    response: Some(response),
-                },
-                None => TurnEnd::Completed(response),
-            },
+            Ok(response) => {
+                if let Some(failure) = response.get("_meta").and_then(air::failure) {
+                    TurnEnd::Failed {
+                        failure,
+                        response: Some(response),
+                    }
+                } else if let Some((session, before)) = self.turns.locked().log.take() {
+                    let sink = self.sink.clone();
+                    tokio::spawn(async move {
+                        let failure = tokio::task::spawn_blocking(move || {
+                            sessions::antigravity::turn_error(&session, before)
+                                .map(antigravity::turn_failure)
+                        })
+                        .await
+                        .ok()
+                        .flatten();
+                        let end = match failure {
+                            Some(failure) => TurnEnd::Failed {
+                                failure,
+                                response: Some(response),
+                            },
+                            None => TurnEnd::Completed(response),
+                        };
+                        sink.end_turn(turn, end);
+                    });
+                    return;
+                } else {
+                    TurnEnd::Completed(response)
+                }
+            }
             // Hermes can crash out of a stopped turn and leave its session
             // refusing every prompt after.
             Err(_) if self.turns.locked().cancelled == turn => TurnEnd::Broken(
@@ -331,15 +350,29 @@ impl Driver {
                     response: None,
                 }
             }
-            Err(error) if self.free_models => free_model_failure(describe(&error)),
-            Err(error) => TurnEnd::Refused(describe(&error)),
+            Err(error) => {
+                let said = describe(&error);
+                if sounds_offline(&said) {
+                    TurnEnd::Failed {
+                        failure: Failure::lost_connection(said),
+                        response: None,
+                    }
+                } else if self.free_models {
+                    free_model_failure(said)
+                } else {
+                    let failure = antigravity::turn_failure(said.clone());
+                    if failure.kind != FailureKind::Other {
+                        TurnEnd::Failed {
+                            failure,
+                            response: None,
+                        }
+                    } else {
+                        TurnEnd::Refused(said)
+                    }
+                }
+            }
         };
         self.sink.end_turn(turn, end);
-    }
-
-    fn logged_error(&self) -> Option<Failure> {
-        let (session, before) = self.turns.locked().log.take()?;
-        sessions::antigravity::turn_error(&session, before).map(antigravity::turn_failure)
     }
 
     fn ask(&self, id: Value, mut request: Value) {
@@ -388,18 +421,22 @@ impl Driver {
                 }
             }
             Purpose::Compact(_) => {
-                let used = {
+                let (was_compacting, used) = {
                     let mut turns = self.turns.locked();
-                    turns.compacting = false;
-                    turns.compact_done.notify_waiters();
-                    turns.last_used
+                    let was = std::mem::take(&mut turns.compacting);
+                    if was {
+                        turns.compact_done.notify_waiters();
+                    }
+                    (was, turns.last_used)
                 };
-                if result.is_ok_and(|answer| {
-                    answer.get("stopReason").and_then(Value::as_str) != Some("cancelled")
-                }) {
-                    self.sink.compacted(used);
+                if was_compacting {
+                    if result.is_ok_and(|answer| {
+                        answer.get("stopReason").and_then(Value::as_str) != Some("cancelled")
+                    }) {
+                        self.sink.compacted(used);
+                    }
+                    self.sink.compaction_over();
                 }
-                self.sink.compaction_over();
             }
             _ => {}
         }
@@ -686,7 +723,11 @@ impl Acp {
         let failed = |error: String| process.start_error(error);
 
         let initialized = driver
-            .call(AGENT_METHOD_NAMES.initialize, initialize(), None)
+            .call(
+                AGENT_METHOD_NAMES.initialize,
+                initialize(),
+                Some(ANSWER_WAIT),
+            )
             .await
             .map_err(failed)?;
         let command =
@@ -725,7 +766,7 @@ impl Acp {
             Err(Refused::SignIn(_)) if key_sign_in.is_some() => {
                 let method = json!({ "methodId": key_sign_in });
                 (driver
-                    .call(AGENT_METHOD_NAMES.authenticate, method, None)
+                    .call(AGENT_METHOD_NAMES.authenticate, method, Some(ANSWER_WAIT))
                     .await)
                     .map_err(failed)?;
                 Self::open(&driver, launch, reopens).await
@@ -834,7 +875,7 @@ impl Acp {
             .rpc
             .start(AGENT_METHOD_NAMES.session_new, params(request)?)
             .map_err(|error| describe(&error))?
-            .answer(None)
+            .answer(Some(ANSWER_WAIT))
             .await
             .map_err(|error| Refused::of(&error))?;
         let session_id = setup
@@ -885,7 +926,7 @@ impl Acp {
             .rpc
             .start(method, request)
             .map_err(|error| describe(&error))?
-            .answer(None)
+            .answer(Some(ANSWER_WAIT))
             .await;
         match loaded {
             Ok(setup) => Ok((existing, setup)),
@@ -1053,7 +1094,30 @@ impl Backend for Acp {
                 .then(|| turns.compact_done.clone().notified_owned())
         };
         if let Some(done) = compacting {
-            let _ = tokio::time::timeout(Duration::from_secs(60), done).await;
+            if tokio::time::timeout(Duration::from_secs(60), done)
+                .await
+                .is_err()
+            {
+                let was_compacting = {
+                    let mut turns = self.driver.turns.locked();
+                    let was = std::mem::take(&mut turns.compacting);
+                    if was {
+                        turns.compact_done.notify_waiters();
+                    }
+                    was
+                };
+                if was_compacting {
+                    if let Ok(cancel) =
+                        params(CancelNotification::new(self.kept.session_id.clone()))
+                    {
+                        let _ = self
+                            .driver
+                            .rpc
+                            .notify(AGENT_METHOD_NAMES.session_cancel, cancel);
+                    }
+                    self.driver.sink.compaction_over();
+                }
+            }
         }
         let blocks = prompt_blocks(
             in_own_words(prompt.text, self.driver.compact),
@@ -1063,16 +1127,23 @@ impl Backend for Acp {
         )?;
         let blocks = with_pictures(blocks, self.kept.images);
         let request = PromptRequest::new(self.kept.session_id.clone(), blocks);
+        let log = if self.driver.antigravity {
+            let session = self.kept.session_id.clone();
+            let lookup = session.clone();
+            let last =
+                tokio::task::spawn_blocking(move || sessions::antigravity::last_step(&lookup))
+                    .await
+                    .unwrap_or(-1);
+            Some((session, last))
+        } else {
+            None
+        };
         {
             let mut turns = self.driver.turns.locked();
             turns.prompted = turn;
             turns.unanswered = 1;
             turns.unprompted = false;
-            turns.log = self.driver.antigravity.then(|| {
-                let session = self.kept.session_id.to_string();
-                let last = sessions::antigravity::last_step(&session);
-                (session, last)
-            });
+            turns.log = log;
         }
         self.driver.rpc.send_for(
             AGENT_METHOD_NAMES.session_prompt,

@@ -159,16 +159,44 @@ impl Driver {
         })
     }
 
-    /// Follows the server's events into the chat until they end.
     async fn follow(&self) -> Result<JoinHandle<()>, String> {
-        let (events, mut heard) = mpsc::unbounded_channel();
+        let (events, heard) = mpsc::unbounded_channel();
         self.client.follow(events).await?;
+        Ok(self.watch(heard))
+    }
+
+    fn watch(&self, mut heard: mpsc::UnboundedReceiver<Value>) -> JoinHandle<()> {
         let driver = self.clone();
-        Ok(tokio::spawn(async move {
-            while let Some(event) = heard.recv().await {
-                driver.handle(&event);
+        tokio::spawn(async move {
+            loop {
+                while let Some(event) = heard.recv().await {
+                    driver.handle(&event);
+                }
+                match driver.reconnect(&[200, 1000, 2000]).await {
+                    Some(next) => heard = next,
+                    None => {
+                        driver
+                            .sink
+                            .broke("OpenCode's event stream disconnected".to_owned());
+                        return;
+                    }
+                }
             }
-        }))
+        })
+    }
+
+    async fn reconnect(&self, delays_ms: &[u64]) -> Option<mpsc::UnboundedReceiver<Value>> {
+        for &delay_ms in delays_ms {
+            if delay_ms > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+            let (events, heard) = mpsc::unbounded_channel();
+            if self.client.follow(events).await.is_ok() {
+                self.catch_up().await;
+                return Some(heard);
+            }
+        }
+        None
     }
 
     /// What happened in the session while nobody was following it, read from its log.
@@ -203,6 +231,14 @@ struct Kept {
     session: Session,
 }
 
+struct EventTask(JoinHandle<()>);
+
+impl Drop for EventTask {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 pub struct Opencode {
     process: Process,
     reading: Reading<Quiet>,
@@ -213,7 +249,7 @@ pub struct Opencode {
     mode: String,
     commands: Vec<String>,
     permission_mode: PermissionMode,
-    events: JoinHandle<()>,
+    events: EventTask,
 }
 
 fn refused(error: Refused) -> String {
@@ -379,7 +415,9 @@ impl Opencode {
                     let permissions =
                         json!({ "permissions": rules(mode, catalog.permissions(agent)) });
                     client.patch(&path, permissions).await.map_err(refused)?;
-                    replay(sink, launch, existing);
+                    let (sink, launch, existing) = (sink.clone(), launch.clone(), existing.clone());
+                    let _ = tokio::task::spawn_blocking(move || replay(&sink, &launch, &existing))
+                        .await;
                     return Ok(session);
                 }
                 Err(error)
@@ -514,7 +552,7 @@ impl Backend for Opencode {
             session: Arc::new(Mutex::new(Session::new(String::new(), launch.cwd.clone()))),
             servers: server_names(launch),
         };
-        let events = driver.follow().await.map_err(failed)?;
+        let events = EventTask(driver.follow().await.map_err(failed)?);
         let opened = Self::open(
             &client,
             &sink,
@@ -733,7 +771,7 @@ impl Backend for Opencode {
             permission_mode,
             events,
         } = self;
-        events.abort();
+        drop(events);
         let session = std::mem::take(&mut *driver.session.locked());
         let client = driver.client;
         process::hand_over(process, reading, "OpenCode", |_| Kept {
@@ -767,14 +805,25 @@ impl Backend for Opencode {
         let (reading, _) = Reading::start(Quiet, lines);
         let follower = driver.clone();
         let events = tokio::spawn(async move {
-            match follower.follow().await {
-                Ok(following) => {
-                    follower.catch_up().await;
-                    let _ = following.await;
+            let Some(mut heard) = follower.reconnect(&[0, 500, 1500]).await else {
+                follower
+                    .sink
+                    .broke("OpenCode's events could not be followed again".to_owned());
+                return;
+            };
+            loop {
+                while let Some(event) = heard.recv().await {
+                    follower.handle(&event);
                 }
-                Err(error) => eprintln!(
-                    "sikemux core: OpenCode's events could not be followed again: {error}"
-                ),
+                match follower.reconnect(&[200, 1000, 2000]).await {
+                    Some(next) => heard = next,
+                    None => {
+                        follower
+                            .sink
+                            .broke("OpenCode's event stream disconnected".to_owned());
+                        return;
+                    }
+                }
             }
         });
         Ok(Self {
@@ -787,7 +836,7 @@ impl Backend for Opencode {
             mode: kept.mode,
             commands: kept.commands,
             permission_mode: kept.permission_mode,
-            events,
+            events: EventTask(events),
         })
     }
 
