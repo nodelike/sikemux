@@ -14,7 +14,6 @@ import {
   ShedBox,
   Stepper,
   useCheckout,
-  useClient,
   type Show,
 } from "./BillingShared.tsx";
 import { useClient } from "./client.ts";

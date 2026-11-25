@@ -34,7 +34,6 @@ import {
   TestMode,
   useBill,
   useCheckout,
-  useClient,
   usePortal,
   useShow,
   type BillWear,

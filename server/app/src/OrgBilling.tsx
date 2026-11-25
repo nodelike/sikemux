@@ -32,7 +32,6 @@ import {
   useBill,
   useChangePreview,
   useCheckout,
-  useClient,
   usePortal,
   useShow,
   type BillWear,

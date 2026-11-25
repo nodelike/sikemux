@@ -75,43 +75,6 @@ export type Show = (text: string, undo?: () => Promise<void>) => void;
 
 export type BillWear = Pick<Parameters<typeof Page>[0], "mark" | "scene">;
 
-export function useClient() {
-  const { getToken } = useAuth();
-  return useCallback(
-    async (what: string) => api(await signedInToken(getToken, what)),
-    [getToken],
-  );
-}
-
-/** Whether billing answers this account: it does for staff, and for everyone once it is live. */
-export function useBillingShown(
-  ready: boolean,
-  version: number,
-): boolean | undefined {
-  const client = useClient();
-  const [shown, setShown] = useState<boolean>();
-  useEffect(() => {
-    if (!ready) return;
-    let current = true;
-    void client("see your plan")
-      .then((routes) => routes.getBilling())
-      .then(
-        () => current && setShown(true),
-        (error: unknown) =>
-          current &&
-          setShown((last) =>
-            error instanceof ApiProblem && error.status === 404
-              ? false
-              : (last ?? false),
-          ),
-      );
-    return () => {
-      current = false;
-    };
-  }, [ready, client, version]);
-  return shown;
-}
-
 /** What one payer, the person or an org, is billed. Read again whenever `version` moves. */
 export function useBill(version: number, orgId?: string) {
   const client = useClient();
