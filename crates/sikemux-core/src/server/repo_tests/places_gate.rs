@@ -478,7 +478,8 @@ fn an_unread_workflow_is_listed_once_however_often_it_runs() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_nightly_asks_once_and_the_person_can_stop_it_asking() {
     let release = TAG_RELEASES;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = repo();
+    let (cwd, _) = work_of(&dir);
     std::fs::create_dir_all(dir.path().join(".github/workflows")).unwrap();
     std::fs::write(dir.path().join(".github/workflows/release.yml"), release).unwrap();
     let found = crate::server::places::found::in_files(dir.path());
@@ -492,7 +493,7 @@ async fn a_nightly_asks_once_and_the_person_can_stop_it_asking() {
         what: format!("git push origin {name}"),
         target: Some(Target::Tag { name: name.into() }),
     };
-    assert!(run(&core, tag("v0.6.2-nightly.1"), Path::new("/nowhere")).is_err());
+    assert!(run(&core, tag("v0.6.2-nightly.1"), &cwd).is_err());
     let call = open_calls(&core).remove(0);
     assert_eq!(
         call.place.as_ref().map(|place| place.name.as_str()),
@@ -503,9 +504,9 @@ async fn a_nightly_asks_once_and_the_person_can_stop_it_asking() {
         .iter()
         .any(|option| option.id == ship::FROM_NOW_ON));
     answer(&core, &call.id, ship::FROM_NOW_ON).await;
-    let went = run(&core, tag("v0.6.2-nightly.2"), Path::new("/nowhere")).unwrap();
+    let went = run(&core, tag("v0.6.2-nightly.2"), &cwd).unwrap();
     assert!(went.is_some());
-    assert!(run(&core, tag("v0.6.2"), Path::new("/nowhere")).is_err());
+    assert!(run(&core, tag("v0.6.2"), &cwd).is_err());
     let stable = open_calls(&core).remove(0);
     assert_eq!(
         stable.place.as_ref().map(|place| place.name.as_str()),
@@ -629,7 +630,8 @@ async fn a_deploys_yes_ends_with_the_last_turn_of_those_on_its_call() {
 #[tokio::test(flavor = "multi_thread")]
 async fn from_now_on_counts_as_the_person_confirming_that_place() {
     let release = TAG_RELEASES;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = repo();
+    let (cwd, _) = work_of(&dir);
     std::fs::create_dir_all(dir.path().join(".github/workflows")).unwrap();
     std::fs::write(dir.path().join(".github/workflows/release.yml"), release).unwrap();
     let project = "/tmp/sikemux-gate-unconfirmed";
@@ -648,11 +650,11 @@ async fn from_now_on_counts_as_the_person_confirming_that_place() {
         what: format!("git push origin {name}"),
         target: Some(Target::Tag { name: name.into() }),
     };
-    assert!(run(&core, tag("v0.6.2-nightly.1"), Path::new("/nowhere")).is_err());
+    assert!(run(&core, tag("v0.6.2-nightly.1"), &cwd).is_err());
     let call = open_calls(&core).remove(0);
     answer(&core, &call.id, ship::FROM_NOW_ON).await;
-    assert!(run(&core, tag("v0.6.2-nightly.2"), Path::new("/nowhere")).is_ok());
-    assert!(run(&core, tag("v0.6.2"), Path::new("/nowhere")).is_err());
+    assert!(run(&core, tag("v0.6.2-nightly.2"), &cwd).is_ok());
+    assert!(run(&core, tag("v0.6.2"), &cwd).is_err());
 }
 
 /// The person said no to `git push origin v0.6.3`; the release was recut and the same push
@@ -1071,6 +1073,21 @@ async fn just_tell_me_covers_plain_pushes_and_nothing_else() {
         held(what);
         git(&cwd, &["config", "--unset-all", key]);
     }
+    let origin = dir.path().join("origin.git");
+    let other = dir.path().join("other.git");
+    git(
+        dir.path(),
+        &["clone", "--bare", origin.to_str().unwrap(), "other.git"],
+    );
+    git(
+        &cwd,
+        &["remote", "set-url", "origin", other.to_str().unwrap()],
+    );
+    held("git push origin HEAD:main");
+    git(
+        &cwd,
+        &["remote", "set-url", "origin", origin.to_str().unwrap()],
+    );
     let went = run(&core, push("git push origin HEAD:main"), &cwd).unwrap();
     assert!(went.is_some());
 }

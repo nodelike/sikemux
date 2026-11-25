@@ -876,7 +876,8 @@ fn run(args: Vec<OsString>) -> i32 {
     ) {
         let ship = crate::ship::Ship {
             kind,
-            what: std::iter::once("git".to_owned())
+            what: (crate::ship::configured("git", &words, &not_ours).into_iter())
+                .chain(std::iter::once("git".to_owned()))
                 .chain(words.iter().cloned())
                 .collect::<Vec<_>>()
                 .join(" "),
@@ -910,6 +911,27 @@ fn run(args: Vec<OsString>) -> i32 {
     let error = crate::os::exec(command.args(&args));
     eprintln!("git: {}: {error}", git.display());
     126
+}
+
+/// The environment variable `name`, but for git settings that are all ones this shim handed the
+/// git that runs this one.
+fn not_ours(name: &str) -> Option<String> {
+    let said = std::env::var(name).ok()?;
+    if name != "GIT_CONFIG_COUNT" {
+        return Some(said);
+    }
+    let ours = std::env::var_os(footer::HOOKS)
+        .map(|folder| identity::agent_settings(Path::new(&folder)))
+        .unwrap_or_default();
+    let given = |part: &str, at: usize| std::env::var(format!("GIT_CONFIG_{part}_{at}")).ok();
+    let all_ours = said.parse().is_ok_and(|count: usize| {
+        (0..count).all(|at| {
+            given("KEY", at)
+                .zip(given("VALUE", at))
+                .is_some_and(|setting| ours.contains(&setting))
+        })
+    });
+    (!all_ours).then_some(said)
 }
 
 /// The other agents whose work a git command in `dir` would touch, as the

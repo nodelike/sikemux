@@ -35,19 +35,20 @@ pub struct Judged {
 /// Where `ship` lands among `places`, as the person `confirmed` the list or not. `agent` is
 /// whose action it is, by name, for a place the core finds in it.
 pub fn judged(places: &[Place], confirmed: bool, ship: &Ship, agent: &str) -> Judged {
-    judged_reading(places, confirmed, ship, agent, &ship.what, false)
+    judged_reading(places, confirmed, ship, agent, &ship.what, None)
 }
 
 /// [`judged`] with `addresses`, what `ship` writes to with each address in full. A browser's
 /// write is shown and allowed without its address's query, which can still say what it changes.
-/// `plain` is whether `ship` is a push or merge through git with nothing else to it.
+/// `plain` is the repository `ship` changes when it is a push or merge through git with nothing
+/// else to it.
 pub fn judged_reading(
     places: &[Place],
     confirmed: bool,
     ship: &Ship,
     agent: &str,
     addresses: &str,
-    plain: bool,
+    plain: Option<&str>,
 ) -> Judged {
     let recognising: Vec<&Place> = places
         .iter()
@@ -169,8 +170,8 @@ fn strictness(level: Level) -> u8 {
     }
 }
 
-fn level_for(place: &Place, confirmed: bool, ship: &Ship, plain: bool) -> Level {
-    place.level_for(confirmed, plain && routine(place, ship))
+fn level_for(place: &Place, confirmed: bool, ship: &Ship, plain: Option<&str>) -> Level {
+    place.level_for(confirmed, plain.filter(|_| routine(place, ship)))
 }
 
 /// Whether `ship`, a plain push or merge, is the change `place` sees again and again, which the
@@ -573,7 +574,7 @@ mod tests {
             &nameservers,
             "Otter",
             "POST https://my.registrar.example/clientarea.php?action=domaindetails",
-            false,
+            None,
         );
         assert_eq!(judged.goes, Goes::Asks);
         assert!(judged.keep);
@@ -587,7 +588,7 @@ mod tests {
             &own_panel,
             "Otter",
             "POST https://hosting.example.com/clientarea.php?action=domaindns",
-            false,
+            None,
         );
         assert_eq!(judged.goes, Goes::Asks);
         let search = submit(

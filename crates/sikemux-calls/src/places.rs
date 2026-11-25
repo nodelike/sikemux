@@ -50,9 +50,12 @@ pub struct Place {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub recurs: bool,
     /// The person said on a call to just tell them from now on, which goes for a plain push or
-    /// merge through git alone: anything else there still waits for their yes.
+    /// merge to a repository in `just_tell` alone: anything else there still waits for their yes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub routine_only: bool,
+    /// The repositories the person said that about.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub just_tell: Vec<String>,
 }
 
 /// What a slice needs at a place's step besides a deploy there that went well.
@@ -72,13 +75,15 @@ impl Place {
     /// What agents may do there now: a production place is at `mine` until the person
     /// confirms the list, or sets this place's level themselves.
     pub fn level(&self, confirmed: bool) -> Level {
-        self.level_for(confirmed, false)
+        self.level_for(confirmed, None)
     }
 
-    /// [`Self::level`] for one change there, `routine` or not.
-    pub fn level_for(&self, confirmed: bool, routine: bool) -> Level {
+    /// [`Self::level`] for one change there, through the repository `routine` when it is a
+    /// routine one.
+    pub fn level_for(&self, confirmed: bool, routine: Option<&str>) -> Level {
         let unseen = !confirmed && self.shown.said_by.is_none();
-        let beyond = self.routine_only && !routine;
+        let said = routine.is_some_and(|to| self.just_tell.iter().any(|said| said == to));
+        let beyond = self.routine_only && !said;
         match self.shown.production && (unseen || beyond) {
             true => Level::Mine,
             false => self.shown.level,

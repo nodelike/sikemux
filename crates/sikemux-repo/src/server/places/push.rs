@@ -203,9 +203,49 @@ fn pushes_elsewhere(remote: &str, cwd: &Path) -> bool {
     repository(&["--push", "--all"]) != repository(&[])
 }
 
-/// Whether the push `what`, run from `cwd`, only sends the checkout's own commits to the
-/// project's own branch.
-pub fn is_plain(what: &str, cwd: &Path) -> bool {
+/// `url` as the repository it names, the same over SSH and HTTPS, without who signs in to it.
+fn repository_at(url: &str) -> String {
+    let url = url.trim_end_matches('/');
+    let url = url.strip_suffix(".git").unwrap_or(url);
+    let without_user = |rest: &str| {
+        let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+        let host = host.rsplit('@').next().unwrap_or(host).to_ascii_lowercase();
+        match host.as_str() {
+            "github.com" => format!("{host}/{}", path.to_ascii_lowercase()),
+            _ => format!("{host}/{path}"),
+        }
+    };
+    match url.split_once("://") {
+        Some(("https" | "ssh", rest)) => without_user(rest),
+        Some((scheme, rest)) => format!("{scheme}://{}", without_user(rest)),
+        None => match url.split_once(':') {
+            Some((host, path)) if !host.contains('/') && !path.starts_with('/') => {
+                without_user(&format!("{host}/{path}"))
+            }
+            _ => url.to_owned(),
+        },
+    }
+}
+
+/// The one repository a push to `remote` from the checkout at `cwd` goes to, as git has it now.
+fn pushed_repository(remote: &str, cwd: &Path) -> Option<String> {
+    let urls = Git::quick(cwd)
+        .trimmed(&["remote", "get-url", "--push", "--all", remote])
+        .ok()?;
+    let mut urls = urls.lines();
+    let only = urls.next().filter(|_| urls.next().is_none())?;
+    Some(repository_at(only))
+}
+
+/// The repository the push `what`, run from `cwd`, sends to, where it only sends the checkout's
+/// own commits to the project's own branch.
+pub fn plain(what: &str, cwd: &Path) -> Option<String> {
+    let moved = &run_in(what, cwd);
+    let repository = pushed_repository("origin", moved)?;
+    is_plain(what, cwd).then_some(repository)
+}
+
+fn is_plain(what: &str, cwd: &Path) -> bool {
     let Some(words) = plain_words(what) else {
         return false;
     };
@@ -240,12 +280,15 @@ pub fn is_plain(what: &str, cwd: &Path) -> bool {
         && commit(source).is_some_and(|sent| Some(sent) == commit("HEAD"))
 }
 
-/// Whether the push `what`, run from `cwd`, sends the one tag it names and nothing else.
-pub fn is_one_tag(what: &str, cwd: &Path) -> bool {
-    plain_words(what).is_some_and(|words| {
-        let named = words.refspec.is_some_and(|refspec| !refspec.contains(':'));
-        named && !config_redirects("origin", words.follows_tags, &run_in(what, cwd))
-    })
+/// The repository the push `what`, run from `cwd`, sends to, where it sends the one tag it
+/// names and nothing else.
+pub fn one_tag(what: &str, cwd: &Path) -> Option<String> {
+    let words = plain_words(what)?;
+    let cwd = &run_in(what, cwd);
+    let named = words.refspec.is_some_and(|refspec| !refspec.contains(':'));
+    (named && !config_redirects("origin", words.follows_tags, cwd))
+        .then(|| pushed_repository("origin", cwd))
+        .flatten()
 }
 
 /// Whether `branch` is the one the project's own work lands on.
@@ -426,6 +469,8 @@ pub struct Merging {
     read: bool,
     /// Whether it goes past what the repository asks of a merge.
     overrides: bool,
+    /// Whether it deletes the pull request's branch.
+    deletes: bool,
 }
 
 /// The merge GitHub's API makes of `pull` in `repo`.
@@ -435,6 +480,7 @@ pub fn api_merging(pull: &str, repo: &str) -> Merging {
         repo: (!repo.contains('{')).then(|| repo.to_owned()),
         read: true,
         overrides: true,
+        deletes: false,
     }
 }
 
@@ -444,6 +490,7 @@ pub fn merging(what: &str) -> Merging {
         repo: None,
         read: false,
         overrides: false,
+        deletes: false,
     };
     let words: Vec<&str> = what.split_whitespace().collect();
     let args = match words.as_slice() {
@@ -456,8 +503,8 @@ pub fn merging(what: &str) -> Merging {
         match *arg {
             "-R" | "--repo" => found.repo = args.next().map(|repo| (*repo).to_owned()),
             "--match-head-commit" => _ = args.next(),
-            "-m" | "--merge" | "-s" | "--squash" | "-r" | "--rebase" | "-d" | "--delete-branch"
-            | "--auto" => {}
+            "-m" | "--merge" | "-s" | "--squash" | "-r" | "--rebase" | "--auto" => {}
+            "-d" | "--delete-branch" => found.deletes = true,
             "--admin" => found.overrides = true,
             arg if arg.starts_with("--match-head-commit=") => {}
             arg if arg.starts_with("--repo=") => {
@@ -481,18 +528,18 @@ impl Merging {
     }
 
     /// Where a merge run from `cwd` lands in the repository checked out at `root`, and the
-    /// commit it merges, and whether it only does so into the project's own branch, as the
-    /// repository asks. GitHub is asked for the branch it goes into.
-    pub fn reach(&self, root: &Path, cwd: &Path) -> (Reach, Option<String>, bool) {
+    /// commit it merges, and the repository it does so in where it only goes into the project's
+    /// own branch, as the repository asks. GitHub is asked for the branch it goes into.
+    pub fn reach(&self, root: &Path, cwd: &Path) -> (Reach, Option<String>, Option<String>) {
         if !self.read {
-            return (Reach::Project, None, false);
+            return (Reach::Project, None, None);
         }
         let mut view = sikemux_process::user_environment::command("gh");
         view.current_dir(cwd)
             .env("GH_PROMPT_DISABLED", "1")
             .args(["pr", "view"])
             .args(&self.pull)
-            .args(["--json", "baseRefName,headRefOid"]);
+            .args(["--json", "baseRefName,headRefName,headRefOid,url"]);
         if let Some(repo) = &self.repo {
             view.args(["--repo", repo]);
         }
@@ -503,7 +550,12 @@ impl Merging {
         let reach =
             field("baseRefName").map_or(Reach::Project, |base| branch_reach(&base, "origin", root));
         let own = field("baseRefName").is_some_and(|base| is_own_branch(&base, root));
-        (reach, field("headRefOid"), own && !self.overrides)
+        let work = |head: String| branch_reach(&head, "origin", root) == Reach::Branches;
+        let keeps = !self.deletes || field("headRefName").is_some_and(work);
+        let repository = field("url")
+            .and_then(|url| Some(repository_at(url.split_once("/pull/")?.0)))
+            .filter(|_| own && !self.overrides && keeps);
+        (reach, field("headRefOid"), repository)
     }
 }
 

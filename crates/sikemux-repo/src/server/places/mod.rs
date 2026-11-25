@@ -105,14 +105,14 @@ pub fn keep(places: &mut Vec<Place>, place: Place) {
 /// Where `ship`, an action of the agent called `agent`, lands in `project`. The places its
 /// files name and a production place the action itself names are kept from then on.
 /// `addresses` is what the action writes to, in full; none reads them from the action. `plain`
-/// is whether it is a push or merge through git with nothing else to it.
+/// is the repository it changes when it is a push or merge through git with nothing else to it.
 pub fn judge(
     core: &Core,
     project: &str,
     ship: &Ship,
     agent: &str,
     addresses: Option<&str>,
-    plain: bool,
+    plain: Option<&str>,
 ) -> Judged {
     let (places, confirmed) = current(core, project);
     let addresses = addresses.unwrap_or(&ship.what);
@@ -199,13 +199,17 @@ pub fn accepted(core: &Core, project: &str, proposed: Vec<Place>) -> Result<(), 
     })
 }
 
-/// The person said on a call to just tell them of routine changes to `place` from now on.
-pub fn just_tell(core: &Core, project: &str, place: Place, from: Option<String>) {
+/// The person said on a call to just tell them of routine changes to `place` through
+/// `repository` from now on.
+pub fn just_tell(core: &Core, project: &str, place: Place, repository: &str, from: Option<String>) {
     let tell = |place: &mut Place| {
         place.shown.level = Level::TellMe;
         place.shown.said_by = Some(by_tap());
         place.shown.said_from = from.clone();
         place.routine_only = true;
+        if !place.just_tell.iter().any(|said| said == repository) {
+            place.just_tell.push(repository.to_owned());
+        }
     };
     let _ = change(core, project, |kept| {
         match kept
@@ -362,6 +366,7 @@ pub async fn set_level(
                 place.shown.was = Some(place.shown.level);
                 place.shown.level = params.level;
                 place.routine_only = false;
+                place.just_tell.clear();
                 place.shown.said_by = Some(by_tap());
                 place.shown.said_from = from.clone();
             }

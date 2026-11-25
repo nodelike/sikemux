@@ -2136,15 +2136,16 @@ pub fn of_command(
             continue;
         }
         let git = base_name(program) == "git";
-        let command = match (&here, git) {
-            (Some(here), true) if here != cwd => std::iter::once(program.clone())
-                .chain(["-C".to_owned(), here.to_string_lossy().into_owned()])
-                .chain(args.iter().cloned())
-                .collect::<Vec<_>>()
-                .join(" "),
-            _ => words.join(" "),
+        let moved: Vec<String> = (here.iter())
+            .filter(|here| git && *here != cwd)
+            .flat_map(|here| ["-C".to_owned(), here.to_string_lossy().into_owned()])
+            .chain(args.iter().cloned())
+            .collect();
+        let command = match moved.len() == args.len() {
+            true => words.join(" "),
+            false => format!("{program} {}", moved.join(" ")),
         };
-        let configured = git_configured(program, &set);
+        let configured = configured(program, &moved, &set);
         let what: Vec<String> = (configured.into_iter())
             .chain(
                 (selected.iter())
@@ -2301,7 +2302,7 @@ pub(crate) fn of_invocation(
     leaves_machine(program, args, target.as_ref()).then(|| Ship {
         kind,
         target,
-        what: (git_configured(program, env).into_iter())
+        what: (configured(program, args, env).into_iter())
             .chain(std::iter::once(program.to_owned()))
             .chain(args.iter().cloned())
             .collect::<Vec<_>>()
@@ -2309,12 +2310,27 @@ pub(crate) fn of_invocation(
     })
 }
 
-/// Git settings given through the environment, which the push judge can't read, as the words
-/// that put them in front of the command.
-fn git_configured(program: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
-    if base_name(program) != "git" {
-        return None;
+/// What a push or merge is given that its words, split at spaces, don't say, as the words that
+/// put it in front of the command.
+pub(crate) fn configured(
+    program: &str,
+    args: &[String],
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Option<String> {
+    let merges = || gh_args(args).starts_with(&["pr".to_owned(), "merge".to_owned()]);
+    match base_name(program) {
+        "git" => git_configured(env).or_else(|| {
+            (args.iter().any(|arg| arg.contains(char::is_whitespace))).then(|| "…".to_owned())
+        }),
+        "gh" if merges() => ["GH_REPO", "GH_HOST"]
+            .into_iter()
+            .find_map(|name| Some(format!("{name}={}", env(name)?))),
+        _ => None,
     }
+}
+
+/// Git settings given through the environment, which the push judge can't read.
+fn git_configured(env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
     let set = [
         "GIT_CONFIG_COUNT",
         "GIT_CONFIG_PARAMETERS",

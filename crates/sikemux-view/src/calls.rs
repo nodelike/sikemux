@@ -147,6 +147,9 @@ pub enum CallChange {
 pub struct CallPlace {
     pub id: String,
     pub name: String,
+    /// The repository it changes, which is all a yes from now on is said about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
 }
 
 /// What a weighty call, such as a cutover or a public release, says before its options.

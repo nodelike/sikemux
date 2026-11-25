@@ -342,14 +342,14 @@ fn check_call(
     let pushed_in = push::run_in(&ship.what, cwd);
     let merging = (ship.kind == ShipKind::Merge)
         .then(|| api_merging.unwrap_or_else(|| push::merging(&ship.what)));
-    let mut plain = call.is_none()
-        && match ship.kind {
-            ShipKind::Push => push::is_plain(&ship.what, cwd),
-            ShipKind::Publish => push::is_one_tag(&ship.what, cwd),
-            _ => false,
-        };
+    let mut plain = match ship.kind {
+        _ if call.is_some() => None,
+        ShipKind::Push => push::plain(&ship.what, cwd),
+        ShipKind::Publish => push::one_tag(&ship.what, cwd),
+        _ => None,
+    };
     // A push that may do more than send the checkout's commits to its own branch.
-    let exact = ship.kind == ShipKind::Push && !plain;
+    let exact = ship.kind == ShipKind::Push && plain.is_none();
     let sent_from_here = match &merging {
         _ if api_lands.is_some() => false,
         Some(merging) => merging.repo.is_none(),
@@ -373,9 +373,9 @@ fn check_call(
     if let Some(merging) = &merging {
         let deployed = from_one(&|root| on_vercel(root) && merging.is_into(Path::new(root)));
         if let Some(deployed) = deployed {
-            let (reach, head, own) = merging.reach(Path::new(&deployed), &pushed_in);
+            let (reach, head, repository) = merging.reach(Path::new(&deployed), &pushed_in);
             if reach == Reach::Project {
-                plain = own && call.is_none();
+                plain = repository.filter(|_| call.is_none());
                 project = deployed;
                 sends = head;
                 ship = to_vercel(ship);
@@ -417,7 +417,9 @@ fn check_call(
                 }
                 sends = push::tag_commits(&names, &pushed_in);
                 let deployed = from_one(&on_vercel);
-                plain = call.is_none() && !names.is_empty() && push::is_one_tag(&ship.what, cwd);
+                plain = (call.is_none() && !names.is_empty())
+                    .then(|| push::one_tag(&ship.what, cwd))
+                    .flatten();
                 let name = match names.as_slice() {
                     [name] if !may_reach_project || deployed.is_none() => name.clone(),
                     _ => String::new(),
@@ -473,15 +475,15 @@ fn check_call(
     let work_here = || work::of(cwd).filter(|_| merging.is_none() && !exact);
     if exact {
         let sent = (api_lands.is_none()).then(|| push::sent(&ship.what, cwd));
-        let parts = [sends, sent, work::of(cwd)];
+        let parts = [sends, sent, work::of(cwd), plain.clone()];
         sends = Some(parts.into_iter().flatten().collect());
-    } else if plain && ship.kind == ShipKind::Deploy {
-        sends = sends.or_else(|| Some("push".to_owned()));
+    } else if let Some(repository) = &plain {
+        sends = Some(format!("{} to {repository}", sends.unwrap_or_default()));
     } else if ship.kind == ShipKind::Deploy && names_its_own(&ship.what) {
         sends = Some(ship.what.clone());
     }
     let name = core.names().name_or_id(agent_id);
-    let judged = places::judge(core, &project, &ship, &name, addresses, plain);
+    let judged = places::judge(core, &project, &ship, &name, addresses, plain.as_deref());
     let place = judged.place.as_ref().map(|place| place.name().to_owned());
     let deploy = |call: Option<String>, telling: Option<Telling>| {
         let followed = ship.kind == ShipKind::Deploy || call.is_some() || telling.is_some();
@@ -561,7 +563,7 @@ fn check_call(
                 place: &gated,
                 key,
                 once,
-                routine: plain && places::judge::routine(&gated, &ship),
+                routine: plain.filter(|_| places::judge::routine(&gated, &ship)),
             };
             gate(core, agent_id, &project, ship, cwd, asking, judged.why)
         }
@@ -686,12 +688,13 @@ fn said_yes(option: Option<&str>) -> bool {
 }
 
 /// What a gate asks the person about: the place, the key its answer is kept under, and whether
-/// a yes covers the action once. Only a routine change offers to stop asking.
+/// a yes covers the action once. Only a routine change offers to stop asking, for the repository
+/// it goes through.
 struct Asking<'a> {
     place: &'a places::Place,
     key: String,
     once: bool,
-    routine: bool,
+    routine: Option<String>,
 }
 
 /// The call that puts a change of `ship` to the production place `place` to the person, which
@@ -771,12 +774,11 @@ fn call_for(
                 write.map_or_else(|| format!("Change {}", place.name()), |(_, button)| button),
             )),
             asking
-                .is_some_and(|asking| asking.routine)
-                .then(|| CallOption {
-                    detail: Some(
-                        "For plain pushes and merges. Anything else there still waits for you."
-                            .to_owned(),
-                    ),
+                .and_then(|asking| asking.routine.as_ref())
+                .map(|repository| CallOption {
+                    detail: Some(format!(
+                        "For plain pushes and merges to {repository}. Anything else there still waits for you."
+                    )),
                     ..option(
                         FROM_NOW_ON,
                         format!("Change {}, and from now on just tell me", place.name()),
@@ -795,6 +797,7 @@ fn call_for(
         place: Some(CallPlace {
             id: place.shown.id.clone(),
             name: place.name().to_owned(),
+            repository: asking.and_then(|asking| asking.routine.clone()),
         }),
         key: asking.map(|asking| asking.key.clone()),
         yes: Some(person_calls::HOLD_ALLOW.to_owned()),
@@ -1850,8 +1853,9 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
         _ => "Sikemux".to_owned(),
     });
     if option.as_deref() == Some(FROM_NOW_ON) {
-        if let Some(place) = place_of(core, call) {
-            places::just_tell(core, &call.project, place, from);
+        let repository = (call.place.as_ref()).and_then(|place| place.repository.as_deref());
+        if let (Some(place), Some(repository)) = (place_of(core, call), repository) {
+            places::just_tell(core, &call.project, place, repository, from);
         }
     }
     let asked = call.question.lines().next().unwrap_or_default();
@@ -2121,6 +2125,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         place: (hold.environment.clone()).map(|name| CallPlace {
             id: slug(&name),
             name,
+            repository: None,
         }),
         can_hand_back: false,
         multi: false,
