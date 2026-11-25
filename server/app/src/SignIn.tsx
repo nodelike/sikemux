@@ -5,7 +5,7 @@ import {
   type CodePurpose,
   type SignInStep,
 } from "@shared/account/account";
-import { IconBack, IconEye, IconEyeOff } from "@shared/ui/Icons";
+import { IconArrowLeft, IconEye, IconEyeOff } from "@shared/ui/Icons";
 import {
   useEffect,
   useEffectEvent,
@@ -15,11 +15,13 @@ import {
   type SubmitEvent,
 } from "react";
 
-import { Foot } from "./Frame.tsx";
+import { Gate, GateActions } from "./Frame.tsx";
+import "./gate.css";
 import { AppleMark, GitHubMark, GoogleMark } from "./icons.tsx";
 import { useInviteOrg } from "./invite.ts";
 import { brandMark, iconMark } from "./marks.ts";
 import {
+  DELETE_ACCOUNT,
   HOST,
   isPagePath,
   isSharePath,
@@ -27,11 +29,11 @@ import {
   noteSignUpReason,
   rememberReturn,
 } from "./navigation.ts";
-import { Btn, Field, Hero, Problem, Txt } from "./ui.tsx";
+import { Btn, Problem, Txt } from "./ui.tsx";
 
 type Provider = "oauth_apple" | "oauth_google" | "oauth_github";
 
-type Action = "apple" | "google" | "github" | "submit";
+type Action = "apple" | "google" | "github" | "submit" | "resend";
 
 const ACTIONS: Record<Provider, Action> = {
   oauth_apple: "apple",
@@ -73,6 +75,7 @@ export function SignIn({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState<Action>();
   const [problem, setProblem] = useState<string>();
+  const [resent, setResent] = useState(false);
   const queued = useRef<{ action: Action; work: () => Promise<void> }>(null);
   const [inviteToken] = useState(() =>
     location.pathname === JOIN ? location.hash.slice(1) : "",
@@ -83,6 +86,7 @@ export function SignIn({
     setProblem(undefined);
     setPassword("");
     setCode("");
+    setResent(false);
     setStep(next);
   };
 
@@ -155,6 +159,18 @@ export function SignIn({
 
   const forgot = () => attempt("submit", flow.forgot);
 
+  const resend = (purpose: CodePurpose) =>
+    attempt("resend", async () => {
+      const answer =
+        purpose === "trust"
+          ? await signIn.mfa.sendEmailCode()
+          : purpose === "reset"
+            ? await signIn.resetPasswordEmailCode.sendCode()
+            : await signUp.verifications.sendEmailCode();
+      if (answer.error) throw answer.error;
+      setResent(true);
+    });
+
   const submitCode = (purpose: CodePurpose, typed: string) =>
     attempt("submit", async () => {
       try {
@@ -210,16 +226,14 @@ export function SignIn({
       )
     ) : step.kind === "code" ? (
       <>
-        Sikemux sent a code to <span className="lit">{email}</span>,{" "}
-        {CODE_DETAIL[step.purpose]}.
+        Sikemux sent a code to <b>{email}</b>, {CODE_DETAIL[step.purpose]}.
       </>
     ) : step.kind === "create" ? (
       <>
-        A new account for <span className="lit">{email}</span>. At least 15
-        characters; a password found in a known breach is refused.
+        A new account for <b>{email}</b>. At least 15 characters.
       </>
     ) : (
-      <span className="lit">{email}</span>
+      email
     );
 
   const action =
@@ -229,11 +243,22 @@ export function SignIn({
         ? "Create account"
         : "Save password";
 
+  const mark =
+    step.kind === "code"
+      ? iconMark("mail")
+      : step.kind !== "email"
+        ? iconMark("key")
+        : location.pathname === DELETE_ACCOUNT
+          ? iconMark("warning")
+          : location.pathname === HOST
+            ? iconMark("laptop")
+            : brandMark;
+
   return (
-    <Hero
+    <Gate
       title={title}
       lede={lede}
-      mark={step.kind === "code" ? iconMark("mail") : brandMark}
+      mark={mark}
       scene={joining ? "blue" : location.pathname === HOST ? "teal" : "sign"}
       tone={
         busy !== undefined
@@ -244,61 +269,74 @@ export function SignIn({
       }
       back={
         step.kind === "email" ? undefined : (
-          <Txt onClick={back}>
-            <IconBack className="ic" />
+          <Txt className="gback" onClick={back}>
+            <IconArrowLeft size={14} />
             Back
           </Txt>
         )
       }
-      foot={<Foot />}
+      say={
+        step.kind === "create"
+          ? "A password found in a known breach is refused."
+          : undefined
+      }
     >
       {step.kind === "email" ? (
         <>
           {notice}
-          <div className="do">
+          <div className="ways">
             <Btn
+              quiet={busy !== undefined && busy !== "apple"}
               onClick={() => withProvider("oauth_apple")}
               disabled={busy !== undefined}
               busy={busy === "apple"}
             >
-              <AppleMark />
+              {busy === "apple" ? null : <AppleMark />}
               Continue with Apple
             </Btn>
             <Btn
-              quiet
+              quiet={busy !== "google"}
               onClick={() => withProvider("oauth_google")}
               disabled={busy !== undefined}
               busy={busy === "google"}
             >
-              <GoogleMark />
+              {busy === "google" ? null : <GoogleMark />}
               Continue with Google
             </Btn>
             <Btn
-              quiet
+              quiet={busy !== "github"}
               onClick={() => withProvider("oauth_github")}
               disabled={busy !== undefined}
               busy={busy === "github"}
             >
-              <GitHubMark />
+              {busy === "github" ? null : <GitHubMark />}
               Continue with GitHub
             </Btn>
-            <div className="or" role="separator">
-              or
-            </div>
           </div>
-          <form className="do" onSubmit={submit}>
-            <Field
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@example.com"
-              autoComplete="email"
-              aria-label="Email"
-              required
-            />
+          <div className="orl" role="separator">
+            <span>or</span>
+          </div>
+          <form onSubmit={submit}>
+            <label className={problem ? "gf bad" : "gf"}>
+              <span className="gfi">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    if (problem) setProblem(undefined);
+                  }}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  aria-label="Email"
+                  required
+                />
+              </span>
+            </label>
             <Problem>{problem}</Problem>
             <Btn
-              quiet
+              quiet={busy !== "submit"}
+              className="wide"
               type="submit"
               disabled={busy !== undefined}
               busy={busy === "submit"}
@@ -308,7 +346,7 @@ export function SignIn({
           </form>
         </>
       ) : step.kind === "code" ? (
-        <div className="do">
+        <>
           <CodeEntry
             code={code}
             onChange={typeCode}
@@ -316,9 +354,21 @@ export function SignIn({
             failed={problem !== undefined && code.length === 0}
           />
           <Problem>{problem}</Problem>
-        </div>
+          <GateActions>
+            <Txt
+              disabled={busy !== undefined}
+              onClick={() => resend(step.purpose)}
+            >
+              {busy === "resend"
+                ? "Sending…"
+                : resent
+                  ? "Code sent"
+                  : "Resend code"}
+            </Txt>
+          </GateActions>
+        </>
       ) : (
-        <form className="do" onSubmit={submit}>
+        <form onSubmit={submit}>
           <input
             type="email"
             value={email}
@@ -329,30 +379,36 @@ export function SignIn({
           <PasswordField
             key={step.kind}
             value={password}
-            onChange={setPassword}
+            onChange={(next) => {
+              setPassword(next);
+              if (problem) setProblem(undefined);
+            }}
             autoComplete={
               step.kind === "password" ? "current-password" : "new-password"
             }
+            bad={problem !== undefined}
           />
           {step.kind === "create" ? <div id="clerk-captcha" /> : null}
           <Problem>{problem}</Problem>
-          <Btn
-            type="submit"
-            disabled={busy !== undefined}
-            busy={busy === "submit"}
-          >
-            {action}
-          </Btn>
-          {step.kind === "password" ? (
-            <div>
+          <GateActions>
+            <Btn
+              type="submit"
+              disabled={busy !== undefined}
+              busy={busy === "submit"}
+            >
+              {busy === "submit" && step.kind === "create"
+                ? "Creating"
+                : action}
+            </Btn>
+            {step.kind === "password" ? (
               <Txt onClick={forgot} disabled={busy !== undefined}>
                 Forgot your password?
               </Txt>
-            </div>
-          ) : null}
+            ) : null}
+          </GateActions>
         </form>
       )}
-    </Hero>
+    </Gate>
   );
 }
 
@@ -360,32 +416,38 @@ export function PasswordField({
   value,
   onChange,
   autoComplete,
+  label = "Password",
+  bad,
 }: {
   value: string;
   onChange: (value: string) => void;
   autoComplete: string;
+  label?: string;
+  bad?: boolean;
 }) {
   const [shown, setShown] = useState(false);
   return (
-    <div className="secret">
-      <Field
-        type={shown ? "text" : "password"}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="Password"
-        autoComplete={autoComplete}
-        aria-label="Password"
-        autoFocus
-        required
-      />
-      <button
-        type="button"
-        onClick={() => setShown((was) => !was)}
-        aria-label={shown ? "Hide password" : "Show password"}
-      >
-        {shown ? <IconEyeOff size={16} /> : <IconEye size={16} />}
-      </button>
-    </div>
+    <label className={bad ? "gf bad" : "gf"}>
+      {label ? <span>{label}</span> : null}
+      <span className="gfi">
+        <input
+          type={shown ? "text" : "password"}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          autoComplete={autoComplete}
+          aria-label={label || "Password"}
+          autoFocus
+          required
+        />
+        <button
+          type="button"
+          onClick={() => setShown((was) => !was)}
+          aria-label={shown ? "Hide password" : "Show password"}
+        >
+          {shown ? <IconEyeOff size={15} /> : <IconEye size={15} />}
+        </button>
+      </span>
+    </label>
   );
 }
 
@@ -403,7 +465,19 @@ export function CodeEntry({
 }) {
   const [focused, setFocused] = useState(true);
   return (
-    <label className="digits" data-failed={failed || undefined}>
+    <label className={`tiles${failed ? " bad" : ""}${disabled ? " off" : ""}`}>
+      {Array.from({ length: 6 }, (_, index) => (
+        <span
+          key={index}
+          className={
+            focused && !disabled && index === Math.min(code.length, 5)
+              ? "cur"
+              : undefined
+          }
+        >
+          {code[index] ?? ""}
+        </span>
+      ))}
       <input
         value={code}
         onChange={(event) =>
@@ -413,23 +487,11 @@ export function CodeEntry({
         onBlur={() => setFocused(false)}
         inputMode="numeric"
         autoComplete="one-time-code"
-        aria-label="Code"
+        aria-label="Six digit code"
         maxLength={6}
         disabled={disabled}
         autoFocus
       />
-      {Array.from({ length: 6 }, (_, index) => (
-        <span
-          key={index}
-          className="digit"
-          data-current={
-            (focused && !disabled && index === Math.min(code.length, 5)) ||
-            undefined
-          }
-        >
-          {code[index] ?? ""}
-        </span>
-      ))}
     </label>
   );
 }

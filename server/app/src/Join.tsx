@@ -1,23 +1,55 @@
 import { useAuth, useClerk, useUser } from "@clerk/react";
 import type { Org } from "@sikemux/protocol";
-import { ApiProblem } from "@shared/account/api";
-import { IconBack } from "@shared/ui/Icons";
+import { ApiProblem, connectApi } from "@shared/account/api";
+import { IconArrowLeft } from "@shared/ui/Icons";
 import { type MouseEvent, useEffect, useEffectEvent, useState } from "react";
 
 import { useSignInWays } from "./AccountPage.tsx";
 import { problemText } from "./api.ts";
 import { Avatar } from "./Avatar.tsx";
 import { useClient } from "./client.ts";
+import { config } from "./config.ts";
 import { useCheer } from "./Field.tsx";
-import { Foot, Loading } from "./Frame.tsx";
-import { useInviteOrg } from "./invite.ts";
+import { Gate, GateActions, GateWho, Loading } from "./Frame.tsx";
 import { loadLogos, useOrgMark } from "./logos.ts";
-import { iconMark } from "./marks.ts";
+import { brandMark, iconMark } from "./marks.ts";
 import { HOSTS, JOIN } from "./navigation.ts";
 import { ROLE_WORDS } from "./orgs.ts";
-import { Btn, Field, Hero, Problem, Row, Rows, Txt, useAction } from "./ui.tsx";
+import { orgScene } from "./scenes.ts";
+import { Btn, Problem, Txt, useAction } from "./ui.tsx";
 
 type Follow = (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
+
+type InvitePreview =
+  | { state: "unknown" }
+  | { state: "ready"; orgName: string }
+  | { state: "gone" };
+
+function useInvitePreview(token: string) {
+  const [preview, setPreview] = useState<InvitePreview>({ state: "unknown" });
+
+  useEffect(() => {
+    if (!token) return;
+    let current = true;
+    connectApi({
+      url: config.apiUrl,
+      offline: "Can't reach Sikemux.",
+    })
+      .previewOrgInvite({ token })
+      .then(
+        ({ orgName }) => {
+          if (!current) return;
+          setPreview(orgName ? { state: "ready", orgName } : { state: "gone" });
+        },
+        () => undefined,
+      );
+    return () => {
+      current = false;
+    };
+  }, [token]);
+
+  return { preview, markGone: () => setPreview({ state: "gone" }) };
+}
 
 export function JoinPage({
   canPaste,
@@ -38,7 +70,7 @@ export function JoinPage({
   const signIns = useSignInWays();
   const cheer = useCheer();
   const [token, setToken] = useState(() => location.hash.slice(1));
-  const orgName = useInviteOrg(token);
+  const { preview, markGone } = useInvitePreview(token);
   const action = useAction();
   const opening = useAction();
   const [joined, setJoined] = useState<Org>();
@@ -55,15 +87,15 @@ export function JoinPage({
 
   if (joined)
     return (
-      <Hero
+      <Gate
         title={`You're in ${joined.name}`}
         lede={`You hold one of its seats as ${ROLE_WORDS[joined.role]}, so you have Pro on your own hosts while you hold it.`}
         mark={joinedMark}
-        scene="blue"
+        scene={orgScene(joined.id)}
         tone="worked"
-        foot={<Foot />}
       >
-        <div className="do">
+        <Problem>{opening.problem}</Problem>
+        <GateActions>
           <Btn
             busy={opening.busy}
             onClick={() =>
@@ -76,9 +108,8 @@ export function JoinPage({
           >
             Open {joined.name}
           </Btn>
-        </div>
-        <Problem>{opening.problem}</Problem>
-      </Hero>
+        </GateActions>
+      </Gate>
     );
 
   if (!token)
@@ -88,65 +119,91 @@ export function JoinPage({
       <Loading />
     );
 
-  const name = user?.fullName || user?.username || "this account";
+  if (preview.state === "gone")
+    return (
+      <Gate
+        title="This invite has ended"
+        lede="It was already used, taken back, or is over 7 days old."
+        mark={iconMark("link")}
+        scene="sign"
+        tone="failed"
+        say="Ask whoever sent it for a new one."
+      >
+        <GateActions>
+          <Btn quiet onClick={onHome}>
+            Go to your account
+          </Btn>
+        </GateActions>
+      </Gate>
+    );
+
+  const orgName = preview.state === "ready" ? preview.orgName : null;
+  const name = user?.fullName || user?.username || "Your account";
   const ways = new Intl.ListFormat("en", { type: "conjunction" }).format(
     signIns.map((way) => way.name),
   );
+
   return (
-    <Hero
+    <Gate
       title={orgName ? `Join ${orgName}` : "Join an org"}
       lede={`You've been sent an invite link. Joining takes one of ${
         orgName ? `${orgName}'s` : "the org's"
-      } seats and gives you Pro on your own hosts while you hold it. Nobody in the org sees your hosts or your email address.`}
-      mark={iconMark("link")}
-      scene="blue"
-      tone={action.problem ? "failed" : undefined}
-      foot={<Foot />}
+      } seats and gives you Pro on your own hosts while you hold it.`}
+      mark={brandMark}
+      scene={orgName ? "blue" : "sign"}
+      tone={action.problem ? "failed" : action.busy ? "waiting" : undefined}
+      say="Nobody there sees your hosts or your email address. The invite works with any account."
     >
-      <Rows>
-        <Row
-          lead={<Avatar size={28} />}
-          name={`Joining as ${name}`}
-          detail={`The account on this browser. It signs in with ${ways}.`}
-          wrap
-          end={
-            <Txt
-              onClick={() => void signOut({ redirectUrl: `${JOIN}#${token}` })}
-            >
-              Not you?
-            </Txt>
-          }
-        />
-      </Rows>
-      <div className="do">
+      <GateWho
+        lead={<Avatar size={36} />}
+        name={name}
+        detail={`This browser's account. Signs in with ${ways}.`}
+        action={
+          <Txt
+            disabled={action.busy}
+            onClick={() => void signOut({ redirectUrl: `${JOIN}#${token}` })}
+          >
+            Not you?
+          </Txt>
+        }
+      />
+      <Problem>{action.problem}</Problem>
+      <GateActions>
         <Btn
           busy={action.busy}
           onClick={() =>
             void action.run(
               async () => {
-                const org = await (
-                  await client("join the org")
-                ).joinOrg({ token });
-                cheer();
-                loadLogos([org], getToken);
-                setJoined(org);
+                try {
+                  const org = await (
+                    await client("join the org")
+                  ).joinOrg({ token });
+                  cheer();
+                  loadLogos([org], getToken);
+                  setJoined(org);
+                } catch (error) {
+                  if (error instanceof ApiProblem && error.status === 404) {
+                    markGone();
+                    return;
+                  }
+                  throw error;
+                }
               },
-              (error) =>
-                error instanceof ApiProblem && error.status === 404
-                  ? `${problemText(error)} Ask whoever sent the link for a new one.`
-                  : problemText(error),
+              (error) => problemText(error),
             )
           }
         >
-          {orgName ? `Join ${orgName}` : "Join the org"}
+          {action.busy
+            ? "Joining"
+            : orgName
+              ? `Join ${orgName}`
+              : "Join the org"}
         </Btn>
-      </div>
-      <Problem>{action.problem}</Problem>
-      <p className="fine">
-        The link works with any account. You don&rsquo;t need an address at{" "}
-        {orgName ?? "the org"} to join.
-      </p>
-    </Hero>
+        <Btn quiet disabled={action.busy} onClick={onHome}>
+          Not now
+        </Btn>
+      </GateActions>
+    </Gate>
   );
 }
 
@@ -161,21 +218,21 @@ function PasteLink({
   const [link, setLink] = useState("");
   const [problem, setProblem] = useState<string>();
   return (
-    <Hero
+    <Gate
       title="Join an org"
-      lede="You can be in as many as you're invited to."
+      lede="Paste the invite you were sent. You can be in as many orgs as you're invited to."
       mark={iconMark("link")}
-      scene="blue"
+      scene="sign"
       tone={problem ? "failed" : undefined}
       back={
-        <a className="txt" href={HOSTS} onClick={follow(HOSTS)}>
-          <IconBack className="ic" /> Back
+        <a className="txt gback" href={HOSTS} onClick={follow(HOSTS)}>
+          <IconArrowLeft size={14} />
+          Back
         </a>
       }
-      foot={<Foot />}
+      say="If a link brought you here, it has no invite in it. Ask the org's owner or an admin for a new one."
     >
       <form
-        className="do"
         onSubmit={(event) => {
           event.preventDefault();
           const token = /#([\w-]{43})$/.exec(link.trim())?.[1];
@@ -186,26 +243,29 @@ function PasteLink({
             );
         }}
       >
-        <Field
-          aria-label="Invite link"
-          placeholder={`${location.host}${JOIN}#…`}
-          value={link}
-          autoFocus
-          autoComplete="off"
-          onChange={(event) => {
-            setLink(event.target.value);
-            setProblem(undefined);
-          }}
-        />
-        <Btn type="submit" disabled={!link.trim()}>
-          Continue
-        </Btn>
+        <label className={problem ? "gf bad" : "gf"}>
+          <span>Invite link</span>
+          <span className="gfi">
+            <input
+              aria-label="Invite link"
+              placeholder={`${location.host}${JOIN}#…`}
+              value={link}
+              autoFocus
+              autoComplete="off"
+              onChange={(event) => {
+                setLink(event.target.value);
+                setProblem(undefined);
+              }}
+            />
+          </span>
+        </label>
+        <Problem>{problem}</Problem>
+        <GateActions>
+          <Btn type="submit" disabled={!link.trim()}>
+            Continue
+          </Btn>
+        </GateActions>
       </form>
-      <Problem>{problem}</Problem>
-      <p className="fine">
-        If a link brought you here, it has no invite in it. Ask the org&rsquo;s
-        owner or an admin for a new link, and open the whole link.
-      </p>
-    </Hero>
+    </Gate>
   );
 }

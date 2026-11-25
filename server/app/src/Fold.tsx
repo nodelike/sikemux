@@ -1,4 +1,4 @@
-import { useAuth, useClerk } from "@clerk/react";
+import { useAuth, useClerk, useUser } from "@clerk/react";
 import { errorCode, orReverify } from "@shared/account/account";
 import { ApiProblem } from "@shared/account/api";
 import type {
@@ -7,20 +7,27 @@ import type {
   FoldPreview,
   FoldWhy,
 } from "@sikemux/protocol";
+import { avatarSeed } from "@sikemux/protocol/avatar";
+import { IconArrowLeft, IconInfo, IconMail } from "@shared/ui/Icons";
 import { useEffect, useState } from "react";
 
 import { api, problemText, signedInToken } from "./api.ts";
-import { RestoreAccount } from "./RestoreAccount.tsx";
+import { Avatar, PersonAvatar } from "./Avatar.tsx";
 import { DeleteAccount } from "./DeleteAccount.tsx";
-import { Foot, Loading } from "./Frame.tsx";
+import { useCheer } from "./Field.tsx";
+import { Gate, GateActions, Loading } from "./Frame.tsx";
 import { brandMark, iconMark } from "./marks.ts";
 import { JOIN, RETURN_KEY, SIGNED_UP_FOR_KEY } from "./navigation.ts";
+import { RestoreAccount } from "./RestoreAccount.tsx";
 import { useReverified } from "./Reverify.tsx";
-import { Btn, Hero, Problem, Txt } from "./ui.tsx";
+import { Btn, Problem, Txt } from "./ui.tsx";
 
 const WAITING_KEY = "sikemux.fold";
 const SIGNED_IN_HERE_KEY = "sikemux.signedInHere";
 const settledKey = (userId: string) => `sikemux.oneAccount:${userId}`;
+
+const maskEmail = (email: string) =>
+  email.replace(/^(.)[^@]*(?=@)/, (_, first: string) => `${first}•••`);
 
 /** A fold this tab started, waiting for the person's other account to confirm it. */
 type Waiting = {
@@ -60,7 +67,7 @@ function hintNow(): { hint?: FoldHint; inviteToken?: string } {
   return {};
 }
 
-type Gate =
+type FoldGate =
   | { kind: "checking" }
   | { kind: "open" }
   | { kind: "catch"; caught: FoldCatch; inviteToken?: string }
@@ -75,7 +82,7 @@ export function useFoldGate(
   onDeleted: (deletesAt?: string) => void,
 ) {
   const { getToken, userId } = useAuth();
-  const [gate, setGate] = useState<Gate>({ kind: "checking" });
+  const [gate, setGate] = useState<FoldGate>({ kind: "checking" });
   const [round, setRound] = useState(0);
 
   useEffect(() => {
@@ -221,7 +228,7 @@ function Catch({
   const [keeping, setKeeping] = useState(false);
   const [keepProblem, setKeepProblem] = useState<string>();
   const [deleting, setDeleting] = useState(false);
-  const address = caught.address ?? "this address";
+  const address = caught.address ? maskEmail(caught.address) : "this address";
 
   if (caught.deletesAt)
     return (
@@ -253,18 +260,27 @@ function Catch({
 
   const why = caught.why ?? "browser";
   return (
-    <Hero
+    <Gate
       title={caught.title}
       lede={caught.words}
-      mark={iconMark("user")}
+      mark={iconMark("mail")}
       scene="sign"
       tone={problem || keepProblem ? "failed" : "waiting"}
-      foot={<Foot />}
+      say={
+        caught.mustFold ? (
+          <Txt bad disabled={busy} onClick={() => setDeleting(true)}>
+            Delete this account instead
+          </Txt>
+        ) : undefined
+      }
     >
       {confirm}
-      <p className="who">{address}</p>
-      <div className="do">
-        <Problem>{problem ?? keepProblem}</Problem>
+      <div className="gaddr">
+        <IconMail size={15} />
+        <span>{address}</span>
+      </div>
+      <Problem>{problem ?? keepProblem}</Problem>
+      <GateActions>
         <Btn
           disabled={busy || keeping}
           busy={busy}
@@ -289,18 +305,11 @@ function Catch({
             busy={keeping}
             onClick={() => void keepNew()}
           >
-            I'm new here
+            I&rsquo;m new here
           </Btn>
         )}
-        {caught.mustFold ? (
-          <div>
-            <Txt bad disabled={busy} onClick={() => setDeleting(true)}>
-              Delete this account instead
-            </Txt>
-          </div>
-        ) : null}
-      </div>
-    </Hero>
+      </GateActions>
+    </Gate>
   );
 }
 
@@ -309,8 +318,9 @@ export function FoldWaiting() {
   const [waiting, setWaiting] = useState(waitingFold);
   if (!waiting) return null;
   return (
-    <p className="note">
-      {waiting.waitingWords}{" "}
+    <div className="gnote">
+      <IconInfo size={15} />
+      <span>{waiting.waitingWords}</span>
       <Txt
         onClick={() => {
           dropWaiting();
@@ -319,7 +329,7 @@ export function FoldWaiting() {
       >
         Cancel
       </Txt>
-    </p>
+    </div>
   );
 }
 
@@ -339,7 +349,9 @@ function ConfirmFold({
   onCancel: () => void;
 }) {
   const { getToken } = useAuth();
+  const { user } = useUser();
   const { signOut } = useClerk();
+  const cheer = useCheer();
   const [read, setRead] = useState<Read>({ state: "loading" });
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
@@ -385,15 +397,19 @@ function ConfirmFold({
 
   if (read.state === "failed")
     return (
-      <Hero
+      <Gate
         title="Nothing was brought over"
-        mark={iconMark("user")}
+        lede={read.problem}
+        mark={read.sameAccount ? iconMark("mail") : iconMark("link")}
         scene="sign"
         tone="failed"
-        foot={<Foot />}
+        say={
+          read.sameAccount
+            ? undefined
+            : "Start again from the account you want to bring over."
+        }
       >
-        <div className="do">
-          <Problem>{read.problem}</Problem>
+        <GateActions>
           {read.sameAccount ? (
             <>
               <Btn onClick={() => void signOut({ redirectUrl: "/" })}>
@@ -406,23 +422,22 @@ function ConfirmFold({
           ) : (
             <Btn onClick={onCancel}>Continue</Btn>
           )}
-        </div>
-      </Hero>
+        </GateActions>
+      </Gate>
     );
 
   const seatComing = waiting.why === "seat";
 
   if (read.state === "done")
     return (
-      <Hero
+      <Gate
         title={read.title}
         lede={read.words}
         mark={brandMark}
         scene="sign"
         tone="worked"
-        foot={<Foot />}
       >
-        <div className="do">
+        <GateActions>
           <Btn
             onClick={() =>
               seatComing ? void signOut({ redirectUrl: "/team" }) : onDone()
@@ -430,8 +445,8 @@ function ConfirmFold({
           >
             {seatComing ? "Sign in" : "Continue"}
           </Btn>
-        </div>
-      </Hero>
+        </GateActions>
+      </Gate>
     );
 
   const { preview } = read;
@@ -442,6 +457,7 @@ function ConfirmFold({
     try {
       await run();
       dropWaiting();
+      cheer();
       setRead({
         state: "done",
         title: preview.doneTitle,
@@ -454,27 +470,67 @@ function ConfirmFold({
     }
   };
 
+  const fromLabel = seatComing ? "This account" : "The new account";
+  const toLabel = seatComing ? "Your other account" : "This account";
+  const fromDetail = maskEmail(preview.address);
+  const toDetail =
+    preview.keptName ||
+    (preview.keptAddress ? maskEmail(preview.keptAddress) : undefined) ||
+    (!seatComing ? user?.fullName || user?.username || undefined : undefined) ||
+    "Kept account";
+
   return (
-    <Hero
+    <Gate
       title={preview.title}
       lede={preview.words}
-      mark={iconMark("user")}
+      mark={iconMark("users")}
       scene="sign"
       tone={problem ? "failed" : "waiting"}
-      foot={<Foot />}
     >
       {confirm}
-      <p className="who">{preview.address}</p>
-      <div className="do">
-        <Problem>{problem}</Problem>
+      <div className="twos">
+        <div className="twos-side">
+          {seatComing ? (
+            <Avatar size={32} />
+          ) : (
+            <PersonAvatar
+              seed={avatarSeed(preview.address)}
+              imageUrl={null}
+              size={32}
+            />
+          )}
+          <span className="twos-tx">
+            <b>{fromLabel}</b>
+            <small>{fromDetail}</small>
+          </span>
+        </div>
+        <IconArrowLeft size={16} className="twos-arrow" aria-hidden="true" />
+        <div className="twos-side">
+          {seatComing ? (
+            <PersonAvatar
+              seed={avatarSeed(preview.keptAddress ?? preview.keptName ?? "to")}
+              imageUrl={null}
+              size={32}
+            />
+          ) : (
+            <Avatar size={32} />
+          )}
+          <span className="twos-tx">
+            <b>{toLabel}</b>
+            <small>{toDetail}</small>
+          </span>
+        </div>
+      </div>
+      <Problem>{problem}</Problem>
+      <GateActions>
         <Btn busy={busy} onClick={() => void bring()}>
           {seatComing ? "Move the seat" : "Bring it here"}
         </Btn>
         <Btn quiet disabled={busy} onClick={onCancel}>
           Cancel
         </Btn>
-      </div>
-    </Hero>
+      </GateActions>
+    </Gate>
   );
 }
 
