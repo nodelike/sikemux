@@ -8,8 +8,8 @@ use serde_json::{Map, Value};
 use sikemux_markdown::{Doc, MarkdownOptions, MdChange, MdOp, Patch};
 
 use sikemux_view::chat::{
-    ChatActivity, ChatChange, ChatConnection, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView,
-    PartTree, SubagentCard, ToolStatus,
+    ChatActivity, ChatChange, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole,
+    ChatView, PartTree, SubagentCard, ToolStatus,
 };
 
 use super::event::ChatEvent;
@@ -79,13 +79,28 @@ impl PageOf {
 /// The most of a page's JSON a client is sent at once, as of the window it opened with.
 pub const PAGE_BYTES: usize = TAIL_BYTES;
 
+struct ByteCount(usize);
+
+impl std::io::Write for ByteCount {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn json_len<T: serde::Serialize>(value: &T) -> usize {
+    let mut count = ByteCount(0);
+    serde_json::to_writer(&mut count, value).map_or(0, |()| count.0)
+}
+
 /// Keeps as many of `rows` as stay under `budget` bytes of JSON, whole, counted from the
 /// newest when `newest` and from the oldest otherwise; at least one stays. Says whether any went.
 fn within(rows: &mut Vec<ChatMessage>, budget: usize, newest: bool) -> bool {
-    let sizes: Vec<usize> = rows
-        .iter()
-        .map(|row| serde_json::to_vec(row).map_or(0, |json| json.len()))
-        .collect();
+    let sizes: Vec<usize> = rows.iter().map(json_len).collect();
     let mut total = 0;
     let mut kept = 0;
     let order: Box<dyn Iterator<Item = &usize>> = match newest {
@@ -225,7 +240,11 @@ fn open_part(transcript: &Transcript, position: usize) -> Option<usize> {
 
 /// The row with every tree read, for a client that holds none of it.
 fn whole_row(row: &Row) -> ChatMessage {
-    fit_frame(with_trees(row.msg.clone()))
+    whole_row_sized(row).0
+}
+
+fn whole_row_sized(row: &Row) -> (ChatMessage, usize) {
+    fit_frame_sized(with_trees(row.msg.clone()))
 }
 
 /// The most of a row that goes in one frame, leaving room for what travels with it.
@@ -235,9 +254,14 @@ const CUT_TEXT_BYTES: usize = 4 * 1024 * 1024;
 
 /// `msg` as it fits in a frame: a row too big for one keeps the first 4 MB of each long text,
 /// saying how much it left off, rather than not going at all.
-fn fit_frame(mut msg: ChatMessage) -> ChatMessage {
-    if serde_json::to_vec(&msg).map_or(0, |json| json.len()) <= ROW_FRAME_BYTES {
-        return msg;
+fn fit_frame(msg: ChatMessage) -> ChatMessage {
+    fit_frame_sized(msg).0
+}
+
+fn fit_frame_sized(mut msg: ChatMessage) -> (ChatMessage, usize) {
+    let bytes = json_len(&msg);
+    if bytes <= ROW_FRAME_BYTES {
+        return (msg, bytes);
     }
     let options = reading(msg.role);
     for part in &mut msg.parts {
@@ -266,7 +290,8 @@ fn fit_frame(mut msg: ChatMessage) -> ChatMessage {
             *md = Some(read_as(text, options));
         }
     }
-    msg
+    let bytes = json_len(&msg);
+    (msg, bytes)
 }
 
 /// `msg` with the tree of each text the agent or the person wrote read, as clients are sent it.
@@ -278,6 +303,103 @@ pub fn with_trees(mut msg: ChatMessage) -> ChatMessage {
         }
     }
     msg
+}
+
+fn head_field(head: &ChatHead, name: &str) -> Value {
+    let ChatHead {
+        session_id,
+        connection,
+        running,
+        turned,
+        permission_mode,
+        changing_mode,
+        turn_opening,
+        retrying,
+        error,
+        failure,
+        stop_reason,
+        title,
+        usage,
+        compactions,
+        placed,
+        plan,
+        commands,
+        capabilities,
+        setup,
+        model,
+        models_unread,
+        effort,
+        speed,
+        session_mode,
+        permissions,
+        tasks,
+        running_subagents,
+        queued,
+        mail,
+        guests,
+        triggers,
+        earlier_lost,
+        ended,
+        active_tool,
+        activity,
+        turn,
+        chief,
+        chief_hears,
+        shown,
+        suggestion,
+        handoff,
+        expired_cache,
+        draft,
+        goal,
+    } = head;
+    let value = match name {
+        "sessionId" => serde_json::to_value(session_id),
+        "connection" => serde_json::to_value(connection),
+        "running" => serde_json::to_value(running),
+        "turned" => serde_json::to_value(turned),
+        "permissionMode" => serde_json::to_value(permission_mode),
+        "changingMode" => serde_json::to_value(changing_mode),
+        "turnOpening" => serde_json::to_value(turn_opening),
+        "retrying" => serde_json::to_value(retrying),
+        "error" => serde_json::to_value(error),
+        "failure" => serde_json::to_value(failure),
+        "stopReason" => serde_json::to_value(stop_reason),
+        "title" => serde_json::to_value(title),
+        "usage" => serde_json::to_value(usage),
+        "compactions" => serde_json::to_value(compactions),
+        "placed" => serde_json::to_value(placed),
+        "plan" => serde_json::to_value(plan),
+        "commands" => serde_json::to_value(commands),
+        "capabilities" => serde_json::to_value(capabilities),
+        "setup" => Ok(setup.clone()),
+        "model" => serde_json::to_value(model),
+        "modelsUnread" => serde_json::to_value(models_unread),
+        "effort" => serde_json::to_value(effort),
+        "speed" => serde_json::to_value(speed),
+        "sessionMode" => serde_json::to_value(session_mode),
+        "permissions" => serde_json::to_value(permissions),
+        "tasks" => serde_json::to_value(tasks),
+        "runningSubagents" => serde_json::to_value(running_subagents),
+        "queued" => serde_json::to_value(queued),
+        "mail" => serde_json::to_value(mail),
+        "guests" => serde_json::to_value(guests),
+        "triggers" => serde_json::to_value(triggers),
+        "earlierLost" => serde_json::to_value(earlier_lost),
+        "ended" => serde_json::to_value(ended),
+        "activeTool" => serde_json::to_value(active_tool),
+        "activity" => serde_json::to_value(activity),
+        "turn" => serde_json::to_value(turn),
+        "chief" => serde_json::to_value(chief),
+        "chiefHears" => serde_json::to_value(chief_hears),
+        "shown" => serde_json::to_value(shown),
+        "suggestion" => serde_json::to_value(suggestion),
+        "handoff" => serde_json::to_value(handoff),
+        "expiredCache" => serde_json::to_value(expired_cache),
+        "draft" => serde_json::to_value(draft),
+        "goal" => serde_json::to_value(goal),
+        _ => Ok(unset(name)),
+    };
+    value.unwrap_or_else(|_| unset(name))
 }
 
 fn field(row: &ChatMessage, name: &str) -> Value {
@@ -457,15 +579,9 @@ impl Fold {
             out.push(ChatChange::Drop { from });
         }
         if !self.head_dirty.is_empty() {
-            let whole = serde_json::to_value(&self.head).unwrap_or_default();
             let set: Map<String, Value> = std::mem::take(&mut self.head_dirty)
                 .into_iter()
-                .map(|name| {
-                    (
-                        name.to_owned(),
-                        whole.get(name).cloned().unwrap_or_else(|| unset(name)),
-                    )
-                })
+                .map(|name| (name.to_owned(), head_field(&self.head, name)))
                 .collect();
             out.push(ChatChange::Head {
                 set: Value::Object(set),
@@ -613,13 +729,8 @@ impl Fold {
         self.main.rows.first().map(|row| row.index)
     }
 
-    /// How many bytes `row` is as a client opening the chat is sent it.
-    fn sent_bytes(&self, row: &Row) -> usize {
+    fn cache_sent_bytes(&self, row: &Row, bytes: usize) {
         let mut sizes = self.sent_bytes.borrow_mut();
-        if let Some(&(_, bytes)) = sizes.get(&row.msg.id).filter(|(v, _)| *v == row.v) {
-            return bytes;
-        }
-        let bytes = serde_json::to_vec(&whole_row(row)).map_or(0, |json| json.len());
         if sizes.len() > 2 * self.main.rows.len() + 64 {
             let held: std::collections::HashSet<&str> = self
                 .main
@@ -630,6 +741,20 @@ impl Fold {
             sizes.retain(|id, _| held.contains(id.as_str()));
         }
         sizes.insert(row.msg.id.clone(), (row.v, bytes));
+    }
+
+    /// How many bytes `row` is as a client opening the chat is sent it.
+    fn sent_bytes(&self, row: &Row) -> usize {
+        if let Some(&(_, bytes)) = self
+            .sent_bytes
+            .borrow()
+            .get(&row.msg.id)
+            .filter(|(v, _)| *v == row.v)
+        {
+            return bytes;
+        }
+        let (_, bytes) = whole_row_sized(row);
+        self.cache_sent_bytes(row, bytes);
         bytes
     }
 
@@ -704,8 +829,35 @@ impl Fold {
     /// The chat as a client opening it is sent. `older` says whether the
     /// chat's events hold turns before the fold's first row.
     pub fn view(&self, older: bool) -> ChatView {
-        let start = self.window_start();
-        let rows: Vec<&Row> = self.main.rows.iter().skip(start).collect();
+        let all = &self.main.rows;
+        let mut turns = 0;
+        let mut bytes = 0;
+        let mut start = None;
+        let mut piece = None;
+        let mut built: Vec<(usize, ChatMessage)> = Vec::new();
+        for (position, row) in all.iter().enumerate().rev() {
+            let (msg, row_bytes) = whole_row_sized(row);
+            self.cache_sent_bytes(row, row_bytes);
+            bytes += row_bytes;
+            if bytes > TAIL_BYTES && (start.is_some() || piece.is_some()) {
+                break;
+            }
+            built.push((position, msg));
+            piece = Some(position);
+            if starts_turn(all, position) {
+                start = Some(position);
+                turns += 1;
+                if turns >= TAIL_TURNS {
+                    break;
+                }
+            }
+        }
+        let start = start.or(piece).unwrap_or(0);
+        while built.last().is_some_and(|(position, _)| *position < start) {
+            built.pop();
+        }
+        built.reverse();
+        let rows: Vec<&Row> = all.iter().skip(start).collect();
         let older_before = rows
             .first()
             .filter(|_| start > 0 || older)
@@ -716,7 +868,7 @@ impl Fold {
         ChatView {
             head,
             subagents: self.subagent_rows(&rows),
-            rows: rows.iter().map(|row| whole_row(row)).collect(),
+            rows: built.into_iter().map(|(_, msg)| msg).collect(),
             older_before,
         }
     }
@@ -924,6 +1076,7 @@ impl Fold {
         }
         self.head_dirty.clear();
         self.dropped = None;
+        self.resolve_named_all();
         self.settle_runs();
         for transcript in std::iter::once(&mut self.main).chain(self.subs.values_mut()) {
             transcript.touched.clear();

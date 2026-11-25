@@ -73,6 +73,8 @@ pub struct Inner {
     settle_scheduled: bool,
     catch_up_scheduled: bool,
     start: Option<ChatStart>,
+    config_options: Option<Value>,
+    status: Option<Value>,
     permission_mode: PermissionMode,
     title: Option<String>,
     /// The session ended, so nobody new is let in to wait for events that
@@ -276,13 +278,15 @@ impl Feed {
             inner: Mutex::new(Inner {
                 subscribers: HashMap::new(),
                 replay: Replay::new(MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS, history),
-                fold: Some(Fold::new(permission_mode)),
+                fold: None,
                 offers_effort: false,
                 flush_scheduled: false,
                 flushed_at: None,
                 settle_scheduled: false,
                 catch_up_scheduled: false,
                 start: None,
+                config_options: None,
+                status: None,
                 permission_mode,
                 title: None,
                 cost_usd: None,
@@ -340,9 +344,16 @@ impl Feed {
             .iter()
             .rev()
             .find_map(|(_, _, event)| session_title(&event.payload));
+        let config_options = replay
+            .standing
+            .iter()
+            .rev()
+            .find_map(|(_, _, event)| config_options_in(&event.payload).cloned());
         let mut inner = self.inner.locked();
         inner.replay = replay;
         inner.title = title;
+        inner.config_options = config_options;
+        inner.status = None;
         inner.fold = None;
         self.account(&inner);
     }
@@ -354,6 +365,19 @@ impl Feed {
         replay.seq = state.seq;
         replay.unsent = true;
         replay.unnumbered = state.seq + 1;
+        let config_options = replay
+            .standing
+            .iter()
+            .rev()
+            .find_map(|(_, _, event)| config_options_in(&event.payload).cloned())
+            .or_else(|| {
+                state
+                    .start
+                    .as_ref()
+                    .and_then(|start| start.setup.get("configOptions"))
+                    .filter(|options| options.is_array())
+                    .cloned()
+            });
         let feed = Self::counted(Arc::new_cyclic(|me| Self {
             me: me.clone(),
             agent_id,
@@ -376,6 +400,8 @@ impl Feed {
                 settle_scheduled: false,
                 catch_up_scheduled: false,
                 start: state.start,
+                config_options,
+                status: None,
                 permission_mode: state.permission_mode,
                 title: state.title,
                 cost_usd: None,
@@ -459,6 +485,8 @@ impl Feed {
                         &json!(start),
                         0,
                     );
+                } else if let Some(status) = &inner.status {
+                    fold.apply(inner.replay.next_index, ChatEventKind::Status, status, 0);
                 }
                 fold.answering(inner.replay.held_ask());
                 for (index, seq, event) in inner.replay.fold_events() {
@@ -582,11 +610,34 @@ impl Feed {
         if let Some(cost) = reported_cost(&payload) {
             inner.cost_usd = Some(cost);
         }
+        match kind {
+            ChatEventKind::Ready => {
+                inner.status = None;
+                if let Some(options) = payload
+                    .get("setup")
+                    .and_then(|setup| setup.get("configOptions"))
+                    .filter(|options| options.is_array())
+                {
+                    inner.config_options = Some(options.clone());
+                }
+            }
+            ChatEventKind::Status => {
+                inner.status = Some(payload.clone());
+            }
+            ChatEventKind::SessionUpdate => {
+                if let Some(options) = config_options_in(&payload) {
+                    inner.config_options = Some(options.clone());
+                }
+            }
+            _ => {}
+        }
         self.fold_in(inner, index, kind, &payload);
         if kind == ChatEventKind::SessionUpdate {
             self.flush_later(inner);
         } else {
-            self.flush_locked(inner);
+            if !inner.subscribers.is_empty() || inner.holding {
+                self.flush_locked(inner);
+            }
             self.let_go(inner);
         }
         index
@@ -932,6 +983,12 @@ impl Feed {
         if !inner.holding {
             return;
         }
+        if inner.subscribers.is_empty() {
+            inner.holding = false;
+            inner.earlier_unsent = false;
+            self.let_go(&mut inner);
+            return;
+        }
         self.flush_locked(&mut inner);
         inner.holding = false;
         let since = inner.replay.seq;
@@ -1010,6 +1067,13 @@ impl Feed {
         {
             inner.reach = None;
         }
+        if let Some(options) = start
+            .setup
+            .get("configOptions")
+            .filter(|options| options.is_array())
+        {
+            inner.config_options = Some(options.clone());
+        }
         inner.start = Some(start);
     }
 
@@ -1018,6 +1082,8 @@ impl Feed {
         {
             let mut inner = self.inner.locked();
             inner.start = None;
+            inner.config_options = None;
+            inner.status = None;
             inner.reach = None;
             inner.offers_effort = false;
             if let Some(fold) = inner.fold.as_mut() {
@@ -1324,7 +1390,12 @@ impl Feed {
     }
 
     pub fn config_options(&self) -> Option<Value> {
-        self.inner.locked().fold.as_ref()?.config_options().cloned()
+        let inner = self.inner.locked();
+        inner
+            .fold
+            .as_ref()
+            .and_then(|fold| fold.config_options().cloned())
+            .or_else(|| inner.config_options.clone())
     }
 
     pub fn forget_permission(&self, request_id: &str) {
@@ -1529,6 +1600,18 @@ impl super::find::Rows for FindRows<'_> {
     fn superseded(&self) -> bool {
         self.feed.finding.locked().get(&self.client) != Some(&self.number)
     }
+}
+
+fn config_options_in(payload: &Value) -> Option<&Value> {
+    let update = payload.get("update")?;
+    if UpdateKind::parse(update.get("sessionUpdate")?.as_str()?)
+        != Some(UpdateKind::ConfigOptionUpdate)
+    {
+        return None;
+    }
+    update
+        .get("configOptions")
+        .filter(|options| options.is_array())
 }
 
 fn reported_cost(payload: &Value) -> Option<f64> {

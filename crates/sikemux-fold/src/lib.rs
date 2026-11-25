@@ -190,6 +190,8 @@ impl Stream {
 struct Side {
     /// Bytes of its text already sent.
     sent: usize,
+    /// Bytes of its text already scanned for `@name` mentions.
+    named_scanned: usize,
     /// The tree of the text still being written, as its clients hold it.
     doc: Option<Doc>,
 }
@@ -3398,6 +3400,10 @@ impl Fold {
                 }
             }
             if !changed.is_empty() {
+                row.msg.named.clear();
+                for side in &mut row.sides {
+                    side.named_scanned = 0;
+                }
                 for part in changed {
                     row.touch_part(part);
                 }
@@ -3413,35 +3419,91 @@ impl Fold {
     /// Resolves every `@name` in dirty assistant rows against this project's open and closed
     /// agents so pills keep drawing and opening their chats even after an agent closes.
     fn resolve_named(&mut self) {
-        let touched = self.main.touched.clone();
-        let positions: Vec<usize> = touched
-            .iter()
-            .filter_map(|id| self.main.position(id))
-            .collect();
-        self.resolve_named_at(&positions);
-    }
-
-    fn resolve_named_all(&mut self) {
-        let positions: Vec<usize> = (0..self.main.rows.len()).collect();
-        self.resolve_named_at(&positions);
-    }
-
-    fn resolve_named_at(&mut self, positions: &[usize]) {
         let Some(agents) = self.agents.clone() else {
             return;
         };
-        for &pos in positions {
+        let touched = self.main.touched.clone();
+        for id in &touched {
+            let Some(pos) = self.main.position(id) else {
+                continue;
+            };
             let Some(row) = self.main.rows.get_mut(pos) else {
                 continue;
             };
             if row.msg.role != ChatRole::Assistant || row.local {
                 continue;
             }
-            let mut mentioned = Vec::new();
-            let mut seen = HashSet::new();
-            for part in &row.msg.parts {
+            let streaming = row.msg.ended_at.is_none();
+            let part_count = row.msg.parts.len();
+            let mut changed = false;
+            for (at, (part, side)) in row.msg.parts.iter().zip(row.sides.iter_mut()).enumerate() {
                 let ChatPart::Text { text, .. } = part else {
                     continue;
+                };
+                if side.named_scanned > text.len() {
+                    side.named_scanned = 0;
+                }
+                if side.named_scanned == text.len() {
+                    continue;
+                }
+                let Some(slice) = text.get(side.named_scanned..) else {
+                    continue;
+                };
+                side.named_scanned = if streaming && at + 1 == part_count {
+                    trailing_at_start(text).unwrap_or(text.len())
+                } else {
+                    text.len()
+                };
+                if !slice.contains('@') {
+                    continue;
+                }
+                for word in at_words(slice) {
+                    if row
+                        .msg
+                        .named
+                        .iter()
+                        .any(|agent| agent.name.eq_ignore_ascii_case(word))
+                    {
+                        continue;
+                    }
+                    if let Some(agent) = agents.mention(word) {
+                        if !row.msg.named.contains(&agent) {
+                            row.msg.named.push(agent);
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if changed {
+                row.set("named");
+                self.main.touch(pos);
+            }
+        }
+    }
+
+    fn resolve_named_all(&mut self) {
+        let Some(agents) = self.agents.clone() else {
+            return;
+        };
+        for pos in 0..self.main.rows.len() {
+            let Some(row) = self.main.rows.get_mut(pos) else {
+                continue;
+            };
+            if row.msg.role != ChatRole::Assistant || row.local {
+                continue;
+            }
+            let streaming = row.msg.ended_at.is_none();
+            let part_count = row.msg.parts.len();
+            let mut mentioned = Vec::new();
+            let mut seen = HashSet::new();
+            for (at, (part, side)) in row.msg.parts.iter().zip(row.sides.iter_mut()).enumerate() {
+                let ChatPart::Text { text, .. } = part else {
+                    continue;
+                };
+                side.named_scanned = if streaming && at + 1 == part_count {
+                    trailing_at_start(text).unwrap_or(text.len())
+                } else {
+                    text.len()
                 };
                 if !text.contains('@') {
                     continue;
@@ -3475,6 +3537,11 @@ impl Fold {
             .map(|row| restored_parts(&row.msg))
             .unwrap_or_default()
     }
+}
+
+fn trailing_at_start(text: &str) -> Option<usize> {
+    let trimmed = text.trim_end_matches(char::is_alphanumeric);
+    trimmed.strip_suffix('@').map(str::len)
 }
 
 /// The `@Word` tokens in `text`, without their leading `@`.

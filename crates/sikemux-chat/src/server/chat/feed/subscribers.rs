@@ -9,11 +9,26 @@ use sikemux_view::chat::ChatChange;
 use super::super::super::connection::{ClientConn, ClientId};
 use super::super::history::History;
 use super::{Feed, Inner, Standing};
+use serde::Serialize;
 use sikemux_fold::Fold;
 use sikemux_process::sync::Locked;
-use sikemux_wire::protocol::{
-    ask, encode_control, fits, ChatAttachment, ChatMark, Event, RequestId, ServerMessage,
-};
+use sikemux_wire::protocol::{ask, encode_control, fits, ChatAttachment, ChatMark, RequestId};
+
+#[derive(Serialize)]
+struct ChatEventEnvelope<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    event: ChatEventPayload<'a>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChatEventPayload<'a> {
+    kind: &'static str,
+    agent_id: &'a str,
+    seq: u64,
+    changes: &'a [ChatChange],
+}
 
 /// A client hearing the chat, and the last change it was sent when it fell
 /// behind: a slow client is sent only how the chat stands once it catches up.
@@ -42,11 +57,13 @@ impl Feed {
     }
 
     pub fn frame(&self, seq: u64, changes: &[ChatChange]) -> Option<Arc<[u8]>> {
-        let frame = encode_control(&ServerMessage::Event {
-            event: Event::Chat {
-                agent_id: self.agent_id.clone(),
+        let frame = encode_control(&ChatEventEnvelope {
+            kind: "event",
+            event: ChatEventPayload {
+                kind: "chat",
+                agent_id: &self.agent_id,
                 seq,
-                changes: serde_json::to_value(changes).ok()?,
+                changes,
             },
         })
         .ok()?;
@@ -93,6 +110,9 @@ impl Feed {
         let seq = inner.replay.delivered();
         fold.number(seq + 1);
         inner.flushed_at = Some(Instant::now());
+        if inner.subscribers.is_empty() {
+            return;
+        }
         let frame = self.frame(seq, &changes);
         let mut behind = false;
         inner.subscribers.retain(|_, subscriber| {
@@ -112,6 +132,9 @@ impl Feed {
 
     /// Sends every client the chat as it stands, in place of what each holds.
     pub fn send_view(&self, inner: &mut Inner) {
+        if inner.subscribers.is_empty() {
+            return;
+        }
         self.flush_locked(inner);
         let seq = inner.replay.seq;
         let older = Self::holds_older(inner);
@@ -195,6 +218,10 @@ impl Feed {
     }
 
     pub fn flush_later(self: &Arc<Self>, inner: &mut Inner) {
+        if inner.subscribers.is_empty() {
+            self.let_go(inner);
+            return;
+        }
         if inner.flush_scheduled {
             return;
         }
@@ -214,14 +241,10 @@ impl Feed {
         });
     }
 
-    /// Lets go of the fold of a chat nobody watches and no turn runs in. It is
-    /// built again from the chat's events when a client comes.
+    /// Lets go of the fold of a chat nobody watches. It is built again from the
+    /// chat's events when a client comes.
     pub fn let_go(&self, inner: &mut Inner) {
-        if inner.subscribers.is_empty()
-            && !inner.replay.in_turn
-            && !inner.holding
-            && inner.fold.as_ref().is_some_and(|fold| !fold.is_dirty())
-        {
+        if inner.subscribers.is_empty() && !inner.holding {
             inner.fold = None;
         }
     }
