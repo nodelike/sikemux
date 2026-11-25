@@ -105,10 +105,6 @@ case "${words[0]:-}" in
     [ "${#words[@]}" -eq 2 ] || usage
     locked_command "withdrawing ${words[1]}" "${words[1]} is withdrawn" withdraw-update "${words[1]}"
     ;;
-  roll-back-update)
-    [ "${#words[@]}" -eq 2 ] || usage
-    roll_back_update "${words[1]}"
-    ;;
   team-audience)
     [ "${#words[@]}" -eq 2 ] || usage
     locked_command "opening Team to ${words[1]}" "Team is open to ${words[1]}" team-audience "${words[1]}"

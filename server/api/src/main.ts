@@ -181,21 +181,6 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
       );
     },
   ),
-  "roll-back-update": updateCommand(
-    "roll-back-update",
-    async (database, log, first, second) => {
-      if (!first || !second)
-        throw new UpdateRefused(
-          "usage: roll-back-update <update id> <directive file>",
-        );
-      const rolledBack = await rollBackUpdate(database.db, {
-        id: first,
-        ...readDirectiveFile(resolve(second)),
-        certificate: updatesCertificate(),
-      });
-      log.info(rolledBack, "rolled phones back from an update");
-    },
-  ),
   "promote-update": updateCommand(
     "promote-update",
     async (database, log, first) => {
