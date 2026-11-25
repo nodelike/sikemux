@@ -16,8 +16,8 @@ The accounts server decides, at runtime. The app, the web app and the phones sho
   to the account and each time the person changes the setting. What it says holds for 30 days. It
   is the setting that counts, not the build that happens to run.
 - `team_audience` holds who Team is open to: staff, people on nightly, or everyone. It ships at
-  staff, and setting it back to staff shuts Team again. Whether orgs' vaults are open to people
-  outside staff is a setting of its own.
+  staff, is at nightly since 25 November 2026, and setting it back to staff shuts Team again.
+  Whether orgs' vaults are open to people outside staff is a setting of its own.
 - Who may use Team and whether payments are real are separate. Turning payments on opens Team to
   nobody.
 - An org made in the preview has 20 free seats and is an ordinary org. It carries over when
