@@ -230,13 +230,14 @@ fn agreed_version(peer: &Peer, oldest: u32, newest: u32) -> Option<u32> {
 async fn handshake(
     core: &Arc<Core>,
     peer: &Peer,
+    sikemux_binary: bool,
     reader: &mut FrameReader,
     writer: &mut FrameWriter,
 ) -> Option<u32> {
     let frame = match tokio::time::timeout(HANDSHAKE_TIMEOUT, read_frame(reader)).await {
         Ok(Ok(Some(frame))) if frame.kind == FrameKind::Control => frame,
         Ok(Ok(Some(frame))) if frame.kind == FrameKind::Frozen && peer.is_local() => {
-            (core.above().frozen_request)(core, peer, &frame.payload, writer).await;
+            (core.above().frozen_request)(core, peer, sikemux_binary, &frame.payload, writer).await;
             return None;
         }
         _ => return None,
@@ -293,10 +294,18 @@ async fn handshake(
 }
 
 pub async fn serve_local(core: Arc<Core>, stream: Connection) {
-    let peer = local_peer::identify(&stream).await;
+    let identity = local_peer::identify_local(&stream).await;
     let pid = local_peer::pid(&stream);
     let (read_half, write_half) = stream.split();
-    serve_client(core, peer, pid, Box::new(read_half), Box::new(write_half)).await;
+    serve_client_with_auth(
+        core,
+        identity.peer,
+        identity.sikemux_binary,
+        pid,
+        Box::new(read_half),
+        Box::new(write_half),
+    )
+    .await;
 }
 
 pub async fn serve_client(
@@ -306,9 +315,22 @@ pub async fn serve_client(
     read_half: Box<dyn AsyncRead + Send + Unpin>,
     write_half: Box<dyn AsyncWrite + Send + Unpin>,
 ) {
+    let sikemux_binary = peer == Peer::App;
+    serve_client_with_auth(core, peer, sikemux_binary, pid, read_half, write_half).await;
+}
+
+async fn serve_client_with_auth(
+    core: Arc<Core>,
+    peer: Peer,
+    sikemux_binary: bool,
+    pid: Option<u32>,
+    read_half: Box<dyn AsyncRead + Send + Unpin>,
+    write_half: Box<dyn AsyncWrite + Send + Unpin>,
+) {
     let mut reader = BufReader::new(read_half);
     let mut writer = BufWriter::with_capacity(64 * 1024, write_half);
-    let Some(version) = handshake(&core, &peer, &mut reader, &mut writer).await else {
+    let Some(version) = handshake(&core, &peer, sikemux_binary, &mut reader, &mut writer).await
+    else {
         return;
     };
     let (frames, queue) = mpsc::unbounded_channel();

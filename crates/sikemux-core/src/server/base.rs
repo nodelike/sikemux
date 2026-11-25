@@ -71,8 +71,8 @@ pub(super) fn above() -> Above {
                 core.notify().send(signal);
             }
         },
-        frozen_request: |core, peer, payload, writer| {
-            Box::pin(upgrade::answer(core, peer, payload, writer))
+        frozen_request: |core, peer, sikemux_binary, payload, writer| {
+            Box::pin(upgrade::answer(core, peer, sikemux_binary, payload, writer))
         },
         send_device_view: |core, client| core.send_device_view(client),
         run_requests: |core, client, queue| Box::pin(requests::run(core, client, queue)),

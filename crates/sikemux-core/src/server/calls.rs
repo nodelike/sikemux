@@ -553,9 +553,9 @@ calls! { core, client, method, params;
         person_calls::answer_questions(&core, &client.peer, questions::AnswersParams { answers: vec![params] }).await?
     },
     "answerQuestions" = AnswerQuestions: Full, counted => person_calls::answer_questions(&core, &client.peer, params).await?,
-    "allowShip" = AllowShip: Full, signs("Let an agent's held work go out once."), counted => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALLOW).await?,
+    "allowShip" = AllowShip: Full, counted => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALLOW).await?,
     "refuseShip" = RefuseShip: Full, counted => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_REFUSE).await?,
-    "letShipGo" = LetShipGo: Full, signs("Let an agent's held work go out from now on.") => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALWAYS).await?,
+    "letShipGo" = LetShipGo: Full => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALWAYS).await?,
     "answerCall" = AnswerCall: Full, counted => person_calls::answer(&core, &client.peer, params).await?,
     "liveActivity" = LiveActivity: Watch => super::notify::live_activity(&core, &client.peer, params)?,
     "callSeen" = CallSeen: Watch => person_calls::seen(&core, &client.peer, params)?,

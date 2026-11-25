@@ -44,7 +44,7 @@ pub struct Above {
     pub told: fn(&Core, &Event),
     /// A request of the core's hand-over, answered on the connection it came on.
     pub frozen_request:
-        for<'a> fn(&'a Arc<Core>, &'a Peer, &'a [u8], &'a mut FrameWriter) -> Running<'a>,
+        for<'a> fn(&'a Arc<Core>, &'a Peer, bool, &'a [u8], &'a mut FrameWriter) -> Running<'a>,
     /// A device just connected and is sent this host's view.
     pub send_device_view: fn(&Core, &ClientConn),
     /// Runs a client's requests as they come.

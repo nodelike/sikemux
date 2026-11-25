@@ -379,13 +379,17 @@ async fn a_yes_covers_its_own_job_once() {
     assert!(may_pass(&core, &second, &Peer::Local, true).is_err());
     assert!(may_pass(&core, &second, &Peer::App, false).is_err());
     let answer = |id: &str, option: &'static str| {
-        let (core, hold) = (
+        let (core, hold, seen) = (
             core.clone(),
             crate::server::ship::HoldParams {
                 hold: id.to_owned(),
             },
+            sikemux_view::calls::CallParams { id: id.to_owned() },
         );
-        async move { crate::server::person_calls::answer_hold(&core, &Peer::App, hold, option).await }
+        async move {
+            let _ = crate::server::person_calls::seen(&core, &Peer::App, seen);
+            crate::server::person_calls::answer_hold(&core, &Peer::App, hold, option).await
+        }
     };
     answer(&second.id, "allow").await.unwrap();
     assert_eq!(try_ship(&core, at("prod/deploy-again", false)), Ok(true));

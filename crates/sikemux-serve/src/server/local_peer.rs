@@ -39,6 +39,8 @@ struct Trust {
     team_signed: bool,
     /// Empty for a core its team signed, which never trusts a path.
     app_paths: Vec<PathBuf>,
+    /// Own executable path for unsigned/dev builds so `sikemux restart` authenticates.
+    own_path: Option<PathBuf>,
 }
 
 static TRUST: OnceLock<Trust> = OnceLock::new();
@@ -52,13 +54,15 @@ pub fn settle() {
 fn trust() -> &'static Trust {
     TRUST.get_or_init(|| {
         let team_signed = platform::own_code_signed_by_team();
-        let app_paths = match own_executable() {
-            Some(own) if !team_signed => app_paths_beside(&own),
+        let own = own_executable();
+        let app_paths = match &own {
+            Some(own) if !team_signed => app_paths_beside(own),
             _ => Vec::new(),
         };
         Trust {
             team_signed,
             app_paths,
+            own_path: (!team_signed).then_some(own).flatten(),
         }
     })
 }
@@ -100,18 +104,29 @@ pub fn pid(stream: &Connection) -> Option<u32> {
     sikemux_client::local::peer(stream).map(|credentials| credentials.pid())
 }
 
+pub struct LocalIdentity {
+    pub peer: Peer,
+    /// True for `Peer::App` or a verified Sikemux binary (such as `sikemux restart`).
+    pub sikemux_binary: bool,
+}
+
 pub async fn identify(stream: &Connection) -> Peer {
+    identify_local(stream).await.peer
+}
+
+pub async fn identify_local(stream: &Connection) -> LocalIdentity {
     let Some(credentials) = sikemux_client::local::peer(stream) else {
-        return Peer::Local;
+        return LocalIdentity {
+            peer: Peer::Local,
+            sikemux_binary: false,
+        };
     };
-    let app = tokio::task::spawn_blocking(move || is_app(&credentials))
+    tokio::task::spawn_blocking(move || classify(&credentials))
         .await
-        .unwrap_or(false);
-    if app {
-        Peer::App
-    } else {
-        Peer::Local
-    }
+        .unwrap_or(LocalIdentity {
+            peer: Peer::Local,
+            sikemux_binary: false,
+        })
 }
 
 /// Whether this core tells its app by the code signature, which nothing on
@@ -122,22 +137,43 @@ pub fn app_is_signed() -> bool {
 
 /// Root may do anything on this host already, so it acts as the app, unless
 /// the core runs as root and its agents do too.
-fn is_app(credentials: &Credentials) -> bool {
+fn classify(credentials: &Credentials) -> LocalIdentity {
     let pid = credentials.pid();
     let trust = trust();
     if outranks_core(credentials)
         || pid == std::process::id()
         || cfg!(debug_assertions) && !trust.team_signed && Some(pid) == parent_id()
     {
-        return true;
+        return LocalIdentity {
+            peer: Peer::App,
+            sikemux_binary: true,
+        };
     }
     let examined = platform::examine(credentials);
     if examined.signed_app {
-        return true;
+        return LocalIdentity {
+            peer: Peer::App,
+            sikemux_binary: true,
+        };
     }
-    examined
+    let matches_app_path = examined
         .program
-        .is_some_and(|program| trust.app_paths.contains(&program))
+        .as_ref()
+        .is_some_and(|program| trust.app_paths.contains(program));
+    if matches_app_path {
+        return LocalIdentity {
+            peer: Peer::App,
+            sikemux_binary: true,
+        };
+    }
+    let matches_own_path = examined
+        .program
+        .as_ref()
+        .is_some_and(|program| trust.own_path.as_ref() == Some(program));
+    LocalIdentity {
+        peer: Peer::Local,
+        sikemux_binary: examined.signed_team || matches_own_path,
+    }
 }
 
 #[cfg(unix)]
@@ -170,6 +206,8 @@ fn own_executable() -> Option<PathBuf> {
 struct Examined {
     /// Signed by Sikemux's team as its app or notch.
     signed_app: bool,
+    /// Signed by Sikemux's team (any Sikemux binary, including the CLI).
+    signed_team: bool,
     program: Option<PathBuf>,
 }
 
@@ -217,12 +255,17 @@ mod platform {
         let Ok(code) = SecCode::copy_guest_with_attribues(None, &attributes, Flags::NONE) else {
             return Examined {
                 signed_app: false,
+                signed_team: false,
                 program: None,
             };
         };
         let signed_app = SIGNED_APP
             .parse::<SecRequirement>()
             .is_ok_and(|requirement| code.check_validity(Flags::NONE, &requirement).is_ok());
+        let signed_team = signed_app
+            || team!()
+                .parse::<SecRequirement>()
+                .is_ok_and(|requirement| code.check_validity(Flags::NONE, &requirement).is_ok());
         let program = (!signed_app)
             .then(|| {
                 sikemux_process::files::real_path(code.path(Flags::NONE).ok()?.to_path()?).ok()
@@ -230,6 +273,7 @@ mod platform {
             .flatten();
         Examined {
             signed_app,
+            signed_team,
             program,
         }
     }
@@ -246,6 +290,7 @@ mod platform {
     pub fn examine(credentials: &Credentials) -> Examined {
         Examined {
             signed_app: false,
+            signed_team: false,
             program: credentials
                 .program()
                 .and_then(|program| sikemux_process::files::real_path(program).ok()),

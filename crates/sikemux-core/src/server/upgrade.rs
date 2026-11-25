@@ -49,20 +49,27 @@ pub(super) fn refused(message: impl Into<String>) -> FrozenReply {
 }
 
 /// Answers one frozen request on a connection that sent it instead of a hello.
-/// Only the app replaces the core: the binary it names takes over everything.
-/// Any program here may restart it, which runs only the binary already running.
+/// Only the app replaces the core, and only the app or a verified Sikemux binary
+/// may restart, stop everything, or inspect update blockers.
 pub(crate) async fn answer(
     core: &Arc<Core>,
     peer: &Peer,
+    sikemux_binary: bool,
     payload: &[u8],
     writer: &mut FrameWriter,
 ) {
+    let trusted = *peer == Peer::App || sikemux_binary;
     match serde_json::from_slice::<FrozenRequest>(payload) {
         Ok(FrozenRequest::Upgrade { .. }) if *peer != Peer::App => {
             reply(writer, &refused(APP_ONLY)).await;
         }
         Ok(FrozenRequest::Upgrade { binary, force }) => {
             replace::upgrade(core, binary, force, writer).await
+        }
+        Ok(
+            FrozenRequest::Restart | FrozenRequest::StopEverything | FrozenRequest::UpdateBlockers,
+        ) if !trusted => {
+            reply(writer, &refused(APP_ONLY)).await;
         }
         Ok(FrozenRequest::Restart) => replace::restart(core, writer).await,
         Ok(FrozenRequest::UpdateBlockers) => {

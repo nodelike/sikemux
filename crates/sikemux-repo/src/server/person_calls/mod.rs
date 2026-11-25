@@ -1541,15 +1541,25 @@ fn raised_by_gate(core: &Core, id: &str) -> bool {
         .is_some_and(|kept| kept.source == Source::Raised && kept.call.place.is_some())
 }
 
-/// A released client answers a production call a gate raised by its hold's id, which it
-/// could only have from drawing it.
+/// A released client answers a production call a gate raised by its hold's id.
 async fn answer_gate(core: &Arc<Core>, peer: &Peer, id: &str, option: &str) -> CoreResult<()> {
     let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
     let call = call_of(core, id)?;
     if !call.options.iter().any(|known| known.id == option) {
         return Err("that is not one of the call's options".into());
     }
-    may_pass(core, &call, peer, true)?;
+    if matches!(call.kind, CallKind::Production | CallKind::Money) {
+        core.remote().may_sign(peer)?;
+    }
+    if call.kind == CallKind::Production {
+        if !core.person_calls().seen_by(&call.id, &client) {
+            return Err(
+                "open the call to answer it: a production call is answered where it was seen"
+                    .into(),
+            );
+        }
+        may_pass(core, &call, peer, true)?;
+    }
     let given = CallAnswer {
         option: Some(option.to_owned()),
         options: Vec::new(),
@@ -1560,9 +1570,50 @@ async fn answer_gate(core: &Arc<Core>, peer: &Peer, id: &str, option: &str) -> C
         at: epoch_ms(),
         waited_ms: epoch_ms().saturating_sub(call.raised_at),
     };
+    if call.kind == CallKind::Production {
+        if let Some(words) = yes_in_words(&call, &given) {
+            core.remote().sign(peer, &words).await?;
+        }
+    }
     let (call, source) = core.person_calls().take_answer(id, given)?;
     core.person_calls().changed(core);
     deliver(core, &call, &source, None, Vec::new()).await
+}
+
+fn hold_signing_words(core: &Core, source: &Source, hold_id: &str, option: &str) -> String {
+    let action_label = match option {
+        HOLD_ALWAYS => "Let this go out from now on",
+        _ => "Let this go out once",
+    };
+    if let Some(id) = core.person_calls().id_of(source) {
+        if let Ok(call) = call_of(core, &id) {
+            let mut words = format!("@{} asks: {}", call.asker.name, call.question);
+            if let Some(place) = &call.place {
+                words.push_str(&format!("\nPlace: {}", place.name));
+            }
+            if let Some(action) = &call.action {
+                words.push_str(&format!("\n\n{action}"));
+            }
+            words.push_str(&format!("\n\nYour answer: {action_label}"));
+            return words;
+        }
+    }
+    if let Some(waiting) = core
+        .ship()
+        .waiting()
+        .into_iter()
+        .find(|waiting| waiting.hold.id == hold_id)
+    {
+        let mut words = format!("{action_label}:\n\n{}", waiting.hold.what);
+        if let Some(target) = waiting.writes_to {
+            words.push_str(&format!("\nPlace: {target}"));
+        }
+        return words;
+    }
+    match option {
+        HOLD_ALWAYS => "Let an agent's held work go out from now on.".into(),
+        _ => "Let an agent's held work go out once.".into(),
+    }
 }
 
 /// `allowShip`, `refuseShip` and `letShipGo`, from clients released before calls.
@@ -1577,6 +1628,20 @@ pub async fn answer_hold(
     }
     let source = Source::Hold(params.hold.clone());
     let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
+    if let Some(id) = core.person_calls().id_of(&source) {
+        let call = call_of(core, &id)?;
+        if call.kind == CallKind::Production && !core.person_calls().seen_by(&call.id, &client) {
+            return Err(
+                "open the call to answer it: a production call is answered where it was seen"
+                    .into(),
+            );
+        }
+    }
+    if option != HOLD_REFUSE {
+        core.remote().may_sign(peer)?;
+        let words = hold_signing_words(core, &source, &params.hold, option);
+        core.remote().sign(peer, &words).await?;
+    }
     let taken = answered_before(core, (peer, client), &source, |call, by| CallAnswer {
         option: Some(option.to_owned()),
         options: Vec::new(),

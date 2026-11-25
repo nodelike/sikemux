@@ -139,6 +139,8 @@ fn open_calls(core: &Core) -> Vec<PersonCall> {
 }
 
 async fn answer(core: &Arc<Core>, id: &str, option: &str) {
+    let seen = sikemux_view::calls::CallParams { id: id.to_owned() };
+    let _ = crate::server::person_calls::seen(core, &Peer::App, seen);
     let hold = HoldParams {
         hold: id.to_owned(),
     };
