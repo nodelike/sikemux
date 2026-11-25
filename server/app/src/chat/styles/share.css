@@ -10,11 +10,55 @@
   background: var(--surface-sunken);
 }
 
-/* Top bar sits in its own row rather than floating over the transcript. */
+/* Top bar sits in its own row rather than floating over the transcript.
+   Keep the 10px custom scrollbar track balanced on the left so the transcript
+   column and composer share identical edges at every width and chat length. */
 .shared-chat .chat-scroll {
+  overflow-y: scroll;
   padding-top: 0;
+  padding-left: 10px;
+  scrollbar-gutter: auto;
   -webkit-mask-image: none;
   mask-image: none;
+}
+
+.shared-chat .chat-scroll-content {
+  padding: 18px 0 32px;
+}
+
+.shared-chat .chat-message {
+  padding: 6px 22px 18px;
+}
+
+.shared-chat .chat-message.user {
+  padding-top: 8px;
+  padding-bottom: 20px;
+}
+
+.shared-chat .chat-message.user .chat-markdown {
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--surface-raised);
+}
+
+.shared-chat .chat-message-content {
+  position: relative;
+}
+
+.shared-chat .chat-message-meta {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 22px;
+  margin-top: 2px;
+  pointer-events: none;
+}
+
+.shared-chat .chat-message:hover .chat-message-meta,
+.shared-chat .chat-message:focus-within .chat-message-meta {
+  pointer-events: auto;
 }
 
 .sh-bar {
@@ -197,7 +241,7 @@
 
 /* Viewer composer and footer. */
 .sh-composer-wrap {
-  padding: 0 22px 18px;
+  padding: 0 32px 18px;
 }
 
 .shared-chat-composer {
@@ -336,7 +380,30 @@
   color: var(--warn);
 }
 
-/* Keep code and diffs from clipping on narrow screens by wrapping long lines cleanly. */
+/* Keep code and diffs from clipping on narrow screens and give blocks room around prose. */
+.shared-chat .chat-markdown pre,
+.shared-chat .chat-markdown .chat-table-frame {
+  margin: 12px 0;
+}
+
+.shared-chat .chat-markdown:first-child > pre:first-child,
+.shared-chat .chat-markdown:first-child > .chat-table-frame:first-child {
+  margin-top: 0;
+}
+
+.shared-chat .chat-markdown:has(+ .chat-message-meta) > pre:last-child,
+.shared-chat .chat-markdown:last-child > pre:last-child,
+.shared-chat
+  .chat-markdown:has(+ .chat-message-meta)
+  > .chat-table-frame:last-child,
+.shared-chat .chat-markdown:last-child > .chat-table-frame:last-child {
+  margin-bottom: 0;
+}
+
+.shared-chat .chat-markdown + .chat-markdown {
+  margin-top: 10px;
+}
+
 .shared-chat .chat-markdown pre,
 .shared-chat .chat-markdown pre > code {
   white-space: pre-wrap;
@@ -549,7 +616,7 @@
   }
 
   .sh-reader-intro {
-    padding: 24px 16px 8px;
+    padding: 24px 6px 12px;
   }
 
   .sh-reader-head h1 {
@@ -564,7 +631,22 @@
   }
 
   .shared-chat .chat-message {
-    padding-inline: 16px;
+    padding-inline: 6px;
+  }
+
+  @media (hover: none) and (pointer: coarse) {
+    .shared-chat .chat-scroll {
+      overflow-y: auto;
+      padding-left: 0;
+    }
+
+    .sh-reader-intro {
+      padding-inline: 16px;
+    }
+
+    .shared-chat .chat-message {
+      padding-inline: 16px;
+    }
   }
 
   .shared-chat .chat-tool-detail {
