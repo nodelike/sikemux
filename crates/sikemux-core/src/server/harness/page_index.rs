@@ -123,12 +123,18 @@ pub(crate) fn add(data_dir: &Path, shown: &Shown) -> Result<(), String> {
 }
 
 /// Page `id` was shown again: its week starts over, and it goes with `ask` too when it went
-/// with none.
-pub(crate) fn shown_again(data_dir: &Path, id: &str, ask: Option<u64>) -> Result<(), String> {
+/// with none. Its `at` moves on only when what it holds `changed`.
+pub(crate) fn shown_again(
+    data_dir: &Path,
+    id: &str,
+    ask: Option<u64>,
+    changed: bool,
+) -> Result<(), String> {
     open(data_dir)?
         .execute(
-            "UPDATE pages SET ask = COALESCE(ask, ?2), seen = ?3 WHERE id = ?1",
-            params![id, ask.map(|ask| ask as i64), epoch_ms() as i64],
+            "UPDATE pages SET ask = COALESCE(ask, ?2), seen = ?3, at = IIF(?4, ?3, at)
+             WHERE id = ?1",
+            params![id, ask.map(|ask| ask as i64), epoch_ms() as i64, changed],
         )
         .map(drop)
         .map_err(|error| error.to_string())

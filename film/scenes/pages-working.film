@@ -1,0 +1,43 @@
+# The artifacts open on a desk, in a section of their own on the tab rail, newest change first, as
+# tabs close and one is changed while the list is showing.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies pages-working.json
+project storefront shop
+patch pages-notes.diff
+chat Wren
+title "Cache the product pages"
+say "Plan the product page cache and show me the numbers."
+settle 12
+front Wren
+settle 2
+key cmd-alt-8
+settle 3
+click 1083,69
+settle 4
+move 865,63
+click 865,63
+settle 2
+move 543,63
+click 543,63
+settle 2
+move 780,400
+settle 1
+snap pages-working
+move 1223,244
+settle 1
+patch pages-working-update.diff
+say "Put the new staging numbers in."
+settle 8
+snap pages-working-held
+move 780,400
+settle 1
+snap pages-working-updated
+click "Warm-up after a deploy"
+settle 3
+snap pages-working-clicked
+move 780,400
+settle 1
+snap pages-working-moved

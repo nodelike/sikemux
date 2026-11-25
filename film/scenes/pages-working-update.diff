@@ -1,0 +1,8 @@
+diff --git a/notes/cache-plan.html b/notes/cache-plan.html
+--- a/notes/cache-plan.html
++++ b/notes/cache-plan.html
+@@ -11,3 +11,3 @@
+ <h1>Product page cache: Redis or SQLite</h1>
+-<div class="sub">storefront · 3 app servers · measured on staging, 2,000 product pages</div>
++<div class="sub">storefront · 3 app servers · measured on staging, 5,000 product pages</div>
+ <div class="opts">

@@ -258,6 +258,7 @@ impl Workbench {
             Scrolled::Landed((shown, from, speed, _, target)) => {
                 if let Some(target) = target {
                     self.rails.page = target;
+                    self.pages.leave();
                 }
                 let moved = self.rails.slide.travel(shown, from, Some(speed));
                 settle(self, moved, |bench: &mut Self| &mut bench.rails.slide, cx);
@@ -271,6 +272,7 @@ impl Workbench {
     pub fn show_rail_page(&mut self, page: TabRailPage, cx: &mut Context<Self>) {
         let was = std::mem::replace(&mut self.rails.page, page);
         if was != page {
+            self.pages.leave();
             self.keep_rails(cx);
         }
         if let Some(moved) = self.rails.slide.turn(was, page, &crate::pane_kind::PAGES) {

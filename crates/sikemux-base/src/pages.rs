@@ -238,7 +238,7 @@ pub fn publish(dir: &Path, source: &Path, title: &str) -> Result<PageRef, String
 }
 
 /// Keeps page `id` again from the file it was first shown from, so a show by its id has the
-/// file as it is now. False when that file is gone, and the kept copy stays.
+/// file as it is now. Whether the page changed; it stays as it was when that file is gone.
 pub fn refresh(dir: &Path, id: &str) -> Result<bool, String> {
     let Some(source) = (std::fs::read_to_string(source_file(dir, id)).ok())
         .map(PathBuf::from)
@@ -247,7 +247,19 @@ pub fn refresh(dir: &Path, id: &str) -> Result<bool, String> {
         return Ok(false);
     };
     let title = title(dir, id).unwrap_or_else(|| "Page".to_owned());
-    keep(dir, id, &source, &title).map(|()| true)
+    let was = kept_as(dir, id);
+    keep(dir, id, &source, &title)?;
+    Ok(kept_as(dir, id) != was)
+}
+
+/// What page `id` is made of: its document, and how many bytes the videos and sounds it shows take.
+fn kept_as(dir: &Path, id: &str) -> (Option<Vec<u8>>, u64) {
+    let media = (std::fs::read_dir(media_folder(dir, id)).into_iter())
+        .flatten()
+        .flatten()
+        .filter_map(|file| Some(file.metadata().ok()?.len()))
+        .sum();
+    (std::fs::read(dir.join(format!("{id}.html"))).ok(), media)
 }
 
 fn keep(dir: &Path, id: &str, source: &Path, title: &str) -> Result<(), String> {

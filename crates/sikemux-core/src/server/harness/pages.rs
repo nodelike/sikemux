@@ -46,13 +46,14 @@ pub(super) async fn show_page(
                         "{id} is no page Sikemux keeps; page_list finds the kept ones"
                     )));
                 }
-                if let Err(error) = crate::pages::refresh(&dir, &id) {
-                    return Ok(Err(error));
-                }
+                let changed = match crate::pages::refresh(&dir, &id) {
+                    Ok(changed) => changed,
+                    Err(error) => return Ok(Err(error)),
+                };
                 let title = (page_index::title_of(&data_dir, &id))
                     .or_else(|| crate::pages::title(&dir, &id))
                     .unwrap_or_else(|| "Page".to_owned());
-                let _ = page_index::shown_again(&data_dir, &id, ask);
+                let _ = page_index::shown_again(&data_dir, &id, ask, changed);
                 if keep {
                     let _ = page_index::keep(&data_dir, &id, true);
                 }

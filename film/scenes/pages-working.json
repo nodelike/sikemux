@@ -1,0 +1,30 @@
+[
+  {
+    "when": "product page cache",
+    "steps": [
+      { "say": "Here are the latency chart, the mockups and the cache plan." },
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/latency.html", "title": "Checkout p95 latency", "keep": true }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/mockups.html", "title": "Empty projects page, three ways" }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/latency.html", "title": "Warm-up after a deploy" }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/cache-plan.html", "title": "Product page cache" }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__agent_spawn", "call": "agent.spawn", "input": { "cli": "claude", "title": "Cache store pages", "prompt": "You are the owner and long-term maintainer of this codebase, and its design is up to you.\n\nDraw the cache store comparison pages for the person." }, "ms": 800 },
+      { "say": "The worker is drawing the store pages." }
+    ]
+  },
+  {
+    "when": "cache store comparison",
+    "steps": [
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/mockups.html", "title": "Cache hit rate by store" }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "path": "notes/latency.html", "title": "Memory per store" }, "ms": 400 },
+      { "say": "Both store pages are up." }
+    ]
+  },
+  {
+    "when": "new staging numbers",
+    "steps": [
+      { "say": "The plan has the new numbers.", "perSecond": 60 },
+      { "tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": { "id": "$page" }, "ms": 400 },
+      { "say": "Updated." }
+    ]
+  }
+]

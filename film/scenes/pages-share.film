@@ -1,5 +1,5 @@
-# A page shared from its header on a desk, on a local accounts API: the Share dialog, its link, then the page
-# in the tab rail's Shared section.
+# A page shared from its header on a desk, on a local accounts API: the Share dialog, its link, then, its
+# tab closed, the page in the tab rail's Shared section.
 stage 1440 900
 window 1440 900
 signed-in
@@ -28,4 +28,9 @@ settle 1
 snap pages-share-link
 key escape
 settle 1
+click 1092,63
+settle 2
+move 913,63
+click 913,63
+settle 2
 snap pages-share-rail

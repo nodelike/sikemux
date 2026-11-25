@@ -3,9 +3,10 @@
 
 pub(crate) mod list;
 
-use std::collections::HashMap;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashMap};
 
-use gpui_kit::{Context, Window};
+use gpui_kit::{App, Context, Window};
 use sikemux_calls::call;
 use sikemux_calls::harness::{
     KeepPageParams, ListedPage, PageLife, PageParams, PageShare, PagesParams,
@@ -23,6 +24,11 @@ use crate::workbench::Workbench;
 pub(crate) struct Pages {
     listed: HashMap<String, Option<Vec<ListedPage>>>,
     search: Search,
+    /// Each artifact in a desk's tab: its agent, its id and whether its tab is in front.
+    on_desks: BTreeSet<(String, String, bool)>,
+    /// Whether the pointer is over the list, which keeps every row where it is.
+    pointed: bool,
+    arranged: RefCell<list::Arranged>,
 }
 
 impl Pages {
@@ -30,7 +36,15 @@ impl Pages {
         Self {
             listed: HashMap::new(),
             search: Search::new(t!("Find an artifact"), window, cx),
+            on_desks: BTreeSet::new(),
+            pointed: false,
+            arranged: RefCell::default(),
         }
+    }
+
+    /// The list came into sight or left it, so the pointer isn't holding its rows.
+    pub(crate) fn leave(&mut self) {
+        self.pointed = false;
     }
 
     fn listed_in(&self, folder: &str) -> Option<&Vec<ListedPage>> {
@@ -107,6 +121,40 @@ impl Workbench {
         let (.., agent) = self.front_agent()?;
         let in_sight = self.desk_in_front(&agent);
         in_sight.then(|| self.page_on_desk(&agent, cx)).flatten()
+    }
+
+    /// Each artifact open on a desk of `project`, with the agent whose desk it is: the one in
+    /// front's when several hold it.
+    fn open_pages(&self, project: &str, cx: &App) -> HashMap<String, String> {
+        let desks = self.desks.read(cx);
+        let front = self.front_agent().map(|(.., agent)| agent);
+        let agents = (self.shown().into_iter())
+            .flat_map(|view| &view.workspace.agents)
+            .filter(|agent| agent.project == project);
+        let mut open: HashMap<String, String> = HashMap::new();
+        for agent in agents {
+            for (page, _) in desks.artifacts_on(&agent.id) {
+                if front.as_ref() == Some(&agent.id) || !open.contains_key(page) {
+                    open.insert(page.to_owned(), agent.id.clone());
+                }
+            }
+        }
+        open
+    }
+
+    /// Draws the list again once an artifact's tab opened, closed or came in front.
+    pub(crate) fn open_pages_moved(&mut self, cx: &mut Context<Self>) {
+        let desks = self.desks.read(cx);
+        let now: BTreeSet<(String, String, bool)> = (desks.strips.keys())
+            .flat_map(|agent| {
+                (desks.artifacts_on(agent))
+                    .map(|(page, front)| (agent.clone(), page.to_owned(), front))
+            })
+            .collect();
+        if self.pages.on_desks != now {
+            self.pages.on_desks = now;
+            self.redraw_rail(Rail::Agents, cx);
+        }
     }
 
     /// Reads every project's pages held again, as after the core says one moved.

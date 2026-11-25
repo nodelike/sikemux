@@ -495,6 +495,13 @@ impl Desks {
         self.strips.insert(agent.to_owned(), Arc::new(strip));
     }
 
+    /// The artifacts in tabs of the agent's desk, each with whether its tab is in front.
+    pub(crate) fn artifacts_on(&self, agent: &str) -> impl Iterator<Item = (&str, bool)> {
+        let tabs = self.strips.get(agent).map(|strip| strip.tabs.iter());
+        (tabs.into_iter().flatten())
+            .filter_map(|tab| Some((page_id_of(tab.local_file.as_deref()?)?, tab.active)))
+    }
+
     fn holds_simulator(&self, agent: &str) -> bool {
         self.sim_tabs.contains(agent)
     }
@@ -926,6 +933,7 @@ impl Surface for DeskPage {
 impl Workbench {
     /// The desks changed, so the core hears what they hold once they settle.
     pub(crate) fn desks_moved(&mut self, cx: &mut Context<Self>) {
+        self.open_pages_moved(cx);
         if self.desk_news.telling.is_some() {
             return;
         }
