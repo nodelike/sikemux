@@ -19,6 +19,7 @@ pub(crate) const BASH_MAX_OUTPUT_CHARS: u64 = 10_000;
 /// The effort Claude Code runs each model at when none is set, which its model list does not
 /// say, by the model's full name.
 const OWN_EFFORTS: &[(&str, &str)] = &[
+    ("claude-fable-5-2", "medium"),
     ("claude-fable-5-1", "medium"),
     ("claude-fable-5", "medium"),
     ("claude-opus-5-5", "medium"),
@@ -526,5 +527,20 @@ mod tests {
             Some("haiku")
         );
         assert_eq!(row_for_resolved(&models(), "gpt"), None);
+    }
+
+    #[test]
+    fn fable_5_2_uses_medium_as_its_own_default_effort() {
+        let models = vec![json!({
+            "value": "fable",
+            "resolvedModel": "claude-fable-5-2",
+            "displayName": "Fable 5.2",
+            "supportsEffort": true,
+            "supportedEffortLevels": ["low", "medium", "high", "max"]
+        })];
+        let options = options(&models, "fable", "default", false);
+        assert_eq!(options[1]["currentValue"], "medium");
+        assert_eq!(options[1]["options"][1]["value"], "medium");
+        assert_eq!(options[1]["options"][1]["isDefault"], true);
     }
 }

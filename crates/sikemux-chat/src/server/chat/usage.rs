@@ -45,7 +45,12 @@ impl Chat {
             };
             let mut update = sikemux_fold::update::usage(saved.used, size);
             if let (AgentKind::Claude, Some(fields)) = (kind, update.as_object_mut()) {
-                let compact = compact_at(size, claude_window(launch.model.as_deref()));
+                let effective = launch
+                    .model
+                    .as_deref()
+                    .filter(|model| *model != "default")
+                    .or(saved.model.as_deref());
+                let compact = compact_at(size, claude_window(effective));
                 fields.insert("compactAt".to_owned(), json!(compact));
             }
             if chat.generation == generation {

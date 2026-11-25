@@ -1066,7 +1066,10 @@ async fn open_terminal(core: &Arc<Core>, opening: &Opening) -> Result<(), String
             lead: Some(lead.id),
             profile_id: on_launcher.or(lead.profile_id.filter(|_| same)),
             model: opening.model.clone(),
-            effort: opening.effort.clone().or(lead.effort.filter(|_| same)),
+            effort: opening
+                .effort
+                .clone()
+                .or(lead.effort.filter(|_| same && opening.model == lead.model)),
             worktree: lead.worktree,
             ..new_agent(
                 opening.agent_id.clone(),

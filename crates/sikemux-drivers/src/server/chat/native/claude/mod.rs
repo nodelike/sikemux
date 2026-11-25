@@ -355,6 +355,19 @@ fn prompt_file(prompt: &str) -> Result<tempfile::TempPath, String> {
     Ok(file.into_temp_path())
 }
 
+fn effective_autocompact_model(
+    model: Option<&str>,
+    account: Option<&std::path::Path>,
+) -> Option<String> {
+    model
+        .filter(|model| *model != config::DEFAULT)
+        .map(str::to_owned)
+        .or_else(|| {
+            let config_path = account.and_then(|root| root.to_str());
+            crate::agent_accounts::defaults::configured_default_model("claude", config_path)
+        })
+}
+
 impl Claude {
     async fn spawn(
         launch: &ChatLaunch,
@@ -389,9 +402,14 @@ impl Claude {
         args.extend(["--permission-mode".to_owned(), mode.to_owned()]);
         let rotates = sink.rotates();
         shared.locked().tool_hook = rotates;
+        let account = account_root(AgentKind::Claude, None, &launch.env);
+        let autocompact_model = effective_autocompact_model(model, account.as_deref());
         args.extend([
             "--autocompact".to_owned(),
-            format!("{}k", cap::claude_window(model) / 1000),
+            format!(
+                "{}k",
+                cap::claude_window(autocompact_model.as_deref()) / 1000
+            ),
         ]);
         if let Some(model) = model {
             args.extend(["--model".to_owned(), model.to_owned()]);
@@ -417,7 +435,6 @@ impl Claude {
             args.extend(["--mcp-config".to_owned(), config]);
         }
         let spawned_worker = sink.spawned_worker();
-        let account = account_root(AgentKind::Claude, None, &launch.env);
         if spawned_worker {
             if let Some(settings) = config::worker_disabled_plugins(account.as_deref()) {
                 args.extend(["--settings".to_owned(), settings]);
@@ -465,7 +482,7 @@ impl Claude {
             apps.clone(),
         );
         reader.on_account(account);
-        reader.launched_with(model);
+        reader.launched_with(autocompact_model.as_deref());
         if let Some(model) = model {
             reader.note_model(model);
         }
@@ -1234,5 +1251,26 @@ mod tests {
             .last()
             .unwrap()
             .contains("<context ref=\"jira://X-1\">"));
+    }
+
+    #[test]
+    fn autocompact_model_reads_accounts_configured_default_when_unset_or_default() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.json"),
+            r#"{"model":"claude-fable-5-2"}"#,
+        )
+        .unwrap();
+        let resolved = effective_autocompact_model(None, Some(dir.path()));
+        assert_eq!(resolved.as_deref(), Some("claude-fable-5-2"));
+        assert_eq!(cap::claude_window(resolved.as_deref()), 283_000);
+        assert_eq!(
+            effective_autocompact_model(Some(config::DEFAULT), Some(dir.path())).as_deref(),
+            Some("claude-fable-5-2")
+        );
+        assert_eq!(
+            effective_autocompact_model(Some("claude-opus-5-5"), Some(dir.path())).as_deref(),
+            Some("claude-opus-5-5")
+        );
     }
 }

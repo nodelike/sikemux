@@ -86,6 +86,7 @@ impl Workspaces {
             launch.resume_id = None;
             launch.permission_mode = lead.worker_mode();
             launch.model = model.or(launch.model);
+            launch.effort = None;
             return Ok((launch, lead.launcher.clone()));
         }
         let launcher = {
@@ -195,5 +196,48 @@ impl Workspaces {
         }
         let launch = self.chat_launch(&chosen, still_there(&chosen)?, cwd, provider, model)?;
         Ok((launch, chosen.id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn same_cli_worker_launch_does_not_inherit_leads_effort() {
+        let workspaces = Workspaces::new(None, None);
+        let lead_launch = ChatLaunch {
+            agent_id: "lead-1".into(),
+            provider: "claude".into(),
+            program: PathBuf::from("/usr/bin/true"),
+            cwd: PathBuf::from("/tmp/lead"),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            mcp_servers: Vec::new(),
+            resume_id: None,
+            permission_mode: PermissionMode::Bypass,
+            model: Some("claude-opus-5-5".into()),
+            model_provider: None,
+            effort: Some("max".into()),
+            account: None,
+            fallbacks: Vec::new(),
+        };
+        let lead = Lead {
+            provider: "claude".into(),
+            launch: Some(lead_launch),
+            launcher: Some("claude".into()),
+            permission_mode: Some(PermissionMode::Bypass),
+        };
+        let (worker, _) = workspaces
+            .worker_launch(
+                &lead,
+                "claude",
+                Path::new("/tmp/worker"),
+                Some("claude-opus-4-7".into()),
+                Paid::AsLead,
+            )
+            .expect("worker launch");
+        assert_eq!(worker.model.as_deref(), Some("claude-opus-4-7"));
+        assert_eq!(worker.effort, None);
     }
 }
