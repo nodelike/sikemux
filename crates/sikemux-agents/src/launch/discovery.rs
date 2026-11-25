@@ -42,7 +42,7 @@ fn push_agent_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
 }
 
 fn automatic_candidates(def: &AgentEntry) -> Vec<PathBuf> {
-    let mut candidates = user_environment::find_executables(def.command);
+    let mut candidates = user_environment::find_agents(def.command);
     if user_environment::search_path_only() {
         return candidates;
     }
@@ -69,7 +69,7 @@ fn explicit_candidates(value: &str) -> Vec<PathBuf> {
     if value.contains('/') || value.contains('\\') || value.starts_with('~') {
         return vec![expand_home(value)];
     }
-    user_environment::find_executables(value)
+    user_environment::find_agents(value)
 }
 
 /// The mise program that `executable` is a shim of, if it is one.

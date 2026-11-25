@@ -10403,6 +10403,7 @@ dependencies = [
  "serde_json",
  "sikemux-client",
  "sikemux-core",
+ "sikemux-process",
  "sikemux-view",
  "sikemux-wire",
  "tempfile",

@@ -53,7 +53,19 @@ fn remote_file(socket: &Path) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// The core reads an agent's plan limits with the sign-in saved in the home folder.
+fn away_from_the_person() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        sikemux_process::user_environment::stand_ins_only_from_now();
+        std::env::set_var("HOME", tempfile::tempdir().expect("home").keep());
+        std::env::remove_var("OPENCODE_DATA_DIR");
+        std::env::remove_var("OPENCODE_API_KEY");
+    });
+}
+
 fn start_core(core_key: &SecretKey, phone: Option<&SecretKey>) -> TestCore {
+    away_from_the_person();
     let dir = tempfile::tempdir().expect("temp dir");
     let socket = dir.path().join("core.sock");
     let devices: Vec<_> = phone

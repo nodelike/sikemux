@@ -230,23 +230,32 @@ pub fn var_os(name: &str) -> Option<std::ffi::OsString> {
         .or_else(|| std::env::var_os(name))
 }
 
-static PATH_ONLY: AtomicBool = AtomicBool::new(false);
+static STAND_INS_ONLY: AtomicBool = AtomicBool::new(false);
 
-/// Looks up programs only on this process's PATH from now on, as `SIKEMUX_AGENT_SEARCH=path`
-/// does, for a test that runs a core inside its own process.
-pub fn search_path_only_from_now() {
-    PATH_ONLY.store(true, Ordering::Relaxed);
+/// For a test that runs a core inside its own process: programs are looked up only on this
+/// process's PATH from now on, and agent CLIs nowhere, since that PATH holds the person's own.
+/// The only agents such a core runs are the stand-ins the test names by path.
+pub fn stand_ins_only_from_now() {
+    STAND_INS_ONLY.store(true, Ordering::Relaxed);
 }
 
 /// Whether programs are looked up only on the PATH this process was started with, as a
 /// sandbox's environment asks so that it never finds the person's own agent CLIs.
 pub fn search_path_only() -> bool {
-    PATH_ONLY.load(Ordering::Relaxed)
+    STAND_INS_ONLY.load(Ordering::Relaxed)
         || std::env::var(crate::vars::AGENT_SEARCH).is_ok_and(|value| value == "path")
 }
 
 pub fn find_executable(name: &str) -> Option<PathBuf> {
     find_executables(name).into_iter().next()
+}
+
+/// Every agent CLI called `name` on the user's `PATH`, in its order.
+pub fn find_agents(name: &str) -> Vec<PathBuf> {
+    if STAND_INS_ONLY.load(Ordering::Relaxed) {
+        return Vec::new();
+    }
+    find_executables(name)
 }
 
 /// Every program called `name` on the user's `PATH`, in its order.

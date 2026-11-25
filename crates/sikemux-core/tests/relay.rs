@@ -89,7 +89,7 @@ fn remote_file(socket: &Path) -> PathBuf {
 #[ignore = "needs an iroh-relay binary named by SIKEMUX_IROH_RELAY"]
 async fn a_phone_reaches_a_core_through_the_relay_alone() {
     let binary = std::env::var_os("SIKEMUX_IROH_RELAY").expect("SIKEMUX_IROH_RELAY");
-    sikemux_process::user_environment::search_path_only_from_now();
+    sikemux_process::user_environment::stand_ins_only_from_now();
     std::env::set_var("SHELL", "/bin/sh");
     let dir = tempfile::tempdir().expect("temp dir");
     let (_relay, url) = start_relay(Path::new(&binary), dir.path());

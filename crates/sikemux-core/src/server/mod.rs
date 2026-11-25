@@ -421,7 +421,7 @@ impl ServerCore for Core {
 
     #[cfg(test)]
     fn new(build: BuildIdentity, data_dir: Option<&Path>) -> Result<Arc<Self>, ServerError> {
-        sikemux_process::user_environment::search_path_only_from_now();
+        sikemux_process::user_environment::stand_ins_only_from_now();
         let config = ServerConfig {
             build,
             data_dir: data_dir.map(Path::to_owned),

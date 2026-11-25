@@ -66,7 +66,7 @@ fn init_env(home: &Path) {
             vector["privateKeyPem"].as_str().expect("pem"),
         )
         .expect("dev key");
-        sikemux_process::user_environment::search_path_only_from_now();
+        sikemux_process::user_environment::stand_ins_only_from_now();
         std::env::set_var("HOME", home);
         std::env::set_var("SHELL", "/bin/sh");
         std::env::remove_var("SIKEMUX_SHELL");

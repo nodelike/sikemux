@@ -39,7 +39,7 @@ const WAIT: Duration = Duration::from_secs(30);
 fn init_env() {
     static ENV: Once = Once::new();
     ENV.call_once(|| {
-        sikemux_process::user_environment::search_path_only_from_now();
+        sikemux_process::user_environment::stand_ins_only_from_now();
         std::env::set_var("SHELL", "/bin/sh");
         std::env::remove_var("ENV");
         std::env::remove_var("SIKEMUX_SHELL");
