@@ -8,17 +8,14 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use super::{git_folder, included};
+use super::included;
 use crate::git::Git;
 
 #[cfg(target_os = "macos")]
 use clone::bring;
 
-/// What marks a folder that would keep pointing back into the main checkout
-/// once cloned: a Python environment's scripts name its interpreter there, and
-/// a CMake build its sources.
+pub const CLONING_PREFIX: &str = ".sikemux-cloning-";
 const ROOTED_IN_PLACE: [&str; 2] = ["pyvenv.cfg", "CMakeCache.txt"];
-/// Cargo writes this at the top of every output folder it builds in.
 const CARGO_OUTPUT: &str = ".rustc_info.json";
 const NODE_MODULES: &str = "node_modules";
 const LOCKFILES: [&str; 5] = [
@@ -29,7 +26,6 @@ const LOCKFILES: [&str; 5] = [
     "bun.lockb",
 ];
 
-/// [`seed`] on a thread of its own, so the checkout is handed over at once.
 pub fn seed_in_background(main: &Path, tree: &Path) {
     let (main, tree) = (main.to_path_buf(), tree.to_path_buf());
     let _ = std::thread::Builder::new()
@@ -37,15 +33,24 @@ pub fn seed_in_background(main: &Path, tree: &Path) {
         .spawn(move || seed(&main, &tree));
 }
 
-/// Clones into `tree` the folders Git ignores in `main` that a new checkout
-/// can build from: Cargo's output, installed packages `tree` has the same
-/// lockfile for, and the folders `.worktreeinclude` lists.
 pub fn seed(main: &Path, tree: &Path) {
     let (Some(ignored), Some(staging)) = (ignored_folders(main), staging_of(tree)) else {
         return;
     };
-    match_times(main, tree);
-    for folder in chosen(main, tree, &ignored, &included(main)) {
+    let folders: Vec<PathBuf> = chosen(main, tree, &ignored, &included(main))
+        .into_iter()
+        .filter(|folder| tree.join(folder).symlink_metadata().is_err())
+        .collect();
+    if folders.is_empty() {
+        return;
+    }
+    if folders
+        .iter()
+        .any(|folder| is_cargo_output(&main.join(folder)))
+    {
+        match_times(main, tree);
+    }
+    for folder in folders {
         let staged = staged_at(&staging, &folder);
         if let Err(error) = bring(&main.join(&folder), &tree.join(&folder), &staged) {
             eprintln!(
@@ -54,13 +59,14 @@ pub fn seed(main: &Path, tree: &Path) {
             );
         }
     }
+    let _ = std::fs::remove_dir(&staging);
 }
 
-/// Where a checkout's folders are cloned before each is moved into place: in its own Git
-/// folder, which goes when the checkout does. Inside the checkout, Git would list every
-/// file of a clone still being made as new.
+// Stage outside `<main>/.git/` so cloning does not trigger repo FSEvents or show up in `tree`.
 fn staging_of(tree: &Path) -> Option<PathBuf> {
-    Some(git_folder(tree)?.join("sikemux-cloning"))
+    let parent = tree.parent()?;
+    let name = tree.file_name()?.to_string_lossy();
+    Some(parent.join(format!("{CLONING_PREFIX}{name}")))
 }
 
 fn staged_at(staging: &Path, folder: &Path) -> PathBuf {
@@ -131,10 +137,16 @@ pub fn is_cargo_output(folder: &Path) -> bool {
     folder.join(CARGO_OUTPUT).is_file()
 }
 
-/// Locks each Cargo build in `folder` against writing while it is cloned or
-/// removed, or `None` while one is running. Cloning one mid-build could pair a
-/// finished build's record with the files it replaced, which Cargo would then trust.
 pub fn hold_builds(folder: &Path) -> Option<Vec<File>> {
+    lock_builds(folder, true)
+}
+
+#[cfg(target_os = "macos")]
+fn hold_builds_shared(folder: &Path) -> Option<Vec<File>> {
+    lock_builds(folder, false)
+}
+
+fn lock_builds(folder: &Path, exclusive: bool) -> Option<Vec<File>> {
     if !is_cargo_output(folder) {
         return Some(Vec::new());
     }
@@ -146,7 +158,12 @@ pub fn hold_builds(folder: &Path) -> Option<Vec<File>> {
         let Ok(lock) = File::open(profile.join(".cargo-lock")) else {
             continue;
         };
-        lock.try_lock().ok()?;
+        let locked = if exclusive {
+            lock.try_lock()
+        } else {
+            lock.try_lock_shared()
+        };
+        locked.ok()?;
         held.push(lock);
     }
     Some(held)
@@ -232,15 +249,11 @@ mod clone {
     use std::os::unix::fs::MetadataExt;
     use std::path::Path;
 
-    use super::hold_builds;
+    use super::hold_builds_shared;
 
-    /// Deep enough that no single clone of a build folder reaches for long.
-    const CLONE_LEVELS: usize = 4;
-    /// From `sys/clonefile.h`: a symbolic link is cloned as a link. `libc` does not name it.
+    const SHALLOW_CLONE_LEVELS: usize = 2;
     const CLONE_NOFOLLOW: u32 = 0x0001;
 
-    /// Clones the folder `from` at `staged` first and then moves it to `to`, so a build
-    /// that starts in the new checkout before the clone is done keeps its folder.
     pub fn bring(from: &Path, to: &Path, staged: &Path) -> io::Result<()> {
         let (Some(parent), Some(staging)) = (to.parent(), staged.parent()) else {
             return Ok(());
@@ -255,11 +268,27 @@ mod clone {
             return Ok(());
         }
         std::fs::create_dir_all(staging)?;
+        if staged.symlink_metadata().is_ok() {
+            let _ = std::fs::remove_dir_all(staged);
+        }
         let cloned = {
-            let Some(_held) = hold_builds(from) else {
+            let Some(_held) = hold_builds_shared(from) else {
                 return Ok(());
             };
-            clone_folder(from, staged, CLONE_LEVELS)
+            if to.symlink_metadata().is_ok() {
+                return Ok(());
+            }
+            // Top-level APFS clonefile is O(1); fall back to shallow selective clone if open locks prevent it.
+            match clone_entry(from, staged) {
+                Ok(()) => Ok(()),
+                Err(_) => {
+                    let _ = std::fs::remove_dir_all(staged);
+                    if to.symlink_metadata().is_ok() {
+                        return Ok(());
+                    }
+                    clone_folder(from, staged, to, SHALLOW_CLONE_LEVELS)
+                }
+            }
         };
         let placed = cloned.and_then(|()| rename_new(staged, to));
         if placed.is_err() {
@@ -271,15 +300,23 @@ mod clone {
         }
     }
 
-    /// Clones a piece at a time, down to `levels` folders deep. One clone of a whole build
-    /// folder stops every write on the disk until it ends, seconds for a large one.
-    fn clone_folder(from: &Path, to: &Path, levels: usize) -> io::Result<()> {
+    fn clone_folder(from: &Path, to: &Path, target: &Path, levels: usize) -> io::Result<()> {
+        if target.symlink_metadata().is_ok() {
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+        }
         std::fs::create_dir(to)?;
         for entry in std::fs::read_dir(from)? {
+            if target.symlink_metadata().is_ok() {
+                return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+            }
             let entry = entry?;
-            let inside = to.join(entry.file_name());
+            let name = entry.file_name();
+            if name == ".cargo-lock" {
+                continue;
+            }
+            let inside = to.join(&name);
             let cloned = if levels > 1 && entry.file_type()?.is_dir() {
-                clone_folder(&entry.path(), &inside, levels - 1)
+                clone_folder(&entry.path(), &inside, target, levels - 1)
             } else {
                 clone_entry(&entry.path(), &inside)
             };
