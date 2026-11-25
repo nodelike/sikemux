@@ -133,8 +133,8 @@
   opacity: 0.55;
 }
 
-.aud-heat {
-  max-width: 980px;
+.aud-table .th > span:last-child {
+  text-align: right;
 }
 
 .aud-bars {

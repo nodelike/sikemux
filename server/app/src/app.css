@@ -565,30 +565,6 @@ canvas.dots {
   letter-spacing: 0;
   margin-left: 6px;
 }
-.strip {
-  display: grid;
-  grid-template-columns: repeat(14, 1fr);
-  gap: 6px;
-}
-.strip span {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: center;
-}
-.strip i,
-.strip b {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
-.strip i {
-  scale: 0.4;
-  background: var(--fline);
-}
-.strip b {
-  background: var(--acc);
-}
 .full-err {
   grid-column: 1/-1;
 }
@@ -1973,9 +1949,6 @@ dialog.dlg::backdrop {
   }
 }
 
-.after {
-  grid-column: 1 / -1;
-}
 .box > form {
   display: contents;
 }

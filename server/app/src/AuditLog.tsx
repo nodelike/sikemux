@@ -4,6 +4,7 @@ import {
   IconActivity,
   IconGlobe,
   IconLock,
+  IconRefresh,
   IconShieldCheck,
   IconStack,
   IconUsers,
@@ -16,16 +17,20 @@ import { JOINING_WORDS } from "./Domains.tsx";
 import { iconMark } from "./marks.ts";
 import { possessive, ROLE_WORDS, RULE_WORDS, useLoad } from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
+import "./settings.css";
 import {
   Btn,
-  Section,
-  Empty,
+  Nothing,
   Page,
   Problem,
-  Row,
-  Rows,
+  Search,
+  Section,
+  Table,
+  Td,
   Tile,
+  Tr,
   useAction,
+  Who,
 } from "./ui.tsx";
 
 const DAYS = 14;
@@ -41,6 +46,7 @@ const dayStart = (back: number) => {
 export function AuditLogPage({ org }: { org: Org }) {
   const client = useClient();
   const more = useAction();
+  const [query, setQuery] = useState("");
   const [older, setOlder] = useState<{
     entries: OrgAuditEntry[];
     next?: string | null;
@@ -67,16 +73,23 @@ export function AuditLogPage({ org }: { org: Org }) {
   if (loaded.problem)
     return (
       <Page
-        title="The log didn't load"
-        lede="Entries are still being written."
-        actions={<Btn onClick={loaded.again}>Try again</Btn>}
+        title="Audit log"
+        lede="Every change, and who made it."
         mark={mark}
         scene={scene}
         tone="failed"
       >
-        <Section label="Today">
-          <Problem>{loaded.problem}</Problem>
-        </Section>
+        <Nothing
+          title="The log didn't load"
+          actions={
+            <Btn quiet onClick={loaded.again}>
+              <IconRefresh size={14} />
+              Try again
+            </Btn>
+          }
+        >
+          {loaded.problem} Entries are still being written.
+        </Nothing>
       </Page>
     );
 
@@ -89,86 +102,135 @@ export function AuditLogPage({ org }: { org: Org }) {
     return (
       <Page
         title="Audit log"
-        lede="Who did what, as it happens."
+        lede="Every change, and who made it."
         mark={mark}
         scene={scene}
       >
-        <Section label="Today">
-          <Empty>
-            Nothing has happened yet. The first invite will be the first line.
-          </Empty>
-        </Section>
+        <Nothing title="Nothing has happened yet">
+          The first invite will be the first line.
+        </Nothing>
       </Page>
     );
+
+  const needle = query.trim().toLowerCase();
+  const rows = (entries ?? []).map((entry) => {
+    const who = entry.by ?? "Someone";
+    const what = auditLine(entry, org);
+    const when = formatWhen(entry.at);
+    return { entry, who, what, when };
+  });
+  const filtered = needle
+    ? rows.filter(
+        ({ who, what, when }) =>
+          who.toLowerCase().includes(needle) ||
+          what.toLowerCase().includes(needle) ||
+          when.toLowerCase().includes(needle),
+      )
+    : rows;
+  const oldest = entries?.[entries.length - 1];
+  const coversWindow =
+    entries !== undefined &&
+    (!next ||
+      (oldest !== undefined && Date.parse(oldest.at) < dayStart(DAYS - 1)));
+
+  const loadOlder = () =>
+    void more.run(async () => {
+      if (!next) return;
+      const page = await (
+        await client("see the org's log")
+      ).listOrgAudit(org.id, { cursor: next });
+      setOlder((shown) => ({
+        entries: [...(shown?.entries ?? []), ...page.entries],
+        next: page.next,
+      }));
+    }, problemText);
 
   return (
     <Page
       title="Audit log"
-      lede={`What happened in ${org.name}, newest first.`}
+      lede={`Every change in ${org.name}, newest first.`}
+      tools={
+        entries ? (
+          <Search
+            label="Find a person or change"
+            value={query}
+            onChange={setQuery}
+          />
+        ) : undefined
+      }
       mark={mark}
       scene={scene}
     >
       {!entries ? (
-        <Section label="Today" busy />
-      ) : (
+        <Section busy />
+      ) : filtered.length === 0 ? (
         <>
-          <Section label="Last 14 days">
-            <Strip entries={entries} />
-          </Section>
-          {byDay(entries).map(([day, list]) => (
-            <Section key={day} label={dayName(day)} count={list.length}>
-              <Rows>
-                {list.map((entry) => (
-                  <Row
-                    key={entry.id}
-                    lead={
-                      <Tile>
-                        <Glyph action={entry.action} />
-                      </Tile>
-                    }
-                    name={entry.by ?? "Someone"}
-                    detail={auditLine(entry, org)}
-                    end={
-                      <time dateTime={entry.at}>
-                        {new Date(entry.at).toLocaleTimeString(undefined, {
-                          timeStyle: "short",
-                        })}
-                      </time>
-                    }
-                  />
-                ))}
-              </Rows>
-            </Section>
-          ))}
+          <Nothing
+            title={`Nothing matches “${query.trim()}”`}
+            actions={
+              <Btn quiet onClick={() => setQuery("")}>
+                Clear
+              </Btn>
+            }
+          >
+            Try a different person or change.
+          </Nothing>
           {next ? (
-            <div className="after">
-              <Btn
-                quiet
-                busy={more.busy}
-                onClick={() =>
-                  void more.run(async () => {
-                    const page = await (
-                      await client("see the org's log")
-                    ).listOrgAudit(org.id, { cursor: next });
-                    setOlder((shown) => ({
-                      entries: [...(shown?.entries ?? []), ...page.entries],
-                      next: page.next,
-                    }));
-                  }, problemText)
-                }
-              >
-                Older entries
+            <div className="aud-more">
+              <Btn quiet small busy={more.busy} onClick={loadOlder}>
+                {more.busy ? "Loading" : "Older entries"}
               </Btn>
               <Problem>{more.problem}</Problem>
             </div>
           ) : null}
+        </>
+      ) : (
+        <>
+          {coversWindow ? (
+            <ActivityChart entries={filtered.map((row) => row.entry)} />
+          ) : null}
+          <div className="aud-table">
+            <Table
+              label="Audit log"
+              cols="minmax(170px, 0.85fr) minmax(0, 2fr) minmax(130px, auto)"
+              heads={["Who", "What", "When"]}
+            >
+              {filtered.map(({ entry, who, what, when }) => (
+                <Tr key={entry.id}>
+                  <Td>
+                    <Who
+                      lead={
+                        <Tile>
+                          <Glyph action={entry.action} />
+                        </Tile>
+                      }
+                      name={who}
+                      phone={what}
+                    />
+                  </Td>
+                  <Td wide>{what}</Td>
+                  <Td end>
+                    <time dateTime={entry.at}>{when}</time>
+                  </Td>
+                </Tr>
+              ))}
+            </Table>
+            {next ? (
+              <div className="aud-more">
+                <Btn quiet small busy={more.busy} onClick={loadOlder}>
+                  {more.busy ? "Loading" : "Older entries"}
+                </Btn>
+                <Problem>{more.problem}</Problem>
+              </div>
+            ) : null}
+          </div>
         </>
       )}
     </Page>
   );
 }
 
-function Strip({ entries }: { entries: OrgAuditEntry[] }) {
+function ActivityChart({ entries }: { entries: OrgAuditEntry[] }) {
   const counts = Array.from({ length: DAYS }, (_, at) => {
     const back = DAYS - 1 - at;
     const from = dayStart(back);
@@ -179,41 +241,54 @@ function Strip({ entries }: { entries: OrgAuditEntry[] }) {
     }).length;
   });
   const total = counts.reduce((sum, each) => sum + each, 0);
+  const max = Math.max(...counts);
+  const firstLabel = formatDay(
+    new Date(dayStart(DAYS - 1)).toISOString(),
+    "short",
+  );
   return (
     <div
-      className="strip"
+      className="aud-heat"
       role="img"
-      aria-label={`${total} ${total === 1 ? "entry" : "entries"} in the last ${DAYS} days`}
+      aria-label={
+        total > 0
+          ? `${total} ${total === 1 ? "change" : "changes"} in the last ${DAYS} days, most ${max} in one`
+          : `No changes in the last ${DAYS} days`
+      }
     >
-      {counts.map((count, at) => {
-        const lit = Math.min(5, count);
-        return (
-          <span key={at}>
-            {Array.from({ length: 5 }, (_, dot) =>
-              dot < 5 - lit ? <i key={dot} /> : <b key={dot} />,
-            )}
-          </span>
-        );
-      })}
+      <div className="aud-bars">
+        {counts.map((count, at) => (
+          <i
+            key={at}
+            data-zero={count === 0 || undefined}
+            title={`${count} ${count === 1 ? "change" : "changes"}`}
+            style={{
+              height: count === 0 ? 3 : Math.round(10 + (count / max) * 50),
+            }}
+          />
+        ))}
+      </div>
+      <p className="aud-cap">
+        <span>{firstLabel}</span>
+        <span>
+          {total > 0
+            ? `${total} ${total === 1 ? "change" : "changes"} in ${DAYS} days, most ${max} in one`
+            : `No changes in the last ${DAYS} days`}
+        </span>
+        <span>Today</span>
+      </p>
     </div>
   );
 }
 
-function byDay(entries: OrgAuditEntry[]): [number, OrgAuditEntry[]][] {
-  const days = new Map<number, OrgAuditEntry[]>();
-  for (const entry of entries) {
-    const day = new Date(entry.at).setHours(0, 0, 0, 0);
-    days.set(day, [...(days.get(day) ?? []), entry]);
-  }
-  return [...days];
+function formatWhen(at: string): string {
+  const date = new Date(at);
+  const day = new Date(date).setHours(0, 0, 0, 0);
+  const time = date.toLocaleTimeString(undefined, { timeStyle: "short" });
+  if (day === dayStart(0)) return `Today, ${time}`;
+  if (day === dayStart(1)) return `Yesterday, ${time}`;
+  return `${formatDay(at, "short")}, ${time}`;
 }
-
-const dayName = (day: number) =>
-  day === dayStart(0)
-    ? "Today"
-    : day === dayStart(1)
-      ? "Yesterday"
-      : formatDay(new Date(day).toISOString(), "long");
 
 function Glyph({ action }: { action: OrgAuditEntry["action"] }) {
   if (action.startsWith("team_")) return <IconStack size={14} />;
