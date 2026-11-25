@@ -26,6 +26,7 @@ pub mod side;
 mod start;
 pub mod switch;
 use crate::server::chat_state::ChatParts;
+use crate::server::workspace::ModelPick;
 use crate::server::workspace_state::WorkspaceParts;
 use sikemux_drivers::server::chat::states;
 mod turn;
@@ -1199,7 +1200,13 @@ impl Chat {
         let options = start.setup.get("configOptions").unwrap_or(&Value::Null);
         if let Some(core) = self.core.upgrade() {
             if let Some(launcher) = &self.origin.launcher {
-                core.workspaces().note_config_options(launcher, options);
+                let launch = self.current_launch();
+                let told = ModelPick {
+                    model: launch.model,
+                    effort: launch.effort,
+                };
+                core.workspaces()
+                    .note_config_options(launcher, options, &told);
             }
             core.names()
                 .note_session(self.agent_id(), &start.session_id);

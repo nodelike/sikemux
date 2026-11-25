@@ -517,16 +517,25 @@ impl Workspaces {
     }
 
     /// Keeps the models and effort levels a launcher's session offered, so a chat of it that
-    /// has not started, or a device choosing before one starts, offers the same.
-    pub fn note_config_options(&self, launcher: &str, options: &Value) {
+    /// has not started, or a device choosing before one starts, offers the same. A model or
+    /// effort the session was `told` to run is not what one told nothing runs, so it is not
+    /// kept as the current choice.
+    pub fn note_config_options(&self, launcher: &str, options: &Value, told: &ModelPick) {
         if !options.is_array() {
             return;
         }
         let mut options = options.clone();
         let kind = LauncherId::parse(launcher).kind;
         let published = self.published.locked();
-        if let Some(before) = offered(&published.saved.launcher_options, launcher) {
+        let before = offered(&published.saved.launcher_options, launcher);
+        if let Some(before) = before {
             pickers::carry_efforts(&mut options, before);
+        }
+        if told.model.is_some() {
+            pickers::unpick(&mut options, |row| row["id"] == "model", before);
+        }
+        if told.effort.is_some() {
+            pickers::unpick(&mut options, sikemux_fold::pickers::is_effort, before);
         }
         if let Some(pick) = published.saved.model_picks.get(kind) {
             pick.mark(&mut options);

@@ -611,7 +611,7 @@ pub(super) fn model_of(
             let options = core.workspaces().launcher_options(kind)?;
             crate::acp::pickers::current_choice(&json!({ "configOptions": options }), "model")
         })
-        .filter(|model| !model.eq_ignore_ascii_case("default"))
+        .filter(|model| !model.is_empty() && !model.eq_ignore_ascii_case("default"))
 }
 
 /// Starts an agent of the workspace as its record says, on its saved

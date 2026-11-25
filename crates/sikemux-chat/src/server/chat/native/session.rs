@@ -40,7 +40,7 @@ use super::super::rebind::{
 };
 #[cfg(unix)]
 use super::super::Asked;
-use super::super::{cap, handoff, rotation};
+use super::super::{cap, handoff, offers, rotation};
 use super::super::{reset, stall_later, Chat, ChatCommand, Delivery, Respond, Whose};
 use super::process::Released;
 #[cfg(unix)]
@@ -623,9 +623,16 @@ pub async fn run<B: Backend>(
             }
             chat.note_agent(backend.pid());
             let start = state.start();
+            let shown = (chat.core.upgrade())
+                .filter(|_| first && launch.resume_id.is_none())
+                .and_then(|core| offers::waiting_options(&core, &chat));
             chat.mark_ready(start.clone());
+            let settled = shown.and_then(|shown| {
+                let core = chat.core.upgrade()?;
+                offers::settle_choices(&core, &chat, &shown, &state.setup)
+            });
             chat.emit(ChatEventKind::Ready, json!(start));
-            for update in carried.into_iter().chain(notice) {
+            for update in carried.into_iter().chain(notice).chain(settled) {
                 sink.update(&state.session_id, update);
             }
             (backend, state, replay)

@@ -82,11 +82,14 @@ impl World {
             )
             .to_string(),
         )?;
+        let slow = bin.join(SLOW);
         stand_in(
             "agy",
             format!(
-                "#!/bin/sh\n[ \"$1\" = models ] && exec printf '{listed}'\n[ \"$2\" = /usage ] && exec cat '{}'\nFAKE_ACP_MODELS='{offered}' exec '{}' \"$@\"\n",
+                "#!/bin/sh\n[ \"$1\" = models ] && exec printf '{listed}'\n[ \"$2\" = /usage ] && exec cat '{}'\n[ -e '{}' ] && sleep \"$(cat '{}')\"\nFAKE_ACP_MODELS='{offered}' exec '{}' \"$@\"\n",
                 agy_usage.display(),
+                slow.display(),
+                slow.display(),
                 fake("sikemux-fake-acp-agent")
             ),
         )?;
@@ -598,6 +601,15 @@ impl World {
                 self.project = Some((name, path));
             }
             "signed-in" => self.sign_in()?,
+            "slow" => std::fs::write(self.work.join("bin").join(SLOW), step.text(0)?)?,
+            "pick" => {
+                let agent_id = self.chat.clone();
+                self.runtime.block_on(self.client.ask(ask::AcpSetConfig {
+                    agent_id: agent_id.ok_or_else(|| anyhow!("open a chat first"))?,
+                    config_id: step.text(0)?.to_owned(),
+                    value: step.text(1)?.to_owned(),
+                }))?;
+            }
             "signed-out" => self.sign_out_antigravity()?,
             "host" => self.link_host(step.text(0)?, step.text(1).ok())?,
             "joins" => self.join_device(
@@ -1033,6 +1045,9 @@ fi
 [ "$1" = models ] && [ ! -e "$bin/agy-account" ] && exit 1
 exec "$bin/agy-signed-in" "$@"
 "#;
+
+/// Holds how many seconds the stand-in Antigravity takes to start.
+const SLOW: &str = "agy-slow";
 
 const OPEN: &str = "#!/bin/sh\nexit 0\n";
 

@@ -100,8 +100,6 @@ pub struct Inner {
     /// for each fold made for it.
     work: Option<(PathBuf, Place)>,
     agents: Option<Agents>,
-    /// A new chat whose agent waits for the person: clients take it up before it starts.
-    waits_for_person: bool,
     /// The session the history follows, and how far into its CLI's record it reaches.
     reach: Option<(String, Reach)>,
     /// The CLI's record of the session holds more before what the chat holds.
@@ -302,7 +300,6 @@ impl Feed {
                 chief_hears: None,
                 work: None,
                 agents: None,
-                waits_for_person: false,
                 reach: None,
                 has_earlier: false,
                 earlier_unsent: false,
@@ -396,7 +393,6 @@ impl Feed {
                 chief_hears: None,
                 work: None,
                 agents: None,
-                waits_for_person: false,
                 reach: state.reach,
                 has_earlier: false,
                 earlier_unsent: false,
@@ -1002,11 +998,6 @@ impl Feed {
         if let Some(fold) = inner.fold.as_mut() {
             fold.offer_effort();
         }
-    }
-
-    /// Lets clients take up a new chat whose agent has not started, as it waits for the person.
-    pub fn wait_for_person(&self) {
-        self.inner.locked().waits_for_person = true;
     }
 
     pub fn set_start(&self, start: ChatStart) {

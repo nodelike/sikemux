@@ -1,0 +1,23 @@
+# A new chat on an agent that is slow to start, drawn in its final state from its first frame.
+stage 1440 900
+window 1440 900
+replies antigravity.json
+prefer motion off
+prefer starAsked true
+project storefront line-shop
+core setFaceStyle {"on":false,"pack":"glow","shape":"mixed","motion":false}
+settle 6
+key cmd-w
+chat Vega antigravity
+say "Hello"
+settle 4
+pick model gemini-4-carbon-high
+settle 1
+key cmd-t
+settle 1
+click 1173,67
+settle 1
+click "Antigravity"
+settle 1
+slow 4
+opens new-chat cmd-n 9

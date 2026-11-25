@@ -90,11 +90,12 @@ pub async fn attach(
             }
         }
     };
-    // A chat is taken up with its saved history once that is read, and its start follows as
-    // changes. Only one whose history comes with its agent, such as one resumed after an
-    // update, waits until it is ready; one that never gets there is gone.
+    // A chat is taken up as it stands, with its saved history once that is read, and its start
+    // follows as changes. Only one whose history comes with its agent, such as one resumed
+    // after an update, waits until it is ready; one that never gets there is gone.
     chat.until_saved_read().await;
-    if !chat.unstarted() && !chat.feed.holds_said() {
+    let in_place = chat.unstarted() || chat.history_in_place() || chat.feed.holds_said();
+    if !in_place {
         let ready = tokio::time::timeout(START_TIMEOUT, chat.until_ready()).await;
         if !matches!(ready, Ok(Ok(_))) {
             missing();
@@ -573,6 +574,7 @@ pub async fn set_permission_mode(
     let (reply, answer) = oneshot::channel();
     chat.send(ChatCommand::SetPermissionMode { mode, reply })?;
     chat.feed.set_changing_mode(true);
+    let _ = tokio::time::timeout(START_TIMEOUT, chat.until_ready()).await;
     let answered = tokio::time::timeout(REPLY_TIMEOUT, answer).await;
     chat.feed.set_changing_mode(false);
     answered

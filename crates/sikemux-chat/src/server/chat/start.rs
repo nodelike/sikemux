@@ -1,6 +1,6 @@
 //! Bringing a chat up: from a client's ask, a hand-over, a restart or an agent that started it.
 
-use super::offers::offer_options;
+use super::offers::{offer_options, show_options};
 use super::*;
 use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceCore;
@@ -166,6 +166,9 @@ fn bring_up(
     if !chat.unstarted() && !chat.feed.holds_said() {
         native::show_saved(chat);
     }
+    if !chat.unstarted() && chat.launch.resume_id.is_none() {
+        show_options(core, chat);
+    }
     launch(core, chat, queue, begin);
     if chat.unstarted() {
         native::show_saved(chat);
@@ -177,7 +180,6 @@ fn bring_up(
 }
 
 fn wait_for_person(chat: &Chat) {
-    chat.feed.wait_for_person();
     chat.unstarted.store(true, Ordering::Release);
 }
 

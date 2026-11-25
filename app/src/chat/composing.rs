@@ -680,7 +680,7 @@ pub(super) fn composer(
     composer = composer
         .text_scale(chat.scale)
         .strip(strip)
-        .ready(settable(agent, head))
+        .ready(settable(agent, head, fresh))
         .running(chat.running())
         .steers(bench.preferences().mid_turn_send == MidTurnSend::Steer)
         .usage(
@@ -802,8 +802,10 @@ pub(super) fn composer(
     if model.is_some() || effort.is_some() {
         composer = composer.pickers(model, effort, pick.clone());
     }
-    if kind.is_some_and(|kind| kind.bypass) {
-        let mode = head.map_or(PermissionMode::WorkspaceWrite, |head| head.permission_mode);
+    let mode = (head.map(|head| head.permission_mode))
+        .or_else(|| saved.map(|saved| saved.permission_mode))
+        .filter(|_| kind.is_some_and(|kind| kind.bypass));
+    if let Some(mode) = mode {
         let held = head.is_some_and(|head| head.changing_mode || !head.permissions.is_empty());
         let agent = agent.id.clone();
         let offered = [
@@ -839,12 +841,17 @@ fn idle(head: Option<&ChatHead>) -> bool {
     })
 }
 
-/// Whether the chat takes a new account, mode or model now: its agent is up, or has not
-/// started yet, such as a new chat waiting for the person, and starts on what is picked.
-fn settable(agent: &AgentRow, head: Option<&ChatHead>) -> bool {
+/// Whether the chat takes a new account, mode or model now: its agent is up, or the chat is
+/// `fresh` and its agent not up yet, which takes what is picked as it starts.
+fn settable(agent: &AgentRow, head: Option<&ChatHead>, fresh: bool) -> bool {
     let unstarted = agent.status == AgentStatus::Starting
         && head.is_none_or(|head| head.connection == ChatConnection::Connecting);
-    unstarted || head.is_some_and(|head| head.connection == ChatConnection::Ready)
+    unstarted
+        || head.is_some_and(|head| match head.connection {
+            ChatConnection::Ready => true,
+            ChatConnection::Starting | ChatConnection::Initializing => fresh,
+            _ => false,
+        })
 }
 
 /// Where the chat runs, for the strip docked on its composer: its project, which names a
@@ -916,7 +923,7 @@ pub(super) fn strip(
             pick,
         };
         let running = head.is_some_and(|head| head.running);
-        crate::account_picker::picker(bench, chat, running, !settable(agent, head), cx)
+        crate::account_picker::picker(bench, chat, running, !settable(agent, head, fresh), cx)
     });
     let any_other = (bench.host_choices().iter())
         .any(|option| matches!(option.choice, crate::hosts::HostChoice::Account(_)));
@@ -1082,14 +1089,13 @@ impl Chat {
                 question = current.title(ix, open.len())
             );
         }
-        let ask = |commands: bool| match (to, commands) {
-            (Some((to, true)), true) => t!("{to}, or type / for commands", to = to),
-            (Some((to, _)), _) => to.to_owned(),
-            (None, true) => t!("Ask about this project, or type / for commands").to_owned(),
-            (None, false) => t!("Ask about this project").to_owned(),
+        let ask = || match to {
+            Some((to, true)) => t!("{to}, or type / for commands", to = to),
+            Some((to, false)) => to.to_owned(),
+            None => t!("Ask about this project, or type / for commands").to_owned(),
         };
         let Some(head) = &self.state else {
-            return ask(false);
+            return ask();
         };
         match head.connection {
             ChatConnection::Error | ChatConnection::Stopped => {
@@ -1101,8 +1107,7 @@ impl Chat {
             ChatConnection::Ready if head.running => {
                 t!("Send to queue behind the running turn").into()
             }
-            ChatConnection::Ready if head.commands.is_empty() => ask(false),
-            _ => ask(true),
+            _ => ask(),
         }
     }
 

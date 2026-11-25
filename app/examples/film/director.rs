@@ -138,6 +138,14 @@ pub(super) fn lens_ease(p: f64) -> f64 {
     along((low + high) / 2., 0.8, 1.)
 }
 
+/// One frame of a composer: what its empty draft says, and how its trust mode and model look.
+struct Frame {
+    at: f64,
+    origin: gpui::Point<gpui::ScaledPixels>,
+    says: String,
+    look: image::RgbaImage,
+}
+
 impl Director {
     pub(super) fn now(&self) -> f64 {
         self.ticks as f64 / (FPS * self.pictures_a_frame as f64)
@@ -746,6 +754,105 @@ impl Director {
         Ok(())
     }
 
+    /// Where the composer's trust mode and model are drawn, and what its empty draft says.
+    fn composer(&mut self) -> anyhow::Result<Option<(Bounds<gpui::ScaledPixels>, String)>> {
+        self.cx
+            .update_window(self.window, |_, window, _| {
+                let drawn = gpui_base::test_support::snapshots(window);
+                let of = |id: &str| {
+                    (drawn.iter())
+                        .find(|element| {
+                            element.visible()
+                                && element.path().last()
+                                    == Some(&ElementId::from(SharedString::from(id.to_owned())))
+                        })
+                        .map(|element| element.bounds())
+                };
+                let says = (drawn.iter())
+                    .filter(|element| element.visible())
+                    .find_map(|element| element.placeholder())?
+                    .to_owned();
+                let bar = of("picker-model")?;
+                let bar = of("composer-yolo").map_or(bar, |mode| mode.union(&bar));
+                Some((bar.scale(window.scale_factor()), says))
+            })
+            .map_err(|error| anyhow!("{error}"))
+    }
+
+    fn opens(&mut self, name: &str, key: &str, seconds: f64) -> anyhow::Result<()> {
+        anyhow::ensure!(self.composer()?.is_none(), "a composer is already drawn");
+        let pressed = Instant::now();
+        self.cx
+            .update_window(self.window, |_, window, cx| -> anyhow::Result<()> {
+                let key = Keystroke::parse_with_os(key, cx.platform_info().os)?;
+                window.dispatch_keystroke(key, cx);
+                Ok(())
+            })
+            .map_err(|error| anyhow!("{error}"))??;
+        let mut frames = Vec::<Frame>::new();
+        while pressed.elapsed().as_secs_f64() < seconds {
+            let frame = Instant::now();
+            self.cx.advance_clock(Duration::from_secs_f64(1. / FPS));
+            self.pump();
+            self.cx
+                .update_window(self.window, |_, window, cx| window.draw(cx).clear(cx))
+                .map_err(|error| anyhow!("{error}"))?;
+            let at = pressed.elapsed().as_secs_f64() * 1000.;
+            if let Some((bar, says)) = self.composer()? {
+                let shot = self.cx.capture_screenshot(self.window)?;
+                let part = |pixels: gpui::ScaledPixels| pixels.0.round() as u32;
+                let look = image::imageops::crop_imm(
+                    &shot,
+                    part(bar.origin.x),
+                    part(bar.origin.y),
+                    part(bar.size.width),
+                    part(bar.size.height),
+                )
+                .to_image();
+                if frames
+                    .last()
+                    .is_none_or(|last| last.says != says || last.look != look)
+                {
+                    shot.save(self.stills.join(format!("{name}-{at:.0}.png")))?;
+                }
+                frames.push(Frame {
+                    at,
+                    origin: bar.origin,
+                    says,
+                    look,
+                });
+            }
+            std::thread::sleep(Duration::from_secs_f64(1. / FPS).saturating_sub(frame.elapsed()));
+        }
+        let (Some(first), Some(last)) = (frames.first(), frames.last()) else {
+            return Err(anyhow!("no composer was drawn"));
+        };
+        println!("film: {name} drawn at {:.0} ms: {}", first.at, first.says);
+        // A new pane slides in, so what its bar looks like is compared once it has stopped.
+        let mut looks = Vec::<&Frame>::new();
+        for frame in frames.iter().filter(|frame| frame.origin == last.origin) {
+            if looks
+                .last()
+                .is_none_or(|look| look.says != frame.says || look.look != frame.look)
+            {
+                looks.push(frame);
+            }
+        }
+        for look in &looks {
+            println!("film: {name} at {:.0} ms: {}", look.at, look.says);
+        }
+        anyhow::ensure!(
+            frames.iter().all(|frame| frame.says == first.says),
+            "the placeholder changed"
+        );
+        anyhow::ensure!(
+            looks.len() == 1,
+            "the composer was drawn {} ways",
+            looks.len()
+        );
+        Ok(())
+    }
+
     pub(super) fn moment(&mut self, agent_id: String, show: bool) -> anyhow::Result<()> {
         self.moments += 1;
         let moment = sikemux_view::inbox::Celebration {
@@ -1033,6 +1140,10 @@ impl Director {
             "snap" => {
                 self.snap = Some(self.stills.join(format!("{}.png", step.text(0)?)));
                 self.frame()?;
+            }
+            "opens" => {
+                let (name, key) = (step.text(0)?.to_owned(), step.text(1)?.to_owned());
+                self.opens(&name, &key, seconds(2).unwrap_or(5.))?;
             }
             "end" => {
                 self.mark("end-card", None);

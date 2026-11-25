@@ -72,17 +72,101 @@ pub fn offer_model(core: &Core, launch: &ChatLaunch, options: &mut Value, model:
     }
 }
 
-/// Tells a chat that waits for the person what it offers to pick: what the launcher offered
-/// last, while its agent's CLI is asked again with no session, so the models of a CLI updated
-/// or signed in since then show before a session starts.
-pub fn offer_options(core: &Arc<Core>, chat: &Arc<Chat>) {
-    let Some(launcher) = chat.origin.launcher.clone() else {
-        return;
-    };
+/// Tells a chat whose session has not started what it offers to pick: what the launcher
+/// offered last.
+pub fn show_options(core: &Core, chat: &Chat) {
     if let Some(options) = waiting_options(core, chat) {
         tell_options(chat, options);
     }
-    ask_offers(core, launcher, chat.current_launch());
+}
+
+/// What a session that just started says when it does not run the model or effort its chat
+/// showed until then, `shown`. What it runs is kept in place of what was remembered.
+pub fn settle_choices(core: &Core, chat: &Chat, shown: &Value, setup: &Value) -> Option<Value> {
+    let mut launch = chat.current_launch();
+    if launch.model_provider.is_some() {
+        return None;
+    }
+    let (shown_model, shown_effort) = pickers::pickers(shown);
+    let (model, effort) = pickers::pickers(&setup["configOptions"]);
+    let model = swapped(shown_model, model);
+    let effort = swapped(shown_effort, effort).filter(|_| launch.effort.is_some());
+    let said = model.as_ref().or(effort.as_ref())?;
+    let agent = crate::agent_catalog::agent(&launch.provider)
+        .map_or(launch.provider.as_str(), |agent| agent.label);
+    let why = match said.offered {
+        true => format!("It started on it rather than {}.", said.shown),
+        false => format!("{agent} does not offer {} here.", said.shown),
+    };
+    let said = notice(
+        "warning",
+        &format!("This chat runs {}", said.runs),
+        Some(&why),
+    );
+    let kept = core.workspaces().model_pick(&launch.provider);
+    let mut pick = ModelPick::default();
+    if let Some(Swapped { from, to, .. }) = model {
+        if kept.as_ref().and_then(|kept| kept.model.as_ref()) == Some(&from) {
+            pick.model = Some(to.clone());
+        }
+        launch.model = Some(to);
+    }
+    if let Some(Swapped { from, to, .. }) = effort {
+        if kept.and_then(|kept| kept.effort).as_ref() == Some(&from) {
+            pick.effort = Some(to.clone());
+        }
+        launch.effort = Some(to);
+    }
+    let kept = core.workspaces().edit_agent(chat.agent_id(), |agent| {
+        agent.model.clone_from(&launch.model);
+        agent.effort.clone_from(&launch.effort);
+    });
+    let kept = kept.and_then(|_| core.workspaces().keep_model_pick(&launch.provider, pick));
+    if let Err(error) = kept {
+        eprintln!("sikemux core: the model a chat runs was not kept: {error}");
+    }
+    chat.set_current(launch);
+    Some(said)
+}
+
+struct Swapped {
+    from: String,
+    to: String,
+    shown: String,
+    runs: String,
+    offered: bool,
+}
+
+fn swapped(shown: Option<ConfigPicker>, runs: Option<ConfigPicker>) -> Option<Swapped> {
+    let (shown, runs) = (shown?, runs?);
+    let label = |picker: &ConfigPicker| {
+        (picker.choices.iter())
+            .find(|choice| choice.value == picker.current)
+            .map_or(&picker.current, |choice| &choice.label)
+            .clone()
+    };
+    let (was, is) = (label(&shown), label(&runs));
+    let same = shown.current == runs.current || was == is;
+    if same || shown.current.is_empty() || runs.current.is_empty() {
+        return None;
+    }
+    Some(Swapped {
+        offered: (runs.choices.iter()).any(|choice| choice.value == shown.current),
+        from: shown.current,
+        to: runs.current,
+        shown: was,
+        runs: is,
+    })
+}
+
+/// Tells a chat that waits for the person what it offers to pick, while its agent's CLI is
+/// asked again with no session, so the models of a CLI updated or signed in since then show
+/// before a session starts.
+pub fn offer_options(core: &Arc<Core>, chat: &Arc<Chat>) {
+    show_options(core, chat);
+    if let Some(launcher) = chat.origin.launcher.clone() {
+        ask_offers(core, launcher, chat.current_launch());
+    }
 }
 
 /// Asks a waiting chat's agent again what it offers, when the last ask failed or its program
@@ -129,7 +213,9 @@ pub fn ask_offers(core: &Arc<Core>, launcher: String, launch: ChatLaunch) {
         };
         let unread = unread(&launch, read.as_ref().err());
         match &read {
-            Ok(options) => core.workspaces().note_config_options(&launcher, options),
+            Ok(options) => {
+                (core.workspaces()).note_config_options(&launcher, options, &ModelPick::default())
+            }
             Err(error) => eprintln!("sikemux core: {launcher} offered nothing to pick: {error}"),
         }
         core.workspaces().offer_read(

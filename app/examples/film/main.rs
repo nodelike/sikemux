@@ -24,6 +24,8 @@
 //!                               scene with a host step and none of these signs in first
 //!   signed-out                  signs Antigravity out; its sign-in in a terminal asks for a
 //!                               code: 4821 signs it in, 0000 ends well but leaves it signed out
+//!   slow S                      has Antigravity take S seconds to start from here on
+//!   pick CONFIG VALUE           picks VALUE for the last chat's CONFIG, such as its model
 //!   host NAME                   signs in another host on the same account, a throwaway core
 //!                               of its own holding a copy of the last project
 //!   joins HOST "NAME" PLATFORM [left]  has a device of that name join HOST, or `here`, with a
@@ -70,6 +72,10 @@
 //!                               of the shared project over the peer link, on a recorded team
 //!   wait S / mark KIND / still NAME / end [HOLD]
 //!   snap NAME                   saves the window alone as drawn, without the stage or cursor
+//!   opens NAME KEY S            presses KEY to open a chat and watches its composer for S real
+//!                               seconds: says when it is first drawn and saves each look it has
+//!                               as NAME and the milliseconds it took, failing if its placeholder,
+//!                               trust mode or model changes
 //!   toast "TEXT"                shows a toast saying TEXT, as a finished download does
 //!   calls FILE                  puts the calls FILE lists, as the core's view writes them, to
 //!                               the person: each asked by the agent of its asker's name, in the
@@ -100,9 +106,10 @@ use world::*;
 use anyhow::{anyhow, bail, Context as _};
 use film_frame::{Compositor, Picture, Pointer, Setup, Shape, View};
 use gpui::{
-    point, px, size, AnyWindowHandle, AppContext, ExternalPaths, FileDropEvent, HeadlessAppContext,
-    Keystroke, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent,
-    PlatformInput, Role, ScrollDelta, ScrollEvent, ScrollSource, TouchPhase,
+    point, px, size, AnyWindowHandle, AppContext, Bounds, ElementId, ExternalPaths, FileDropEvent,
+    HeadlessAppContext, Keystroke, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, PinchEvent, PlatformInput, Role, ScrollDelta, ScrollEvent, ScrollSource,
+    SharedString, TouchPhase,
 };
 use serde_json::{json, Value};
 use sikemux_client::client::CoreClient;

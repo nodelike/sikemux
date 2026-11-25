@@ -168,6 +168,22 @@ pub fn pick(options: &mut Value, matches: impl Fn(&Value) -> bool, value: &str) 
     }
 }
 
+/// Takes the choice off the row `matches` finds, for the one `before` had there, if any.
+pub fn unpick(options: &mut Value, matches: impl Fn(&Value) -> bool, before: Option<&Value>) {
+    let earlier = before
+        .and_then(Value::as_array)
+        .and_then(|rows| rows.iter().find(|row| matches(row)))
+        .and_then(|row| row["currentValue"].as_str())
+        .unwrap_or_default();
+    let row = options
+        .as_array_mut()
+        .and_then(|rows| rows.iter_mut().find(|row| matches(row)));
+    if let Some(row) = row {
+        let offered = choices_offer(&row["options"], earlier);
+        row["currentValue"] = json!(if offered { earlier } else { "" });
+    }
+}
+
 /// Copies onto the model choices of `options` the efforts `before` named for the same models
 /// where `options` name none, as an agent's session names only its current model's.
 pub fn carry_efforts(options: &mut Value, before: &Value) {

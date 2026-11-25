@@ -721,11 +721,18 @@ impl Render for Footer {
     }
 }
 
+/// How much news of a new chat is kept while its tab has not come. A chat with more is attached
+/// to again once it has a tab.
+const MOST_ARRIVING: usize = 64;
+
 /// The chats the window holds and what waits on them.
 #[derive(Default)]
 pub struct Chats {
     /// The chats of the agents with a tab open, by agent id.
     pub open: HashMap<String, Chat>,
+    /// A new chat whose tab has not come yet, and what the core has said of it since it was
+    /// attached to.
+    pub(crate) arriving: Option<(String, Vec<ChatNews>)>,
     /// The chat in front and whether its session was ready when its draft last took the keys.
     pub(crate) focused: Option<(String, bool)>,
     /// The chat that was in front when the window last settled, so one coming forward takes
@@ -1122,7 +1129,7 @@ impl Chat {
     pub fn hear(&mut self, agent: &str, news: ChatNews, cx: &mut App) {
         let ask = |chat: &Self, ask: ChatAsk| chat.target.ask(Ask::Chat(ask));
         match news {
-            ChatNews::Attached(attachment) => {
+            ChatNews::Attached(attachment) | ChatNews::Arrived(attachment) => {
                 if let Some(next) = self.attached(agent, attachment, cx) {
                     ask(self, next);
                 }
@@ -2204,8 +2211,35 @@ impl Workbench {
             (view.workspace.agents.iter())
                 .any(|saved| saved.id == agent && saved.resume_id.is_some())
         });
-        self.chats.open.insert(agent.clone(), chat);
-        self.ask_chat(ChatAsk::Attach { agent, since: None });
+        match self.chats.arriving.take_if(|(new, _)| *new == agent) {
+            Some((_, said)) => {
+                for news in said {
+                    chat.hear(&agent, news, cx);
+                }
+                self.chats.open.insert(agent, chat);
+            }
+            None => {
+                self.chats.open.insert(agent.clone(), chat);
+                self.ask_chat(ChatAsk::Attach { agent, since: None });
+            }
+        }
+    }
+
+    /// Keeps what the core says of a new chat until its tab comes.
+    pub(crate) fn chat_arrives(&mut self, agent: String, news: ChatNews) {
+        match (&mut self.chats.arriving, news) {
+            (arriving, news @ ChatNews::Arrived(ChatAttachment::Live { .. })) => {
+                *arriving = Some((agent, vec![news]));
+            }
+            (Some((new, said)), news @ ChatNews::Changes { .. }) if *new == agent => {
+                said.push(news);
+                if said.len() > MOST_ARRIVING {
+                    self.chats.arriving = None;
+                    self.ask_chat(ChatAsk::Detach { agent });
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Lets go of the chats out of sight once they have stayed so for `CHAT_RESTS_AFTER`.

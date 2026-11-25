@@ -119,7 +119,7 @@ impl Workbench {
                                 crate::star::turn_finished(self, cx);
                             }
                         }
-                        None => return,
+                        None => return self.chat_arrives(agent, news),
                     },
                 }
                 if self.chats.finds.contains_key(&agent) {

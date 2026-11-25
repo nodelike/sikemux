@@ -113,6 +113,8 @@ pub enum Update {
 
 pub enum ChatNews {
     Attached(ChatAttachment),
+    /// What a new chat's attach answered, which may come before its tab does.
+    Arrived(ChatAttachment),
     /// The core took the message sent, and what it answered the attach that followed it.
     Taken(Option<ChatAttachment>),
     /// The chat's changes numbered `seq`, read on the thread that heard them, or why they
@@ -584,11 +586,13 @@ impl Beginning {
 
 /// Starts a chat on `client`'s core and brings its tab to the front there:
 /// as soon as `begun` names the new chat, rather than once its agent's program is ready, which
-/// takes a real agent seconds.
+/// takes a real agent seconds. The chat is attached to as its tab opens, so its first frame
+/// has what the core says of it.
 async fn open_chat_on(
     client: Arc<CoreClient>,
     chat: NewChat,
     begun: Option<oneshot::Receiver<String>>,
+    updates: mpsc::UnboundedSender<Update>,
 ) {
     let NewChat {
         launcher,
@@ -610,6 +614,18 @@ async fn open_chat_on(
             }
         }
     };
+    let show = |agent: String| {
+        let (client, project, updates) = (&client, &project, &updates);
+        async move {
+            let shown = async {
+                if let Ok(attachment) = attach(client, &agent, None).await {
+                    let news = ChatNews::Arrived(attachment);
+                    let _ = updates.send(Update::Chat(agent.clone(), news));
+                }
+            };
+            tokio::join!(shown, open_tab(client, project, &agent));
+        }
+    };
     let asked = client.ask(ask::StartChat {
         launcher,
         project: project.clone(),
@@ -620,7 +636,7 @@ async fn open_chat_on(
     let (begun, shown) = {
         let early = async {
             let agent = begun?.await.ok()?;
-            tokio::join!(wake(agent.clone()), open_tab(&client, &project, &agent));
+            tokio::join!(show(agent.clone()), wake(agent.clone()));
             Some(agent)
         };
         tokio::pin!(asked, early);
@@ -633,7 +649,7 @@ async fn open_chat_on(
     match opened {
         Ok((agent, _)) => {
             if shown.as_ref() != Some(&agent) {
-                tokio::join!(wake(agent.clone()), open_tab(&client, &project, &agent));
+                tokio::join!(show(agent.clone()), wake(agent.clone()));
             }
             if let Some(started) = started {
                 let _ = started.send(agent);
@@ -1611,14 +1627,14 @@ async fn run(
                                     }
                                 },
                                 Ask::StartChat(chat) => {
-                                    let linked = linked.clone();
+                                    let (linked, updates) = (linked.clone(), updates.clone());
                                     tokio::spawn(async move {
                                         let client = match &linked {
                                             Some(linked) => linked.client(&host).await.ok(),
                                             None => None,
                                         };
                                         match client {
-                                            Some(client) => open_chat_on(client, chat, None).await,
+                                            Some(client) => open_chat_on(client, chat, None, updates).await,
                                             None => eprintln!("sikemux: {host} is out of reach, so no chat started there"),
                                         }
                                     });
@@ -1690,7 +1706,7 @@ async fn run(
                             Some(Ask::StartChat(chat)) => {
                                 let (begun, heard) = oneshot::channel();
                                 beginnings.push(Beginning { launcher: chat.launcher.clone(), begun });
-                                tokio::spawn(open_chat_on(client.clone(), chat, Some(heard)));
+                                tokio::spawn(open_chat_on(client.clone(), chat, Some(heard), updates.clone()));
                             }
                             Some(Ask::StartCore) => {}
                             Some(Ask::Shutdown) => {
