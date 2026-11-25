@@ -5,6 +5,7 @@ import {
   IconCreditCard,
   IconGlobe,
   IconLogOut,
+  IconOrg,
   IconPlus,
   IconScrollText,
   IconShieldCheck,
@@ -35,6 +36,7 @@ const ORG_ICONS: Record<OrgPage, ReactNode> = {
   "audit-log": <IconScrollText size={15} />,
   policy: <IconShieldCheck size={15} />,
   billing: <IconCreditCard size={15} />,
+  details: <IconOrg size={15} />,
 };
 
 type Follow = (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;

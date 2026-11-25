@@ -13,6 +13,7 @@ import { AuditLogPage } from "./AuditLog.tsx";
 import { BillingPage, OrgBillingPage, useBillingShown } from "./Billing.tsx";
 import { ConnectorsPage } from "./Connectors.tsx";
 import { DeleteAccount } from "./DeleteAccount.tsx";
+import { DetailsPage } from "./Details.tsx";
 import { HostsPage, useDevices } from "./Devices.tsx";
 import { DomainsPage } from "./Domains.tsx";
 import { JoinPage } from "./Join.tsx";
@@ -234,6 +235,13 @@ export function Account({
       <AuditLogPage key={current.org.id} org={current.org} />
     ) : current.page === "policy" ? (
       <PolicyPage key={current.org.id} org={current.org} team={team} />
+    ) : current.page === "details" ? (
+      <DetailsPage
+        key={current.org.id}
+        org={current.org}
+        team={team}
+        reload={orgs.reload}
+      />
     ) : (
       <OrgBillingPage
         key={current.org.id}

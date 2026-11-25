@@ -34,6 +34,7 @@ export const ORG_PAGES = {
   "audit-log": "Audit log",
   policy: "Policy",
   billing: "Plan and billing",
+  details: "Details",
 } as const;
 
 export type OrgPage = keyof typeof ORG_PAGES;

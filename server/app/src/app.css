@@ -382,6 +382,9 @@ canvas.dots {
   min-height: var(--row);
   transition: background 0.12s;
 }
+.row:has(> .more > .box) {
+  padding-bottom: var(--pad);
+}
 .row + .row {
   border-top: 1px solid var(--line);
 }
@@ -412,6 +415,16 @@ canvas.dots {
   height: 28px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+.row > .end .named {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.row > .end .named .field {
+  width: 200px;
+  height: var(--ctl);
+  text-align: left;
 }
 .row .more {
   grid-column: 1/-1;
@@ -1378,6 +1391,14 @@ canvas.dots {
   }
   .row.wrap:has(> span:first-child:empty) > .end {
     grid-column: 1/-1;
+  }
+  .row.wrap > .end:has(.named),
+  .row > .end .named {
+    justify-self: stretch;
+    width: 100%;
+  }
+  .row > .end .named .field {
+    flex: 1;
   }
   .sc:not([aria-current="true"]):not(.add) span:not(.av, .orgm) {
     display: none;
