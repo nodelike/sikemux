@@ -287,6 +287,16 @@ impl Question {
         matches!(self.stage, Stage::Person { .. })
     }
 
+    fn is_about(&self, agent: &str) -> bool {
+        (self.about.as_ref()).is_some_and(|about| about.agent_id == agent)
+    }
+
+    /// Its id and title, as a list of calls names it to an agent.
+    fn listed(&self) -> String {
+        let title = self.header.as_deref().unwrap_or(&self.text);
+        format!("{} \"{title}\"", self.id)
+    }
+
     fn lead_id(&self) -> Option<&str> {
         match &self.stage {
             Stage::Lead { lead_id, .. } => Some(lead_id),
@@ -744,25 +754,43 @@ impl Questions {
         let state = self.state.locked();
         (state.open.iter())
             .filter(|question| question.agent_id == agent && keep(question))
-            .map(|call| {
-                format!(
-                    "{} \"{}\"",
-                    call.id,
-                    call.header.as_deref().unwrap_or(&call.text)
-                )
-            })
+            .map(Question::listed)
             .collect()
     }
 
-    /// What `agent` is told with the person's message while calls of its own wait on them.
+    /// The calls of `agent`'s that wait on the person, as `id "title"` items.
+    pub(crate) fn asks_person(&self, agent: &str) -> Vec<String> {
+        self.calls_of(agent, Question::asks_person)
+    }
+
+    /// What `agent` is told with the person's message while calls of its own, or of others about
+    /// its work, wait on them.
     pub(crate) fn open_calls_note(&self, agent: &str) -> Option<String> {
-        let calls = self.calls_of(agent, |call| matches!(call.stage, Stage::Person { .. }));
-        (!calls.is_empty()).then(|| {
+        let own = self.asks_person(agent);
+        let own = (!own.is_empty()).then(|| {
             format!(
                 "Your calls still open to the person: {}. If this message settles one, withdraw it with ask, edit: its id and withdraw: true.",
-                calls.join("; ")
+                own.join("; ")
             )
-        })
+        });
+        let others: Vec<String> = (self.state.locked().open.iter())
+            .filter(|call| call.asks_person() && call.agent_id != agent && call.is_about(agent))
+            .map(|call| {
+                format!(
+                    "{} from {}",
+                    call.listed(),
+                    super::names::at_name(&call.name)
+                )
+            })
+            .collect();
+        let others = (!others.is_empty()).then(|| {
+            format!(
+                "Calls about your work still open to the person: {}. If this message settles one, tell the agent that raised it.",
+                others.join("; ")
+            )
+        });
+        let notes: Vec<String> = own.into_iter().chain(others).collect();
+        (!notes.is_empty()).then(|| notes.join("\n"))
     }
 
     #[cfg(test)]
@@ -773,11 +801,7 @@ impl Questions {
 
     /// What `lead` is told with a report from `worker` while calls of the lead's about it are open.
     pub(crate) fn calls_about_note(&self, lead: &str, worker: &str) -> Option<String> {
-        let calls = self.calls_of(lead, |call| {
-            call.about
-                .as_ref()
-                .is_some_and(|about| about.agent_id == worker)
-        });
+        let calls = self.calls_of(lead, |call| call.is_about(worker));
         (!calls.is_empty()).then(|| {
             format!(
                 "Your open calls about this agent: {}. If this report settles one, withdraw it with ask, edit: its id and withdraw: true.",
@@ -809,8 +833,6 @@ impl Questions {
         }
     }
 
-    /// The person typed into the terminal of an agent that asked them
-    /// something, which answers it there.
     /// The person wrote to `agent_id` directly, so a call about its work no longer stands behind
     /// the pick its asker made before: the pick is cleared and the asker told to edit or withdraw.
     pub(crate) fn steered(&self, agent_id: &str) {
@@ -837,8 +859,8 @@ impl Questions {
                 .unwrap_or_else(|| clipped(&question.text, 80));
             let note = format!(
                 "The person wrote to @{} directly after your call \"{named}\", so its pick was \
-                 cleared. If it no longer stands, edit it with ask edit: \"{}\" or withdraw it \
-                 with withdraw: true.",
+                 cleared. If it still stands, give the pick again with ask edit: \"{}\" and pick; \
+                 if not, edit it or withdraw it with withdraw: true.",
                 about.name, question.id
             );
             notes.push((question.agent_id.clone(), note));
@@ -849,6 +871,8 @@ impl Questions {
         }
     }
 
+    /// The person typed into the terminal of an agent that asked them
+    /// something, which answers it there.
     pub(crate) fn typed(&self, agent_id: &str) {
         let mut state = self.state.locked();
         let before = state.open.len();
@@ -2386,7 +2410,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     for (asker, note) in unpicked {
         let core = core.clone();
         tokio::spawn(async move {
-            let _ = messages::from_sikemux(&core, asker, note).await;
+            let _ = messages::work_from_sikemux(&core, asker, note, "about a call of yours").await;
         });
     }
     let (askers, leads): (HashSet<String>, HashSet<String>) = {
@@ -2676,7 +2700,7 @@ pub(crate) fn open_calls(core: &Core, agent: &str) -> Option<sikemux_wire::proto
     let text = core.harness().questions.open_calls_note(agent)?;
     Some(sikemux_wire::protocol::ChatContext {
         uri: format!("{}open-calls", sikemux_wire::protocol::FOR_AGENT_URI),
-        title: "Your open calls".into(),
+        title: "Open calls".into(),
         text,
     })
 }
@@ -2796,6 +2820,98 @@ mod tests {
 
         let for_person: Vec<String> = questions.for_person().into_iter().map(|q| q.id).collect();
         assert_eq!(for_person, ["question-lead"]);
+    }
+
+    /// @Chief asked about @Floch's mockup, and the person looked for the ask in @Floch's chat,
+    /// where it was not; @Floch found no open ask in agent_list and told them there was none. Their
+    /// message to @Floch cleared the ask's pick, and the note telling @Chief was dropped.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn agents_know_of_calls_open_about_their_work() {
+        use crate::server::parts::Parts;
+        use crate::server::workspace::{AddProjectParams, AddProjectParamsExt};
+        use crate::server::workspace_state::WorkspaceParts;
+        use crate::server::{Core, ServerCore};
+
+        let core = Core::new(Default::default(), None).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let project = crate::server::workspace::add_project(
+            &core,
+            AddProjectParams::at(dir.path().to_owned()),
+        )
+        .await
+        .expect("the project");
+        for (agent, name) in [("worker", "Floch"), ("lead", "Chief")] {
+            let draft: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_value(serde_json::json!({
+                    "id": agent,
+                    "provider": "claude",
+                    "project": project.id,
+                    "cwd": dir.path(),
+                    "title": agent,
+                    "permissionMode": "auto",
+                    "terminal": true,
+                }))
+                .expect("a draft");
+            core.workspaces().put_agent_draft(draft).expect("the agent");
+            let adopted = crate::server::names::Adopted {
+                agent_id: agent,
+                name,
+                project: dir.path().to_string_lossy().into_owned(),
+                parent: None,
+                provider: "claude",
+                reports: false,
+                task: None,
+            };
+            core.names().adopt(adopted, [agent.to_owned()].into());
+        }
+        let question: Question = serde_json::from_value(serde_json::json!({
+            "id": "question-lead",
+            "agentId": "lead",
+            "name": "Chief",
+            "cli": "claude",
+            "project": dir.path(),
+            "header": "Link preview",
+            "asked": "Which mockup?",
+            "text": "Which mockup?",
+            "choices": [{ "label": "One", "recommended": true }, { "label": "Two" }],
+            "blocked": false,
+            "at": 7,
+            "stage": { "stage": "person" },
+            "about": { "agentId": "worker", "name": "Floch", "cli": "claude" },
+        }))
+        .expect("a question");
+        let questions = &core.harness().questions;
+        questions.state.locked().open.push(question);
+        super::settle(&core);
+
+        let rows = crate::server::roster::rows(&core, None, "worker");
+        let lead = rows
+            .iter()
+            .find(|row| row["agentId"] == "lead")
+            .expect("the lead");
+        assert_eq!(
+            lead["asksPerson"],
+            serde_json::json!(["question-lead \"Link preview\""])
+        );
+
+        let told = super::open_calls(&core, "worker").expect("a note");
+        assert!(
+            told.text
+                .contains("question-lead \"Link preview\" from @Chief"),
+            "{}",
+            told.text
+        );
+
+        crate::server::messages::person_wrote(&core, "worker");
+        super::settle(&core);
+        let mailbox = &core.harness().mailbox;
+        for _ in 0..100 {
+            if mailbox.has_waiting("lead") {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("the asker never hears its pick was cleared");
     }
 
     /// @Chief raised two calls about @Lille's two questions, and @Lille got the first call's

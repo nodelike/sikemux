@@ -322,6 +322,15 @@ fn line(row: &Value) -> String {
             line.push_str(&format!("; {label}{value}"));
         }
     }
+    for ask in row
+        .get("asksPerson")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        line.push_str(&format!("; asks the person {ask}"));
+    }
     if row.get("you").is_some() {
         line.push_str("; you");
     } else if row.get("canMessage") == Some(&Value::Bool(false)) {
@@ -379,6 +388,10 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
                             .unwrap_or_else(|| parent.clone())
                             .into(),
                     );
+                }
+                let asks = core.harness().questions.asks_person(&agent.agent_id);
+                if !asks.is_empty() {
+                    fields.insert("asksPerson".into(), asks.into());
                 }
                 if agent.agent_id == caller {
                     fields.insert("you".into(), true.into());
