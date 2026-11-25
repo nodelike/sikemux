@@ -952,7 +952,7 @@ impl Chat {
             let (provider, asks) = (provider.to_owned(), target.asks().clone());
             move |cx| {
                 let old = looks.borrow().clone();
-                let new = Looks::new(
+                let mut new = Looks::new(
                     Tokens::get(cx),
                     &provider,
                     (old.reader.clone(), old.running.clone()),
@@ -960,7 +960,7 @@ impl Chat {
                     old.agent.clone(),
                     old.files.clone(),
                 );
-                new.pictures.replace(old.pictures.take());
+                new.pictures = old.pictures.clone();
                 let style = new.rescale(old.scale.get());
                 *looks.borrow_mut() = Rc::new(new);
                 transcript
@@ -1628,6 +1628,7 @@ impl Chat {
         let held: HashSet<&str> = (rows.get(kept).unwrap_or_default().iter())
             .map(|row| row.id())
             .collect();
+        self.looks.borrow().pictures.borrow_mut().retain_rows(&held);
         let streamed: Vec<String> = (self.reader.read(cx).streamed.iter())
             .filter(|row| held.contains(row.as_str()))
             .cloned()
@@ -1781,13 +1782,6 @@ pub fn pane(
         )
         .with_priority(1)
     });
-    let bench_handle = cx.weak_entity();
-    chat.activity_line
-        .update(cx, |line, cx| line.wear(agent, bench_handle, cx));
-    let level = bench.preferences().screen_reader;
-    chat.announcer.update(cx, |announcer, _| {
-        announcer.wear(level, agent.name.as_deref())
-    });
     let list = chat.transcript.read(cx).list().clone();
     // The scrollbar shows whenever its list moves, and a list following the latest rows moves
     // with every streamed line; only a reader who scrolled up has a thumb, as on the Mac, unless
@@ -1875,8 +1869,6 @@ pub fn pane(
         .questions_outside_calls()
         .filter(|question| question.asks(&agent.id))
         .collect();
-    let calls = bench.calls_of(chat.target.place(), &agent.id, chat.last_said(cx));
-    chat.calls.update(cx, |shown, cx| shown.show(calls, cx));
     let permissions = chat
         .state
         .as_ref()
@@ -1997,12 +1989,11 @@ pub fn pane(
         .children(permissions)
         .children(notice)
         .children(dock)
-        .children(chat.composer.as_ref().map(|composing| {
-            composing.view.update(cx, |view, _| {
-                view.agent = Some(agent.clone());
-            });
-            composing.view.clone().into_element().isolated()
-        }))
+        .children(
+            chat.composer
+                .as_ref()
+                .map(|composing| composing.view.clone().into_element().isolated()),
+        )
         .child({
             let gone = chat.welcome_gone(cx);
             crate::motion::replay(
@@ -2182,6 +2173,36 @@ impl Workbench {
     }
 
     /// Holds the chat of the agent the tab in front shows, attaching to it the first time.
+    pub(crate) fn sync_chat_view(&self, agent_id: &str, cx: &mut Context<Self>) {
+        let Some(chat) = self.chats.open.get(agent_id) else {
+            return;
+        };
+        let Some(agent) = self.agent_by_id(agent_id) else {
+            return;
+        };
+        let bench_handle = cx.weak_entity();
+        chat.activity_line
+            .update(cx, |line, cx| line.wear(&agent, bench_handle, cx));
+        let level = self.preferences().screen_reader;
+        chat.announcer.update(cx, |announcer, _| {
+            announcer.wear(level, agent.name.as_deref())
+        });
+        let calls = self.calls_of(chat.target.place(), &agent.id, chat.last_said(cx));
+        chat.calls.update(cx, |shown, cx| shown.show(calls, cx));
+        if let Some(composing) = &chat.composer {
+            composing.view.update(cx, |view, _| {
+                view.agent = Some(agent);
+            });
+        }
+    }
+
+    pub(crate) fn sync_chat_views(&self, cx: &mut Context<Self>) {
+        let ids: Vec<String> = self.chats.open.keys().cloned().collect();
+        for id in ids {
+            self.sync_chat_view(&id, cx);
+        }
+    }
+
     pub(crate) fn open_chat(&mut self, cx: &mut Context<Self>) {
         let Some(AgentRow {
             id: agent,

@@ -125,6 +125,7 @@ impl Workbench {
                 if self.chats.finds.contains_key(&agent) {
                     self.find_once_attached(agent.clone(), None, cx);
                 }
+                self.sync_chat_view(&agent, cx);
                 let restage = self
                     .chats
                     .open
@@ -223,7 +224,7 @@ impl Workbench {
         }
         let agents: Vec<_> = (self.shown().into_iter())
             .flat_map(|view| &view.inbox.agents)
-            .map(|agent| (agent.agent_id.clone(), agent.group))
+            .map(|agent| (agent.agent_id.as_str(), agent.group))
             .collect();
         let any = self.shown().is_some_and(|view| view.inbox.working > 0);
         crate::ui::grain::working(any, &agents, cx);
@@ -268,6 +269,7 @@ impl Workbench {
             self.files.reveal(self.front_file(), &self.target());
             crate::settings::front_moved(self, cx);
         }
+        self.sync_chat_views(cx);
         self.note_visit();
         self.note_front_copy();
         self.watch_hosts_page();

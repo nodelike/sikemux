@@ -53,6 +53,30 @@ pub fn clear_saved() {
     }
 }
 
+pub(crate) fn preload(cx: &mut App) {
+    let Some(path) = saved_path() else {
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let saved = cx
+            .background_executor()
+            .spawn(async move {
+                let bytes = std::fs::read(path).ok()?;
+                serde_json::from_slice::<Clip>(&bytes).ok()
+            })
+            .await;
+        if let Some(saved) = saved {
+            cx.update(|cx| {
+                let current = cx.default_global::<LastClip>();
+                if current.0.is_none() {
+                    current.0 = Some(Rc::new(saved));
+                }
+            });
+        }
+    })
+    .detach();
+}
+
 impl Clip {
     fn keep(self, cx: &mut App) {
         if let Ok(bytes) = serde_json::to_vec(&self) {
@@ -80,16 +104,7 @@ impl Clip {
             id.as_ref().is_none_or(|id| *id == clip.id) && clip.draft.text() == written.text()
         };
         let last = cx.default_global::<LastClip>().0.clone();
-        if let Some(clip) = last.filter(|clip| is_it(clip)) {
-            return Some(clip);
-        }
-        let saved: Self = serde_json::from_slice(&std::fs::read(saved_path()?).ok()?).ok()?;
-        if !is_it(&saved) {
-            return None;
-        }
-        let clip = Rc::new(saved);
-        cx.set_global(LastClip(Some(clip.clone())));
-        Some(clip)
+        last.filter(|clip| is_it(clip))
     }
 }
 

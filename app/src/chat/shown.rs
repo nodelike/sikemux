@@ -2,8 +2,9 @@
 //! and after at a phone's, a tablet's and a desktop's width under the reply that ended it.
 
 use crate::ui::Clicks;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -41,6 +42,7 @@ const WIDTHS: [(u32, &str, f32, f32); 3] = [
 const PAIR_GAP: f32 = 8.;
 /// How many fetched pictures are kept before all are let go and fetched again as needed.
 const FETCHED_KEPT: usize = 240;
+const RETRY_AFTER: Duration = Duration::from_secs(30);
 
 /// The pictures of `pages`, each width's before and after side by side under its name.
 pub(super) fn pictures(pages: &[PageShown], key: &str, looks: &Looks, cx: &mut App) -> AnyElement {
@@ -162,15 +164,43 @@ fn framed(
         .into_any_element()
 }
 
-/// The pictures fetched from the core, by id: none while one is on its way or did not come.
+/// The pictures fetched from the core, by id, bounded by LRU eviction.
 #[derive(Default)]
-struct Fetched(HashMap<String, Option<Arc<Image>>>);
+struct Fetched {
+    entries: HashMap<String, Option<Arc<Image>>>,
+    order: VecDeque<String>,
+    loading: HashSet<String>,
+    failed: HashMap<String, Instant>,
+}
+
+impl Fetched {
+    fn get(&mut self, id: &str) -> Option<Option<Arc<Image>>> {
+        let value = self.entries.get(id)?.clone();
+        self.order.retain(|kept| kept != id);
+        self.order.push_back(id.to_owned());
+        Some(value)
+    }
+
+    fn insert(&mut self, id: String, value: Option<Arc<Image>>) {
+        self.loading.remove(&id);
+        self.failed.remove(&id);
+        self.order.retain(|kept| kept != &id);
+        while self.entries.len() >= FETCHED_KEPT {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            self.entries.remove(&oldest);
+        }
+        self.order.push_back(id.clone());
+        self.entries.insert(id, value);
+    }
+}
 
 impl Global for Fetched {}
 
 /// The picture `id` names, once it has come from the core.
 pub(crate) fn turn_picture_held(id: &str, cx: &App) -> Option<Arc<Image>> {
-    cx.try_global::<Fetched>()?.0.get(id)?.clone()
+    cx.try_global::<Fetched>()?.entries.get(id)?.clone()
 }
 
 /// The picture `id` names, of a turn of `agent`'s, asking the core for it the first time and
@@ -185,24 +215,37 @@ pub(crate) fn turn_picture(
     if !cx.has_global::<Fetched>() {
         cx.set_global(Fetched::default());
     }
-    if let Some(known) = cx.global::<Fetched>().0.get(id) {
-        return known.clone();
+    let fetched = cx.global_mut::<Fetched>();
+    if let Some(known) = fetched.get(id) {
+        return known;
     }
-    let kept = &mut cx.global_mut::<Fetched>().0;
-    if kept.len() >= FETCHED_KEPT {
-        kept.clear();
+    if fetched.loading.contains(id)
+        || fetched
+            .failed
+            .get(id)
+            .is_some_and(|at| at.elapsed() < RETRY_AFTER)
+    {
+        return None;
     }
-    kept.insert(id.to_owned(), None);
+    fetched.loading.insert(id.to_owned());
     let target = bench.upgrade()?.read(cx).chat_target(agent);
     let asked = target.request_typed::<call::TurnPicture>(TurnPictureParams { id: id.to_owned() });
     let id = id.to_owned();
     cx.spawn(async move |cx| {
-        let Ok(answer) = asked.await else { return };
-        let image = crate::picture::decode(&answer.mime_type, &answer.data);
+        let Ok(answer) = asked.await else {
+            cx.update(|cx| {
+                let fetched = cx.global_mut::<Fetched>();
+                fetched.loading.remove(&id);
+                fetched.failed.insert(id, Instant::now());
+            });
+            return;
+        };
+        let image = cx
+            .background_executor()
+            .spawn(async move { crate::picture::decode(&answer.mime_type, &answer.data) })
+            .await;
         cx.update(|cx| {
-            if let Some(kept) = cx.global_mut::<Fetched>().0.get_mut(&id) {
-                *kept = image;
-            }
+            cx.global_mut::<Fetched>().insert(id, image);
             redraw(cx);
         });
     })

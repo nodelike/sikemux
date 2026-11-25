@@ -240,7 +240,7 @@ pub(crate) const LIMITS_EVERY: Duration = Duration::from_secs(5 * 60);
 impl Workbench {
     pub fn new(link: Link, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let Link { mut updates, asks } = link;
-        let _ = asks.send(Ask::Remote(crate::core::RemoteAsk::Status));
+        crate::chat::clip::preload(cx);
         cx.defer_in(window, |bench, _, cx| crate::accounts::read(bench, cx));
         cx.set_decoded_image_budget(PICTURE_BUDGET);
         // The window's close button hides the app as ⌘H does, so the Dock, a link or

@@ -308,7 +308,7 @@ pub fn find_view<'a>(pane: &'a Pane, id: &str) -> Option<View<'a>> {
     views(pane).find(|view| view.id == id)
 }
 
-fn view_in<'a>(pane: &'a Pane, view: &str) -> Option<&'a Pane> {
+pub(crate) fn view_in<'a>(pane: &'a Pane, view: &str) -> Option<&'a Pane> {
     nodes(pane).find(|node| matches!(node, Pane::View { id, .. } if id == view))
 }
 

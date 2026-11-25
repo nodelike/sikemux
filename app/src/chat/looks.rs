@@ -1,6 +1,50 @@
 //! How a chat's rows look: its markdown styles at the chat's text size, and the theme's tints.
 
+use std::collections::{HashMap, HashSet, VecDeque};
+
 use super::*;
+
+const MAX_CHAT_PICTURES: usize = 64;
+
+#[derive(Default)]
+pub(super) struct PictureCache {
+    entries: HashMap<SharedString, Option<Picture>>,
+    order: VecDeque<SharedString>,
+    loading: HashSet<SharedString>,
+}
+
+impl PictureCache {
+    pub(super) fn get(&mut self, id: &SharedString) -> Option<Option<Picture>> {
+        let value = self.entries.get(id)?.clone();
+        self.order.retain(|kept| kept != id);
+        self.order.push_back(id.clone());
+        Some(value)
+    }
+
+    pub(super) fn start_loading(&mut self, id: SharedString) -> bool {
+        self.loading.insert(id)
+    }
+
+    pub(super) fn insert(&mut self, id: SharedString, value: Option<Picture>) {
+        self.loading.remove(&id);
+        self.order.retain(|kept| kept != &id);
+        while self.entries.len() >= MAX_CHAT_PICTURES {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            self.entries.remove(&oldest);
+        }
+        self.order.push_back(id.clone());
+        self.entries.insert(id, value);
+    }
+
+    pub(super) fn retain_rows(&mut self, held: &HashSet<&str>) {
+        let keep = |id: &SharedString| id.split(':').next().is_some_and(|row| held.contains(row));
+        self.entries.retain(|id, _| keep(id));
+        self.order.retain(|id| keep(id));
+        self.loading.retain(|id| keep(id));
+    }
+}
 
 /// How the chat's markdown looks: an answer, a thought, and what the person wrote.
 pub(super) struct Looks {
@@ -26,8 +70,8 @@ pub(super) struct Looks {
     pub(super) tints: Tints,
     pub(super) bench: WeakEntity<Workbench>,
     pub(super) agent: String,
-    /// The pictures in the chat's replies, read from their bytes once, by part.
-    pub(super) pictures: RefCell<HashMap<SharedString, Option<Picture>>>,
+    /// The pictures in the chat's replies, decoded once off the UI thread, bounded by LRU.
+    pub(super) pictures: Rc<RefCell<PictureCache>>,
     /// What the chat's host holds of the names its messages write.
     pub(super) files: Rc<RefCell<files::Files>>,
 }
@@ -303,7 +347,7 @@ impl Looks {
             tints: Tints::new(t),
             bench,
             agent,
-            pictures: RefCell::default(),
+            pictures: Rc::default(),
             files,
         }
     }

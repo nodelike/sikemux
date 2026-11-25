@@ -270,16 +270,42 @@ pub fn celebrate(moment: Option<&Celebration>, in_pane: Option<&str>, cx: &mut A
 /// Takes whether any agent on the host in front works, and which of its open agents work and
 /// which wait on the person, easing each backdrop up to speed at once when its work starts, or
 /// down to still a while after it stops.
-pub fn working(any: bool, agents: &[(String, AgentGroup)], cx: &mut App) {
+pub fn working(any: bool, agents: &[(&str, AgentGroup)], cx: &mut App) {
+    let present: HashSet<&str> = agents.iter().map(|(id, _)| *id).collect();
+    if let Some(current) = cx.try_global::<Paces>() {
+        let same_window = current.window.working == any;
+        let same_keys = current
+            .agents
+            .keys()
+            .all(|agent| present.contains(agent.as_str()));
+        let same_working = agents.iter().all(|(id, group)| {
+            current
+                .agents
+                .get(*id)
+                .is_some_and(|pace| pace.working == (*group == AgentGroup::Working))
+        });
+        let blocked_count = agents
+            .iter()
+            .filter(|(_, group)| *group == AgentGroup::Blocked)
+            .count();
+        let same_waiting = blocked_count == current.waiting.len()
+            && agents
+                .iter()
+                .filter(|(_, group)| *group == AgentGroup::Blocked)
+                .all(|(id, _)| current.waiting.contains(*id));
+        if same_window && same_keys && same_working && same_waiting {
+            return;
+        }
+    }
     let mut paces = cx.try_global::<Paces>().cloned().unwrap_or_default();
     let before = paces.agents.len();
     paces
         .agents
-        .retain(|agent, _| agents.iter().any(|(id, _)| id == agent));
+        .retain(|agent, _| present.contains(agent.as_str()));
     let mut changed = paces.agents.len() != before;
     let waiting: HashSet<String> = (agents.iter())
         .filter(|(_, group)| *group == AgentGroup::Blocked)
-        .map(|(id, _)| id.clone())
+        .map(|(id, _)| (*id).to_owned())
         .collect();
     let newly_waiting = waiting.iter().any(|id| !paces.waiting.contains(id));
     if waiting != paces.waiting {
@@ -287,9 +313,8 @@ pub fn working(any: bool, agents: &[(String, AgentGroup)], cx: &mut App) {
         changed = true;
     }
     let mut easing = Vec::new();
-    let all = std::iter::once((None, any)).chain(
-        (agents.iter()).map(|(id, group)| (Some(id.as_str()), *group == AgentGroup::Working)),
-    );
+    let all = std::iter::once((None, any))
+        .chain((agents.iter()).map(|(id, group)| (Some(*id), *group == AgentGroup::Working)));
     for (agent, working) in all {
         let pace = paces.pace(agent);
         if pace.working != working {
@@ -1226,39 +1251,39 @@ pub fn animate<V: 'static>(window: &mut Window, cx: &mut Context<V>, on_battery:
     })
     .detach();
     let ticking = Rc::new(RefCell::new(None));
-    let restart = |ticking: Rc<RefCell<Option<Task<()>>>>| {
+    let sync = |ticking: Rc<RefCell<Option<Task<()>>>>| {
         move |_: &mut V, window: &mut Window, cx: &mut Context<V>| {
-            if window.is_window_active() {
-                follow_reduced_motion(cx);
+            let want = should_tick(window, cx);
+            let mut slot = ticking.borrow_mut();
+            match (want, slot.is_some()) {
+                (true, false) => *slot = Some(spawn_tick(window, cx, on_battery)),
+                (false, true) => *slot = None,
+                _ => {}
             }
-            *ticking.borrow_mut() = tick(window, cx, on_battery);
         }
     };
-    let on_activation = restart(ticking.clone());
+    let on_activation = sync(ticking.clone());
     cx.observe_window_activation(window, move |bench, window, cx| {
         if window.is_window_active() {
+            follow_reduced_motion(cx);
             breathe(cx);
         }
         on_activation(bench, window, cx)
     })
     .detach();
-    let on_visibility = restart(ticking.clone());
+    let on_visibility = sync(ticking.clone());
     cx.observe_window_visibility(window, move |bench, _, window, cx| {
         on_visibility(bench, window, cx)
     })
     .detach();
-    cx.observe_global_in::<Grain>(window, restart(ticking.clone()))
+    cx.observe_global_in::<Grain>(window, sync(ticking.clone()))
         .detach();
-    cx.observe_global_in::<Paces>(window, restart(ticking))
+    cx.observe_global_in::<Paces>(window, sync(ticking))
         .detach();
 }
 
-fn tick<V: 'static>(
-    window: &Window,
-    cx: &mut Context<V>,
-    on_battery: fn(&V) -> bool,
-) -> Option<Task<()>> {
-    let moving = window.is_window_active()
+fn should_tick(window: &Window, cx: &App) -> bool {
+    window.is_window_active()
         && window.is_visible()
         && !cx.reduce_motion()
         && cx.try_global::<Grain>().is_some_and(|grain| {
@@ -1266,31 +1291,36 @@ fn tick<V: 'static>(
             grain.moving(paces.is_some_and(Paces::moving))
                 || (grain.worn.look.mood && paces.is_some_and(Paces::breathing))
                 || paces.is_some_and(|paces| paces.bursting().is_some())
-        });
-    moving.then(|| {
-        cx.spawn_in(window, async move |bench, cx| loop {
-            let Ok(wait) = bench.update_in(cx, |bench, window, cx| {
-                match cx
-                    .try_global::<Grain>()
-                    .is_some_and(|grain| grain.skies > 0 || grain.glowing)
-                {
-                    true => {
-                        window.present_shaders();
-                        #[cfg(feature = "drive")]
-                        SKY_PRESENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    }
-                    false => window.present_ground(),
-                }
-                let rate = match on_battery(bench) {
-                    true => BATTERY_FRAMES_PER_SECOND,
-                    false => FRAMES_PER_SECOND,
-                };
-                Duration::from_millis(1000 / rate)
-            }) else {
-                break;
-            };
-            cx.background_executor().timer(wait).await;
         })
+}
+
+fn spawn_tick<V: 'static>(
+    window: &Window,
+    cx: &mut Context<V>,
+    on_battery: fn(&V) -> bool,
+) -> Task<()> {
+    cx.spawn_in(window, async move |bench, cx| loop {
+        let Ok(wait) = bench.update_in(cx, |bench, window, cx| {
+            match cx
+                .try_global::<Grain>()
+                .is_some_and(|grain| grain.skies > 0 || grain.glowing)
+            {
+                true => {
+                    window.present_shaders();
+                    #[cfg(feature = "drive")]
+                    SKY_PRESENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                false => window.present_ground(),
+            }
+            let rate = match on_battery(bench) {
+                true => BATTERY_FRAMES_PER_SECOND,
+                false => FRAMES_PER_SECOND,
+            };
+            Duration::from_millis(1000 / rate)
+        }) else {
+            break;
+        };
+        cx.background_executor().timer(wait).await;
     })
 }
 

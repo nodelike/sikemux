@@ -498,6 +498,7 @@ impl Workbench {
                     crate::see_through::set(&preferences, cx);
                     crate::screens::experience::preferences_read(self, &preferences, cx);
                     self.preferences = Some(preferences);
+                    self.sync_chat_views(cx);
                     self.read_usage_at_start();
                     self.parts.redraw(&self.parts.finder, cx);
                 }

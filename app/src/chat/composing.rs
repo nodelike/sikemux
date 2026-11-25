@@ -1339,10 +1339,11 @@ impl Workbench {
             cx.new(|cx| crate::voice::MicButton::new(voice, owner, toggle, cx))
         };
         let bench = cx.weak_entity();
+        let agent = self.agent_by_id(owner);
         let view = cx.new(|_| crate::chat::ComposerView {
             bench,
             owner: owner.to_owned(),
-            agent: None,
+            agent,
         });
         Composing {
             draft,
@@ -1514,10 +1515,31 @@ impl Workbench {
             .update(cx, |draft, cx| draft.set_placeholder(hint, window, cx));
     }
 
+    fn chat_may_take_focus(&self, agent: &str, cx: &App) -> bool {
+        if self.settings.read(cx).is_open()
+            || self.overlays.take_keys()
+            || self.front_asks().is_some()
+            || self.waits_for_keys()
+        {
+            return false;
+        }
+        self.focused_view()
+            .and_then(|id| crate::panes::view_in(&self.tab()?.pane, &id))
+            .is_none_or(|pane| match pane {
+                sikemux_view::layout::Pane::View { kind, target, .. } => {
+                    *kind == sikemux_view::layout::PaneKind::Agent && target == agent
+                }
+                sikemux_view::layout::Pane::Split { .. } => true,
+            })
+    }
+
     /// Puts the keys in the draft of the chat in front when it comes to the front, and again
     /// once its session is ready unless the person is typing somewhere other than a draft or
     /// the window itself.
     pub(crate) fn focus_draft(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.chat_may_take_focus(agent, cx) {
+            return;
+        }
         let Some(chat) = self.chats.open.get(agent) else {
             return;
         };
@@ -1546,8 +1568,12 @@ impl Workbench {
                     })
             });
         if free {
-            // A draft made in this same frame misses its own focus event, so start its caret here.
-            draft.update(cx, |draft, cx| draft.focus(window, cx));
+            let agent = agent.to_owned();
+            cx.defer_in(window, move |bench, window, cx| {
+                if bench.chat_may_take_focus(&agent, cx) {
+                    draft.update(cx, |draft, cx| draft.focus(window, cx));
+                }
+            });
         }
     }
 

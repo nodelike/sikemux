@@ -1,6 +1,8 @@
 //! What an agent put in its reply besides text, as its protocol gave it: a picture, or a
 //! link to a file or page.
 
+use std::rc::Rc;
+
 use crate::ui::Clicks;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -67,19 +69,55 @@ pub fn content(
         ),
         _ => (None, None),
     };
-    let picture = looks
-        .pictures
-        .borrow_mut()
-        .entry(id.clone())
-        .or_insert_with(|| match content {
+    let cached = looks.pictures.borrow_mut().get(&id);
+    let picture = match cached {
+        Some(picture) => picture,
+        None => match content {
             ContentBlock::Image {
                 mime_type, data, ..
-            } => Picture::sent(filled(mime_type)?, data.as_deref().and_then(filled)?),
-            _ => link::local_path(uri?)
-                .filter(|path| super::attach::is_image(path))
-                .map(Picture::File),
-        })
-        .clone();
+            } => match (filled(mime_type), data.as_deref().and_then(filled)) {
+                (Some(mime), Some(data)) => {
+                    if looks.pictures.borrow_mut().start_loading(id.clone()) {
+                        let (mime, data) = (mime.to_owned(), data.to_owned());
+                        let pictures = Rc::downgrade(&looks.pictures);
+                        let reader = looks.reader.downgrade();
+                        let key = id.clone();
+                        cx.spawn(async move |cx| {
+                            let decoded = cx
+                                .background_executor()
+                                .spawn(async move { Picture::sent(&mime, &data) })
+                                .await;
+                            if let Some(pictures) = pictures.upgrade() {
+                                pictures.borrow_mut().insert(key, decoded);
+                            }
+                            let _ = reader.update(cx, |_, cx| cx.notify());
+                        })
+                        .detach();
+                    }
+                    return div()
+                        .py(SPACE_2)
+                        .w(px(WIDTH))
+                        .h(px(120.))
+                        .into_any_element();
+                }
+                _ => {
+                    looks.pictures.borrow_mut().insert(id.clone(), None);
+                    None
+                }
+            },
+            _ => {
+                let picture = uri
+                    .and_then(link::local_path)
+                    .filter(|path| super::attach::is_image(path))
+                    .map(Picture::File);
+                looks
+                    .pictures
+                    .borrow_mut()
+                    .insert(id.clone(), picture.clone());
+                picture
+            }
+        },
+    };
     if let Some(picture) = picture {
         return div()
             .py(SPACE_2)
