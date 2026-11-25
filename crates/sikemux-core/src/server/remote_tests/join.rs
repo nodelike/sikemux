@@ -4,6 +4,7 @@ use crate::server::remote::{self, AdmittedBy};
 use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeCore;
 use crate::server::Core;
+use crate::server::{account, hosts};
 use sikemux_client::join::{self, JoinHello, JoinReply};
 use sikemux_wire::protocol::PendingDevice;
 use std::sync::Arc;
@@ -260,6 +261,115 @@ async fn a_device_let_in_by_ticket_is_told_of_before_its_answer_and_unpairing_ke
     assert!(said_to_join(&mut frames).is_empty(), "once for each device");
     assert_eq!(host.core.remote().admissions().len(), 2);
     remote::stop(&host.core).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn devices_on_the_account_at_sign_in_are_told_of_together_and_any_other_alone() {
+    let vector = vector();
+    let host = host(&vector).await;
+    let (app, mut frames) = ClientConn::inside(&host.core, Peer::Local);
+    host.core.register_client(app);
+    let [first, second, unseen] = [(); 3].map(|()| SecretKey::generate());
+    let listed = [(&first, "Pixel 8"), (&second, "iPad")];
+    (host.core.remote())
+        .note_listed(
+            listed
+                .map(|(key, name)| (key.public().to_string(), name.into()))
+                .into(),
+        )
+        .unwrap();
+
+    for key in [&unseen, &second, &first] {
+        let endpoint = phone(key).await;
+        let hello = hello(ticket(&vector, &host, key));
+        join::join(&endpoint, host.addr(), &hello).await.unwrap();
+    }
+    assert_eq!(said_to_join(&mut frames).len(), 2);
+    let told_with = |key: &SecretKey| {
+        let key = key.public().to_string();
+        let admissions = host.core.remote().admissions();
+        let admission = admissions.iter().find(|one| one.key == key).unwrap();
+        admission.told_with.clone()
+    };
+    assert!(told_with(&unseen).is_empty());
+    assert_eq!(told_with(&second), ["Pixel 8"]);
+    assert!(told_with(&first).is_empty());
+    remote::stop(&host.core).await;
+}
+
+async fn until(what: &str, mut done: impl FnMut() -> bool) {
+    tokio::time::timeout(WAIT, async {
+        while !done() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("never came: {what}"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_linked_host_tells_of_a_device_let_in_elsewhere_and_its_remove_reaches_that_host() {
+    let vector = vector();
+    let (desk, headless) = (host(&vector).await, host(&vector).await);
+    let hosts = vec![desk.status().core_id, headless.status().core_id];
+    let (accounts, _) = super::approval::accounts_server(hosts).await;
+    desk.core.remote().set_accounts_api(&accounts);
+    let linking = vector.signed(|ticket| {
+        ticket.account = ACCOUNT.into();
+        ticket.host = headless.status().core_id;
+        ticket.phone = desk.status().core_id;
+        ticket.issued_at = now() - 5;
+        ticket.expires_at = ticket.issued_at + 600;
+    });
+    let link = serde_json::from_value(serde_json::json!({
+        "ticket": linking, "name": "Headless", "addresses": headless.status().addresses,
+    }));
+    hosts::link_host(&desk.core, link.unwrap()).await.unwrap();
+    let (app, mut frames) = ClientConn::inside(&desk.core, Peer::Local);
+    desk.core.register_client(app);
+
+    let key = SecretKey::generate();
+    let id = key.public().to_string();
+    let endpoint = phone(&key).await;
+    let hello = hello(ticket(&vector, &headless, &key));
+    join::join(&endpoint, headless.addr(), &hello)
+        .await
+        .unwrap();
+
+    let copy = || (desk.core.remote().admissions().into_iter()).find(|one| one.key == id);
+    until("the copy", || copy().is_some()).await;
+    let told = copy().unwrap();
+    assert_eq!(told.told_by.as_deref(), Some("Headless"));
+    assert_eq!(told.left_at, None);
+    let mut said = Vec::new();
+    until("the notice", || {
+        said.extend(said_to_join(&mut frames));
+        !said.is_empty()
+    })
+    .await;
+    assert_eq!(said, ["Pixel 8"]);
+
+    let removing = serde_json::from_value(serde_json::json!({ "key": id })).unwrap();
+    account::devices::remove_device(&desk.core, removing)
+        .await
+        .unwrap();
+    until("its removal there", || {
+        (headless.status().devices.iter()).all(|device| device.id != id)
+    })
+    .await;
+    let records = headless.core.remote().admissions();
+    let record = records.iter().find(|one| one.key == id).unwrap();
+    assert!(record.left_at.is_some());
+    assert!(copy().unwrap().left_at.is_some());
+
+    let again = tokio::spawn({
+        let (endpoint, addr, hello) = (endpoint.clone(), headless.addr(), hello.clone());
+        async move { join::join(&endpoint, addr, &hello).await }
+    });
+    assert_eq!(headless.until_asked().await.device_id, id);
+    again.abort();
+    remote::stop(&desk.core).await;
+    remote::stop(&headless.core).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -6,6 +6,7 @@ use crate::server::serving::ServeCore;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::account::DeviceParams;
 use std::sync::Arc;
+use std::time::Duration;
 
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
@@ -300,6 +301,24 @@ fn unpaired_phones(devices: Vec<Device>, paired: &[DeviceInfo]) -> Vec<Device> {
         .filter(|device| device.role == DeviceRole::Client)
         .filter(|device| !paired.iter().any(|known| known.id == device.key))
         .collect()
+}
+
+/// How long signing in waits to learn who is on the account already.
+const LISTED_WAIT: Duration = Duration::from_secs(5);
+
+/// Notes who the account lists as this host signs in, so the person hears of them in one notice.
+/// Without the list they hear of each as it comes.
+pub async fn note_listed(core: &Core) {
+    let listed = as_host::<DeviceList>(core, Method::GET, "/v1/devices", None);
+    let Ok(Ok(list)) = tokio::time::timeout(LISTED_WAIT, listed).await else {
+        return;
+    };
+    let named = (list.devices.into_iter())
+        .map(|device| (device.key, device.name))
+        .collect();
+    if let Err(error) = core.remote().note_listed(named) {
+        eprintln!("sikemux core: could not note who is on the account: {error}");
+    }
 }
 
 /// Tells the app that a device or host joined the account, by the name the

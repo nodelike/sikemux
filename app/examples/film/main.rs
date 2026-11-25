@@ -26,6 +26,8 @@
 //!                               code: 4821 signs it in, 0000 ends well but leaves it signed out
 //!   host NAME                   signs in another host on the same account, a throwaway core
 //!                               of its own holding a copy of the last project
+//!   joins HOST "NAME" PLATFORM [left]  has a device of that name join HOST, or `here`, with a
+//!                               ticket from the account, then has the person remove it there
 //!   saved HOST "TITLE"          saves a Claude chat titled TITLE in the last project, on HOST
 //!                               or `here`
 //!   asleep HOST                 stops HOST answering, as a computer gone to sleep

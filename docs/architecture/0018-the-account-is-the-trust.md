@@ -42,7 +42,9 @@ for whoever is signed in to the GitHub account.
 - **Each host tells for itself.** A host writes down every device and host it lets in, and says
   "New device" in its own apps before it answers, so neither rests on the accounts server. It
   passes the record to the hosts linked to it. Unpairing marks the record as left; it stays under
-  **Let in before** in Settings, Devices.
+  **Let in before** in Settings, Devices. A host signing in notes who the account lists already;
+  the first of them to come is told of in one notice naming them all, and any other key gets its
+  own.
 - **A lock for those who want the old rule.** Each host keeps a **Require approval for new
   devices** setting, off by default. While it is on, the host asks before letting a device in as
   ADR 0009 described, and the request reaches the person as a notification and a card on every

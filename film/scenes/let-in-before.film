@@ -1,0 +1,13 @@
+# The Devices page with one device here, one that left, and one another host let in.
+stage 1440 900
+window 1440 900
+project storefront line-shop
+host mac-mini
+settle 4
+joins here "Ines's iPhone" ios
+joins here "Pixel 8" android left
+joins mac-mini "iPad" ios
+settle 8
+key cmd-shift-h
+wait 1
+snap let-in-before

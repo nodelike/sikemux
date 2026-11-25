@@ -2,8 +2,15 @@
 //! signs in to by code as a person would, and throwaway cores of their own on that account.
 
 use super::*;
+use base64::Engine as _;
+use iroh::endpoint::presets;
+use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
+use ring::signature::Ed25519KeyPair;
 use sikemux_agents::sessions::claude::claude_project_dir;
+use sikemux_client::join::{self, JoinHello, JoinReply};
+use sikemux_corekit::join::ticket_message;
 use sikemux_process::command::ChildStdout;
+use sikemux_wire::accounts::protocol::JoinTicket;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader};
 
@@ -14,12 +21,71 @@ const VECTOR: &str = include_str!("../../../server/protocol/vectors/join.json");
 pub(super) fn trust_join_key(home: &Path) -> anyhow::Result<String> {
     let dev = home.join(".config/sikemux/dev");
     std::fs::create_dir_all(&dev)?;
-    let vector: Value = serde_json::from_str(VECTOR)?;
-    let pem = (vector.get("privateKeyPem"))
+    let pem = join_key()?;
+    std::fs::write(dev.join("join-signing-key.pem"), &pem)?;
+    Ok(pem)
+}
+
+fn join_key() -> anyhow::Result<String> {
+    (serde_json::from_str::<Value>(VECTOR)?)
+        .get("privateKeyPem")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("the join vector has no key"))?;
-    std::fs::write(dev.join("join-signing-key.pem"), pem)?;
-    Ok(pem.to_owned())
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("the join vector has no key"))
+}
+
+/// Signs tickets the way the accounts server of a core that trusts the join vector's key does.
+pub(super) fn ticket_signer(pem: &str) -> anyhow::Result<Ed25519KeyPair> {
+    let der = (pem.lines())
+        .filter(|line| !line.starts_with("-----"))
+        .collect::<String>();
+    Ed25519KeyPair::from_pkcs8_maybe_unchecked(
+        &base64::engine::general_purpose::STANDARD.decode(der)?,
+    )
+    .map_err(|_| anyhow!("the join vector's key does not read"))
+}
+
+/// Has a device named `name` join the host behind `client` with a ticket from its account, and
+/// hands back the device's key.
+async fn join_by_ticket(
+    client: &CoreClient,
+    signer: &Ed25519KeyPair,
+    name: &str,
+    platform: &str,
+) -> anyhow::Result<String> {
+    let status = client.remote_status().await?;
+    let key = SecretKey::generate();
+    let now = sikemux_process::clock::epoch_secs() as i64;
+    let mut ticket: JoinTicket = serde_json::from_value(json!({
+        "v": 1,
+        "keyId": "dev-1",
+        "account": status.owner,
+        "host": status.core_id,
+        "phone": key.public().to_string(),
+        "issuedAt": now,
+        "expiresAt": now + 600,
+        "signature": "",
+    }))?;
+    ticket.signature = hex::encode(signer.sign(ticket_message(&ticket).as_bytes()).as_ref());
+    let host: PublicKey = status.core_id.parse()?;
+    let addr = (status.addresses.iter())
+        .filter_map(|address| address.parse::<std::net::SocketAddr>().ok())
+        .fold(EndpointAddr::new(host), EndpointAddr::with_ip_addr);
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(key.clone())
+        .bind()
+        .await?;
+    let hello = JoinHello {
+        ticket,
+        name: name.to_owned(),
+        platform: platform.to_owned(),
+    };
+    let reply = join::join(&endpoint, addr, &hello).await?;
+    endpoint.close().await;
+    match reply {
+        JoinReply::Allowed { .. } => Ok(key.public().to_string()),
+        other => Err(anyhow!("{name} did not join: {other:?}")),
+    }
 }
 
 /// The accounts API the film's cores sign in to, with the person and the orgs the world's
@@ -303,6 +369,26 @@ impl World {
         };
         let saved = saved_on(claude, &path);
         save_transcript(claude, &path, first + saved, title, 2 + 60 * saved as u64)
+    }
+
+    /// Has a device join host `name` as one on its account does, and the person remove it if it
+    /// `left`.
+    pub(super) fn join_device(
+        &self,
+        name: &str,
+        device: &str,
+        platform: &str,
+        left: bool,
+    ) -> anyhow::Result<()> {
+        let client = self.client_on(name)?;
+        let signer = ticket_signer(&join_key()?)?;
+        self.runtime.block_on(async {
+            let key = join_by_ticket(client, &signer, device, platform).await?;
+            if left {
+                client.revoke_device(key).await?;
+            }
+            Ok(())
+        })
     }
 
     /// Has the accounts API set the person's `role` in org `org`, its `plan` or `policy`, or

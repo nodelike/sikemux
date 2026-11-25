@@ -21,12 +21,14 @@ pub async fn set_owner(
         core.remote().bind(Some(owner.clone()))?;
     }
     let live = core.remote().inner.locked().accounts_api.is_some();
+    let joining = owner.is_some() && core.remote().owner() != owner;
     let mut dropped = Vec::new();
     let leaving = core.remote().change(|stored| {
         match owner {
             Some(owner) => {
                 if stored.owner.as_ref() != Some(&owner) {
                     stored.account_event_id = 0;
+                    stored.listed.clear();
                 }
                 dropped = stored.forget_joined_elsewhere(&owner);
                 stored.owner = Some(owner);
@@ -36,6 +38,7 @@ pub async fn set_owner(
             }
             None => {
                 stored.enabled = false;
+                stored.listed.clear();
                 if let Some(previous) = stored.owner.take().filter(|_| live) {
                     stored.pending_leave = Some(previous);
                 }
@@ -48,6 +51,9 @@ pub async fn set_owner(
     }
     if core.remote().owner().is_none() {
         unlink_all(core);
+    }
+    if joining && live {
+        crate::server::account::devices::note_listed(core).await;
     }
     if core.remote().is_enabled() {
         if let Err(error) = listen(core).await {
@@ -358,6 +364,7 @@ pub fn apply_events(core: &Core, events: &[AccountEvent]) {
             if let Some(device) = stored.forget(key) {
                 forgotten.push((device, *reason));
             }
+            stored.note_gone(key, *at);
             let latest = stored.revoked.entry(key.clone()).or_default();
             *latest = (*latest).max(*at);
         }
@@ -472,6 +479,7 @@ fn take_off(core: &Core, id: &str, by_the_person: bool) -> CoreResult<RemoteStat
         let linked = stored.links.iter().any(|link| link.id == id);
         let device = stored.forget(id);
         if by_the_person {
+            stored.note_gone(id, epoch_ms());
             if let Some(device) = device {
                 stored.removed_here.insert(device.id, device.access);
             } else if linked {

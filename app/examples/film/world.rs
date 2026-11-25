@@ -600,6 +600,12 @@ impl World {
             "signed-in" => self.sign_in()?,
             "signed-out" => self.sign_out_antigravity()?,
             "host" => self.link_host(step.text(0)?, step.text(1).ok())?,
+            "joins" => self.join_device(
+                step.text(0)?,
+                step.text(1)?,
+                step.text(2)?,
+                step.text(3).is_ok(),
+            )?,
             "saved" => self.save_chat_on(step.text(0)?, step.text(1)?)?,
             "asleep" => self.freeze(step.text(0)?)?,
             "orgrole" => self.org_change("role", step.text(0)?, step.text(1)?)?,

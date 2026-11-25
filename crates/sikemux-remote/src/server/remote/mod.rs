@@ -149,6 +149,10 @@ pub struct Stored {
     /// Keys the person was told of, or already had, oldest first.
     #[serde(default)]
     pub told: VecDeque<String>,
+    /// The devices and hosts the account listed when this host signed in, by key, until the
+    /// first of them comes and the person is told of them together.
+    #[serde(default)]
+    pub listed: BTreeMap<String, String>,
     /// Why each key being added by this change is let in.
     #[serde(skip)]
     pub admitting: BTreeMap<String, AdmittedBy>,

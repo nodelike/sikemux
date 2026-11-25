@@ -3,7 +3,6 @@
 //! link as a teammate's core does.
 
 use super::*;
-use base64::Engine as _;
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr, PublicKey, SecretKey};
 use ring::signature::Ed25519KeyPair;
@@ -33,13 +32,7 @@ impl Teammates {
             .insert("enabled".into(), json!(true));
         std::fs::write(&remote, serde_json::to_vec(&stored)?)?;
         let pem = super::linked::trust_join_key(home)?;
-        let der = (pem.lines())
-            .filter(|line| !line.starts_with("-----"))
-            .collect::<String>();
-        let signer = Ed25519KeyPair::from_pkcs8_maybe_unchecked(
-            &base64::engine::general_purpose::STANDARD.decode(der)?,
-        )
-        .map_err(|_| anyhow!("the join vector's key does not read"))?;
+        let signer = super::linked::ticket_signer(&pem)?;
         let shares: Value =
             serde_json::from_slice(&std::fs::read(work.join("data/account/shares.json"))?)?;
         let members = (shares.pointer("/answer/orgs").and_then(Value::as_array))

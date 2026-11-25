@@ -162,6 +162,7 @@ fn the_devices_survive_a_write_and_read() {
         hands_only: BTreeSet::new(),
         admissions: Vec::new(),
         told: Default::default(),
+        listed: BTreeMap::new(),
         admitting: BTreeMap::new(),
         approved_hosts: BTreeSet::from([SecretKey::generate().public().to_string()]),
         devices: vec![DeviceInfo {

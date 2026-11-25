@@ -21,10 +21,11 @@ use crate::server::{Core, ServerCore};
 const ACCOUNT: &str = "user_2approval";
 const WAIT: Duration = Duration::from_secs(30);
 
-type Asked = Arc<Mutex<Vec<(String, Value)>>>;
+pub(super) type Asked = Arc<Mutex<Vec<(String, Value)>>>;
 
-/// An accounts server that lists `hosts` and takes everything else, keeping what it was asked.
-async fn accounts_server(hosts: Vec<String>) -> (String, Asked) {
+/// An accounts server that lists `hosts` and no other device, removes none, and takes everything
+/// else, keeping what it was asked.
+pub(super) async fn accounts_server(hosts: Vec<String>) -> (String, Asked) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let asked = Asked::default();
@@ -62,6 +63,8 @@ async fn accounts_server(hosts: Vec<String>) -> (String, Asked) {
                     let request = first.rsplit_once(' ').unwrap().0.to_owned();
                     let (status, answer) = match request.as_str() {
                         "GET /v1/devices?role=host" => ("200 OK", listed),
+                        "GET /v1/devices?role=client" => ("200 OK", r#"{"devices":[]}"#.into()),
+                        path if path.starts_with("DELETE ") => ("404 Not Found", "{}".into()),
                         path if path.ends_with("/join") => ("503 Service Unavailable", "{}".into()),
                         _ => ("200 OK", "{}".into()),
                     };

@@ -30005,6 +30005,58 @@
         }
       }
     },
+    "Devices on your account can now reach this host: {names}": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des appareils de votre compte peuvent désormais atteindre cet hôte : {names}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dispositivos de tu cuenta ya pueden acceder a este host: {names}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geräte auf deinem Account erreichen jetzt diesen Host: {names}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你账户上的设备现在可以访问此主机：{names}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウント上のデバイスがこのホストに接続できるようになりました：{names}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정의 기기가 이제 이 호스트에 연결할 수 있습니다: {names}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Устройства в вашей учётной записи теперь могут подключаться к этому хосту: {names}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dispositivos da sua conta agora podem acessar este host: {names}"
+          }
+        }
+      }
+    },
     "Devices — {keys}": {
       "localizations": {
         "fr": {

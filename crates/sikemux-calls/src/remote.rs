@@ -56,6 +56,9 @@ pub struct Admission {
     /// The linked host that let it in and said so; none when this host did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub told_by: Option<String>,
+    /// The others on the account the person was told of in the same notice, by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub told_with: Vec<String>,
 }
 
 #[derive(Deserialize)]

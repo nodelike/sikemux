@@ -836,14 +836,46 @@ impl Workbench {
         .detach();
     }
 
-    /// Says a device or host joined the account or a host on it, with a way to take it off
-    /// again (ADR 0018).
+    /// Says a device or host joined the account or a host on it, along with the others the core
+    /// tells of with it (ADR 0018).
     pub fn new_account_device(&mut self, key: String, name: String, cx: &mut Context<Self>) {
-        let name = if name.is_empty() {
-            t!("a device").to_owned()
-        } else {
-            name
-        };
+        let admissions = Target::here(&self.asks).request_typed::<call::Admissions>(NoParams {});
+        cx.spawn(async move |bench, cx| {
+            let told_with = (admissions.await.unwrap_or_default().into_iter())
+                .find(|one| one.key == key && one.told_by.is_none())
+                .map_or_else(Vec::new, |one| one.told_with);
+            let _ = bench.update(cx, |bench, cx| {
+                if told_with.is_empty() {
+                    return bench.say_joined(key, named(name), cx);
+                }
+                let names: Vec<String> =
+                    std::iter::once(name).chain(told_with).map(named).collect();
+                bench.say_all_joined(&names.join(", "), cx);
+            });
+        })
+        .detach();
+    }
+
+    fn say_all_joined(&mut self, names: &str, cx: &mut Context<Self>) {
+        let weak = cx.weak_entity();
+        let note = toast::info(t!(
+            "Devices on your account can now reach this host: {names}",
+            names = names
+        ))
+        .action(move |_, _, cx| {
+            let (note, weak) = (cx.entity(), weak.clone());
+            gpui_kit::component::button::Button::new("open-account-devices")
+                .label(t!("Open Devices"))
+                .on_click(move |_, window, cx| {
+                    let _ = weak.update(cx, |bench, _| bench.open_hosts(None));
+                    note.update(cx, |note, cx| note.dismiss(window, cx));
+                })
+        });
+        self.notify(note, cx);
+    }
+
+    /// Says one joined, with a way to take it off again.
+    fn say_joined(&mut self, key: String, name: String, cx: &mut Context<Self>) {
         let asks = self.asks.clone();
         let note = toast::info(t!("New device: {name}", name = name)).action(move |_, _, cx| {
             let (note, asks, key, name) = (cx.entity(), asks.clone(), key.clone(), name.clone());
@@ -1139,5 +1171,13 @@ pub fn updates_items(
             reason = reason
         ))),
         _ => popup,
+    }
+}
+
+fn named(device: String) -> String {
+    if device.is_empty() {
+        t!("a device").to_owned()
+    } else {
+        device
     }
 }

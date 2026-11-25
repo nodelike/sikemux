@@ -29,6 +29,7 @@ impl Stored {
             how: AdmittedBy::Unsaid,
             left_at: None,
             told_by: None,
+            told_with: Vec::new(),
         });
         let links = self.links.iter().map(|link| Admission {
             key: link.id.clone(),
@@ -40,6 +41,7 @@ impl Stored {
             how: AdmittedBy::Unsaid,
             left_at: None,
             told_by: None,
+            told_with: Vec::new(),
         });
         let here: Vec<Admission> = devices.chain(links).collect();
         let admitting = std::mem::take(&mut self.admitting);
@@ -63,11 +65,14 @@ impl Stored {
             if let Some(how) = admitting.get(&one.key) {
                 one.how = *how;
             }
-            let first = self.note_told(&one.key);
+            let tell = self.note_told(&one.key) && one.how == AdmittedBy::Ticket;
+            if tell {
+                one.told_with = self.take_listed(&one.key);
+            }
             if one.how != AdmittedBy::Unsaid {
                 news.push(News {
                     admission: one.clone(),
-                    tell: first && one.how == AdmittedBy::Ticket,
+                    tell,
                 });
             }
             self.keep_admission(one);
@@ -82,6 +87,29 @@ impl Stored {
             if let Some(oldest) = self.admissions.iter().position(|record| !record.open()) {
                 self.admissions.remove(oldest);
             }
+        }
+    }
+
+    /// If the account listed `key` when this host signed in, the names of the rest it listed,
+    /// which the person is told of along with it.
+    fn take_listed(&mut self, key: &str) -> Vec<String> {
+        if !self.listed.contains_key(key) {
+            return Vec::new();
+        }
+        (std::mem::take(&mut self.listed).into_iter())
+            .filter(|(other, _)| self.note_told(other))
+            .map(|(_, name)| name)
+            .collect()
+    }
+
+    /// Marks what the linked hosts said of `key` as left, now that it is off the account or the
+    /// person removed it.
+    pub(super) fn note_gone(&mut self, key: &str, now: u64) {
+        self.listed.remove(key);
+        let copies = (self.admissions.iter_mut())
+            .filter(|record| record.key == key && record.told_by.is_some());
+        for copy in copies {
+            copy.left_at.get_or_insert(now);
         }
     }
 
@@ -111,6 +139,18 @@ impl Remote {
         self.change(|stored| Ok(stored.note_told(key)))
             .unwrap_or(true)
     }
+
+    /// Notes what the account listed as this host signed in, by key and name.
+    pub fn note_listed(&self, listed: Vec<(String, String)>) -> CoreResult<()> {
+        let own = self.core_id();
+        self.change(|stored| {
+            stored.listed = (listed.into_iter())
+                .filter(|(key, _)| own.as_ref() != Some(key))
+                .map(|(key, name)| (key, clean(&name, NAME_LIMIT)))
+                .collect();
+            Ok(())
+        })
+    }
 }
 
 /// Tells the person and the linked hosts of everyone let in since they were last told.
@@ -136,6 +176,7 @@ pub fn heard_admitted(core: &Core, host: String, admission: Admission) -> CoreRe
         platform: clean(&admission.platform, PLATFORM_LIMIT),
         told_by: Some(host),
         left_at: None,
+        told_with: Vec::new(),
         ..admission
     };
     let first = core.remote().change(|stored| {
