@@ -177,7 +177,8 @@
                     "normal": "accept_edits",
                     "bypass": "dont_ask"
                 },
-                "compact": "compress"
+                "compact": "compress",
+                "asksBeforeTools": false
             },
             "providers": null,
             "routed": null,
@@ -305,7 +306,8 @@
             },
             "chat": {
                 "driver": "acp",
-                "args": ["acp"]
+                "args": ["acp"],
+                "asksBeforeTools": false
             },
             "providers": "reads",
             "routed": { "api": "chat", "rank": 3 },
@@ -361,7 +363,8 @@
             },
             "chat": {
                 "driver": "acp",
-                "args": ["agent", "--no-leader", "stdio"]
+                "args": ["agent", "--no-leader", "stdio"],
+                "asksBeforeTools": true
             },
             "providers": null,
             "routed": null,
@@ -404,7 +407,8 @@
             },
             "chat": {
                 "driver": "acp",
-                "args": ["acp"]
+                "args": ["acp"],
+                "asksBeforeTools": false
             },
             "providers": "routed",
             "routed": { "api": "gemini", "rank": 5 },

@@ -202,14 +202,16 @@ for (const agent of agents) {
         ? isArgs(chat.args) &&
           (chat.modes === undefined ||
             (isName(chat.modes.normal) && isName(chat.modes.bypass))) &&
-          (chat.compact === undefined || isName(chat.compact))
+          (chat.compact === undefined || isName(chat.compact)) &&
+          typeof chat.asksBeforeTools === "boolean"
         : chat.args === undefined &&
           chat.modes === undefined &&
-          chat.compact === undefined)
+          chat.compact === undefined &&
+          chat.asksBeforeTools === undefined)
     )
   )
     fail(
-      `chat must be null or { driver: ${DRIVERS.join(" | ")} }, with args and optional modes and compact for acp`,
+      `chat must be null or { driver: ${DRIVERS.join(" | ")} }, with args, asksBeforeTools and optional modes and compact for acp`,
     );
   const privateHome = home?.private;
   if (
@@ -369,6 +371,7 @@ function rustEntry(agent) {
 ${rustList(12, "args", chat.args)}
 ${modes}
             compact: ${rustString(chat.compact ?? "compact")},
+            asks_before_tools: ${chat.asksBeforeTools},
         }),`
       : `        chat: Some(ChatDriver::${pascal(chat.driver)}),`;
   const privateField = privateHome
@@ -539,6 +542,8 @@ pub enum ChatDriver {
         modes: Option<AcpModes>,
         /// The agent's own name for the command that compacts its session.
         compact: &'static str,
+        /// Whether it is known to ask the person before a tool server's tool runs.
+        asks_before_tools: bool,
     },
 }
 
@@ -546,6 +551,17 @@ impl ChatDriver {
     /// Whether a chat of it picks a reasoning effort, even on a model that names none.
     pub fn offers_effort(&self) -> bool {
         !matches!(self, Self::Acp { .. } | Self::Opencode)
+    }
+
+    /// Whether the agent itself asks the person before a tool of Sikemux's runs a command, in
+    /// a mode where it asks before its own.
+    pub fn asks_before_tools(&self) -> bool {
+        match self {
+            Self::Acp {
+                asks_before_tools, ..
+            } => *asks_before_tools,
+            _ => true,
+        }
     }
 }
 
