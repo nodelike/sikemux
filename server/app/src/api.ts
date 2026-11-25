@@ -1,8 +1,10 @@
 import type { useAuth } from "@clerk/react";
 import { TRY_AGAIN } from "@shared/account/account";
-import { ApiProblem, connectApi } from "@shared/account/api";
+import { answerProblem, ApiProblem, connectApi } from "@shared/account/api";
 
 import { config } from "./config.ts";
+
+const OFFLINE = "Can't reach Sikemux. Check your connection and try again.";
 
 type GetToken = ReturnType<typeof useAuth>["getToken"];
 
@@ -26,5 +28,25 @@ export const api = (token: string) =>
   connectApi({
     url: config.apiUrl,
     token: () => Promise.resolve(token),
-    offline: "Can't reach Sikemux. Check your connection and try again.",
+    offline: OFFLINE,
   });
+
+/** A route that takes or answers bytes, which `api` has no way to call. */
+export async function bytesApi(
+  token: string,
+  path: string,
+  request: { method?: string; body?: Blob } = {},
+): Promise<Response> {
+  const response = await fetch(`${config.apiUrl}${path}`, {
+    ...request,
+    headers: { authorization: `Bearer ${token}` },
+  }).catch(() => {
+    throw new ApiProblem(OFFLINE);
+  });
+  if (!response.ok)
+    throw answerProblem(
+      response.status,
+      await response.json().catch(() => null),
+    );
+  return response;
+}

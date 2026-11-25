@@ -33,7 +33,12 @@ const LEAVE_MS = 380;
 
 /** Puts the picture itself in the spot, for a window without dots. */
 function drawPlain(spot: HTMLElement, picture: Picture) {
-  spot.innerHTML = "svg" in picture ? picture.svg : `<b>${picture.letter}</b>`;
+  spot.innerHTML =
+    "svg" in picture
+      ? picture.svg
+      : "image" in picture
+        ? `<img src="${picture.image}" alt="">`
+        : `<b>${picture.letter}</b>`;
 }
 
 /** One canvas of dots behind every page. It outlives them, so a page's mark turns into the next one's. */

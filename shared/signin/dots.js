@@ -335,8 +335,18 @@ function rolls(seed) {
     };
 }
 
-async function pictureOf({ svg, letter, color = "#e7e5ef" }) {
+async function pictureOf({ svg, letter, image, color = "#e7e5ef" }) {
     const side = 512;
+    if (image) {
+        const photo = new Image();
+        photo.src = image;
+        await photo.decode();
+        const ink = sheetOf(side);
+        ink.roundRect(0, 0, side, side, side * 0.22);
+        ink.clip();
+        ink.drawImage(photo, 0, 0, side, side);
+        return ink.canvas;
+    }
     if (letter) {
         const ink = sheetOf(side);
         const font = "600 400px Figtree, system-ui, sans-serif";

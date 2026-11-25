@@ -42,9 +42,9 @@ import {
 import { ApiProblem } from "@shared/account/api";
 import { api, problemText, signedInToken } from "./api.ts";
 import { OrgAvatar } from "./Avatar.tsx";
-import { orgSvg } from "./avatarSvg.ts";
 import { BilledSwitch } from "./BilledSwitch.tsx";
 import { useCheer } from "./Field.tsx";
+import { useOrgMark } from "./logos.ts";
 import { brandMark } from "./marks.ts";
 import {
   FEATURE_WORDS,
@@ -472,38 +472,45 @@ function OrgBills({
   return (
     <Card label={owned.length === 1 ? "Your org's bill" : "Your orgs' bills"}>
       <Rows>
-        {owned.map((org) => {
-          const to = orgPath(org.id, "billing");
-          return (
-            <Row
-              key={org.id}
-              lead={<OrgAvatar id={org.id} size={28} />}
-              name={org.name}
-              detail={
-                org.preview
-                  ? "Team preview"
-                  : frozen(org)
-                    ? "Team ended"
-                    : `Team, ${seatsWord(org.seats.limit)}`
-              }
-              hot={{
-                picture: { svg: orgSvg(org.id) },
-                scene: orgScene(org.id),
-              }}
-              end={
-                <a
-                  className={btnClass({ small: true, quiet: true })}
-                  href={to}
-                  onClick={follow(to)}
-                >
-                  Open
-                </a>
-              }
-            />
-          );
-        })}
+        {owned.map((org) => (
+          <OrgBillRow key={org.id} org={org} follow={follow} />
+        ))}
       </Rows>
     </Card>
+  );
+}
+
+function OrgBillRow({
+  org,
+  follow,
+}: {
+  org: Org;
+  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  const to = orgPath(org.id, "billing");
+  const mark = useOrgMark(org);
+  return (
+    <Row
+      lead={<OrgAvatar org={org} size={28} />}
+      name={org.name}
+      detail={
+        org.preview
+          ? "Team preview"
+          : frozen(org)
+            ? "Team ended"
+            : `Team, ${seatsWord(org.seats.limit)}`
+      }
+      hot={{ picture: mark, scene: orgScene(org.id) }}
+      end={
+        <a
+          className={btnClass({ small: true, quiet: true })}
+          href={to}
+          onClick={follow(to)}
+        >
+          Open
+        </a>
+      }
+    />
   );
 }
 
@@ -601,8 +608,9 @@ export function OrgBillingPage({
       (await (await client("see your org")).listOrgMembers(org.id)).members,
     String(version),
   );
+  const mark = useOrgMark(org);
   const wear: Wear = {
-    mark: { svg: orgSvg(org.id) },
+    mark,
     scene: orgScene(org.id),
   };
   if (load.state !== "loaded")

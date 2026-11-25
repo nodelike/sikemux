@@ -5,10 +5,12 @@ import type {
   OrgRole,
   TeamAccess,
 } from "@sikemux/protocol";
+import { useAuth } from "@clerk/react";
 import { useCallback, useEffect, useEffectEvent, useState } from "react";
 
 import { problemText } from "./api.ts";
 import { useClient } from "./Billing.tsx";
+import { loadLogos } from "./logos.ts";
 import type { OrgPage } from "./navigation.ts";
 
 const LAST_KEY = "sikemux.org";
@@ -54,15 +56,17 @@ export type Orgs = {
 /** The orgs the person is in, read again whenever `key` changes. */
 export function useOrgs(ready: boolean, key: string): Orgs {
   const client = useClient();
+  const { getToken } = useAuth();
   const [state, setState] = useState<Omit<Orgs, "reload">>({});
   const read = useCallback(async () => {
     try {
       const { orgs } = await (await client("see your orgs")).listOrgs();
+      loadLogos(orgs, getToken);
       return { list: orgs };
     } catch (error) {
       return { problem: `${problemText(error)} Reload the page to try again.` };
     }
-  }, [client]);
+  }, [client, getToken]);
   const reload = useCallback(async () => {
     const next = await read();
     setState(({ list }) => ({ list, ...next }));

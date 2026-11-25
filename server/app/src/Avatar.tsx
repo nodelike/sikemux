@@ -1,9 +1,11 @@
 import { useUser } from "@clerk/react";
+import type { Org } from "@sikemux/protocol";
 import { avatarSeed } from "@sikemux/protocol/avatar";
 import { clerkImageUrl } from "@shared/lib/format";
 import { useId, useMemo, useState, type CSSProperties } from "react";
 
 import { memberSvg, orgSvg } from "./avatarSvg.ts";
+import { logoFailed, useLogo } from "./logos.ts";
 
 const sized = (size: number | undefined) =>
   size ? ({ "--z": `${size}px` } as CSSProperties) : undefined;
@@ -52,15 +54,35 @@ export function PersonAvatar({
   );
 }
 
-export function OrgAvatar({ id, size }: { id: string; size?: number }) {
+/** An org's logo, or a picture drawn from its id when it has none. */
+export function OrgAvatar({
+  org,
+  size,
+}: {
+  org: Pick<Org, "id" | "logo">;
+  size?: number;
+}) {
   const key = useId();
-  const svg = useMemo(() => orgSvg(id, key), [id, key]);
+  const svg = useMemo(() => orgSvg(org.id, key), [org.id, key]);
+  const logo = useLogo(org);
+  if (logo?.state === "ready")
+    return (
+      <span className="orgm" aria-hidden="true" style={sized(size)}>
+        <img
+          src={logo.url}
+          alt=""
+          onError={() => org.logo && logoFailed(org.logo)}
+        />
+      </span>
+    );
   return (
     <span
       className="orgm"
       aria-hidden="true"
       style={sized(size)}
-      dangerouslySetInnerHTML={{ __html: svg }}
+      dangerouslySetInnerHTML={{
+        __html: logo?.state === "loading" ? "" : svg,
+      }}
     />
   );
 }

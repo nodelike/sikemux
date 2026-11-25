@@ -20,9 +20,10 @@ import {
 import { useState, type MouseEvent } from "react";
 
 import { problemText } from "./api.ts";
-import { memberSvg, orgSvg } from "./avatarSvg.ts";
+import { memberSvg } from "./avatarSvg.ts";
 import { useClient } from "./Billing.tsx";
 import { useCheer } from "./Field.tsx";
+import { useOrgMark } from "./logos.ts";
 import { iconMark } from "./marks.ts";
 import { orgPath } from "./navigation.ts";
 import {
@@ -112,7 +113,7 @@ export function PeoplePage({
   };
 
   const scene = orgScene(org.id);
-  const mark = { svg: orgSvg(org.id) };
+  const mark = useOrgMark(org);
 
   if (loaded.problem)
     return (

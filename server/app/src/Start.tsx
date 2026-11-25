@@ -10,7 +10,7 @@ import { type MouseEvent, type ReactNode, useEffect, useState } from "react";
 
 import { problemText } from "./api.ts";
 import { OrgAvatar } from "./Avatar.tsx";
-import { orgSvg, personSvg } from "./avatarSvg.ts";
+import { personSvg } from "./avatarSvg.ts";
 import {
   FREE_DURING_PREVIEW,
   NewTeam,
@@ -21,6 +21,7 @@ import {
 import { useCheer } from "./Field.tsx";
 import { BringSeat } from "./Fold.tsx";
 import { Foot } from "./Frame.tsx";
+import { useOrgMark } from "./logos.ts";
 import { brandMark, iconMark } from "./marks.ts";
 import { money, priceOf, productOf } from "./money.ts";
 import { HOSTS, JOIN, orgPath } from "./navigation.ts";
@@ -67,6 +68,7 @@ export function StartPage({
     preview && !staff
       ? orgs.find((org) => org.role === "owner" && org.preview)
       : undefined;
+  const ownMark = useOrgMark(own);
   const back = first ? (
     <Txt onClick={() => setNaming(false)}>
       <IconBack className="ic" /> Back
@@ -86,7 +88,7 @@ export function StartPage({
       <Hero
         title="One org each, for now"
         lede={`The preview gives each person one org, and you made ${own.name}.`}
-        mark={{ svg: orgSvg(own.id, "hero") }}
+        mark={ownMark}
         scene="blue"
         tone="waiting"
         back={back}
@@ -325,7 +327,7 @@ function OfferCard({ offer, onJoined }: { offer: OrgOffer; onJoined: Joined }) {
         data-busy={busy || undefined}
         onClick={join}
       >
-        <OrgAvatar id={offer.orgId} size={30} />
+        <OrgAvatar org={{ id: offer.orgId }} size={30} />
         <b>{offer.name}</b>
         <span>{offerWords(offer)}</span>
         {offer.seatFree ? (
@@ -343,7 +345,7 @@ function OfferRow({ offer, onJoined }: { offer: OrgOffer; onJoined: Joined }) {
   const { join, busy, problem } = useJoin(offer, onJoined);
   return (
     <Row
-      lead={<OrgAvatar id={offer.orgId} size={28} />}
+      lead={<OrgAvatar org={{ id: offer.orgId }} size={28} />}
       name={offer.name}
       detail={offerWords(offer)}
       wrap

@@ -8,6 +8,7 @@ import {
   useState,
   type ButtonHTMLAttributes,
   type CSSProperties,
+  type HTMLAttributes,
   type InputHTMLAttributes,
   type KeyboardEvent,
   type ReactNode,
@@ -111,8 +112,10 @@ export function Card({
   foot,
   w,
   busy,
+  className,
   children,
-}: {
+  ...props
+}: HTMLAttributes<HTMLElement> & {
   label?: ReactNode;
   count?: number | string;
   aside?: ReactNode;
@@ -123,7 +126,8 @@ export function Card({
 }) {
   return (
     <section
-      className={w ? `card w${w}` : "card"}
+      {...props}
+      className={["card", w && `w${w}`, className].filter(Boolean).join(" ")}
       style={span(w)}
       data-calm=""
       aria-busy={busy || undefined}

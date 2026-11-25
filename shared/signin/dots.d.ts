@@ -1,4 +1,4 @@
-export type DotsMark = { svg: string; color?: string } | { letter: string; color: string };
+export type DotsMark = { svg: string; color?: string } | { letter: string; color: string } | { image: string };
 
 /** A lone tint brings shades of its own. */
 export interface DotsColors {

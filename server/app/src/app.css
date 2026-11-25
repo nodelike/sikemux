@@ -316,9 +316,10 @@ canvas.dots {
 }
 .orgm {
   --z: 20px;
-  border-radius: 5px;
+  border-radius: max(5px, 22%);
 }
 .orgm svg,
+.orgm img,
 .av svg {
   width: 100%;
   height: 100%;
@@ -425,6 +426,17 @@ canvas.dots {
   width: 200px;
   height: var(--ctl);
   text-align: left;
+}
+.details .lead {
+  width: 40px;
+  display: grid;
+  place-items: center;
+}
+.details .lead .orgm {
+  background: var(--raise);
+}
+.card.details.over {
+  box-shadow: inset 0 0 0 1px var(--acc);
 }
 .row .more {
   grid-column: 1/-1;
@@ -1400,6 +1412,9 @@ canvas.dots {
   .row > .end .named .field {
     flex: 1;
   }
+  .drops {
+    display: none;
+  }
   .sc:not([aria-current="true"]):not(.add) span:not(.av, .orgm) {
     display: none;
   }
@@ -1467,7 +1482,8 @@ canvas.dots {
 .markbox .spot > * {
   display: none;
 }
-.markbox .spot.plain > svg {
+.markbox .spot.plain > svg,
+.markbox .spot.plain > img {
   display: block;
   width: 100%;
   height: 100%;

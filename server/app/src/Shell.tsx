@@ -207,7 +207,7 @@ function OrgLinks({
   return (
     <div className="og" ref={row}>
       <a className={here ? "ol on" : "ol"} href={to} onClick={follow(to)}>
-        <OrgAvatar id={org.id} />
+        <OrgAvatar org={org} />
         <span className="n">{org.name}</span>
         {frozen(org) ? <FrozenDot ended={renewable(org, team)} /> : null}
       </a>
@@ -275,7 +275,7 @@ function Scopes({
           aria-current={org.id === current?.id}
           aria-label={org.name}
         >
-          <OrgAvatar id={org.id} />
+          <OrgAvatar org={org} />
           <span>{org.name}</span>
           {frozen(org) ? <FrozenDot ended={renewable(org, team)} /> : null}
         </a>

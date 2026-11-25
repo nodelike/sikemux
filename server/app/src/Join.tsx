@@ -1,4 +1,4 @@
-import { useClerk, useUser } from "@clerk/react";
+import { useAuth, useClerk, useUser } from "@clerk/react";
 import type { Org } from "@sikemux/protocol";
 import { ApiProblem } from "@shared/account/api";
 import { IconBack } from "@shared/ui/Icons";
@@ -7,11 +7,11 @@ import { type MouseEvent, useEffect, useEffectEvent, useState } from "react";
 import { useSignInWays } from "./AccountPage.tsx";
 import { problemText } from "./api.ts";
 import { Avatar } from "./Avatar.tsx";
-import { orgSvg } from "./avatarSvg.ts";
 import { useClient } from "./Billing.tsx";
 import { useCheer } from "./Field.tsx";
 import { Foot, Loading } from "./Frame.tsx";
 import { useInviteOrg } from "./invite.ts";
+import { loadLogos, useOrgMark } from "./logos.ts";
 import { iconMark } from "./marks.ts";
 import { HOSTS, JOIN } from "./navigation.ts";
 import { ROLE_WORDS } from "./orgs.ts";
@@ -32,6 +32,7 @@ export function JoinPage({
   onJoined: (orgId: string) => Promise<void>;
 }) {
   const client = useClient();
+  const { getToken } = useAuth();
   const { user } = useUser();
   const { signOut } = useClerk();
   const signIns = useSignInWays();
@@ -41,6 +42,7 @@ export function JoinPage({
   const action = useAction();
   const opening = useAction();
   const [joined, setJoined] = useState<Org>();
+  const joinedMark = useOrgMark(joined);
 
   useEffect(() => {
     if (location.hash) history.replaceState(null, "", location.pathname);
@@ -56,7 +58,7 @@ export function JoinPage({
       <Hero
         title={`You're in ${joined.name}`}
         lede={`You hold one of its seats as ${ROLE_WORDS[joined.role]}, so you have Pro on your own hosts while you hold it.`}
-        mark={{ svg: orgSvg(joined.id, "hero") }}
+        mark={joinedMark}
         scene="blue"
         tone="worked"
         foot={<Foot />}
@@ -126,6 +128,7 @@ export function JoinPage({
                   await client("join the org")
                 ).joinOrg({ token });
                 cheer();
+                loadLogos([org], getToken);
                 setJoined(org);
               },
               (error) =>

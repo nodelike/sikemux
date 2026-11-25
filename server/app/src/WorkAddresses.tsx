@@ -184,7 +184,7 @@ function OfferRow({
     );
   return (
     <Row
-      lead={<OrgAvatar id={offer.orgId} size={24} />}
+      lead={<OrgAvatar org={{ id: offer.orgId }} size={24} />}
       name={offer.name}
       detail={
         offer.seatFree
