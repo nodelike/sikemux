@@ -264,6 +264,11 @@ fn strip_area(bench: &Workbench, strip: &Strip, cx: &mut Context<Workbench>) -> 
                         _ => natural.insert(id.clone(), wide),
                     };
                 }
+                if natural.len() > 256 {
+                    let kept: std::collections::HashSet<&str> =
+                        drawn.iter().filter_map(|id| id.as_deref()).collect();
+                    natural.retain(|id, _| kept.contains(id.as_str()));
+                }
             }
             let now = (
                 -f32::from(scroll.offset().x) > 0.5,

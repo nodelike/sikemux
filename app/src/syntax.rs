@@ -111,6 +111,17 @@ impl PaletteState {
     }
 
     fn keep(&mut self, key: (SharedString, SharedString), lines: Arc<[LineRuns]>) {
+        if self.coloured.contains_key(&key) {
+            if let Some(pos) = self
+                .coloured_order
+                .iter()
+                .position(|(existing, _)| existing == &key)
+            {
+                if let Some((_, old_bytes)) = self.coloured_order.remove(pos) {
+                    self.coloured_bytes = self.coloured_bytes.saturating_sub(old_bytes);
+                }
+            }
+        }
         let run = std::mem::size_of::<(Range<usize>, HighlightStyle)>();
         let bytes = key.1.len()
             + lines
@@ -124,7 +135,7 @@ impl PaletteState {
             let Some((oldest, bytes)) = self.coloured_order.pop_front() else {
                 break;
             };
-            self.coloured_bytes -= bytes;
+            self.coloured_bytes = self.coloured_bytes.saturating_sub(bytes);
             self.coloured.remove(&oldest);
         }
     }

@@ -150,6 +150,7 @@ struct Terminal {
     anchor: Option<GridPoint>,
     /// The mouse moved since the button went down, so letting go opens no link.
     dragged: bool,
+    last_hover_cell: Option<GridPoint>,
     link: Option<Link>,
     /// What an input method is composing.
     marked: Option<String>,
@@ -446,11 +447,13 @@ impl Terminals {
                     terminal.top = None;
                     terminal.selection = None;
                 }
+                terminal.last_hover_cell = None;
                 terminal.screen.apply(frame);
             }
             Screenful::Lines(lines) => {
                 terminal.pages_asked.remove(&lines.start);
                 terminal.pages_retry_after.remove(&lines.start);
+                terminal.last_hover_cell = None;
                 if lines.epoch == terminal.screen.header.epoch {
                     terminal
                         .history
@@ -917,6 +920,7 @@ fn layout(
             selection: None,
             anchor: None,
             dragged: false,
+            last_hover_cell: None,
             link: None,
             marked: None,
             find: None,
@@ -1573,11 +1577,16 @@ fn mouse_move(bench: &mut Workbench, id: TermKey, event: &MouseMoveEvent) -> boo
         .anchor
         .filter(|_| event.pressed_button == Some(Button::Left))
     else {
+        if terminal.last_hover_cell == Some(point) {
+            return false;
+        }
+        terminal.last_hover_cell = Some(point);
         let link = terminal.link_at(point);
         let changed = link != terminal.link;
         terminal.link = link;
         return changed;
     };
+    terminal.last_hover_cell = None;
     if point == anchor && !terminal.dragged {
         return false;
     }

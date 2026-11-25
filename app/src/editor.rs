@@ -1101,6 +1101,20 @@ fn git_moved(bench: &mut Workbench, key: &FileKey, cx: &mut Context<Workbench>) 
     blame::read(bench, key, cx);
 }
 
+fn rope_equals(rope: &gpui_kit::component::input::Rope, saved: &str) -> bool {
+    if rope.len() != saved.len() {
+        return false;
+    }
+    let mut rest = saved;
+    for chunk in rope.chunks() {
+        let Some(next) = rest.strip_prefix(chunk) else {
+            return false;
+        };
+        rest = next;
+    }
+    rest.is_empty()
+}
+
 /// Keeps the file `key`'s unsaved mark, language server, gutter and blame in step with its
 /// edits.
 fn follow_edits(
@@ -1113,14 +1127,19 @@ fn follow_edits(
             return;
         }
         let asks = bench.asks.clone();
-        let text = state.read(cx).value();
-        let Some((dirty, flipped)) = bench.editors.update(cx, |editors, cx| {
+        let dirty = {
+            let rope = state.read(cx).text();
+            let Some(document) = bench.editors.read(cx).open.get(&watched) else {
+                return;
+            };
+            !rope_equals(rope, &document.saved)
+        };
+        let Some(flipped) = bench.editors.update(cx, |editors, cx| {
             let document = editors.open.get_mut(&watched)?;
-            let dirty = text.len() != document.saved.len() || text.as_ref() != document.saved;
             lsp::changed(document, &asks, cx);
             let flipped = dirty != document.dirty;
             document.dirty = dirty;
-            Some((dirty, flipped))
+            Some(flipped)
         }) else {
             return;
         };
