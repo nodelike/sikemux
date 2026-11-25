@@ -894,12 +894,12 @@ function Toast({ note, done }: { note: Note; done: () => void }) {
     }
   };
   return (
-    <div className="toast" role="status">
-      <IconCircleCheck size={17} />
-      <span>{failed ? "Undo didn't go through. Try again." : note.text}</span>
+    <div className={failed ? "toast bad" : "toast"} role="status">
+      {failed ? <IconClose size={17} /> : <IconCircleCheck size={17} />}
+      <span>{failed ? "Undo didn't go through" : note.text}</span>
       {note.undo ? (
         <Txt onClick={() => void undo()} disabled={busy}>
-          Undo
+          {failed ? "Try again" : "Undo"}
         </Txt>
       ) : null}
     </div>

@@ -1537,6 +1537,9 @@ canvas.dots {
 .toast > svg {
   color: var(--ok);
 }
+.toast.bad > svg {
+  color: var(--bad);
+}
 
 dialog.dlg {
   width: min(440px, calc(100vw - 48px));
@@ -1842,6 +1845,27 @@ dialog.dlg::backdrop {
   }
   .who .ph {
     display: block;
+  }
+  .row:has(.pop),
+  .tr:has(.pop) {
+    z-index: 20;
+  }
+  .pop,
+  .pop.left {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 20;
+    width: auto;
+    padding: 8px 8px calc(12px + env(safe-area-inset-bottom));
+    border-radius: 16px 16px 0 0;
+    box-shadow:
+      0 0 0 1px var(--line2),
+      0 0 0 100vmax #060609a8;
+  }
+  .pop button {
+    min-height: 48px;
+    padding: 10px 12px;
+    font-size: 15px;
   }
   .toast {
     bottom: 80px;
