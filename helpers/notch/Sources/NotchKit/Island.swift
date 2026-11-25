@@ -108,6 +108,7 @@ final class IslandModel {
     }
 
     func set(_ mode: Mode, animation: Animation? = nil) {
+        guard self.mode != mode else { return }
         Debug.log("set \(mode)")
         withAnimation(animation ?? (mode == .closed ? Motion.close : Motion.open)) {
             self.mode = mode

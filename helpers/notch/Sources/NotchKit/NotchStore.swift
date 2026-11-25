@@ -22,10 +22,22 @@ final class NotchStore {
     @ObservationIgnored let options: Options
     @ObservationIgnored private var link: CoreLink?
     @ObservationIgnored private var startedCore = false
+    @ObservationIgnored private var lastCoreStart: Date?
+    @ObservationIgnored private var lastConnectAttempt: Date?
+    @ObservationIgnored private var reconnectAttempt = 0
+    @ObservationIgnored private var reconnectTimer: DispatchWorkItem?
+    @ObservationIgnored private var readyAt: Date?
+    @ObservationIgnored private var resetBackoffTimer: DispatchWorkItem?
     /// The core said it was stopping on purpose, so the island waits for one to start rather
     /// than starting it again; a core that dies without a word is started.
     @ObservationIgnored private var coreStopped = false
     @ObservationIgnored private var waiter: CoreWaiter?
+
+    private static let initialBackoff: TimeInterval = 0.25
+    private static let maxBackoff: TimeInterval = 10
+    private static let stableDuration: TimeInterval = 10
+    private static let minCoreStartInterval: TimeInterval = 15
+    private static let maxImmediateRetries = 6
     @ObservationIgnored private var questions: [AgentQuestion] = []
     @ObservationIgnored private var heard = false
     @ObservationIgnored private var errorTimer: DispatchWorkItem?
@@ -61,47 +73,102 @@ final class NotchStore {
     // MARK: Connection
 
     func connect() {
+        reconnectTimer?.cancel()
+        reconnectTimer = nil
         guard link == nil, waitForCore() else { return }
+        lastConnectAttempt = Date()
         let link = CoreLink(socket: options.socket)
         link.onReady = { [weak self, weak link] in
-            link?.request(CoreCall.AgentCatalog()) { result in
+            guard let self, let link, self.link === link else { return }
+            self.readyAt = Date()
+            self.coreStopped = false
+            self.startedCore = false
+            self.resetBackoffTimer?.cancel()
+            let reset = DispatchWorkItem { [weak self, weak link] in
+                guard let self, let link, self.link === link else { return }
+                self.reconnectAttempt = 0
+            }
+            self.resetBackoffTimer = reset
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.stableDuration, execute: reset)
+            link.request(CoreCall.AgentCatalog()) { result in
                 if case .success(let answer) = result {
                     AgentCatalog.names = Dictionary(answer.result.map { ($0.type, $0.label) }, uniquingKeysWith: { _, last in last })
                 }
-                link?.request(CoreRequest.WatchView())
+                link.request(CoreRequest.WatchView())
             }
-            self?.coreStopped = false
-            self?.readSettings()
-            link?.request(CoreRequest.RemoteStatus()) { result in
+            self.readSettings()
+            link.request(CoreRequest.RemoteStatus()) { [weak self] result in
                 if case .success(let answer) = result { self?.apply(answer.status.pending) }
             }
-            self?.error = nil
+            self.error = nil
         }
         link.onEvent = { [weak self] event in self?.receive(event) }
         link.onClose = { [weak self] reason in
             guard let self else { return }
+            self.resetBackoffTimer?.cancel()
+            self.resetBackoffTimer = nil
+            let wasStable = self.readyAt.map { Date().timeIntervalSince($0) >= Self.stableDuration } ?? false
+            self.readyAt = nil
             self.link = nil
             self.disconnected()
-            guard let reason else { return self.connect() }
-            self.fail(reason)
+            if let reason {
+                self.fail(reason)
+                _ = self.waitForCore()
+                return
+            }
+            if wasStable { self.reconnectAttempt = 0 }
             _ = self.waitForCore()
+            if self.coreStopped { return }
+            self.scheduleReconnect()
         }
         if link.connect() {
             self.link = link
             waiter = nil
             return
         }
-        if !startedCore, !coreStopped {
+        let cooledDown = lastCoreStart.map { Date().timeIntervalSince($0) >= Self.minCoreStartInterval } ?? true
+        if !startedCore, !coreStopped, cooledDown {
             startedCore = true
+            lastCoreStart = Date()
             CoreStarter.start(options) { [weak self] in self?.connect() }
         }
+    }
+
+    private func scheduleReconnect() {
+        reconnectTimer?.cancel()
+        reconnectTimer = nil
+        if reconnectAttempt >= Self.maxImmediateRetries, waiter != nil {
+            return
+        }
+        let delay = min(Self.maxBackoff, Self.initialBackoff * pow(2.0, Double(reconnectAttempt)))
+        reconnectAttempt += 1
+        let work = DispatchWorkItem { [weak self] in self?.connect() }
+        reconnectTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func coreWoke() {
+        coreStopped = false
+        guard link == nil else { return }
+        if let last = lastConnectAttempt {
+            let elapsed = Date().timeIntervalSince(last)
+            if elapsed < Self.initialBackoff {
+                reconnectTimer?.cancel()
+                let work = DispatchWorkItem { [weak self] in self?.connect() }
+                reconnectTimer = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + (Self.initialBackoff - elapsed), execute: work)
+                return
+            }
+        }
+        reconnectAttempt = 0
+        connect()
     }
 
     /// Listens for the core starting, stopping or opening a window. It listens
     /// before each try, so a core that comes up during one still wakes it.
     private func waitForCore() -> Bool {
         if waiter != nil { return true }
-        waiter = CoreWaiter(socket: options.socket) { [weak self] in self?.connect() }
+        waiter = CoreWaiter(socket: options.socket) { [weak self] in self?.coreWoke() }
         if waiter == nil { fail("the notch could not wait for Sikemux's core at \(options.socket)") }
         return waiter != nil
     }

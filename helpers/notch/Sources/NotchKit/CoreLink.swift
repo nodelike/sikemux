@@ -20,6 +20,7 @@ final class CoreLink {
 
     /// The kind byte and the core's largest payload.
     private static let maxFrameLength = 1 + WireProtocol.maxFrameBytes
+    private static let writeTimeoutSeconds = 5
 
     var onReady: (() -> Void)?
     var onEvent: ((Event) -> Void)?
@@ -54,6 +55,8 @@ final class CoreLink {
         }
         var on: Int32 = 1
         setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        var timeout = timeval(tv_sec: Self.writeTimeoutSeconds, tv_usec: 0)
+        setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         fd = descriptor
         let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
         source.setEventHandler { [weak self] in self?.readAvailable() }
@@ -77,7 +80,10 @@ final class CoreLink {
                 self.replies[id] = { heard in
                     let answer = heard.flatMap { payload in
                         Result { try JSONDecoder().decode(Answered<A.Answer>.self, from: payload).response }
-                            .mapError { _ in CoreLinkError.refused("the core answered with something the notch cannot read") }
+                            .mapError { error in
+                                Self.log("failed to decode \(A.op) reply: \(error)")
+                                return CoreLinkError.refused("the core answered with something the notch cannot read")
+                            }
                     }
                     DispatchQueue.main.async { reply(answer) }
                 }
@@ -91,7 +97,18 @@ final class CoreLink {
     }
 
     private func write<Message: Encodable>(_ message: Message) {
-        guard let json = try? JSONEncoder().encode(message) else { return }
+        guard !closed, fd >= 0 else { return }
+        let json: Data
+        do {
+            json = try JSONEncoder().encode(message)
+        } catch {
+            Self.log("failed to encode core frame: \(error)")
+            return
+        }
+        guard json.count + 1 <= Self.maxFrameLength else {
+            Self.log("refused to send oversized core frame (\(json.count + 1) bytes)")
+            return
+        }
         var frame = [UInt8]()
         let length = UInt32(json.count + 1).bigEndian
         withUnsafeBytes(of: length) { frame.append(contentsOf: $0) }
@@ -100,7 +117,16 @@ final class CoreLink {
         var offset = 0
         while offset < frame.count {
             let written = frame[offset...].withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
-            if written <= 0 {
+            if written < 0 {
+                if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    finish("timed out writing to the core")
+                } else {
+                    finish("could not write to the core")
+                }
+                return
+            }
+            if written == 0 {
                 finish("could not write to the core")
                 return
             }
@@ -109,8 +135,17 @@ final class CoreLink {
     }
 
     private func readAvailable() {
+        guard !closed, fd >= 0 else { return }
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
-        let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+        var count: Int
+        repeat {
+            count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+        } while count < 0 && errno == EINTR
+        if count < 0 {
+            if errno == EAGAIN || errno == EWOULDBLOCK { return }
+            finish(nil)
+            return
+        }
         guard count > 0 else {
             finish(nil)
             return
@@ -132,7 +167,13 @@ final class CoreLink {
     }
 
     private func handle(_ payload: Data) {
-        guard let message = try? JSONDecoder().decode(Incoming.self, from: payload) else { return }
+        let message: Incoming
+        do {
+            message = try JSONDecoder().decode(Incoming.self, from: payload)
+        } catch {
+            Self.log("failed to decode core frame: \(error)")
+            return
+        }
         switch message.type {
         case "helloAck":
             DispatchQueue.main.async { self.onReady?() }
@@ -165,6 +206,10 @@ final class CoreLink {
         replies.removeAll()
         for reply in pending.values { reply(.failure(.closed)) }
         DispatchQueue.main.async { self.onClose?(reason) }
+    }
+
+    private static func log(_ message: String) {
+        FileHandle.standardError.write(Data("sikemux-notch: \(message)\n".utf8))
     }
 }
 
