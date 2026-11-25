@@ -10,9 +10,7 @@
   background: var(--surface-sunken);
 }
 
-/* Top bar sits in its own row rather than floating over the transcript.
-   Keep the 10px custom scrollbar track balanced on the left so the transcript
-   column and composer share identical edges at every width and chat length. */
+/* The left padding balances the 10px scrollbar, so the transcript lines up with the composer. */
 .shared-chat .chat-scroll {
   overflow-y: scroll;
   padding-top: 0;
