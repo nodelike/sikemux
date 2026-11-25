@@ -1,0 +1,41 @@
+# A draft cut out of one chat and pasted into another brings its files with their pills, numbered
+# after what the other chat already holds; undoing the cut brings them back where they were.
+stage 1440 900
+window 1440 900
+replies pills.json
+prefer themeId aura-noir
+prefer starAsked true
+project storefront shop
+chat Wren
+title "Order emails"
+settle 4
+chat Kai
+title "Refund notices"
+settle 4
+front Wren
+settle 2
+click 700,820
+type "Match the look of"
+drop 700,820 film/scenes/tasks/cart.jpg
+type "and read"
+drop 700,820 film/scenes/shop/README.md film/scenes/shop/src
+type "first"
+settle 1
+key cmd-a
+key cmd-x
+settle 1
+snap copy-pills-cut
+key cmd-z
+settle 1
+snap copy-pills-undone
+key cmd-a
+key cmd-x
+front Kai
+settle 2
+click 700,820
+type "Once"
+drop 700,820 film/scenes/tasks/invoice.jpg
+type "is done:"
+key cmd-v
+settle 2
+snap copy-pills-pasted

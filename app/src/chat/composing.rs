@@ -7,7 +7,7 @@ use sikemux_view::prefs::PreferenceChange;
 use std::cell::Cell;
 use std::collections::HashMap;
 
-use gpui_kit::component::input::{InputEvent, Position, TextareaState};
+use gpui_kit::component::input::{Copy, Cut, InputEvent, Position, TextareaState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     AppContext, Context, Focusable, InteractiveElement, IntoElement, ParentElement, SharedString,
@@ -382,9 +382,12 @@ pub fn mounted(
     offering: bool,
     cx: &mut Context<Workbench>,
 ) -> gpui_kit::Div {
+    let draft = clip::Field::Composer(owner.to_owned());
     div()
         .key_context("ChatComposer")
         .capture_action(select_chip(owner, cx))
+        .capture_action(clip::copies::<Copy>(draft.clone(), cx.weak_entity()))
+        .capture_action(clip::copies::<Cut>(draft, cx.weak_entity()))
         .on_action(recall::<OlderPrompt>(owner, true, cx))
         .on_action(recall::<NewerPrompt>(owner, false, cx))
         .on_action(stop_turn(owner, cx))

@@ -78,7 +78,7 @@ fn now() -> u64 {
         .map_or(0, |since| since.as_secs())
 }
 
-fn write(path: &Option<PathBuf>, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write(path: &Option<PathBuf>, bytes: &[u8]) -> std::io::Result<()> {
     let path = path
         .as_deref()
         .ok_or_else(|| std::io::Error::other("no config folder"))?;

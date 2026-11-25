@@ -68,6 +68,7 @@ sikemux-voice = { path = "../../crates/sikemux-voice" }
 textmate-highlight = { path = "../crates/textmate-highlight" }
 tokio = { version = "1", features = ["io-util", "rt-multi-thread", "sync"] }
 url = "2"
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"

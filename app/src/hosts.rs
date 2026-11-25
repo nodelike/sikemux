@@ -71,7 +71,7 @@ impl HostChoice {
 
 /// Whose core a pane talks to: this host's, or another host's on the account. An SSH host
 /// without Sikemux has no core, so its strip is this host's.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
 pub enum Place {
     #[default]
     This,

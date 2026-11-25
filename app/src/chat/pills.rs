@@ -45,13 +45,40 @@ pub(super) fn places(path: &Path, spans: &[InlineTokenSpan], text: &str) -> Vec<
 
 /// A file's pill in a draft that holds `spans`; `number` is its place among the files going.
 pub(super) fn pill_of(path: &Path, number: usize, spans: &[InlineTokenSpan]) -> InlineToken {
-    let named = path.to_string_lossy();
     if is_image(path) {
-        return InlineToken::new(format!("{IMAGE}{named}"), image_tag(number))
-            .with_label(picture_label(number, path));
+        return picture_pill(path, number);
     }
+    let named = path.to_string_lossy();
     let kind = if path.is_dir() { FOLDER } else { FILE };
-    InlineToken::new(format!("{kind}{named}"), file_tag(&named, spans))
+    let tag = file_tag(&named, spans.iter().map(InlineTokenSpan::token));
+    InlineToken::new(format!("{kind}{named}"), tag)
+}
+
+pub(super) fn picture_pill(path: &Path, number: usize) -> InlineToken {
+    InlineToken::new(
+        format!("{IMAGE}{}", path.to_string_lossy()),
+        image_tag(number),
+    )
+    .with_label(picture_label(number, path))
+}
+
+/// `token` as it stands for its file at `path`, the one numbered `number`, beside `tokens`.
+pub(super) fn moved(
+    token: &InlineToken,
+    path: &Path,
+    number: usize,
+    tokens: &[InlineToken],
+) -> InlineToken {
+    if token.id().starts_with(IMAGE) {
+        return picture_pill(path, number);
+    }
+    let named = path.to_string_lossy();
+    let kind = match token.id().starts_with(FOLDER) {
+        true => FOLDER,
+        false => FILE,
+    };
+    let tag = file_tag(&named, tokens.iter());
+    InlineToken::new(format!("{kind}{named}"), tag)
 }
 
 fn image_tag(number: usize) -> String {
@@ -59,16 +86,19 @@ fn image_tag(number: usize) -> String {
 }
 
 /// `+name` for the file at `path`, with as many of its folders as tell it from the other files
-/// `spans` stand for.
-pub(super) fn file_tag(path: &str, spans: &[InlineTokenSpan]) -> String {
+/// `tokens` stand for.
+pub(super) fn file_tag<'a>(
+    path: &str,
+    tokens: impl Iterator<Item = &'a InlineToken> + Clone,
+) -> String {
     let parts = parts(path);
-    let written = (spans.iter().map(InlineTokenSpan::token))
+    let written = (tokens.clone())
         .find(|token| path_in(token.id()) == Some(path) && token.text().starts_with('+'));
     if let Some(token) = written {
         return token.text().to_string();
     }
-    let others: Vec<Vec<&str>> = (spans.iter())
-        .filter_map(|span| path_in(span.token().id()))
+    let others: Vec<Vec<&str>> = tokens
+        .filter_map(|token| path_in(token.id()))
         .filter(|other| *other != path)
         .map(self::parts)
         .collect();
@@ -91,25 +121,36 @@ pub(super) fn numbered(content: InputContent, files: &[PathBuf]) -> InputContent
     let named = |token: &InlineToken| {
         let path = Path::new(token.id().strip_prefix(IMAGE)?);
         let number = 1 + files.iter().position(|file| file == path)?;
-        (token.text().as_ref() != image_tag(number)).then(|| {
-            InlineToken::new(token.id().clone(), image_tag(number))
-                .with_label(picture_label(number, path))
-        })
+        (token.text().as_ref() != image_tag(number)).then(|| picture_pill(path, number))
     };
     if !(content.tokens().iter()).any(|span| named(span.token()).is_some()) {
         return content;
     }
+    rewritten(&content, |token| {
+        Some(named(token).unwrap_or_else(|| token.clone()))
+    })
+}
+
+/// `content` with each token as `change` makes it, its words alone where that is none.
+pub(super) fn rewritten(
+    content: &InputContent,
+    mut change: impl FnMut(&InlineToken) -> Option<InlineToken>,
+) -> InputContent {
     let mut text = String::new();
     let mut tokens = Vec::new();
     let mut rest = 0;
     for span in content.tokens() {
         let range = span.range();
         text.push_str(content.text().get(rest..range.start).unwrap_or_default());
-        let token = named(span.token()).unwrap_or_else(|| span.token().clone());
-        let start = text.len();
-        text.push_str(token.text());
-        tokens.push((start..text.len(), token));
         rest = range.end;
+        let start = text.len();
+        match change(span.token()) {
+            Some(token) => {
+                text.push_str(token.text());
+                tokens.push((start..text.len(), token));
+            }
+            None => text.push_str(span.token().text()),
+        }
     }
     text.push_str(content.text().get(rest..).unwrap_or_default());
     with_tokens(text, tokens)

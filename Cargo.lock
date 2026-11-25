@@ -10226,6 +10226,7 @@ dependencies = [
  "textmate-highlight",
  "tokio",
  "url",
+ "uuid",
  "wayland-client",
  "wayland-protocols",
  "windows-sys 0.61.2",

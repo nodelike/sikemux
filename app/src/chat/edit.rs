@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
+use gpui_kit::component::input::{Copy, Cut, InputEvent, Textarea, TextareaState};
 use gpui_kit::{
     div, relative, App, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement,
     ParentElement, Styled, Subscription, Window,
@@ -11,8 +11,9 @@ use gpui_kit::{
 use gpui_transcript::Change;
 use sikemux_view::chat::ChatMessage;
 
+use super::clip::Field;
 use super::pills::{self, Files};
-use super::{attach, text_of, CancelEdit, Drawn};
+use super::{attach, clip, text_of, CancelEdit, Drawn};
 use crate::core::ChatAsk;
 use crate::theme;
 use crate::theme::{SPACE_1H, SPACE_2, SPACE_3};
@@ -30,6 +31,21 @@ pub struct Editing {
 impl Editing {
     pub fn is(&self, row: &str) -> bool {
         self.row == row
+    }
+
+    pub(super) fn held(&self) -> (&Entity<TextareaState>, &Files) {
+        (&self.draft, &self.files)
+    }
+
+    /// Has `put` paste into the message, whose files then follow its pills.
+    pub(super) fn land(
+        &mut self,
+        put: impl FnOnce(&Entity<TextareaState>, &mut Files, &mut App),
+        cx: &mut App,
+    ) {
+        put(&self.draft, &mut self.files, cx);
+        let draft = self.draft.read(cx);
+        self.files.settle(draft.tokens(), &mut Vec::new());
     }
 }
 
@@ -199,8 +215,11 @@ pub fn editor(agent: &str, editing: &Editing, looks: &Drawn) -> gpui_kit::AnyEle
             editing.files.number(path)
         }
     };
+    let field = Field::Edit(agent.to_owned());
     div()
         .key_context("MessageEditor")
+        .capture_action(clip::copies::<Copy>(field.clone(), looks.bench.clone()))
+        .capture_action(clip::copies::<Cut>(field.clone(), looks.bench.clone()))
         .on_action(cancelled)
         .w(relative(0.8))
         .flex()
@@ -215,6 +234,7 @@ pub fn editor(agent: &str, editing: &Editing, looks: &Drawn) -> gpui_kit::AnyEle
         .child(
             Textarea::new(&editing.draft)
                 .token(attach::chip(looks.bench.clone(), numbers))
+                .on_paste(clip::on_paste(field, looks.bench.clone()))
                 .appearance(false)
                 .text_size(crate::theme::ui_text(13.5)),
         )

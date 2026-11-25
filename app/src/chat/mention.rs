@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use gpui_kit::base::input::InlineToken;
+use gpui_kit::base::input::{InlineToken, InlineTokenSpan};
 use gpui_kit::component::input::TextareaState;
 use gpui_kit::{
     px, App, AppContext, Context, Focusable, IntoElement, ScrollHandle, SharedString, Styled, Task,
@@ -908,7 +908,10 @@ impl Workbench {
                         || Path::new(path).to_path_buf(),
                         |project| project.join(path),
                     );
-                    let tag = super::pills::file_tag(&whole.to_string_lossy(), draft.tokens());
+                    let tag = super::pills::file_tag(
+                        &whole.to_string_lossy(),
+                        draft.tokens().iter().map(InlineTokenSpan::token),
+                    );
                     let kind = if *folder { FOLDER } else { FILE };
                     Some(InlineToken::new(
                         format!("{kind}{}", whole.to_string_lossy()),

@@ -25,7 +25,7 @@ use crate::workbench::Workbench;
 const PAUSE: Duration = Duration::from_millis(300);
 
 /// The draft as the composer last agreed it with the core.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Kept {
     text: String,
     extra: DraftExtra,
@@ -33,45 +33,48 @@ pub struct Kept {
 
 /// The draft as `setDraft` takes it and `drafts` answers it.
 fn kept(composing: &Composing, cx: &App) -> Kept {
-    let content = composing.content(cx);
-    let tokens: Vec<DraftToken> = content
-        .tokens()
-        .iter()
-        .map(|span| {
-            let token = span.token();
-            DraftToken {
-                start: span.range().start,
-                end: span.range().end,
-                id: token.id().to_string(),
-                label: Some(token.label().to_string()),
-            }
-        })
-        .collect();
-    let tracked = composing
-        .tracked_context
-        .iter()
-        .filter(|(id, _)| tokens.iter().any(|token| &token.id == *id))
-        .map(|(id, context)| (id.clone(), context.clone()))
-        .collect();
-    Kept {
-        text: content.text().to_string(),
-        extra: DraftExtra {
-            tokens,
-            attachments: composing
-                .attachments
-                .iter()
-                .map(|path| path.to_string_lossy().into_owned())
-                .collect(),
-            context: composing.context.clone(),
-            tracked,
-            rest: Default::default(),
-        },
+    Kept::of(composing.held(cx))
+}
+
+impl Kept {
+    pub(super) fn of(held: Sent) -> Self {
+        let tokens: Vec<DraftToken> = (held.content.tokens().iter())
+            .map(|span| {
+                let token = span.token();
+                DraftToken {
+                    start: span.range().start,
+                    end: span.range().end,
+                    id: token.id().to_string(),
+                    label: Some(token.label().to_string()),
+                }
+            })
+            .collect();
+        let tracked = (held.tracked_context.into_iter())
+            .filter(|(id, _)| tokens.iter().any(|token| &token.id == id))
+            .collect();
+        let attachments = (held.attachments.iter())
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect();
+        Self {
+            text: held.content.text().to_string(),
+            extra: DraftExtra {
+                tokens,
+                attachments,
+                context: held.context,
+                tracked,
+                rest: Default::default(),
+            },
+        }
+    }
+
+    pub(super) fn text(&self) -> &str {
+        &self.text
     }
 }
 
 /// A kept draft as the composer holds one; a chip that no longer matches its text is left
 /// out rather than refusing the whole draft.
-fn restored(draft: &Kept) -> Sent {
+pub(super) fn restored(draft: &Kept) -> Sent {
     let tokens = draft.extra.tokens.iter().filter_map(|token| {
         let range = token.start..token.end;
         let written = draft.text.get(range.clone())?;

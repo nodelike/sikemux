@@ -27,6 +27,7 @@ use sikemux_wire::protocol::ChatContext;
 use sikemux_wire::protocol::{FOR_AGENT_URI, MAX_ATTACHMENT_BYTES};
 use tokio::sync::oneshot;
 
+use super::clip::Field;
 use super::mention::{AGENT, COMMAND, EARLIER, FILE, FOLDER, TRACKED};
 use super::pills::{self, IMAGE};
 use super::Composing;
@@ -77,7 +78,14 @@ pub fn lasting(path: &Path) -> PathBuf {
 }
 
 /// The largest file a chat's core keeps for it.
-const MAX_KEPT: u64 = MAX_ATTACHMENT_BYTES as u64;
+pub(super) const MAX_KEPT: u64 = MAX_ATTACHMENT_BYTES as u64;
+
+pub(super) fn mime_of(path: &Path) -> &'static str {
+    match is_screenshot_thumbnail(path) || is_image(path) {
+        true => "image/png",
+        false => "application/octet-stream",
+    }
+}
 
 /// The glyph a tag in the draft wears: the picture itself, a named agent's face or mark, or a
 /// file's or folder's.
@@ -438,11 +446,7 @@ impl Workbench {
                 );
                 match bytes {
                     Some(Ok(bytes)) => {
-                        let mime = if is_screenshot_thumbnail(&path) || is_image(&path) {
-                            "image/png"
-                        } else {
-                            "application/octet-stream"
-                        };
+                        let mime = mime_of(&path);
                         let (owner, from) = (agent.clone(), path.clone());
                         let kept =
                             move |bench: &mut Self,
@@ -490,15 +494,7 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (stored, answer) = oneshot::channel();
-        let ask = ChatAsk::Keep {
-            agent: self.written_to(agent).to_owned(),
-            name,
-            mime: mime.to_owned(),
-            bytes,
-            kept: stored,
-        };
-        self.chat_target(agent).ask(crate::core::Ask::Chat(ask));
+        let answer = self.store(agent, name, mime, bytes);
         cx.spawn_in(window, async move |this, cx| match answer.await {
             Ok(Ok(path)) => {
                 this.update_in(cx, |bench, window, cx| kept(bench, path, window, cx))
@@ -515,6 +511,26 @@ impl Workbench {
             Err(_) => {}
         })
         .detach();
+    }
+
+    /// Asks the core to keep a file for the agent it is written to, and answers where it went.
+    pub(super) fn store(
+        &self,
+        agent: &str,
+        name: String,
+        mime: &str,
+        bytes: Vec<u8>,
+    ) -> oneshot::Receiver<Result<PathBuf, String>> {
+        let (stored, answer) = oneshot::channel();
+        let ask = ChatAsk::Keep {
+            agent: self.written_to(agent).to_owned(),
+            name,
+            mime: mime.to_owned(),
+            bytes,
+            kept: stored,
+        };
+        self.chat_target(agent).ask(crate::core::Ask::Chat(ask));
+        answer
     }
 
     /// Takes context item `index`, an earlier chat or an issue, off the message.
@@ -542,7 +558,8 @@ impl Workbench {
         }
     }
 
-    /// The pictures and files pasted into the draft of `agent`'s chat; whether there were any.
+    /// The pictures, files and part of a draft pasted into that of `agent`'s chat; whether there
+    /// were any.
     fn pasted(
         &mut self,
         agent: &str,
@@ -550,6 +567,9 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if self.paste_clip(&Field::Composer(agent.to_owned()), item, window, cx) {
+            return true;
+        }
         let mut taken = false;
         for entry in item.entries() {
             match entry {
