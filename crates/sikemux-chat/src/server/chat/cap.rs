@@ -224,9 +224,7 @@ pub fn keep_list(core: &Core, chat: &Chat) -> String {
                     heading, word for word: every message of the person's below, every call still \
                     open to the person, and what you and your workers are waiting on, with what \
                     each waits for. A message ending in [cut] was longer: only its start is here, \
-                    so keep that start and say it was cut. Keep the rest of the summary brief: \
-                    decisions, current state, file paths and line numbers, not raw command \
-                    outputs, diffs or long code blocks."
+                    so keep that start and say it was cut."
         .to_owned();
     let open = (core.chat_above().open_work)(core, chat.agent_id());
     if !open.is_empty() {
