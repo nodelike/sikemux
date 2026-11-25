@@ -1,4 +1,4 @@
-import { useSignIn, useSignUp } from "@clerk/react";
+import { useClerk, useSignIn, useSignUp } from "@clerk/react";
 import {
   explain,
   signInFlow,
@@ -17,7 +17,7 @@ import {
 
 import { Gate, GateActions } from "./Frame.tsx";
 import "./gate.css";
-import { AppleMark, GitHubMark, GoogleMark } from "./icons.tsx";
+import { AppleMark, GitHubMark, GoogleMark, MicrosoftMark } from "./icons.tsx";
 import { useInviteOrg } from "./invite.ts";
 import { brandMark, iconMark } from "./marks.ts";
 import {
@@ -31,14 +31,74 @@ import {
 } from "./navigation.ts";
 import { Btn, Problem, Txt } from "./ui.tsx";
 
-type Provider = "oauth_apple" | "oauth_google" | "oauth_github";
+type ClerkEnvironment = {
+  __internal_environment?: {
+    userSettings?: {
+      authenticatableSocialStrategies?: readonly string[];
+      socialProviderStrategies?: readonly string[];
+    };
+  };
+};
 
-type Action = "apple" | "google" | "github" | "submit" | "resend";
+export function socialStrategies(
+  clerk: unknown,
+  kind: "signIn" | "connect",
+): readonly string[] | undefined {
+  const settings = (clerk as ClerkEnvironment | null | undefined)
+    ?.__internal_environment?.userSettings;
+  return kind === "signIn"
+    ? settings?.authenticatableSocialStrategies
+    : settings?.socialProviderStrategies;
+}
+
+type Provider =
+  "oauth_apple" | "oauth_google" | "oauth_github" | "oauth_microsoft";
+
+type Action = "apple" | "google" | "github" | "microsoft" | "submit" | "resend";
+
+const DEFAULT_PROVIDERS: readonly Provider[] = [
+  "oauth_apple",
+  "oauth_google",
+  "oauth_github",
+];
+
+const PROVIDERS: readonly {
+  strategy: Provider;
+  action: Action;
+  label: string;
+  mark: ReactNode;
+}[] = [
+  {
+    strategy: "oauth_apple",
+    action: "apple",
+    label: "Continue with Apple",
+    mark: <AppleMark />,
+  },
+  {
+    strategy: "oauth_google",
+    action: "google",
+    label: "Continue with Google",
+    mark: <GoogleMark />,
+  },
+  {
+    strategy: "oauth_github",
+    action: "github",
+    label: "Continue with GitHub",
+    mark: <GitHubMark />,
+  },
+  {
+    strategy: "oauth_microsoft",
+    action: "microsoft",
+    label: "Continue with Microsoft",
+    mark: <MicrosoftMark />,
+  },
+];
 
 const ACTIONS: Record<Provider, Action> = {
   oauth_apple: "apple",
   oauth_google: "google",
   oauth_github: "github",
+  oauth_microsoft: "microsoft",
 };
 
 const CODE_DETAIL: Record<CodePurpose, string> = {
@@ -66,8 +126,19 @@ export function SignIn({
   intro?: { title: string; lede: ReactNode };
   notice?: ReactNode;
 }) {
+  const clerk = useClerk();
   const { signIn } = useSignIn();
   const { signUp } = useSignUp();
+  const enabledStrategies = ready
+    ? socialStrategies(clerk, "signIn")
+    : undefined;
+  const providers = enabledStrategies?.length
+    ? PROVIDERS.filter((provider) =>
+        enabledStrategies.includes(provider.strategy),
+      )
+    : PROVIDERS.filter((provider) =>
+        DEFAULT_PROVIDERS.includes(provider.strategy),
+      );
   const [step, setStep] = useState<SignInStep>({ kind: "email" });
   useEffect(() => noteSignUpReason(), []);
   const [email, setEmail] = useState("");
@@ -285,33 +356,20 @@ export function SignIn({
         <>
           {notice}
           <div className="ways">
-            <Btn
-              quiet={busy !== undefined && busy !== "apple"}
-              onClick={() => withProvider("oauth_apple")}
-              disabled={busy !== undefined}
-              busy={busy === "apple"}
-            >
-              {busy === "apple" ? null : <AppleMark />}
-              Continue with Apple
-            </Btn>
-            <Btn
-              quiet={busy !== "google"}
-              onClick={() => withProvider("oauth_google")}
-              disabled={busy !== undefined}
-              busy={busy === "google"}
-            >
-              {busy === "google" ? null : <GoogleMark />}
-              Continue with Google
-            </Btn>
-            <Btn
-              quiet={busy !== "github"}
-              onClick={() => withProvider("oauth_github")}
-              disabled={busy !== undefined}
-              busy={busy === "github"}
-            >
-              {busy === "github" ? null : <GitHubMark />}
-              Continue with GitHub
-            </Btn>
+            {providers.map((provider, index) => (
+              <Btn
+                key={provider.strategy}
+                quiet={
+                  busy !== undefined ? busy !== provider.action : index !== 0
+                }
+                onClick={() => withProvider(provider.strategy)}
+                disabled={busy !== undefined}
+                busy={busy === provider.action}
+              >
+                {busy === provider.action ? null : provider.mark}
+                {provider.label}
+              </Btn>
+            ))}
           </div>
           <div className="orl" role="separator">
             <span>or</span>

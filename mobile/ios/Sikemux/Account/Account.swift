@@ -200,7 +200,7 @@ extension Clerk.User {
     var providerName: String? {
         guard let provider = externalAccounts?.first?.provider else { return nil }
         let id = provider.replacingOccurrences(of: "oauth_", with: "")
-        return ["google": "Google", "github": "GitHub", "apple": "Apple"][id] ?? id
+        return ["google": "Google", "github": "GitHub", "apple": "Apple", "microsoft": "Microsoft"][id] ?? id
     }
 
     var signsInWithApple: Bool {

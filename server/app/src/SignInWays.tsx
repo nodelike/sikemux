@@ -1,13 +1,13 @@
-import { useAuth, useUser } from "@clerk/react";
+import { useAuth, useClerk, useUser } from "@clerk/react";
 import type { SignInRemoval } from "@sikemux/protocol";
 import { IconMail, IconPlus } from "@shared/ui/Icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import "./account.css";
 import { api, problemText, signedInToken } from "./api.ts";
-import { AppleMark, GitHubMark, GoogleMark } from "./icons.tsx";
+import { AppleMark, GitHubMark, GoogleMark, MicrosoftMark } from "./icons.tsx";
 import { useReverified } from "./Reverify.tsx";
-import { CodeEntry } from "./SignIn.tsx";
+import { CodeEntry, socialStrategies } from "./SignIn.tsx";
 import {
   Btn,
   Confirm,
@@ -38,9 +38,11 @@ export const PROVIDERS: Record<string, { name: string; mark: ReactNode }> = {
   google: { name: "Google", mark: <GoogleMark /> },
   apple: { name: "Apple", mark: <AppleMark /> },
   github: { name: "GitHub", mark: <GitHubMark /> },
+  microsoft: { name: "Microsoft", mark: <MicrosoftMark /> },
 };
 
-const CONNECTABLE = ["google", "apple"] as const;
+const CONNECTABLE = ["google", "apple", "microsoft"] as const;
+const DEFAULT_CONNECTABLE = ["google", "apple"] as const;
 
 /** The first letter and the domain, enough to tell your own addresses apart. */
 const masked = (email: string) =>
@@ -90,6 +92,7 @@ export function waysOf(user: Account): Way[] {
 export function SignInWaysCard() {
   const { user } = useUser();
   const { getToken } = useAuth();
+  const clerk = useClerk();
   const say = useToast();
   const action = useAction();
   const [working, setWorking] = useState<string>();
@@ -120,6 +123,12 @@ export function SignInWaysCard() {
 
   const ways = waysOf(user);
   const onlyOne = ways.length === 1;
+  const enabledStrategies = socialStrategies(clerk, "connect");
+  const connectable = enabledStrategies?.length
+    ? CONNECTABLE.filter((strategy) =>
+        enabledStrategies.includes(`oauth_${strategy}`),
+      )
+    : DEFAULT_CONNECTABLE;
 
   const remove = (way: Way, step: () => Promise<unknown>) => {
     setWorking(way.id);
@@ -201,32 +210,32 @@ export function SignInWaysCard() {
               }
             />
           ))}
-          {CONNECTABLE.filter(
-            (strategy) => !ways.some((way) => way.kind === strategy),
-          ).map((strategy) => (
-            <Row
-              key={strategy}
-              lead={
-                <Tile>
-                  <span className="br">{PROVIDERS[strategy].mark}</span>
-                </Tile>
-              }
-              name={PROVIDERS[strategy].name}
-              detail="Not added"
-              end={
-                <Btn
-                  small
-                  quiet
-                  aria-label={`Add ${PROVIDERS[strategy].name}`}
-                  disabled={action.busy}
-                  busy={action.busy && working === strategy}
-                  onClick={() => void connect(strategy)}
-                >
-                  Add
-                </Btn>
-              }
-            />
-          ))}
+          {connectable
+            .filter((strategy) => !ways.some((way) => way.kind === strategy))
+            .map((strategy) => (
+              <Row
+                key={strategy}
+                lead={
+                  <Tile>
+                    <span className="br">{PROVIDERS[strategy].mark}</span>
+                  </Tile>
+                }
+                name={PROVIDERS[strategy].name}
+                detail="Not added"
+                end={
+                  <Btn
+                    small
+                    quiet
+                    aria-label={`Add ${PROVIDERS[strategy].name}`}
+                    disabled={action.busy}
+                    busy={action.busy && working === strategy}
+                    onClick={() => void connect(strategy)}
+                  >
+                    Add
+                  </Btn>
+                }
+              />
+            ))}
         </Rows>
         {!removing ? <Problem>{action.problem}</Problem> : null}
       </Section>
