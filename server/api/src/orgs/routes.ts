@@ -9,6 +9,7 @@ import type {
   OrgMemberList,
   OrgRole,
 } from "@sikemux/protocol";
+import { avatarSeed } from "@sikemux/protocol/avatar";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { sql, type Kysely, type Selectable } from "kysely";
@@ -93,6 +94,7 @@ function memberBody(
     role: member.role,
     name: named.get(member.user_id)?.name ?? null,
     imageUrl: named.get(member.user_id)?.imageUrl ?? null,
+    avatarSeed: avatarSeed(member.user_id),
     joinedAt: member.joined_at.toISOString(),
     you: member.user_id === caller,
   };

@@ -1,3 +1,5 @@
+import { hashOf } from "@sikemux/protocol/avatar";
+
 /** The colours a page's dots and accents use, read from the tokens at the top of app.css. */
 export type Scene = {
   tint: string;
@@ -33,14 +35,6 @@ export function sceneOf(name: SceneName): Scene {
     ? named
     : colours("--scene-you");
   return { tint, alt, bright, deep };
-}
-
-/** The hash Boring Avatars draws from, so an org's scene and its picture come from one number. */
-export function hashOf(id: string): number {
-  let hash = 0;
-  for (let at = 0; at < id.length; at++)
-    hash = ((hash << 5) - hash + id.charCodeAt(at)) | 0;
-  return Math.abs(hash);
 }
 
 export function orgScene(orgId: string): SceneName {

@@ -5,6 +5,7 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
+    "./avatar": "./src/avatar.ts",
     "./stash": "./src/stash.ts",
     "./openapi.json": "./generated/openapi.json",
     "./release.json": "./src/release.json"

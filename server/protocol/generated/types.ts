@@ -1306,6 +1306,8 @@ export interface OrgMember {
   role: OrgRole;
   name: string | null;
   imageUrl: string | null;
+  /** What their picture is drawn from when they have no imageUrl: a short hash of their account, the same in every org and for everyone who sees them. */
+  avatarSeed: string;
   joinedAt: string;
   /** True on the row of the person asking. */
   you: boolean;

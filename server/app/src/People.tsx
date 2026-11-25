@@ -1,4 +1,3 @@
-import { useUser } from "@clerk/react";
 import type {
   Org,
   OrgInvite,
@@ -21,7 +20,7 @@ import {
 import { useState, type MouseEvent } from "react";
 
 import { problemText } from "./api.ts";
-import { orgSvg, personSvg } from "./avatarSvg.ts";
+import { memberSvg, orgSvg } from "./avatarSvg.ts";
 import { useClient } from "./Billing.tsx";
 import { useCheer } from "./Field.tsx";
 import { iconMark } from "./marks.ts";
@@ -406,7 +405,6 @@ function MemberRow({
   const action = useAction();
   const [asking, setAsking] = useState<"owner" | "remove">();
   const name = nameOf(member);
-  const { user } = useUser();
   const canManage = !member.you && manages(org.role, member.role);
 
   const put = async (role: OrgRole) => {
@@ -437,7 +435,7 @@ function MemberRow({
     <Row
       lead={<MemberAvatar member={member} />}
       hot={{
-        picture: { svg: personSvg(member.you ? (user?.id ?? "") : member.id) },
+        picture: { svg: memberSvg(member.avatarSeed) },
       }}
       name={
         <>

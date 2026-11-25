@@ -1,8 +1,9 @@
 import { useUser } from "@clerk/react";
+import { avatarSeed } from "@sikemux/protocol/avatar";
 import { clerkImageUrl } from "@shared/lib/format";
 import { useId, useMemo, useState, type CSSProperties } from "react";
 
-import { orgSvg, personSvg } from "./avatarSvg.ts";
+import { memberSvg, orgSvg } from "./avatarSvg.ts";
 
 const sized = (size: number | undefined) =>
   size ? ({ "--z": `${size}px` } as CSSProperties) : undefined;
@@ -12,7 +13,7 @@ export function Avatar({ size }: { size?: number }) {
   const { user } = useUser();
   return (
     <PersonAvatar
-      id={user?.id ?? ""}
+      seed={avatarSeed(user?.id ?? "")}
       imageUrl={user?.hasImage ? user.imageUrl : null}
       size={size}
     />
@@ -20,17 +21,17 @@ export function Avatar({ size }: { size?: number }) {
 }
 
 export function PersonAvatar({
-  id,
+  seed,
   imageUrl,
   size,
 }: {
-  id: string;
+  seed: string;
   imageUrl: string | null;
   size?: number;
 }) {
   const [failed, setFailed] = useState<string>();
   const key = useId();
-  const svg = useMemo(() => personSvg(id, key), [id, key]);
+  const svg = useMemo(() => memberSvg(seed, key), [seed, key]);
   if (imageUrl && imageUrl !== failed)
     return (
       <span className="av" aria-hidden="true" style={sized(size)}>

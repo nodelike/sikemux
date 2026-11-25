@@ -1,7 +1,7 @@
 import type { Org, OrgMember } from "@sikemux/protocol";
 import type { CSSProperties } from "react";
 
-import { Avatar, PersonAvatar } from "./Avatar.tsx";
+import { PersonAvatar } from "./Avatar.tsx";
 import { frozen } from "./orgs.ts";
 import { stippledDisc } from "./stipple.ts";
 import { Card } from "./ui.tsx";
@@ -13,10 +13,12 @@ export function MemberAvatar({
   member: OrgMember;
   size?: number;
 }) {
-  return member.you ? (
-    <Avatar size={size} />
-  ) : (
-    <PersonAvatar id={member.id} imageUrl={member.imageUrl} size={size} />
+  return (
+    <PersonAvatar
+      seed={member.avatarSeed}
+      imageUrl={member.imageUrl}
+      size={size}
+    />
   );
 }
 

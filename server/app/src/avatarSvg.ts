@@ -1,4 +1,6 @@
-import { colours, hashOf, orgScene, sceneOf } from "./scenes.ts";
+import { avatarSeed, hashOf } from "@sikemux/protocol/avatar";
+
+import { colours, orgScene, sceneOf } from "./scenes.ts";
 
 /* Boring Avatars' marble (MIT, boringdesigners; see BoringAvatars-LICENSE.txt). */
 const digit = (number: number, place: number) =>
@@ -31,8 +33,11 @@ function marble(seed: string, palette: string[], key: string, radius: number) {
   );
 }
 
-export const personSvg = (userId: string, key = "m") =>
-  marble(userId, colours("--avatar-people"), key, 40);
+export const memberSvg = (seed: string, key = "m") =>
+  marble(seed, colours("--avatar-people"), key, 40);
+
+export const personSvg = (userId: string, key?: string) =>
+  memberSvg(avatarSeed(userId), key);
 
 export function orgSvg(orgId: string, key = "o") {
   const { tint, alt, deep } = sceneOf(orgScene(orgId));

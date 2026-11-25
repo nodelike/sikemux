@@ -1368,6 +1368,8 @@ pub struct OrgMember {
     pub role: OrgRole,
     pub name: Option<String>,
     pub image_url: Option<String>,
+    /// What their picture is drawn from when they have no imageUrl: a short hash of their account, the same in every org and for everyone who sees them.
+    pub avatar_seed: String,
     pub joined_at: String,
     /// True on the row of the person asking.
     pub you: bool,

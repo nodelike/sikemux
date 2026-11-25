@@ -8861,13 +8861,26 @@
             "format": "uri",
             "maxLength": 2048
           },
+          "avatarSeed": {
+            "description": "What their picture is drawn from when they have no imageUrl: a short hash of their account, the same in every org and for everyone who sees them.",
+            "type": "string",
+            "pattern": "^[0-9a-z]{1,6}$"
+          },
           "joinedAt": { "type": "string", "format": "date-time" },
           "you": {
             "description": "True on the row of the person asking.",
             "type": "boolean"
           }
         },
-        "required": ["id", "role", "name", "imageUrl", "joinedAt", "you"],
+        "required": [
+          "id",
+          "role",
+          "name",
+          "imageUrl",
+          "avatarSeed",
+          "joinedAt",
+          "you"
+        ],
         "additionalProperties": false
       },
       "OrgMemberId": {
