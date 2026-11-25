@@ -231,6 +231,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   // redraw them on every view the host sends.
   const calls = live.snapshot?.calls;
   const queue = useMemo(() => queueOf(calls, agentId), [calls, agentId]);
+  const waited = calls?.find((call) => call.state === 'open' && call.id === state.turn?.call?.id);
   // The composer says who an idle chat's words go to, as the Mac does: the chief, or a worker the chief hears.
   const composerTo = state.chief
     ? { words: t(TELL_CHIEF), commands: true }
@@ -405,7 +406,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                         connection={connection}
                                         canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
                                         docked={queue.length > 0}
-                                        onLook={() => input.current?.focus()}
+                                        onLook={() => (waited ? router.push(`/device/${core}/call/${waited.id}`) : input.current?.focus())}
                                       />
                                     ) : null}
                                     <Trouble

@@ -287,7 +287,7 @@ final class NotchStore {
         openLink("sikemux://hosts/", host)
     }
 
-    /// Opens the artifact a call links on its asker's desk, with the call's choices at its foot.
+    /// Opens the artifact a call links on the desk that shows the call, with the call's choices at its foot.
     func openPage(_ page: CallPage, of call: PersonCall) {
         openLink("sikemux://artifact/", page.id, query: "?ask=\(call.id)")
     }

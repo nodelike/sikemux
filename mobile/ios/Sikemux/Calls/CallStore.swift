@@ -72,13 +72,10 @@ final class HostCalls {
             .sorted { Self.settledAt($0) > Self.settledAt($1) }
     }
 
-    /// Every call agent `agentId` waits on the person for, as asker or joined to it, oldest first.
+    /// Every open call agent `agentId`'s chat lists, oldest first.
     func queue(for agentId: String) -> [PersonCall] {
         (view?.calls ?? [])
-            .filter { call in
-                call.state == .open
-                    && (call.asker.agentId == agentId || (call.joined ?? []).contains { $0.agentId == agentId })
-            }
+            .filter { $0.state == .open && ($0.shownIn ?? []).contains(agentId) }
             .sorted { $0.raisedAt < $1.raisedAt }
     }
 

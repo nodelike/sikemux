@@ -285,6 +285,9 @@ enum CallWords {
     static let whyNotDoing = String(localized: "Say why you're not doing it…")
     static func waiting(_ count: Int) -> String { String(localized: "\(count) asks") }
     static func newest(_ question: String) -> String { String(localized: "Newest: \(question)") }
+    /// The agent whose chat shows `call`.
+    static func desk(_ call: PersonCall) -> String { call.shownIn?.first ?? call.asker.agentId }
+
     /// The question where one line shows.
     static func headline(_ call: PersonCall) -> String {
         guard let headline = call.headline, !headline.isEmpty else { return call.question }

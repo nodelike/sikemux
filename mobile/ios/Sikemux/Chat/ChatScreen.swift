@@ -401,6 +401,15 @@ private struct TranscriptFooter: View {
     let full: Bool
     let focus: ComposerFocus
 
+    /// Opens the call the turn waits on, else the composer, which answers what is docked there.
+    private func look(_ turn: TurnState) {
+        if let call = HostCalls.of(core).open(in: nil).first(where: { $0.id == turn.call?.id }) {
+            Router.shared.push(.call(core: core, call: call.id))
+        } else {
+            focus.request()
+        }
+    }
+
     var body: some View {
         let rows = session.rows
         let namedStep = rows.head.turn?.on != nil
@@ -419,7 +428,7 @@ private struct TranscriptFooter: View {
                 TurnLine(
                     core: core, agentId: agentId, provider: provider, chief: rows.head.chief == true, turn: turn,
                     canAct: reachable,
-                    docked: !HostCalls.of(core).queue(for: agentId).isEmpty, onLook: { focus.request() })
+                    docked: !HostCalls.of(core).queue(for: agentId).isEmpty, onLook: { look(turn) })
             }
             Trouble(session: session, provider: provider, hostName: hostName, canAct: reachable)
         }

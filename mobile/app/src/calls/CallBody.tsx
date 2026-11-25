@@ -28,7 +28,7 @@ import { useT } from '@/i18n';
 import type { CallAsker, CallLink, CallOption, PersonCall } from '@shared/wire.generated';
 import { PageCard } from '@/chat/Notices';
 import { serviceMark } from '@/chat/Markdown';
-import { answer, answerOf, choose, chosenIn, draftOf, edit, see, useKept, type Draft } from '@/calls/hostCalls';
+import { answer, answerOf, choose, chosenIn, deskOf, draftOf, edit, see, useKept, type Draft } from '@/calls/hostCalls';
 import { HostContext, useHostFile } from '@/chat/hostFiles';
 import { AgentPill, ChiefMark, namedAgent, type Named, openChat, useCrew } from '@/devices/Crew';
 import { haptics } from '@/ui/haptics';
@@ -122,7 +122,7 @@ export const CallBody = memo(function CallBody({
           ) : null}
         </HostContext>
         <View style={{ flex: 1 }} />
-        <Pressable onPress={() => openChat(core, call.asker.agentId)} hitSlop={8} accessibilityRole="button">
+        <Pressable onPress={() => openChat(core, deskOf(call))} hitSlop={8} accessibilityRole="button">
           <Text style={styles.openChat}>{t(OPEN_CHAT)}</Text>
         </Pressable>
       </View>

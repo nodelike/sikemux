@@ -135,7 +135,7 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
     }
     if let Some((page, ask)) = artifact_link(link) {
         return match ask.filter(|ask| bench.call_at(ask).is_some()) {
-            Some(ask) => bench.open_call_page_of_asker(&ask, &page, cx),
+            Some(ask) => bench.open_call_page_on_its_desk(&ask, &page, cx),
             None => bench.open_page(&page, None, bench.target(), cx),
         };
     }

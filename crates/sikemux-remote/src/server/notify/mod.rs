@@ -669,7 +669,10 @@ fn pairing_card(id: &str) -> String {
 struct Draft {
     kind: NotificationKind,
     card: String,
+    /// The agent it opens.
     agent_id: String,
+    /// The agent it comes from, whose mute keeps it quiet.
+    from: String,
     /// A chat, rather than an agent in a terminal.
     chat: bool,
     provider: String,
@@ -793,6 +796,7 @@ impl Named {
             kind,
             card,
             agent_id: agent_id.to_owned(),
+            from: agent_id.to_owned(),
             chat: self.chat,
             provider: self.provider.clone(),
             chat_title: self
@@ -890,6 +894,7 @@ fn needed(core: &Core, item: &InboxItem, now: u64) -> Draft {
         None => Draft {
             kind: NotificationKind::Input,
             card: inbox_card(&item.id),
+            from: agent_id.clone(),
             agent_id,
             chat: false,
             provider: String::new(),
@@ -969,6 +974,8 @@ fn called(core: &Core, call: &PersonCall, card: String) -> Option<Draft> {
         MAX_DETAIL_CHARS,
     ));
     draft.call_id = Some(call.id.clone());
+    draft.agent_id = call.desk().to_owned();
+    draft.chat = core.chats().get(call.desk()).is_some();
     if call.kind == CallKind::Taste && !call.multi {
         let picked = pick.into_iter();
         let others = (call.options.iter()).filter(|option| Some(&option.id) != call.pick.as_ref());
@@ -1093,6 +1100,7 @@ fn pairing(core: &Core, device: &PendingDevice) -> Draft {
         kind: NotificationKind::Pairing,
         card: pairing_card(&device.id),
         agent_id: String::new(),
+        from: String::new(),
         chat: false,
         provider: String::new(),
         chat_title: None,
@@ -1266,7 +1274,7 @@ fn alert_phones(core: &Core, draft: &Draft, now: u64, also: impl Fn(&str) -> boo
     let mut posted = Vec::new();
     for target in targets {
         let phone = target.device_id.clone();
-        if !wants(&target.prefs, draft.kind, &draft.agent_id, away, now) || !also(&phone) {
+        if !wants(&target.prefs, draft.kind, &draft.from, away, now) || !also(&phone) {
             continue;
         }
         let Some(blob) = address(draft, &host, &host_name, &target) else {
@@ -1358,6 +1366,7 @@ fn clear_all(core: &Core, agent_id: &str, card: &str, request_id: Option<String>
             kind: NotificationKind::Clear,
             card: card.to_owned(),
             agent_id: agent_id.to_owned(),
+            from: agent_id.to_owned(),
             chat: request_id.is_some(),
             provider: String::new(),
             chat_title: None,

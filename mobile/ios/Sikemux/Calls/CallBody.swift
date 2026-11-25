@@ -24,7 +24,7 @@ struct CallBody: View {
                 Spacer(minLength: 8)
                 Button {
                     Haptics.tap()
-                    AgentChat.open(core: core, agent: call.asker.agentId) { failure = $0 }
+                    AgentChat.open(core: core, agent: CallWords.desk(call)) { failure = $0 }
                 } label: {
                     Text(CallWords.openChat).font(Theme.ui(13.5)).foregroundStyle(palette.secondary)
                         .frame(minHeight: 32).contentShape(Rectangle())

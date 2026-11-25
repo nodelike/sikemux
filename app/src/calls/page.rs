@@ -178,31 +178,35 @@ impl Foot {
 }
 
 impl Workbench {
-    /// The ask artifact `page` on `agent`'s desk belongs to: the one picked, whoever asked it,
-    /// else the agent's latest.
+    /// The ask artifact `page` on `agent`'s desk belongs to, of those the desk lists: the one
+    /// picked, else the latest.
     pub(crate) fn asked_about(&self, page: &str, agent: &str, cx: &App) -> Option<PersonCall> {
         let asks = |call: &PersonCall| {
             call.kind != CallKind::Look && call.pages().any(|linked| linked.id == page)
         };
-        let place = self.place();
-        let picked = (self.calls.read(cx).opened.as_deref())
-            .and_then(|id| self.call_at(id))
-            .filter(|(at, call)| *at == place && call.state == CallState::Open && asks(call))
-            .map(|(_, call)| call.clone());
-        picked.or_else(|| on_desk(self, agent).into_iter().rfind(asks))
+        let opened = self.calls.read(cx).opened.as_deref();
+        let mut listed = on_desk(self, agent);
+        listed.retain(asks);
+        match listed
+            .iter()
+            .position(|call| Some(call.id.as_str()) == opened)
+        {
+            Some(picked) => Some(listed.swap_remove(picked)),
+            None => listed.pop(),
+        }
     }
 
-    /// Opens call `id` in the Asks of `agent`'s desk, or of its asker's when that desk does not
-    /// list it.
+    /// Opens call `id` in the Asks of `agent`'s desk, or of the first that lists it when that one
+    /// does not.
     pub(crate) fn open_in_asks(&mut self, id: &str, agent: &str, cx: &mut Context<Self>) {
         let elsewhere = (self.call_at(id))
             .filter(|(_, call)| !listed_in(call, agent))
-            .map(|(_, call)| call.asker.agent_id.clone());
+            .map(|(_, call)| call.desk().to_owned());
         self.calls.update(cx, |cards, cx| cards.open(id, cx));
         match elsewhere {
-            Some(asker) => {
-                self.open_agent(&asker, cx);
-                self.show_calls(&asker, cx);
+            Some(desk) => {
+                self.open_agent(&desk, cx);
+                self.show_calls(&desk, cx);
             }
             None => self.show_calls(agent, cx),
         }
@@ -403,7 +407,7 @@ fn prose(call: &PersonCall, part: &str, text: String, t: &Tokens) -> gpui_kit::D
 fn question(call: &PersonCall, through: Through, cx: &mut App) -> gpui_kit::Div {
     let t = Tokens::get(cx).clone();
     let open_chat = {
-        let (bench, agent) = (through.bench.clone(), call.asker.agent_id.clone());
+        let (bench, agent) = (through.bench.clone(), call.desk().to_owned());
         Button::new(
             SharedString::from(format!("call-page-chat-{}", call.id)),
             t!("Open chat"),
@@ -665,7 +669,8 @@ fn link_tile(call: &PersonCall, link: &CallLink, through: Through, t: &Tokens) -
             .text_color(t.text_tertiary)
             .child(link.url.clone())
     });
-    let (bench, agent) = (through.bench.clone(), call.asker.agent_id.clone());
+    let bench = through.bench.clone();
+    let (place, held) = (through.target.place().clone(), call.clone());
     let (href, id, look) = (
         link.url.clone(),
         call.id.clone(),
@@ -704,7 +709,9 @@ fn link_tile(call: &PersonCall, link: &CallLink, through: Through, t: &Tokens) -
         )
         .child(ui::icon(Icon::ExternalLink, 12.).text_color(t.text_tertiary))
         .on_click(move |_, window, cx| {
-            crate::chat::link::open(&href, &agent, &bench, window, cx);
+            let desk = (bench.read_with(cx, |bench, _| bench.desk_showing(&place, &held)))
+                .unwrap_or_else(|_| held.desk().to_owned());
+            crate::chat::link::open(&href, &desk, &bench, window, cx);
             if look {
                 bench.update(cx, |bench, cx| bench.seen_look(&id, cx)).ok();
             }
@@ -898,7 +905,7 @@ fn opened_by(call: &PersonCall, through: Through, t: &Tokens, cx: &mut App) -> O
         )
     });
     let opened = (call.opened.iter().enumerate())
-        .filter_map(|(ix, opened)| opened_one(call, ix, opened, &owner.agent_id, bench, t));
+        .filter_map(|(ix, opened)| opened_one(call, ix, opened, through, t));
     let shown: Vec<AnyElement> = opened.chain(pictures).collect();
     if shown.is_empty() {
         return None;
@@ -926,8 +933,7 @@ fn opened_one(
     call: &PersonCall,
     ix: usize,
     opened: &CallOpened,
-    agent: &str,
-    bench: &WeakEntity<Workbench>,
+    through: Through,
     t: &Tokens,
 ) -> Option<AnyElement> {
     let id = SharedString::from(format!("call-opened-{}-{ix}", call.id));
@@ -936,7 +942,7 @@ fn opened_one(
         .id(id)
         .cursor_pointer()
         .hover(move |style| style.bg(hover));
-    let (bench, agent) = (bench.clone(), agent.to_owned());
+    let bench = through.bench.clone();
     let shown = match opened {
         CallOpened::File {
             path,
@@ -945,10 +951,12 @@ fn opened_one(
             excerpt,
         } => {
             let (opening, at) = (PathBuf::from(path), *line);
+            let (place, held) = (through.target.place().clone(), call.clone());
             let frame = frame.clicks(move |_, _, cx| {
                 bench
                     .update(cx, |bench, cx| {
-                        bench.open_file_on_desk(&agent, opening.clone(), at, None, cx)
+                        let desk = bench.desk_showing(&place, &held);
+                        bench.open_file_on_desk(&desk, opening.clone(), at, None, cx)
                     })
                     .ok();
             });

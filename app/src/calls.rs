@@ -1,6 +1,6 @@
 //! Calls: decisions put to the person, as each host's core lists them in its view. A call is
-//! answered on its desk's Calls page and in the title bar's popover; its asker's chat keeps it
-//! folded to one row that opens the page.
+//! answered on its desk's Calls page and in the title bar's popover; the chats the core places it
+//! in keep it folded to one row that opens the page.
 
 use crate::ui::Clicks;
 use std::collections::{HashMap, HashSet};
@@ -308,28 +308,37 @@ impl Workbench {
         })
     }
 
-    /// Opens artifact `page` of call `id` on the desk of the agent in front, with the call's
-    /// choices at its foot; with none in front on the call's core, on its asker's.
+    /// The agent whose desk shows `call` at `place`: the one in front when its chat lists it, else
+    /// the first whose chat does.
+    pub(crate) fn desk_showing(&self, place: &Place, call: &PersonCall) -> String {
+        (self.front_agent().map(|(.., agent)| agent))
+            .filter(|agent| *place == self.place() && listed_in(call, agent))
+            .unwrap_or_else(|| call.desk().to_owned())
+    }
+
+    /// Opens artifact `page` of call `id` on the desk that shows the call, with its choices at
+    /// the foot.
     pub(crate) fn open_call_page(&mut self, id: &str, page: &str, cx: &mut Context<Self>) {
         let Some((place, call)) = self.call_at(id) else {
             return;
         };
-        let front = self.front_agent().filter(|_| place == self.place());
-        let agent = match front {
-            Some((.., agent)) => agent,
-            None => call.asker.agent_id.clone(),
-        };
+        let agent = self.desk_showing(&place, call);
         self.open_call_page_on(&agent, id, page, place, cx);
     }
 
-    /// Opens artifact `page` of call `id` on its asker's desk, as when the person comes from
-    /// outside the window.
-    pub(crate) fn open_call_page_of_asker(&mut self, id: &str, page: &str, cx: &mut Context<Self>) {
+    /// Opens artifact `page` of call `id` on the call's first desk, whatever is in front, as when
+    /// the person comes from outside the window.
+    pub(crate) fn open_call_page_on_its_desk(
+        &mut self,
+        id: &str,
+        page: &str,
+        cx: &mut Context<Self>,
+    ) {
         let Some((place, call)) = self.call_at(id) else {
             return;
         };
-        let asker = call.asker.agent_id.clone();
-        self.open_call_page_on(&asker, id, page, place, cx);
+        let desk = call.desk().to_owned();
+        self.open_call_page_on(&desk, id, page, place, cx);
     }
 
     fn open_call_page_on(
@@ -352,7 +361,7 @@ impl Workbench {
             .filter(|call| call.kind != CallKind::Look)
             .and_then(|call| Some((call.id.clone(), call.page.as_ref()?.id.clone())));
         match asked {
-            Some((call, page)) => self.open_call_page_of_asker(&call, &page, cx),
+            Some((call, page)) => self.open_call_page_on_its_desk(&call, &page, cx),
             None => self.open_agent(agent, cx),
         }
     }
@@ -437,6 +446,31 @@ impl Workbench {
         let open = (self.view_at(place)?.calls.iter())
             .filter(|call| call.state == CallState::Open && waits(call, agent));
         answered_in_chat(open, opened.as_deref())
+    }
+
+    /// The calls on the host at `place` that agent `agent` waits on or its chat lists.
+    pub(crate) fn calls_held<'a>(
+        &'a self,
+        place: &Place,
+        agent: &'a str,
+    ) -> impl Iterator<Item = &'a PersonCall> {
+        (self.view_at(place).into_iter())
+            .flat_map(|view| &view.calls)
+            .filter(move |call| {
+                call.state == CallState::Open && (waits(call, agent) || listed_in(call, agent))
+            })
+    }
+
+    /// The call `id` on the host at `place` that agent `agent` waits on, when its own chat does
+    /// not list it.
+    pub(crate) fn waits_elsewhere(
+        &self,
+        place: &Place,
+        id: &str,
+        agent: &str,
+    ) -> Option<&PersonCall> {
+        (self.view_at(place)?.calls.iter())
+            .find(|call| call.id == id && waits(call, agent) && !listed_in(call, agent))
     }
 
     /// Lets go of the cards and the composers of calls answered or gone, and of the composers of
@@ -768,7 +802,7 @@ fn card(
         bench,
         Workbench::go_with,
     );
-    let (owner, bench, agent) = (target.clone(), bench.clone(), call.asker.agent_id.clone());
+    let (owner, bench, agent) = (target.clone(), bench.clone(), call.desk().to_owned());
     let open_chat = {
         Button::new(
             SharedString::from(format!("call-chat-{}", call.id)),

@@ -56,15 +56,13 @@ export function settledCalls(snapshot: Snapshot | undefined, project?: ProjectIn
     .sort((a, b) => settledAt(b) - settledAt(a));
 }
 
-/** Every call agent `agentId` waits on the person for, as asker or joined to it, oldest first. */
+/** Every open call agent `agentId`'s chat lists, oldest first. */
 export function queueOf(calls: readonly PersonCall[] | undefined, agentId: string): PersonCall[] {
-  return (calls ?? [])
-    .filter(
-      (call) =>
-        call.state === 'open' && (call.asker.agentId === agentId || (call.joined ?? []).some((joined) => joined.agentId === agentId)),
-    )
-    .sort((a, b) => a.raisedAt - b.raisedAt);
+  return (calls ?? []).filter((call) => call.state === 'open' && call.shownIn?.includes(agentId)).sort((a, b) => a.raisedAt - b.raisedAt);
 }
+
+/** The agent whose chat shows `call`. */
+export const deskOf = (call: PersonCall) => call.shownIn?.[0] ?? call.asker.agentId;
 
 /** What the person has done on `call`'s card. Drafts of calls no longer open go. */
 export function draftOf(calls: readonly PersonCall[] | undefined, call: PersonCall): ExternalValue<Draft> {

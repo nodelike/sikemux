@@ -1382,7 +1382,7 @@ fn said_at(at: u64, time: bool) -> String {
 }
 
 /// Opens what a `why` chip names: the chat at the moment, the commit in Git, the Playbook's
-/// rules, or the chat of the agent that asked the call.
+/// rules, or the chat that shows the call.
 fn open_why(bench: &mut Workbench, open: WhyOpen, cx: &mut Context<Workbench>) {
     match open {
         WhyOpen::Chat { agent, feed, index } => {
@@ -1392,11 +1392,9 @@ fn open_why(bench: &mut Workbench, open: WhyOpen, cx: &mut Context<Workbench>) {
         WhyOpen::Commit { sha } => bench.open_commit(sha, cx),
         WhyOpen::Rule { .. } => bench.open_rules(),
         WhyOpen::Call { id } => {
-            let asker = bench
-                .call_at(&id)
-                .map(|(_, call)| call.asker.agent_id.clone());
-            if let Some(asker) = asker {
-                bench.bring_agent(&asker, cx).detach();
+            let desk = bench.call_at(&id).map(|(_, call)| call.desk().to_owned());
+            if let Some(desk) = desk {
+                bench.bring_agent(&desk, cx).detach();
             }
         }
         WhyOpen::Unknown => {}

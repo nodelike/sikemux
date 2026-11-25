@@ -316,9 +316,9 @@ struct CallCard: View {
 
     @ViewBuilder
     private var buttons: some View {
-        TextButton(title: "Open chat", icon: Icons.message) { store.focus(call.asker.agentId) }
+        TextButton(title: "Open chat", icon: Icons.message) { store.focus(call.desk) }
         if call.secret == true {
-            GoButton(title: "Answer in Sikemux", enabled: true) { store.focus(call.asker.agentId) }
+            GoButton(title: "Answer in Sikemux", enabled: true) { store.focus(call.desk) }
         } else {
             GoButton(title: "Go with this", enabled: (!chosen.isEmpty || typed) && !draft.sending, action: goWithThis)
         }
@@ -582,6 +582,9 @@ private struct CallRow: View {
 }
 
 extension PersonCall {
+    /// The agent whose chat shows it.
+    var desk: String { shownIn?.first ?? asker.agentId }
+
     /// A secret is kept private, so the notch takes no words for it: they are typed in the asker's chat.
     var keepsWordsPrivate: Bool { secret == true }
 }

@@ -276,8 +276,8 @@ pub struct PersonCall {
     /// Pages after the first, when the call names several, drawn under it in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub more_pages: Vec<CallPage>,
-    /// The chats whose call bar lists it: its askers', every lead above them or above the agent
-    /// it is about, and its project's chief.
+    /// The chats that list it, the one that opens it first: the lead at the top over each agent
+    /// that asks, or the agent itself when none started it, and its project's chief.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shown_in: Vec<String>,
     /// Where a do call's task is done, or the change a look call shows.
@@ -337,6 +337,11 @@ impl PersonCall {
         (self.title.as_deref())
             .filter(|title| !title.trim().is_empty())
             .unwrap_or(&self.headline)
+    }
+
+    /// The chat that opens it: the first that lists it, else its asker's.
+    pub fn desk(&self) -> &str {
+        (self.shown_in.first()).unwrap_or(&self.asker.agent_id)
     }
 
     /// Every page the call names, the first one first.

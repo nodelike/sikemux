@@ -150,6 +150,7 @@ fn draft(core: &Core, gathered: &Gathered, now: u64) -> Draft {
         kind: NotificationKind::Finished,
         card,
         agent_id: String::new(),
+        from: String::new(),
         chat: false,
         provider: String::new(),
         chat_title: None,

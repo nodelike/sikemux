@@ -389,9 +389,17 @@ pub(super) fn remote_above() -> RemoteAbove {
         hosts_admitted: hosts::admitted::post,
         hosts_remove_device: hosts::admitted::post_removed,
         hosts_unlinked: hosts::unlinked,
-        person_calls_asked_by: person_calls::asked_by,
-        person_calls_open_call: person_calls::open_call,
-        person_calls_raised_open: person_calls::raised_open,
+        person_calls_asked_by: |core, id| {
+            person_calls::asked_by(core, id).map(|call| super::call_desks::placed(core, call))
+        },
+        person_calls_open_call: |core, id| {
+            person_calls::open_call(core, id).map(|call| super::call_desks::placed(core, call))
+        },
+        person_calls_raised_open: |core| {
+            let mut calls = person_calls::raised_open(core);
+            super::call_desks::place(core, &mut calls);
+            calls
+        },
         turn_state_set_a_wake: turn_state::set_a_wake,
     }
 }

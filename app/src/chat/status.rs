@@ -155,13 +155,16 @@ impl Activity {
     }
 
     /// The line once the turn has ended, or while it works on a step it named: how it stands,
-    /// said by the core, with the next steps as buttons. A failed turn's line is `trouble`'s, and
-    /// the calls a turn needs the person for are the chat's own rows above it.
+    /// said by the core, with the next steps as buttons. A failed turn's line is `trouble`'s. The
+    /// calls a turn needs the person for are the chat's own rows above it, except one that only
+    /// another chat shows, which the line opens there.
     fn state_line(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let turn = self.turn.as_ref()?;
-        if matches!(turn.state, TurnPhase::Failed | TurnPhase::NeedsYou) {
-            return None;
-        }
+        let elsewhere = match turn.state {
+            TurnPhase::Failed => return None,
+            TurnPhase::NeedsYou => Some(self.open_elsewhere(turn, cx)?),
+            _ => None,
+        };
         let said = turn_line::said(turn, turn_line::maker(&self.provider), ui::time::now_ms())?;
         if turn_line::ticks(turn.state) {
             ui::clock::second(window, cx);
@@ -211,7 +214,7 @@ impl Activity {
             TurnPhase::Stopped => take(TurnStep::CarryOn, Variant::Outline)
                 .into_iter()
                 .collect(),
-            _ => Vec::new(),
+            _ => elsewhere.into_iter().collect(),
         };
         let key = SharedString::from(format!("turn:{}", cx.entity_id()));
         Some(
@@ -224,6 +227,21 @@ impl Activity {
             .pb(px(END_SPACE))
             .into_any_element(),
         )
+    }
+
+    /// Opens the call the turn needs the person for, when only another chat shows it.
+    fn open_elsewhere(&self, turn: &TurnState, cx: &App) -> Option<AnyElement> {
+        let agent = self.agent.as_ref()?.id.clone();
+        let bench = self.bench.clone()?;
+        let id = turn.call.as_ref()?.id.clone();
+        let place = self.target.place();
+        (bench.upgrade()?.read(cx)).waits_elsewhere(place, &id, &agent)?;
+        let button = step_button(t!("Open ask"), Variant::Outline).on_click(move |_, _, cx| {
+            bench
+                .update(cx, |bench, cx| bench.open_in_asks(&id, &agent, cx))
+                .ok();
+        });
+        Some(button.into_any_element())
     }
 
     /// Go first, while its heavy command waits in the host's line behind another.

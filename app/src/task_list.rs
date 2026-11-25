@@ -1118,14 +1118,7 @@ fn undrop(bench: &mut Workbench, id: u64, cx: &mut Context<Workbench>) {
 /// else the chat of the agent holding it. Finished work counts as opened from then on.
 fn open(bench: &mut Workbench, agent: &str, row: &TaskRow, cx: &mut Context<Workbench>) {
     let id = match &row.of {
-        TaskOf::Call { id } => {
-            let asker = (bench.view_at(&bench.place()))
-                .and_then(|view| view.calls.iter().find(|call| &call.id == id))
-                .filter(|call| !crate::calls::listed_in(call, agent))
-                .map(|call| call.asker.agent_id.clone());
-            bench.calls.update(cx, |cards, cx| cards.open(id, cx));
-            return bench.show_calls(asker.as_deref().unwrap_or(agent), cx);
-        }
+        TaskOf::Call { id } => return bench.open_in_asks(id, agent, cx),
         TaskOf::Task { id } => *id,
     };
     if row.section == TaskSection::Finished {

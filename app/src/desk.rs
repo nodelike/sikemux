@@ -1045,7 +1045,7 @@ impl Workbench {
                 .collect();
             for agent in &ended {
                 if let Some(engine) = &desks.engine {
-                    let called: Vec<String> = (self.open_calls(&place, agent).into_iter())
+                    let called: Vec<String> = (self.calls_held(&place, agent))
                         .filter_map(|call| call.link.as_ref().map(|link| link.url.clone()))
                         .collect();
                     engine.end_turn(agent, &called);
