@@ -98,6 +98,9 @@ pub struct SharePageParams {
     pub id: String,
     pub lifetime_ms: u64,
     pub anyone: bool,
+    /// The person was told that our server and chat apps can read the page's title and their name.
+    #[serde(default)]
+    pub told: bool,
     /// The `:root` rule of the theme the page is read in.
     pub theme: String,
 }

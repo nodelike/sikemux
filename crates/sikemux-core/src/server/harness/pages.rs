@@ -7,7 +7,7 @@ use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeParts;
-use crate::server::share::page::{PutError, SIGNED_OUT_PROBLEM};
+use crate::server::share::page::{PutError, Sharing, SIGNED_OUT_PROBLEM};
 pub use sikemux_calls::harness::{KeepPageParams, ListedPage, PageHtml, PageParams, PagesParams};
 use sikemux_calls::harness::{PageShare, SharePageParams};
 use sikemux_corekit::backoff::Backoff;
@@ -294,6 +294,7 @@ pub(crate) async fn share_page(core: &Core, params: SharePageParams) -> CoreResu
             page_index::Link {
                 anyone: params.anyone,
                 theme: params.theme,
+                told: link.told || params.told,
                 ..link
             },
             true,
@@ -308,6 +309,7 @@ pub(crate) async fn share_page(core: &Core, params: SharePageParams) -> CoreResu
                     anyone: params.anyone,
                     expires: epoch_ms() + lifetime,
                     theme: params.theme,
+                    told: params.told,
                 },
                 false,
             )
@@ -431,7 +433,12 @@ async fn upload(
 ) -> Result<(), PutError> {
     let html = crate::pages::network_closed(&crate::pages::themed(html, &link.theme, None), &[]);
     let at = (link.id.as_str(), link.key.as_str());
-    crate::server::share::page::put(core, at, title, &html, link.anyone, link.expires).await
+    let sharing = Sharing {
+        anyone: link.anyone,
+        expires_at: link.expires,
+        told: link.told,
+    };
+    crate::server::share::page::put(core, at, title, &html, sharing).await
 }
 
 enum SyncOutcome {
@@ -912,6 +919,7 @@ mod tests {
                 id: v1_id,
                 lifetime_ms: HOUR_MS,
                 anyone: true,
+                told: false,
                 theme: String::new(),
             },
         )

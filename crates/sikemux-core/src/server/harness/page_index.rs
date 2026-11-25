@@ -69,12 +69,14 @@ fn open(data_dir: &Path) -> Result<Connection, String> {
                 theme TEXT NOT NULL,
                 behind INTEGER NOT NULL DEFAULT 0,
                 problem TEXT,
+                told INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (agent, title)
             );",
         )
         .map_err(failed)?;
     add_lifetimes(&mut connection).map_err(failed)?;
     add_share_sync(&mut connection).map_err(failed)?;
+    add_told(&mut connection).map_err(failed)?;
     Ok(connection)
 }
 
@@ -95,6 +97,26 @@ fn add_share_sync(connection: &mut Connection) -> rusqlite::Result<()> {
             "ALTER TABLE page_shares ADD COLUMN behind INTEGER NOT NULL DEFAULT 0;
              ALTER TABLE page_shares ADD COLUMN problem TEXT;",
         )?;
+    }
+    adding.commit()
+}
+
+/// Gives an index made before links sent a title what says which may.
+fn add_told(connection: &mut Connection) -> rusqlite::Result<()> {
+    let has = |connection: &Connection| {
+        connection.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('page_shares') WHERE name = 'told'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+    };
+    if has(connection)? > 0 {
+        return Ok(());
+    }
+    let adding = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    if has(&adding)? == 0 {
+        adding
+            .execute_batch("ALTER TABLE page_shares ADD COLUMN told INTEGER NOT NULL DEFAULT 0;")?;
     }
     adding.commit()
 }
@@ -317,6 +339,8 @@ pub(crate) struct Link {
     pub expires: u64,
     /// The `:root` rule of the theme the page was shared in, which each new version is sealed in.
     pub theme: String,
+    /// Whether the page's title and the sharer's name go with it unsealed, for the link's preview.
+    pub told: bool,
 }
 
 pub(crate) fn share_of(data_dir: &Path, id: &str) -> Result<Option<Link>, String> {
@@ -326,7 +350,7 @@ pub(crate) fn share_of(data_dir: &Path, id: &str) -> Result<Option<Link>, String
 fn share_of_with(connection: &Connection, id: &str) -> Result<Option<Link>, String> {
     connection
         .query_row(
-            "SELECT s.id, s.key, s.anyone, s.expires, s.theme FROM page_shares AS s
+            "SELECT s.id, s.key, s.anyone, s.expires, s.theme, s.told FROM page_shares AS s
              JOIN pages AS p ON (s.agent, s.title) = (p.agent, p.title)
              WHERE p.id = ?1 AND s.expires > ?2",
             params![id, epoch_ms() as i64],
@@ -337,6 +361,7 @@ fn share_of_with(connection: &Connection, id: &str) -> Result<Option<Link>, Stri
                     anyone: row.get(2)?,
                     expires: row.get::<_, i64>(3)? as u64,
                     theme: row.get(4)?,
+                    told: row.get(5)?,
                 })
             },
         )
@@ -389,14 +414,15 @@ pub(crate) fn shared(
     let connection = open(data_dir)?;
     connection
         .execute(
-            "INSERT INTO page_shares (agent, title, id, key, anyone, expires, theme, behind, problem)
-             SELECT agent, title, ?2, ?3, ?4, ?5, ?6, 0, NULL FROM pages WHERE id = ?1
+            "INSERT INTO page_shares (agent, title, id, key, anyone, expires, theme, behind, problem, told)
+             SELECT agent, title, ?2, ?3, ?4, ?5, ?6, 0, NULL, ?8 FROM pages WHERE id = ?1
              ON CONFLICT(agent, title) DO UPDATE SET
                  id = excluded.id,
                  key = excluded.key,
                  anyone = excluded.anyone,
                  expires = excluded.expires,
                  theme = excluded.theme,
+                 told = excluded.told,
                  behind = CASE
                      WHEN page_shares.id = excluded.id AND page_shares.behind = ?7 THEN 0
                      WHEN page_shares.id != excluded.id THEN 0
@@ -410,7 +436,8 @@ pub(crate) fn shared(
                 link.anyone,
                 link.expires as i64,
                 link.theme,
-                expected_behind.unwrap_or(0)
+                expected_behind.unwrap_or(0),
+                link.told
             ],
         )
         .map_err(|error| error.to_string())?;
@@ -450,7 +477,7 @@ pub(crate) fn pending_shares(data_dir: &Path) -> Result<(Vec<String>, bool), Str
 pub(crate) fn pending_for(data_dir: &Path, link_id: &str) -> Result<Option<PendingShare>, String> {
     open(data_dir)?
         .query_row(
-            "SELECT s.id, s.key, s.anyone, s.expires, s.theme, s.behind, s.title, p.id, p.title
+            "SELECT s.id, s.key, s.anyone, s.expires, s.theme, s.behind, s.title, p.id, p.title, s.told
              FROM page_shares AS s
              LEFT JOIN (
                  SELECT id, agent, title,
@@ -468,6 +495,7 @@ pub(crate) fn pending_for(data_dir: &Path, link_id: &str) -> Result<Option<Pendi
                         anyone: row.get(2)?,
                         expires: row.get::<_, i64>(3)? as u64,
                         theme: row.get(4)?,
+                        told: row.get(9)?,
                     },
                     behind: row.get(5)?,
                     title: page_title.unwrap_or(row.get(6)?),

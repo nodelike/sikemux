@@ -162,6 +162,7 @@ impl Workbench {
                         id: id.clone(),
                         lifetime_ms,
                         anyone,
+                        told: true,
                         theme: self.desks.read(cx).page_files.theme(),
                     });
                 Box::pin(async move { asked.await.map(|share| (share.url.clone(), Some(share))) })
@@ -438,7 +439,13 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 .flex_col()
                 .gap(SPACE_2)
                 .child(dialog::prose(who, &t))
-                .child(dialog::prose(what, &t)),
+                .child(dialog::prose(what, &t))
+                .when(page, |body| {
+                    body.child(dialog::prose(
+                        t!("Its title and your name are not sealed: our server and chat apps can read them, for the link's preview."),
+                        &t,
+                    ))
+                }),
         )
         .child(div().pt(SPACE_3).child(readers))
         .child(div().pt(SPACE_3).child(field))

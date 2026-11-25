@@ -16,6 +16,7 @@ use crate::server::{Core, CoreError, CoreResult};
 pub const SIGNED_OUT_PROBLEM: &str = "Sign in to Sikemux to update this shared artifact.";
 const TOO_LARGE_PROBLEM: &str = "This artifact is too large to share (limit is 25 MiB).";
 const MAX_SEALED_BYTES: usize = 25 * 1024 * 1024;
+const HEADER_CHARS: usize = 200;
 const CLOCK_SLACK_MS: u64 = 120_000;
 
 /// Why putting a page behind its link failed, split by whether trying again can succeed.
@@ -89,14 +90,29 @@ pub fn url(id: &str, key: &str) -> String {
     format!("{}/p/{id}#{key}", crate::accounts::app_base())
 }
 
+/// How a link shows its page.
+pub struct Sharing {
+    pub anyone: bool,
+    pub expires_at: u64,
+    /// Whether the title and the sharer's name go unsealed, for the link's preview.
+    pub told: bool,
+}
+
+/// The start of `words`, as a header may carry it.
+fn encoded(words: &str) -> String {
+    let start: String = words.chars().take(HEADER_CHARS).collect();
+    url::form_urlencoded::byte_serialize(start.as_bytes())
+        .map(|part| part.replace('+', "%20"))
+        .collect()
+}
+
 /// Puts `html` under link `id`, replacing what it showed before.
 pub async fn put(
     core: &Core,
     (id, key): (&str, &str),
     title: &str,
     html: &str,
-    anyone: bool,
-    expires_at: u64,
+    sharing: Sharing,
 ) -> Result<(), PutError> {
     if core.remote().signed_in_api().is_none() {
         return Err(PutError::SignedOut);
@@ -111,14 +127,22 @@ pub async fn put(
     if sealed.len() > MAX_SEALED_BYTES {
         return Err(PutError::Refused(TOO_LARGE_PROBLEM.into()));
     }
+    let mut headers = vec![
+        ("x-page-viewer-check", seal.viewer_check().to_owned()),
+        ("x-page-anyone", sharing.anyone.to_string()),
+        ("x-page-expires", sharing.expires_at.to_string()),
+    ];
+    if sharing.told {
+        headers.push(("x-page-title", encoded(title)));
+        let name = core.account().shown().and_then(|person| person.name);
+        if let Some(name) = name.filter(|name| !name.contains('@')) {
+            headers.push(("x-page-shared-by", encoded(&name)));
+        }
+    }
     let upload = Upload {
         bytes: sealed.into_bytes(),
         content_type: "application/octet-stream".into(),
-        headers: vec![
-            ("x-page-viewer-check", seal.viewer_check().to_owned()),
-            ("x-page-anyone", anyone.to_string()),
-            ("x-page-expires", expires_at.to_string()),
-        ],
+        headers,
     };
     let response =
         match host_send_any(core, Method::PUT, &format!("/v1/pages/{id}"), Some(upload)).await {
@@ -154,7 +178,9 @@ pub async fn put(
             retry_after: hint,
             unreachable: false,
         }),
-        StatusCode::BAD_REQUEST if expires_at <= epoch_ms().saturating_add(CLOCK_SLACK_MS) => {
+        StatusCode::BAD_REQUEST
+            if sharing.expires_at <= epoch_ms().saturating_add(CLOCK_SLACK_MS) =>
+        {
             Err(PutError::Ended)
         }
         _ => Err(PutError::Refused(message)),
