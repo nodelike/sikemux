@@ -821,6 +821,27 @@ impl Director {
                 self.held = false;
                 self.press_to(0., 0.13)?;
             }
+            "drop" => {
+                let (to, _) = self.place(step, 0)?;
+                let paths = (1..)
+                    .map_while(|at| step.text(at).ok())
+                    .map(std::fs::canonicalize)
+                    .collect::<Result<_, _>>()
+                    .with_context(|| format!("line {}: a file to drop", step.line))?;
+                self.glide(to, None, false)?;
+                let position = self.position();
+                for event in [
+                    FileDropEvent::Entered {
+                        position,
+                        paths: ExternalPaths(paths),
+                    },
+                    FileDropEvent::Pending { position },
+                    FileDropEvent::Submit { position },
+                ] {
+                    self.dispatch(PlatformInput::FileDrop(event))?;
+                    self.wait(0.1)?;
+                }
+            }
             "type" => {
                 let text = step.text(0)?.to_owned();
                 self.type_text(&text, seconds(1).unwrap_or(15.))?;

@@ -1,0 +1,7 @@
+[
+  { "when": "match the look", "steps": [
+    { "say": "Reading the two READMEs and the cart's picture first.", "perSecond": 30 },
+    { "tool": "Read", "input": { "file_path": "README.md" }, "result": "# Storefront", "ms": 60000 },
+    { "say": "Done.", "perSecond": 30 }
+  ] }
+]

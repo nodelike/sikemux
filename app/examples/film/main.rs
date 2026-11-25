@@ -58,6 +58,7 @@
 //!   cursor P / move P [S]       puts the cursor at P, or glides it there
 //!   click [P] / dclick [P] / rclick [P]    clicks, gliding to P first
 //!   press / release / drag P [S]           holds the button, lets it go, or drags to P
+//!   drop P FILE...              drops FILEs, as from Finder, at P
 //!   type "TEXT" [PER_SECOND]    types at a person's pace
 //!   key NAME                    presses a key such as enter or cmd-k
 //!   zoom P SCALE [S] / zoom BOX [S] / zoom out [S]    moves the camera
@@ -99,9 +100,9 @@ use world::*;
 use anyhow::{anyhow, bail, Context as _};
 use film_frame::{Compositor, Picture, Pointer, Setup, Shape, View};
 use gpui::{
-    point, px, size, AnyWindowHandle, AppContext, HeadlessAppContext, Keystroke, Modifiers,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent, PlatformInput, Role,
-    ScrollDelta, ScrollEvent, ScrollSource, TouchPhase,
+    point, px, size, AnyWindowHandle, AppContext, ExternalPaths, FileDropEvent, HeadlessAppContext,
+    Keystroke, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent,
+    PlatformInput, Role, ScrollDelta, ScrollEvent, ScrollSource, TouchPhase,
 };
 use serde_json::{json, Value};
 use sikemux_client::client::CoreClient;

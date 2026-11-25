@@ -1,0 +1,31 @@
+# Every file going with a message has its pill in the text: in the draft, queued, sent, and while a
+# sent message is written again.
+stage 1440 900
+window 1440 900
+replies pills.json
+prefer themeId aura-noir
+prefer starAsked true
+project storefront shop
+chat Wren
+title "Order emails"
+settle 4
+front Wren
+settle 2
+click 700,820
+type "Start from"
+drop 700,820 film/scenes/shop/README.md
+type "and match the look of"
+drop 700,820 film/scenes/tasks/cart.jpg
+type "then check"
+drop 700,820 film/scenes/checkout-shop/README.md film/scenes/shop/src
+settle 2
+snap pills-draft
+key enter
+settle 5
+click 700,820
+type "Also read"
+drop 700,820 film/scenes/shop/db/schema.dbml
+type "before you change the table"
+key enter
+settle 3
+snap pills-queued
