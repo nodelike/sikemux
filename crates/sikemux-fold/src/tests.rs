@@ -1100,10 +1100,7 @@ mod reducer {
         watched.at(1_000).update(chunk("Hel", "m1"));
         watched.at(1_500).update(chunk("lo", "m1"));
         let stream = watched.fold.main.rows[0].stream.expect("timed");
-        assert_eq!(
-            (stream.started, stream.ended, stream.chars),
-            (1_000, 1_500, 5)
-        );
+        assert_eq!(stream.totals(), (5, 500));
 
         let mut replayed = Chat::new();
         replayed.update(chunk("Hello", "m1"));
@@ -2130,6 +2127,58 @@ mod row_meta {
             .turn_completed(None);
         let rate = rate(&mut chat).expect("a rate");
         assert!((rate - 20.0).abs() < 1e-9, "{rate}");
+    }
+
+    #[test]
+    fn excludes_tool_waits_and_discrete_thought_summaries_when_message_id_is_absent() {
+        let mut chat = Chat::running();
+        chat.at(5_000)
+            .update(say("agent_thought_chunk", &"t".repeat(300)));
+        chat.at(9_500)
+            .update(say("agent_thought_chunk", &"t".repeat(450)));
+        chat.at(14_000)
+            .update(say("agent_thought_chunk", &"t".repeat(600)));
+        chat.at(20_000).update(json!({
+            "sessionUpdate": "tool_call",
+            "toolCallId": "t1",
+            "title": "Read file",
+            "status": "in_progress",
+        }));
+        chat.at(35_000).update(json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "t1",
+            "status": "completed",
+        }));
+        chat.at(40_000)
+            .update(say("agent_message_chunk", &"a".repeat(200)));
+        chat.at(40_500)
+            .update(say("agent_message_chunk", &"b".repeat(200)));
+        chat.at(41_000)
+            .update(say("agent_message_chunk", &"c".repeat(200)))
+            .turn_completed(None);
+        let rate = rate(&mut chat).expect("a rate");
+        assert!((rate - 150.0).abs() < 1e-9, "{rate}");
+    }
+
+    #[test]
+    fn ignores_instantaneous_thought_bursts_when_measuring_stream_rate() {
+        let mut chat = Chat::running();
+        chat.at(0).update(json!({
+            "sessionUpdate": "agent_thought_chunk",
+            "messageId": "m1",
+            "content": { "type": "text", "text": "t".repeat(400) },
+        }));
+        chat.at(2).update(json!({
+            "sessionUpdate": "agent_thought_chunk",
+            "messageId": "m1",
+            "content": { "type": "text", "text": "t".repeat(400) },
+        }));
+        chat.at(5_000).update(chunk(&"a".repeat(200), "m1"));
+        chat.at(6_000)
+            .update(chunk(&"b".repeat(200), "m1"))
+            .turn_completed(None);
+        let rate = rate(&mut chat).expect("a rate");
+        assert!((rate - 100.0).abs() < 1e-9, "{rate}");
     }
 
     #[test]

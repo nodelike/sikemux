@@ -234,9 +234,10 @@ fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<TurnFold> {
 fn answer_meta(rows: &[Row], start: usize, end: usize) -> RowMeta {
     let (mut chars, mut written) = (0u64, 0u64);
     for row in rows.iter().take(end + 1).skip(start) {
-        if let Some(stream) = row.stream.filter(|stream| stream.ended > stream.started) {
-            chars += stream.chars;
-            written += stream.ended - stream.started;
+        if let Some(stream) = row.stream {
+            let (row_chars, row_ms) = stream.totals();
+            chars += row_chars;
+            written += row_ms;
         }
     }
     let rate = (chars > 0 && written >= MIN_SAMPLE_MS)

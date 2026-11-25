@@ -126,13 +126,63 @@ pub type Agents = std::sync::Arc<dyn AgentBook>;
 const MAX_IMAGE_DATA_CHARS: usize = 2 * 1024 * 1024;
 const MAX_COMMANDS: usize = 256;
 
+/// A gap longer than this between chunks starts a new burst, so pauses while
+/// thinking or between steps do not count as writing time.
+const MAX_BURST_GAP_MS: u64 = 2_000;
+/// Bursts shorter than this arrived all at once rather than streaming, so they
+/// are excluded from the writing rate.
+const MIN_BURST_MS: u64 = 100;
+
+#[derive(Clone, Copy)]
+struct Burst {
+    kind: &'static str,
+    started: u64,
+    ended: u64,
+    chars: u64,
+}
+
 /// What streamed into an answer and when, which its speed is worked out from.
 #[derive(Clone, Copy, Default)]
 struct Stream {
-    started: u64,
-    ended: u64,
-    /// UTF-16 units, as clients count characters.
+    /// UTF-16 units from completed streamed bursts.
     chars: u64,
+    ms: u64,
+    active: Option<Burst>,
+}
+
+impl Stream {
+    fn push(&mut self, kind: &'static str, at: u64, until: u64, chars: u64) {
+        let until = until.max(at);
+        if let Some(burst) = self.active.as_mut() {
+            if burst.kind == kind && at.saturating_sub(burst.ended) <= MAX_BURST_GAP_MS {
+                burst.ended = burst.ended.max(until);
+                burst.chars += chars;
+                return;
+            }
+        }
+        self.close();
+        self.active = Some(Burst {
+            kind,
+            started: at,
+            ended: until,
+            chars,
+        });
+    }
+
+    fn close(&mut self) {
+        if let Some(burst) = self.active.take() {
+            let span = burst.ended.saturating_sub(burst.started);
+            if span >= MIN_BURST_MS {
+                self.chars += burst.chars;
+                self.ms += span;
+            }
+        }
+    }
+
+    fn totals(mut self) -> (u64, u64) {
+        self.close();
+        (self.chars, self.ms)
+    }
 }
 
 /// What clients were last sent of a part.
@@ -216,6 +266,12 @@ impl Row {
         self.msg.parts.push(part);
         self.sides.push(Side::default());
         self.touch_part(at);
+    }
+
+    fn close_stream(&mut self) {
+        if let Some(stream) = self.stream.as_mut() {
+            stream.close();
+        }
     }
 
     fn touch_part(&mut self, at: usize) {
@@ -1849,13 +1905,11 @@ impl Fold {
         }
         if stream {
             let chars = units(text.unwrap_or_default());
-            let stream = row.stream.get_or_insert(Stream {
-                started: at,
-                ended: until,
-                chars: 0,
-            });
-            stream.ended = until;
-            stream.chars += chars;
+            row.stream
+                .get_or_insert_default()
+                .push(part_kind, at, until, chars);
+        } else if text.is_none() {
+            row.close_stream();
         }
         transcript.touch(position);
         self.note_main_change(within, position);
@@ -1880,6 +1934,7 @@ impl Fold {
             transcript.push(Row::new(new_id, ChatRole::Assistant, index))
         };
         let row = transcript.rows.get_mut(position)?;
+        row.close_stream();
         let id = row.open_part();
         row.push_part(part(id));
         let place = (row.msg.id.clone(), row.msg.parts.len() - 1);
@@ -1897,6 +1952,12 @@ impl Fold {
         fresh: bool,
         at: u64,
     ) -> bool {
+        if let Some(last) = self
+            .transcript(within)
+            .and_then(|transcript| transcript.rows.last_mut())
+        {
+            last.close_stream();
+        }
         let id = text_of(update.get("toolCallId"))
             .unwrap_or_default()
             .to_owned();
