@@ -61,6 +61,47 @@ pub(crate) fn cache_lifetimes(
     lifetimes
 }
 
+pub(crate) fn worker_disabled_plugins(account_root: Option<&Path>) -> Option<String> {
+    let settings_path = account_root
+        .map(|root| root.join("settings.json"))
+        .or_else(|| Some(sikemux_process::paths::home()?.join(".claude/settings.json")))?;
+    let enabled = read(&settings_path)?
+        .get("enabledPlugins")?
+        .as_object()?
+        .clone();
+    let disabled: Map<String, Value> = enabled
+        .into_iter()
+        .filter(|(name, on)| {
+            on.as_bool() == Some(true)
+                && !name
+                    .split_once('@')
+                    .map_or(name.as_str(), |(plugin, _)| plugin)
+                    .contains("lsp")
+        })
+        .map(|(name, _)| (name, json!(false)))
+        .collect();
+    (!disabled.is_empty()).then(|| json!({ "enabledPlugins": disabled }).to_string())
+}
+
+pub(crate) fn worker_skill_overrides(commands: &[Value]) -> Map<String, Value> {
+    let mut overrides = Map::new();
+    for command in commands {
+        let Some(name) = text(command, "name") else {
+            continue;
+        };
+        let description = text(command, "description").unwrap_or_default().trim_end();
+        // Turning off workflow-authoring causes Claude Code to inline ~17 KB into the Workflow tool schema.
+        if name.starts_with("sikemux:")
+            || description.ends_with("(project)")
+            || name == "workflow-authoring"
+        {
+            continue;
+        }
+        overrides.insert(name.to_owned(), json!("off"));
+    }
+    overrides
+}
+
 /// The environment a Claude terminal starts with to cache its prompt as a chat does, reading the
 /// settings Claude Code would: local, then project, then the account's. Its subagents keep the
 /// CLI's own default.

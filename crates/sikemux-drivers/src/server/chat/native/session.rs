@@ -339,6 +339,10 @@ pub trait Told: Send + Sync {
     /// Whether the chat's session gives way to fresh ones, so it may be asked for a handoff note.
     fn rotates(&self) -> bool;
 
+    fn spawned_worker(&self) -> bool {
+        false
+    }
+
     /// The core's own compaction has ended, done or not.
     fn compaction_over(&self);
 

@@ -162,6 +162,15 @@ impl Told for ChatTelling {
             && (self.chat.core.upgrade()).is_some_and(|core| super::super::rotation::on(&core))
     }
 
+    fn spawned_worker(&self) -> bool {
+        !self.chat.chief()
+            && (self.chat.core.upgrade()).is_some_and(|core| {
+                core.workspaces()
+                    .agent(self.chat.agent_id())
+                    .is_some_and(|agent| agent.lead.is_some())
+            })
+    }
+
     fn compaction_over(&self) {
         self.chat.meter.compaction_over();
     }

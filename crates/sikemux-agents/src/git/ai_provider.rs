@@ -741,13 +741,7 @@ pub fn claude_bare_once(
     prompt: &str,
     account: Option<&str>,
 ) -> Result<String, String> {
-    claude_print(
-        dir,
-        model,
-        prompt,
-        account,
-        &["--setting-sources", "", "--disable-slash-commands"],
-    )
+    claude_print(dir, model, prompt, account, &["--setting-sources", ""])
 }
 
 fn claude_print(
@@ -761,21 +755,27 @@ fn claude_print(
         let mut command = sikemux_process::user_environment::agent_command(bin);
         on_account(&mut command, "claude", account);
         let (entrypoint, caller) = sikemux_process::vars::CLAUDE_ENTRYPOINT;
-        command.current_dir(repo).env(entrypoint, caller).args([
-            "--print",
-            "--model",
-            model,
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--include-partial-messages",
-            "--no-session-persistence",
-            "--tools",
-            "",
-            "--settings",
-            r#"{"disableAllHooks":true}"#,
-            "--strict-mcp-config",
-        ]);
+        command
+            .current_dir(repo)
+            .env(entrypoint, caller)
+            .env("ENABLE_CLAUDEAI_MCP_SERVERS", "false")
+            .env("CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS", "1")
+            .args([
+                "--print",
+                "--model",
+                model,
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--include-partial-messages",
+                "--no-session-persistence",
+                "--tools",
+                "",
+                "--disable-slash-commands",
+                "--settings",
+                r#"{"disableAllHooks":true}"#,
+                "--strict-mcp-config",
+            ]);
         command.args(sources);
         (
             command,

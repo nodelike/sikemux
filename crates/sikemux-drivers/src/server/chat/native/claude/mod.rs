@@ -416,15 +416,35 @@ impl Claude {
         if let Some(config) = mcp_config(&tools) {
             args.extend(["--mcp-config".to_owned(), config]);
         }
+        let spawned_worker = sink.spawned_worker();
+        let account = account_root(AgentKind::Claude, None, &launch.env);
+        if spawned_worker {
+            if let Some(settings) = config::worker_disabled_plugins(account.as_deref()) {
+                args.extend(["--settings".to_owned(), settings]);
+            }
+        }
         match start {
             Start::New(id) => args.push(format!("--session-id={id}")),
             Start::Resume(id) => args.push(format!("--resume={id}")),
         }
-        let env = [
+        let mut env: Vec<(String, String)> = [
             sikemux_process::vars::CLAUDE_ENTRYPOINT,
             ("CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS", "1"),
         ]
-        .map(|(key, value)| (key.to_owned(), value.to_owned()));
+        .map(|(key, value)| (key.to_owned(), value.to_owned()))
+        .into();
+        if spawned_worker {
+            for (key, value) in [
+                ("ENABLE_CLAUDEAI_MCP_SERVERS", "false"),
+                ("CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS", "1"),
+            ] {
+                if !launch.env.contains_key(key)
+                    && sikemux_process::user_environment::var(key).is_none()
+                {
+                    env.push((key.to_owned(), value.to_owned()));
+                }
+            }
+        }
         let (process, writer, lines) = Process::spawn(launch, args, env)?;
         let control = Control::new(writer);
         let apps = apps::Apps::default();
@@ -436,7 +456,7 @@ impl Claude {
             shared.clone(),
             apps.clone(),
         );
-        reader.on_account(account_root(AgentKind::Claude, None, &launch.env));
+        reader.on_account(account);
         reader.launched_with(model);
         if let Some(model) = model {
             reader.note_model(model);
@@ -684,7 +704,15 @@ impl Backend for Claude {
                     .filter(|effort| levels.contains(effort))
             })
             .unwrap_or_else(|| config::DEFAULT.to_owned());
-        let lifetimes = config::cache_lifetimes(&settings, &launch.env, routed);
+        let mut flag_settings = config::cache_lifetimes(&settings, &launch.env, routed);
+        if sink.spawned_worker() {
+            if let Some(commands) = initialized.get("commands").and_then(Value::as_array) {
+                let overrides = config::worker_skill_overrides(commands);
+                if !overrides.is_empty() {
+                    flag_settings.insert("skillOverrides".into(), Value::Object(overrides));
+                }
+            }
+        }
         let fast = settings.get("fastMode") == Some(&json!(true))
             && settings.get("fastModePerSessionOptIn") != Some(&json!(true));
         let claude = Self {
@@ -712,11 +740,11 @@ impl Backend for Claude {
         if apply_effort {
             claude.apply_effort().await?;
         }
-        if !lifetimes.is_empty() {
+        if !flag_settings.is_empty() {
             let _ = claude
                 .running
                 .control
-                .request(json!({ "subtype": "apply_flag_settings", "settings": lifetimes }))
+                .request(json!({ "subtype": "apply_flag_settings", "settings": flag_settings }))
                 .await;
         }
         if fast {
