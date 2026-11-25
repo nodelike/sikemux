@@ -1,9 +1,10 @@
 //! Brings what an older core left in the data folder up to the shape this
 //! core reads, one format at a time, before anything in it is read.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use sikemux_process::files::write_atomic;
 
 use super::ServerConfig;
@@ -13,7 +14,7 @@ const FILE: &str = "data-format.json";
 type Step = fn(&Path, &ServerConfig) -> std::io::Result<()>;
 
 /// Each step takes the folder from the format of its index to the next.
-const STEPS: [Step; 7] = [
+const STEPS: [Step; 8] = [
     prompts_say_whether_shown,
     host_key_named_by_socket_path,
     activity_database_in_the_data_folder,
@@ -21,6 +22,7 @@ const STEPS: [Step; 7] = [
     asks_titled_as_the_chat_reads_them,
     asks_keep_what_was_said,
     kept_to_their_owner,
+    agents_keep_only_their_own_models,
 ];
 
 pub(crate) fn upgrade(config: &ServerConfig) {
@@ -156,7 +158,7 @@ fn typed_answers_scrubbed(data_dir: &Path, _: &ServerConfig) -> std::io::Result<
         );
     };
     for path in files_in(&data_dir.join("chat-history"), "jsonl") {
-        if let Err(error) = scrub_lines(&path) {
+        if let Err(error) = change_lines(&path, scrub_line) {
             left(&path, error);
         }
     }
@@ -260,6 +262,115 @@ fn kept_to_their_owner(_: &Path, _: &ServerConfig) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Format 7 cores showed a chat moved to another agent what its last agent offered, and kept it
+/// as the new one's. Models saved with an agent that only other agents offer go, as does what
+/// the chats kept to show of them. Claude takes models it does not list, so its own stay.
+fn agents_keep_only_their_own_models(data_dir: &Path, _: &ServerConfig) -> std::io::Result<()> {
+    let workspace = data_dir.join("workspace.json");
+    let offered: BTreeMap<String, BTreeSet<String>> = std::fs::read(&workspace)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .as_ref()
+        .and_then(|saved| saved["launcherOptions"].as_object())
+        .into_iter()
+        .flatten()
+        .fold(BTreeMap::new(), |mut offered, (launcher, options)| {
+            let provider = launcher.split(':').next().unwrap_or(launcher);
+            offered
+                .entry(provider.to_owned())
+                .or_insert_with(BTreeSet::new)
+                .extend(models_in(options));
+            offered
+        });
+    let anothers = |provider: &str, model: &str| {
+        provider != "claude"
+            && !(offered.get(provider)).is_some_and(|own| own.contains(model))
+            && offered.values().any(|models| models.contains(model))
+    };
+    let wrong = |provider: &str, pick: &Value| {
+        pick["modelProvider"].is_null()
+            && (pick["model"].as_str()).is_some_and(|model| anothers(provider, model))
+    };
+    rewrite(&workspace, |saved| {
+        let mut changed = false;
+        for list in ["agents", "closed"] {
+            let agents = saved.get_mut(list).and_then(Value::as_array_mut);
+            for agent in agents.into_iter().flatten() {
+                let provider = agent["provider"].as_str().unwrap_or_default().to_owned();
+                if wrong(&provider, agent) {
+                    agent["model"] = Value::Null;
+                    agent["effort"] = Value::Null;
+                    changed = true;
+                }
+            }
+        }
+        if let Some(picks) = saved.get_mut("modelPicks").and_then(Value::as_object_mut) {
+            let before = picks.len();
+            picks.retain(|provider, pick| !wrong(provider, pick));
+            changed |= picks.len() != before;
+        }
+        let recents = saved.get_mut("recentModels").and_then(Value::as_object_mut);
+        for (provider, recent) in recents.into_iter().flatten() {
+            if let Some(recent) = recent.as_array_mut() {
+                let before = recent.len();
+                recent.retain(|pick| !wrong(provider, pick));
+                changed |= recent.len() != before;
+            }
+        }
+        changed
+    })?;
+    let history = data_dir.join("chat-history");
+    let mut feeds = Vec::new();
+    rewrite(&history.join("kept.json"), |kept| {
+        for chat in kept.as_object_mut().into_iter().flat_map(Map::values_mut) {
+            let provider = chat["provider"].as_str().unwrap_or_default();
+            let models: Vec<String> = chat
+                .pointer("/start/setup/configOptions")
+                .map(models_in)
+                .unwrap_or_default();
+            if models.is_empty() || !models.iter().all(|model| anothers(provider, model)) {
+                continue;
+            }
+            feeds.extend(chat["feed"].as_str().map(str::to_owned));
+            chat["start"] = Value::Null;
+        }
+        !feeds.is_empty()
+    })?;
+    for feed in feeds {
+        let record = history.join(format!("{feed}.jsonl"));
+        if let Err(error) = change_lines(&record, empty_offer) {
+            eprintln!(
+                "sikemux core: {} was left as it is, and may show another agent's models: {error}",
+                record.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The models of the model row of `options`, as a session says what it offers.
+fn models_in(options: &Value) -> Vec<String> {
+    (options.as_array().into_iter().flatten())
+        .filter(|row| row["id"] == "model")
+        .flat_map(|row| row["options"].as_array().into_iter().flatten())
+        .filter_map(|choice| choice["value"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// Empties the models or commands a recorded update says are offered. Says whether it was one.
+fn empty_offer(line: &mut Value) -> bool {
+    let Some(update) = line.pointer_mut("/event/payload/update") else {
+        return false;
+    };
+    let field = match update["sessionUpdate"].as_str() {
+        Some("config_option_update") => "configOptions",
+        Some("available_commands_update") => "availableCommands",
+        _ => return false,
+    };
+    update[field] = json!([]);
+    true
+}
+
 /// The files directly in `dir` with `extension`.
 fn files_in(dir: &Path, extension: &str) -> Vec<std::path::PathBuf> {
     (std::fs::read_dir(dir).into_iter().flatten().flatten())
@@ -273,22 +384,22 @@ fn hidden(value: &Value) -> bool {
     value.get("answered").and_then(Value::as_str) == Some("hiddenCall")
 }
 
-/// Scrubs each line of the record at `path` that holds hidden words, in place and at the same
-/// length, so a core taking the chat over reads on from where the last one stopped.
-fn scrub_lines(path: &Path) -> std::io::Result<()> {
+/// Changes each line of the record at `path` that `change` says it changed, in place and at the
+/// same length, so a core taking the chat over reads on from where the last one stopped.
+fn change_lines(path: &Path, change: impl Fn(&mut Value) -> bool) -> std::io::Result<()> {
     use std::io::{Seek, SeekFrom, Write};
     let bytes = std::fs::read(path)?;
-    let mut scrubbed = Vec::new();
+    let mut changed = Vec::new();
     let mut at = 0;
     for line in bytes.split(|&byte| byte == b'\n') {
         if let Ok(mut value) = serde_json::from_slice::<Value>(line) {
-            match scrub_line(&mut value).then(|| value.to_string().into_bytes()) {
+            match change(&mut value).then(|| value.to_string().into_bytes()) {
                 Some(mut kept) if kept.len() <= line.len() => {
                     kept.resize(line.len(), b' ');
-                    scrubbed.push((at, kept));
+                    changed.push((at, kept));
                 }
                 Some(_) => eprintln!(
-                    "sikemux core: a line at byte {at} of {} was left as it is, and may still hold words typed for a private call: it would not fit in its place",
+                    "sikemux core: a line at byte {at} of {} was left as it is: what it changes to would not fit in its place",
                     path.display()
                 ),
                 None => {}
@@ -296,11 +407,11 @@ fn scrub_lines(path: &Path) -> std::io::Result<()> {
         }
         at += line.len() as u64 + 1;
     }
-    if scrubbed.is_empty() {
+    if changed.is_empty() {
         return Ok(());
     }
     let mut file = std::fs::OpenOptions::new().write(true).open(path)?;
-    for (at, kept) in scrubbed {
+    for (at, kept) in changed {
         file.seek(SeekFrom::Start(at))?;
         file.write_all(&kept)?;
     }

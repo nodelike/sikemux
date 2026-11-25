@@ -238,8 +238,10 @@ pub fn choose_while_asleep(
     ) else {
         return Err(NOT_RUNNING.into());
     };
+    let its_own = core.chats().rests_as(agent_id, &agent.provider);
     let mut options = feed
         .config_options()
+        .filter(|_| its_own)
         .or_else(|| core.workspaces().launcher_options(&launcher_of(&agent)))
         .unwrap_or(Value::Null);
     let row = (options.as_array_mut().into_iter().flatten())

@@ -1014,6 +1014,27 @@ impl Feed {
         inner.start = Some(start);
     }
 
+    /// Lets go of what the chat's last agent offers, as another agent takes the chat up.
+    pub fn leave_agent(self: &Arc<Self>) {
+        {
+            let mut inner = self.inner.locked();
+            inner.start = None;
+            inner.offers_effort = false;
+            if let Some(fold) = inner.fold.as_mut() {
+                fold.leave_agent();
+            }
+        }
+        for update in [
+            json!({ "sessionUpdate": UpdateKind::ConfigOptionUpdate, "configOptions": [] }),
+            json!({ "sessionUpdate": UpdateKind::AvailableCommandsUpdate, "availableCommands": [] }),
+        ] {
+            self.emit(
+                ChatEventKind::SessionUpdate,
+                json!({ "sessionId": self.agent_id, "update": update }),
+            );
+        }
+    }
+
     pub fn set_permission_mode(&self, mode: PermissionMode) {
         let mut inner = self.inner.locked();
         inner.permission_mode = mode;

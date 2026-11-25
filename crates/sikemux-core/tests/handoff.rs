@@ -379,3 +379,75 @@ async fn switching_harness_and_back_keeps_account_and_avoids_full_account() {
         "when no prior Claude account exists, must pick one with quota, never one at 100%"
     );
 }
+
+/// The person's report, 25 Nov: a new Claude chat moved to Grok, which had never said its models
+/// here, listed Claude's, and Grok was then started on the one Claude had picked. Keeping the
+/// menu open over the move (79a448be8) showed whatever list the chat already held.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_moved_to_an_agent_with_no_known_models_lists_none_of_the_last_agents() {
+    let root = tempfile::Builder::new()
+        .prefix("handoff")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
+    let (project, claude) = (root.join("project"), root.join("claude"));
+    for dir in [root.join("home"), claude.clone(), project.clone()] {
+        std::fs::create_dir_all(dir).expect("dir");
+    }
+    std::fs::write(
+        claude.join("fake-account.json"),
+        json!({ "loggedIn": true, "authMethod": "claude.ai", "email": "qa@example.com", "subscriptionType": "max" }).to_string(),
+    )
+    .expect("an account");
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [
+        { "id": "builtin-claude", "name": "Claude", "provider": "claude", "accent": "#d97757",
+          "executablePath": FAKE_CLAUDE, "configPath": claude },
+        { "id": "fake", "name": "Fake", "provider": "omp", "accent": "#a277ff",
+          "executablePath": FAKE_AGENT },
+    ] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let (id, _) = app
+        .start_chat("claude:builtin-claude".into(), "widget".into(), None)
+        .await
+        .expect("a chat");
+    let (_watching, mut chat) = open(&socket, &id).await;
+    app.call("composing", json!({ "agentId": id }))
+        .await
+        .expect("started");
+    chat.until(|chat| {
+        chat.ready() && (chat.head().model.as_ref()).is_some_and(|model| !model.choices.is_empty())
+    })
+    .await;
+
+    move_fresh(&app, &id, "omp", None).await;
+    let (_watching, chat) = open(&socket, &id).await;
+    assert_eq!(chat.head().model, None, "no model of Claude's is listed");
+    assert!(chat.head().commands.is_empty(), "no command of Claude's is");
+    app.ask(ask::AcpSetConfig {
+        agent_id: id.clone(),
+        config_id: "model".into(),
+        value: "default".into(),
+    })
+    .await
+    .expect_err("a model of Claude's cannot be picked");
+    app.ask(ask::AcpStop {
+        agent_id: id.clone(),
+    })
+    .await
+    .expect("stop");
+    let moved = agent(&app, &id).await;
+    assert_eq!(moved["provider"], "omp");
+    assert!(moved["model"].is_null(), "{moved}");
+    assert!(moved["effort"].is_null(), "{moved}");
+}

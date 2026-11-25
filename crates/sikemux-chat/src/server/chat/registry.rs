@@ -166,7 +166,12 @@ impl Chats {
         let follows = chat.feed.followed();
         let session = (follows.as_ref().map(|(session, _)| session.clone()))
             .or_else(|| start.as_ref().map(|start| start.session_id.clone()))
-            .or_else(|| launch.resume_id.clone());
+            .or_else(|| launch.resume_id.clone())
+            .or_else(|| {
+                (self.shelf.get(chat.agent_id()))
+                    .filter(|shelved| shelved.feed == chat.feed.id())
+                    .map(|shelved| shelved.session)
+            });
         let Some(session) = session else {
             return;
         };
@@ -271,11 +276,7 @@ impl Chats {
     /// The feed the agent's chat kept while it slept, no longer kept apart, when it follows
     /// `session` if one is named. One that follows another session is let go of here, and
     /// stays on disk.
-    pub fn take_rest(
-        &self,
-        agent_id: &str,
-        session: Option<&str>,
-    ) -> Option<(Arc<Feed>, super::cap::KeptMeter)> {
+    pub fn take_rest(&self, agent_id: &str, session: Option<&str>) -> Option<Resting> {
         let mut resting = self.resting.locked();
         let at = resting
             .iter()
@@ -288,7 +289,7 @@ impl Chats {
         }
         self.shelf.woke(agent_id);
         rested.feed.woke();
-        Some((rested.feed, rested.meter))
+        Some(rested)
     }
 
     /// The sleeping chats' feeds, each with its meter and provider.
@@ -302,6 +303,12 @@ impl Chats {
                 )
             })
             .collect()
+    }
+
+    /// Whether the agent's sleeping chat last ran `provider`.
+    pub fn rests_as(&self, agent_id: &str, provider: &str) -> bool {
+        (self.resting.locked().iter())
+            .any(|resting| resting.agent_id == agent_id && resting.provider == provider)
     }
 
     /// The person's switch for a sleeping chat whose cache expired.
@@ -529,15 +536,21 @@ impl Chats {
             .then(|| self.take_rest(&launch.agent_id, launch.resume_id.as_deref()))
             .flatten();
         let history_shown = rested.is_some();
-        let rested_meter = rested.as_ref().map(|(_, meter)| *meter);
+        let rested_meter = rested.as_ref().map(|rested| rested.meter);
         let (feed, flags) = kept.unwrap_or_else(|| {
-            let feed = rested.map(|(feed, _)| feed).unwrap_or_else(|| {
-                Feed::new(
+            let feed = match rested {
+                Some(rested) => {
+                    if rested.provider != launch.provider {
+                        rested.feed.leave_agent();
+                    }
+                    rested.feed
+                }
+                None => Feed::new(
                     launch.agent_id.clone(),
                     launch.permission_mode,
                     self.history.as_deref(),
-                )
-            });
+                ),
+            };
             (feed, TurnProgress::default())
         });
         let offers_effort = crate::agent_catalog::agent(&launch.provider)

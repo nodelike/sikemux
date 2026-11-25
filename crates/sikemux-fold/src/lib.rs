@@ -784,6 +784,18 @@ impl Fold {
         self.read_pickers();
     }
 
+    /// Lets go of the session, capabilities and setup of the chat's last agent.
+    pub fn leave_agent(&mut self) {
+        self.offers_effort = false;
+        self.head.session_id = None;
+        self.head.capabilities = Default::default();
+        self.head.setup = Value::Object(Map::new());
+        for field in ["sessionId", "capabilities", "setup"] {
+            self.set_head(field);
+        }
+        self.read_pickers();
+    }
+
     fn read_pickers(&mut self) {
         let options = self.head.setup.get("configOptions").unwrap_or(&Value::Null);
         let (model, mut effort) = pickers::pickers(options);
