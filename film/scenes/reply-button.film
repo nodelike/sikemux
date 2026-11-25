@@ -1,0 +1,27 @@
+# The reply button of an answer at 1440 wide, beside the scrollbar, and of a line in an opened
+# work fold.
+stage 1440 900
+window 1440 900
+replies reply-button.json
+prefer themeId aura-noir
+prefer starAsked true
+project storefront shop
+chat Wren
+title "Order emails"
+settle 4
+front Wren
+say "How do order emails go out?"
+settle 14
+say "Where does that live?"
+settle 8
+move 700,400 0.3
+scroll 3000
+settle 1
+move 700,378 0.3
+wait 0.5
+snap reply-button-scrolled
+click 445,205
+settle 1
+move 600,246 0.3
+wait 0.5
+snap reply-button-fold

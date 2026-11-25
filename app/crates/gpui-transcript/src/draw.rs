@@ -301,6 +301,7 @@ const TALL: usize = 12;
 pub struct Pen {
     style: Rc<Style>,
     selecting: Option<Rc<Selecting>>,
+    width: Option<Pixels>,
 }
 
 impl Pen {
@@ -312,7 +313,18 @@ impl Pen {
         Pen {
             style,
             selecting: selecting.map(Rc::new),
+            width: None,
         }
+    }
+
+    pub(crate) fn within(mut self, width: Option<Pixels>) -> Pen {
+        self.width = width;
+        self
+    }
+
+    /// How wide the transcript was last drawn.
+    pub fn width(&self) -> Option<Pixels> {
+        self.width
     }
 
     pub fn style(&self) -> &Style {
@@ -1019,7 +1031,7 @@ impl Draw<'_> {
                     .absolute()
                     .top_0()
                     .right_0()
-                    .w(reply.gutter)
+                    .min_w(reply.gutter)
                     .h(line)
                     .flex()
                     .items_center()

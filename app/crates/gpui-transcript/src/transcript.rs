@@ -1029,6 +1029,7 @@ impl<R: Row> Render for Transcript<R> {
         self.shown.borrow_mut().clear();
         self.drawn = None;
         let span = self.span();
+        let width = Some(self.list.viewport_bounds().size.width).filter(|width| *width > px(0.));
         let this = cx.entity();
         let moved = this.downgrade();
         let watch = (!self.letting_go.is_empty()).then(|| {
@@ -1085,7 +1086,7 @@ impl<R: Row> Render for Transcript<R> {
                         .collect(),
                     budget: this.layout_budget.clone(),
                 });
-                let pen = Pen::selecting(this.style.clone(), selecting);
+                let pen = Pen::selecting(this.style.clone(), selecting).within(width);
                 let draw_row = this.draw_row.clone();
                 #[cfg(feature = "counts")]
                 crate::counts::add(&crate::counts::ROWS, 1);

@@ -1,6 +1,8 @@
 //! Drawing a chat's rows: a message and its parts, the work folded under a turn, letters and
 //! fired triggers, and subagents. Runs of messages between agents are in `team`.
 
+use gpui_kit::Pixels;
+
 use super::*;
 use crate::ui::Clicks;
 use sikemux_view::chat::{
@@ -264,7 +266,7 @@ pub(super) fn row(
         div()
             .w_full()
             .max_w(super::column::rows(cx))
-            .px(px(22.))
+            .px(px(ROW_SIDE))
             .children(ended.into_iter().map(|turn| {
                 let key = format!("shown:{}", turn.turn);
                 shown::pictures(&turn.pages, &key, looks, cx)
@@ -281,7 +283,7 @@ pub(super) fn row(
             div()
                 .w_full()
                 .max_w(super::column::rows(cx))
-                .px(px(22.))
+                .px(px(ROW_SIDE))
                 .map(|row| {
                     if user {
                         let row = match follows_own {
@@ -1646,9 +1648,11 @@ fn with_reply(
     look: Rc<Style>,
     row: &ChatRow,
     text: &SharedString,
+    pen: &Pen,
     looks: &Drawn,
     cx: &App,
 ) -> Rc<Style> {
+    let gutter = reply_gutter(pen.width(), cx);
     let message = row.message.id.clone();
     let tagged = format!("{REPLY_URI}{message}#{text}.");
     let chosen: Rc<[usize]> = (looks.bench.upgrade())
@@ -1702,6 +1706,7 @@ fn with_reply(
             text.clone(),
         );
         let accent = looks.accent;
+        let ground = (gutter < px(REPLY_BUTTON)).then(|| Tokens::get(cx).surface_raised);
         Rc::new(
             move |place: usize, quote: String, chosen: bool, _: &mut Window, _: &mut App| {
                 let (bench, agent, reader, message) = (
@@ -1715,13 +1720,13 @@ fn with_reply(
                     true => t!("Take out of the reply"),
                     false => t!("Reply to this part"),
                 };
-                IconButton::new(
+                let button = IconButton::new(
                     SharedString::from(format!("reply:{part}")),
                     Icon::Reply,
                     label,
                 )
                 .glyph(13.)
-                .width(24.)
+                .width(REPLY_BUTTON)
                 .pressed(chosen)
                 .when(chosen, |button| button.tint(accent))
                 .on_click(move |_, window, cx| {
@@ -1731,8 +1736,16 @@ fn with_reply(
                         })
                         .ok();
                     reader.update(cx, |_, cx| cx.notify());
-                })
-                .into_any_element()
+                });
+                match ground {
+                    Some(ground) => div()
+                        .occlude()
+                        .rounded(theme::radius_2())
+                        .bg(ground)
+                        .child(button)
+                        .into_any_element(),
+                    None => button.into_any_element(),
+                }
             },
         )
     };
@@ -1741,7 +1754,7 @@ fn with_reply(
             hovered,
             pointed: hovered.is_some() && looks.reading.quoting_button,
             chosen,
-            gutter: px(REPLY_GUTTER),
+            gutter,
             on_hover,
             on_point,
             button,
@@ -1752,6 +1765,19 @@ fn with_reply(
 
 /// The room right of an answer's text that holds a paragraph's reply button.
 const REPLY_GUTTER: f32 = 32.;
+/// The room at each side of a row.
+const ROW_SIDE: f32 = 22.;
+const REPLY_BUTTON: f32 = 24.;
+
+/// The reply button's room in a pane `width` wide, short of the scrollbar at its edge. Where the
+/// button doesn't fit beside the text, it lies over the line's end.
+fn reply_gutter(width: Option<Pixels>, cx: &App) -> Pixels {
+    let Some(width) = width else {
+        return px(REPLY_GUTTER);
+    };
+    let beside = (width - super::column::rows(cx)).max(px(0.)) / 2. + px(ROW_SIDE);
+    (beside - Scrollbar::width()).clamp(px(0.), px(REPLY_GUTTER))
+}
 
 pub(super) fn part(
     row: &ChatRow,
@@ -1808,7 +1834,7 @@ pub(super) fn part(
                 attach::with_why(look, &row.message, &looks.agent, &looks.bench, window, cx)
             };
             let look = match part {
-                ChatPart::Text { .. } if !user => with_reply(look, row, &id, looks, cx),
+                ChatPart::Text { .. } if !user => with_reply(look, row, &id, pen, looks, cx),
                 _ => look,
             };
             let cut = (doc.units > LONG_TEXT && looks.reading.folds(&row.message.id, &id))

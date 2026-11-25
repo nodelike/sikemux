@@ -1,0 +1,32 @@
+[
+  {
+    "when": "how do order emails",
+    "steps": [
+      {
+        "say": "The tracking mail waits on the carrier, so I'm reading that job first.",
+        "perSecond": 400
+      },
+      {
+        "tool": "Read",
+        "input": {
+          "file_path": "src/mail/index.ts"
+        },
+        "result": "ok",
+        "ms": 9000
+      },
+      {
+        "say": "Order emails leave in four steps, each one its own job.\n\n**The receipt:** it's written once the payment settles, never when the order is placed, so a declined card sends nothing.\n\n**The packing note:** it waits for the warehouse to pick the order, and lists only what's in that parcel.\n\n**The tracking mail:** the carrier's number comes back about ten minutes after the label prints, so this one is held until then.\n\n**The follow-up:** it goes nine days after delivery, unless the person has already written to us.",
+        "perSecond": 400
+      }
+    ]
+  },
+  {
+    "when": "where",
+    "steps": [
+      {
+        "say": "Every mail job is in `src/mail`, and each has the same three parts.\n\n1. **What it needs:** the order, the person and the language they bought in. A job that can't read one of these stops before it writes anything.\n2. **What it writes:** one subject and one body, both from a template in `src/mail/templates`.\n3. **What it records:** the time it went out, on the order, so a job run twice sends one mail.\n\nThe jobs share a queue. It takes forty mails a minute, which is what our sender allows, and gives up on one after five tries.\n\nA mail that gave up lands in the failed list, where support can send it again by hand. Nothing else reads that list today.\n\nThe templates are plain text with the order's lines at the bottom. The shop's own look is added as the mail goes out, so a template never has to change when the look does.",
+        "perSecond": 400
+      }
+    ]
+  }
+]
