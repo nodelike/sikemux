@@ -48,6 +48,7 @@ use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeRese
 use crate::workbench::Workbench;
 
 const PAGE: u64 = 256;
+const LINES_RETRY_COOLDOWN: Duration = Duration::from_millis(500);
 /// History lines kept around the ones in view.
 const HISTORY_KEPT: usize = 4_000;
 const LINE_HEIGHT: f32 = 1.32;
@@ -141,6 +142,7 @@ struct Terminal {
     /// History lines fetched so far, numbered as the core numbers them.
     history: BTreeMap<u64, Arc<Row>>,
     pages_asked: HashSet<u64>,
+    pages_retry_after: HashMap<u64, Instant>,
     /// The line on the top row while scrolled back; none follows the output.
     top: Option<u64>,
     selection: Option<(GridPoint, GridPoint)>,
@@ -185,7 +187,10 @@ impl Link {
 
 impl Terminal {
     fn first_line(&self) -> u64 {
-        self.screen.header.history_end - u64::from(self.screen.header.history_len)
+        self.screen
+            .header
+            .history_end
+            .saturating_sub(u64::from(self.screen.header.history_len))
     }
 
     fn top_line(&self) -> u64 {
@@ -380,6 +385,7 @@ impl Terminal {
         self.screen = Screen::default();
         self.history.clear();
         self.pages_asked.clear();
+        self.pages_retry_after.clear();
         self.top = None;
         self.selection = None;
         self.acked = 0;
@@ -436,6 +442,7 @@ impl Terminals {
                 if frame.header.epoch != terminal.screen.header.epoch {
                     terminal.history.clear();
                     terminal.pages_asked.clear();
+                    terminal.pages_retry_after.clear();
                     terminal.top = None;
                     terminal.selection = None;
                 }
@@ -443,6 +450,7 @@ impl Terminals {
             }
             Screenful::Lines(lines) => {
                 terminal.pages_asked.remove(&lines.start);
+                terminal.pages_retry_after.remove(&lines.start);
                 if lines.epoch == terminal.screen.header.epoch {
                     terminal
                         .history
@@ -454,6 +462,19 @@ impl Terminals {
                     terminal
                         .history
                         .retain(|line, _| line.abs_diff(middle) < half);
+                }
+            }
+            Screenful::LinesFailed { start } => {
+                terminal.pages_asked.remove(&start);
+                terminal
+                    .pages_retry_after
+                    .insert(start, Instant::now() + LINES_RETRY_COOLDOWN);
+                if let Some(view) = self.views.borrow().get(&session).cloned() {
+                    cx.spawn(async move |cx| {
+                        cx.background_executor().timer(LINES_RETRY_COOLDOWN).await;
+                        view.update(cx, |_, cx| cx.repaint());
+                    })
+                    .detach();
                 }
             }
             Screenful::Copied(text) => cx.write_to_clipboard(ClipboardItem::new_string(text)),
@@ -891,6 +912,7 @@ fn layout(
             screen: Screen::default(),
             history: BTreeMap::new(),
             pages_asked: HashSet::new(),
+            pages_retry_after: HashMap::new(),
             top: None,
             selection: None,
             anchor: None,
@@ -947,11 +969,17 @@ fn layout(
     let top = terminal.top_line();
     let end = top + u64::from(header.rows);
     let mut page = top / PAGE * PAGE;
+    let now = Instant::now();
     while page < end.min(header.history_end) {
         let start = page.max(terminal.first_line());
         let missing = (start..(page + PAGE).min(header.history_end))
             .any(|line| !terminal.history.contains_key(&line));
-        if missing && terminal.pages_asked.insert(start) {
+        let cooled_down = terminal
+            .pages_retry_after
+            .get(&start)
+            .is_none_or(|&until| now >= until);
+        if missing && cooled_down && terminal.pages_asked.insert(start) {
+            terminal.pages_retry_after.remove(&start);
             let count = (page + PAGE).min(header.history_end) - start;
             let _ = asks.send(routed(
                 &bench.terminals.places,

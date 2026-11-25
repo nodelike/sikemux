@@ -587,11 +587,12 @@ impl<'a> Reader<'a> {
             let wide = flags & SPAN_WIDE != 0;
             let cluster = flags & SPAN_CLUSTER != 0;
             let cells = if cluster {
-                1
+                1u16
             } else {
-                text.chars().count() as u16
+                u16::try_from(text.chars().count()).ok()?
             };
-            let width = cells * if wide { 2 } else { 1 };
+            let width = cells.checked_mul(if wide { 2 } else { 1 })?;
+            let next_col = col.checked_add(width)?;
             spans.push(Span {
                 style,
                 text,
@@ -600,7 +601,7 @@ impl<'a> Reader<'a> {
                 wide,
                 cluster,
             });
-            col += width;
+            col = next_col;
         }
     }
 }
@@ -706,8 +707,13 @@ impl Screen {
         for op in frame.ops {
             match op {
                 Op::Copy { dst, src, count } => {
-                    for offset in 0..count {
-                        let (dst, src) = (usize::from(dst + offset), usize::from(src + offset));
+                    let (dst, src) = (usize::from(dst), usize::from(src));
+                    for offset in 0..usize::from(count) {
+                        let (Some(dst), Some(src)) =
+                            (dst.checked_add(offset), src.checked_add(offset))
+                        else {
+                            break;
+                        };
                         if let (Some(row), Some(slot)) = (previous.get(src), rows.get_mut(dst)) {
                             *slot = row.clone();
                         }

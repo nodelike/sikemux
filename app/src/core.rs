@@ -162,6 +162,9 @@ pub enum ChatNews {
 pub enum Screenful {
     Frame(Frame),
     Lines(Lines),
+    LinesFailed {
+        start: u64,
+    },
     Copied(String),
     Found(FindResult),
     /// Where the shell is and how its last command went, as it stood on attaching.
@@ -2171,6 +2174,7 @@ struct Streams {
     settle_tx: mpsc::UnboundedSender<(Place, Settled)>,
     /// The terminals with a resize on its way, and the size asked for since, sent after it.
     resizing: HashMap<SessionId, Option<(u16, u16)>>,
+    inputs: HashMap<SessionId, mpsc::UnboundedSender<TerminalInput>>,
 }
 
 impl Streams {
@@ -2189,6 +2193,7 @@ impl Streams {
             early: HashMap::new(),
             settle_tx: settle_tx.clone(),
             resizing: HashMap::new(),
+            inputs: HashMap::new(),
         }
     }
 
@@ -2276,6 +2281,7 @@ impl Streams {
                 });
             }
             TerminalAsk::Detach => {
+                self.inputs.remove(&session);
                 let Some(stream) = self.streams.remove(&session) else {
                     return;
                 };
@@ -2290,22 +2296,39 @@ impl Streams {
                     client.ack(stream, frame);
                 }
             }
-            TerminalAsk::Input(input) => drop(tokio::spawn(async move {
-                client.ask(ask::TerminalInput { id: session, input }).await
-            })),
+            TerminalAsk::Input(input) => {
+                let spawn = |client: Arc<CoreClient>| {
+                    let (tx, mut rx) = mpsc::unbounded_channel();
+                    tokio::spawn(async move {
+                        while let Some(input) = rx.recv().await {
+                            let _ = client.ask(ask::TerminalInput { id: session, input }).await;
+                        }
+                    });
+                    tx
+                };
+                let tx = self
+                    .inputs
+                    .entry(session)
+                    .or_insert_with(|| spawn(client.clone()));
+                if let Err(mpsc::error::SendError(input)) = tx.send(input) {
+                    *tx = spawn(client);
+                    let _ = tx.send(input);
+                }
+            }
             TerminalAsk::Resize(cols, rows) => self.resize(session, cols, rows),
             TerminalAsk::Lines { start, count } => {
                 let (updates, place) = (self.updates.clone(), self.place.clone());
                 tokio::spawn(async move {
-                    if let Some(lines) = client
+                    let screenful = match client
                         .lines(session, start, count)
                         .await
                         .ok()
                         .and_then(|bytes| decode_lines(&bytes))
                     {
-                        let _ =
-                            updates.send(Update::Terminal(place, session, Screenful::Lines(lines)));
-                    }
+                        Some(lines) => Screenful::Lines(lines),
+                        None => Screenful::LinesFailed { start },
+                    };
+                    let _ = updates.send(Update::Terminal(place, session, screenful));
                 });
             }
             TerminalAsk::Copy(range) => {
