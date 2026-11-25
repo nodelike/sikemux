@@ -83,7 +83,7 @@ final class CrashReports {
         }
     }
 
-    /// Names the person by the same one-way hash of their account the Mac's usage ping sends.
+    /// Names the person by the same hash of their account the Mac's usage ping sends.
     func follow(account: String?) {
         self.account = account
         name()

@@ -180,7 +180,7 @@ struct AccountSheet: View {
 
     private static let crashReports = String(
         localized:
-            "When the app crashes or hits an error, sends what went wrong and where in the code, with the app version, phone model and system version, and a one-way hash of your account. Never your hosts, chats, prompts, files or projects."
+            "When the app crashes, hangs or hits an error, sends what went wrong and where in the code, with the app version, phone model and system version, and a hash of your account that we can match to it. Never your hosts, chats, prompts, files or projects."
     )
 
     /// The installed release and the commit it was built from: `0.1.0-nightly.5 · cef3bae`.

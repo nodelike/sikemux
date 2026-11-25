@@ -245,7 +245,7 @@ pub fn render(
     let privacy = rows::row(
         t!("Share anonymous usage and crash reports"),
         Some(t!(
-            "Sends anonymous daily totals and first-run steps to PostHog EU, and crashes, sessions and some startup traces to Sentry EU (code addresses, image names and builds, recent warning and error logs with paths stripped, device and OS, never memory), with a random install ID and a one-way account hash. Never your files, prompts, commands or projects. Turning this off or setting DO_NOT_TRACK stops both at once."
+            "Sends daily totals and first-run steps to PostHog EU, and crashes, sessions and some startup traces to Sentry EU (code addresses, image names and builds, recent warning and error logs with paths stripped, device and OS, never memory), with a random install ID and a hash of your account that we can match to it. Never your files, prompts, commands or projects. Turning this off or setting DO_NOT_TRACK stops both at once."
         )),
         rows::switch(
             "share-usage",
