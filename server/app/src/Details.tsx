@@ -13,7 +13,6 @@ import { orgScene } from "./scenes.ts";
 import "./settings.css";
 import {
   Btn,
-  Section,
   Field,
   Notice,
   Page,
@@ -147,10 +146,53 @@ export function DetailsPage({
       scene={orgScene(org.id)}
       tone={action.problem ? "failed" : undefined}
     >
-      <Section
-        label="Details"
-        className={over ? "details over" : "details"}
-        {...(editable ? { onDragOver, onDragLeave, onDrop } : {})}
+      <Setting name="Name" detail="On invites, shared projects and bills.">
+        {editable ? (
+          <form
+            className="set-name"
+            onSubmit={(event) => {
+              event.preventDefault();
+              rename();
+            }}
+          >
+            <Field
+              aria-label="Org name"
+              value={typed ?? org.name}
+              maxLength={NAME_LENGTH}
+              autoComplete="off"
+              disabled={action.busy}
+              onChange={(event) => setTyped(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") keep();
+              }}
+            />
+            <Btn
+              type="submit"
+              quiet={!changed}
+              busy={busy("name")}
+              disabled={!name || !changed || action.busy}
+            >
+              Save
+            </Btn>
+            {changed ? (
+              <Btn quiet disabled={action.busy} onClick={keep}>
+                Cancel
+              </Btn>
+            ) : null}
+          </form>
+        ) : (
+          <span className="set-val">{org.name}</span>
+        )}
+        {changing === "name" ? <Problem>{action.problem}</Problem> : null}
+      </Setting>
+
+      <Setting
+        name={over ? "Drop it to use it" : "Logo"}
+        detail={
+          editable
+            ? "PNG, JPG or WebP, up to 1 MB. Choose one or drop it here."
+            : "Set by its owners and admins."
+        }
       >
         <div
           className={over ? "set-drop over" : "set-drop"}
@@ -181,34 +223,22 @@ export function DetailsPage({
                   disabled={action.busy}
                   onClick={() => chooser.current?.click()}
                 >
-                  <Field
-                    aria-label="Name"
-                    value={typed ?? org.name}
-                    maxLength={NAME_LENGTH}
-                    autoComplete="off"
-                    disabled={action.busy}
-                    onChange={(event) => setTyped(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Escape") keep();
-                    }}
-                  />
-                  {changed ? (
-                    <Btn
-                      type="submit"
-                      busy={busy("name")}
-                      disabled={!name || action.busy}
-                    >
-                      Save
-                    </Btn>
-                  ) : null}
-                </form>
-              ) : (
-                org.name
-              )
-            }
-          />
-        </Rows>
-      </Section>
+                  <IconUpload size={14} />
+                  {busy("logo") ? "Uploading" : org.logo ? "Replace" : "Upload"}
+                </Btn>
+                {org.logo ? (
+                  <Txt disabled={action.busy} onClick={takeAway}>
+                    Remove
+                  </Txt>
+                ) : null}
+              </>
+            ) : !org.logo ? (
+              <span className="note">None yet.</span>
+            ) : null}
+          </div>
+        </div>
+        {changing === "logo" ? <Problem>{action.problem}</Problem> : null}
+      </Setting>
     </Page>
   );
 }
