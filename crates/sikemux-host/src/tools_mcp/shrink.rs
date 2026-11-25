@@ -6,7 +6,7 @@ use std::io::Cursor;
 use base64::Engine;
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
-use image::{GenericImageView, ImageFormat};
+use image::{DynamicImage, GenericImageView, ImageFormat};
 
 /// UI text still reads at this size; the model is charged about one token per 750 pixels.
 pub const LONGEST_SIDE: u32 = 1000;
@@ -40,7 +40,7 @@ fn shrunk(data: &str, mime_type: &str) -> Option<Picture> {
     let bytes = engine.decode(data).ok()?;
     let picture = image::load_from_memory_with_format(&bytes, format).ok()?;
     let (width, height) = picture.dimensions();
-    if width.max(height) <= LONGEST_SIDE || picture.color().has_alpha() {
+    if width.max(height) <= LONGEST_SIDE || has_transparency(&picture) {
         return None;
     }
     let small = picture
@@ -55,4 +55,40 @@ fn shrunk(data: &str, mime_type: &str) -> Option<Picture> {
         mime_type: "image/jpeg".to_owned(),
         scale: Some(f64::from(small.width()) / f64::from(width)),
     })
+}
+
+fn has_transparency(picture: &DynamicImage) -> bool {
+    match picture {
+        DynamicImage::ImageLumaA8(image) => image
+            .as_raw()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .any(|&[_, a]| a < 255),
+        DynamicImage::ImageRgba8(image) => image
+            .as_raw()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|&[_, _, _, a]| a < 255),
+        DynamicImage::ImageLumaA16(image) => image
+            .as_raw()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .any(|&[_, a]| a < u16::MAX),
+        DynamicImage::ImageRgba16(image) => image
+            .as_raw()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|&[_, _, _, a]| a < u16::MAX),
+        DynamicImage::ImageRgba32F(image) => image
+            .as_raw()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .any(|&[_, _, _, a]| a < 1.0),
+        _ => false,
+    }
 }

@@ -61,7 +61,6 @@ pub fn run(gateway: bool) -> i32 {
         Arc::new(Offer::new(simulator, resources, gateway)),
         agent_id,
     );
-    bound::forget();
     0
 }
 
@@ -104,7 +103,6 @@ fn watch_parent() {
         std::thread::sleep(PARENT_CHECK_INTERVAL);
         // SAFETY: `getppid` takes nothing and cannot fail.
         if unsafe { libc::getppid() } != launcher {
-            bound::forget();
             std::process::exit(0);
         }
     });

@@ -967,8 +967,7 @@ fn a_cut_answer_says_where_the_whole_of_it_is() {
         serde_json::from_slice::<Value>(&kept).expect("JSON"),
         answer
     );
-    bound::forget();
-    assert!(!std::path::Path::new(path).exists());
+    let _ = std::fs::remove_file(path);
 }
 
 fn sample_for_schema(schema: &Value) -> Value {
