@@ -12,13 +12,15 @@ pub(crate) fn indent_item_fences(text: &str) -> Option<(String, Moved)> {
         return None;
     }
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
-    let mut out = String::with_capacity(text.len());
+    let mut out: Option<String> = None;
     let mut moved = Moved::default();
     let mut item: Option<usize> = None;
     let mut at = 0;
     let mut index = 0;
     while let Some(&line) = lines.get(index) {
-        out.push_str(line);
+        if let Some(out) = &mut out {
+            out.push_str(line);
+        }
         at += line.len();
         index += 1;
         if line.trim().is_empty() {
@@ -47,24 +49,32 @@ pub(crate) fn indent_item_fences(text: &str) -> Option<(String, Moved)> {
         let closer = body.iter().position(|line| closes(line, mark, width));
         let end = closer.map_or(body.len(), |closer| closer + 1);
         let fence_lines = body.get(..end).unwrap_or_default();
-        let short = fence_lines
-            .iter()
-            .any(|line| !line.trim().is_empty() && indent_of(line) < shift);
+        let short = shift > 0
+            && fence_lines
+                .iter()
+                .any(|line| !line.trim().is_empty() && indent_of(line) < shift);
         for line in fence_lines {
             if short && !line.trim().is_empty() {
+                let out = out.get_or_insert_with(|| {
+                    let mut buf = String::with_capacity(text.len());
+                    buf.push_str(text.get(..at).unwrap_or_default());
+                    buf
+                });
                 out.extend(std::iter::repeat_n(' ', shift));
                 moved.shift(out.len(), at);
             }
-            out.push_str(line);
+            if let Some(out) = &mut out {
+                out.push_str(line);
+            }
             at += line.len();
         }
         index += end;
     }
-    moved.any().then_some((out, moved))
+    out.filter(|_| moved.any()).map(|out| (out, moved))
 }
 
 /// The columns before a line's first character, a tab reaching the next multiple of four.
-fn indent_of(line: &str) -> usize {
+pub(crate) fn indent_of(line: &str) -> usize {
     let mut column = 0;
     for byte in line.bytes() {
         match byte {
@@ -78,7 +88,7 @@ fn indent_of(line: &str) -> usize {
 
 /// The width of the bullet or number starting `rest` with the spaces after it, which is where
 /// the item's text starts.
-fn list_marker(rest: &str) -> Option<usize> {
+pub(crate) fn list_marker(rest: &str) -> Option<usize> {
     let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
     let marker = match rest.as_bytes().get(digits)? {
         b'.' | b')' if (1..=9).contains(&digits) => digits + 1,
@@ -95,7 +105,7 @@ fn list_marker(rest: &str) -> Option<usize> {
 }
 
 /// The fence character and its run's width when `rest` opens a fence.
-fn fence_of(rest: &str) -> Option<(u8, usize)> {
+pub(crate) fn fence_of(rest: &str) -> Option<(u8, usize)> {
     let mark = *rest
         .as_bytes()
         .first()
@@ -105,7 +115,7 @@ fn fence_of(rest: &str) -> Option<(u8, usize)> {
     (width >= 3 && !(mark == b'`' && info.contains('`'))).then_some((mark, width))
 }
 
-fn closes(line: &str, mark: u8, width: usize) -> bool {
+pub(crate) fn closes(line: &str, mark: u8, width: usize) -> bool {
     let rest = line.trim_start_matches([' ', '\t']);
     let run = rest.bytes().take_while(|byte| *byte == mark).count();
     run >= width && rest.get(run..).is_some_and(|after| after.trim().is_empty())
