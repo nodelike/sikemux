@@ -12,7 +12,7 @@ use sentry::protocol::debugid::DebugId;
 pub(super) fn walk(registers: Registers, stack: &Stack<'_>, modules: &[Module]) -> Vec<u64> {
     let mut unwinder = UnwinderNative::<Vec<u8>, MayAllocateDuringUnwind>::new();
     let mut cache = CacheNative::new_in();
-    let mut opened = vec![false; modules.len()];
+    let mut unopened: Vec<&Module> = modules.iter().collect();
     let mut addresses = vec![registers.instruction];
     let known = (modules.iter()).any(|module| module.holds(registers.instruction));
     let called = (!known).then(|| called_from(&registers, stack)).flatten();
@@ -31,11 +31,9 @@ pub(super) fn walk(registers: Registers, stack: &Stack<'_>, modules: &[Module]) 
     };
     while addresses.len() < MAX_FRAMES {
         let at = address.address_for_lookup();
-        if let Some(holder) = modules.iter().position(|module| module.holds(at)) {
-            if !std::mem::replace(&mut opened[holder], true) {
-                if let Some(module) = modules[holder].unwind_tables() {
-                    unwinder.add_module(module);
-                }
+        if let Some(holder) = unopened.iter().position(|module| module.holds(at)) {
+            if let Some(module) = unopened.swap_remove(holder).unwind_tables() {
+                unwinder.add_module(module);
             }
         }
         let mut word = |at| stack.word(at).ok_or(());
