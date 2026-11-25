@@ -183,17 +183,6 @@ export function Account({
         onJoined={joined}
       />
     );
-  if (page === START)
-    return (
-      <StartPage
-        team={team}
-        staff={staff}
-        orgs={list}
-        offers={offers.offers}
-        follow={follow}
-        onJoined={joined}
-      />
-    );
 
   const hosts =
     devices.load.state === "loaded"
@@ -264,6 +253,15 @@ export function Account({
         <Problem>{orgs.problem}</Problem>
       </Section>
     </Page>
+  ) : page === START ? (
+    <StartPage
+      team={team}
+      staff={staff}
+      orgs={list}
+      offers={offers.offers}
+      follow={follow}
+      onJoined={joined}
+    />
   ) : page === PRICING ? (
     <PricingPage orgs={list} reload={orgs.reload} />
   ) : page === BILLING ? (

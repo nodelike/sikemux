@@ -5,41 +5,30 @@ import type {
   OrgOffer,
   TeamAccess,
 } from "@sikemux/protocol";
-import { IconBack, IconChevron, IconLink, IconPlus } from "@shared/ui/Icons";
-import { type MouseEvent, type ReactNode, useEffect, useState } from "react";
+import {
+  IconLink,
+  IconMinus,
+  IconPlus,
+  IconUser,
+  IconUsers,
+} from "@shared/ui/Icons";
+import { type MouseEvent, useEffect, useState } from "react";
 
+import "./account.css";
 import { problemText } from "./api.ts";
 import { OrgAvatar } from "./Avatar.tsx";
-import { personSvg } from "./avatarSvg.ts";
-import {
-  FREE_DURING_PREVIEW,
-  NewTeam,
-  NOT_OPEN,
-  useCheckout,
-  useClient,
-} from "./Billing.tsx";
+import { NOT_OPEN, useCheckout, useClient } from "./Billing.tsx";
 import { useCheer } from "./Field.tsx";
 import { BringSeat } from "./Fold.tsx";
-import { Foot } from "./Frame.tsx";
-import { useOrgMark } from "./logos.ts";
-import { brandMark, iconMark } from "./marks.ts";
-import { money, priceOf, productOf } from "./money.ts";
+import { iconMark } from "./marks.ts";
+import { money, PER, priceOf, productOf, times } from "./money.ts";
 import { HOSTS, JOIN, orgPath } from "./navigation.ts";
-import {
-  Btn,
-  btnClass,
-  Field,
-  Hero,
-  Problem,
-  Row,
-  Rows,
-  Tile,
-  Txt,
-  useAction,
-} from "./ui.tsx";
+import { Btn, btnClass, Notice, Page, Problem, useAction } from "./ui.tsx";
 
 type Follow = (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
 type Joined = (orgId: string) => Promise<void>;
+
+const NAME_MAX = 64;
 
 /** Starting an org of one's own, or joining one that takes the person in. */
 export function StartPage({
@@ -60,7 +49,6 @@ export function StartPage({
   const { user } = useUser();
   const [naming, setNaming] = useState(false);
   const { catalog, canBuy, problem } = usePrices(team);
-  const first = orgs.length === 0;
   const unit = catalog && priceOf(productOf(catalog, "team"), "month");
   const perSeat = unit && `${money(unit, { cents: false })} a seat a month.`;
   const preview = team === "preview";
@@ -68,128 +56,116 @@ export function StartPage({
     preview && !staff
       ? orgs.find((org) => org.role === "owner" && org.preview)
       : undefined;
-  const ownMark = useOrgMark(own);
-  const back = first ? (
-    <Txt onClick={() => setNaming(false)}>
-      <IconBack className="ic" /> Back
-    </Txt>
-  ) : (
-    <a
-      className="txt"
-      href={orgPath(orgs[0].id)}
-      onClick={follow(orgPath(orgs[0].id))}
-    >
-      <IconBack className="ic" /> Back
-    </a>
-  );
+  const skipTo = orgs[0] ? orgPath(orgs[0].id) : HOSTS;
 
-  if (own)
+  if (naming && !own)
     return (
-      <Hero
-        title="One org each, for now"
-        lede={`The preview gives each person one org, and you made ${own.name}.`}
-        mark={ownMark}
-        scene="blue"
-        tone="waiting"
-        back={back}
-        foot={<Foot />}
-      >
-        <div className="do">
-          <a
-            className={btnClass({})}
-            href={orgPath(own.id)}
-            onClick={follow(orgPath(own.id))}
-          >
-            Go to {own.name}
-          </a>
-          <a
-            className={btnClass({ quiet: true })}
-            href={JOIN}
-            onClick={follow(JOIN)}
-          >
-            Join another with a link
-          </a>
-        </div>
-        <Others offers={offers} onJoined={onJoined} />
-      </Hero>
-    );
-
-  if (first && !naming)
-    return (
-      <Hero
-        title={`Welcome${user?.firstName ? `, ${user.firstName}` : ""}`}
-        lede={
-          offers.length > 0
-            ? `${offers[0].name} uses your work address. You can join now.`
-            : "Sikemux works on your own. Bring others in when you want to."
-        }
-        mark={user ? { svg: personSvg(user.id, "hero") } : brandMark}
-        scene="blue"
-        foot={<Foot />}
-      >
-        <div className="two">
-          {offers.map((offer) => (
-            <OfferCard key={offer.orgId} offer={offer} onJoined={onJoined} />
-          ))}
-          <button type="button" className="ch" onClick={() => setNaming(true)}>
-            <IconPlus className="ic" />
-            <b>{offers.length > 0 ? "Start your own org" : "Start an org"}</b>
-            <span>
-              {offers.length > 0
-                ? "You can be in as many as you like."
-                : preview
-                  ? "Free for up to 20 people in the preview."
-                  : (perSeat ?? "Seats are paid by the month.")}
-            </span>
-            <em>
-              Name it <IconChevron className="ic" />
-            </em>
-          </button>
-          <a className="ch" href={JOIN} onClick={follow(JOIN)}>
-            <IconLink className="ic" />
-            <b>Join with a link</b>
-            <span>Paste the link somebody sent you.</span>
-            <em>
-              Paste it <IconChevron className="ic" />
-            </em>
-          </a>
-        </div>
-        <p className="note">
-          <a className="txt" href={HOSTS} onClick={follow(HOSTS)}>
-            Just me for now
-          </a>
-        </p>
-        <Moved />
-      </Hero>
+      <div className="start-page">
+        <Page
+          title="Name your org"
+          lede="You can change it later."
+          mark={iconMark("org")}
+          scene="you"
+        >
+          {preview ? (
+            <PreviewForm
+              perSeat={perSeat}
+              onBack={() => setNaming(false)}
+              onJoined={onJoined}
+            />
+          ) : (
+            <SoldForm
+              catalog={catalog}
+              canBuy={canBuy}
+              problem={problem}
+              onBack={() => setNaming(false)}
+            />
+          )}
+        </Page>
+      </div>
     );
 
   return (
-    <Hero
-      title="Name your org"
-      lede={
-        preview
-          ? "Free for up to 20 people. You can be in others too."
-          : "You can be in others too."
-      }
-      mark={iconMark("org")}
-      scene="blue"
-      back={back}
-      foot={<Foot />}
-    >
-      {preview ? (
-        <PreviewForm perSeat={perSeat} onJoined={onJoined} />
-      ) : (
-        <SoldForm
-          catalog={catalog}
-          canBuy={canBuy}
-          onCancel={() =>
-            first ? setNaming(false) : location.assign(orgPath(orgs[0].id))
-          }
-        />
-      )}
-      <Problem>{problem}</Problem>
-      <Others offers={first ? [] : offers} onJoined={onJoined} />
-    </Hero>
+    <div className="start-page">
+      <Page
+        title={
+          own
+            ? "Orgs"
+            : `Welcome${user?.firstName ? `, ${user.firstName}` : ""}`
+        }
+        lede="Sikemux works on your own. Bring others in when you want to."
+        notice={
+          own ? (
+            <Notice
+              icon={<IconUsers size={16} />}
+              title="One org each, for now"
+              actions={
+                <a
+                  className={btnClass({ quiet: true, small: true })}
+                  href={orgPath(own.id)}
+                  onClick={follow(orgPath(own.id))}
+                >
+                  Open {own.name}
+                </a>
+              }
+            >
+              You already started {own.name}.
+            </Notice>
+          ) : undefined
+        }
+        mark={iconMark("org")}
+        scene="you"
+      >
+        <div className="start-list">
+          {offers.map((offer) => (
+            <OfferPath key={offer.orgId} offer={offer} onJoined={onJoined} />
+          ))}
+          <button
+            type="button"
+            className="start-path"
+            disabled={Boolean(own)}
+            onClick={() => setNaming(true)}
+          >
+            <span className="start-ic">
+              <IconPlus size={20} />
+            </span>
+            <span className="start-copy">
+              <b>{offers.length > 0 ? "Start your own org" : "Start an org"}</b>
+              <small>
+                {preview
+                  ? "Free for up to 20 people in the preview."
+                  : (perSeat ?? "Seats are paid by the month.")}
+              </small>
+            </span>
+            <em className="start-pill">Start</em>
+          </button>
+          <a className="start-path" href={JOIN} onClick={follow(JOIN)}>
+            <span className="start-ic">
+              <IconLink size={20} />
+            </span>
+            <span className="start-copy">
+              <b>Join with a link</b>
+              <small>Paste the link somebody sent you.</small>
+            </span>
+            <em className="start-pill">Paste</em>
+          </a>
+          <a className="start-path" href={skipTo} onClick={follow(skipTo)}>
+            <span className="start-ic">
+              <IconUser size={20} />
+            </span>
+            <span className="start-copy">
+              <b>Just me for now</b>
+              <small>Sikemux works on your own.</small>
+            </span>
+            <em className="start-pill">Skip</em>
+          </a>
+        </div>
+        <p className="start-fine">
+          Hold a seat on another account? Sign in with that account once and its
+          seat moves here. It must hold nothing but the seat. <BringSeat />
+        </p>
+      </Page>
+    </div>
   );
 }
 
@@ -229,9 +205,11 @@ function usePrices(team: TeamAccess) {
 
 function PreviewForm({
   perSeat,
+  onBack,
   onJoined,
 }: {
   perSeat?: string;
+  onBack: () => void;
   onJoined: Joined;
 }) {
   const client = useClient();
@@ -239,60 +217,164 @@ function PreviewForm({
   const action = useAction();
   const [name, setName] = useState("");
   return (
-    <>
-      <form
-        className="do"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!name.trim() || action.busy) return;
-          void action.run(
-            async () => {
-              const routes = await client("start a Team");
-              const org = await routes.createOrg({ name: name.trim() });
-              cheer();
-              await onJoined(org.id);
-            },
-            (error) => `${problemText(error)} No org was made.`,
-          );
-        }}
-      >
-        <Field
-          aria-label="Org name"
-          placeholder="Your org&rsquo;s name"
-          value={name}
-          maxLength={40}
-          autoFocus
-          onChange={(event) => setName(event.target.value)}
-        />
-        <Btn type="submit" busy={action.busy} disabled={!name.trim()}>
-          Start the org
-        </Btn>
-      </form>
-      <p className="fine">
-        {perSeat ? `${perSeat} ` : ""}
-        {FREE_DURING_PREVIEW}.
+    <form
+      className="start-name"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!name.trim() || action.busy) return;
+        void action.run(
+          async () => {
+            const routes = await client("start a Team");
+            const org = await routes.createOrg({ name: name.trim() });
+            cheer();
+            await onJoined(org.id);
+          },
+          (error) => `${problemText(error)} No org was made.`,
+        );
+      }}
+    >
+      <input
+        className="start-name-in"
+        aria-label="Org name"
+        placeholder="Your org's name"
+        value={name}
+        maxLength={40}
+        autoFocus
+        disabled={action.busy}
+        onChange={(event) => setName(event.target.value)}
+      />
+      <p className="start-hint">
+        Free for up to 20 people in the preview.{perSeat ? ` ${perSeat}` : ""}
       </p>
       <Problem>{action.problem}</Problem>
-    </>
+      <div className="start-acts">
+        <Btn type="submit" busy={action.busy} disabled={!name.trim()}>
+          {action.busy ? "Making it" : "Make the org"}
+        </Btn>
+        <Btn quiet disabled={action.busy} onClick={onBack}>
+          Back
+        </Btn>
+      </div>
+    </form>
   );
 }
 
 function SoldForm({
   catalog,
   canBuy,
-  onCancel,
+  problem,
+  onBack,
 }: {
   catalog?: BillingCatalog;
   canBuy: boolean;
-  onCancel: () => void;
+  problem?: string;
+  onBack: () => void;
 }) {
   const checkout = useCheckout();
+  const [name, setName] = useState("");
+  const [seats, setSeats] = useState(3);
+  if (problem)
+    return (
+      <div className="start-name">
+        <Problem>{problem}</Problem>
+        <div className="start-acts">
+          <Btn quiet onClick={onBack}>
+            Back
+          </Btn>
+        </div>
+      </div>
+    );
   if (!catalog) return null;
-  if (!canBuy) return <p className="fine">{NOT_OPEN}.</p>;
-  return <NewTeam catalog={catalog} checkout={checkout} onCancel={onCancel} />;
+  if (!canBuy)
+    return (
+      <div className="start-name">
+        <p className="start-hint">{NOT_OPEN}.</p>
+        <div className="start-acts">
+          <Btn quiet onClick={onBack}>
+            Back
+          </Btn>
+        </div>
+      </div>
+    );
+  const team = productOf(catalog, "team");
+  const unit = priceOf(team, "month");
+  const maxSeats = team?.maxQuantity ?? 1000;
+  return (
+    <form
+      className="start-name"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!name.trim() || checkout.busy) return;
+        void checkout.go(async (routes) => {
+          const org = await routes.createOrg({ name: name.trim() });
+          return routes.startCheckout({
+            product: "team",
+            interval: "month",
+            quantity: seats,
+            orgId: org.id,
+          });
+        });
+      }}
+    >
+      <input
+        className="start-name-in"
+        aria-label="Org name"
+        placeholder="Your org's name"
+        value={name}
+        maxLength={NAME_MAX}
+        autoFocus
+        disabled={checkout.busy}
+        onChange={(event) => setName(event.target.value)}
+      />
+      <p className="start-hint">People see it when you invite them.</p>
+      <div className="start-buy">
+        <span className="start-step">
+          <button
+            type="button"
+            aria-label="Fewer seats"
+            disabled={checkout.busy || seats <= 1}
+            onClick={() => setSeats((now) => Math.max(1, now - 1))}
+          >
+            <IconMinus size={14} />
+          </button>
+          <b>{seats}</b>
+          <button
+            type="button"
+            aria-label="More seats"
+            disabled={checkout.busy || seats >= maxSeats}
+            onClick={() => setSeats((now) => Math.min(maxSeats, now + 1))}
+          >
+            <IconPlus size={14} />
+          </button>
+        </span>
+        <span className="start-price">
+          <b>
+            {unit
+              ? `${money(times(unit, seats), { cents: false })} ${PER.month}`
+              : `${seats} ${seats === 1 ? "seat" : "seats"}`}
+          </b>
+          {unit ? (
+            <small>
+              {seats} {seats === 1 ? "seat" : "seats"} at{" "}
+              {money(unit, { cents: false })}
+            </small>
+          ) : null}
+        </span>
+      </div>
+      <Problem>{checkout.problem}</Problem>
+      <div className="start-acts">
+        <Btn type="submit" busy={checkout.busy} disabled={!name.trim()}>
+          Start Team
+        </Btn>
+        <Btn quiet disabled={checkout.busy} onClick={onBack}>
+          Back
+        </Btn>
+      </div>
+    </form>
+  );
 }
 
-function useJoin(offer: OrgOffer, onJoined: Joined) {
+function OfferPath({ offer, onJoined }: { offer: OrgOffer; onJoined: Joined }) {
   const client = useClient();
   const cheer = useCheer();
   const action = useAction();
@@ -307,117 +389,28 @@ function useJoin(offer: OrgOffer, onJoined: Joined) {
       },
       (error) => `${problemText(error)} You did not join.`,
     );
-  return { ...action, join };
-}
-
-function offerWords(offer: OrgOffer) {
-  return offer.seatFree
-    ? `Open to everyone at ${offer.domain}. You'd join as Member, on one of its free seats.`
-    : `Open to everyone at ${offer.domain}, but every seat is taken. Ask its owner to add one.`;
-}
-
-function OfferCard({ offer, onJoined }: { offer: OrgOffer; onJoined: Joined }) {
-  const { join, busy, problem } = useJoin(offer, onJoined);
   return (
     <>
       <button
         type="button"
-        className="ch"
-        disabled={!offer.seatFree || busy}
-        data-busy={busy || undefined}
+        className="start-path big"
+        disabled={!offer.seatFree || action.busy}
         onClick={join}
       >
-        <OrgAvatar org={{ id: offer.orgId }} size={30} />
-        <b>{offer.name}</b>
-        <span>{offerWords(offer)}</span>
-        {offer.seatFree ? (
-          <em>
-            {busy ? "Joining" : "Join"} <IconChevron className="ic" />
-          </em>
-        ) : null}
+        <OrgAvatar org={{ id: offer.orgId }} size={40} />
+        <span className="start-copy">
+          <b>{offer.name} uses your work address</b>
+          <small>
+            {offer.seatFree
+              ? `Open to everyone at ${offer.domain}. You'd join as Member, on one of its free seats.`
+              : "Every seat is taken. Ask its owner to add one."}
+          </small>
+        </span>
+        <em className="start-pill">
+          {!offer.seatFree ? "Full" : action.busy ? "Joining" : "Join"}
+        </em>
       </button>
-      <Problem>{problem}</Problem>
+      <Problem>{action.problem}</Problem>
     </>
-  );
-}
-
-function OfferRow({ offer, onJoined }: { offer: OrgOffer; onJoined: Joined }) {
-  const { join, busy, problem } = useJoin(offer, onJoined);
-  return (
-    <Row
-      lead={<OrgAvatar org={{ id: offer.orgId }} size={28} />}
-      name={offer.name}
-      detail={offerWords(offer)}
-      wrap
-      end={
-        <Btn small disabled={!offer.seatFree} busy={busy} onClick={join}>
-          Join
-        </Btn>
-      }
-    >
-      <Problem>{problem}</Problem>
-    </Row>
-  );
-}
-
-/** Ways into an org other than starting one, under the form. */
-function Others({
-  offers,
-  onJoined,
-}: {
-  offers: OrgOffer[];
-  onJoined: Joined;
-}) {
-  return (
-    <>
-      {offers.length > 0 ? (
-        <Rows>
-          {offers.map((offer) => (
-            <OfferRow key={offer.orgId} offer={offer} onJoined={onJoined} />
-          ))}
-        </Rows>
-      ) : null}
-      <Moved />
-    </>
-  );
-}
-
-function Moved() {
-  return (
-    <Rows>
-      <Help
-        icon={<IconLink className="ic" />}
-        name="Been given an invite link?"
-        detail="Open it while signed in here and you join that org. Nothing is mailed, so ask the owner for one."
-      />
-      <Help
-        icon={<IconPlus className="ic" />}
-        name="Hold a seat on another account?"
-        detail="Sign in with that account once and its seat moves here. It must hold nothing but the seat."
-        end={<BringSeat />}
-      />
-    </Rows>
-  );
-}
-
-function Help({
-  icon,
-  name,
-  detail,
-  end,
-}: {
-  icon: ReactNode;
-  name: string;
-  detail: string;
-  end?: ReactNode;
-}) {
-  return (
-    <Row
-      lead={<Tile>{icon}</Tile>}
-      name={name}
-      detail={detail}
-      end={end}
-      wrap
-    />
   );
 }
