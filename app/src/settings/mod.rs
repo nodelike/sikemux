@@ -334,7 +334,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         return div().into_any_element();
     };
     let t = Tokens::get(cx).clone();
-    let found = index::search(&settings.query, cx);
+    let found = index::search(&settings.query, bench, cx);
     let searching = !settings.query.trim().is_empty();
     let close_keys = crate::keymap::hint(actions::ToggleSettings::ID, cx)
         .map_or_else(|| "Esc".to_owned(), |keys| t!("Esc / {keys}", keys = keys));
@@ -491,14 +491,14 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                 }))
                 .on_action(window.listener_for(&this, |bench, _: &ResultDown, _, cx| {
                     change(bench, cx, |settings, cx| {
-                        let found = index::search(&settings.query, cx).len();
+                        let found = index::search(&settings.query, bench, cx).len();
                         settings.chosen = (settings.chosen + 1).min(found.saturating_sub(1));
                     });
                 }))
                 .on_action(
                     window.listener_for(&this, |bench, _: &OpenResult, window, cx| {
                         let chosen = bench.settings.read(cx).open.as_ref().and_then(|settings| {
-                            index::search(&settings.query, cx)
+                            index::search(&settings.query, bench, cx)
                                 .get(settings.chosen)
                                 .copied()
                         });

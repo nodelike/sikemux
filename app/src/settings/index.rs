@@ -2,10 +2,12 @@
 
 use crate::i18n::tr;
 use gpui_kit::App;
+use sikemux_corekit::accounts;
 
 use super::pages;
 use crate::icons::Icon;
 use crate::keymap;
+use crate::workbench::Workbench;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Page {
@@ -217,21 +219,24 @@ fn entries() -> impl Iterator<Item = &'static Entry> {
     .flatten()
 }
 
-/// Whether `entry` is on this system.
-fn here(entry: &Entry) -> bool {
+/// Whether `entry` is on this system, and its page draws it for this account.
+fn here(entry: &Entry, has_orgs: bool) -> bool {
     entry.page.here()
+        && (has_orgs || (entry.page, entry.label) != (Account, "Orgs"))
         && (cfg!(target_os = "macos") || !MAC_ONLY_ROWS.contains(&(entry.page, entry.label)))
 }
 
 /// The places whose words hold every word of `query`, those whose label
 /// starts with it first, then those whose label holds it. Every command is a
 /// place too, found by its name, what it does or its keys.
-pub fn search(query: &str, cx: &App) -> Vec<Entry> {
+pub fn search(query: &str, bench: &Workbench, cx: &App) -> Vec<Entry> {
     let query = query.trim().to_lowercase();
     let words: Vec<&str> = query.split_whitespace().collect();
     if words.is_empty() {
         return Vec::new();
     }
+    let account = bench.this_view().and_then(|view| view.account.as_deref());
+    let has_orgs = accounts::shown_orgs(account).next().is_some();
     let shortcuts = keymap::shortcuts().iter().map(|shortcut| {
         let keys = keymap::hint_named(shortcut.id, cx).unwrap_or_default();
         let entry = Entry {
@@ -244,7 +249,7 @@ pub fn search(query: &str, cx: &App) -> Vec<Entry> {
         (entry, format!("shortcut {keys}"))
     });
     let mut found: Vec<(usize, usize, Entry)> = entries()
-        .filter(|entry| here(entry))
+        .filter(|entry| here(entry, has_orgs))
         .map(|entry| (*entry, String::new()))
         .chain(shortcuts)
         .enumerate()
