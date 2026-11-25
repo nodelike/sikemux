@@ -269,18 +269,11 @@ fn derive_agents(bench: &Workbench, pins: &[&RecentInfo], key: TreeKey) -> Deriv
             .map(|row| {
                 let mut top = row;
                 for _ in 0..rows.len() {
-                    match top.lead.as_deref().and_then(|lead| at.get(lead)) {
-                        Some(lead) => top = lead,
-                        None => break,
+                    if let Some(lead) = top.lead.as_deref().and_then(|lead| at.get(lead)) {
+                        top = lead;
+                    } else {
+                        break;
                     }
-                    let rows = (placed.into_iter()).map(|placed| {
-                        let fold = (placed.below > 0).then(|| Fold {
-                            open: !bench.rails.folded_teams.contains(&placed.row.id),
-                            count: placed.below,
-                        });
-                        agent_row(bench, &placed.row, &placed.hang, fold, false, cx)
-                    });
-                    div().flex().flex_col().children(rows).into_any_element()
                 }
                 (
                     home_of(&homes, top).to_owned(),

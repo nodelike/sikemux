@@ -19,6 +19,7 @@ use crate::core::{utc_offset_minutes, ChatAsk, ChatNews, Target, Update};
 use crate::hosts::Place;
 use crate::reads::Read;
 use crate::toast;
+use crate::workbench::PartSet;
 use crate::workbench::{Strip, Workbench};
 use sikemux_calls::layout::HostParams;
 
@@ -110,7 +111,6 @@ impl Workbench {
                 self.feeds.unavailable = Some(reason);
                 self.parts.redraw_set(PartSet::SIDE | PartSet::STAGE, cx);
             }
-            Update::HostsUnavailable(reason) => self.feeds.unavailable = Some(reason),
             Update::OnNetwork(key) => {
                 self.feeds.unavailable = None;
                 self.feeds.app_key = key;
@@ -138,13 +138,16 @@ impl Workbench {
                     self.find_once_attached(agent.clone(), None, cx);
                 }
                 self.sync_chat_view(&agent, cx);
-                let restage = self
+                let head_moved = self
                     .chats
                     .open
                     .get_mut(&agent)
                     .is_some_and(Chat::take_head_moved);
-                if restage && self.agent().is_some_and(|front| front.id == agent) {
-                    self.parts.redraw_stage(cx);
+                if head_moved {
+                    self.redraw_composer(&agent, cx);
+                    if self.agent().is_some_and(|front| front.id == agent) {
+                        self.parts.redraw_stage(cx);
+                    }
                 }
             }
             Update::Failed(error) => {
@@ -202,9 +205,6 @@ impl Workbench {
                 self.remote = Some(*status);
                 crate::pairing::remote_moved(self, cx);
                 self.parts.redraw_stage(cx);
-            }
-            Update::WindowCall(call_id, call) => {
-                self.answer_window_call(call_id, call, cx);
             }
             Update::WindowCall(call_id, call) => self.answer_window_call(call_id, call, cx),
             Update::Changed {
@@ -327,28 +327,58 @@ impl Workbench {
         if prev.calls != next.calls {
             dirty |= PartSet::BAR | PartSet::STAGE;
         }
-        cx.notify();
+        if prev.now != next.now && in_front {
+            dirty |= PartSet::STAGE;
+        }
+        if prev.account != next.account && here {
+            dirty |= PartSet::SIDE | PartSet::AGENTS | PartSet::STAGE;
+            if over_shown {
+                dirty |= PartSet::OVER;
+            }
+        }
+        if prev.face_style != next.face_style && here {
+            dirty |= PartSet::BAR | PartSet::AGENTS | PartSet::STAGE;
+            agents_dirty = true;
+        }
+        if prev.load != next.load && here {
+            dirty |= PartSet::BAR;
+        }
+        if prev.alerts != next.alerts {
+            dirty |= PartSet::SIDE;
+            if self.hosts_in_front() {
+                dirty |= PartSet::STAGE;
+            }
+        }
+        if prev.updates != next.updates {
+            dirty |= PartSet::SIDE | PartSet::STAGE;
+            if over_shown {
+                dirty |= PartSet::OVER;
+            }
+        }
+        if prev.chief_targets != next.chief_targets {
+            dirty |= PartSet::STAGE;
+        }
+        (dirty, agents_dirty)
     }
 
     /// Takes in the view of the core at `place`.
     pub(crate) fn view_arrived(&mut self, place: Place, view: DeviceView, cx: &mut Context<Self>) {
         let here = place == Place::This;
-        if !here && self.view_at(&place) == Some(&view) {
+        if self.view_at(&place) == Some(&view) {
             return;
         }
         self.mods_follow(&place, crate::mod_pane::Moved::View, cx);
         let calls_moved = self
             .view_at(&place)
             .is_none_or(|shown| shown.calls != view.calls);
+        let (dirty, agents_dirty) = self.diff_view(&place, &view, cx);
+        if agents_dirty {
+            self.view_rev = self.view_rev.wrapping_add(1);
+        }
         match &place {
             Place::This => {
                 crate::ui::moving_face::set_on(view.face_style.motion, cx);
-                let account_moved =
-                    self.this_view().map(|shown| &shown.account) != Some(&view.account);
                 self.feeds.this.view = Some(view);
-                if account_moved {
-                    self.parts.redraw(&self.parts.side, cx);
-                }
                 self.forget_departed(cx);
                 self.show_pins(cx);
             }
@@ -369,10 +399,6 @@ impl Workbench {
         crate::ui::grain::celebrate(moment.as_ref(), in_pane.as_deref(), cx);
         self.keep_desk_mods(&place, cx);
         self.keep_cards(cx);
-        // The chat's call cards draw inside the cached stage, which a new view alone leaves as it was.
-        if calls_moved {
-            self.parts.redraw_stage(cx);
-        }
         self.settle_closing();
         self.keep_terminals();
         crate::editor::keep(self, cx);
@@ -408,7 +434,9 @@ impl Workbench {
         self.note_front_copy();
         self.watch_hosts_page();
         self.publish_on_screen();
-        cx.notify();
+        if !dirty.is_empty() {
+            self.redraw(dirty, cx);
+        }
     }
 
     /// Ends the terminals their core no longer lists.
