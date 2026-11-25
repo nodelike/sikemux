@@ -75,6 +75,10 @@
   min-height: var(--ctl);
 }
 
+.setting .seg {
+  align-self: flex-start;
+}
+
 .set-switch-label {
   font-size: var(--t);
   color: var(--ink);
