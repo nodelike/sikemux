@@ -3021,12 +3021,27 @@ fn navigation(
     }))
 }
 
-/// The title of the artifact in front, at the start of its bar and in full on hover.
+/// The artifact's icon and its title in front, at the start of its bar, the title in full on hover.
 fn artifact_title(title: String, cx: &App) -> impl IntoElement {
-    ui::pane_title(title.clone(), Tokens::get(cx).text_primary)
+    let t = Tokens::get(cx);
+    div()
         .flex_1()
+        .min_w_0()
         .pl(SPACE_1)
-        .tooltip(ui::tooltip(title))
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .child(
+            ui::icon(Icon::Presentation, 13.)
+                .text_color(t.text_tertiary)
+                .flex_none(),
+        )
+        .child(div().flex_none().text_color(t.text_tertiary).child("·"))
+        .child(
+            ui::pane_title(title.clone(), t.text_primary)
+                .flex_1()
+                .tooltip(ui::tooltip(title)),
+        )
 }
 
 /// The way from the artifact in front back to the ask linking it.
