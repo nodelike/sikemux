@@ -18,10 +18,9 @@ import {
   IconPlus,
   IconStack,
 } from "@shared/ui/Icons";
-import { useState, type CSSProperties, type MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 
 import { problemText } from "./api.ts";
-import { Avatar, PersonAvatar } from "./Avatar.tsx";
 import { orgSvg, personSvg } from "./avatarSvg.ts";
 import { useClient } from "./Billing.tsx";
 import { useCheer } from "./Field.tsx";
@@ -37,7 +36,7 @@ import {
   useLoad,
 } from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
-import { stippledDisc } from "./stipple.ts";
+import { freeSeats, MemberAvatar, people, Seats } from "./Seats.tsx";
 import {
   Btn,
   btnClass,
@@ -68,18 +67,7 @@ const ROLE_DETAIL: Record<OrgRole, string> = {
   user: "Works in the org",
 };
 
-function MemberAvatar({ member, size }: { member: OrgMember; size?: number }) {
-  return member.you ? (
-    <Avatar size={size} />
-  ) : (
-    <PersonAvatar id={member.id} imageUrl={member.imageUrl} size={size} />
-  );
-}
-
 const nameOf = (member: OrgMember) => member.name ?? "Someone";
-
-const people = (count: number) =>
-  `${count} ${count === 1 ? "person" : "people"}`;
 
 const copyText = (text: string) =>
   navigator.clipboard.writeText(text).then(
@@ -144,7 +132,7 @@ export function PeoplePage({
     );
 
   const { members, invites, teams } = loaded.data ?? {};
-  const free = Math.max(0, org.seats.limit - org.seats.held);
+  const free = freeSeats(org);
   const boss = members?.find((each) => each.role === "owner");
   const bossName = boss?.name ?? "An owner";
   const open = changeable(org, team);
@@ -169,7 +157,7 @@ export function PeoplePage({
         </Rows>
       </Card>
       <Column w={5} side>
-        <Seats org={org} members={members} free={free} />
+        <Seats org={org} members={members} />
         {runs(org) && (open || invites.length > 0) ? (
           <Invites
             org={org}
@@ -544,48 +532,6 @@ function MemberRow({
         <Problem>{action.problem}</Problem>
       ) : null}
     </Row>
-  );
-}
-
-function Seats({
-  org,
-  members,
-  free,
-}: {
-  org: Org;
-  members: OrgMember[];
-  free: number;
-}) {
-  const links = Math.max(0, org.seats.held - members.length);
-  const seats = { "--seat-mask": stippledDisc() } as CSSProperties;
-  return (
-    <Card label="Seats">
-      <div className="seatw">
-        <div>
-          <div className="big">
-            {org.seats.held}
-            <small>{frozen(org) ? "taken" : `of ${org.seats.limit}`}</small>
-          </div>
-          <p className="note">
-            {people(members.length)}, {links} {links === 1 ? "link" : "links"}{" "}
-            out{frozen(org) ? "" : `, ${free} free`}
-          </p>
-        </div>
-        <div className="seats" style={seats} aria-hidden="true">
-          {members.map((member) => (
-            <span className="s" key={member.id}>
-              <MemberAvatar member={member} />
-            </span>
-          ))}
-          {Array.from({ length: links }, (_, at) => (
-            <span className="s h" key={`link${at}`} />
-          ))}
-          {Array.from({ length: Math.min(free, 200) }, (_, at) => (
-            <span className="s f" key={`free${at}`} />
-          ))}
-        </div>
-      </div>
-    </Card>
   );
 }
 

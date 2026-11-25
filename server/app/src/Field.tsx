@@ -137,7 +137,16 @@ export function Mark({ picture, scene, tone, hero }: Stage) {
   const key = JSON.stringify(picture);
   useLayoutEffect(() => {
     box.current?.append(field.spot);
-    return () => field.spot.remove();
+    const moves = new ResizeObserver(field.measure);
+    for (const around of [
+      box.current?.parentElement,
+      box.current?.closest("main"),
+    ])
+      if (around) moves.observe(around);
+    return () => {
+      moves.disconnect();
+      field.spot.remove();
+    };
   }, [field]);
   useLayoutEffect(() => {
     field.stage({ picture: JSON.parse(key) as Picture, scene, tone, hero });

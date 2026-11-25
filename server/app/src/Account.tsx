@@ -172,7 +172,15 @@ export function Account({
     await Promise.all([orgs.reload(), offers.reload()]);
     go(orgPath(id));
   };
-  if (page === JOIN) return <JoinPage follow={follow} onJoined={joined} />;
+  if (page === JOIN)
+    return (
+      <JoinPage
+        canPaste={settled ? canStart : undefined}
+        follow={follow}
+        onHome={() => go("/", { replace: true })}
+        onJoined={joined}
+      />
+    );
   if (page === START)
     return (
       <StartPage

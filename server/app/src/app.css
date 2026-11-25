@@ -1297,6 +1297,7 @@ canvas.dots {
   }
   .head {
     min-height: 148px;
+    padding-bottom: 18px;
     gap: 8px;
   }
   .head .tx {

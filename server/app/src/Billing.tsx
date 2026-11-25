@@ -8,6 +8,7 @@ import type {
   ChangeWhen,
   Invoice,
   Org,
+  OrgMember,
   PlanFeature,
   ScheduledChange,
   SeatPause,
@@ -57,8 +58,9 @@ import {
   times,
 } from "./money.ts";
 import { orgPath, START } from "./navigation.ts";
-import { frozen } from "./orgs.ts";
+import { frozen, useLoad } from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
+import { Seats } from "./Seats.tsx";
 import { ShedBoxes } from "./Shed.tsx";
 import {
   Btn,
@@ -223,8 +225,13 @@ function NotLoaded({
 const TestMode = ({ live }: { live: boolean }) =>
   live ? null : <Chip tone="warn">TEST MODE</Chip>;
 
+/** What has not ended. The API ends a plan whose payer left, though the provider may not have said so yet. */
 const openSubs = (overview: BillingOverview) =>
-  overview.subscriptions.filter((sub) => sub.status !== "ended");
+  overview.subscriptions
+    .filter((sub) => sub.status !== "ended")
+    .map((sub) =>
+      overview.payer === "departed" ? { ...sub, cancelAtPeriodEnd: true } : sub,
+    );
 
 function usePlanSub({ catalog, overview }: Loaded) {
   return openSubs(overview).find(
@@ -588,6 +595,12 @@ export function OrgBillingPage({
   team: TeamAccess;
 }) {
   const { load, reload } = useBill(version, org.id);
+  const client = useClient();
+  const members = useLoad(
+    async () =>
+      (await (await client("see your org")).listOrgMembers(org.id)).members,
+    String(version),
+  );
   const wear: Wear = {
     mark: { svg: orgSvg(org.id) },
     scene: orgScene(org.id),
@@ -595,18 +608,27 @@ export function OrgBillingPage({
   if (load.state !== "loaded")
     return <NotLoaded load={load} reload={reload} wear={wear} />;
   return (
-    <OrgBill loaded={load} wear={wear} org={org} team={team} reload={reload} />
+    <OrgBill
+      loaded={load}
+      members={members}
+      wear={wear}
+      org={org}
+      team={team}
+      reload={reload}
+    />
   );
 }
 
 function OrgBill({
   loaded,
+  members,
   wear,
   org,
   team,
   reload,
 }: {
   loaded: Loaded;
+  members: { data?: OrgMember[]; problem?: string };
   wear: Wear;
   org: Org;
   team: TeamAccess;
@@ -626,7 +648,7 @@ function OrgBill({
   const each = unit ? money(unit, { cents: false }) : undefined;
   const ends = planSub ? formatDay(planSub.currentPeriodEnd, "long") : "";
   const lapsed = planSub?.status === "lapsed";
-  const preview = org.preview && !planSub;
+  const preview = org.preview && !planSub && !frozen(org);
   const ended = overview.subscriptions
     .filter((sub) => sub.status === "ended" && sub.product === "team")
     .sort((a, b) => b.currentPeriodEnd.localeCompare(a.currentPeriodEnd))[0];
@@ -716,7 +738,13 @@ function OrgBill({
         </div>
       ) : null}
       <Column w={7}>
-        {frozen(org) ? null : <Seats org={org} />}
+        {frozen(org) ? null : members.data ? (
+          <Seats org={org} members={members.data} />
+        ) : (
+          <Card label="Seats" busy={!members.problem}>
+            <Problem>{members.problem}</Problem>
+          </Card>
+        )}
         {planSub ? (
           <Card label="Plan">
             <Rows>
@@ -838,36 +866,6 @@ function OrgBill({
         )}
       </Column>
     </Page>
-  );
-}
-
-const DRAWN_SEATS = 60;
-
-function Seats({ org }: { org: Org }) {
-  const { held, limit } = org.seats;
-  const left = Math.max(0, limit - held);
-  return (
-    <Card label="Seats">
-      <div className="seatw">
-        <div>
-          <div className="big">
-            {held}
-            <small>of {limit}</small>
-          </div>
-          <p className="soft">
-            {left === 0 ? "None free" : `${left} free`}. People and links out
-            hold a seat.
-          </p>
-        </div>
-        {limit <= DRAWN_SEATS ? (
-          <div className="seats" aria-hidden="true">
-            {Array.from({ length: limit }, (_, index) => (
-              <span key={index} className={index < held ? "s h" : "s f"} />
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </Card>
   );
 }
 

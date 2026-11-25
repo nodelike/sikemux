@@ -1,7 +1,8 @@
 import { useClerk, useUser } from "@clerk/react";
 import type { Org } from "@sikemux/protocol";
+import { ApiProblem } from "@shared/account/api";
 import { IconBack } from "@shared/ui/Icons";
-import { type MouseEvent, useEffect, useState } from "react";
+import { type MouseEvent, useEffect, useEffectEvent, useState } from "react";
 
 import { useSignInWays } from "./AccountPage.tsx";
 import { problemText } from "./api.ts";
@@ -9,7 +10,7 @@ import { Avatar } from "./Avatar.tsx";
 import { orgSvg } from "./avatarSvg.ts";
 import { useClient } from "./Billing.tsx";
 import { useCheer } from "./Field.tsx";
-import { Foot } from "./Frame.tsx";
+import { Foot, Loading } from "./Frame.tsx";
 import { useInviteOrg } from "./invite.ts";
 import { iconMark } from "./marks.ts";
 import { HOSTS, JOIN } from "./navigation.ts";
@@ -19,10 +20,15 @@ import { Btn, Field, Hero, Problem, Row, Rows, Txt, useAction } from "./ui.tsx";
 type Follow = (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
 
 export function JoinPage({
+  canPaste,
   follow,
+  onHome,
   onJoined,
 }: {
+  /** Whether someone without a link may paste one; unknown while the account loads. */
+  canPaste?: boolean;
   follow: Follow;
+  onHome: () => void;
   onJoined: (orgId: string) => Promise<void>;
 }) {
   const client = useClient();
@@ -39,6 +45,11 @@ export function JoinPage({
   useEffect(() => {
     if (location.hash) history.replaceState(null, "", location.pathname);
   }, []);
+
+  const goHome = useEffectEvent(onHome);
+  useEffect(() => {
+    if (!token && canPaste === false) goHome();
+  }, [token, canPaste]);
 
   if (joined)
     return (
@@ -68,7 +79,12 @@ export function JoinPage({
       </Hero>
     );
 
-  if (!token) return <PasteLink follow={follow} onToken={setToken} />;
+  if (!token)
+    return canPaste ? (
+      <PasteLink follow={follow} onToken={setToken} />
+    ) : (
+      <Loading />
+    );
 
   const name = user?.fullName || user?.username || "this account";
   const ways = new Intl.ListFormat("en", { type: "conjunction" }).format(
@@ -113,7 +129,9 @@ export function JoinPage({
                 setJoined(org);
               },
               (error) =>
-                `${problemText(error)} Ask whoever sent the link for a new one.`,
+                error instanceof ApiProblem && error.status === 404
+                  ? `${problemText(error)} Ask whoever sent the link for a new one.`
+                  : problemText(error),
             )
           }
         >
