@@ -163,56 +163,98 @@ async function keepCancel(
   provider: Calling,
   subscription: HeldSubscription,
 ) {
-  await db.transaction().execute(async (trx) => {
-    if (
-      !(await takeCancelTurn(trx, subscription.providerSubscriptionId, false))
-    )
-      throw new Error("A take-back of this cancel is under way.");
-    const stands = await trx
-      .selectFrom("subscriptions")
-      .innerJoin(
-        "billing_customers",
-        "billing_customers.id",
-        "subscriptions.customer_id",
-      )
-      .select("subscriptions.id")
-      .where("billing_customers.provider", "=", provider.name)
-      .where(
-        "subscriptions.provider_subscription_id",
-        "=",
-        subscription.providerSubscriptionId,
-      )
-      .where("subscriptions.product", "=", subscription.product)
-      .where("subscriptions.cancel_asked_at", "is not", null)
-      .where("subscriptions.status", "<>", "ended")
-      .where("subscriptions.status", "in", ["active", "lapsed"])
-      .where("subscriptions.paused_for_seat_at", "is", null)
-      .executeTakeFirst();
-    if (stands) await provider.cancel(subscription, "period_end");
-  });
+  const ran = await tryCancelTurn(
+    subscription.providerSubscriptionId,
+    async () => {
+      const stands = await db
+        .selectFrom("subscriptions")
+        .innerJoin(
+          "billing_customers",
+          "billing_customers.id",
+          "subscriptions.customer_id",
+        )
+        .select("subscriptions.id")
+        .where("billing_customers.provider", "=", provider.name)
+        .where(
+          "subscriptions.provider_subscription_id",
+          "=",
+          subscription.providerSubscriptionId,
+        )
+        .where("subscriptions.product", "=", subscription.product)
+        .where("subscriptions.cancel_asked_at", "is not", null)
+        .where("subscriptions.status", "<>", "ended")
+        .where("subscriptions.status", "in", ["active", "lapsed"])
+        .where("subscriptions.paused_for_seat_at", "is", null)
+        .executeTakeFirst();
+      if (stands) await provider.cancel(subscription, "period_end");
+    },
+  );
+  if (!ran.taken) throw new Error("A take-back of this cancel is under way.");
 }
 
+const cancelTurns = new Map<string, Promise<void>>();
+const cancelTurnWaiters = new Map<string, number>();
+
 /**
- * Takes, until the transaction ends, the turn to change whether the provider holds a
- * subscription's cancel. A take-back waits for its turn; a re-cancel or a seat pause whose turn is
- * taken tries again later, since the stand-in provider applies its events while a call is under way.
+ * Runs `work` once no other cancel, take-back or seat pause is running for this subscription,
+ * holding no database connection while it waits or talks to the provider.
  */
-export async function takeCancelTurn(
-  trx: Kysely<Tables>,
+export async function withCancelTurn<T>(
   providerSubscriptionId: string,
-  wait = true,
-) {
-  const key = `cancel:${providerSubscriptionId}`;
-  if (wait) {
-    await sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`.execute(
-      trx,
+  work: () => Promise<T>,
+): Promise<T> {
+  const prev = cancelTurns.get(providerSubscriptionId);
+  if (prev)
+    cancelTurnWaiters.set(
+      providerSubscriptionId,
+      (cancelTurnWaiters.get(providerSubscriptionId) ?? 0) + 1,
     );
-    return true;
+  let release = () => {};
+  const next = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  cancelTurns.set(providerSubscriptionId, next);
+  try {
+    if (prev) {
+      try {
+        await prev;
+      } finally {
+        const left = (cancelTurnWaiters.get(providerSubscriptionId) ?? 1) - 1;
+        if (left > 0) cancelTurnWaiters.set(providerSubscriptionId, left);
+        else cancelTurnWaiters.delete(providerSubscriptionId);
+      }
+    }
+    return await work();
+  } finally {
+    release();
+    if (cancelTurns.get(providerSubscriptionId) === next)
+      cancelTurns.delete(providerSubscriptionId);
   }
-  const { rows } = await sql<{
-    taken: boolean;
-  }>`select pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) as taken`.execute(
-    trx,
-  );
-  return rows[0]?.taken === true;
+}
+
+/** Runs `work` if no cancel turn is currently held for this subscription, without waiting. */
+export async function tryCancelTurn<T>(
+  providerSubscriptionId: string,
+  work: () => Promise<T>,
+): Promise<{ taken: true; value: T } | { taken: false }> {
+  if (cancelTurns.has(providerSubscriptionId)) return { taken: false };
+  let release = () => {};
+  const next = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  cancelTurns.set(providerSubscriptionId, next);
+  try {
+    return { taken: true, value: await work() };
+  } finally {
+    release();
+    if (cancelTurns.get(providerSubscriptionId) === next)
+      cancelTurns.delete(providerSubscriptionId);
+  }
+}
+
+export function cancelTurnHasWaiter(providerSubscriptionId?: string): boolean {
+  if (providerSubscriptionId !== undefined)
+    return (cancelTurnWaiters.get(providerSubscriptionId) ?? 0) > 0;
+  for (const count of cancelTurnWaiters.values()) if (count > 0) return true;
+  return false;
 }

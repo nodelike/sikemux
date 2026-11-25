@@ -5,7 +5,7 @@ import { audit } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
 import type { Logger } from "../log.ts";
-import { callLater, takeCancelTurn } from "./calls.ts";
+import { callLater, tryCancelTurn } from "./calls.ts";
 import {
   heldSubscription,
   type BillingProvider,
@@ -410,45 +410,53 @@ export async function settleSeatPause(
   const held = heldSubscription(row, row.provider_customer_id);
 
   if (row.paid_left === null && row.resumes_at === null) {
-    const step = await db.transaction().execute(async (turn) => {
-      if (!(await takeCancelTurn(turn, row.provider_subscription_id, false)))
-        return { done: new Date(Date.now() + CANCEL_TURN_WAIT_MS) };
-      const current = await proOf(turn, userId, provider.name);
-      if (
-        current?.id !== row.id ||
-        current.paused_for_seat_at?.getTime() !== since.getTime() ||
-        current.paid_left !== null ||
-        current.resumes_at !== null
-      )
-        return { again: true };
-      const held = heldSubscription(current, current.provider_customer_id);
-      const asked = current.seat_pause_asked_for?.getTime() === since.getTime();
-      if (!seated) {
-        const heldAs = asked ? await provider.keepPaused(held) : null;
-        if (heldAs !== "paused")
-          return {
-            done: await dropPause(
-              db,
-              provider,
-              current,
-              since,
-              !deleted && (heldAs === "active" || heldAs === "lapsed"),
-            ),
-          };
-      }
-      if (!asked || (current.cancel_at_period_end && !current.cancel_asked_at))
-        await db
-          .updateTable("subscriptions")
-          .set({
-            seat_pause_asked_for: since,
-            ...(current.cancel_at_period_end && {
-              cancel_asked_at: sql<Date>`coalesce(cancel_asked_at, now())`,
-            }),
-          })
-          .where("id", "=", row.id)
-          .execute();
-      return { current, paused: await provider.pause(held, asked) };
-    });
+    const attempt = await tryCancelTurn(
+      row.provider_subscription_id,
+      async () => {
+        const current = await proOf(db, userId, provider.name);
+        if (
+          current?.id !== row.id ||
+          current.paused_for_seat_at?.getTime() !== since.getTime() ||
+          current.paid_left !== null ||
+          current.resumes_at !== null
+        )
+          return { again: true as const };
+        const held = heldSubscription(current, current.provider_customer_id);
+        const asked =
+          current.seat_pause_asked_for?.getTime() === since.getTime();
+        if (!seated) {
+          const heldAs = asked ? await provider.keepPaused(held) : null;
+          if (heldAs !== "paused")
+            return {
+              done: await dropPause(
+                db,
+                provider,
+                current,
+                since,
+                !deleted && (heldAs === "active" || heldAs === "lapsed"),
+              ),
+            };
+        }
+        if (
+          !asked ||
+          (current.cancel_at_period_end && !current.cancel_asked_at)
+        )
+          await db
+            .updateTable("subscriptions")
+            .set({
+              seat_pause_asked_for: since,
+              ...(current.cancel_at_period_end && {
+                cancel_asked_at: sql<Date>`coalesce(cancel_asked_at, now())`,
+              }),
+            })
+            .where("id", "=", row.id)
+            .execute();
+        return { current, paused: await provider.pause(held, asked) };
+      },
+    );
+    const step = attempt.taken
+      ? attempt.value
+      : { done: new Date(Date.now() + CANCEL_TURN_WAIT_MS) };
     if ("again" in step) return settleSeatPause(db, provider, userId, log);
     if ("done" in step) return step.done;
     const { current, paused } = step;

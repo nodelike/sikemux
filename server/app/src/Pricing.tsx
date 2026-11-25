@@ -349,6 +349,7 @@ function MakeTestOrgDialog({
 }) {
   const [name, setName] = useState("");
   const [seats, setSeats] = useState(3);
+  const [createdOrgId, setCreatedOrgId] = useState<string | null>(null);
   const team = productOf(catalog, "team");
   const unit = priceOf(team, "month");
   const trimmed = name.trim();
@@ -361,12 +362,17 @@ function MakeTestOrgDialog({
       onSubmit={() => {
         if (!trimmed) return;
         void checkout.go(async (routes) => {
-          const org = await routes.createOrg({ name: trimmed });
+          let orgId = createdOrgId;
+          if (!orgId) {
+            const org = await routes.createOrg({ name: trimmed });
+            orgId = org.id;
+            setCreatedOrgId(orgId);
+          }
           return routes.startCheckout({
             product: "team",
             interval: "month",
             quantity: seats,
-            orgId: org.id,
+            orgId,
           });
         });
       }}
@@ -387,6 +393,7 @@ function MakeTestOrgDialog({
           placeholder="Test org"
           value={name}
           onChange={(event) => setName(event.target.value)}
+          disabled={checkout.busy || createdOrgId !== null}
           autoFocus
           maxLength={64}
         />

@@ -81,6 +81,22 @@ export async function previewSeats(db: Kysely<Tables>, orgId: string) {
   return org?.preview_seats ?? 0;
 }
 
+export async function previewSeatsByOrg(
+  db: Kysely<Tables>,
+  orgIds: readonly string[],
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (!orgIds.length) return map;
+  const rows = await db
+    .selectFrom("orgs")
+    .select(["id", "preview_seats"])
+    .where("id", "in", orgIds)
+    .where(previewing)
+    .execute();
+  for (const row of rows) map.set(row.id, row.preview_seats ?? 0);
+  return map;
+}
+
 /** Whether the org in `orgs.id` has its seats from the preview, not bought. */
 export function teamFree(eb: ExpressionBuilder<Tables, "orgs">) {
   return eb.and([previewing(eb), eb.not(teamPaid(eb))]);
@@ -94,6 +110,20 @@ export async function isFree(db: Kysely<Tables>, orgId: string) {
     .where(teamFree)
     .executeTakeFirst();
   return org !== undefined;
+}
+
+export async function freeOrgsById(
+  db: Kysely<Tables>,
+  orgIds: readonly string[],
+): Promise<Set<string>> {
+  if (!orgIds.length) return new Set();
+  const rows = await db
+    .selectFrom("orgs")
+    .select("id")
+    .where("id", "in", orgIds)
+    .where(teamFree)
+    .execute();
+  return new Set(rows.map((row) => row.id));
 }
 
 /**

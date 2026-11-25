@@ -21,7 +21,11 @@ import {
 } from "../src/billing/paddle-api.ts";
 import type { Database } from "../src/db.ts";
 import { RateLimiter } from "../src/limits.ts";
-import { makeDueCalls, takeCancelTurn } from "../src/billing/calls.ts";
+import {
+  cancelTurnHasWaiter,
+  makeDueCalls,
+  withCancelTurn,
+} from "../src/billing/calls.ts";
 import { settleSeatPause } from "../src/billing/seat-pause.ts";
 import { seatLimit } from "../src/billing/seats.ts";
 import { caller, emptyTables, migratedDatabase } from "./accounts.ts";
@@ -1839,8 +1843,7 @@ function holdCancelTurn(providerSubscriptionId: string) {
   let taken = () => {};
   let release = () => {};
   const held = new Promise<void>((resolve) => (taken = resolve));
-  const done = database.db.transaction().execute(async (turn) => {
-    await takeCancelTurn(turn, providerSubscriptionId);
+  const done = withCancelTurn(providerSubscriptionId, async () => {
     taken();
     await new Promise<void>((resolve) => (release = resolve));
   });
@@ -1850,10 +1853,7 @@ function holdCancelTurn(providerSubscriptionId: string) {
 /** Resolves once someone waits for a cancel turn another holds. */
 async function waitingForTurn() {
   for (;;) {
-    const { rows } = await database.pool.query<{ n: number }>(
-      "select count(*)::int as n from pg_locks where locktype = 'advisory' and not granted",
-    );
-    if (rows[0]?.n) return;
+    if (cancelTurnHasWaiter()) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }

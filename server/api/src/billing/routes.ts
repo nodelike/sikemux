@@ -33,7 +33,7 @@ import { allowance } from "./allowance.ts";
 import { applyProviderEvents } from "./apply.ts";
 import { openerRole, refusal } from "./checks.ts";
 import { ownCustomer } from "./customers.ts";
-import { makeDueCalls, takeCancelTurn } from "./calls.ts";
+import { makeDueCalls, withCancelTurn } from "./calls.ts";
 import { CATALOG, product, unitPrice } from "./catalog.ts";
 import {
   heldSubscription,
@@ -45,7 +45,9 @@ import { PaddleProvider } from "./paddle.ts";
 import {
   askRefund,
   planRefund,
+  planRefunds,
   refundPending,
+  refundTargetKey,
   type PlanRefund,
 } from "./refunds.ts";
 import {
@@ -446,11 +448,45 @@ export function billingRoutes({
       return customer?.paid_by ? "another_owner" : "departed";
     };
     const paidBy = planPayer();
-    const body: BillingOverview = {
-      allowance: await allowance(db, payer, { live }),
-      subscriptions: await Promise.all(
-        rows.map((row) => subscriptionWithRefund(db, provider?.name, row)),
+    const activeRows = rows.filter((row) => row.status !== "ended");
+    const hasSeatPause = rows.some(
+      (row) => row.paused_for_seat_at && row.status === "paused",
+    );
+    const [ownAllowance, refunds, seatOrgs] = await Promise.all([
+      allowance(db, payer, { live }),
+      planRefunds(
+        db,
+        provider?.name,
+        activeRows.map((row) => ({
+          customerId: row.customer_id,
+          providerSubscriptionId: row.provider_subscription_id,
+        })),
       ),
+      hasSeatPause && "userId" in payer
+        ? seatsIncludingPro(db, payer.userId)
+        : Promise.resolve([]),
+    ]);
+    const seatOrgNames = seatOrgs.map((org) => org.name);
+    const body: BillingOverview = {
+      allowance: ownAllowance,
+      subscriptions: rows.map((row) => {
+        const refund =
+          row.status === "ended"
+            ? { covers: [] }
+            : (refunds.get(
+                refundTargetKey(row.customer_id, row.provider_subscription_id),
+              ) ?? { covers: [] });
+        const seatPause: SeatPause | undefined =
+          row.paused_for_seat_at && row.status === "paused"
+            ? {
+                orgs: seatOrgNames,
+                ...(row.resumes_at
+                  ? { resumesAt: row.resumes_at.toISOString() }
+                  : {}),
+              }
+            : undefined;
+        return subscriptionBody(row, refund, seatPause);
+      }),
       live,
       canBuy: provider !== null && (paidBy === null || paidBy === "you"),
       ...(paidBy ? { payer: paidBy } : {}),
@@ -479,82 +515,89 @@ export function billingRoutes({
         `${sold.name} is sold up to ${sold.maxQuantity} at once.`,
       );
 
-    const customer = await db.transaction().execute(async (trx) => {
-      await holdStanding(trx, userId);
-      const values =
-        "userId" in payer
-          ? { user_id: payer.userId, provider: ready.name }
-          : { org_id: payer.orgId, provider: ready.name };
-      await trx
-        .insertInto("billing_customers")
-        .values(values)
-        .onConflict((oc) => oc.doNothing())
-        .execute();
-      const orgId = "orgId" in payer ? payer.orgId : null;
-      const role = await openerRole(trx, orgId, userId);
-      const found = await customersOf(trx, payer)
-        .select(["id", "paid_by"])
-        .where("provider", "=", ready.name)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-      const refused = await refusal(trx, {
-        customerId: found.id,
-        orgId,
-        paidBy: found.paid_by,
-        openedBy: userId,
-        openerRole: role,
-        product: sold.id,
-        quantity: request.quantity,
-      });
-      if (refused) throw new ApiFailure(409, "conflict", refused);
-      if (sold.kind === "plan") {
-        const holding = await trx
-          .selectFrom("subscriptions")
-          .select("id")
-          .where("customer_id", "=", found.id)
-          .where("product", "=", sold.id)
-          .where("status", "<>", "ended")
-          .executeTakeFirst();
-        if (holding)
-          throw new ApiFailure(
-            409,
-            "conflict",
-            `This already holds ${sold.name}; change that subscription instead.`,
-          );
-      }
-      return found;
-    });
-
-    const providerCustomerId = await ownCustomer(
-      db,
-      ready,
-      clerk,
-      c.get("log"),
-      userId,
-    );
-    const checkout = await ready.checkout({
-      providerCustomerId,
-      product: sold.id,
-      interval: request.interval,
-      quantity: request.quantity,
-      unit,
-      returnUrl: `${appOrigin}/billing`,
-    });
-    await db.transaction().execute(async (trx) => {
-      await holdStanding(trx, userId);
-      await trx
-        .insertInto("billing_checkouts")
-        .values({
-          provider: ready.name,
-          provider_checkout_id: checkout.providerCheckoutId,
-          customer_id: customer.id,
-          opened_by: userId,
-          provider_customer_id: providerCustomerId,
+    const checkoutKey =
+      "userId" in payer
+        ? `checkout:user:${payer.userId}`
+        : `checkout:org:${payer.orgId}`;
+    const { customer, checkout } = await inTurn(checkoutKey, async () => {
+      const customer = await db.transaction().execute(async (trx) => {
+        await holdStanding(trx, userId);
+        const values =
+          "userId" in payer
+            ? { user_id: payer.userId, provider: ready.name }
+            : { org_id: payer.orgId, provider: ready.name };
+        await trx
+          .insertInto("billing_customers")
+          .values(values)
+          .onConflict((oc) => oc.doNothing())
+          .execute();
+        const orgId = "orgId" in payer ? payer.orgId : null;
+        const role = await openerRole(trx, orgId, userId);
+        const found = await customersOf(trx, payer)
+          .select(["id", "paid_by"])
+          .where("provider", "=", ready.name)
+          .forUpdate()
+          .executeTakeFirstOrThrow();
+        const refused = await refusal(trx, {
+          customerId: found.id,
+          orgId,
+          paidBy: found.paid_by,
+          openedBy: userId,
+          openerRole: role,
           product: sold.id,
-          interval: request.interval,
           quantity: request.quantity,
-        })
-        .execute();
+        });
+        if (refused) throw new ApiFailure(409, "conflict", refused);
+        if (sold.kind === "plan") {
+          const holding = await trx
+            .selectFrom("subscriptions")
+            .select("id")
+            .where("customer_id", "=", found.id)
+            .where("product", "=", sold.id)
+            .where("status", "<>", "ended")
+            .executeTakeFirst();
+          if (holding)
+            throw new ApiFailure(
+              409,
+              "conflict",
+              `This already holds ${sold.name}; change that subscription instead.`,
+            );
+        }
+        return found;
+      });
+
+      const providerCustomerId = await ownCustomer(
+        db,
+        ready,
+        clerk,
+        c.get("log"),
+        userId,
+      );
+      const checkout = await ready.checkout({
+        providerCustomerId,
+        product: sold.id,
+        interval: request.interval,
+        quantity: request.quantity,
+        unit,
+        returnUrl: `${appOrigin}/billing`,
+      });
+      await db.transaction().execute(async (trx) => {
+        await holdStanding(trx, userId);
+        await trx
+          .insertInto("billing_checkouts")
+          .values({
+            provider: ready.name,
+            provider_checkout_id: checkout.providerCheckoutId,
+            customer_id: customer.id,
+            opened_by: userId,
+            provider_customer_id: providerCustomerId,
+            product: sold.id,
+            interval: request.interval,
+            quantity: request.quantity,
+          })
+          .execute();
+      });
+      return { customer, checkout };
     });
     await audit(db, {
       userId,
@@ -746,7 +789,7 @@ export function billingRoutes({
         return asked;
       };
       const { row, next, same, when } = await inTurn(
-        c.req.param("subscriptionId") ?? "",
+        `sub:${c.req.param("subscriptionId") ?? ""}`,
         take,
       );
       const { userId } = c.get("identity");
@@ -772,123 +815,131 @@ export function billingRoutes({
       perUser(limiter, "billing-change", 20),
       async (c) => {
         const ready = needProvider(provider);
-        const row = await subscriptionFor(c);
-        if (!cancel) {
-          requirePayer(c, row);
-          await refusePending(row);
-        }
-        const { userId } = c.get("identity");
-        const said = (action: AuditAction, detail?: Record<string, unknown>) =>
-          audit(db, {
-            userId,
-            actor: `user:${userId}`,
-            action,
-            subject: row.id,
-            ...(detail && { detail }),
-          });
-        if (row.cancel_at_period_end === cancel)
-          return c.json(await reread(row.id));
-        if (
-          row.paused_for_seat_at &&
-          (row.paid_left !== null || row.resumes_at !== null)
-        ) {
-          const firstDays =
-            cancel &&
-            (
-              await planRefund(
-                db,
-                ready.name,
-                row.customer_id,
-                row.provider_subscription_id,
-              )
-            ).covers.length > 0;
-          if (firstDays) await refundPlan(c, ready, row, row.id);
-          else {
-            await db.transaction().execute(async (trx) => {
-              await trx
-                .selectFrom("subscriptions")
-                .select("id")
-                .where("id", "=", row.id)
-                .forUpdate()
-                .execute();
-              if (!cancel) await refuseTakeBackAfterKeptRefund(trx, row);
-              await trx
-                .updateTable("subscriptions")
-                .set({
-                  cancel_at_period_end: cancel,
-                  cancel_asked_at: cancel ? sql<Date>`now()` : null,
-                  ...(!cancel && { kept_without_refund_at: null }),
-                })
-                .where("id", "=", row.id)
-                .execute();
-              if (row.user_id) await checkSeatPauses(trx, [row.user_id]);
+        const subKey = `sub:${c.req.param("subscriptionId") ?? ""}`;
+        const updatedId = await inTurn(subKey, async () => {
+          const row = await subscriptionFor(c);
+          if (!cancel) {
+            requirePayer(c, row);
+            await refusePending(row);
+          }
+          const { userId } = c.get("identity");
+          const said = (
+            action: AuditAction,
+            detail?: Record<string, unknown>,
+          ) =>
+            audit(db, {
+              userId,
+              actor: `user:${userId}`,
+              action,
+              subject: row.id,
+              ...(detail && { detail }),
             });
-            await makeDueCalls(db, ready, c.get("log"));
+          if (row.cancel_at_period_end === cancel) return row.id;
+          if (
+            row.paused_for_seat_at &&
+            (row.paid_left !== null || row.resumes_at !== null)
+          ) {
+            const firstDays =
+              cancel &&
+              (
+                await planRefund(
+                  db,
+                  ready.name,
+                  row.customer_id,
+                  row.provider_subscription_id,
+                )
+              ).covers.length > 0;
+            if (firstDays) await refundPlan(c, ready, row, row.id);
+            else {
+              await db.transaction().execute(async (trx) => {
+                await trx
+                  .selectFrom("subscriptions")
+                  .select("id")
+                  .where("id", "=", row.id)
+                  .forUpdate()
+                  .execute();
+                if (!cancel) await refuseTakeBackAfterKeptRefund(trx, row);
+                await trx
+                  .updateTable("subscriptions")
+                  .set({
+                    cancel_at_period_end: cancel,
+                    cancel_asked_at: cancel ? sql<Date>`now()` : null,
+                    ...(!cancel && { kept_without_refund_at: null }),
+                  })
+                  .where("id", "=", row.id)
+                  .execute();
+                if (row.user_id) await checkSeatPauses(trx, [row.user_id]);
+              });
+              await makeDueCalls(db, ready, c.get("log"));
+              await said(
+                cancel
+                  ? "billing.subscription_canceled"
+                  : "billing.subscription_resumed",
+                { why: "paused_for_seat" },
+              );
+            }
+          } else {
+            if (row.paused_for_seat_at && row.status === "paused")
+              throw new ApiFailure(
+                409,
+                "conflict",
+                "This plan is still being paused for your seat, which can take up to an hour when the payment service is slow. Try again later.",
+              );
+            const subscription = heldSubscription(
+              row,
+              row.provider_customer_id,
+            );
+            const when = row.status === "paused" ? "now" : "period_end";
+            const recordCancel = () =>
+              db.transaction().execute(async (trx) => {
+                await trx
+                  .updateTable("subscriptions")
+                  .set({
+                    cancel_at_period_end: cancel,
+                    cancel_asked_at: cancel ? sql<Date>`now()` : null,
+                  })
+                  .where("id", "=", row.id)
+                  .where("status", "<>", "ended")
+                  .execute();
+                if (!cancel && row.user_id && row.product === "pro")
+                  await checkSeatPauses(trx, [row.user_id]);
+              });
+            if (cancel) {
+              await ready.cancel(subscription, when);
+              await recordCancel();
+            } else {
+              await withCancelTurn(row.provider_subscription_id, async () => {
+                await db
+                  .updateTable("subscriptions")
+                  .set({ cancel_asked_at: null })
+                  .where("id", "=", row.id)
+                  .execute();
+                try {
+                  await ready.resume(subscription);
+                } catch (error) {
+                  await db
+                    .updateTable("subscriptions")
+                    .set({ cancel_asked_at: row.cancel_asked_at })
+                    .where("id", "=", row.id)
+                    .where("cancel_asked_at", "is", null)
+                    .where("cancel_at_period_end", "=", true)
+                    .execute();
+                  throw error;
+                }
+                await recordCancel();
+              });
+              await makeDueCalls(db, ready, c.get("log"));
+            }
             await said(
               cancel
                 ? "billing.subscription_canceled"
                 : "billing.subscription_resumed",
-              { why: "paused_for_seat" },
+              cancel && when === "now" ? { when } : undefined,
             );
           }
-        } else {
-          if (row.paused_for_seat_at && row.status === "paused")
-            throw new ApiFailure(
-              409,
-              "conflict",
-              "This plan is still being paused for your seat, which can take up to an hour when the payment service is slow. Try again later.",
-            );
-          const subscription = heldSubscription(row, row.provider_customer_id);
-          const when = row.status === "paused" ? "now" : "period_end";
-          const recordCancel = () =>
-            db.transaction().execute(async (trx) => {
-              await trx
-                .updateTable("subscriptions")
-                .set({
-                  cancel_at_period_end: cancel,
-                  cancel_asked_at: cancel ? sql<Date>`now()` : null,
-                })
-                .where("id", "=", row.id)
-                .where("status", "<>", "ended")
-                .execute();
-              if (!cancel && row.user_id && row.product === "pro")
-                await checkSeatPauses(trx, [row.user_id]);
-            });
-          if (cancel) {
-            await ready.cancel(subscription, when);
-            await recordCancel();
-          } else {
-            await db.transaction().execute(async (turn) => {
-              await takeCancelTurn(turn, row.provider_subscription_id);
-              await db
-                .updateTable("subscriptions")
-                .set({ cancel_asked_at: null })
-                .where("id", "=", row.id)
-                .execute();
-              try {
-                await ready.resume(subscription);
-              } catch (error) {
-                await db
-                  .updateTable("subscriptions")
-                  .set({ cancel_asked_at: row.cancel_asked_at })
-                  .where("id", "=", row.id)
-                  .where("cancel_asked_at", "is", null)
-                  .where("cancel_at_period_end", "=", true)
-                  .execute();
-                throw error;
-              }
-              await recordCancel();
-            });
-            await makeDueCalls(db, ready, c.get("log"));
-          }
-          await said(
-            cancel
-              ? "billing.subscription_canceled"
-              : "billing.subscription_resumed",
-            cancel && when === "now" ? { when } : undefined,
-          );
-        }
-        return c.json(await reread(row.id));
+          return row.id;
+        });
+        return c.json(await reread(updatedId));
       },
     );
 
@@ -931,8 +982,33 @@ export function billingRoutes({
       .orderBy("at", "desc")
       .limit(200)
       .execute();
+    const refundableRows = rows.filter(
+      (row) =>
+        row.reason === "first_payment" &&
+        row.status === "paid" &&
+        !row.refund_requested_at,
+    );
+    const refunds = await planRefunds(
+      db,
+      provider?.name,
+      refundableRows.map((row) => ({
+        customerId: row.customer_id,
+        providerSubscriptionId: row.provider_subscription_id,
+      })),
+    );
     const body: InvoiceList = {
-      invoices: await Promise.all(rows.map((row) => invoiceWithRefund(row))),
+      invoices: rows.map((row) => {
+        const refundable =
+          row.reason === "first_payment" &&
+          row.status === "paid" &&
+          !row.refund_requested_at;
+        const until = refundable
+          ? refunds.get(
+              refundTargetKey(row.customer_id, row.provider_subscription_id),
+            )?.until
+          : undefined;
+        return invoiceBody(row, until);
+      }),
     };
     return c.json(body);
   });

@@ -336,12 +336,14 @@ export function Stepper({
 function NameForm({
   submit,
   action,
+  lockedName,
   onCancel,
   onSubmit,
   children,
 }: {
   submit: string;
   action: { busy: boolean; problem?: string };
+  lockedName?: boolean;
   onCancel: () => void;
   onSubmit: (name: string) => void;
   children?: ReactNode;
@@ -360,6 +362,7 @@ function NameForm({
         aria-label="Org name"
         value={name}
         onChange={(event) => setName(event.target.value)}
+        disabled={action.busy || lockedName}
         autoFocus
         maxLength={64}
       />
@@ -389,21 +392,28 @@ export function NewTeam({
   onCancel: () => void;
 }) {
   const [seats, setSeats] = useState(3);
+  const [createdOrgId, setCreatedOrgId] = useState<string | null>(null);
   const team = productOf(catalog, "team");
   const unit = priceOf(team, "month");
   return (
     <NameForm
       submit={submit}
       action={checkout}
+      lockedName={createdOrgId !== null}
       onCancel={onCancel}
       onSubmit={(name) =>
         void checkout.go(async (routes) => {
-          const org = await routes.createOrg({ name });
+          let orgId = createdOrgId;
+          if (!orgId) {
+            const org = await routes.createOrg({ name });
+            orgId = org.id;
+            setCreatedOrgId(orgId);
+          }
           return routes.startCheckout({
             product: "team",
             interval: "month",
             quantity: seats,
-            orgId: org.id,
+            orgId,
           });
         })
       }

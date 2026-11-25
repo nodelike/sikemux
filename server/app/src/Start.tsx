@@ -275,6 +275,7 @@ function SoldForm({
   const checkout = useCheckout();
   const [name, setName] = useState("");
   const [seats, setSeats] = useState(3);
+  const [createdOrgId, setCreatedOrgId] = useState<string | null>(null);
   if (problem)
     return (
       <div className="start-name">
@@ -308,12 +309,17 @@ function SoldForm({
         event.preventDefault();
         if (!name.trim() || checkout.busy) return;
         void checkout.go(async (routes) => {
-          const org = await routes.createOrg({ name: name.trim() });
+          let orgId = createdOrgId;
+          if (!orgId) {
+            const org = await routes.createOrg({ name: name.trim() });
+            orgId = org.id;
+            setCreatedOrgId(orgId);
+          }
           return routes.startCheckout({
             product: "team",
             interval: "month",
             quantity: seats,
-            orgId: org.id,
+            orgId,
           });
         });
       }}
@@ -325,7 +331,7 @@ function SoldForm({
         value={name}
         maxLength={NAME_MAX}
         autoFocus
-        disabled={checkout.busy}
+        disabled={checkout.busy || createdOrgId !== null}
         onChange={(event) => setName(event.target.value)}
       />
       <p className="start-hint">People see it when you invite them.</p>

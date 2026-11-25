@@ -150,6 +150,7 @@ function OrgBill({
   const [buySeats, setBuySeats] = useState(
     Math.max(least, ended?.quantity ?? 1),
   );
+  const effectiveBuySeats = Math.max(least, buySeats);
 
   const canEditSeats = Boolean(
     planSub && planSub.status === "active" && mayChange(planSub, pays, canBuy),
@@ -181,7 +182,7 @@ function OrgBill({
   const sells = team === "sold" && !planSub && !preview;
   const paused = team !== "sold" && !planSub && !preview;
   const buyTotal = unit
-    ? money(times(unit, buySeats), { cents: false })
+    ? money(times(unit, effectiveBuySeats), { cents: false })
     : undefined;
   const nextTotal =
     planSub && unit
@@ -391,18 +392,22 @@ function OrgBill({
             <div className="bill-buy">
               <Stepper
                 large
-                value={buySeats}
+                value={effectiveBuySeats}
                 min={least}
                 max={product?.maxQuantity ?? 1000}
                 onChange={setBuySeats}
                 label="Seats"
               />
               <span className="bill-price-note">
-                <b>{buyTotal ? `${buyTotal} a month` : seatsWord(buySeats)}</b>
+                <b>
+                  {buyTotal
+                    ? `${buyTotal} a month`
+                    : seatsWord(effectiveBuySeats)}
+                </b>
                 <small>
                   {each
-                    ? `${seatsWord(buySeats)} at ${each}`
-                    : seatsWord(buySeats)}
+                    ? `${seatsWord(effectiveBuySeats)} at ${each}`
+                    : seatsWord(effectiveBuySeats)}
                   {org.seats.held > 0 ? ` · ${org.seats.held} held` : ""}
                 </small>
               </span>
@@ -414,7 +419,7 @@ function OrgBill({
                     routes.startCheckout({
                       product: "team",
                       interval: "month",
-                      quantity: buySeats,
+                      quantity: effectiveBuySeats,
                       orgId: org.id,
                     }),
                   )

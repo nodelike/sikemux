@@ -30,6 +30,220 @@ export interface PlanRefund {
 
 const NONE: PlanRefund = { covers: [] };
 
+export interface PlanRefundTarget {
+  customerId: string;
+  providerSubscriptionId: string;
+}
+
+export const refundTargetKey = (
+  customerId: string,
+  providerSubscriptionId: string,
+) => `${customerId}:${providerSubscriptionId}`;
+
+/**
+ * Batched `planRefund` for many subscriptions/invoices at once without per-row queries.
+ */
+export async function planRefunds(
+  db: Kysely<Tables>,
+  provider: string | undefined,
+  targets: readonly PlanRefundTarget[],
+  now = Date.now(),
+): Promise<Map<string, PlanRefund>> {
+  const result = new Map<string, PlanRefund>();
+  if (!provider || !targets.length) return result;
+
+  const uniqueKeys = new Set<string>();
+  const uniqueTargets: PlanRefundTarget[] = [];
+  for (const target of targets) {
+    const key = refundTargetKey(
+      target.customerId,
+      target.providerSubscriptionId,
+    );
+    if (!uniqueKeys.has(key)) {
+      uniqueKeys.add(key);
+      uniqueTargets.push(target);
+    }
+  }
+
+  const customerIds = [...new Set(uniqueTargets.map((t) => t.customerId))];
+  const customers = await db
+    .selectFrom("billing_customers")
+    .select(["id", "provider", "user_id", "org_id"])
+    .where("id", "in", customerIds)
+    .execute();
+  const matchingCustomers = new Map(
+    customers.filter((c) => c.provider === provider).map((c) => [c.id, c]),
+  );
+  const matchedTargets = uniqueTargets.filter((t) =>
+    matchingCustomers.has(t.customerId),
+  );
+  if (!matchedTargets.length) return result;
+
+  const matchedCustomerIds = [
+    ...new Set(matchedTargets.map((t) => t.customerId)),
+  ];
+  const subIds = [
+    ...new Set(matchedTargets.map((t) => t.providerSubscriptionId)),
+  ];
+  const allInvoices = await db
+    .selectFrom("invoices")
+    .selectAll()
+    .where("customer_id", "in", matchedCustomerIds)
+    .where("provider_subscription_id", "in", subIds)
+    .orderBy("at")
+    .execute();
+
+  const invoicesByKey = new Map<string, InvoiceRow[]>();
+  for (const invoice of allInvoices) {
+    const key = refundTargetKey(
+      invoice.customer_id,
+      invoice.provider_subscription_id,
+    );
+    let list = invoicesByKey.get(key);
+    if (!list) {
+      list = [];
+      invoicesByKey.set(key, list);
+    }
+    list.push(invoice);
+  }
+
+  interface Candidate {
+    key: string;
+    first: InvoiceRow;
+    family: string;
+    until: Date;
+    amount: Money;
+    covered: InvoiceRow[];
+    payerKey: string;
+  }
+
+  const candidates: Candidate[] = [];
+  const payerUserIds = new Set<string>();
+  const payerOrgIds = new Set<string>();
+
+  for (const target of matchedTargets) {
+    const key = refundTargetKey(
+      target.customerId,
+      target.providerSubscriptionId,
+    );
+    const invoices = invoicesByKey.get(key) ?? [];
+    const first = invoices.find(
+      (invoice) => invoice.reason === "first_payment",
+    );
+    if (!first) continue;
+    if (
+      invoices.some(
+        (invoice) =>
+          invoice.kept_refund !== null &&
+          !(invoice.kept_refund_refused_at && !invoice.kept_refunded_at),
+      )
+    )
+      continue;
+    const until = new Date(first.at.getTime() + REFUND_DAYS * DAY_MS);
+    const covered = invoices.filter(
+      (invoice) =>
+        invoice.status === "paid" &&
+        invoice.currency === first.currency &&
+        invoice.at <= until,
+    );
+    const amount = {
+      amount: covered.reduce((sum, invoice) => sum + Number(invoice.amount), 0),
+      currency: first.currency,
+    };
+    const [asked] = covered.filter((invoice) => invoice.refund_requested_at);
+    if (asked?.refund_requested_at) {
+      result.set(key, {
+        requestedAt: asked.refund_requested_at,
+        amount,
+        covers: [],
+      });
+      continue;
+    }
+    if (first.status !== "paid" || until.getTime() <= now) continue;
+    const [line] = first.lines;
+    if (!line) continue;
+    const customer = matchingCustomers.get(target.customerId);
+    if (!customer) continue;
+    const payerKey = customer.user_id
+      ? `user:${customer.user_id}`
+      : `org:${customer.org_id}`;
+    if (customer.user_id) payerUserIds.add(customer.user_id);
+    else if (customer.org_id) payerOrgIds.add(customer.org_id);
+    candidates.push({
+      key,
+      first,
+      family: familyOf(line.product),
+      until,
+      amount,
+      covered,
+      payerKey,
+    });
+  }
+
+  if (!candidates.length) return result;
+
+  const priorRows = await db
+    .selectFrom("invoices")
+    .innerJoin(
+      "billing_customers",
+      "billing_customers.id",
+      "invoices.customer_id",
+    )
+    .select([
+      "billing_customers.user_id",
+      "billing_customers.org_id",
+      "invoices.provider_subscription_id",
+      "invoices.lines",
+    ])
+    .where("billing_customers.provider", "=", provider)
+    .where((eb) => {
+      const clauses = [];
+      if (payerUserIds.size)
+        clauses.push(eb("billing_customers.user_id", "in", [...payerUserIds]));
+      if (payerOrgIds.size)
+        clauses.push(eb("billing_customers.org_id", "in", [...payerOrgIds]));
+      return eb.or(clauses);
+    })
+    .where("invoices.reason", "=", "first_payment")
+    .where("invoices.refund_requested_at", "is not", null)
+    .execute();
+
+  const priorByPayer = new Map<
+    string,
+    { subId: string; families: Set<string> }[]
+  >();
+  for (const row of priorRows) {
+    const payerKey = row.user_id ? `user:${row.user_id}` : `org:${row.org_id}`;
+    let list = priorByPayer.get(payerKey);
+    if (!list) {
+      list = [];
+      priorByPayer.set(payerKey, list);
+    }
+    list.push({
+      subId: row.provider_subscription_id,
+      families: new Set(row.lines.map((line) => familyOf(line.product))),
+    });
+  }
+
+  for (const candidate of candidates) {
+    const prior = priorByPayer.get(candidate.payerKey) ?? [];
+    const hadBefore = prior.some(
+      (entry) =>
+        entry.subId !== candidate.first.provider_subscription_id &&
+        entry.families.has(candidate.family),
+    );
+    if (!hadBefore) {
+      result.set(candidate.key, {
+        until: candidate.until,
+        amount: candidate.amount,
+        covers: candidate.covered,
+      });
+    }
+  }
+
+  return result;
+}
+
 /**
  * A plan's refund. It is open for `REFUND_DAYS` from the plan's first payment and returns every
  * payment on the plan in that time, once per payer for each kind of plan. A plan paid through
@@ -42,89 +256,13 @@ export async function planRefund(
   providerSubscriptionId: string,
   now = Date.now(),
 ): Promise<PlanRefund> {
-  const customer = await db
-    .selectFrom("billing_customers")
-    .select("provider")
-    .where("id", "=", customerId)
-    .executeTakeFirst();
-  if (!customer || customer.provider !== provider) return NONE;
-  const invoices = await db
-    .selectFrom("invoices")
-    .selectAll()
-    .where("customer_id", "=", customerId)
-    .where("provider_subscription_id", "=", providerSubscriptionId)
-    .orderBy("at")
-    .execute();
-  const first = invoices.find((invoice) => invoice.reason === "first_payment");
-  if (!first) return NONE;
-  if (
-    invoices.some(
-      (invoice) =>
-        invoice.kept_refund !== null &&
-        !(invoice.kept_refund_refused_at && !invoice.kept_refunded_at),
-    )
-  )
-    return NONE;
-  const until = new Date(first.at.getTime() + REFUND_DAYS * DAY_MS);
-  const covered = invoices.filter(
-    (invoice) =>
-      invoice.status === "paid" &&
-      invoice.currency === first.currency &&
-      invoice.at <= until,
+  const map = await planRefunds(
+    db,
+    provider,
+    [{ customerId, providerSubscriptionId }],
+    now,
   );
-  const amount = {
-    amount: covered.reduce((sum, invoice) => sum + Number(invoice.amount), 0),
-    currency: first.currency,
-  };
-  const pending = covered.filter((invoice) => invoice.refund_requested_at);
-  const [asked] = pending;
-  if (asked?.refund_requested_at)
-    return { requestedAt: asked.refund_requested_at, amount, covers: [] };
-  if (first.status !== "paid" || until.getTime() <= now) return NONE;
-  const [line] = first.lines;
-  if (!line) return NONE;
-  if (await refundedBefore(db, provider, first, familyOf(line.product)))
-    return NONE;
-  return { until, amount, covers: covered };
-}
-
-/** Whether the payer already had a refund for this kind of plan on another subscription. */
-async function refundedBefore(
-  db: Kysely<Tables>,
-  provider: string,
-  first: InvoiceRow,
-  family: string,
-) {
-  const payer = await db
-    .selectFrom("billing_customers")
-    .select(["user_id", "org_id"])
-    .where("id", "=", first.customer_id)
-    .executeTakeFirstOrThrow();
-  const earlier = await db
-    .selectFrom("invoices")
-    .innerJoin(
-      "billing_customers",
-      "billing_customers.id",
-      "invoices.customer_id",
-    )
-    .select("invoices.lines")
-    .where("billing_customers.provider", "=", provider)
-    .where(
-      payer.user_id
-        ? (eb) => eb("billing_customers.user_id", "=", payer.user_id)
-        : (eb) => eb("billing_customers.org_id", "=", payer.org_id),
-    )
-    .where("invoices.reason", "=", "first_payment")
-    .where("invoices.refund_requested_at", "is not", null)
-    .where(
-      "invoices.provider_subscription_id",
-      "!=",
-      first.provider_subscription_id,
-    )
-    .execute();
-  return earlier.some(({ lines }) =>
-    lines.some((line) => familyOf(line.product) === family),
-  );
+  return map.get(refundTargetKey(customerId, providerSubscriptionId)) ?? NONE;
 }
 
 /** Locks every billing customer of a payer, so two refund requests take turns. */

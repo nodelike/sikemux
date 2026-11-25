@@ -506,6 +506,7 @@ Table invoices {
   indexes {
     (customer_id, at) [name: 'invoices_by_customer', note: 'at desc']
     provider_payment_id [name: 'invoices_by_provider', unique]
+    provider_subscription_id [name: 'invoices_by_subscription']
   }
 
   Note: '(status = \'refunded\') = (refunded_at IS NOT NULL); (kept_refunded_at IS NULL) OR (kept_refund IS NOT NULL); (kept_refund_refused_at IS NULL) OR (kept_refund IS NOT NULL); (kept_refund_check_at IS NULL) OR (kept_refund IS NOT NULL)'
@@ -565,6 +566,8 @@ Table billing_checkouts {
 
   indexes {
     (provider, provider_checkout_id) [pk]
+    created_at [name: 'billing_checkouts_by_age']
+    opened_by [name: 'billing_checkouts_by_opener']
   }
 }
 
@@ -655,6 +658,7 @@ Table org_shares {
   indexes {
     (member_id, project) [pk]
     (user_id, project) [unique]
+    host [name: 'org_shares_by_host']
   }
 }
 
@@ -695,6 +699,7 @@ Table org_vault_entries {
 
   indexes {
     (org_id, id) [pk]
+    (org_id, change) [name: 'org_vault_entries_by_change']
   }
 }
 
@@ -706,6 +711,7 @@ Table org_vault_ended {
 
   indexes {
     (org_id, id) [pk]
+    (org_id, change) [name: 'org_vault_ended_by_change']
   }
 }
 
@@ -898,6 +904,7 @@ Table org_vault_vouches {
   indexes {
     (org_id, host_key, by_key) [pk]
     host_key [name: 'org_vault_vouches_by_host']
+    (org_id, by_key) [name: 'org_vault_vouches_by_voucher']
   }
 
   Note: 'host_key <> by_key'

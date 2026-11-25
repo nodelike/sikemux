@@ -7,8 +7,13 @@ import type { ClerkBackend, Person } from "../account/clerk.ts";
 import { audit } from "../audit.ts";
 import { holdStanding, type AuthEnv } from "../auth.ts";
 import { checkSeatPauses } from "../billing/seat-pause.ts";
-import { seatLimit, seatsHeld } from "../billing/seats.ts";
-import { isFree } from "../billing/team.ts";
+import {
+  seatLimit,
+  seatLimitsByOrg,
+  seatsHeld,
+  seatsHeldByOrg,
+} from "../billing/seats.ts";
+import { freeOrgsById, isFree } from "../billing/team.ts";
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
 import { conflict, forbidden, notFound } from "../http.ts";
@@ -55,6 +60,40 @@ export async function orgBody(
     ...(logo ? { logo: logo.id } : {}),
     createdAt: org.created_at.toISOString(),
   };
+}
+
+export async function orgBodies(
+  db: Kysely<Tables>,
+  rows: readonly (Selectable<Tables["orgs"]> & { role: OrgRole })[],
+): Promise<Org[]> {
+  if (!rows.length) return [];
+  const ids = rows.map((row) => row.id);
+  const [heldMap, limitMap, freeSet, logos] = await Promise.all([
+    seatsHeldByOrg(db, ids),
+    seatLimitsByOrg(db, ids),
+    freeOrgsById(db, ids),
+    db
+      .selectFrom("org_logos")
+      .select(["org_id", "id"])
+      .where("org_id", "in", ids)
+      .execute(),
+  ]);
+  const logoMap = new Map(logos.map((row) => [row.org_id, row.id]));
+  return rows.map((org) => {
+    const logo = logoMap.get(org.id);
+    return {
+      id: org.id,
+      name: org.name,
+      role: org.role,
+      seats: {
+        held: heldMap.get(org.id) ?? 0,
+        limit: limitMap.get(org.id) ?? 0,
+      },
+      ...(freeSet.has(org.id) ? { preview: true } : {}),
+      ...(logo ? { logo } : {}),
+      createdAt: org.created_at.toISOString(),
+    };
+  });
 }
 
 /**

@@ -13,7 +13,7 @@ import type { ClerkBackend } from "../account/clerk.ts";
 import type { Services } from "../app.ts";
 import { audit } from "../audit.ts";
 import type { AuthEnv } from "../auth.ts";
-import { seatLimit, seatsHeld } from "../billing/seats.ts";
+import { seatLimitsByOrg, seatsHeldByOrg } from "../billing/seats.ts";
 import type { Tables } from "../db.ts";
 import { badRequest, conflict, notFound, readBody } from "../http.ts";
 import { perUser, type RateLimiter } from "../limits.ts";
@@ -99,11 +99,16 @@ export async function offersFor(
     )
     .orderBy("orgs.name")
     .execute();
+  const orgIds = rows.map((row) => row.orgId);
+  const [limits, held] = await Promise.all([
+    seatLimitsByOrg(db, orgIds),
+    seatsHeldByOrg(db, orgIds),
+  ]);
   const offers: OrgOffer[] = [];
   for (const row of rows) {
-    const limit = await seatLimit(db, row.orgId);
+    const limit = limits.get(row.orgId) ?? 0;
     if (limit === 0) continue;
-    offers.push({ ...row, seatFree: (await seatsHeld(db, row.orgId)) < limit });
+    offers.push({ ...row, seatFree: (held.get(row.orgId) ?? 0) < limit });
   }
   return offers;
 }
@@ -196,10 +201,15 @@ export function domainRoutes(
         : "None of your verified email addresses is at a domain that org proved it owns.";
       if (!isUuid(orgId) || (sitting && !isUuid(sitting)))
         throw notFound(NOT_YOURS);
+      const verifiedDomains = sitting
+        ? null
+        : await emailDomains(clerk, userId);
+      if (verifiedDomains !== null && !verifiedDomains.length)
+        throw notFound(NOT_YOURS);
       const org = await db.transaction().execute(async (trx) => {
         const domains = sitting
           ? await sittingDomains(trx, userId, orgId, sitting)
-          : await emailDomains(clerk, userId);
+          : (verifiedDomains ?? []);
         if (!domains.length) throw notFound(NOT_YOURS);
         const claim = await trx
           .selectFrom("org_domains")

@@ -52,6 +52,7 @@ import {
   memberOf,
   membership,
   membersOf,
+  orgBodies,
   orgBody,
   orgIdOf,
   peopleNamer,
@@ -223,9 +224,7 @@ export function orgRoutes({
         .orderBy("orgs.id")
         .execute();
       const body: OrgList = {
-        orgs: await Promise.all(
-          rows.map(({ role, ...org }) => orgBody(db, org, role)),
-        ),
+        orgs: await orgBodies(db, rows),
       };
       return c.json(body);
     })
