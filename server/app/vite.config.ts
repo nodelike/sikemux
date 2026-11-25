@@ -12,6 +12,8 @@ import { sentryVitePlugin } from "@sentry/vite-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
+import { previews } from "./previews.ts";
+
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 const WASM = join(
   repo,
@@ -122,7 +124,13 @@ function sentrySourceMaps() {
 }
 
 export default defineConfig({
-  plugins: [standInClerk(), react(), chatAssets(), sentrySourceMaps()],
+  plugins: [
+    standInClerk(),
+    react(),
+    chatAssets(),
+    previews(),
+    sentrySourceMaps(),
+  ],
   resolve: {
     alias: [{ find: /^@shared\//, replacement: `${join(repo, "shared")}/` }],
     dedupe: ["react", "react-dom"],

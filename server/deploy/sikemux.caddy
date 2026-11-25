@@ -69,7 +69,13 @@ app.sikemux.com {
 	header @assets Cache-Control "public, max-age=31536000, immutable"
 	@pages not path /assets/*
 	header @pages Cache-Control "no-cache"
-	try_files {path} /index.html
+	# A share link has its own page only for what it previews as. Any id gets the same one.
+	map {path} {built_page} {
+		~^/p/ /shared-artifact.html
+		~^/s/ /shared-chat.html
+		default /index.html
+	}
+	try_files {path} {built_page} /index.html
 	file_server
 	log {
 		output file /var/log/caddy/sikemux-app.log {
