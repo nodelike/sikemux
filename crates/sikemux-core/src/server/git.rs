@@ -485,6 +485,10 @@ pub(crate) fn follow_projects(core: &Core) {
         {
             refresh_identities(&core, projects.iter().map(PathBuf::from).collect());
         }
+        if let Some(project) = projects.first() {
+            core.collisions()
+                .project_changed(Path::new(project), paths.as_deref());
+        }
         for project in projects {
             super::project_files::moved(project, paths.as_deref());
             core.changed(What::ReadIn(Topic::Git, Some(project), paths.clone()));

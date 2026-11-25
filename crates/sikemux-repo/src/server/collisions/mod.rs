@@ -9,7 +9,6 @@
 
 mod fragile;
 mod merge;
-mod watch;
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
@@ -210,15 +209,11 @@ pub struct State {
     /// The inbox changed, so devices are sent the view again.
     publish: bool,
     bytes: usize,
-    /// Files to start or stop watching once the lock is let go of.
-    follow: Vec<PathBuf>,
-    unfollow: Vec<PathBuf>,
 }
 
 pub struct Collisions {
     state: Mutex<State>,
     pub wake: Wake,
-    watch: watch::Watch,
     core: Weak<Core>,
 }
 
@@ -297,25 +292,7 @@ impl Collisions {
         Self {
             state: Mutex::new(State::default()),
             wake: Wake::default(),
-            watch: watch::Watch::default(),
             core,
-        }
-    }
-
-    /// Starts and stops watching what the last change asked for.
-    fn watch_files(&self) {
-        let (follow, unfollow) = {
-            let mut state = self.state.locked();
-            (
-                std::mem::take(&mut state.follow),
-                std::mem::take(&mut state.unfollow),
-            )
-        };
-        for path in follow {
-            self.watch.follow(&self.core, &path);
-        }
-        for path in unfollow {
-            self.watch.unfollow(&path);
         }
     }
 
@@ -410,7 +387,6 @@ impl Collisions {
                     core.collisions().observe(path, text, None);
                 }
             }
-            core.collisions().watch_files();
         });
         began
     }
@@ -439,9 +415,6 @@ impl Collisions {
         };
         let mut state = self.state.locked();
         let tracked = state.files.contains_key(path);
-        if !tracked {
-            state.follow.push(path.to_path_buf());
-        }
         let file = state.files.entry(path.to_path_buf()).or_default();
         file.used = now;
         let added = match file.versions.back_mut() {
@@ -481,7 +454,6 @@ impl Collisions {
         }
     }
 
-    /// A file in a watched folder changed on disk.
     pub fn disk_changed(&self, path: &Path) {
         if !self.state.locked().files.contains_key(path) {
             return;
@@ -489,6 +461,39 @@ impl Collisions {
         if let Some(text) = read(path) {
             self.observe(path, text, None);
         }
+    }
+
+    pub fn project_changed(&self, project: &Path, paths: Option<&[String]>) {
+        let root = real(project);
+        let matched: Vec<PathBuf> = {
+            let state = self.state.locked();
+            if state.files.is_empty() {
+                return;
+            }
+            match paths {
+                Some(paths) => paths
+                    .iter()
+                    .map(|rel| root.join(rel))
+                    .filter(|path| state.files.contains_key(path))
+                    .collect(),
+                None => state
+                    .files
+                    .keys()
+                    .filter(|path| path.starts_with(&root))
+                    .cloned()
+                    .collect(),
+            }
+        };
+        if matched.is_empty() {
+            return;
+        }
+        let core = self.core.clone();
+        off_thread(move || {
+            let Some(core) = core.upgrade() else { return };
+            for path in matched {
+                core.collisions().disk_changed(&path);
+            }
+        });
     }
 
     /// An agent's tool call just changed `changes`, relative to `cwd`. A
@@ -554,7 +559,6 @@ impl Collisions {
                 *change = Change::Lines(lines);
             }
         }
-        self.watch_files();
     }
 
     /// Writes `ours`, made from `base`, merged with `theirs`, which the file
@@ -870,7 +874,6 @@ fn forget(state: &mut State, path: &Path) {
     if let Some(file) = state.files.remove(path) {
         let freed: usize = file.versions.iter().map(|version| version.text.len()).sum();
         state.bytes = state.bytes.saturating_sub(freed);
-        state.unfollow.push(path.to_path_buf());
     }
     let mut freed = 0;
     state.seen.retain(|(_, seen), copy| {
@@ -1084,7 +1087,6 @@ pub fn settle(core: &Arc<Core>) {
     let notes = std::mem::take(&mut state.notes);
     let publish = std::mem::take(&mut state.publish) || flushed;
     drop(state);
-    collisions.watch_files();
     if let Some(next) = next {
         collisions.wake.at(next);
     }
