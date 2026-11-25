@@ -117,15 +117,15 @@ void main() {
   vec2 page = onPage(at), path = before - pointer;
   vec2 off = page - pointer - path * clamp(dot(page - pointer, path) / max(dot(path, path), 1.), 0., 1.);
 #ifdef FIELD
-  float felt = mix(45., 95., chance.y), spring = mix(5., 11., chance.x), most = 500., leash = 150., give = .3, calm = 1.;
+  float felt = mix(64., 134., chance.y), spring = mix(5., 11., chance.x), most = 620., leash = 200., give = .38, calm = 1.;
 #else
-  float felt = clamp(span * .3, 26., 70.) * mix(.8, 1.1, chance.y), spring = mix(16., 34., chance.x), give = .2, calm = turning();
-  float most = clamp(span * 3.2, 260., 520.), leash = clamp(span * .46, 40., 120.);
+  float felt = clamp(span * .42, 36., 98.) * mix(.8, 1.1, chance.y), spring = mix(16., 34., chance.x), give = .26, calm = turning();
+  float most = clamp(span * 3.8, 320., 640.), leash = clamp(span * .56, 50., 148.);
 #endif
   float far = length(off) + .01, near = seen * exp(-far * far / (felt * felt)), quick = length(sweep);
   float own = hash(chance + .71), turn = (hash(chance * 3.1 + .13) - .5) * 3.;
-  vec2 fling = mat2(cos(turn), sin(turn), -sin(turn), cos(turn)) * sweep * mix(1., 9., own * own) + off / far * quick * mix(-1., 4., chance.x);
-  float was = length(speed), cap = max(was, most * mix(.2, 1., own) * min(1., .25 + quick / 1100.));
+  vec2 fling = mat2(cos(turn), sin(turn), -sin(turn), cos(turn)) * sweep * mix(1.3, 11.5, own * own) + off / far * quick * mix(-1., 5., chance.x);
+  float was = length(speed), cap = max(was, most * mix(.2, 1., own) * min(1., .3 + quick / 950.));
   speed += fling * near * calm * seconds * max(0., 1. - length(at - belongs) / leash);
   speed *= min(1., cap / max(length(speed), 1.));
   float spin = calm * seconds * ((chance.x - .5) * 14. + 5. * sin(page.x / 37. + page.y / 53. + time * 1.7));
@@ -146,7 +146,7 @@ flat out float blur;
 
 void main() {
   vec2 page = onPage(state.xy);
-  float radius, alpha, lit = seen * exp(-dot(page - pointer, page - pointer) / 14000.);
+  float radius, alpha, lit = seen * exp(-dot(page - pointer, page - pointer) / 27000.);
   vec3 shade;
   blur = 0.;
 #ifdef FIELD
@@ -160,11 +160,11 @@ void main() {
   float warmth = noise(page / 330. + vec2(time * .011, -time * .008) + .12 * chance.x), other = noise(page / 210. - vec2(time * .008, time * .01) + 17.);
   tone += core * .5 * step(clearing, away) * rich;
   radius = .46 + .75 * pow(chance.y, 5.) + .28 * clamp(tone, 0., 1.);
-  alpha = shown * (.24 + .46 * clamp(tone, 0., 1.)) * (1. + .8 * lit + .5 * min(length(state.zw) / 160., 1.));
+  alpha = shown * (.24 + .46 * clamp(tone, 0., 1.)) * (1. + 1. * lit + .5 * min(length(state.zw) / 160., 1.));
   alpha *= .84 + .16 * sin(time * (.2 + chance.x * .5) + chance.y * 60.) * (1. - still);
   shade = mix(deep, tint, smoothstep(.18, .62, warmth + .5 * core + .22 * (chance.x - .5)));
   shade = mix(shade, alt, smoothstep(.5, .74, other + .18 * (chance.y - .5)) * (1. - .6 * core));
-  shade = mix(shade, bright, clamp(core * 1.2 * chance.x * chance.x + .5 * step(.965, chance.x) + .35 * lit * chance.y, 0., .92));
+  shade = mix(shade, bright, clamp(core * 1.2 * chance.x * chance.x + .5 * step(.965, chance.x) + .45 * lit * chance.y, 0., .92));
   shade = mix(mix(shade, vec3(.54, .416, .44), failed * .8), vec3(.545, .533, .596), waiting) * (.78 + .4 * chance.x);
   if (ring.z >= 0.) {
     float wave = max(0., 1. - abs(length(page - ring.xy) - ring.z * 260.) / 90.) * max(0., 1. - ring.z / ${RING_LASTS.toFixed(1)});
@@ -186,7 +186,7 @@ void main() {
   shade = mix(mix(inkWas, ink, turned), vec3(1, .4, .4), .85 * failed);
   shade = mix(shade, vec3(dot(shade, vec3(.3, .59, .11))) * .75 + .1, waiting);
   shade = mix(shade, shade * 1.08, max(shine, 0.) * .6);
-  shade = mix(shade, bright, .25 * lit * chance.y);
+  shade = mix(shade, bright, .35 * lit * chance.y);
 #endif
   float box = 2. * radius + 2. + blur;
   color = vec4(shade, min(alpha, 1.));
@@ -225,7 +225,7 @@ void main() {
   light += tint * .3 * lamp(page, center, span * .72) * (.62 + .55 * cloud);
   light += alt * .1 * lamp(page, size * vec2(.12, 1.04), most * .46) * (.4 + 1.1 * second);
   light += deep * .22 * lamp(page, size * vec2(.98, 1.02), most * .34) * (.35 + second);
-  light += tint * .11 * seen * lamp(page, pointer, 170.);
+  light += tint * .14 * seen * lamp(page, pointer, 230.);
   light *= glow * (1. - .4 * waiting);
   light = mix(light, dot(light, vec3(.33)) * vec3(1.3, .6, .6), failed * .8);
 }`;
