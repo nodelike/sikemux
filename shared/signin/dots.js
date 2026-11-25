@@ -762,12 +762,14 @@ export function drawDots(canvas, { mark, quiet }) {
         const [wanted, size] = [shownAs, grainSize(view.span)];
         grained = size;
         let next = [];
+        let drawn = true;
         try {
             if (shown) next = await grainsOf(shown, size);
         } catch {
-            mark.classList.add("plain");
+            drawn = false;
         }
         if (signal.aborted || wanted !== shownAs || size !== grained) return;
+        mark.classList.toggle("plain", !drawn || !particles);
         grains = next;
         const now = performance.now();
         const first = !markGroup.used(true);
