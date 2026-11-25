@@ -299,8 +299,8 @@ pub(super) fn chat_above() -> ChatAbove {
             })
         },
         own_home: |core, launch| Box::pin(launching::own_home(core, launch)),
-        simulator_offered: |core, agent_id, cwd| {
-            Box::pin(launching::simulator_offered(core, agent_id, cwd))
+        tool_instructions: |core, provider, agent_id, cwd| {
+            Box::pin(launching::tool_instructions(core, provider, agent_id, cwd))
         },
         turn_digest: |core, agent| {
             Box::pin(async move {

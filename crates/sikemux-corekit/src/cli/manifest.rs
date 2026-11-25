@@ -2,16 +2,23 @@
 //! them. The core serves them to agents' tool servers, so a tool server that
 //! outlived an update still offers what the running Sikemux handles.
 
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use serde_json::{json, Value};
+use sikemux_base::cli::protocol::{RESOURCES_OFFER, SETUP_OFFER};
 
 pub const TOOLS: &str = include_str!("../../../../tools/tools.json");
 pub const GUIDE: &str = include_str!("../../../../tools/SIKEMUX_GUIDE.md");
+pub const GATEWAY_CALL: &str = "call";
+
+static PARSED: LazyLock<Result<Value, String>> =
+    LazyLock::new(|| serde_json::from_str(TOOLS).map_err(|error| error.to_string()));
 
 static SERVED: LazyLock<Result<Value, String>> = LazyLock::new(|| {
-    let manifest: Value = serde_json::from_str(TOOLS).map_err(|error| error.to_string())?;
-    Ok(json!({ "manifest": manifest, "guide": GUIDE }))
+    PARSED
+        .clone()
+        .map(|manifest| json!({ "manifest": manifest, "guide": GUIDE }))
 });
 
 pub fn served() -> Result<Value, String> {
@@ -45,8 +52,36 @@ pub fn instructions_for(guide: &str, simulator: bool) -> String {
 }
 
 pub fn instructions(simulator: bool) -> String {
+    instructions_for(guide_name(), simulator)
+}
+
+pub fn gateway_instructions_with_list(guide: &str, simulator: bool, tool_list: &str) -> String {
+    let mut text = instructions_for(guide, simulator);
+    text.push_str(&format!(
+        "\n\nSikemux exposes all tools below through two MCP tools: `{guide}` and `{GATEWAY_CALL}`.\n\
+         - Call `{GATEWAY_CALL}` with `name` (exact tool name below) and `arguments` (object). For a family tool with actions in parentheses, pass `action` inside `arguments`.\n\
+         - Call `{guide}` with `tool: \"<name>\"` to inspect any tool's exact parameters before calling it, or `topic: \"<topic>\"` for workflow guides."
+    ));
+    if !tool_list.is_empty() {
+        text.push_str("\n\nAvailable Sikemux tools:\n");
+        text.push_str(tool_list);
+    }
+    text
+}
+
+pub fn gateway_instructions(simulator: bool, resources: bool, plugins: &[Value]) -> String {
+    let guide = guide_name();
+    let list = PARSED
+        .as_ref()
+        .map(|manifest| gateway_tool_list(manifest, simulator, resources, false, plugins))
+        .unwrap_or_default();
+    gateway_instructions_with_list(guide, simulator, &list)
+}
+
+fn guide_name() -> &'static str {
     static GUIDE_NAME: LazyLock<String> = LazyLock::new(|| {
-        serde_json::from_str::<Value>(TOOLS)
+        PARSED
+            .as_ref()
             .ok()
             .and_then(|manifest| {
                 manifest
@@ -57,5 +92,191 @@ pub fn instructions(simulator: bool) -> String {
             })
             .unwrap_or_else(|| "guide".to_owned())
     });
-    instructions_for(&GUIDE_NAME, simulator)
+    &GUIDE_NAME
+}
+
+fn first_line(text: &str) -> &str {
+    text.lines().next().unwrap_or_default().trim()
+}
+
+pub fn is_tool_offered(
+    offered: Option<&str>,
+    simulator: bool,
+    resources: bool,
+    setup: bool,
+) -> bool {
+    match offered {
+        None => true,
+        Some("simulator") => simulator,
+        Some(flag) if flag == RESOURCES_OFFER => resources,
+        Some(flag) if flag == SETUP_OFFER => setup,
+        Some(_) => false,
+    }
+}
+
+pub fn format_tool_line(name: &str, actions: &[&str], description: &str) -> String {
+    let summary = first_line(description);
+    if actions.is_empty() {
+        format!("- {name}: {summary}")
+    } else {
+        format!("- {name} ({}): {summary}", actions.join(", "))
+    }
+}
+
+fn family_action<'a>(family: &str, tool: &'a str) -> Option<&'a str> {
+    tool.strip_prefix(family)?.strip_prefix('_')
+}
+
+pub fn gateway_tool_list(
+    manifest: &Value,
+    simulator: bool,
+    resources: bool,
+    setup: bool,
+    plugins: &[Value],
+) -> String {
+    let guide = manifest
+        .get("guide")
+        .and_then(|guide| guide.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or("guide");
+    let built_in_families: Vec<(&str, &str)> = manifest
+        .get("families")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|family| {
+            Some((
+                family.get("name")?.as_str()?,
+                family.get("description")?.as_str()?,
+            ))
+        })
+        .collect();
+    let kept_built_in: Vec<&Value> = manifest
+        .get("tools")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|tool| {
+            is_tool_offered(
+                tool.get("offered").and_then(Value::as_str),
+                simulator,
+                resources,
+                true,
+            )
+        })
+        .collect();
+    let mut reserved: HashSet<&str> = HashSet::new();
+    reserved.insert(guide);
+    for tool in &kept_built_in {
+        if let Some(name) = tool.get("name").and_then(Value::as_str) {
+            reserved.insert(name);
+        }
+    }
+    for (family, _) in &built_in_families {
+        reserved.insert(family);
+    }
+    let offered_built_in: Vec<&Value> = kept_built_in
+        .into_iter()
+        .filter(|tool| {
+            is_tool_offered(
+                tool.get("offered").and_then(Value::as_str),
+                simulator,
+                resources,
+                setup,
+            )
+        })
+        .collect();
+    let mut lines: Vec<String> = Vec::new();
+    let mut emitted_families: HashSet<&str> = HashSet::new();
+    for tool in &offered_built_in {
+        let Some(name) = tool.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if let Some((family, description)) = built_in_families
+            .iter()
+            .find(|(family, _)| family_action(family, name).is_some())
+        {
+            if emitted_families.insert(*family) {
+                let actions: Vec<&str> = offered_built_in
+                    .iter()
+                    .filter_map(|other| family_action(family, other.get("name")?.as_str()?))
+                    .collect();
+                lines.push(format_tool_line(family, &actions, description));
+            }
+        } else {
+            let description = tool
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let actions: Vec<&str> = tool
+                .pointer("/properties/action/enum")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect();
+            lines.push(format_tool_line(name, &actions, description));
+        }
+    }
+    let offered_plugins: Vec<&Value> = plugins
+        .iter()
+        .filter(|tool| {
+            tool.get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| {
+                    !reserved.contains(name)
+                        && !built_in_families
+                            .iter()
+                            .any(|(family, _)| family_action(family, name).is_some())
+                })
+        })
+        .collect();
+    let mut plugin_families: Vec<(&str, &str)> = Vec::new();
+    for tool in &offered_plugins {
+        if let Some(family) = tool.get("family") {
+            if let (Some(name), Some(description)) = (
+                family.get("name").and_then(Value::as_str),
+                family.get("description").and_then(Value::as_str),
+            ) {
+                if !reserved.contains(name)
+                    && !plugin_families
+                        .iter()
+                        .any(|(existing, _)| *existing == name)
+                {
+                    plugin_families.push((name, description));
+                }
+            }
+        }
+    }
+    for tool in &offered_plugins {
+        let Some(name) = tool.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if let Some((family, description)) = plugin_families
+            .iter()
+            .find(|(family, _)| family_action(family, name).is_some())
+        {
+            if emitted_families.insert(*family) {
+                let actions: Vec<&str> = offered_plugins
+                    .iter()
+                    .filter_map(|other| family_action(family, other.get("name")?.as_str()?))
+                    .collect();
+                lines.push(format_tool_line(family, &actions, description));
+            }
+        } else {
+            let description = tool
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let actions: Vec<&str> = tool
+                .pointer("/properties/action/enum")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .collect();
+            lines.push(format_tool_line(name, &actions, description));
+        }
+    }
+    lines.join("\n")
 }

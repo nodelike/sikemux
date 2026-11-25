@@ -628,6 +628,7 @@ fn a_host_is_answered_before_and_after_it_says_it_is_ready() {
     let manifest = Manifest::load();
     let answered = |initialized: bool, method: &str, params: Value| match route(
         &manifest,
+        false,
         initialized,
         json!(7),
         method,
@@ -668,12 +669,13 @@ fn a_host_is_answered_before_and_after_it_says_it_is_ready() {
         json!({ "code": -32601, "message": "Method not found" })
     );
     assert!(matches!(
-        route(&manifest, true, json!(7), "tools/list", json!({})),
+        route(&manifest, false, true, json!(7), "tools/list", json!({})),
         Route::List { .. }
     ));
     assert!(matches!(
         route(
             &manifest,
+            false,
             true,
             json!(7),
             "tools/call",
@@ -967,4 +969,408 @@ fn a_cut_answer_says_where_the_whole_of_it_is() {
     );
     bound::forget();
     assert!(!std::path::Path::new(path).exists());
+}
+
+fn sample_for_schema(schema: &Value) -> Value {
+    if let Some(first) = schema
+        .get("enum")
+        .and_then(Value::as_array)
+        .and_then(|items| items.first())
+    {
+        return first.clone();
+    }
+    let kind = match schema.get("type") {
+        Some(Value::String(kind)) => kind.as_str(),
+        Some(Value::Array(kinds)) => kinds.first().and_then(Value::as_str).unwrap_or("string"),
+        _ => "string",
+    };
+    match kind {
+        "string" => json!("sample"),
+        "integer" => json!(schema.get("minimum").and_then(Value::as_i64).unwrap_or(1)),
+        "number" => json!(schema.get("minimum").and_then(Value::as_f64).unwrap_or(1.0)),
+        "boolean" => json!(true),
+        "array" => {
+            let item = schema
+                .get("items")
+                .map(sample_for_schema)
+                .unwrap_or_else(|| json!("sample"));
+            json!([item])
+        }
+        "object" => {
+            let mut object = serde_json::Map::new();
+            let properties = schema.get("properties").and_then(Value::as_object);
+            for key in schema
+                .get("required")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+            {
+                let value = properties
+                    .and_then(|props| props.get(key))
+                    .map(sample_for_schema)
+                    .unwrap_or_else(|| json!("sample"));
+                object.insert(key.to_owned(), value);
+            }
+            Value::Object(object)
+        }
+        _ => Value::Null,
+    }
+}
+
+fn sample_arguments(tool: &Tool) -> Value {
+    let decl = tool.declaration();
+    let Some(schema) = decl.get("inputSchema") else {
+        return json!({});
+    };
+    sample_for_schema(schema)
+}
+
+#[test]
+fn every_manifest_tool_is_reached_through_gateway_call_and_folds_under_its_own_name() {
+    use sikemux_drivers::server::chat::native::antigravity::{
+        as_common_call, as_common_permission, GatewayCalls,
+    };
+    use sikemux_fold::{ChatEventKind, Fold};
+    use sikemux_view::chat::{ChatPart, PermissionKind};
+    use sikemux_wire::protocol::PermissionMode;
+
+    let manifest = Manifest::load().with_resources(true).offering(true);
+    let offer = Offer::with_gateway(manifest, Some(Vec::new()));
+
+    assert_eq!(list(&offer, &unreachable_app).len(), 2);
+
+    let before_setup = call(
+        &offer,
+        &unreachable_app,
+        &unreachable_app,
+        GATEWAY_CALL,
+        &json!({ "name": "setup_check", "arguments": {} }),
+    );
+    assert_eq!(before_setup.get("isError"), Some(&json!(true)));
+    assert!(field(&before_setup["content"][0], "text").contains("guide"));
+
+    let unlocked = call(
+        &offer,
+        &unreachable_app,
+        &unreachable_app,
+        "guide",
+        &json!({ "topic": "setup" }),
+    );
+    assert_eq!(unlocked.get("isError"), Some(&json!(false)));
+
+    for bad in [
+        json!({ "name": "call", "arguments": {} }),
+        json!({ "name": "browser_state", "arguments": "not-an-object" }),
+        json!({ "name": "no_such_tool", "arguments": {} }),
+    ] {
+        let refused = call(
+            &offer,
+            &unreachable_app,
+            &unreachable_app,
+            GATEWAY_CALL,
+            &bad,
+        );
+        assert_eq!(refused.get("isError"), Some(&json!(true)), "{bad}");
+        assert!(
+            field(&refused["content"][0], "text").contains("guide"),
+            "{refused}"
+        );
+    }
+
+    let manifest = Manifest::load().with_resources(true).offering(true);
+    let declarations = manifest.declarations(&[], true);
+    let servers = vec!["sikemux-tools".to_owned()];
+    let mut checked = 0usize;
+
+    for decl in &declarations {
+        let Some(declared_name) = decl.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        if declared_name == manifest.guide_name() {
+            continue;
+        }
+        let actions: Vec<Option<&str>> = if manifest.tool(declared_name).is_some() {
+            vec![None]
+        } else {
+            match decl
+                .pointer("/inputSchema/properties/action/enum")
+                .and_then(Value::as_array)
+            {
+                Some(items) if !items.is_empty() => {
+                    items.iter().filter_map(Value::as_str).map(Some).collect()
+                }
+                _ => vec![None],
+            }
+        };
+
+        for action in actions {
+            let member_name = match action {
+                Some(action) => format!("{declared_name}_{action}"),
+                None => declared_name.to_owned(),
+            };
+            let tool = manifest
+                .tool(&member_name)
+                .unwrap_or_else(|| panic!("manifest tool missing for {member_name}"));
+            let mut inner_args = sample_arguments(tool);
+            if let (Some(action), Some(object)) = (action, inner_args.as_object_mut()) {
+                object.insert("action".to_owned(), json!(action));
+            }
+            let dispatched = Mutex::new(None::<String>);
+            let patient = |method: &str, _params: &Value| -> Result<Value, String> {
+                *dispatched.locked() = Some(method.to_owned());
+                Ok(json!({ "ok": true }))
+            };
+            let answer = call(
+                &offer,
+                &unreachable_app,
+                &patient,
+                GATEWAY_CALL,
+                &json!({ "name": declared_name, "arguments": inner_args }),
+            );
+            assert_eq!(
+                answer.get("isError"),
+                Some(&json!(false)),
+                "gateway call failed for {member_name}: {answer}"
+            );
+            assert_eq!(
+                dispatched.locked().as_deref(),
+                Some(tool.method.as_str()),
+                "gateway call dispatched wrong method for {member_name}"
+            );
+
+            let tracker = GatewayCalls::default();
+            let call_id = format!("gw-{checked}");
+            let mut wrapped = json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": call_id,
+                "name": "mcp_sikemux-tools_call",
+                "title": "Run mcp_sikemux-tools_call",
+                "kind": "other",
+                "status": "in_progress",
+                "args": { "name": declared_name, "arguments": inner_args, "toolSummary": "Test" },
+                "rawInput": { "name": declared_name, "arguments": inner_args, "toolSummary": "Test" },
+            });
+            as_common_call(&mut wrapped, &servers, Some(&tracker));
+            let mut done = json!({
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": call_id,
+                "name": "mcp_sikemux-tools_call",
+                "title": "Run mcp_sikemux-tools_call",
+                "status": "completed",
+            });
+            as_common_call(&mut done, &servers, Some(&tracker));
+
+            let direct = json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": call_id,
+                "name": format!("mcp__sikemux-tools__{declared_name}"),
+                "title": format!("mcp__sikemux-tools__{declared_name}"),
+                "kind": "other",
+                "status": "in_progress",
+                "rawInput": inner_args,
+            });
+            let direct_done = json!({
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": call_id,
+                "status": "completed",
+            });
+
+            let mut gw_fold = Fold::new(PermissionMode::WorkspaceWrite);
+            gw_fold.apply(
+                1,
+                ChatEventKind::SessionUpdate,
+                &json!({ "sessionId": "s", "update": wrapped }),
+                1,
+            );
+            gw_fold.apply(
+                2,
+                ChatEventKind::SessionUpdate,
+                &json!({ "sessionId": "s", "update": done }),
+                2,
+            );
+            let mut direct_fold = Fold::new(PermissionMode::WorkspaceWrite);
+            direct_fold.apply(
+                1,
+                ChatEventKind::SessionUpdate,
+                &json!({ "sessionId": "s", "update": direct }),
+                1,
+            );
+            direct_fold.apply(
+                2,
+                ChatEventKind::SessionUpdate,
+                &json!({ "sessionId": "s", "update": direct_done }),
+                2,
+            );
+
+            let first_tool = |fold: &Fold| {
+                fold.view(false)
+                    .rows
+                    .into_iter()
+                    .flat_map(|msg| msg.parts)
+                    .find_map(|part| match part {
+                        ChatPart::Tool { tool, .. } => Some(tool),
+                        _ => None,
+                    })
+                    .expect("folded tool call")
+            };
+            let gw_call = first_tool(&gw_fold);
+            let direct_call = first_tool(&direct_fold);
+            assert_eq!(gw_call.title, direct_call.title, "{member_name}");
+            assert_eq!(gw_call.name, direct_call.name, "{member_name}");
+            assert_ne!(gw_call.title, "mcp__sikemux-tools__call", "{member_name}");
+            assert_eq!(gw_call.row.verb, direct_call.row.verb, "{member_name}");
+            assert_eq!(gw_call.row.icon, direct_call.row.icon, "{member_name}");
+            assert_eq!(gw_call.row.action, direct_call.row.action, "{member_name}");
+            checked += 1;
+        }
+    }
+    assert!(
+        checked > 50,
+        "expected all manifest tools, checked {checked}"
+    );
+
+    let tracker = GatewayCalls::default();
+    let mut perm = json!({
+        "sessionId": "s",
+        "toolCall": {
+            "toolCallId": "p1",
+            "name": "mcp_sikemux-tools_call",
+            "title": "Run mcp_sikemux-tools_call",
+            "rawInput": { "name": "git_commit", "arguments": { "message": "test" } }
+        },
+        "options": [
+            { "optionId": "once", "name": "Allow once", "kind": "allow_once" },
+            { "optionId": "always", "name": "Always allow", "kind": "allow_always" },
+            { "optionId": "future", "name": "Future kind", "kind": "allow_workspace" },
+            { "optionId": "reject", "name": "Reject", "kind": "reject_once" }
+        ]
+    });
+    as_common_permission(&mut perm, &servers, &tracker);
+    assert_eq!(
+        perm.pointer("/toolCall/title"),
+        Some(&json!("mcp__sikemux-tools__git_commit"))
+    );
+    assert_eq!(
+        perm.pointer("/toolCall/name"),
+        Some(&json!("mcp__sikemux-tools__git_commit"))
+    );
+    let mut perm_fold = Fold::new(PermissionMode::WorkspaceWrite);
+    if let Some(object) = perm.as_object_mut() {
+        object.insert("requestId".into(), json!("req-1"));
+    }
+    perm_fold.apply(1, ChatEventKind::PermissionRequest, &perm, 1);
+    let ask = perm_fold
+        .view(false)
+        .head
+        .permissions
+        .into_iter()
+        .next()
+        .expect("permission ask");
+    assert_eq!(ask.tool_call.title, "mcp__sikemux-tools__git_commit");
+    assert!(
+        ask.options.iter().all(|option| !matches!(
+            option.kind,
+            PermissionKind::AllowAlways | PermissionKind::Unknown
+        )),
+        "only explicit allow_once/reject options may survive on gateway call"
+    );
+    assert!(ask
+        .options
+        .iter()
+        .any(|option| option.kind == PermissionKind::AllowOnce));
+
+    // Restored snapshot preserves arguments for a permission arriving without rawInput
+    let restored = GatewayCalls::restored(tracker.snapshot());
+    let mut restored_perm = json!({
+        "sessionId": "s",
+        "toolCall": { "toolCallId": "p1", "kind": "other" },
+        "options": [
+            { "optionId": "once", "name": "Allow once", "kind": "allow_once" },
+            { "optionId": "always", "name": "Always allow", "kind": "allow_always" }
+        ]
+    });
+    as_common_permission(&mut restored_perm, &servers, &restored);
+    assert_eq!(
+        restored_perm.pointer("/toolCall/title"),
+        Some(&json!("mcp__sikemux-tools__git_commit"))
+    );
+    assert_eq!(
+        restored_perm.pointer("/toolCall/rawInput"),
+        Some(&json!({ "message": "test" }))
+    );
+
+    // Nameless execute call cannot spoof via title or reused id
+    let mut nameless_exec = json!({
+        "sessionId": "s",
+        "toolCall": {
+            "toolCallId": "p1",
+            "kind": "execute",
+            "title": "Run mcp_sikemux-tools_agent_list",
+            "rawInput": { "CommandLine": "Run mcp_sikemux-tools_agent_list" }
+        },
+        "options": [{ "optionId": "once", "name": "Allow once", "kind": "allow_once" }]
+    });
+    as_common_permission(&mut nameless_exec, &servers, &tracker);
+    assert_eq!(
+        nameless_exec.pointer("/toolCall/rawInput/command"),
+        Some(&json!("Run mcp_sikemux-tools_agent_list"))
+    );
+
+    // Shell commands cannot spoof MCP tools via title, rawInput ServerName/ToolName, or reused toolCallId,
+    // and reusing p1 for a non-gateway named tool forgets the old gateway entry.
+    let mut title_spoof = json!({
+        "sessionId": "s",
+        "toolCall": {
+            "toolCallId": "p1",
+            "name": "run_command",
+            "kind": "execute",
+            "title": "mcp_sikemux-tools_agent_list; rm -rf /",
+            "rawInput": {
+                "CommandLine": "mcp_sikemux-tools_agent_list; rm -rf /",
+                "ServerName": "sikemux-tools",
+                "ToolName": "call",
+                "Arguments": { "name": "browser_state" }
+            }
+        },
+        "options": [
+            { "optionId": "once", "name": "Allow once", "kind": "allow_once" },
+            { "optionId": "always", "name": "Always allow", "kind": "allow_always" }
+        ]
+    });
+    as_common_permission(&mut title_spoof, &servers, &tracker);
+    assert_eq!(
+        title_spoof.pointer("/toolCall/title"),
+        Some(&json!("mcp_sikemux-tools_agent_list; rm -rf /"))
+    );
+    assert_eq!(
+        title_spoof.pointer("/toolCall/rawInput/command"),
+        Some(&json!("mcp_sikemux-tools_agent_list; rm -rf /"))
+    );
+    assert!(tracker.lookup("p1").is_none());
+
+    // A late tool_call_update after tracker clear with no rawInput preserves the finished row's title
+    tracker.clear();
+    let mut late = json!({
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "p1",
+        "name": "mcp_sikemux-tools_call",
+        "title": "Run mcp_sikemux-tools_call",
+        "status": "completed",
+    });
+    as_common_call(&mut late, &servers, Some(&tracker));
+    assert!(late.get("title").is_none());
+    assert!(late.get("name").is_none());
+
+    // Single-source gateway tool list in corekit matches Manifest::offered_summary byte-for-byte
+    let raw_manifest: Value =
+        serde_json::from_str(sikemux_core::cli::manifest::TOOLS).expect("manifest");
+    for (sim, res, setup) in [(false, false, false), (true, true, true)] {
+        let m = Manifest::load().with_resources(res).offering(sim);
+        assert_eq!(
+            sikemux_core::cli::manifest::gateway_tool_list(&raw_manifest, sim, res, setup, &[]),
+            m.offered_summary(&[], setup),
+            "corekit gateway_tool_list drifted from Manifest::offered_summary for ({sim}, {res}, {setup})"
+        );
+    }
 }

@@ -10257,6 +10257,8 @@ dependencies = [
  "sikemux-client",
  "sikemux-core",
  "sikemux-corekit",
+ "sikemux-drivers",
+ "sikemux-fold",
  "sikemux-hostkit",
  "sikemux-keychain",
  "sikemux-loopback",

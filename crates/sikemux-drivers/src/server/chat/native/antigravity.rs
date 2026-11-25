@@ -5,67 +5,305 @@
 //! it starts runs on detached, its steps only in a log of its own, which the subagent's card
 //! follows.
 
+use std::collections::VecDeque;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Map, Value};
+use sikemux_corekit::cli::manifest::GATEWAY_CALL;
 use sikemux_fold::update::{
     agent_text, mcp_title, subagent_model, subagent_usage, text_content, thought, tool_call,
     tool_update,
 };
 use sikemux_fold::UpdateKind;
 use sikemux_process::sync::Locked;
+use sikemux_view::chat::PermissionKind;
 
+use super::super::permission;
 use super::super::states::{self, Subagent, UNNAMED_TASK};
 use super::mcp_calls::split;
 use super::session::Sink;
 use crate::acp::failure::{Failure, FailureKind};
+use crate::launch::tools::TOOLS_SERVER;
 use crate::launch::PermissionMode;
 use crate::sessions::antigravity::{subagent_log, subagent_run, subagent_started, SubagentRun};
 
 const PRINTED: &str = "Command output:\n";
+const MAX_GATEWAY_CALLS: usize = 256;
 
-pub(super) fn as_common_call(update: &mut Value, servers: &[String]) {
+/// Remembers the unwrapped Sikemux tool name and arguments for in-flight gateway
+/// calls by `toolCallId`, so later updates or permission requests that omit
+/// `rawInput` still act on the inner tool.
+#[derive(Default)]
+pub struct GatewayCalls(Mutex<VecDeque<(String, String, Option<Value>)>>);
+
+impl GatewayCalls {
+    pub fn remember(&self, id: &str, tool: &str, args: Option<Value>) {
+        let mut calls = self.0.locked();
+        calls.retain(|(existing, ..)| existing != id);
+        if calls.len() >= MAX_GATEWAY_CALLS {
+            calls.pop_front();
+        }
+        calls.push_back((id.to_owned(), tool.to_owned(), args));
+    }
+
+    pub fn lookup(&self, id: &str) -> Option<(String, Option<Value>)> {
+        self.0
+            .locked()
+            .iter()
+            .rev()
+            .find(|(existing, ..)| existing == id)
+            .map(|(_, tool, args)| (tool.clone(), args.clone()))
+    }
+
+    pub fn forget(&self, id: &str) {
+        self.0.locked().retain(|(existing, ..)| existing != id);
+    }
+
+    pub fn clear(&self) {
+        self.0.locked().clear();
+    }
+
+    pub fn snapshot(&self) -> Vec<(String, String, Option<Value>)> {
+        self.0.locked().iter().cloned().collect()
+    }
+
+    pub fn restored(entries: Vec<(String, String, Option<Value>)>) -> Self {
+        Self(Mutex::new(entries.into_iter().collect()))
+    }
+}
+
+pub fn as_common_call(
+    update: &mut Value,
+    servers: &[String],
+    gateway_calls: Option<&GatewayCalls>,
+) {
     if !UpdateKind::of(update).is_some_and(UpdateKind::is_tool) {
         return;
     }
-    let summary = update["rawInput"]
-        .as_object_mut()
+    unwrap_call(update, servers, gateway_calls, true);
+}
+
+pub fn as_common_permission(request: &mut Value, servers: &[String], gateway_calls: &GatewayCalls) {
+    let is_gateway = request
+        .get_mut("toolCall")
+        .is_some_and(|tool_call| unwrap_call(tool_call, servers, Some(gateway_calls), false));
+    if !is_gateway {
+        return;
+    }
+    if let Some(options) = request.get_mut("options").and_then(Value::as_array_mut) {
+        let has_reject_once = options
+            .iter()
+            .any(|option| permission::kind_of(option) == PermissionKind::RejectOnce);
+        options.retain(|option| match permission::kind_of(option) {
+            PermissionKind::AllowOnce | PermissionKind::RejectOnce => true,
+            PermissionKind::RejectAlways => !has_reject_once,
+            PermissionKind::AllowAlways | PermissionKind::Unknown => false,
+        });
+    }
+}
+
+fn unwrap_call(
+    call: &mut Value,
+    servers: &[String],
+    gateway_calls: Option<&GatewayCalls>,
+    is_update: bool,
+) -> bool {
+    let summary = call
+        .get_mut("rawInput")
+        .and_then(Value::as_object_mut)
         .and_then(|input| input.remove("toolSummary"));
-    let named = update["name"]
-        .as_str()
-        .and_then(|name| name.strip_prefix("mcp_"))
-        .and_then(|name| split(name, servers));
-    if let Some((server, tool)) = named {
-        update["title"] = json!(mcp_title(&server, &tool));
-        return;
+    if let Some(args) = call.get_mut("args").and_then(Value::as_object_mut) {
+        args.remove("toolSummary");
     }
-    if let Some((server, tool, arguments)) = proxied(&update["rawInput"]) {
-        update["title"] = json!(mcp_title(&server, &tool));
-        update["kind"] = json!("other");
-        update["rawInput"] = arguments;
-        return;
+    let resolved = mcp_target(call, servers);
+    let call_id = call
+        .get("toolCallId")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    if let Some((server, tool, proxied_args)) = resolved {
+        if server == TOOLS_SERVER && tool == GATEWAY_CALL {
+            let raw_source = proxied_args.as_ref().or_else(|| call.get("rawInput"));
+            let inner_name = raw_source
+                .and_then(|input| input.get("name"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|name| !name.is_empty() && *name != GATEWAY_CALL)
+                .map(str::to_owned);
+            if let Some(inner_name) = inner_name {
+                let inner_args = extract_gateway_args(raw_source);
+                if let (Some(tracker), Some(id)) = (gateway_calls, call_id.as_deref()) {
+                    tracker.remember(id, &inner_name, Some(inner_args.clone()));
+                }
+                apply_inner_tool(call, &inner_name, Some(inner_args));
+            } else if let Some((remembered, remembered_args)) =
+                call_id.as_deref().and_then(|id| gateway_calls?.lookup(id))
+            {
+                let fill_args = input_missing_or_empty(call.get("rawInput"))
+                    .then_some(remembered_args)
+                    .flatten();
+                apply_inner_tool(call, &remembered, fill_args);
+            } else if is_update && UpdateKind::of(call) == Some(UpdateKind::ToolCallUpdate) {
+                if let Some(object) = call.as_object_mut() {
+                    object.remove("title");
+                    object.remove("name");
+                    object.remove("kind");
+                    object.remove("rawInput");
+                    object.remove("args");
+                }
+            } else {
+                set_field(call, "title", json!("Sikemux tool"));
+                if let Some(object) = call.as_object_mut() {
+                    object.remove("name");
+                }
+                set_field(call, "kind", json!("other"));
+            }
+            return true;
+        }
+        if let (Some(tracker), Some(id)) = (gateway_calls, call_id.as_deref()) {
+            tracker.forget(id);
+        }
+        set_field(call, "title", json!(mcp_title(&server, &tool)));
+        if let Some(args) = proxied_args {
+            set_field(call, "kind", json!("other"));
+            set_field(call, "rawInput", args.clone());
+            if call.get("args").is_some() {
+                set_field(call, "args", args);
+            }
+        }
+        return false;
     }
-    if update["kind"] != "execute" {
-        return;
+    let unnamed = call
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_none_or(str::is_empty);
+    if !unnamed {
+        if let (Some(tracker), Some(id)) = (gateway_calls, call_id.as_deref()) {
+            tracker.forget(id);
+        }
     }
-    if let Some(input) = update["rawInput"].as_object_mut() {
+    let generic_kind = matches!(
+        call.get("kind").and_then(Value::as_str),
+        None | Some("other")
+    );
+    if unnamed && generic_kind {
+        if let Some((remembered, remembered_args)) =
+            call_id.as_deref().and_then(|id| gateway_calls?.lookup(id))
+        {
+            let unwrapped_args = if call
+                .get("rawInput")
+                .and_then(|input| input.get("name"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                == Some(remembered.as_str())
+            {
+                Some(extract_gateway_args(call.get("rawInput")))
+            } else if input_missing_or_empty(call.get("rawInput")) && !is_update {
+                remembered_args
+            } else {
+                None
+            };
+            apply_inner_tool(call, &remembered, unwrapped_args);
+            return true;
+        }
+    }
+    if call.get("kind").and_then(Value::as_str) != Some("execute") {
+        return false;
+    }
+    if let Some(input) = call.get_mut("rawInput").and_then(Value::as_object_mut) {
         rename(input, "CommandLine", "command");
         if let Some(summary) = summary {
             input.insert("description".to_owned(), summary);
         }
     }
-    if let Some(output) = update.pointer_mut("/rawOutput/output") {
+    if let Some(output) = call.pointer_mut("/rawOutput/output") {
         trim_head(output);
     }
-    if let Some(blocks) = update["content"].as_array_mut() {
+    if let Some(blocks) = call.get_mut("content").and_then(Value::as_array_mut) {
         for block in blocks {
             if let Some(text) = block.pointer_mut("/content/text") {
                 trim_head(text);
             }
         }
+    }
+    false
+}
+
+fn mcp_target(call: &Value, servers: &[String]) -> Option<(String, String, Option<Value>)> {
+    if let Some(name) = call
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        if let Some((server, tool)) = name
+            .strip_prefix("mcp_")
+            .and_then(|rest| split(rest, servers))
+        {
+            return Some((server, tool, None));
+        }
+        if name == "call_mcp_tool" {
+            return call
+                .get("rawInput")
+                .and_then(proxied)
+                .map(|(server, tool, args)| (server, tool, Some(args)));
+        }
+        return None;
+    }
+    if call.get("kind").and_then(Value::as_str) == Some("execute") {
+        return None;
+    }
+    let title = call.get("title").and_then(Value::as_str)?;
+    if let Some((server, tool)) = title
+        .strip_prefix("Run mcp_")
+        .and_then(|rest| split(rest, servers))
+    {
+        return Some((server, tool, None));
+    }
+    if title.starts_with("MCP Tool ") {
+        return call
+            .get("rawInput")
+            .and_then(proxied)
+            .map(|(server, tool, args)| (server, tool, Some(args)));
+    }
+    None
+}
+
+fn extract_gateway_args(raw_source: Option<&Value>) -> Value {
+    match raw_source.and_then(|input| input.get("arguments")) {
+        Some(Value::Object(object)) => Value::Object(object.clone()),
+        None | Some(Value::Null) => json!({}),
+        Some(other) => json!({ "arguments": other.clone() }),
+    }
+}
+
+fn input_missing_or_empty(input: Option<&Value>) -> bool {
+    match input {
+        None | Some(Value::Null) => true,
+        Some(Value::Object(object)) => object.is_empty(),
+        _ => false,
+    }
+}
+
+fn apply_inner_tool(call: &mut Value, inner_name: &str, inner_args: Option<Value>) {
+    let title = mcp_title(TOOLS_SERVER, inner_name);
+    set_field(call, "title", json!(title));
+    set_field(call, "name", json!(title));
+    set_field(call, "kind", json!("other"));
+    if let Some(args) = inner_args {
+        set_field(call, "rawInput", args.clone());
+        if call.get("args").is_some() {
+            set_field(call, "args", args);
+        }
+    }
+}
+
+fn set_field(value: &mut Value, key: &str, field: Value) {
+    if let Some(object) = value.as_object_mut() {
+        object.insert(key.to_owned(), field);
     }
 }
 
@@ -308,15 +546,15 @@ fn child_call(id: &str, call: &Value) -> Value {
         fields.insert("name".to_owned(), json!(name));
         fields.insert("rawInput".to_owned(), Value::Object(input));
     }
-    as_common_call(&mut update, &[]);
+    as_common_call(&mut update, &[], None);
     update
 }
 
 /// The server, tool and arguments of a `call_mcp_tool` call, which reaches a tool of a
 /// server from Antigravity's own settings that it left out of the model's tool list.
 fn proxied(input: &Value) -> Option<(String, String, Value)> {
-    let server = input["ServerName"].as_str()?.trim();
-    let tool = input["ToolName"].as_str()?.trim();
+    let server = input.get("ServerName")?.as_str()?.trim();
+    let tool = input.get("ToolName")?.as_str()?.trim();
     if server.is_empty() || tool.is_empty() {
         return None;
     }
@@ -403,7 +641,7 @@ mod tests {
             "status": "in_progress", "kind": "other", "title": "Run mcp_sikemux-tools_agent_list",
             "rawInput": { "toolSummary": "List Sikemux agents" }
         });
-        as_common_call(&mut update, &["sikemux-tools".to_owned()]);
+        as_common_call(&mut update, &["sikemux-tools".to_owned()], None);
         assert_eq!(update["title"], "mcp__sikemux-tools__agent_list");
         assert_eq!(update["rawInput"], json!({}));
     }
@@ -418,7 +656,7 @@ mod tests {
             "rawOutput": { "output": printed, "exit_code": 0 },
             "content": [{ "type": "content", "content": { "type": "text", "text": printed } }]
         });
-        as_common_call(&mut update, &[]);
+        as_common_call(&mut update, &[], None);
         assert_eq!(update["rawInput"]["command"], "grep -rn \"two\" .");
         assert_eq!(update["rawInput"]["description"], "Search folder for two");
         assert_eq!(update["rawOutput"]["output"], "./notes.txt:1:two\n");

@@ -281,6 +281,8 @@ struct Driver {
     antigravity: bool,
     /// Antigravity's subagent conversations whose cards the chat shows.
     subagents: antigravity::Taken,
+    /// In-flight Antigravity gateway tool calls, by `toolCallId`.
+    gateway_calls: Arc<antigravity::GatewayCalls>,
 }
 
 impl Driver {
@@ -302,6 +304,7 @@ impl Driver {
         if self.turns.locked().carried_on(turn) {
             return;
         }
+        self.gateway_calls.clear();
         let end = match answer {
             Ok(response) => match response
                 .get("_meta")
@@ -339,7 +342,10 @@ impl Driver {
         sessions::antigravity::turn_error(&session, before).map(antigravity::turn_failure)
     }
 
-    fn ask(&self, id: Value, request: Value) {
+    fn ask(&self, id: Value, mut request: Value) {
+        if self.antigravity {
+            antigravity::as_common_permission(&mut request, &self.servers, &self.gateway_calls);
+        }
         self.sink
             .ask(request, Asked { id }, |reply| self.responder(reply));
     }
@@ -522,7 +528,11 @@ impl Reads for Driver {
                         }
                         return self.sink.update(session_id, card);
                     }
-                    antigravity::as_common_call(&mut update, &self.servers);
+                    antigravity::as_common_call(
+                        &mut update,
+                        &self.servers,
+                        Some(&self.gateway_calls),
+                    );
                 }
                 mcp_calls::as_mcp_call(&mut update, &self.servers);
                 offer_compact(&mut update, self.compact);
@@ -581,6 +591,8 @@ struct Kept {
 struct AcpState {
     rpc: RpcState,
     turns: Turns,
+    #[serde(default)]
+    gateway_calls: Vec<(String, String, Option<Value>)>,
     #[serde(flatten)]
     kept: Kept,
 }
@@ -628,6 +640,7 @@ impl Acp {
             free_models: on_free_models(launch),
             antigravity: is_antigravity(launch),
             subagents: Default::default(),
+            gateway_calls: Arc::default(),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
         let failed = |error: String| process.start_error(error);
@@ -1160,6 +1173,7 @@ impl Backend for Acp {
         process::hand_over(process, reading, "The agent", |_| AcpState {
             rpc: driver.rpc.state(),
             turns: std::mem::take(&mut *driver.turns.locked()),
+            gateway_calls: driver.gateway_calls.snapshot(),
             kept,
         })
         .await
@@ -1181,6 +1195,7 @@ impl Backend for Acp {
             free_models: on_free_models(launch),
             antigravity: is_antigravity(launch),
             subagents: Default::default(),
+            gateway_calls: Arc::new(antigravity::GatewayCalls::restored(state.gateway_calls)),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
         Ok(Self {

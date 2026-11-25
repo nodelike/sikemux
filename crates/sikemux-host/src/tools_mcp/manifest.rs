@@ -6,7 +6,9 @@ use std::sync::OnceLock;
 
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use sikemux_core::cli::manifest::{GUIDE, TOOLS};
+use sikemux_core::cli::manifest::{
+    format_tool_line, gateway_instructions_with_list, is_tool_offered, GATEWAY_CALL, GUIDE, TOOLS,
+};
 use sikemux_core::cli::protocol::{RESOURCES_OFFER, SETUP_OFFER};
 
 use super::family::{self, Chosen, Family};
@@ -127,12 +129,8 @@ impl Manifest {
     /// Leaves out the simulator tools unless the app said this Mac can run
     /// them, and tools offered on a condition this binary does not know.
     pub fn offering(mut self, simulator: bool) -> Self {
-        self.tools.retain(|tool| match tool.offered.as_deref() {
-            None => true,
-            Some("simulator") => simulator,
-            Some(SETUP_OFFER) => true,
-            Some(_) => false,
-        });
+        self.tools
+            .retain(|tool| is_tool_offered(tool.offered.as_deref(), simulator, false, true));
         self
     }
 
@@ -222,6 +220,131 @@ impl Manifest {
 
     pub fn instructions(&self) -> String {
         sikemux_core::cli::manifest::instructions_for(&self.guide.name, self.offers_simulator())
+    }
+
+    pub fn gateway_instructions(&self, plugins: &[Tool], setup: bool) -> String {
+        gateway_instructions_with_list(
+            &self.guide.name,
+            self.offers_simulator(),
+            &self.offered_summary(plugins, setup),
+        )
+    }
+
+    pub fn gateway_declarations(&self) -> Vec<Value> {
+        let mut guide_props = guide_properties(&self.guide_text);
+        guide_props.insert(
+            "tool".into(),
+            json!({
+                "type": "string",
+                "description": "Tool name to inspect its parameters and description."
+            }),
+        );
+        let mut call_props = Map::new();
+        call_props.insert(
+            "name".into(),
+            json!({ "type": "string", "description": "Sikemux tool name." }),
+        );
+        call_props.insert(
+            "arguments".into(),
+            json!({ "type": "object", "description": "Arguments for that tool." }),
+        );
+        vec![
+            declaration(
+                &self.guide.name,
+                "Read Sikemux workflow topics, list available tools, or inspect one tool's parameters before calling it.",
+                &guide_props,
+                &[],
+            ),
+            declaration(
+                GATEWAY_CALL,
+                &format!(
+                    "Invoke a Sikemux tool by name. Call {} with tool: \"<name>\" first if unsure of its parameters.",
+                    self.guide.name
+                ),
+                &call_props,
+                &["name".to_owned()],
+            ),
+        ]
+    }
+
+    pub fn offered_summary(&self, plugins: &[Tool], setup: bool) -> String {
+        self.declarations(plugins, setup)
+            .into_iter()
+            .filter_map(|decl| {
+                let name = decl.get("name")?.as_str()?;
+                if name == self.guide.name {
+                    return None;
+                }
+                let description = decl
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let actions: Vec<&str> = decl
+                    .pointer("/inputSchema/properties/action/enum")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect();
+                Some(format_tool_line(name, &actions, description))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub fn is_offered(&self, plugins: &[Tool], setup: bool, name: &str) -> bool {
+        name != self.guide.name
+            && self
+                .declarations(plugins, setup)
+                .iter()
+                .any(|decl| decl.get("name").and_then(Value::as_str) == Some(name))
+    }
+
+    pub fn family_hint(
+        &self,
+        plugins: &[Tool],
+        setup: bool,
+        name: &str,
+    ) -> Option<(String, String)> {
+        self.declarations(plugins, setup)
+            .into_iter()
+            .find_map(|decl| {
+                let family = decl.get("name")?.as_str()?;
+                let action = name.strip_prefix(family)?.strip_prefix('_')?;
+                let actions = decl
+                    .pointer("/inputSchema/properties/action/enum")
+                    .and_then(Value::as_array)?;
+                actions
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .any(|listed| listed == action)
+                    .then(|| (family.to_owned(), action.to_owned()))
+            })
+    }
+
+    pub fn tool_schema_text(
+        &self,
+        plugins: &[Tool],
+        setup: bool,
+        name: &str,
+    ) -> Result<String, String> {
+        let declared = self.declarations(plugins, setup);
+        let found = declared.iter().find(|decl| {
+            decl.get("name").and_then(Value::as_str) == Some(name) && name != self.guide.name
+        });
+        let Some(decl) = found else {
+            if let Some((family, action)) = self.family_hint(plugins, setup, name) {
+                return Err(format!(
+                    "'{name}' is action '{action}' of '{family}'. Call {} with tool: \"{family}\", then call '{family}' with action: \"{action}\" in arguments.",
+                    self.guide.name
+                ));
+            }
+            return Err(format!(
+                "Tool '{name}' is not available here. Call {} with no arguments to list available tools.",
+                self.guide.name
+            ));
+        };
+        Ok(format_tool_schema(decl))
     }
 
     pub fn tool(&self, name: &str) -> Option<&Tool> {
@@ -850,6 +973,89 @@ fn has_type(value: &Value, expected: &str) -> bool {
         "null" => value.is_null(),
         _ => true,
     }
+}
+
+fn format_tool_schema(decl: &Value) -> String {
+    let name = decl.get("name").and_then(Value::as_str).unwrap_or_default();
+    let description = decl
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let mut out = format!("{name}: {description}");
+    let required: Vec<&str> = decl
+        .pointer("/inputSchema/required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    let properties = decl
+        .pointer("/inputSchema/properties")
+        .and_then(Value::as_object);
+    let Some(properties) = properties.filter(|props| !props.is_empty()) else {
+        out.push_str("\nParameters: none");
+        return out;
+    };
+    if required.is_empty() {
+        out.push_str("\nParameters:");
+    } else {
+        out.push_str(&format!(
+            "\nParameters (required: {}):",
+            required.join(", ")
+        ));
+    }
+    for (prop, schema) in properties {
+        let mut kind = match schema.get("type") {
+            Some(Value::String(kind)) => kind.clone(),
+            Some(Value::Array(kinds)) => kinds
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join("|"),
+            _ => String::new(),
+        };
+        if kind == "array" {
+            if let Some(item_type) = schema.pointer("/items/type").and_then(Value::as_str) {
+                kind = format!("{item_type}[]");
+            }
+        }
+        if let Some(choices) = schema.get("enum").and_then(Value::as_array) {
+            let listed: Vec<String> = choices
+                .iter()
+                .map(|choice| match choice.as_str() {
+                    Some(text) => text.to_owned(),
+                    None => choice.to_string(),
+                })
+                .collect();
+            if !listed.is_empty() {
+                if !kind.is_empty() {
+                    kind.push_str(", ");
+                }
+                kind.push_str(&format!("one of: {}", listed.join(", ")));
+            }
+        }
+        if required.contains(&prop.as_str()) {
+            if !kind.is_empty() {
+                kind.push_str(", ");
+            }
+            kind.push_str("required");
+        }
+        let desc = schema
+            .get("description")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let meta = if kind.is_empty() {
+            String::new()
+        } else {
+            format!(" ({kind})")
+        };
+        if desc.is_empty() {
+            out.push_str(&format!("\n- {prop}{meta}"));
+        } else {
+            out.push_str(&format!("\n- {prop}{meta}: {desc}"));
+        }
+    }
+    out
 }
 
 fn describe(value: &Value) -> String {

@@ -24,6 +24,7 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
 use manifest::{Manifest, Tool};
+use sikemux_core::cli::manifest::GATEWAY_CALL;
 use sikemux_core::cli::protocol::{
     PLUGINS_CHANGED_METHOD, SETUP_OFFER, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
     TOOLS_MANIFEST_METHOD,
@@ -38,6 +39,7 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
 ];
 /// Told with the guide's setup topic, which lists setup_check for the agent that read it.
 const SETUP_LISTED: &str = "setup_check is now in your tools. If your list does not show it, your tools were not read again: ask the person to press Check again on the Playbook's Setup page, which runs the same check, and read its result there.";
+const SETUP_GATEWAY_LISTED: &str = "setup_check is now available through call. Inspect its parameters with guide tool: \"setup_check\" if needed.";
 #[cfg(unix)]
 const PARENT_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// Asking whether to list the simulator tools must not hold up the host's handshake for long.
@@ -45,7 +47,7 @@ const OFFER_TIMEOUT: Duration = Duration::from_secs(3);
 /// How long to wait before asking again when Sikemux could not say whether plugins changed.
 const WATCH_RETRY: Duration = Duration::from_secs(15);
 
-pub fn run() -> i32 {
+pub fn run(gateway: bool) -> i32 {
     let agent_id = match agent_id() {
         Ok(agent_id) => agent_id,
         Err(message) => {
@@ -57,7 +59,10 @@ pub fn run() -> i32 {
     let simulator = simulator_offered(&agent_id);
     let resources = std::env::current_dir()
         .is_ok_and(|cwd| sikemux_core::tasks::config::names_resources_near(&cwd));
-    serve(Arc::new(Offer::new(simulator, resources)), agent_id);
+    serve(
+        Arc::new(Offer::new(simulator, resources, gateway)),
+        agent_id,
+    );
     bound::forget();
     0
 }
@@ -119,6 +124,7 @@ struct Offer {
     simulator: bool,
     /// The agent's project names things only one agent uses at a time.
     resources: bool,
+    gateway: bool,
     built: Arc<Manifest>,
     served: Mutex<Option<Arc<Manifest>>>,
     plugins: Mutex<Option<Arc<Vec<Tool>>>>,
@@ -134,11 +140,12 @@ struct Offer {
 }
 
 impl Offer {
-    fn new(simulator: bool, resources: bool) -> Self {
+    fn new(simulator: bool, resources: bool, gateway: bool) -> Self {
         let built = (Manifest::load().with_resources(resources)).offering(simulator);
         Self {
             simulator,
             resources,
+            gateway,
             told_guide: Mutex::default(),
             built: Arc::new(built),
             served: Mutex::default(),
@@ -151,9 +158,20 @@ impl Offer {
 
     #[cfg(test)]
     fn with(manifest: Manifest, plugins: Option<Vec<Tool>>) -> Self {
+        Self::with_mode(manifest, plugins, false)
+    }
+
+    #[cfg(test)]
+    fn with_gateway(manifest: Manifest, plugins: Option<Vec<Tool>>) -> Self {
+        Self::with_mode(manifest, plugins, true)
+    }
+
+    #[cfg(test)]
+    fn with_mode(manifest: Manifest, plugins: Option<Vec<Tool>>, gateway: bool) -> Self {
         Self {
             simulator: true,
             resources: false,
+            gateway,
             built: Arc::new(Manifest::load()),
             told_guide: Mutex::new(Some(manifest.guide_source().to_owned())),
             served: Mutex::new(Some(Arc::new(manifest))),
@@ -253,6 +271,9 @@ impl Offer {
     }
 
     fn declarations(&self) -> Vec<Value> {
+        if self.gateway {
+            return self.manifest().gateway_declarations();
+        }
         declarations(
             &self.manifest(),
             &held(&self.plugins).unwrap_or_default(),
@@ -365,6 +386,7 @@ fn serve(offer: Arc<Offer>, agent_id: String) {
         };
         match route(
             &offer.manifest(),
+            offer.gateway,
             initialized.load(Ordering::Acquire),
             id,
             method,
@@ -385,8 +407,14 @@ fn serve(offer: Arc<Offer>, agent_id: String) {
                 let (offer, relays, calls) =
                     (Arc::clone(&offer), Arc::clone(&relays), Arc::clone(&calls));
                 let manifest = offer.manifest();
-                let member = manifest.member(&name, &arguments);
-                calls.start(&id, member.map_or(name.as_str(), |tool| tool.name.as_str()));
+                let empty = json!({});
+                let (track_name, track_args) = if offer.gateway && name == GATEWAY_CALL {
+                    gateway_target(&arguments, &empty).unwrap_or((name.as_str(), &arguments))
+                } else {
+                    (name.as_str(), &arguments)
+                };
+                let member = manifest.member(track_name, track_args);
+                calls.start(&id, member.map_or(track_name, |tool| tool.name.as_str()));
                 let ticket = member
                     .is_some_and(|tool| acts_on_tab(&tool.method))
                     .then(|| (Arc::clone(&tab_turns), tab_turns.take()));
@@ -558,9 +586,16 @@ enum Route {
     },
 }
 
-fn route(manifest: &Manifest, initialized: bool, id: Value, method: &str, params: Value) -> Route {
+fn route(
+    manifest: &Manifest,
+    gateway: bool,
+    initialized: bool,
+    id: Value,
+    method: &str,
+    params: Value,
+) -> Route {
     if method == "initialize" {
-        return Route::Answer(reply(id, initialize(manifest, &params)));
+        return Route::Answer(reply(id, initialize(manifest, gateway, &params)));
     }
     if !initialized {
         return Route::Answer(failure(
@@ -588,7 +623,7 @@ fn route(manifest: &Manifest, initialized: bool, id: Value, method: &str, params
     }
 }
 
-fn initialize(manifest: &Manifest, params: &Value) -> Value {
+fn initialize(manifest: &Manifest, gateway: bool, params: &Value) -> Value {
     let requested = params
         .get("protocolVersion")
         .and_then(Value::as_str)
@@ -598,22 +633,43 @@ fn initialize(manifest: &Manifest, params: &Value) -> Value {
     } else {
         LATEST_PROTOCOL_VERSION
     };
+    let instructions = if gateway {
+        manifest.gateway_instructions(&[], false)
+    } else {
+        manifest.instructions()
+    };
     json!({
         "protocolVersion": version,
         "capabilities": { "experimental": {}, "tools": { "listChanged": true } },
         "serverInfo": { "name": "sikemux-tools", "version": env!("CARGO_PKG_VERSION") },
-        "instructions": manifest.instructions(),
+        "instructions": instructions,
     })
 }
 
 fn list(offer: &Offer, relay: &Relay<'_>) -> Vec<Value> {
-    let tools = declarations(
-        &offer.built_in(relay),
-        &offer.plugin_tools(relay),
-        offer.setup.load(Ordering::Relaxed),
-    );
+    let manifest = offer.built_in(relay);
+    let plugins = offer.plugin_tools(relay);
+    let tools = if offer.gateway {
+        manifest.gateway_declarations()
+    } else {
+        declarations(&manifest, &plugins, offer.setup.load(Ordering::Relaxed))
+    };
     *offer.given.locked() = Some(tools.clone());
     tools
+}
+
+fn gateway_target<'a>(arguments: &'a Value, empty: &'a Value) -> Option<(&'a str, &'a Value)> {
+    let object = arguments.as_object()?;
+    let inner_name = object.get("name")?.as_str()?.trim();
+    if inner_name.is_empty() || inner_name == GATEWAY_CALL {
+        return None;
+    }
+    let inner_args = match object.get("arguments") {
+        None | Some(Value::Null) => empty,
+        Some(value) if value.is_object() => value,
+        Some(_) => return None,
+    };
+    Some((inner_name, inner_args))
 }
 
 /// `quick` asks for the tools, `patient` makes the call.
@@ -633,21 +689,28 @@ fn call_by_deadline(
     name: String,
     arguments: Value,
 ) -> Value {
+    let label = if offer.gateway && name == GATEWAY_CALL {
+        let empty = json!({});
+        gateway_target(&arguments, &empty)
+            .map(|(inner, _)| inner.to_owned())
+            .unwrap_or_else(|| name.clone())
+    } else {
+        name.clone()
+    };
     let (answer, answered) = std::sync::mpsc::channel();
-    let calling = name.clone();
     std::thread::spawn(move || {
         let _ = answer.send(call(
             &offer,
             &*relays.quick,
             &*relays.patient,
-            &calling,
+            &name,
             &arguments,
         ));
     });
     answered.recv_timeout(CALL_DEADLINE).unwrap_or_else(|_| {
         content(
             vec![text(&format!(
-                "Sikemux did not answer {name} within {} s, so the call was given up; it may still have happened, so check before trying it again",
+                "Sikemux did not answer {label} within {} s, so the call was given up; it may still have happened, so check before trying it again",
                 CALL_DEADLINE.as_secs()
             ))],
             true,
@@ -662,6 +725,9 @@ fn call(
     name: &str,
     arguments: &Value,
 ) -> Value {
+    if offer.gateway {
+        return call_gateway(offer, quick, patient, name, arguments);
+    }
     if name == offer.manifest().guide_name() {
         let topic = arguments.get("topic").and_then(Value::as_str);
         return match offer.manifest().guide_text(topic) {
@@ -677,7 +743,161 @@ fn call(
     }
     let manifest = offer.built_in(quick);
     let plugins = offer.plugin_tools(quick);
-    let (tool, arguments) = match manifest.chosen(&plugins, name, arguments) {
+    dispatch_tool(&manifest, &plugins, patient, name, arguments)
+}
+
+fn call_gateway(
+    offer: &Offer,
+    quick: &Relay<'_>,
+    patient: &Relay<'_>,
+    name: &str,
+    arguments: &Value,
+) -> Value {
+    let guide_name = offer.manifest().guide_name().to_owned();
+    if name == guide_name {
+        let Some(object) = arguments.as_object() else {
+            return invalid(&format!(
+                "{guide_name} arguments must be an object with optional 'topic' or 'tool'"
+            ));
+        };
+        let unexpected: Vec<&str> = object
+            .keys()
+            .map(String::as_str)
+            .filter(|key| !matches!(*key, "topic" | "tool"))
+            .collect();
+        if !unexpected.is_empty() {
+            return invalid(&format!(
+                "{guide_name} only accepts 'topic' or 'tool' (unexpected: {})",
+                unexpected.join(", ")
+            ));
+        }
+        let tool = match object.get("tool") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(tool)) if !tool.trim().is_empty() => Some(tool.trim()),
+            Some(_) => return invalid("'tool' must be a non-empty tool name"),
+        };
+        let topic = match object.get("topic") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(topic)) => Some(topic.as_str()),
+            Some(_) => return invalid("'topic' must be a string"),
+        };
+        if tool.is_some() && topic.is_some() {
+            return invalid(&format!(
+                "Pass either 'topic' or 'tool' to {guide_name}, not both"
+            ));
+        }
+        let manifest = offer.built_in(quick);
+        let plugins = offer.plugin_tools(quick);
+        let setup = offer.setup.load(Ordering::Relaxed);
+        if let Some(tool_name) = tool {
+            return match manifest.tool_schema_text(&plugins, setup, tool_name) {
+                Ok(schema) => content(vec![text(&schema)], false),
+                Err(message) => content(vec![text(&message)], true),
+            };
+        }
+        return match manifest.guide_text(topic) {
+            Ok(guide) if topic == Some(SETUP_OFFER) => {
+                offer.setup.swap(true, Ordering::Relaxed);
+                content(vec![text(guide), text(SETUP_GATEWAY_LISTED)], false)
+            }
+            Ok(guide) if topic.is_none() => {
+                let summary = manifest.offered_summary(&plugins, setup);
+                let mut blocks = vec![text(guide)];
+                if !summary.is_empty() {
+                    blocks.push(text(&format!(
+                        "Available Sikemux tools (invoke via {GATEWAY_CALL}):\n{summary}"
+                    )));
+                }
+                content(blocks, false)
+            }
+            Ok(guide) => content(vec![text(guide)], false),
+            Err(message) => invalid(&message),
+        };
+    }
+    if name != GATEWAY_CALL {
+        return content(
+            vec![text(&format!(
+                "Call Sikemux tools through '{GATEWAY_CALL}' or inspect them with '{guide_name}'."
+            ))],
+            true,
+        );
+    }
+    let Some(object) = arguments.as_object() else {
+        return invalid(&format!(
+            "{GATEWAY_CALL} arguments must be an object with 'name' and optional 'arguments' object. Call {guide_name} with no arguments to list available tools."
+        ));
+    };
+    let unexpected: Vec<&str> = object
+        .keys()
+        .map(String::as_str)
+        .filter(|key| !matches!(*key, "name" | "arguments"))
+        .collect();
+    if !unexpected.is_empty() {
+        return invalid(&format!(
+            "{GATEWAY_CALL} only accepts 'name' and 'arguments' (unexpected: {}). Put tool parameters inside 'arguments', or call {guide_name} with tool: \"<name>\".",
+            unexpected.join(", ")
+        ));
+    }
+    let Some(inner_name) = object
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    else {
+        return invalid(&format!(
+            "'name' must be a non-empty Sikemux tool name. Call {guide_name} with no arguments to list available tools."
+        ));
+    };
+    if inner_name == GATEWAY_CALL {
+        return content(
+            vec![text(&format!(
+                "Cannot nest '{GATEWAY_CALL}' inside '{GATEWAY_CALL}'. Pass a Sikemux tool name; call {guide_name} with no arguments to list available tools."
+            ))],
+            true,
+        );
+    }
+    if inner_name == guide_name {
+        return content(
+            vec![text(&format!(
+                "Call {guide_name} directly instead of through {GATEWAY_CALL}."
+            ))],
+            true,
+        );
+    }
+    let inner_args = match object.get("arguments") {
+        None | Some(Value::Null) => json!({}),
+        Some(value) if value.is_object() => value.clone(),
+        Some(_) => {
+            return invalid(&format!(
+                "'arguments' must be a JSON object. Call {guide_name} with tool: \"{inner_name}\" to see its parameters."
+            ));
+        }
+    };
+    let manifest = offer.built_in(quick);
+    let plugins = offer.plugin_tools(quick);
+    let setup = offer.setup.load(Ordering::Relaxed);
+    if !manifest.is_offered(&plugins, setup, inner_name) {
+        let message = match manifest.family_hint(&plugins, setup, inner_name) {
+            Some((family, action)) => format!(
+                "Tool '{inner_name}' is not listed; call '{family}' with action: \"{action}\" in arguments, or call {guide_name} with tool: \"{family}\"."
+            ),
+            None => format!(
+                "Tool '{inner_name}' is not available here. Call {guide_name} with no arguments to list available tools, or {guide_name} with tool: \"<name>\" for its parameters."
+            ),
+        };
+        return content(vec![text(&message)], true);
+    }
+    dispatch_tool(&manifest, &plugins, patient, inner_name, &inner_args)
+}
+
+fn dispatch_tool(
+    manifest: &Manifest,
+    plugins: &[Tool],
+    patient: &Relay<'_>,
+    name: &str,
+    arguments: &Value,
+) -> Value {
+    let (tool, arguments) = match manifest.chosen(plugins, name, arguments) {
         Some(Ok(chosen)) => (chosen.tool, chosen.arguments),
         Some(Err(message)) => return invalid(&message),
         None => {

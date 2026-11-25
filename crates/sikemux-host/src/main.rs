@@ -52,7 +52,10 @@ fn main() {
         std::process::exit(code);
     }
     let code = if first.is_some_and(|arg| arg == cli_client::TOOLS_MCP_FLAG) {
-        tools_mcp::run()
+        let gateway = std::env::args_os()
+            .skip(2)
+            .any(|arg| arg == cli_client::TOOLS_MCP_GATEWAY_FLAG);
+        tools_mcp::run(gateway)
     } else {
         cli_client::run()
     };

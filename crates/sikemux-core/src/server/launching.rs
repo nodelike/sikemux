@@ -311,12 +311,34 @@ pub(crate) fn own_tools(core: &Core, launch: &mut ChatLaunch) {
             Err(error) => eprintln!("sikemux core: {error}"),
         }
     }
-    match tools.chat_server(&launch.agent_id) {
+    let gateway = AgentKind::from_name(&launch.provider) == Some(AgentKind::Antigravity);
+    match tools.chat_server(&launch.agent_id, gateway) {
         Ok(server) => launch.mcp_servers = vec![server],
         Err(error) => {
             eprintln!("sikemux core: Sikemux tools are unavailable to this chat: {error}")
         }
     }
+}
+
+pub(crate) async fn tool_instructions(
+    core: &Core,
+    provider: &str,
+    agent_id: &str,
+    cwd: &Path,
+) -> String {
+    let simulator = simulator_offered(core, agent_id, cwd).await;
+    if AgentKind::from_name(provider) == Some(AgentKind::Antigravity) {
+        let resources = crate::tasks::config::names_resources_near(cwd);
+        let plugins = super::plugins::agent_tools(core, &cwd.to_string_lossy())
+            .await
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default();
+        return sikemux_corekit::cli::manifest::gateway_instructions(
+            simulator, resources, &plugins,
+        );
+    }
+    sikemux_corekit::cli::manifest::instructions(simulator)
 }
 
 /// Whether `agent_id` is offered the simulator tools on its desk.

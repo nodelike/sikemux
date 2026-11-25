@@ -516,13 +516,28 @@ pub async fn run<B: Backend>(
     ) && launch.mcp_servers.iter().any(|server| {
         server.get("name").and_then(Value::as_str) == Some(crate::launch::tools::TOOLS_SERVER)
     }) {
-        let simulator = match chat.core.upgrade() {
+        let instructions = match chat.core.upgrade() {
             Some(core) => {
-                (core.chat_above().simulator_offered)(&core, &launch.agent_id, &launch.cwd).await
+                (core.chat_above().tool_instructions)(
+                    &core,
+                    &provider,
+                    &launch.agent_id,
+                    &launch.cwd,
+                )
+                .await
+            }
+            None => {
+                if crate::agent_catalog::AgentKind::from_name(&provider)
+                    == Some(crate::agent_catalog::AgentKind::Antigravity)
+                {
+                    sikemux_corekit::cli::manifest::gateway_instructions(false, false, &[])
+                } else {
+                    sikemux_corekit::cli::manifest::instructions(false)
+                }
             }
             None => false,
         };
-        Some(sikemux_corekit::cli::manifest::instructions(simulator))
+        Some(instructions)
     } else {
         None
     };
