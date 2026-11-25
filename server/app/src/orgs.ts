@@ -9,7 +9,7 @@ import { useAuth } from "@clerk/react";
 import { useCallback, useEffect, useEffectEvent, useState } from "react";
 
 import { problemText } from "./api.ts";
-import { useClient } from "./Billing.tsx";
+import { useClient } from "./client.ts";
 import { loadLogos } from "./logos.ts";
 import type { OrgPage } from "./navigation.ts";
 

@@ -16,7 +16,8 @@ import {
   useCheckout,
   useClient,
   type Show,
-} from "./Billing.tsx";
+} from "./BillingShared.tsx";
+import { useClient } from "./client.ts";
 import { BilledSwitch } from "./BilledSwitch.tsx";
 import { money, priceOf, productOf, SHED_WORDS, times } from "./money.ts";
 import { BILLING } from "./navigation.ts";

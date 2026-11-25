@@ -1,5 +1,3 @@
-import { useAuth } from "@clerk/react";
-import { ApiProblem } from "@shared/account/api";
 import { formatDay } from "@shared/lib/format";
 import {
   IconCheck,
@@ -24,7 +22,8 @@ import type {
 } from "@sikemux/protocol";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
-import { api, problemText, signedInToken } from "./api.ts";
+import { problemText } from "./api.ts";
+import { useClient } from "./client.ts";
 import { useCheer } from "./Field.tsx";
 import {
   FEATURE_WORDS,

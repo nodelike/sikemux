@@ -12,7 +12,7 @@ import {
 import { useState, type ReactNode } from "react";
 
 import { problemText } from "./api.ts";
-import { useClient } from "./Billing.tsx";
+import { useClient } from "./client.ts";
 import { JOINING_WORDS } from "./Domains.tsx";
 import { iconMark } from "./marks.ts";
 import { possessive, ROLE_WORDS, RULE_WORDS, useLoad } from "./orgs.ts";

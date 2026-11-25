@@ -10,7 +10,7 @@ import {
 import { useEffect, useId, useState, type MouseEvent } from "react";
 
 import { problemText } from "./api.ts";
-import { useClient } from "./Billing.tsx";
+import { useClient } from "./client.ts";
 import { iconMark } from "./marks.ts";
 import "./members.css";
 import { orgPath } from "./navigation.ts";

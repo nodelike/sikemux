@@ -41,6 +41,7 @@ import {
   type LoadedBill,
   type PlanAsk,
 } from "./BillingShared.tsx";
+import { useClient } from "./client.ts";
 import { iconMark } from "./marks.ts";
 import {
   featuresAdded,

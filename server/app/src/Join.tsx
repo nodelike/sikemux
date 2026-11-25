@@ -7,7 +7,7 @@ import { type MouseEvent, useEffect, useEffectEvent, useState } from "react";
 import { useSignInWays } from "./AccountPage.tsx";
 import { problemText } from "./api.ts";
 import { Avatar } from "./Avatar.tsx";
-import { useClient } from "./Billing.tsx";
+import { useClient } from "./client.ts";
 import { useCheer } from "./Field.tsx";
 import { Foot, Loading } from "./Frame.tsx";
 import { useInviteOrg } from "./invite.ts";

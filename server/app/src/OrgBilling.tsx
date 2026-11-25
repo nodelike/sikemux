@@ -38,6 +38,7 @@ import {
   type BillWear,
   type LoadedBill,
 } from "./BillingShared.tsx";
+import { useClient } from "./client.ts";
 import { iconMark } from "./marks.ts";
 import { money, priceOf, productOf, times } from "./money.ts";
 import { frozen, useLoad } from "./orgs.ts";

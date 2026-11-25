@@ -10,7 +10,7 @@ import {
 import { useState } from "react";
 
 import { problemText } from "./api.ts";
-import { useClient } from "./Billing.tsx";
+import { useClient } from "./client.ts";
 import { iconMark } from "./marks.ts";
 import {
   changeable,

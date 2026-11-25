@@ -11,7 +11,8 @@ import { useState } from "react";
 import { problemText } from "./api.ts";
 import { OrgAvatar } from "./Avatar.tsx";
 import { BilledSwitch } from "./BilledSwitch.tsx";
-import { Stepper, useCheckout, useClient } from "./Billing.tsx";
+import { Stepper, useCheckout } from "./BillingShared.tsx";
+import { useClient } from "./client.ts";
 import { iconMark } from "./marks.ts";
 import {
   FEATURE_WORDS,

@@ -5,7 +5,7 @@ import { useRef, useState, type DragEvent } from "react";
 
 import { problemText } from "./api.ts";
 import { OrgAvatar } from "./Avatar.tsx";
-import { useClient } from "./Billing.tsx";
+import { useClient } from "./client.ts";
 import { fitLogo, LOGO_TYPES, sendLogo, useLogo } from "./logos.ts";
 import { iconMark } from "./marks.ts";
 import { changeable, frozen, renewable, runs } from "./orgs.ts";

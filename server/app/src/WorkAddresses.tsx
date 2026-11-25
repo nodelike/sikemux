@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import "./account.css";
 import { problemText } from "./api.ts";
 import { OrgAvatar } from "./Avatar.tsx";
-import { useClient } from "./Billing.tsx";
+import { useClient } from "./client.ts";
 import { GoogleMark } from "./icons.tsx";
 import { WORK_ADDRESS } from "./navigation.ts";
 import {

@@ -12,6 +12,7 @@ import {
 } from "@shared/ui/Icons";
 import type { AccountEvent, Device } from "@sikemux/protocol";
 import {
+  Suspense,
   useCallback,
   useEffect,
   useRef,
@@ -22,7 +23,7 @@ import {
 import { api, problemText, signedInToken } from "./api.ts";
 import { iconMark } from "./marks.ts";
 import { HOST } from "./navigation.ts";
-import { ShedNotHost } from "./Shed.tsx";
+import { ShedNotHost } from "./pages.ts";
 import {
   Btn,
   btnClass,
@@ -184,7 +185,11 @@ export function HostsPage({
 
   const hosts = load.devices.filter((device) => device.role === "host");
   const phones = load.devices.filter((device) => device.role === "client");
-  const shed = staff ? <ShedNotHost follow={follow} /> : null;
+  const shed = staff ? (
+    <Suspense fallback={null}>
+      <ShedNotHost follow={follow} />
+    </Suspense>
+  ) : null;
 
   const askRemove = (device: Device) => {
     removeAction.clear();

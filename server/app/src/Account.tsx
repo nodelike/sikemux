@@ -6,17 +6,19 @@ import {
   IconTag,
   IconUser,
 } from "@shared/ui/Icons";
-import { useEffect, useEffectEvent, useState, type MouseEvent } from "react";
+import {
+  Suspense,
+  useEffect,
+  useEffectEvent,
+  useState,
+  type MouseEvent,
+} from "react";
 
 import { AccountPage } from "./AccountPage.tsx";
-import { AuditLogPage } from "./AuditLog.tsx";
-import { BillingPage, OrgBillingPage, useBillingShown } from "./Billing.tsx";
+import { useBillingShown } from "./billingShown.ts";
 import { ConnectorsPage } from "./Connectors.tsx";
 import { DeleteAccount } from "./DeleteAccount.tsx";
-import { DetailsPage } from "./Details.tsx";
 import { HostsPage, useDevices } from "./Devices.tsx";
-import { DomainsPage } from "./Domains.tsx";
-import { GroupsPage } from "./Groups.tsx";
 import { JoinPage } from "./Join.tsx";
 import { useLive } from "./live.ts";
 import { iconMark } from "./marks.ts";
@@ -34,13 +36,22 @@ import {
   TEAM,
 } from "./navigation.ts";
 import { keepLastOrg, lastOrg, seesPage, useOffers, useOrgs } from "./orgs.ts";
-import { PeoplePage } from "./People.tsx";
-import { PolicyPage } from "./Policy.tsx";
-import { PricingPage } from "./Pricing.tsx";
+import {
+  AuditLogPage,
+  BillingPage,
+  DetailsPage,
+  DomainsPage,
+  GroupsPage,
+  loadPages,
+  OrgBillingPage,
+  PeoplePage,
+  PolicyPage,
+  PricingPage,
+  StartPage,
+} from "./pages.ts";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import { Shell, type NavItem } from "./Shell.tsx";
 import { useSignIns } from "./SignIns.tsx";
-import { StartPage } from "./Start.tsx";
 import { Section, Page, Problem } from "./ui.tsx";
 
 const TITLES: Record<string, string> = {
@@ -138,6 +149,8 @@ export function Account({
   useEffect(() => {
     document.title = `${title} · Sikemux`;
   }, [title]);
+
+  useEffect(loadPages, []);
 
   useLive(ready && isSignedIn === true && active, {
     onEvents: (events) => {
@@ -302,7 +315,7 @@ export function Account({
       canStart={canStart}
       offered={offers.offers.length > 0}
     >
-      {body}
+      <Suspense fallback={null}>{body}</Suspense>
     </Shell>
   );
 }
