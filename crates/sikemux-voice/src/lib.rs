@@ -255,18 +255,31 @@ impl Voice {
             .as_mut()
             .is_some_and(|helper| matches!(helper.child.try_wait(), Ok(None)));
         if !running {
-            *slot = Some(self.spawn()?);
+            if let Some(mut old) = slot.take() {
+                old.stopped_on_purpose.store(true, Ordering::SeqCst);
+                let _ = old.child.kill();
+                let _ = old.child.wait();
+            }
+            let mut helper = self.spawn()?;
+            if !matches!(command, Command::Prepare { .. }) {
+                if let Err(error) = write_command(
+                    &mut helper.stdin,
+                    &Command::Prepare {
+                        models_dir: &self.dir,
+                    },
+                ) {
+                    helper.stopped_on_purpose.store(true, Ordering::SeqCst);
+                    let _ = helper.child.kill();
+                    let _ = helper.child.wait();
+                    return Err(error);
+                }
+            }
+            *slot = Some(helper);
         }
         let Some(helper) = slot.as_mut() else {
             return Err("the voice helper did not start".to_owned());
         };
-        let mut line = serde_json::to_string(&command).map_err(|error| error.to_string())?;
-        line.push('\n');
-        helper
-            .stdin
-            .write_all(line.as_bytes())
-            .and_then(|()| helper.stdin.flush())
-            .map_err(|error| format!("voice helper stopped listening: {error}"))
+        write_command(&mut helper.stdin, &command)
     }
 
     fn spawn(&self) -> Result<Helper, String> {
@@ -305,6 +318,15 @@ impl Voice {
             stopped_on_purpose,
         })
     }
+}
+
+fn write_command(stdin: &mut ChildStdin, command: &Command) -> Result<(), String> {
+    let mut line = serde_json::to_string(command).map_err(|error| error.to_string())?;
+    line.push('\n');
+    stdin
+        .write_all(line.as_bytes())
+        .and_then(|()| stdin.flush())
+        .map_err(|error| format!("voice helper stopped listening: {error}"))
 }
 
 /// A helper built alongside the app, as `make dev` does, rather than downloaded.

@@ -11,10 +11,15 @@ let package = Package(
         .package(path: "FluidAudio")
     ],
     targets: [
+        .target(
+            name: "AudioRing",
+            path: "Sources/AudioRing",
+            publicHeadersPath: "include"
+        ),
         .executableTarget(
             name: "SikemuxVoice",
-            dependencies: [.product(name: "FluidAudio", package: "FluidAudio")],
+            dependencies: [.product(name: "FluidAudio", package: "FluidAudio"), "AudioRing"],
             path: "Sources/SikemuxVoice"
-        )
+        ),
     ]
 )
