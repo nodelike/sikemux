@@ -363,7 +363,7 @@ function MoveToPreview({
   return (
     <Row
       wrap
-      lead={<OrgAvatar id={org.id} size={20} />}
+      lead={<OrgAvatar id={org.id} size={28} />}
       name={org.name}
       detail="Keeps the org and everything in it, and ends its test plan."
       end={

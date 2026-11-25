@@ -377,7 +377,7 @@ canvas.dots {
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 2px 12px;
   align-items: center;
-  padding: 7px var(--pad);
+  padding: 12px var(--pad);
   margin: 0 calc(-1 * var(--pad));
   min-height: var(--row);
   transition: background 0.12s;
@@ -407,8 +407,15 @@ canvas.dots {
   color: var(--two);
   font-size: var(--t2);
 }
+.row > .end .field {
+  width: 56px;
+  height: 28px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 .row .more {
   grid-column: 1/-1;
+  margin-top: 10px;
 }
 .tile {
   width: 28px;
@@ -526,12 +533,16 @@ canvas.dots {
   border-radius: var(--r);
   background: var(--well);
   box-shadow: inset 0 0 0 1px var(--line);
-  padding: 10px 12px;
+  --pad: 12px;
+  padding: var(--pad);
   display: flex;
   flex-direction: column;
   gap: 6px;
   font-size: var(--t2);
   color: var(--two);
+}
+.box > .rows {
+  margin-block: calc(-1 * var(--pad));
 }
 .kv {
   display: grid;
@@ -556,7 +567,7 @@ canvas.dots {
   font-size: var(--t2);
 }
 .empty {
-  padding: 20px 0;
+  margin: 0;
   color: var(--two);
   max-width: 54ch;
 }
@@ -951,7 +962,7 @@ canvas.dots {
 .card {
   background: linear-gradient(180deg, var(--sheet-hi), var(--sheet) 96px);
   border-radius: var(--r-card);
-  padding: 14px var(--pad);
+  padding: var(--pad);
   grid-column: span var(--w, 12);
   display: flex;
   flex-direction: column;
@@ -965,8 +976,14 @@ canvas.dots {
   color: var(--two);
   font-size: var(--t2);
 }
+.card > .lab-line + .rows {
+  margin-top: -8px;
+}
+.card > .rows + .foot {
+  margin-top: -4px;
+}
 .card > .rows:last-child {
-  margin-bottom: -14px;
+  margin-bottom: calc(-1 * var(--pad));
 }
 .card > .rows:last-child > .row:last-child {
   border-radius: 0 0 var(--r-card) var(--r-card);
@@ -1357,7 +1374,10 @@ canvas.dots {
   .row.wrap > .end {
     grid-column: 2/-1;
     justify-self: start;
-    padding-top: 2px;
+    padding-top: 6px;
+  }
+  .row.wrap:has(> span:first-child:empty) > .end {
+    grid-column: 1/-1;
   }
   .sc:not([aria-current="true"]):not(.add) span:not(.av, .orgm) {
     display: none;
@@ -1834,7 +1854,6 @@ canvas.dots {
   gap: 10px;
 }
 .form.below {
-  padding: 6px 0 4px;
   align-items: center;
 }
 .form.below .field {

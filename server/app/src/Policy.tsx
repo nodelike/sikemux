@@ -216,11 +216,8 @@ export function PolicyPage({ org, team }: { org: Org; team: TeamAccess }) {
               end={
                 editable ? (
                   <Field
-                    type="number"
-                    style={{ width: 88 }}
+                    inputMode="numeric"
                     aria-label="Questions a day, per person"
-                    min={DAILY_QUESTIONS.min}
-                    max={DAILY_QUESTIONS.max}
                     value={typed ?? shown.dailyQuestions}
                     disabled={action.busy}
                     onChange={(event) => setTyped(event.target.value)}
