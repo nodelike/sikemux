@@ -1,15 +1,18 @@
 //! Writing a sent message again: its bubble becomes an editor, and sending it rewinds the
 //! chat to that message, which the core asks the agent to take back, and sends it anew.
 
+use std::path::{Path, PathBuf};
+
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::{
-    div, relative, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement,
+    div, relative, App, AppContext, Context, Entity, Focusable, InteractiveElement, IntoElement,
     ParentElement, Styled, Subscription, Window,
 };
 use gpui_transcript::Change;
 use sikemux_view::chat::ChatMessage;
 
-use super::{text_of, CancelEdit, Drawn};
+use super::pills::{self, Files};
+use super::{attach, text_of, CancelEdit, Drawn};
 use crate::core::ChatAsk;
 use crate::theme;
 use crate::theme::{SPACE_1H, SPACE_2, SPACE_3};
@@ -20,6 +23,7 @@ use crate::workbench::Workbench;
 pub struct Editing {
     row: String,
     draft: Entity<TextareaState>,
+    files: Files,
     _sent: Subscription,
 }
 
@@ -41,23 +45,31 @@ pub fn written(message: &ChatMessage) -> String {
 }
 
 impl Workbench {
-    /// Turns the bubble of sent message `row` into an editor holding `text`.
+    /// Turns the bubble of sent message `row` into an editor holding what it says.
     pub fn edit_message(
         &mut self,
         agent: &str,
         row: &str,
-        text: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(chat) = self.chats.open.get(agent) else {
             return;
         };
+        let rows = chat.transcript.read(cx).rows();
+        let Some(message) = (rows.iter())
+            .map(|row| &row.message)
+            .find(|message| message.id == row)
+        else {
+            return;
+        };
+        let content = attach::written_with_pills(message);
+        let files = message.attachments.iter().map(PathBuf::from).collect();
         let draft = cx.new(|cx| {
             let mut draft = TextareaState::new(window, cx)
                 .auto_grow(1, 12)
                 .submit_on_enter(true);
-            draft.set_value(text, window, cx);
+            draft.set_value(content.clone(), window, cx);
             draft
         });
         draft.read(cx).focus_handle(cx).focus(window, cx);
@@ -66,21 +78,35 @@ impl Workbench {
             cx.subscribe_in(
                 &draft,
                 window,
-                move |bench, _, event: &InputEvent, _, cx| {
-                    if let InputEvent::PressEnter { shift: false, .. } = event {
-                        bench.send_edit(&agent, cx);
-                    }
+                move |bench, _, event: &InputEvent, _, cx| match event {
+                    InputEvent::PressEnter { shift: false, .. } => bench.send_edit(&agent, cx),
+                    InputEvent::Change => bench.settle_edit(&agent, cx),
+                    _ => {}
                 },
             )
         };
         let editing = Editing {
             row: row.to_owned(),
+            files: Files::of(files, content.tokens()),
             draft,
             _sent: sent,
         };
         chat.reader.update(cx, |reading, cx| {
             reading.editing = Some(editing);
             cx.notify();
+        });
+    }
+
+    /// Follows what the person did to the pills of the message being written again.
+    fn settle_edit(&mut self, agent: &str, cx: &mut Context<Self>) {
+        let Some(chat) = self.chats.open.get(agent) else {
+            return;
+        };
+        chat.reader.update(cx, |reading, cx| {
+            if let Some(editing) = &mut reading.editing {
+                let draft = editing.draft.read(cx);
+                (editing.files).settle(draft.tokens(), &mut Vec::new());
+            }
         });
     }
 
@@ -104,7 +130,8 @@ impl Workbench {
         }) else {
             return;
         };
-        let text = editing.draft.read(cx).value().trim().to_owned();
+        let content = pills::numbered(editing.draft.read(cx).content(), &editing.files);
+        let text = content.text().trim().to_owned();
         let rows = chat.transcript.read(cx).rows();
         let Some(message) = rows
             .iter()
@@ -116,7 +143,9 @@ impl Workbench {
         let Some(prompt) = message.prompt_id.clone().filter(|_| !text.is_empty()) else {
             return;
         };
-        let paths = message.attachments.clone();
+        let paths = (editing.files.iter())
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect();
         chat.transcript.update(cx, |transcript, cx| {
             transcript.push(Change::DropFrom(editing.row.into()), cx)
         });
@@ -161,6 +190,15 @@ pub fn editor(agent: &str, editing: &Editing, looks: &Drawn) -> gpui_kit::AnyEle
                     .ok();
             }),
         );
+    let numbers = {
+        let (bench, agent) = (looks.bench.clone(), agent.to_owned());
+        move |path: &Path, cx: &App| {
+            let bench = bench.upgrade()?;
+            let chat = bench.read(cx).chats.open.get(&agent)?;
+            let editing = chat.reader.read(cx).editing.as_ref()?;
+            editing.files.number(path)
+        }
+    };
     div()
         .key_context("MessageEditor")
         .on_action(cancelled)
@@ -176,6 +214,7 @@ pub fn editor(agent: &str, editing: &Editing, looks: &Drawn) -> gpui_kit::AnyEle
         .bg(looks.bubble)
         .child(
             Textarea::new(&editing.draft)
+                .token(attach::chip(looks.bench.clone(), numbers))
                 .appearance(false)
                 .text_size(crate::theme::ui_text(13.5)),
         )

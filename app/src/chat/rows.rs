@@ -1795,7 +1795,13 @@ pub(super) fn part(
             };
             drop(styles);
             let look = if user {
-                attach::with_chips(look, &row.message, &looks.bench, window)
+                attach::with_chips(
+                    look,
+                    &row.message,
+                    looks.file_pressed(),
+                    &looks.bench,
+                    window,
+                )
             } else {
                 attach::with_why(look, &row.message, &looks.agent, &looks.bench, window, cx)
             };

@@ -131,7 +131,6 @@ pub fn line(
     let editable =
         user && looks.reading.editable && message.prompt_id.is_some() && message.context.is_empty();
     let edit = editable.then(|| {
-        let text = super::edit::written(message);
         let (bench, agent, row) = (looks.bench.clone(), looks.agent.clone(), message.id.clone());
         IconButton::new(
             SharedString::from(format!("edit:{}", message.id)),
@@ -142,9 +141,7 @@ pub fn line(
         .width(24.)
         .on_click(move |_, window, cx| {
             bench
-                .update(cx, |bench, cx| {
-                    bench.edit_message(&agent, &row, text.clone(), window, cx)
-                })
+                .update(cx, |bench, cx| bench.edit_message(&agent, &row, window, cx))
                 .ok();
         })
     });

@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui_kit::base::input::{InlineToken, InputContent};
+use gpui_kit::base::input::InlineToken;
 use gpui_kit::{App, Context, EntityInputHandler as _, Focusable, Window};
 use sikemux_calls::call;
 use sikemux_calls::drafts::SetDraftParams;
@@ -16,7 +16,7 @@ use sikemux_calls::params::AgentParams;
 use sikemux_view::chat::{chat_draft_key, DraftExtra, DraftToken, QUOTE_MAX, REPLY_URI};
 use sikemux_wire::protocol::ChatContext;
 
-use super::{Composing, Sent};
+use super::{pills, Composing, Sent};
 use crate::core::Target;
 use crate::reads::Drafts;
 use crate::workbench::Workbench;
@@ -33,7 +33,7 @@ pub struct Kept {
 
 /// The draft as `setDraft` takes it and `drafts` answers it.
 fn kept(composing: &Composing, cx: &App) -> Kept {
-    let content = composing.draft.read(cx).content();
+    let content = composing.content(cx);
     let tokens: Vec<DraftToken> = content
         .tokens()
         .iter()
@@ -72,22 +72,17 @@ fn kept(composing: &Composing, cx: &App) -> Kept {
 /// A kept draft as the composer holds one; a chip that no longer matches its text is left
 /// out rather than refusing the whole draft.
 fn restored(draft: &Kept) -> Sent {
-    let mut content = InputContent::new(draft.text.clone());
-    for token in &draft.extra.tokens {
+    let tokens = draft.extra.tokens.iter().filter_map(|token| {
         let range = token.start..token.end;
-        let Some(written) = draft.text.get(range.clone()) else {
-            continue;
-        };
+        let written = draft.text.get(range.clone())?;
         let mut chip = InlineToken::new(token.id.clone(), written.to_owned());
         if let Some(label) = &token.label {
             chip = chip.with_label(label.clone());
         }
-        if let Ok(with) = content.clone().with_token(range, chip) {
-            content = with;
-        }
-    }
+        Some((range, chip))
+    });
     Sent {
-        content,
+        content: pills::with_tokens(draft.text.clone(), tokens),
         attachments: draft.extra.attachments.iter().map(PathBuf::from).collect(),
         context: draft.extra.context.clone(),
         tracked_context: draft
@@ -348,10 +343,10 @@ impl Composing {
         self.read_rev = rev(drafts, agent);
     }
 
-    fn put(&mut self, draft: Sent, window: &mut Window, cx: &mut App) {
+    pub(crate) fn put(&mut self, draft: Sent, window: &mut Window, cx: &mut App) {
+        self.attachments = pills::Files::of(draft.attachments, draft.content.tokens());
         self.draft
             .update(cx, |input, cx| input.set_value(draft.content, window, cx));
-        self.attachments = draft.attachments;
         self.context = draft.context;
         self.tracked_context = draft.tracked_context;
     }

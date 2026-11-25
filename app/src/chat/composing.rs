@@ -103,8 +103,8 @@ pub struct Composing {
     pub suggested: Option<SharedString>,
     /// The suggestion the person turned away with Escape, which is not offered again.
     pub dismissed: Option<SharedString>,
-    /// The files going out with the next message, its pictures named in the draft by number.
-    pub attachments: Vec<PathBuf>,
+    /// The files going out with the next message.
+    pub attachments: super::pills::Files,
     /// Where the chat's core keeps each file sent to it from this host, so the same file
     /// dropped again while its copy is still going names that copy instead of sending it twice.
     pub kept_from: HashMap<PathBuf, PathBuf>,
@@ -168,6 +168,23 @@ pub struct Sent {
     pub attachments: Vec<PathBuf>,
     pub context: Vec<ChatContext>,
     pub tracked_context: HashMap<String, ChatContext>,
+}
+
+impl Composing {
+    /// What the composer holds, to put back later.
+    pub fn held(&self, cx: &App) -> Sent {
+        Sent {
+            content: self.content(cx),
+            attachments: self.attachments.to_vec(),
+            context: self.context.clone(),
+            tracked_context: self.tracked_context.clone(),
+        }
+    }
+
+    /// Whether nothing is written and no file is going.
+    pub fn is_empty(&self, cx: &App) -> bool {
+        self.draft.read(cx).value().is_empty() && self.attachments.is_empty()
+    }
 }
 
 /// The composer's mic: it listens and then types what was said, and the first click turns
@@ -512,7 +529,7 @@ pub fn drafting(
             tiles,
             on_add,
             Rc::new(attach::on_paste(owner, cx)),
-            attach::chip(cx.weak_entity()),
+            attach::chip(cx.weak_entity(), attach::numbers(owner, cx.weak_entity())),
         )
         .menu(dock);
     Some((composer, offering))
@@ -1267,7 +1284,7 @@ impl Workbench {
                             cx.notify();
                         }
                         if let Some(composing) = bench.composing_mut(&owner) {
-                            composing.drop_untagged(window, cx);
+                            composing.settle(cx);
                         }
                         bench.offer(&owner, cx);
                         bench.typed_draft(&owner, cx);
@@ -1319,7 +1336,7 @@ impl Workbench {
             hint: SharedString::default(),
             suggested: None,
             dismissed: None,
-            attachments: Vec::new(),
+            attachments: super::pills::Files::default(),
             kept_from: HashMap::new(),
             fresh: None,
             menu: None,
@@ -1423,12 +1440,7 @@ impl Workbench {
                 }
             };
             if let Some(held) = returned_held.filter(|_| empty) {
-                composing
-                    .draft
-                    .update(cx, |draft, cx| draft.set_value(held.content, window, cx));
-                composing.attachments = held.attachments;
-                composing.context = held.context;
-                composing.tracked_context = held.tracked_context;
+                composing.put(held, window, cx);
                 returned = true;
             }
             composing.take_arrived(window, cx);
@@ -1567,7 +1579,7 @@ impl Workbench {
                 .chats
                 .open
                 .get(agent)
-                .and_then(|chat| Some(chat.composer.as_ref()?.draft.read(cx).value().to_string()))
+                .and_then(|chat| Some(chat.composer.as_ref()?.content(cx).text().to_string()))
                 .unwrap_or_default();
             return self.begin_worktree(agent, text, cx);
         }
@@ -1581,7 +1593,8 @@ impl Workbench {
         };
         let draft = composing.draft.clone();
         let outgoing = composing.outgoing(cx);
-        let text = draft.read(cx).value().trim().to_owned();
+        let content = composing.content(cx);
+        let text = content.text().trim().to_owned();
         if text.is_empty() && outgoing.0.is_empty() {
             if primary {
                 self.answer(
@@ -1614,12 +1627,7 @@ impl Workbench {
             }
             return cx.notify();
         }
-        let sent = Sent {
-            content: draft.read(cx).content(),
-            attachments: composing.attachments.clone(),
-            context: composing.context.clone(),
-            tracked_context: composing.tracked_context.clone(),
-        };
+        let sent = composing.held(cx);
         let steers = self.preferences().mid_turn_send == MidTurnSend::Steer;
         self.answer(
             agent,

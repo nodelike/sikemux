@@ -1,12 +1,12 @@
 //! The files a message carries: picked, dropped on the chat or pasted, shown as tiles over
-//! the draft, each picture also named in the draft where it belongs, as `[Image #n]`.
+//! the draft, each also named by a pill in the draft where it belongs.
 
 use crate::ui::Clicks;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use gpui_kit::base::input::{InlineToken, InlineTokenContext};
+use gpui_kit::base::input::{InlineToken, InlineTokenContext, InputContent};
 use gpui_kit::component::attachment::{
     Attachment, AttachmentContent, AttachmentMedia, AttachmentTitle,
 };
@@ -18,7 +18,6 @@ use gpui_kit::{
     PathPromptOptions, SharedString, Styled, StyledImage, WeakEntity, Window,
 };
 use gpui_transcript::FilePress;
-use sikemux_calls::chat::MAX_ATTACHMENTS;
 use sikemux_view::chat::{
     tracked_at, tracked_title, SentChip, SentChipKind, SentSpan, TrackedKind, AGENT_URI,
     ARTIFACT_URI, EARLIER_URI, REPLY_URI, SIDE_URI, STASH_URI, WOKEN_URI,
@@ -29,6 +28,7 @@ use sikemux_wire::protocol::{FOR_AGENT_URI, MAX_ATTACHMENT_BYTES};
 use tokio::sync::oneshot;
 
 use super::mention::{AGENT, COMMAND, EARLIER, FILE, FOLDER, TRACKED};
+use super::pills::{self, IMAGE};
 use super::Composing;
 use crate::agents::rows::AgentRow;
 use crate::core::ChatAsk;
@@ -75,8 +75,6 @@ pub fn lasting(path: &Path) -> PathBuf {
     };
     kept().unwrap_or_else(|| path.to_owned())
 }
-
-const IMAGE: &str = "image:";
 
 /// The largest file a chat's core keeps for it.
 const MAX_KEPT: u64 = MAX_ATTACHMENT_BYTES as u64;
@@ -165,7 +163,7 @@ pub struct Made {
 pub type About = Box<dyn FnOnce(&Path) -> (String, String)>;
 
 /// Where the note the agent alone gets about picture `path` is filed, so it goes with the picture.
-fn about_uri(path: &Path) -> String {
+pub(super) fn about_uri(path: &Path) -> String {
     format!("{FOR_AGENT_URI}picture{}", path.to_string_lossy())
 }
 
@@ -179,49 +177,34 @@ fn is_snip(path: &Path) -> bool {
 
 /// What the draft calls picture `number`. The message itself still says `[Image #n]`, which is
 /// where the core puts the picture.
-fn picture_label(number: usize, path: &Path) -> String {
+pub(super) fn picture_label(number: usize, path: &Path) -> String {
     match is_snip(path) {
         true => t!("Selection {number}", number = number),
         false => t!("Image {number}", number = number),
     }
 }
 
-fn image_tag(number: usize, path: &Path) -> InlineToken {
-    InlineToken::new(
-        format!("{IMAGE}{}", path.to_string_lossy()),
-        format!("[Image #{number}]"),
-    )
-    .with_label(picture_label(number, path))
-}
-
 impl Composing {
-    /// Adds the files not already going, up to as many as a message carries, and names each
-    /// picture at the caret, one already going again under its own number.
+    /// Adds the files not already going, up to as many as a message carries, and names each at
+    /// the caret, one already going again under its own name.
     fn attach(
         &mut self,
         paths: impl IntoIterator<Item = PathBuf>,
         window: &mut Window,
         cx: &mut App,
     ) {
-        let mut tags = Vec::new();
+        let mut added = Vec::new();
         for path in paths {
             if path.as_os_str().is_empty() {
                 continue;
             }
-            let number = match self.attachments.iter().position(|going| *going == path) {
-                Some(index) => index + 1,
-                None if self.attachments.len() == MAX_ATTACHMENTS => break,
-                None => {
-                    self.attachments.push(path.clone());
-                    self.attachments.len()
-                }
+            let Some(number) = self.attachments.add(&path) else {
+                break;
             };
-            if is_image(&path) {
-                tags.push(image_tag(number, &path));
-            }
-            self.fresh = Some((path, std::time::Instant::now()));
+            self.fresh = Some((path.clone(), std::time::Instant::now()));
+            added.push((path, number));
         }
-        if tags.is_empty() {
+        if added.is_empty() {
             return;
         }
         self.draft.update(cx, |draft, cx| {
@@ -238,78 +221,44 @@ impl Composing {
             if !spaced_before {
                 draft.replace(" ", window, cx);
             }
-            for (index, tag) in tags.into_iter().enumerate() {
+            for (index, (path, number)) in added.into_iter().enumerate() {
                 if index > 0 {
                     draft.replace(" ", window, cx);
                 }
-                if let Err(error) = draft.replace_with_token(tag, window, cx) {
-                    eprintln!("sikemux: a picture's tag did not go into the draft: {error}");
+                let pill = pills::pill_of(&path, number, draft.tokens());
+                if let Err(error) = draft.replace_with_token(pill, window, cx) {
+                    eprintln!("sikemux: a file's pill did not go into the draft: {error}");
                 }
             }
             if !spaced_after {
                 draft.replace(" ", window, cx);
             }
         });
+        self.settle(cx);
     }
 
-    /// Takes off the pictures whose tag the person deleted from the draft.
-    pub fn drop_untagged(&mut self, window: &mut Window, cx: &mut App) {
-        loop {
-            let draft = self.draft.read(cx);
-            let untagged = self.attachments.iter().position(|path| {
-                let id = format!("{IMAGE}{}", path.to_string_lossy());
-                is_image(path) && !draft.tokens().iter().any(|span| *span.token().id() == id)
-            });
-            let Some(index) = untagged else {
-                return;
-            };
-            self.detach(index, window, cx);
-        }
+    /// Follows what the person did to the draft's pills.
+    pub fn settle(&mut self, cx: &App) {
+        let draft = self.draft.read(cx);
+        self.attachments.settle(draft.tokens(), &mut self.context);
     }
 
-    /// Takes attachment `index` off the message with its tags, and counts the later pictures
-    /// down so their tags still name them.
+    /// The draft's text with its pills, as it goes out of the composer.
+    pub fn content(&self, cx: &App) -> InputContent {
+        pills::numbered(self.draft.read(cx).content(), &self.attachments)
+    }
+
+    /// Takes attachment `index` off the message, and its pills out of the draft.
     fn detach(&mut self, index: usize, window: &mut Window, cx: &mut App) {
-        if index >= self.attachments.len() {
+        let Some(path) = self.attachments.get(index).cloned() else {
             return;
-        }
-        let gone = self
-            .attachments
-            .remove(index)
-            .to_string_lossy()
-            .into_owned();
-        let note = about_uri(Path::new(&gone));
-        self.context.retain(|item| item.uri != note);
-        let attachments = &self.attachments;
+        };
+        self.attachments.let_go(&path, &mut self.context);
         self.draft.update(cx, |draft, cx| {
-            let spans = draft.tokens().to_vec();
-            for span in spans.iter().rev() {
-                let Some(id) = span.token().id().strip_prefix(IMAGE) else {
-                    continue;
-                };
-                if id == gone {
-                    let range = span.range();
-                    let value = draft.value();
-                    let start = if value.get(..range.start).unwrap_or_default().ends_with(' ') {
-                        range.start - 1
-                    } else {
-                        range.start
-                    };
-                    draft.set_selected_range(start..range.end, cx);
-                    draft.replace("", window, cx);
-                } else if let Some((at, path)) = (attachments.iter().enumerate())
-                    .find(|(_, path)| path.to_string_lossy() == id)
-                    .filter(|(at, _)| *at >= index)
-                {
-                    if let Err(error) = draft.replace_range_with_token(
-                        span.range(),
-                        image_tag(at + 1, path),
-                        window,
-                        cx,
-                    ) {
-                        eprintln!("sikemux: a picture's tag was not renumbered: {error}");
-                    }
-                }
+            let places = pills::places(&path, draft.tokens(), &draft.value());
+            for place in places.into_iter().rev() {
+                draft.set_selected_range(place, cx);
+                draft.replace("", window, cx);
             }
         });
     }
@@ -331,7 +280,8 @@ impl Workbench {
         let (mut keep, mut there): (Vec<PathBuf>, Vec<PathBuf>) = (Vec::new(), Vec::new());
         for path in paths {
             let going = composing.and_then(|composing| {
-                (composing.kept_from.get(&path)).filter(|kept| composing.attachments.contains(kept))
+                (composing.kept_from.get(&path))
+                    .filter(|kept| composing.attachments.contains(*kept))
             });
             match going {
                 Some(kept) => there.push(kept.clone()),
@@ -764,19 +714,40 @@ pub fn drop_hint(words: &'static str, agent: &str, bench: &Workbench, cx: &App) 
         }))
 }
 
-/// A tag in the draft as a chip, with the glyph `mark` gives it.
+/// A tag in the draft as a chip, with the glyph `mark` gives it. `number` is where a picture
+/// stands among the files going.
 pub fn chip(
     bench: WeakEntity<Workbench>,
+    number: impl Fn(&Path, &App) -> Option<usize> + 'static,
 ) -> impl Fn(&InlineTokenContext, &mut Window, &mut App) -> gpui_kit::AnyElement {
-    move |token, _, cx| drawn_chip(token, &bench, cx).into_any_element()
+    move |token, _, cx| {
+        let picture = token.token().id().strip_prefix(IMAGE).map(Path::new);
+        let label = picture
+            .and_then(|path| Some(picture_label(number(path, cx)?, path).into()))
+            .unwrap_or_else(|| token.token().label().clone());
+        drawn_chip(token, &label, &bench, cx).into_any_element()
+    }
+}
+
+/// Where a picture stands among the files going with what `owner`'s composer holds.
+pub fn numbers(
+    owner: &str,
+    bench: WeakEntity<Workbench>,
+) -> impl Fn(&Path, &App) -> Option<usize> + 'static {
+    let owner = owner.to_owned();
+    move |path, cx| {
+        let bench = bench.upgrade()?;
+        bench.read(cx).composing(&owner)?.attachments.number(path)
+    }
 }
 
 fn drawn_chip(
     token: &InlineTokenContext,
+    label: &SharedString,
     bench: &WeakEntity<Workbench>,
     cx: &mut App,
 ) -> impl IntoElement {
-    let (key, title) = chip_words(token.token().id(), token.token().label());
+    let (key, title) = chip_words(token.token().id(), label);
     div().h(token.line_height()).flex().items_center().child(
         chip_face(
             key,
@@ -943,10 +914,28 @@ fn opens_agent(
         })
 }
 
-/// A sent message's look with the chips it wrote drawn in its text as the draft drew them.
+fn presses_file(face: Div, path: &str, file: &super::files::FilePressed) -> Div {
+    let (path, menu_path) = (path.to_owned(), path.to_owned());
+    let (file, menu) = (file.clone(), file.clone());
+    face.cursor_pointer()
+        .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+            let press = match event.click_count > 1 {
+                true => FilePress::OpenTwice,
+                false => FilePress::Open,
+            };
+            file(&path, press, window, cx);
+        })
+        .on_mouse_down(MouseButton::Right, move |event, window, cx| {
+            menu(&menu_path, FilePress::Menu(event.position), window, cx);
+        })
+}
+
+/// A sent message's look with the chips it wrote drawn in its text as the draft drew them; one
+/// for a file opens it.
 pub fn with_chips(
     look: Rc<gpui_transcript::Style>,
     message: &ChatMessage,
+    file: super::files::FilePressed,
     bench: &WeakEntity<Workbench>,
     window: &mut Window,
 ) -> Rc<gpui_transcript::Style> {
@@ -960,6 +949,7 @@ pub fn with_chips(
                 mention.written,
                 mention.id,
                 mention.label,
+                Some(file.clone()),
                 &look,
                 bench,
                 window,
@@ -1005,6 +995,7 @@ fn with_named_agents(
                 written.clone(),
                 format!("{AGENT}{id}"),
                 written,
+                None,
                 &look,
                 bench,
                 window,
@@ -1107,6 +1098,7 @@ fn mention_chip(
     written: String,
     id: String,
     label: String,
+    file: Option<super::files::FilePressed>,
     look: &gpui_transcript::Style,
     bench: &WeakEntity<Workbench>,
     window: &mut Window,
@@ -1142,9 +1134,15 @@ fn mention_chip(
             )
             .w_full()
             .h(height);
-            let face = match id.strip_prefix(AGENT) {
-                Some(agent) => opens_agent(face, agent, None, &bench, cx).into_any_element(),
-                None => face.into_any_element(),
+            let face = match (id.strip_prefix(AGENT), id.strip_prefix(FILE), &file) {
+                (Some(agent), ..) => opens_agent(face, agent, None, &bench, cx).into_any_element(),
+                (_, Some(path), Some(file)) => {
+                    let t = Tokens::get(cx);
+                    let hover = theme::over(t.surface_active, t.surface_raised);
+                    presses_file(face.hover(move |chip| chip.bg(hover)), path, file)
+                        .into_any_element()
+                }
+                _ => face.into_any_element(),
             };
             div()
                 .size_full()
@@ -1329,6 +1327,26 @@ pub(crate) fn named_agents(bench: &Workbench, writer: &str) -> Vec<(String, Stri
 /// What a sent message's text names, as the core read it.
 fn mentions(message: &ChatMessage) -> Vec<Mention> {
     mentions_in(&message.spans)
+}
+
+/// What the person wrote in a message, with what it names as a draft's pills.
+pub(super) fn written_with_pills(message: &ChatMessage) -> InputContent {
+    let text = super::edit::written(message);
+    let mut at = 0;
+    let mut tokens = Vec::new();
+    for span in &message.spans {
+        let Some(found) = text.get(at..).and_then(|rest| rest.find(&span.text)) else {
+            continue;
+        };
+        let range = at + found..at + found + span.text.len();
+        at = range.end;
+        let mention = (span.chip.as_ref()).and_then(|chip| mention_of(&span.text, chip));
+        if let Some(mention) = mention {
+            let pill = InlineToken::new(mention.id, span.text.clone()).with_label(mention.label);
+            tokens.push((range, pill));
+        }
+    }
+    pills::with_tokens(text, tokens)
 }
 
 /// What `written` names of the files and context it went with, and of `agents`. A stash item is
@@ -1657,7 +1675,7 @@ pub fn sent(
     let in_text = |carried: &str| {
         inline
             .iter()
-            .any(|mention| mention.carried == carried && !mention.id.starts_with(IMAGE))
+            .any(|mention| mention.carried == carried && !is_image(Path::new(carried)))
     };
     let files = message
         .attachments
@@ -1730,24 +1748,7 @@ fn carried(
 ) -> gpui_kit::AnyElement {
     let name = crate::ui::path::file_name(&path);
     if !is_image(&path) {
-        let (full, menu_full) = (
-            path.to_string_lossy().into_owned(),
-            path.to_string_lossy().into_owned(),
-        );
-        let menu_file = file.clone();
-        return div()
-            .cursor_pointer()
-            .on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                let press = if event.click_count > 1 {
-                    FilePress::OpenTwice
-                } else {
-                    FilePress::Open
-                };
-                file(&full, press, window, cx);
-            })
-            .on_mouse_down(MouseButton::Right, move |event, window, cx| {
-                menu_file(&menu_full, FilePress::Menu(event.position), window, cx);
-            })
+        return presses_file(div(), &path.to_string_lossy(), &file)
             .child(framed(id, &path, None, name, t, cx))
             .into_any_element();
     }

@@ -908,15 +908,7 @@ impl Workbench {
                         || Path::new(path).to_path_buf(),
                         |project| project.join(path),
                     );
-                    let named = draft
-                        .tokens()
-                        .iter()
-                        .any(|span| span.token().text().as_ref() == format!("+{}", leaf(path)));
-                    let tag = if named {
-                        format!("+{path}")
-                    } else {
-                        format!("+{}", leaf(path))
-                    };
+                    let tag = super::pills::file_tag(&whole.to_string_lossy(), draft.tokens());
                     let kind = if *folder { FOLDER } else { FILE };
                     Some(InlineToken::new(
                         format!("{kind}{}", whole.to_string_lossy()),

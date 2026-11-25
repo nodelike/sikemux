@@ -7,6 +7,8 @@ use agent_client_protocol::schema::v1::{
     ContentBlock, EmbeddedResource, EmbeddedResourceResource, ResourceLink, TextResourceContents,
 };
 use serde_json::Value;
+use sikemux_fold::{sent_spans, SentNames};
+use sikemux_view::chat::SentChipKind;
 use url::Url;
 
 use crate::sessions::for_agent::without_for_agent;
@@ -91,43 +93,39 @@ fn context_resource(item: ChatContext) -> ContentBlock {
     ))
 }
 
-/// The message cut after each `[Image #N]` it writes, so attachment N can
-/// follow the words it was put between, and the text after the last of them.
-fn split_at_images(text: &str, attachments: usize) -> (Vec<(&str, usize)>, &str) {
-    const OPEN: &str = "[Image #";
+/// The message cut after each chip that names one of `paths`, so the file can follow the words
+/// it was put between, and the text after the last of them. A command keeps its words together.
+fn split_at_attachments(text: &str, paths: &[String]) -> (Vec<(String, usize)>, String) {
+    let command = is_command(text);
+    let mut placed = vec![false; paths.len()];
     let mut pieces = Vec::new();
-    let mut placed = vec![false; attachments];
-    let mut rest = text;
-    for (at, _) in text.match_indices(OPEN) {
-        let Some(after) = text.get(at + OPEN.len()..) else {
-            continue;
-        };
-        let digits = after.bytes().take_while(u8::is_ascii_digit).count();
-        let Some((number, past_digits)) = after.split_at_checked(digits) else {
-            continue;
-        };
-        if !past_digits.starts_with(']') {
-            continue;
-        }
-        let Some(index) = number
-            .parse::<usize>()
-            .ok()
-            .and_then(|number| number.checked_sub(1))
-        else {
-            continue;
-        };
-        let Some((piece, after_piece)) = rest.split_at_checked(rest.len() - past_digits.len() + 1)
-        else {
-            continue;
-        };
-        match placed.get_mut(index) {
-            Some(slot) if !*slot => *slot = true,
-            _ => continue,
-        }
-        pieces.push((piece, index));
-        rest = after_piece;
+    let mut said = String::new();
+    let names = SentNames {
+        attachments: paths,
+        ..SentNames::default()
+    };
+    let spans = sent_spans(text, names);
+    if spans.is_empty() {
+        said.push_str(text);
     }
-    (pieces, rest)
+    for span in spans {
+        said.push_str(&span.text);
+        let Some(chip) = span.chip else {
+            continue;
+        };
+        if command && chip.kind != SentChipKind::Image {
+            continue;
+        }
+        let index = (chip.carried).and_then(|carried| {
+            (paths.iter().zip(&placed))
+                .position(|(path, placed)| !placed && path.as_str() == &*carried)
+        });
+        if let Some((index, slot)) = index.and_then(|at| Some((at, placed.get_mut(at)?))) {
+            *slot = true;
+            pieces.push((std::mem::take(&mut said), index));
+        }
+    }
+    (pieces, said)
 }
 
 /// A user message an ACP or Pi agent tells back, as when it loads a saved session, without what
@@ -208,8 +206,7 @@ pub fn prompt_blocks(
         .iter()
         .map(|path| resource_link(path).map(Some))
         .collect::<Result<Vec<_>, _>>()?;
-    let (pieces, rest) = split_at_images(&text, links.len());
-    let mut rest = rest.to_owned();
+    let (pieces, mut rest) = split_at_attachments(&text, &paths);
     let mut resources = Vec::new();
     if embedded_context {
         resources.extend(context.into_iter().map(context_resource));
@@ -223,7 +220,7 @@ pub fn prompt_blocks(
     }
     let mut blocks = Vec::with_capacity(paths.len() + resources.len() + pieces.len() + 1);
     for (said, index) in pieces {
-        blocks.push(said.to_owned().into());
+        blocks.push(said.into());
         blocks.extend(links.get_mut(index).and_then(Option::take));
     }
     if !rest.trim().is_empty() {

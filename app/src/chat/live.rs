@@ -2,6 +2,7 @@
 //! questions the agent waits on, its subagents at work, its background tasks,
 //! the messages waiting their turn, and those share viewers wrote.
 
+use crate::stash::Piece;
 use crate::ui::Clicks;
 use gpui_kit::base::Button as BaseButton;
 use gpui_kit::prelude::FluentBuilder;
@@ -572,7 +573,7 @@ fn stop_all(
 fn work_row(
     t: &Tokens,
     mark: AnyElement,
-    name: String,
+    name: impl IntoElement,
     detail: Option<(AnyElement, bool)>,
     meta: Option<String>,
     end: Option<AnyElement>,
@@ -589,10 +590,13 @@ fn work_row(
         .hover(|row| row.bg(t.surface_hover))
         .child(div().flex_none().flex().child(mark))
         .child(
-            ui::text(name, TEXT_XS_H, FontWeight::MEDIUM)
+            div()
+                .text_size(theme::ui_text(TEXT_XS_H))
+                .font_weight(FontWeight::MEDIUM)
                 .min_w_0()
                 .truncate()
                 .text_color(t.text_primary)
+                .child(name)
                 .map(|name| match detail.is_some() {
                     true => name.flex_shrink(1.).max_w(gpui_kit::relative(0.5)),
                     false => name.flex_1(),
@@ -870,6 +874,45 @@ fn queued_label(message: &QueuedMessage) -> String {
         .join(", ")
 }
 
+/// A queued message's one line, what it names drawn as the pills it was written with.
+fn queued_words(
+    bench: &Workbench,
+    message: &QueuedMessage,
+    agents: &[(String, String)],
+    cx: &gpui_kit::App,
+) -> AnyElement {
+    let line = one_line(&queued_label(message));
+    let named = super::attach::named(&message.text, &message.paths, &message.context, agents);
+    let mut words = div()
+        .flex()
+        .items_center()
+        .min_w_0()
+        .overflow_hidden()
+        .gap(SPACE_1);
+    let mut run = Vec::new();
+    for piece in crate::stash::pieces(&line, &named, &[]) {
+        match piece {
+            Piece::Word(word) => run.push(word),
+            Piece::Pill { id, label, .. } => {
+                if !run.is_empty() {
+                    words = words.child(std::mem::take(&mut run).join(" "));
+                }
+                let pill = super::attach::pill(&id, &label, None, bench, cx);
+                words = words.child(
+                    pill.flex_none()
+                        .h(px(18.))
+                        .text_size(theme::ui_text(TEXT_2XS)),
+                );
+            }
+        }
+    }
+    if !run.is_empty() {
+        let rest = div().min_w_0().flex_1().truncate().child(run.join(" "));
+        words = words.child(rest);
+    }
+    words.into_any_element()
+}
+
 fn agent_label(provider: &str) -> &str {
     sikemux_agents::agent_catalog::agent(provider).map_or(provider, |agent| agent.label)
 }
@@ -1000,6 +1043,7 @@ fn queued(
         t!("{count} queued", count = waiting.len() + head.mail.len()),
         &t,
     )];
+    let named = super::attach::named_agents(bench, agent);
     let mut rows: Vec<AnyElement> = waiting
         .iter()
         .map(|message| {
@@ -1044,7 +1088,7 @@ fn queued(
             work_row(
                 &t,
                 mark,
-                one_line(&queued_label(message)),
+                queued_words(bench, message, &named, cx),
                 None,
                 None,
                 Some(end),

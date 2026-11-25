@@ -79,6 +79,7 @@ mod math;
 mod mention;
 mod mermaid;
 mod moving;
+mod pills;
 mod rotation;
 pub(crate) use attach::{
     agent_pill, agent_pill_of, context_chip, file_chip, named, named_agents, pill, site_icon,

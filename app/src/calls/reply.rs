@@ -129,7 +129,7 @@ impl Workbench {
         let Some((_, call)) = self.call_at(id) else {
             return;
         };
-        let words = composing.draft.read(cx).value().trim().to_owned();
+        let words = composing.content(cx).text().trim().to_owned();
         let words = (!words.is_empty()).then_some(words);
         let paths = composing.outgoing(cx).0;
         let option = self.calls.read(cx).chosen(call).into_iter().next();
@@ -168,7 +168,7 @@ impl Workbench {
         else {
             return;
         };
-        let words = composing.draft.read(cx).value().trim().to_owned();
+        let words = composing.content(cx).text().trim().to_owned();
         let paths = composing.outgoing(cx).0;
         if words.is_empty() && paths.is_empty() {
             return;
@@ -209,7 +209,7 @@ impl Workbench {
         else {
             return;
         };
-        let words = composing.draft.read(cx).value().trim().to_owned();
+        let words = composing.content(cx).text().trim().to_owned();
         let (paths, mut context) = composing.outgoing(cx);
         if words.is_empty() && paths.is_empty() {
             return;
@@ -241,23 +241,22 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(draft) = (self.composing(owner)).map(|composing| composing.draft.clone()) else {
+        let Some(held) = (self.composing(owner)).map(|composing| composing.held(cx)) else {
             return;
         };
-        let words = draft.read(cx).value();
+        let owner = owner.to_owned();
         let sent = to.request_typed::<call::PromptChat>(params);
-        self.emptied(owner, window, cx);
+        self.emptied(&owner, window, cx);
         cx.spawn_in(window, async move |bench, cx| {
             let answer = sent.await;
             let _ = bench.update_in(cx, |bench, window, cx| {
                 let toast = match answer {
                     Ok(()) => crate::toast::info(t!("Sent to @{name}", name = name)),
                     Err(error) => {
-                        draft.update(cx, |draft, cx| {
-                            if draft.value().is_empty() {
-                                draft.set_value(words, window, cx);
-                            }
-                        });
+                        let composing = bench.composing_mut(&owner);
+                        if let Some(composing) = composing.filter(|it| it.is_empty(cx)) {
+                            composing.put(held, window, cx);
+                        }
                         crate::toast::error(error)
                     }
                 };

@@ -455,11 +455,16 @@ fn sent_chips(text: &str, names: &SentNames<'_>) -> Vec<(String, SentChip)> {
         if is_image_path(path) {
             let number = index + 1;
             let label = format!("Image #{number}");
-            let image = chip(SentChipKind::Image, &label, Some(path));
-            found.push((format!("[Image #{number}]"), image));
-            continue;
+            let tag = format!("[Image #{number}]");
+            if text.contains(&tag) {
+                found.push((tag, chip(SentChipKind::Image, &label, Some(path))));
+                continue;
+            }
         }
-        let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+        let parts: Vec<&str> = path
+            .split(['/', '\\'])
+            .filter(|part| !part.is_empty())
+            .collect();
         let tag = (0..parts.len())
             .filter_map(|from| parts.get(from..))
             .map(|tail| format!("+{}", tail.join("/")))
