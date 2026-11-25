@@ -6,6 +6,7 @@ mod config;
 mod control;
 mod failure;
 mod messages;
+mod output_cap;
 mod permission;
 mod reader;
 mod replay;
