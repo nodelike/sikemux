@@ -3616,3 +3616,109 @@ fn a_decision_held_for_a_turn_that_fails_goes_under_its_reply() {
         last.parts
     );
 }
+
+#[test]
+fn keeps_streaming_markdown_doc_warm_across_mid_turn_notices_until_tool_or_end() {
+    let mut chat = Chat::running();
+    chat.update(chunk("First paragraph.\n\n", "m1"));
+    let _ = chat.flush();
+    assert!(
+        chat.fold.main.rows[0].sides[0].doc.is_some(),
+        "initial streaming text opens a markdown doc"
+    );
+
+    chat.update(json!({
+        "sessionUpdate": "async_task_spawned",
+        "asyncTaskId": "task-1",
+        "name": "cargo test",
+        "taskType": "shell",
+        "description": "Run tests",
+        "canStop": true,
+    }));
+    chat.update(json!({
+        "sessionUpdate": "async_task_state_update",
+        "asyncTaskId": "task-1",
+        "state": "completed",
+    }));
+    let _ = chat.flush();
+    assert!(matches!(
+        chat.fold.main.rows[0].msg.parts.last(),
+        Some(ChatPart::Tasks { .. })
+    ));
+    assert!(
+        chat.fold.main.rows[0].sides[0].doc.is_some(),
+        "side.doc must stay warm across trailing Tasks part"
+    );
+
+    chat.update(update::overruled_notice(
+        "Overruled",
+        OverruledDecision {
+            project: "/p".into(),
+            goal: Some(1),
+            decision: 2,
+            text: "Test decision".into(),
+            rule: None,
+            org: None,
+            waiting: false,
+            undone: false,
+            still_kept: false,
+            stopped_auto: false,
+        },
+    ));
+    let _ = chat.flush();
+    assert!(matches!(
+        chat.fold.main.rows[0].msg.parts.last(),
+        Some(ChatPart::AgentNotice { .. })
+    ));
+    assert!(
+        chat.fold.main.rows[0].sides[0].doc.is_some(),
+        "side.doc must stay warm across trailing AgentNotice part"
+    );
+
+    chat.update(chunk("Second paragraph.", "m1"));
+    let changes = chat.flush();
+    assert!(
+        chat.fold.main.rows[0].sides[0].doc.is_some(),
+        "side.doc must remain warm after streaming past trailing notices"
+    );
+    let md_patches: Vec<&Value> = changes
+        .iter()
+        .filter_map(|change| match change {
+            ChatChange::Text { md: Some(md), .. } => Some(md),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(md_patches.len(), 1, "expected one incremental md patch");
+    let patch_json = serde_json::to_string(md_patches[0]).expect("serialize patch");
+    assert!(
+        patch_json.contains("Second paragraph."),
+        "patch should include newly streamed text: {patch_json}"
+    );
+    assert!(
+        !patch_json.contains("First paragraph."),
+        "incremental stream past notice must not re-parse and rebroadcast earlier paragraphs: {patch_json}"
+    );
+
+    chat.update(json!({
+        "sessionUpdate": "tool_call",
+        "toolCallId": "tool-1",
+        "title": "Read file",
+        "status": "in_progress",
+    }));
+    let _ = chat.flush();
+    assert!(
+        chat.fold.main.rows[0].sides[0].doc.is_none(),
+        "side.doc should drop once a Tool part starts"
+    );
+
+    let mut ending = Chat::running();
+    ending.update(chunk("Short answer.", "m2"));
+    let _ = ending.flush();
+    assert!(ending.fold.main.rows[0].sides[0].doc.is_some());
+    ending.turn_completed(Some("end_turn"));
+    let _ = ending.flush();
+    assert!(
+        ending.fold.main.rows[0].sides[0].doc.is_none(),
+        "side.doc should drop once ended_at is set"
+    );
+}

@@ -210,18 +210,17 @@ fn row_bytes(row: &Row) -> usize {
         + PART_BYTES
 }
 
-/// Only the text being written keeps its tree between flushes: the last part
-/// of the last row, while it is text.
+/// Only the text being written keeps its tree between flushes: the last non-notice
+/// part of the last open assistant row, while it is text or thought.
 fn open_part(transcript: &Transcript, position: usize) -> Option<usize> {
     if position + 1 != transcript.rows.len() {
         return None;
     }
     let row = transcript.rows.get(position)?;
-    if row.msg.role != ChatRole::Assistant {
+    if row.msg.role != ChatRole::Assistant || row.msg.ended_at.is_some() {
         return None;
     }
-    let (last, part) = row.msg.parts.iter().enumerate().next_back()?;
-    text_len(part).map(|_| last)
+    super::trailing_open_part(&row.msg.parts)
 }
 
 /// The row with every tree read, for a client that holds none of it.

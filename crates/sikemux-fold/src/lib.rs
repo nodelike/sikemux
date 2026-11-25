@@ -1854,18 +1854,8 @@ impl Fold {
             return;
         }
         // A task can end while the reply streams; its notice must not cut the reply's markdown in two.
-        let mut open = row.msg.parts.len().saturating_sub(1);
-        while open > 0
-            && matches!(
-                row.msg.parts.get(open),
-                Some(
-                    ChatPart::Notice { .. } | ChatPart::Tasks { .. } | ChatPart::AgentNotice { .. }
-                )
-            )
-        {
-            open -= 1;
-        }
-        let appended = match (text, row.msg.parts.get_mut(open)) {
+        let open = trailing_open_part(&row.msg.parts);
+        let appended = match (text, open.and_then(|at| row.msg.parts.get_mut(at))) {
             (Some(more), Some(ChatPart::Text { text, .. })) if part_kind == TEXT_PART => {
                 text.push_str(more);
                 true
@@ -1878,7 +1868,10 @@ impl Fold {
         };
         if appended {
             let more = text.unwrap_or_default();
-            if let Some(doc) = row.sides.get_mut(open).and_then(|side| side.doc.as_mut()) {
+            if let Some(doc) = open
+                .and_then(|at| row.sides.get_mut(at))
+                .and_then(|side| side.doc.as_mut())
+            {
                 doc.push(more);
             }
         } else {
@@ -3631,4 +3624,18 @@ fn read_sent(row: &mut Row, commands: &[ChatCommandInfo]) {
     row.msg.context = context;
     row.msg.letters = letters;
     row.fresh = true;
+}
+
+pub(crate) fn trailing_open_part(parts: &[ChatPart]) -> Option<usize> {
+    let index = parts.iter().rposition(|part| {
+        !matches!(
+            part,
+            ChatPart::Notice { .. } | ChatPart::Tasks { .. } | ChatPart::AgentNotice { .. }
+        )
+    })?;
+    matches!(
+        parts.get(index),
+        Some(ChatPart::Text { .. } | ChatPart::Thought { .. })
+    )
+    .then_some(index)
 }
