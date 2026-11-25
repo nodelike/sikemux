@@ -11,6 +11,7 @@ use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -34,25 +35,55 @@ const DEVICE_VIEW_GATHER: Duration = Duration::from_millis(50);
 const DEVICE_VIEW_SPACING: Duration = Duration::from_millis(100);
 
 #[derive(Default)]
+struct Sent {
+    frames: HashMap<Option<String>, Arc<[u8]>>,
+    built_rev: u64,
+}
+
 pub(crate) struct DeviceViews {
     /// Pokes the device view awake once something may be watching it.
     watched: Notify,
     /// Sends the device view before its next tick, once an agent's state changed.
-    pub(super) stale: Notify,
+    stale: Notify,
     /// Sends it at once, without waiting for more changes to go with it.
-    pub(super) due: Notify,
+    due: Notify,
+    rev: AtomicU64,
     /// The view each client was last sent: by the device with what it has in front of its
     /// own, or under none for every other client.
-    sent: Mutex<HashMap<Option<String>, Vec<u8>>>,
+    sent: Mutex<Sent>,
     /// What the rows showed of this host's load in the view that last went out.
     shown_load: Mutex<Option<sikemux_view::device::HostLoad>>,
     /// The agents and saved chats the view last showed, as a search of chats ranks them.
     searched: Mutex<Option<Arc<super::chat_search::Searched>>>,
 }
 
+impl Default for DeviceViews {
+    fn default() -> Self {
+        Self {
+            watched: Notify::new(),
+            stale: Notify::new(),
+            due: Notify::new(),
+            rev: AtomicU64::new(1),
+            sent: Mutex::default(),
+            shown_load: Mutex::default(),
+            searched: Mutex::default(),
+        }
+    }
+}
+
 impl DeviceViews {
     pub(super) fn searched(&self) -> Option<Arc<super::chat_search::Searched>> {
         self.searched.locked().clone()
+    }
+
+    pub(super) fn mark_stale(&self) {
+        self.rev.fetch_add(1, Ordering::AcqRel);
+        self.stale.notify_one();
+    }
+
+    pub(super) fn mark_due(&self) {
+        self.rev.fetch_add(1, Ordering::AcqRel);
+        self.due.notify_one();
     }
 }
 
@@ -94,9 +125,8 @@ pub(crate) trait DeviceViewCore {
     /// in its face. How each project stands is left out: it costs the turns of every agent.
     fn workspace_view(&self) -> sikemux_view::workspace::Workspace;
 
-    /// The view `device` is sent, or every client without a front of its own, and whether
-    /// anything in it moves by itself.
-    fn device_view_frame(&self, device: Option<&str>) -> Option<(Vec<u8>, bool)>;
+    /// The device-independent view of this host, and whether anything in it moves by itself.
+    fn build_device_view(&self) -> (DeviceView, bool);
 
     /// The clients sent the device view: every paired device, and local clients that asked.
     fn view_watchers(&self) -> Vec<Arc<ClientConn>>;
@@ -279,7 +309,7 @@ impl DeviceViewCore for Core {
         workspace
     }
 
-    fn device_view_frame(&self, device: Option<&str>) -> Option<(Vec<u8>, bool)> {
+    fn build_device_view(&self) -> (DeviceView, bool) {
         let (chats, sessions) = self.ranked_infos();
         let moving = chats.iter().any(|chat| {
             chat.group == AgentGroup::Working
@@ -328,7 +358,6 @@ impl DeviceViewCore for Core {
                 })
             }),
         );
-        let layout = Box::new(layout::view(self, &workspace, &sessions, device));
         let chief_targets = chief_targets(self, &workspace, &chats, &inbox, &recent);
         let view = DeviceView {
             workspace,
@@ -340,7 +369,7 @@ impl DeviceViewCore for Core {
             calls,
             now,
             pins: super::pins::shown(self),
-            layout,
+            layout: Box::default(),
             account: self.account().shown().map(Box::new),
             face_style: Box::new(self.faces().style()),
             load: self.shows_load().then(|| {
@@ -352,8 +381,7 @@ impl DeviceViewCore for Core {
             updates: updates::host_view(self),
             chief_targets,
         };
-        let frame = encode_device_view(&view).ok()?;
-        Some((frame, moving))
+        (view, moving)
     }
 
     fn view_watchers(&self) -> Vec<Arc<ClientConn>> {
@@ -382,35 +410,74 @@ impl DeviceViewCore for Core {
     fn publish_device_view(&self) -> bool {
         let devices = self.view_watchers();
         if devices.is_empty() {
+            let mut last = self.device_view().sent.locked();
+            last.frames.clear();
+            last.built_rev = 0;
             return false;
         }
+        let rev = self.device_view().rev.load(Ordering::Acquire);
         let fronted = layout::fronted(self);
-        let mut last = self.device_view().sent.locked();
-        let mut frames: HashMap<Option<String>, Option<Arc<[u8]>>> = HashMap::new();
-        let mut moving = false;
-        for client in devices {
-            let key = client.peer.device_id().filter(|id| fronted.contains(id));
-            let frame = frames.entry(key.clone()).or_insert_with(|| {
-                let (frame, moves) = self.device_view_frame(key.as_deref())?;
-                moving |= moves;
-                if last.get(&key) == Some(&frame) {
-                    return None;
-                }
-                let shared: Arc<[u8]> = frame.as_slice().into();
-                last.insert(key.clone(), frame);
-                Some(shared)
-            });
-            if let Some(frame) = frame {
-                client.send(frame.clone());
+        let targets: Vec<(Arc<ClientConn>, Option<String>)> = devices
+            .into_iter()
+            .map(|client| {
+                let key = client.peer.device_id().filter(|id| fronted.contains(id));
+                (client, key)
+            })
+            .collect();
+        let (mut view, moving) = self.build_device_view();
+        let mut built: HashMap<Option<String>, Arc<[u8]>> = HashMap::new();
+        for (_, key) in &targets {
+            if built.contains_key(key) {
+                continue;
+            }
+            *view.layout = layout::view(self, &view.workspace, &view.sessions, key.as_deref());
+            if let Ok(frame) = encode_device_view(&view) {
+                built.insert(key.clone(), frame.into());
             }
         }
-        last.retain(|key, _| frames.contains_key(key));
+        let to_send: Vec<(Arc<ClientConn>, Arc<[u8]>)> = {
+            let mut last = self.device_view().sent.locked();
+            let mut changed: HashMap<Option<String>, Arc<[u8]>> = HashMap::new();
+            for (key, frame) in &built {
+                let same = last
+                    .frames
+                    .get(key)
+                    .is_some_and(|prev| prev.as_ref() == frame.as_ref());
+                if !same {
+                    last.frames.insert(key.clone(), frame.clone());
+                    changed.insert(key.clone(), frame.clone());
+                }
+            }
+            last.frames.retain(|key, _| built.contains_key(key));
+            last.built_rev = rev;
+            targets
+                .into_iter()
+                .filter_map(|(client, key)| Some((client, changed.get(&key)?.clone())))
+                .collect()
+        };
+        for (client, frame) in to_send {
+            client.send(frame);
+        }
         moving
     }
 
     fn send_device_view(&self, client: &ClientConn) {
-        let _last = self.device_view().sent.locked();
-        if let Some((frame, _)) = self.device_view_frame(client.peer.device_id().as_deref()) {
+        let fronted = layout::fronted(self);
+        let key = client.peer.device_id().filter(|id| fronted.contains(id));
+        let rev = self.device_view().rev.load(Ordering::Acquire);
+        let cached = {
+            let last = self.device_view().sent.locked();
+            (last.built_rev == rev)
+                .then(|| last.frames.get(&key).cloned())
+                .flatten()
+        };
+        if let Some(frame) = cached {
+            client.send(frame);
+            return;
+        }
+        let (mut view, _) = self.build_device_view();
+        *view.layout = layout::view(self, &view.workspace, &view.sessions, key.as_deref());
+        if let Ok(frame) = encode_device_view(&view) {
             client.send(frame.into());
         }
     }
@@ -426,6 +493,11 @@ pub(super) async fn serve(core: Arc<Core>) {
     let mut built = tokio::time::Instant::now();
     loop {
         if core.view_watchers().is_empty() {
+            {
+                let mut last = core.device_view().sent.locked();
+                last.frames.clear();
+                last.built_rev = 0;
+            }
             core.device_view().watched.notified().await;
             ticker.reset();
         }

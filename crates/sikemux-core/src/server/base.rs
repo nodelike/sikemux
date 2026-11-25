@@ -7,6 +7,7 @@ use crate::server::chat_state::ChatParts;
 use crate::server::parts::PartCore;
 use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
+use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 use sikemux_wire::protocol::{AgentState, Event, SessionId};
 
@@ -62,7 +63,7 @@ pub(super) fn above() -> Above {
         task_ended,
         agent_exited,
         agent_moved,
-        view_due: |core| core.device_view().due.notify_one(),
+        view_due: |core| core.device_view().mark_due(),
         agents_moved,
         view_moved,
         told: |core, event| {
@@ -677,10 +678,13 @@ fn agents_moved(core: &Core) {
 }
 
 fn view_moved(core: &Core) {
-    core.device_view().stale.notify_one();
+    core.device_view().mark_stale();
     core.hosts().copies.wake.now();
     hosts::route::rows_moved(core);
     core.notify().inbox_moved();
+    if core.is_idle() {
+        core.idle_wake().notify_one();
+    }
 }
 
 fn signal_of(event: &Event) -> Option<Signal> {
