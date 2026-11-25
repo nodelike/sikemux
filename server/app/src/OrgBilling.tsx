@@ -518,7 +518,7 @@ function OrgBill({
                     : "Payer left"
                   : overview.card
                     ? overview.card.last4
-                    : "None"}
+                    : "No card"}
               </span>
             </Figure>
           </Figures>

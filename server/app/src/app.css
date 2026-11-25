@@ -1493,6 +1493,7 @@ dialog.dlg::backdrop {
   gap: 14px;
   padding: 14px 0;
   margin-top: 8px;
+  margin-bottom: 28px;
   border-top: 1px solid var(--line2);
   border-bottom: 1px solid var(--line2);
 }
@@ -1586,11 +1587,13 @@ dialog.dlg::backdrop {
   min-width: 0;
 }
 .figures {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 32px;
-  max-width: 900px;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+.figure + .figure {
+  padding-left: 28px;
+  border-left: 1px solid var(--line);
 }
 .figure {
   display: flex;
@@ -1769,8 +1772,12 @@ dialog.dlg::backdrop {
     gap: 12px;
   }
   .figures {
-    flex-direction: column;
+    grid-auto-flow: row;
     gap: 22px;
+  }
+  .figure + .figure {
+    padding-left: 0;
+    border-left: 0;
   }
 }
 
