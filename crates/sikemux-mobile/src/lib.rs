@@ -7,7 +7,7 @@
 //! app's chat code. Terminal bytes cross as bytes.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
@@ -345,9 +345,13 @@ impl Device {
         listener: Arc<dyn CoreListener>,
     ) -> Result<Arc<Connection>, MobileError> {
         let open = Arc::new(AtomicBool::new(true));
+        let latest_view = Arc::new(Mutex::new(None));
         let (deliveries, queue) = mpsc::unbounded_channel();
-        deliver(listener, queue, open.clone());
-        let sink = Arc::new(ListenerSink(deliveries));
+        deliver(listener, queue, latest_view.clone(), open.clone());
+        let sink = Arc::new(ListenerSink {
+            deliveries,
+            latest_view,
+        });
         let online = self.online.clone();
         let (client, link) =
             on_runtime(async move { online.connect_to(addr, sink).await }).await??;
@@ -421,48 +425,61 @@ pub trait CoreListener: Send + Sync {
 
 enum Delivery {
     Event(Box<CoreEvent>),
+    View,
     Closed,
 }
 
 /// Hands what the core sends to a queue, so the connection keeps reading
-/// while the app is busy.
-struct ListenerSink(mpsc::UnboundedSender<Delivery>);
+/// while the app is busy. Newer device views overwrite older unconsumed ones.
+struct ListenerSink {
+    deliveries: mpsc::UnboundedSender<Delivery>,
+    latest_view: Arc<Mutex<Option<String>>>,
+}
 
 impl EventSink for ListenerSink {
     fn grid(&self, _stream: StreamId, _frame: &[u8]) {}
 
     fn event(&self, event: Event) {
         if let Some(event) = CoreEvent::from_core(event) {
-            let _ = self.0.send(Delivery::Event(Box::new(event)));
+            let _ = self.deliveries.send(Delivery::Event(Box::new(event)));
         }
     }
 
     fn device_view(&self, view_json: &str) {
-        let view_json = view_json.to_owned();
-        let _ = self
-            .0
-            .send(Delivery::Event(Box::new(CoreEvent::View { view_json })));
+        let should_notify = match self.latest_view.lock() {
+            Ok(mut slot) => slot.replace(view_json.to_owned()).is_none(),
+            Err(poisoned) => poisoned
+                .into_inner()
+                .replace(view_json.to_owned())
+                .is_none(),
+        };
+        if should_notify {
+            let _ = self.deliveries.send(Delivery::View);
+        }
     }
 
     fn window_call(&self, _call_id: CallId, _call: WindowCall) {}
 
     fn closed(&self) {
-        let _ = self.0.send(Delivery::Closed);
+        let _ = self.deliveries.send(Delivery::Closed);
     }
 }
 
 /// Calls into the app wait for its JavaScript thread, so they run on a thread
-/// of their own. Events that queued up meanwhile go over in one call.
+/// of their own. Events that queued up meanwhile go over in one call, with at
+/// most one newest device view per batch.
 /// Nothing reaches the app once it closed the connection itself.
 fn deliver(
     listener: Arc<dyn CoreListener>,
     mut queue: mpsc::UnboundedReceiver<Delivery>,
+    latest_view: Arc<Mutex<Option<String>>>,
     open: Arc<AtomicBool>,
 ) {
     let spawned = std::thread::Builder::new()
         .name("sikemux-listener".into())
         .spawn(move || {
             let mut events = Vec::new();
+            let mut has_view = false;
             while let Some(first) = queue.blocking_recv() {
                 let mut next = Some(first);
                 while let Some(delivery) = next.take() {
@@ -471,7 +488,9 @@ fn deliver(
                     }
                     match delivery {
                         Delivery::Event(event) => events.push(*event),
+                        Delivery::View => has_view = true,
                         Delivery::Closed => {
+                            push_latest_view(&latest_view, &mut has_view, &mut events);
                             flush(listener.as_ref(), &mut events);
                             let _ = listener.closed();
                             return;
@@ -482,11 +501,30 @@ fn deliver(
                 if !open.load(Ordering::Acquire) {
                     return;
                 }
+                push_latest_view(&latest_view, &mut has_view, &mut events);
                 flush(listener.as_ref(), &mut events);
             }
         });
     if let Err(error) = spawned {
         eprintln!("sikemux: could not start the listener thread: {error}");
+    }
+}
+
+fn push_latest_view(
+    latest_view: &Mutex<Option<String>>,
+    has_view: &mut bool,
+    events: &mut Vec<CoreEvent>,
+) {
+    if !*has_view {
+        return;
+    }
+    *has_view = false;
+    let view_json = match latest_view.lock() {
+        Ok(mut slot) => slot.take(),
+        Err(poisoned) => poisoned.into_inner().take(),
+    };
+    if let Some(view_json) = view_json {
+        events.push(CoreEvent::View { view_json });
     }
 }
 
@@ -508,6 +546,27 @@ impl Drop for Connection {
     fn drop(&mut self) {
         self.device.note_closed(&self.link);
     }
+}
+
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+async fn write_atomic(path: &Path, bytes: Vec<u8>) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+    let seq = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp = parent.join(format!(".{name}.{}.{seq}.tmp", std::process::id()));
+    if let Err(error) = tokio::fs::write(&tmp, bytes).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(error);
+    }
+    if let Err(error) = tokio::fs::rename(&tmp, path).await {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn not_answered() -> MobileError {
@@ -591,14 +650,9 @@ impl Connection {
         let (extension, bytes) = decode_data_url(&data_url)?;
         let path = backdrop_path(Path::new(&dir), &id, extension);
         let written = path.clone();
-        on_runtime(async move {
-            if let Some(parent) = written.parent() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
-            tokio::fs::write(&written, bytes).await
-        })
-        .await?
-        .map_err(|error| invalid(format!("could not save the host's backdrop: {error}")))?;
+        on_runtime(async move { write_atomic(&written, bytes).await })
+            .await?
+            .map_err(|error| invalid(format!("could not save the host's backdrop: {error}")))?;
         Ok(Some(path.display().to_string()))
     }
 
@@ -714,14 +768,9 @@ impl Connection {
             .and_then(|data| base64::engine::general_purpose::STANDARD.decode(data).ok())
             .ok_or_else(|| invalid("the host sent a file this app cannot read"))?;
         let written = PathBuf::from(path);
-        on_runtime(async move {
-            if let Some(parent) = written.parent() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
-            tokio::fs::write(&written, bytes).await
-        })
-        .await?
-        .map_err(|error| invalid(format!("could not save the file: {error}")))?;
+        on_runtime(async move { write_atomic(&written, bytes).await })
+            .await?
+            .map_err(|error| invalid(format!("could not save the file: {error}")))?;
         Ok(records::json(&result))
     }
 
@@ -1124,14 +1173,23 @@ mod tests {
     #[test]
     fn events_that_queue_up_reach_the_app_together_and_in_order() {
         let recorder = Arc::new(Recorder::default());
+        let latest_view = Arc::new(Mutex::new(None));
         let (deliveries, queue) = mpsc::unbounded_channel();
-        let sink = ListenerSink(deliveries);
+        let sink = ListenerSink {
+            deliveries,
+            latest_view: latest_view.clone(),
+        };
         sink.event(chat_event(1));
         sink.event(chat_event(2));
         sink.grid(7, b"ab");
         sink.event(chat_event(3));
         sink.closed();
-        deliver(recorder.clone(), queue, Arc::new(AtomicBool::new(true)));
+        deliver(
+            recorder.clone(),
+            queue,
+            latest_view,
+            Arc::new(AtomicBool::new(true)),
+        );
         assert_eq!(delivered(&recorder), ["events 3", "closed"]);
     }
 
@@ -1141,12 +1199,21 @@ mod tests {
             fail: true,
             ..Recorder::default()
         });
+        let latest_view = Arc::new(Mutex::new(None));
         let (deliveries, queue) = mpsc::unbounded_channel();
-        let sink = ListenerSink(deliveries);
+        let sink = ListenerSink {
+            deliveries,
+            latest_view: latest_view.clone(),
+        };
         sink.event(chat_event(1));
         sink.event(chat_event(2));
         sink.closed();
-        deliver(recorder.clone(), queue, Arc::new(AtomicBool::new(true)));
+        deliver(
+            recorder.clone(),
+            queue,
+            latest_view,
+            Arc::new(AtomicBool::new(true)),
+        );
         assert_eq!(delivered(&recorder), ["events 2", "closed"]);
     }
 }

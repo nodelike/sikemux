@@ -172,8 +172,14 @@ final class Hub {
         if forgotten.contains(core) {
             made.status = .closed(problem: String(localized: "Forgotten."))
         } else {
-            made.view = KeptView.shared.load(core)
             hosts[core] = made
+            Task { [weak self, weak made] in
+                let loaded = await KeptView.shared.loadAsync(core)
+                guard let self, let made, !self.forgotten.contains(core), self.hosts[core] === made,
+                    made.view == nil, let loaded
+                else { return }
+                made.view = loaded
+            }
         }
         return made
     }
@@ -192,17 +198,22 @@ final class Hub {
             if found.tryingSince == nil { found.tryingSince = Date() }
             open(core)
         }
-        return HostWatch { [weak self] in self?.unwatch(core) }
+        return HostWatch { [weak self, weak found] in
+            guard let found else { return }
+            self?.unwatch(found)
+        }
     }
 
-    private func unwatch(_ core: String) {
-        let found = live(core)
+    private func unwatch(_ found: HostLive) {
+        guard found.watchers > 0 else { return }
         found.watchers -= 1
-        guard found.watchers == 0 else { return }
-        found.lingering = Task { [weak self] in
+        guard found.watchers == 0, hosts[found.core] === found else { return }
+        found.lingering = Task { [weak self, weak found] in
             try? await Task.sleep(for: Self.linger)
-            guard !Task.isCancelled, found.watchers == 0 else { return }
-            self?.close(found, reason: String(localized: "Not in use."))
+            guard let self, let found, !Task.isCancelled, found.watchers == 0, self.hosts[found.core] === found else {
+                return
+            }
+            self.close(found, reason: String(localized: "Not in use."))
         }
     }
 
@@ -337,17 +348,20 @@ final class Hub {
         Task { await readHost(found, connection) }
     }
 
-    /// Takes the agents the host can run. A failed read is tried again, waiting longer each time.
+    /// Takes the agents the host can run. A transient failure is retried up to 5 times with backoff.
     private func readCatalog(_ found: HostLive, _ connection: Connection) {
         Task {
             var wait: Duration = .seconds(1)
-            while true {
+            for attempt in 0...5 {
                 do {
                     found.catalog = try await connection.call(PhoneCall.AgentCatalog.self, NoParams())
-                    break
+                    return
+                } catch MobileError.Refused, MobileError.Unpaired {
+                    return
                 } catch {
                     print("sikemux: could not read the host's agents: \(error)")
                 }
+                if attempt == 5 { return }
                 try? await Task.sleep(for: wait)
                 guard found.connection === connection else { return }
                 wait = min(wait * 2, .seconds(30))

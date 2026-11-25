@@ -37,11 +37,11 @@ function writeNow(core: string, snapshot: Snapshot) {
   }
 }
 
-export function loadKeptView(core: string): Snapshot | undefined {
+export async function loadKeptView(core: string): Promise<Snapshot | undefined> {
   try {
     const file = fileOf(core);
     if (!file.exists) return undefined;
-    const parsed = JSON.parse(file.textSync()) as unknown;
+    const parsed = JSON.parse(await file.text()) as unknown;
     return isSnapshot(parsed) ? parsed : undefined;
   } catch {
     return undefined;

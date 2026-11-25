@@ -64,6 +64,7 @@ type Entry = {
   current?: object;
   retrying?: ReturnType<typeof setTimeout>;
   lingering?: ReturnType<typeof setTimeout>;
+  catalogRetry?: ReturnType<typeof setTimeout>;
   chats: Set<(deliveries: ChatDelivery[]) => void>;
 };
 
@@ -134,14 +135,21 @@ function subscribeHost(core: string, listener: () => void) {
 function entry(core: string): Entry {
   let found = entries.get(core);
   if (!found) {
-    const snapshot = forgotten.has(core) ? undefined : loadKeptView(core);
+    const isForgotten = forgotten.has(core);
     found = {
-      live: forgotten.has(core) ? FORGOTTEN : snapshot ? { status: 'connecting', snapshot } : CONNECTING,
+      live: isForgotten ? FORGOTTEN : CONNECTING,
       watchers: 0,
       attempt: 0,
       chats: new Set(),
     };
-    if (!forgotten.has(core)) entries.set(core, found);
+    if (!isForgotten) {
+      entries.set(core, found);
+      const target = found;
+      void loadKeptView(core).then((snapshot) => {
+        if (!snapshot || forgotten.has(core) || entries.get(core) !== target || target.live.snapshot) return;
+        set(core, target, { ...target.live, snapshot });
+      });
+    }
   }
   return found;
 }
@@ -188,6 +196,7 @@ export async function readDevicesAgain() {
 function stopTimers(found: Entry) {
   clearTimeout(found.retrying);
   clearTimeout(found.lingering);
+  clearTimeout(found.catalogRetry);
 }
 
 function scheduleRetry(core: string, found: Entry) {
@@ -336,7 +345,7 @@ async function connect(core: string, found: Entry) {
   set(core, found, { status: 'open', connection, snapshot: found.live.snapshot });
   if (AppState.currentState !== 'active') connection.setForeground(false).catch(() => {});
   shareKey(core, connection).then(() => withdrawIfForgotten(core));
-  readCatalog(core, connection);
+  readCatalog(core, found, connection);
   hostOf(connection)
     .then((host) => {
       const known = knownDevices().find((device) => device.core === core);
@@ -347,11 +356,23 @@ async function connect(core: string, found: Entry) {
     .catch((error: unknown) => console.warn('sikemux: could not keep what the host says it is', error));
 }
 
-/** Takes the agents the host can run, which every screen names and draws agents from. */
-function readCatalog(core: string, connection: ConnectionLike) {
+const CATALOG_MAX_RETRIES = 5;
+
+/** Takes the agents the host can run. Transient failures retry up to 5 times with backoff. */
+function readCatalog(core: string, found: Entry, connection: ConnectionLike, attempt = 0, waitMs = 1000) {
   callHost(connection, 'agentCatalog', {})
     .then((catalog) => setAgentCatalog(core, catalog))
-    .catch((error: unknown) => console.warn("sikemux: could not read the host's agents", error));
+    .catch((error: unknown) => {
+      if (MobileError.Refused.instanceOf(error) || MobileError.Unpaired.instanceOf(error)) return;
+      console.warn("sikemux: could not read the host's agents", error);
+      if (attempt >= CATALOG_MAX_RETRIES) return;
+      if (forgotten.has(core) || found.live.status !== 'open' || found.live.connection !== connection) return;
+      clearTimeout(found.catalogRetry);
+      found.catalogRetry = setTimeout(() => {
+        if (forgotten.has(core) || found.live.status !== 'open' || found.live.connection !== connection) return;
+        readCatalog(core, found, connection, attempt + 1, Math.min(waitMs * 2, 30_000));
+      }, waitMs);
+    });
 }
 
 const hosts = new WeakMap<ConnectionLike, Promise<HostInfo>>();

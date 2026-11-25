@@ -274,6 +274,9 @@ private struct ChatPane: View {
         return Transcript(
             rows: rows, drawn: session.drawn, touched: { session.takeTouched() }, context: context, scroll: scroll,
             hasEarlier: session.hasEarlier, earlier: session.earlier, loadEarlier: { session.loadEarlier() },
+            footerKey: AnyHashable([
+                AnyHashable(provider), AnyHashable(hostName), AnyHashable(!watchOnly), AnyHashable(full),
+            ]),
             look: { [open, editing] message, look in
                 look.unsent = unsent[message.id]
                 if message.id == open { look.strip = Strip.of(messages, message.id) }

@@ -15,6 +15,8 @@ struct Transcript<Footer: View>: View {
     var hasEarlier = false
     var earlier = Feed.Earlier.idle
     var loadEarlier: () -> Void = {}
+    /// Changes when non-head inputs to `footer` change, so streaming tokens skip reconfiguring the footer.
+    var footerKey: AnyHashable = AnyHashable(0)
     /// What the screen adds to each row's look: what it sent, the strip it opened, what can be edited.
     var look: (ChatMessage, inout RowLook) -> Void = { _, _ in }
     @ViewBuilder var footer: () -> Footer
@@ -22,9 +24,12 @@ struct Transcript<Footer: View>: View {
     var body: some View {
         let shown = shownRows()
         let crew = crew?.writtenBy(context.agentId)
+        let headerKey = TranscriptHeaderKey(
+            hasEarlier: hasEarlier, earlier: earlier, lost: rows.head.earlierLost)
         return TranscriptList(
             order: shown.order, entries: shown.entries, drawn: drawn, touched: touched, scroll: scroll,
             hasEarlier: hasEarlier && earlier == .idle, loadEarlier: loadEarlier,
+            headerKey: headerKey, footerKey: footerKey,
             environment: { [palette, context, crew] view in
                 AnyView(view.environment(\.palette, palette).environment(\.crew, crew).environment(context))
             },
@@ -60,7 +65,9 @@ struct Transcript<Footer: View>: View {
         }
         let liveId = rows.running ? messages.last?.id : nil
         var order: [String] = []
+        order.reserveCapacity(messages.count)
         var entries: [String: RowEntry] = [:]
+        entries.reserveCapacity(messages.count)
         for (index, message) in messages.enumerated() {
             let run = runs[message.id]
             let fold = ShownRows.fold(message, { folds.isOpen(Folds.work($0), false) }, run)

@@ -115,7 +115,8 @@ private struct Watching: View {
                 Transcript(
                     rows: rows, drawn: session.drawn, touched: { session.takeTouched() }, context: context,
                     scroll: scroll,
-                    hasEarlier: session.hasEarlier, earlier: session.earlier, loadEarlier: { session.loadEarlier() }
+                    hasEarlier: session.hasEarlier, earlier: session.earlier, loadEarlier: { session.loadEarlier() },
+                    footerKey: AnyHashable([AnyHashable(session.status == .live), AnyHashable(provider)])
                 ) {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(rows.permissions, id: \.requestId) { request in

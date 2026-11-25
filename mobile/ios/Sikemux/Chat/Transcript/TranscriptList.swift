@@ -62,6 +62,12 @@ final class TranscriptScroll {
     func hold() { controller?.holdPlace() }
 }
 
+struct TranscriptHeaderKey: Equatable {
+    let hasEarlier: Bool
+    let earlier: Feed.Earlier
+    let lost: Bool
+}
+
 /// The transcript as one list that draws only the rows in view and reuses their cells, so a long chat scrolls as a
 /// short one does and a streaming answer redraws only its own row.
 struct TranscriptList<Header: View, Footer: View, Row: View>: UIViewControllerRepresentable {
@@ -73,6 +79,8 @@ struct TranscriptList<Header: View, Footer: View, Row: View>: UIViewControllerRe
     let scroll: TranscriptScroll
     let hasEarlier: Bool
     let loadEarlier: () -> Void
+    let headerKey: TranscriptHeaderKey
+    let footerKey: AnyHashable
     let environment: (AnyView) -> AnyView
     @ViewBuilder let header: () -> Header
     @ViewBuilder let footer: () -> Footer
@@ -94,7 +102,9 @@ struct TranscriptList<Header: View, Footer: View, Row: View>: UIViewControllerRe
         controller.makeFooter = { [environment, footer] in environment(AnyView(footer())) }
         controller.loadEarlier = loadEarlier
         controller.hasEarlier = hasEarlier
-        controller.update(order: order, entries: entries, drawn: drawn, touched: touched())
+        controller.update(
+            order: order, entries: entries, drawn: drawn, headerKey: headerKey, footerKey: footerKey,
+            touched: touched())
     }
 }
 
@@ -123,6 +133,8 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate, UI
     private var order: [String] = []
     private var entries: [String: RowEntry] = [:]
     private var drawn = -1
+    private var headerKey: TranscriptHeaderKey?
+    private var footerKey: AnyHashable?
     /// The reader is at the end, so the list follows what comes in.
     private var pinned = true
     /// The content's distance from its bottom to the top of the view, kept through a change above the rows in view.
@@ -195,13 +207,31 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate, UI
         true
     }
 
-    func update(order: [String], entries: [String: RowEntry], drawn: Int, touched: Touched) {
+    func update(
+        order: [String], entries: [String: RowEntry], drawn: Int, headerKey: TranscriptHeaderKey,
+        footerKey: AnyHashable, touched: Touched
+    ) {
         let before = self.entries
         let reordered = order != self.order
         self.entries = entries
         guard isViewLoaded else { return }
+        let initial = source.snapshot().numberOfSections == 0
+        let reconfigureHeader = !initial && headerKey != self.headerKey
+        let reconfigureFooter = !initial && (touched.head || footerKey != self.footerKey)
+        self.headerKey = headerKey
+        self.footerKey = footerKey
+        let changed = order.filter { id in
+            guard let old = before[id], let new = entries[id] else { return false }
+            if old.look != new.look { return true }
+            return (touched.all || touched.rows.contains(id)) && old.message != new.message
+        }
+        self.drawn = drawn
+        guard initial || reordered || !changed.isEmpty || reconfigureHeader || reconfigureFooter else {
+            askForEarlierInReach()
+            return
+        }
         var snapshot: NSDiffableDataSourceSnapshot<Int, Item>
-        if reordered || source.snapshot().numberOfSections == 0 {
+        if reordered || initial {
             let prepended =
                 !self.order.isEmpty && order.first != self.order.first && self.order.first.map(order.contains) == true
             if prepended { holdPlace() }
@@ -212,14 +242,11 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate, UI
         } else {
             snapshot = source.snapshot()
         }
-        let changed = order.filter { id in
-            guard let old = before[id], let new = entries[id] else { return false }
-            if old.look != new.look { return true }
-            return (touched.all || touched.rows.contains(id)) && old.message != new.message
-        }
         if !changed.isEmpty { snapshot.reconfigureItems(changed.map(Item.row)) }
-        if touched.head || drawn != self.drawn { snapshot.reconfigureItems([.header, .footer]) }
-        self.drawn = drawn
+        var edges: [Item] = []
+        if reconfigureHeader { edges.append(.header) }
+        if reconfigureFooter { edges.append(.footer) }
+        if !edges.isEmpty { snapshot.reconfigureItems(edges) }
         source.apply(snapshot, animatingDifferences: false)
         if pinned { stickToEnd() }
         askForEarlierInReach()
@@ -241,7 +268,6 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate, UI
     }
 
     private func stickToEnd() {
-        collection.layoutIfNeeded()
         let bottom = bottomOffset
         if abs(collection.contentOffset.y - bottom) > 0.5 { collection.contentOffset.y = bottom }
     }

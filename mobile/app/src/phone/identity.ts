@@ -144,11 +144,20 @@ export function refreshDevice(): Promise<void> {
   if (joining > 0) return closing;
   const live = ready;
   if (live?.refresh) {
-    const run = currentRelays()
-      .then((relays) => live.refresh!(relaySettings(relays)))
-      .catch(() => {});
-    const step = Promise.race([run, after(3000)]);
-    refreshing = refreshing.then(() => step);
+    refreshing = refreshing.then(() => {
+      if (ready !== live) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const run = currentRelays()
+        .then((relays) => {
+          if (ready !== live) return;
+          return live.refresh!(relaySettings(relays));
+        })
+        .catch(() => {});
+      const timeout = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, 3000);
+      });
+      return Promise.race([run, timeout]).finally(() => clearTimeout(timer));
+    });
     return refreshing;
   }
   return goOffline();

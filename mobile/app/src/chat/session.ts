@@ -302,6 +302,12 @@ export class ChatSession {
     if (this.draft.removeAttachment(id)) this.emit();
   };
 
+  /** Whether any screen or outbox hold currently attaches this chat. */
+  isHeld = () => this.holders > 0;
+
+  /** Whether any subscriber is currently observing this chat. */
+  hasListeners = () => this.listeners.size > 0;
+
   /** Whether any message waits to be sent or is still in flight on reconnect. */
   hasWaiting = () => this.outbox.waiting() || this.outbox.sending();
 

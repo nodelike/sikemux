@@ -16,12 +16,29 @@ function logOpen(agentId: string, took: OpenTimes) {
   );
 }
 
-/** Every chat this phone opened since it started, so going back to one finds it as it was left. */
+/** Every chat this phone opened since it started, capped to avoid unbounded memory growth. */
+const MAX_INACTIVE_SESSIONS = 8;
 const sessions = new Map<string, ChatSession>();
 /** Sessions that hold messages waiting to send even after their chat screen closed. */
 const pendingDelivery = new Map<string, { core: string; session: ChatSession; unwatch: () => void; release?: () => void }>();
 let offHostWatcher: (() => void) | undefined;
 let scannedSavedOutbox = false;
+
+function evictInactiveSessions() {
+  const inactive: [string, ChatSession][] = [];
+  sessions.forEach((session, key) => {
+    if (!session.isHeld() && !session.hasListeners() && !pendingDelivery.has(key) && !session.hasWaiting()) {
+      inactive.push([key, session]);
+    }
+  });
+  let excess = inactive.length - MAX_INACTIVE_SESSIONS;
+  for (let i = 0; i < excess; i += 1) {
+    const [key, session] = inactive[i];
+    session.keep();
+    session.keepDraft();
+    sessions.delete(key);
+  }
+}
 
 onHostForgotten((core) => {
   const prefix = `${core}:`;
@@ -99,19 +116,23 @@ export function resumePendingOutboxes() {
 export function chatSession(core: string, agentId: string): ChatSession {
   const key = `${core}:${agentId}`;
   let session = sessions.get(key);
-  if (!session) {
-    session = new ChatSession(agentId, {
-      listen: (take) => onChatEvents(core, take),
-      store: keptChat(core, agentId),
-      drafts: unsavedDraft(core, agentId),
-      outbox: waitingOutbox(core, agentId),
-      onWaiting: (waiting) => trackWaiting(core, agentId, session!, waiting),
-      timed: __DEV__ ? (took) => logOpen(agentId, took) : undefined,
-      say: translate,
-    });
+  if (session) {
+    sessions.delete(key);
     sessions.set(key, session);
-    if (session.hasWaiting()) trackWaiting(core, agentId, session, true);
+    return session;
   }
+  session = new ChatSession(agentId, {
+    listen: (take) => onChatEvents(core, take),
+    store: keptChat(core, agentId),
+    drafts: unsavedDraft(core, agentId),
+    outbox: waitingOutbox(core, agentId),
+    onWaiting: (waiting) => trackWaiting(core, agentId, session!, waiting),
+    timed: __DEV__ ? (took) => logOpen(agentId, took) : undefined,
+    say: translate,
+  });
+  sessions.set(key, session);
+  if (session.hasWaiting()) trackWaiting(core, agentId, session, true);
+  evictInactiveSessions();
   return session;
 }
 
@@ -129,7 +150,13 @@ export function useChat(
   useEffect(() => {
     if (snapshot) session.hostSaw(info);
   }, [session, snapshot, info]);
-  useEffect(() => session.hold(connection), [session, connection]);
+  useEffect(() => {
+    const release = session.hold(connection);
+    return () => {
+      release();
+      evictInactiveSessions();
+    };
+  }, [session, connection]);
   // The phone may be closed for good once it leaves the app, with the chat still on screen.
   useEffect(() => {
     const watching = AppState.addEventListener('change', (state) => {

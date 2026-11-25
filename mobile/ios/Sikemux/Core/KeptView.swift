@@ -26,6 +26,14 @@ final class KeptView: @unchecked Sendable {
         return try? JSONDecoder().decode(DeviceView.self, from: data)
     }
 
+    func loadAsync(_ core: String) async -> DeviceView? {
+        await withCheckedContinuation { done in
+            queue.async {
+                done.resume(returning: self.load(core))
+            }
+        }
+    }
+
     func save(_ core: String, view: DeviceView) {
         queue.async {
             if let existing = self.pending[core] {
