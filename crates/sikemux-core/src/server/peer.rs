@@ -2,7 +2,7 @@
 //! org over the peer channel, and this host reads the projects teammates share that it also
 //! keeps, holding the last copy of each. Nothing on the channel acts on either host.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -20,7 +20,7 @@ use sikemux_view::teammates::Teammate;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
-use crate::accounts::protocol::{PeerTicket, PeerTicketRequest};
+use crate::accounts::protocol::{PeerTicket, PeerTicketRequest, ShareRegistry};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::account::shares as registry;
 use crate::server::agent_now::AgentNowCore;
@@ -51,6 +51,7 @@ pub(crate) struct Peer {
     changed: watch::Sender<u64>,
     reading: Mutex<HashMap<Reading, Session>>,
     copies: Mutex<Copies>,
+    members: Mutex<Members>,
     kept: Kept,
     pub(crate) shares: shares::Reconciling,
 }
@@ -62,6 +63,7 @@ impl Peer {
             changed: watch::channel(0).0,
             reading: Mutex::default(),
             copies: Mutex::new(kept.load()),
+            members: Mutex::default(),
             kept,
             shares: shares::Reconciling::new(data_dir),
         }
@@ -90,6 +92,14 @@ struct Asking {
     agent: String,
     cli: Option<String>,
     answer: oneshot::Sender<Result<Value, String>>,
+}
+
+/// Who the account's orgs hold, as last heard, and who was heard to leave them. A ticket outlives
+/// its member's seat by minutes, so one that left is turned away by this rather than by its ticket.
+#[derive(Default)]
+struct Members {
+    held: HashMap<String, HashSet<String>>,
+    left: HashSet<(String, String)>,
 }
 
 /// Teammates' boards as last read, for the account that read them.
@@ -169,6 +179,9 @@ async fn answer(
         if !shares::active(core, &ticket.org) {
             return Some(refused("the org's Team plan is unpaid"));
         }
+        if has_left(core, &ticket.org, &ticket.member) {
+            return Some(refused("they are no longer in the org"));
+        }
         if let Some(project) = &asked {
             let Some(board) = shared_board(core, &ticket.org, project) else {
                 return Some(PeerHear::Gone);
@@ -227,6 +240,29 @@ async fn answer(
                 return Some(refused("the ticket ran out"));
             }
         }
+    }
+}
+
+fn has_left(core: &Core, org: &str, member: &str) -> bool {
+    let members = core.peer().members.locked();
+    members.left.contains(&(org.to_owned(), member.to_owned()))
+}
+
+/// Takes in who `registry`'s orgs hold now, and has open sessions look again when someone left.
+fn note_members(core: &Core, registry: &ShareRegistry) {
+    let mut left = false;
+    let mut members = core.peer().members.locked();
+    for list in &registry.orgs {
+        let holds: HashSet<String> = list.members.iter().map(|one| one.id.clone()).collect();
+        let held = members.held.remove(&list.org).unwrap_or_default();
+        for gone in held.difference(&holds) {
+            left |= members.left.insert((list.org.clone(), gone.clone()));
+        }
+        members.held.insert(list.org.clone(), holds);
+    }
+    drop(members);
+    if left {
+        changed(core);
     }
 }
 
@@ -299,12 +335,13 @@ fn crossing(core: &Core, mut row: TaskRow) -> Option<TaskRow> {
 // The reading side.
 
 /// Opens a session to each teammate's project this host keeps too, in the orgs whose plan is
-/// paid, and closes those no longer shared. A board taken back is forgotten; one whose org is
-/// unpaid is kept as last read.
+/// paid, and closes those no longer shared. A board taken back is forgotten, as is every board of
+/// an org the account has left; one whose org is unpaid is kept as last read.
 async fn read_teammates(core: &Arc<Core>) {
     let Some(shared) = registry::read(core).await else {
         return;
     };
+    note_members(core, &shared);
     let keys: Vec<String> = (core.workspaces().projects().into_iter())
         .filter_map(|known| known.identity.as_deref().map(shares::key))
         .collect();
@@ -338,13 +375,22 @@ async fn read_teammates(core: &Arc<Core>) {
             wanted.insert(reading, person);
         }
     }
+    let orgs = core.account().orgs();
     let forgot = forget(core, |copy| {
-        shares::active(core, &copy.org)
-            && !listed.contains(&(
-                copy.org.clone(),
-                copy.person.member.clone(),
-                copy.project.clone(),
-            ))
+        let Some(orgs) = &orgs else {
+            return false;
+        };
+        match orgs.iter().find(|org| org.id == copy.org) {
+            None => true,
+            Some(org) => {
+                org.active
+                    && !listed.contains(&(
+                        copy.org.clone(),
+                        copy.person.member.clone(),
+                        copy.project.clone(),
+                    ))
+            }
+        }
     });
     if forgot {
         core.changed(What::Read(Topic::Boards));

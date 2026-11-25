@@ -443,6 +443,7 @@ export function orgRoutes({
             detail: { role: current },
           });
           await seatsChanged(trx, [target]);
+          await orgsChanged(trx, await membersOf(trx, orgId));
         });
         await callProvider(c);
         c.get("log").info({ orgId }, "removed an org member");
@@ -476,6 +477,7 @@ export function orgRoutes({
           detail: { role },
         });
         await seatsChanged(trx, [userId]);
+        await orgsChanged(trx, await membersOf(trx, orgId));
       });
       await callProvider(c);
       c.get("log").info({ orgId }, "left an org");

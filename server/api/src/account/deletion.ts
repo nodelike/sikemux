@@ -10,6 +10,7 @@ import { checkSeatPauses } from "../billing/seat-pause.ts";
 import { appendEvent } from "../events/log.ts";
 import { conflict } from "../http.ts";
 import type { Logger } from "../log.ts";
+import { membersOf, orgsChanged } from "../orgs/shared.ts";
 import { dropUnshared } from "../orgvault/projects.ts";
 import { retryLater } from "../retry.ts";
 import { endSessionInClerk, type ClerkBackend } from "./clerk.ts";
@@ -215,6 +216,7 @@ async function leaveOrgs(
       subject: orgId,
       detail: { role: mine?.role, why },
     });
+    await orgsChanged(trx, await membersOf(trx, orgId));
     counts.orgsLeft += 1;
   }
   return counts;
