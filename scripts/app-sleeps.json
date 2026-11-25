@@ -36,6 +36,7 @@
   "app/src/retry.rs": 1,
   "app/src/search.rs": 1,
   "app/src/settings/mod.rs": 1,
+  "app/src/share.rs": 1,
   "app/src/sim/pane.rs": 1,
   "app/src/stash.rs": 1,
   "app/src/terminal.rs": 2,
