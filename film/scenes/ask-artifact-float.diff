@@ -1,0 +1,16 @@
+diff --git a/notes/prices.html b/notes/prices.html
+new file mode 100644
+--- /dev/null
++++ b/notes/prices.html
+@@ -0,0 +1,11 @@
++<!doctype html><html><head><title>Autumn prices</title><style>
++body{margin:0;padding:24px 28px;background:#fff;color:#1d1d1f}
++h1{font-size:18px;font-weight:600;margin:0 0 14px}
++table{width:100%;border-collapse:collapse;font-size:14px} td{padding:13px 0;border-top:1px solid #e3e3e6} td+td{text-align:right}
++footer{margin-top:18px;padding:14px 16px;background:#e8f1ff;border-radius:8px;font-size:14px}
++</style></head><body>
++<h1>Autumn prices</h1>
++<table><tr><td>Oat tote</td><td>412</td><td>24.00</td></tr><tr><td>Linen apron</td><td>288</td><td>38.00</td></tr><tr><td>Enamel mug</td><td>1,940</td><td>14.50</td></tr><tr><td>Walnut board</td><td>96</td><td>62.00</td></tr><tr><td>Brass hook</td><td>2,310</td><td>9.00</td></tr><tr><td>Wool throw</td><td>141</td><td>118.00</td></tr><tr><td>Stone planter</td><td>87</td><td>45.00</td></tr><tr><td>Cotton napkins</td><td>630</td><td>22.00</td></tr><tr><td>Glass carafe</td><td>255</td><td>34.00</td></tr><tr><td>Cedar crate</td><td>172</td><td>29.00</td></tr><tr><td>Beeswax candle</td><td>1,120</td><td>16.00</td></tr><tr><td>Tea towel</td><td>874</td><td>12.00</td></tr><tr><td>Clay vase</td><td>64</td><td>54.00</td></tr><tr><td>Bamboo tray</td><td>310</td><td>27.00</td></tr><tr><td>Iron trivet</td><td>198</td><td>31.00</td></tr><tr><td>Jute rug</td><td>43</td><td>140.00</td></tr></table>
++<footer>The last line of the price list.</footer>
++<script>setInterval(() => scrollTo(0, document.documentElement.scrollHeight), 200)</script>
++</body></html>
