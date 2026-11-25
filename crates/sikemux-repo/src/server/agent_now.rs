@@ -85,9 +85,10 @@ impl AgentNow<'_> {
         self.in_terminal(|agent| !agent.idle()).unwrap_or(false)
     }
 
-    /// Mid-turn, or a chat that has not finished starting and may write within seconds.
+    /// Mid-turn, or a chat still starting that may write within seconds. A chat that ended
+    /// before it was ready, or is asleep, is neither.
     pub fn working_or_starting(&self) -> bool {
-        self.maybe_mid_turn() || self.chat().is_some_and(|chat| !chat.is_ready())
+        self.maybe_mid_turn() || self.chat().is_some_and(|chat| chat.is_starting())
     }
 
     /// At rest and ready for more.

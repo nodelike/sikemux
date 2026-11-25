@@ -1235,6 +1235,11 @@ impl Chat {
         matches!(*self.readiness.borrow(), Readiness::Ready(_))
     }
 
+    /// Whether the session is still starting, so it may take a prompt any moment.
+    pub fn is_starting(&self) -> bool {
+        matches!(*self.readiness.borrow(), Readiness::Starting)
+    }
+
     fn end(&self, error: Option<String>) {
         self.message_waiting.store(false, Ordering::Release);
         self.readiness.send_if_modified(|readiness| {
