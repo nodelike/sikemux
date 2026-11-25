@@ -4,14 +4,22 @@
 //! card from the device view and answers it with `answerCall`, and the answer reaches whatever
 //! raised the call. A production call passes only on a client that drew it, by its button.
 
+mod delivery;
+mod legacy;
 mod log;
+mod writer;
+
+pub use delivery::{answer, HOLD_ALLOW, HOLD_REFUSE};
+pub use legacy::{answer_hold, answer_questions, not_mine};
+
+use delivery::{after_restart, call_of};
+use writer::LogWriter;
 
 use crate::server::changed::ChangedCore;
-use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -19,9 +27,8 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::calls::{
-    AnswerCallParams, CallAnswer, CallAsker, CallBrief, CallClient, CallEvidence, CallKind,
-    CallOption, CallOutcome, CallParams, CallPlace, CallResult, CallState, CallWhy, PersonCall,
-    DO_NOT_DOING,
+    CallAnswer, CallAsker, CallBrief, CallClient, CallEvidence, CallKind, CallOption, CallOutcome,
+    CallParams, CallPlace, CallResult, CallState, CallWhy, PersonCall,
 };
 use sikemux_wire::protocol::ErrorKind;
 
@@ -29,10 +36,8 @@ use self::log::{CallLog, Entry};
 use super::access::Peer;
 use super::activity_log::ActivityLog;
 use super::changed::What;
-use super::edits::workflows;
 use super::ship::Attempt;
-use super::{ship, Core, CoreError, CoreResult};
-use sikemux_calls::questions::{AnswerParams, AnswersParams};
+use super::{Core, CoreError, CoreResult};
 
 /// How long an answered or closed call stays in the device view.
 const SHOWN_AFTER_MS: u64 = 24 * 60 * 60 * 1000;
@@ -54,13 +59,13 @@ pub enum Source {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Also {
-    source: Source,
+    pub(super) source: Source,
     agent: String,
 }
 
-struct Kept {
-    call: PersonCall,
-    source: Source,
+pub(super) struct Kept {
+    pub(super) call: PersonCall,
+    pub(super) source: Source,
     /// What else raised the same decision since, each waiting on its answer.
     also: Vec<Also>,
     /// Calls raised with the same key are joined into one.
@@ -84,23 +89,23 @@ impl Kept {
 
 /// Calls a restart caught between the person's answer and what came of it.
 #[derive(Default)]
-struct AfterStart {
+pub(super) struct AfterStart {
     /// Calls whose yes had not started what it lets run: their askers hear it lapsed.
-    lapsed: Vec<String>,
+    pub(super) lapsed: Vec<String>,
     /// Calls whose yes had started what it lets run, unseen to its end: their askers hear it may
     /// have run.
-    interrupted: Vec<String>,
+    pub(super) interrupted: Vec<String>,
     /// Held actions, which a restart lets go of: their agents hear to run them again.
-    dropped: Vec<String>,
+    pub(super) dropped: Vec<String>,
     /// The gate's open calls, which are taken back if a yes to them would no longer count.
-    gated: Vec<String>,
+    pub(super) gated: Vec<String>,
     /// Other calls whose answer may not have reached their askers.
-    undelivered: Vec<String>,
+    pub(super) undelivered: Vec<String>,
 }
 
 /// Every call open, and those settled lately, as their entries left them.
 #[derive(Default)]
-struct Book {
+pub(super) struct Book {
     entries: HashMap<String, Kept>,
 }
 
@@ -109,7 +114,7 @@ impl Book {
         Self::default()
     }
 
-    fn iter(&self) -> impl Iterator<Item = &Kept> {
+    pub(super) fn iter(&self) -> impl Iterator<Item = &Kept> {
         self.entries.values()
     }
 
@@ -126,127 +131,8 @@ impl Book {
     }
 }
 
-enum LogOp {
-    Append {
-        project: String,
-        entry: Box<Entry>,
-        sure: bool,
-        still_open: Vec<Entry>,
-        done: Option<mpsc::SyncSender<Result<(), String>>>,
-    },
-    Flush(mpsc::SyncSender<()>),
-}
-
-struct LogWriter {
-    tx: Option<mpsc::Sender<LogOp>>,
-    worker: Option<std::thread::JoinHandle<()>>,
-}
-
-impl LogWriter {
-    fn start(log: CallLog) -> Self {
-        if !log.has_folder() {
-            return Self {
-                tx: None,
-                worker: None,
-            };
-        }
-        let (tx, rx) = mpsc::channel::<LogOp>();
-        let worker = std::thread::Builder::new()
-            .name("sikemux-call-log".to_owned())
-            .spawn(move || {
-                while let Ok(op) = rx.recv() {
-                    match op {
-                        LogOp::Append {
-                            project,
-                            entry,
-                            sure,
-                            still_open,
-                            done,
-                        } => {
-                            let res = log.append(&project, &entry, sure, || still_open);
-                            if let Some(done) = done {
-                                let _ = done.send(res);
-                            } else if let Err(error) = res {
-                                eprintln!("sikemux core: a call was not written down: {error}");
-                            }
-                        }
-                        LogOp::Flush(done) => {
-                            let _ = done.send(());
-                        }
-                    }
-                }
-            })
-            .ok();
-        match worker {
-            Some(handle) => Self {
-                tx: Some(tx),
-                worker: Some(handle),
-            },
-            None => Self {
-                tx: None,
-                worker: None,
-            },
-        }
-    }
-
-    fn enqueue(&self, project: String, entry: Entry, still_open: Vec<Entry>) {
-        if let Some(tx) = &self.tx {
-            let _ = tx.send(LogOp::Append {
-                project,
-                entry: Box::new(entry),
-                sure: false,
-                still_open,
-                done: None,
-            });
-        }
-    }
-
-    fn append_sure(
-        &self,
-        log: &CallLog,
-        project: String,
-        entry: Entry,
-        still_open: Vec<Entry>,
-    ) -> Result<(), String> {
-        let Some(tx) = &self.tx else {
-            return log.append(&project, &entry, true, || still_open);
-        };
-        let (done_tx, done_rx) = mpsc::sync_channel(1);
-        tx.send(LogOp::Append {
-            project,
-            entry: Box::new(entry),
-            sure: true,
-            still_open,
-            done: Some(done_tx),
-        })
-        .map_err(|_| "call log writer stopped".to_owned())?;
-        done_rx
-            .recv()
-            .map_err(|_| "call log writer stopped".to_owned())?
-    }
-
-    fn flush(&self) {
-        let Some(tx) = &self.tx else {
-            return;
-        };
-        let (done_tx, done_rx) = mpsc::sync_channel(1);
-        if tx.send(LogOp::Flush(done_tx)).is_ok() {
-            let _ = done_rx.recv();
-        }
-    }
-}
-
-impl Drop for LogWriter {
-    fn drop(&mut self) {
-        self.tx.take();
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-    }
-}
-
 pub struct PersonCalls {
-    book: Mutex<Book>,
+    pub(super) book: Mutex<Book>,
     /// What a restart left to do once the core runs, as `PersonCalls::new` found it.
     after_start: Mutex<AfterStart>,
     log: CallLog,
@@ -334,7 +220,7 @@ pub struct AgentCall {
     pub count: usize,
 }
 
-fn client_of(peer: &Peer) -> Option<CallClient> {
+pub(super) fn client_of(peer: &Peer) -> Option<CallClient> {
     match peer {
         Peer::App => Some(CallClient::App),
         Peer::Device { id } => Some(CallClient::Device { id: id.clone() }),
@@ -342,15 +228,15 @@ fn client_of(peer: &Peer) -> Option<CallClient> {
     }
 }
 
-const NOT_A_CLIENT: &str =
+pub(super) const NOT_A_CLIENT: &str =
     "only the person answers a call, from Sikemux, its notch or a paired phone";
-const GONE: &str = "that call no longer waits on you";
+pub(super) const GONE: &str = "that call no longer waits on you";
 
 fn waits_on(call: &PersonCall, agent_id: &str) -> bool {
     call.asker.agent_id == agent_id || call.joined.iter().any(|asker| asker.agent_id == agent_id)
 }
 
-fn outcome(result: CallResult) -> CallOutcome {
+pub(super) fn outcome(result: CallResult) -> CallOutcome {
     CallOutcome {
         result,
         healthy: None,
@@ -379,18 +265,18 @@ pub fn key_of(core: &Core, id: &str) -> Option<String> {
     kept(&core.person_calls().book.locked(), id).and_then(|kept| kept.key.clone())
 }
 
-fn kept<'a>(book: &'a Book, id: &str) -> Option<&'a Kept> {
+pub(super) fn kept<'a>(book: &'a Book, id: &str) -> Option<&'a Kept> {
     book.get(id)
 }
 
-fn open<'a>(book: &'a Book, id: &str) -> CoreResult<&'a Kept> {
+pub(super) fn open<'a>(book: &'a Book, id: &str) -> CoreResult<&'a Kept> {
     (kept(book, id))
         .filter(|kept| kept.call.state == CallState::Open)
         .ok_or_else(gone)
 }
 
 /// The call was answered or closed already, which a client tells apart from other refusals.
-fn gone() -> CoreError {
+pub(super) fn gone() -> CoreError {
     CoreError::of(ErrorKind::NotPending, GONE)
 }
 
@@ -699,7 +585,7 @@ impl PersonCalls {
 
     /// Writes `entry` down in its project's file via the serialized writer and applies it
     /// without doing disk I/O while holding `book`.
-    fn write(&self, book: &mut Book, entry: Entry) {
+    pub(super) fn write(&self, book: &mut Book, entry: Entry) {
         let Some(project) = Self::entry_project(book, &entry) else {
             return;
         };
@@ -730,7 +616,7 @@ impl PersonCalls {
         self.note_closed(closes);
     }
 
-    fn changed(&self, core: &Core) {
+    pub(super) fn changed(&self, core: &Core) {
         core.changed(What::View);
     }
 
@@ -903,14 +789,14 @@ impl PersonCalls {
             .is_some_and(|kept| kept.seen.iter().any(|(seer, _)| seer == client))
     }
 
-    fn id_of(&self, source: &Source) -> Option<String> {
+    pub(super) fn id_of(&self, source: &Source) -> Option<String> {
         (self.book.locked().iter())
             .find(|kept| raised_by(kept, source) && kept.call.state == CallState::Open)
             .map(|kept| kept.call.id.clone())
     }
 
     /// The questions waiting on the call `id`: the one that raised it, then those that joined.
-    fn questions_of(&self, id: &str) -> Vec<String> {
+    pub(super) fn questions_of(&self, id: &str) -> Vec<String> {
         let book = self.book.locked();
         let Some(kept) = kept(&book, id) else {
             return Vec::new();
@@ -924,7 +810,11 @@ impl PersonCalls {
     }
 
     /// Takes the person's answer to the open call `id`, which waits for what came of it.
-    fn take_answer(&self, id: &str, answer: CallAnswer) -> CoreResult<(PersonCall, Source)> {
+    pub(super) fn take_answer(
+        &self,
+        id: &str,
+        answer: CallAnswer,
+    ) -> CoreResult<(PersonCall, Source)> {
         let answered = Entry::Answered {
             id: id.to_owned(),
             answer,
@@ -951,7 +841,7 @@ impl PersonCalls {
     }
 
     /// The answer could not reach what raised the call, so it waits on the person again.
-    fn reopen(&self, id: &str) {
+    pub(super) fn reopen(&self, id: &str) {
         let mut book = self.book.locked();
         self.write(
             &mut book,
@@ -962,7 +852,7 @@ impl PersonCalls {
         );
     }
 
-    fn settle(&self, id: &str, result: CallResult) {
+    pub(super) fn settle(&self, id: &str, result: CallResult) {
         let mut book = self.book.locked();
         self.write(
             &mut book,
@@ -981,7 +871,7 @@ fn allows(kept: &Kept, option: &str) -> bool {
 }
 
 /// Whether `source` raised the call, first or since.
-fn raised_by(kept: &Kept, source: &Source) -> bool {
+pub(super) fn raised_by(kept: &Kept, source: &Source) -> bool {
     kept.sources().any(|raised| raised == source)
 }
 
@@ -1264,7 +1154,7 @@ pub fn started(core: &Core, id: &str) -> Result<(), String> {
 impl PersonCalls {
     /// Marks the call `id` started when its answer is the yes that runs what it holds now, as an
     /// approval's plugin call runs with the answer. A held action runs later, and says so itself.
-    fn starting_on_yes(&self, id: &str) -> Result<(), String> {
+    pub(super) fn starting_on_yes(&self, id: &str) -> Result<(), String> {
         let pending = {
             let book = self.book.locked();
             let Some(kept) = kept(&book, id) else {
@@ -1295,7 +1185,7 @@ impl PersonCalls {
     }
 
     /// Takes back an answer whose yes could not be recorded as starting, so nothing ran on it.
-    fn unanswer(&self, core: &Core, id: &str, error: String) -> CoreError {
+    pub(super) fn unanswer(&self, core: &Core, id: &str, error: String) -> CoreError {
         self.reopen(id);
         self.changed(core);
         CoreError::from(error)
@@ -1355,535 +1245,6 @@ pub fn seen(core: &Core, peer: &Peer, params: CallParams) -> CoreResult<()> {
     Ok(())
 }
 
-/// Whether a production place may open on this answer. The gates by place decide it.
-fn may_pass(core: &Core, call: &PersonCall, peer: &Peer, picked: bool) -> Result<(), String> {
-    super::places::may_pass(core, call, peer, picked)
-}
-
-/// A yes to a production call as the person reads it before it counts: who asks, for what,
-/// and what they picked. None for a no.
-fn yes_in_words(call: &PersonCall, answer: &CallAnswer) -> Option<String> {
-    let picked: Vec<&str> = (answer.option.iter().chain(&answer.options))
-        .filter(|id| *id != HOLD_REFUSE)
-        .filter_map(|id| call.options.iter().find(|option| option.id == *id))
-        .map(|option| option.label.as_str())
-        .collect();
-    if picked.is_empty() {
-        return None;
-    }
-    let mut words = format!("@{} asks: {}", call.asker.name, call.question);
-    if let Some(action) = &call.action {
-        words.push_str(&format!("\n\n{action}"));
-    }
-    words.push_str(&format!("\n\nYour answer: {}", picked.join(", ")));
-    Some(words)
-}
-
-/// What the person's answer is, as the call keeps it, and what they typed with it. A secret is
-/// never kept.
-fn answer_of(
-    call: &PersonCall,
-    client: CallClient,
-    params: &AnswerCallParams,
-) -> CoreResult<(CallAnswer, Option<String>)> {
-    let text = |text: &Option<String>| {
-        text.as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .map(str::to_owned)
-    };
-    let (note, words) = (text(&params.note), text(&params.words));
-    let known = |id: &String| call.options.iter().any(|option| option.id == *id);
-    if params.option.as_ref().is_some_and(|id| !known(id)) {
-        return Err("that is not one of the call's options".into());
-    }
-    let picked = params.option.is_some();
-    if picked && words.is_some() {
-        return Err("answer with an option and a note, or in your own words".into());
-    }
-    if !picked && words.is_none() {
-        return Err("pick an option or answer in your own words".into());
-    }
-    if params.option.as_deref() == Some(DO_NOT_DOING) && note.is_none() {
-        return Err("say why you're not doing it".into());
-    }
-    let typed = note.clone().or(words.clone());
-    let refused = call.kind == CallKind::Production
-        && !picked
-        && call.options.iter().any(|option| option.id == HOLD_REFUSE);
-    let (option, note, words) = match refused {
-        true => (Some(HOLD_REFUSE.to_owned()), words, None),
-        false => (params.option.clone(), note, words),
-    };
-    let answer = CallAnswer {
-        option,
-        options: Vec::new(),
-        note: note.filter(|_| !call.secret),
-        words: words.filter(|_| !call.secret),
-        none: false,
-        by: client,
-        at: epoch_ms(),
-        waited_ms: epoch_ms().saturating_sub(call.raised_at),
-    };
-    Ok((answer, typed))
-}
-
-fn call_of(core: &Core, id: &str) -> CoreResult<PersonCall> {
-    Ok(open(&core.person_calls().book.locked(), id)?.call.clone())
-}
-
-/// The person answers a call from the app, the notch or a phone. A production call is answered
-/// only on a client that drew it, and only an option picked there can pass its place: words say
-/// no, or what to do instead. The reply comes once the answer is on disk and has reached the
-/// asker, or has gone on trying for a while; the call opens again if it cannot reach it.
-pub async fn answer(core: &Arc<Core>, peer: &Peer, params: AnswerCallParams) -> CoreResult<()> {
-    let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
-    let call = call_of(core, &params.id)?;
-    let (answer, typed) = answer_of(&call, client.clone(), &params)?;
-    if call.secret && !params.paths.is_empty() {
-        return Err("a secret is typed into the call, never attached".into());
-    }
-    crate::server::chat::prompt::check_attachments(&params.paths)?;
-    if matches!(call.kind, CallKind::Production | CallKind::Money) {
-        core.remote().may_sign(peer)?;
-    }
-    if call.kind == CallKind::Production {
-        if !core.person_calls().seen_by(&call.id, &client) {
-            return Err(
-                "open the call to answer it: a production call is answered where it was seen"
-                    .into(),
-            );
-        }
-        may_pass(
-            core,
-            &call,
-            peer,
-            answer.option.is_some() || !answer.options.is_empty(),
-        )?;
-        if let Some(words) = yes_in_words(&call, &answer) {
-            core.remote().sign(peer, &words).await?;
-        }
-    }
-    let (call, source) = core.person_calls().take_answer(&call.id, answer)?;
-    if let Err(error) = core.person_calls().starting_on_yes(&call.id) {
-        return Err(core.person_calls().unanswer(core, &call.id, error));
-    }
-    core.person_calls().changed(core);
-    let core = core.clone();
-    let mut delivering = tokio::spawn(async move {
-        let reached = Box::pin(deliver(&core, &call, &source, typed, params.paths)).await;
-        if reached.is_err() {
-            core.person_calls().reopen(&call.id);
-            core.person_calls().changed(&core);
-        }
-        reached
-    });
-    match tokio::time::timeout(REPLY_WAITS_FOR_DELIVERY, &mut delivering).await {
-        Ok(reached) => reached.unwrap_or(Ok(())),
-        Err(_) => {
-            tokio::spawn(async move {
-                if let Ok(Err(error)) = delivering.await {
-                    eprintln!(
-                        "sikemux core: an answered call did not reach its asker, so it is open again: {error}"
-                    );
-                }
-            });
-            Ok(())
-        }
-    }
-}
-
-/// How long answering a call waits for the answer to reach the asker, so a quick failure still
-/// says why in the reply.
-const REPLY_WAITS_FOR_DELIVERY: Duration = Duration::from_secs(2);
-
-/// Takes the answer to whatever raised the call.
-async fn deliver(
-    core: &Arc<Core>,
-    call: &PersonCall,
-    source: &Source,
-    typed: Option<String>,
-    paths: Vec<String>,
-) -> CoreResult<()> {
-    let answer = call.answer.as_ref().ok_or(GONE)?;
-    let listed = || match (&typed, paths.is_empty()) {
-        (_, true) => typed.clone(),
-        (Some(typed), false) => Some(format!("{typed}\n\n{}", attached(&paths))),
-        (None, false) => Some(attached(&paths)),
-    };
-    match source {
-        Source::Question(_) => {
-            let index = |option: &String| call.options.iter().position(|known| known.id == *option);
-            let ids = core.person_calls().questions_of(&call.id);
-            if ids.is_empty() {
-                return Err(GONE.into());
-            }
-            let mut failed = None;
-            for id in ids {
-                let params = AnswerParams {
-                    id,
-                    answer: typed.clone(),
-                    paths: paths.clone(),
-                    choice: answer.option.as_ref().and_then(index),
-                    ..AnswerParams::default()
-                };
-                if let Err(error) = (core.repo_above().questions_answer)(core, params).await {
-                    failed = failed.or(Some(error));
-                }
-            }
-            if let Some(error) = failed {
-                return Err(error.into());
-            }
-            core.person_calls().settle(&call.id, CallResult::Heard);
-        }
-        Source::Hold(hold) => {
-            let params = ship::HoldParams { hold: hold.clone() };
-            match answer.option.as_deref() {
-                Some(HOLD_ALLOW) => ship::allow(core, params).await?,
-                _ => {
-                    ship::refuse(core, params).await?;
-                    core.person_calls().settle(&call.id, CallResult::NotShipped);
-                }
-            }
-            if let Some(typed) = listed() {
-                let text = format!("The person added: {typed}");
-                let _ = (core.repo_above().messages_for_person)(
-                    core,
-                    call.asker.agent_id.clone(),
-                    text,
-                )
-                .await;
-            }
-        }
-        Source::Raised if call.place.is_some() => call_answered(core, call, listed()).await,
-        Source::Raised
-            if key_of(core, &call.id).is_some_and(|key| key.starts_with(ACCOUNT_REFUSED)) =>
-        {
-            let key = key_of(core, &call.id).unwrap_or_default();
-            (core.repo_above().accounts_call_answered)(core, call, &key).await;
-        }
-        Source::Raised
-            if key_of(core, &call.id).is_some_and(|key| key.starts_with(ORG_WAITING)) =>
-        {
-            let key = key_of(core, &call.id).unwrap_or_default();
-            (core.repo_above().memory_call_answered)(core, call, &key);
-        }
-        Source::Raised if key_of(core, &call.id).is_some_and(|key| workflows::is_key(&key)) => {
-            let key = key_of(core, &call.id).unwrap_or_default();
-            Box::pin(workflows::answered(core, call, &key, listed())).await;
-        }
-        Source::Raised => {
-            tell_askers(core, call, listed()).await;
-            core.person_calls().settle(&call.id, CallResult::Heard);
-        }
-    }
-    Ok(())
-}
-
-/// A production call the gates by place raised was answered.
-async fn call_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<String>) {
-    super::places::call_answered(core, call);
-    ship::gate_answered(core, call, typed).await;
-}
-
-/// Tells every agent waiting on the call what the person answered.
-async fn tell_askers(core: &Arc<Core>, call: &PersonCall, typed: Option<String>) {
-    let Some(said) = said(call, typed) else {
-        return;
-    };
-    let text = format!("The person answered \"{}\":\n{said}", call.question);
-    tell(core, call, &text).await;
-}
-
-/// What the person answered, in words: the option they picked and what they typed with it.
-fn said(call: &PersonCall, typed: Option<String>) -> Option<String> {
-    let answer = call.answer.as_ref()?;
-    let picked = (answer.option.iter().chain(&answer.options))
-        .filter_map(|id| call.options.iter().find(|option| option.id == *id))
-        .map(|option| option.label.clone());
-    let said: Vec<String> = picked.chain(typed).collect();
-    (!said.is_empty()).then(|| said.join("\n\n"))
-}
-
-/// The option of a held action that lets it run once.
-pub const HOLD_ALLOW: &str = "allow";
-pub const HOLD_REFUSE: &str = "refuse";
-
-/// An answer from a released client that names the question, the hold or the action: it counts as
-/// the call's, and drawing the call is taken as given, since only a client that drew it has its id.
-fn answered_before(
-    core: &Core,
-    (peer, client): (&Peer, CallClient),
-    source: &Source,
-    answer: impl FnOnce(&PersonCall, CallClient) -> CallAnswer,
-) -> CoreResult<Option<String>> {
-    let Some(id) = core.person_calls().id_of(source) else {
-        let settled =
-            (core.person_calls().book.locked().iter()).any(|kept| raised_by(kept, source));
-        return match settled {
-            true => Err(gone()),
-            false => Ok(None),
-        };
-    };
-    let call = call_of(core, &id)?;
-    if call.kind == CallKind::Money {
-        core.remote().may_sign(peer)?;
-    }
-    let given = answer(&call, client);
-    if call.kind == CallKind::Production {
-        may_pass(
-            core,
-            &call,
-            peer,
-            given.option.is_some() || !given.options.is_empty(),
-        )?;
-    }
-    core.person_calls().take_answer(&id, given)?;
-    if let Err(error) = core.person_calls().starting_on_yes(&id) {
-        return Err(core.person_calls().unanswer(core, &id, error));
-    }
-    core.person_calls().changed(core);
-    Ok(Some(id))
-}
-
-const PRODUCTION_ONLY_ON_ITS_CALL: &str = "This asks for a change to production, which is answered only by a tap on its ask. Open the ask to answer it; on a phone that shows no asks, answer it on the Mac or update the app";
-
-/// `answerQuestion` and `answerQuestions`, from clients released before calls: each answer is its
-/// call's.
-pub async fn answer_questions(
-    core: &Arc<Core>,
-    peer: &Peer,
-    given: AnswersParams,
-) -> CoreResult<()> {
-    let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
-    answer_questions_by(core, (peer, client), given).await
-}
-
-async fn answer_questions_by(
-    core: &Arc<Core>,
-    by: (&Peer, CallClient),
-    given: AnswersParams,
-) -> CoreResult<()> {
-    if (given.answers.iter())
-        .any(|params| (core.repo_above().questions_asks_production)(core, &params.id))
-    {
-        return Err(PRODUCTION_ONLY_ON_ITS_CALL.into());
-    }
-    if !(given.answers.iter()).all(|params| (core.repo_above().questions_is_open)(core, &params.id))
-    {
-        return Err(gone());
-    }
-    let answered: Vec<&str> = given
-        .answers
-        .iter()
-        .map(|params| params.id.as_str())
-        .collect();
-    let mut joined = Vec::new();
-    for params in &given.answers {
-        let Some(call) = core
-            .person_calls()
-            .id_of(&Source::Question(params.id.clone()))
-        else {
-            continue;
-        };
-        let waiting = core.person_calls().questions_of(&call);
-        for id in waiting
-            .into_iter()
-            .filter(|id| !answered.contains(&id.as_str()))
-        {
-            joined.push(AnswerParams {
-                id,
-                answer: params.answer.clone(),
-                paths: params.paths.clone(),
-                choice: params.choice,
-                ..AnswerParams::default()
-            });
-        }
-    }
-    let mut taken = Vec::new();
-    for params in &given.answers {
-        let taken_now = answered_before(
-            core,
-            by.clone(),
-            &Source::Question(params.id.clone()),
-            |call, by| {
-                let option = |index: usize| call.options.get(index).map(|option| option.id.clone());
-                let typed =
-                    (params.answer.clone()).filter(|text| !text.trim().is_empty() && !call.secret);
-                let picked = params.choice.is_some();
-                CallAnswer {
-                    option: params.choice.and_then(option),
-                    options: Vec::new(),
-                    note: typed.clone().filter(|_| picked),
-                    words: typed.filter(|_| !picked),
-                    none: false,
-                    by,
-                    at: epoch_ms(),
-                    waited_ms: epoch_ms().saturating_sub(call.raised_at),
-                }
-            },
-        );
-        match taken_now {
-            Ok(id) => taken.extend(id),
-            Err(error) => {
-                taken
-                    .iter()
-                    .for_each(|id: &String| core.person_calls().reopen(id));
-                return Err(error);
-            }
-        }
-    }
-    match (core.repo_above().questions_answer_all)(core, given).await {
-        Ok(()) => {
-            for params in joined {
-                let _ = (core.repo_above().questions_answer)(core, params).await;
-            }
-            for id in &taken {
-                core.person_calls().settle(id, CallResult::Heard);
-            }
-            core.person_calls().changed(core);
-            Ok(())
-        }
-        Err(error) => {
-            taken.iter().for_each(|id| core.person_calls().reopen(id));
-            core.person_calls().changed(core);
-            Err(error.into())
-        }
-    }
-}
-
-fn raised_by_gate(core: &Core, id: &str) -> bool {
-    (kept(&core.person_calls().book.locked(), id))
-        .is_some_and(|kept| kept.source == Source::Raised && kept.call.place.is_some())
-}
-
-/// A released client answers a production call a gate raised by its hold's id.
-async fn answer_gate(core: &Arc<Core>, peer: &Peer, id: &str, option: &str) -> CoreResult<()> {
-    let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
-    let call = call_of(core, id)?;
-    if !call.options.iter().any(|known| known.id == option) {
-        return Err("that is not one of the call's options".into());
-    }
-    if matches!(call.kind, CallKind::Production | CallKind::Money) {
-        core.remote().may_sign(peer)?;
-    }
-    if call.kind == CallKind::Production {
-        if !core.person_calls().seen_by(&call.id, &client) {
-            return Err(
-                "open the call to answer it: a production call is answered where it was seen"
-                    .into(),
-            );
-        }
-        may_pass(core, &call, peer, true)?;
-    }
-    let given = CallAnswer {
-        option: Some(option.to_owned()),
-        options: Vec::new(),
-        note: None,
-        words: None,
-        none: false,
-        by: client,
-        at: epoch_ms(),
-        waited_ms: epoch_ms().saturating_sub(call.raised_at),
-    };
-    if call.kind == CallKind::Production {
-        if let Some(words) = yes_in_words(&call, &given) {
-            core.remote().sign(peer, &words).await?;
-        }
-    }
-    let (call, source) = core.person_calls().take_answer(id, given)?;
-    core.person_calls().changed(core);
-    deliver(core, &call, &source, None, Vec::new()).await
-}
-
-fn hold_signing_words(core: &Core, source: &Source, hold_id: &str) -> String {
-    let action_label = "Let this go out once";
-    if let Some(id) = core.person_calls().id_of(source) {
-        if let Ok(call) = call_of(core, &id) {
-            let mut words = format!("@{} asks: {}", call.asker.name, call.question);
-            if let Some(place) = &call.place {
-                words.push_str(&format!("\nPlace: {}", place.name));
-            }
-            if let Some(action) = &call.action {
-                words.push_str(&format!("\n\n{action}"));
-            }
-            words.push_str(&format!("\n\nYour answer: {action_label}"));
-            return words;
-        }
-    }
-    if let Some(waiting) = core
-        .ship()
-        .waiting()
-        .into_iter()
-        .find(|waiting| waiting.hold.id == hold_id)
-    {
-        let mut words = format!("{action_label}:\n\n{}", waiting.hold.what);
-        if let Some(target) = waiting.writes_to {
-            words.push_str(&format!("\nPlace: {target}"));
-        }
-        return words;
-    }
-    "Let an agent's held work go out once.".into()
-}
-
-/// `allowShip` and `refuseShip`, from clients released before calls.
-pub async fn answer_hold(
-    core: &Arc<Core>,
-    peer: &Peer,
-    params: ship::HoldParams,
-    option: &str,
-) -> CoreResult<()> {
-    if raised_by_gate(core, &params.hold) {
-        return answer_gate(core, peer, &params.hold, option).await;
-    }
-    let source = Source::Hold(params.hold.clone());
-    let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
-    if let Some(id) = core.person_calls().id_of(&source) {
-        let call = call_of(core, &id)?;
-        if call.kind == CallKind::Production && !core.person_calls().seen_by(&call.id, &client) {
-            return Err(
-                "open the call to answer it: a production call is answered where it was seen"
-                    .into(),
-            );
-        }
-    }
-    if option != HOLD_REFUSE {
-        core.remote().may_sign(peer)?;
-        let words = hold_signing_words(core, &source, &params.hold);
-        core.remote().sign(peer, &words).await?;
-    }
-    let taken = answered_before(core, (peer, client), &source, |call, by| CallAnswer {
-        option: Some(option.to_owned()),
-        options: Vec::new(),
-        note: None,
-        words: None,
-        none: false,
-        by,
-        at: epoch_ms(),
-        waited_ms: epoch_ms().saturating_sub(call.raised_at),
-    })?;
-    let ran = match option {
-        HOLD_ALLOW => ship::allow(core, params).await,
-        _ => ship::refuse(core, params).await,
-    };
-    if let Some(id) = &taken {
-        match &ran {
-            Ok(()) if option == HOLD_REFUSE => {
-                core.person_calls().settle(id, CallResult::NotShipped)
-            }
-            Ok(()) => {}
-            Err(_) => core.person_calls().reopen(id),
-        }
-        core.person_calls().changed(core);
-    }
-    ran
-}
-
-/// What an earlier release's Not mine sends. Nothing is handed back now: the person answers.
-pub async fn not_mine(_core: &Arc<Core>, _peer: &Peer, _params: CallParams) -> CoreResult<()> {
-    Err("Nothing is handed back: answer it, or tell the agent in its chat".into())
-}
-
 /// The call `id` while it waits on the person.
 pub fn open_call(core: &Core, id: &str) -> Option<PersonCall> {
     call_of(core, id).ok()
@@ -1923,141 +1284,10 @@ impl super::part::Part for PersonCalls {
     }
 }
 
-/// Finishes what a restart cut short. The agents waiting on a yes hear whether what it let run
-/// never started, or started and may have run; an agent whose action was held hears to run it
-/// again; a gate's call whose yes would no longer count is taken back; and each other answer
-/// reaches its askers if it had not. A stopped agent hears when it starts again.
-async fn after_restart(core: &Arc<Core>, left: AfterStart) {
-    let lost = {
-        let core = core.clone();
-        let taken_back = move || {
-            (left.gated.into_iter())
-                .filter(|id| !super::ship::yes_counts(&core, id) && take_back_lost(&core, id))
-                .collect::<Vec<String>>()
-        };
-        tokio::task::spawn_blocking(taken_back)
-            .await
-            .unwrap_or_default()
-    };
-    let said = [
-        (
-            left.lapsed,
-            "Sikemux restarted before your action ran, so the person's yes to \"{}\" lapsed. Nothing ran. Try it again when you need it; that asks them again.",
-        ),
-        (
-            left.interrupted,
-            "Sikemux restarted while your action ran after the person's yes to \"{}\", so it may have run. Check what happened before you try it again.",
-        ),
-        (
-            left.dropped,
-            "Sikemux restarted, so your action held for the person's answer to \"{}\" no longer waits. Run it again when you need it; that asks them again.",
-        ),
-        (
-            lost,
-            "Sikemux restarted, and a yes to \"{}\" would no longer count, so it took that call back. Run it again when you need it; that asks them again.",
-        ),
-    ];
-    for (ids, words) in said {
-        for id in ids {
-            if let Some(call) = call_any(core, &id) {
-                let text = words.replace("{}", &call.question);
-                tell(core, &call, &text).await;
-            }
-        }
-    }
-    for id in left.undelivered {
-        redeliver(core, &id).await;
-    }
-    core.person_calls().changed(core);
-}
-
-/// Closes the gate's call `id`, unless the person answered it meanwhile.
-fn take_back_lost(core: &Core, id: &str) -> bool {
-    let mut book = core.person_calls().book.locked();
-    let waits = open(&book, id).is_ok();
-    if waits {
-        let came = Entry::Came {
-            id: id.to_owned(),
-            outcome: outcome(CallResult::Withdrawn),
-        };
-        core.person_calls().write(&mut book, came);
-    }
-    waits
-}
-
 /// What the agent of the gate's call `id` tried to run.
 pub fn attempt_of(core: &Core, id: &str) -> Option<Attempt> {
     let book = core.person_calls().book.locked();
     kept(&book, id)?.attempt.as_deref().cloned()
-}
-
-fn call_any(core: &Core, id: &str) -> Option<PersonCall> {
-    kept(&core.person_calls().book.locked(), id).map(|kept| kept.call.clone())
-}
-
-/// Tells every agent waiting on the call, waiting for any that has stopped.
-async fn tell(core: &Arc<Core>, call: &PersonCall, text: &str) {
-    for asker in std::iter::once(&call.asker).chain(&call.joined) {
-        let to = asker.agent_id.clone();
-        let _ = (core.repo_above().messages_for_person_waiting)(core, to, text.to_owned()).await;
-    }
-}
-
-/// Gives an answer a restart may have kept from its askers. An answer whose question is no longer
-/// open may have been lost between being taken and being sent, so it is sent as a plain message;
-/// one whose words were never kept, as an access call's, waits on the person again.
-async fn redeliver(core: &Arc<Core>, id: &str) {
-    let Some((call, source)) = kept(&core.person_calls().book.locked(), id)
-        .map(|kept| (kept.call.clone(), kept.source.clone()))
-    else {
-        return;
-    };
-    let Some(answer) = &call.answer else {
-        return;
-    };
-    let typed = answer.note.clone().or(answer.words.clone());
-    let picked = answer.option.is_some() || !answer.options.is_empty();
-    if let Source::Hold(_) = source {
-        if let Some(said) = said(&call, typed) {
-            let text = format!(
-                "Sikemux restarted as the person answered \"{}\", so the action it held no longer waits. They said:\n{said}",
-                call.question
-            );
-            tell(core, &call, &text).await;
-        }
-        core.person_calls().settle(id, CallResult::NotShipped);
-        return;
-    }
-    if let Source::Question(_) = source {
-        let questions = core.person_calls().questions_of(id);
-        let open = (questions.iter())
-            .any(|question| (core.repo_above().questions_is_open)(core, question));
-        if !open {
-            let text = match said(&call, typed.clone()) {
-                Some(said) => format!(
-                    "The person answered \"{}\" as Sikemux restarted, and the answer may not have reached you:\n{said}",
-                    call.question
-                ),
-                None => format!(
-                    "The person answered \"{}\" as Sikemux restarted, and the answer was not kept. Ask them again if you still need it.",
-                    call.question
-                ),
-            };
-            tell(core, &call, &text).await;
-            core.person_calls().settle(id, CallResult::Heard);
-            return;
-        }
-        if !picked && typed.is_none() {
-            core.person_calls().reopen(id);
-            return;
-        }
-    }
-    if deliver(core, &call, &source, typed, Vec::new())
-        .await
-        .is_err()
-    {
-        core.person_calls().reopen(id);
-    }
 }
 
 /// Every call `project` has had, as its file keeps them, newest first, or `None` when its file
