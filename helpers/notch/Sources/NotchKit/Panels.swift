@@ -35,6 +35,9 @@ final class Panels {
     private let store: NotchStore
     private var panels: [CGDirectDisplayID: (panel: NotchPanel, island: IslandModel)] = [:]
     private var swipes: [CGDirectDisplayID: SwipeTracker] = [:]
+    /// Islands whose screen went, out of sight until a screen needs one. An external screen goes and
+    /// comes back as the Mac wakes, when building a new island can stall for seconds.
+    private var parked: [(id: CGDirectDisplayID, panel: NotchPanel, island: IslandModel, swipe: SwipeTracker?)] = []
     private var monitors: [Any] = []
     private var dragCount = 0
     private var pointerScreen: CGDirectDisplayID?
@@ -97,20 +100,23 @@ final class Panels {
     func rebuild() {
         let wanted = Dictionary(wantedScreens().compactMap { screen in Self.displayId(screen).map { ($0, screen) } },
                                 uniquingKeysWith: { first, _ in first })
-        // An island whose screen went is moved to a screen that has none, so the draft in it is kept.
-        var spare: [(panel: NotchPanel, island: IslandModel, swipe: SwipeTracker?)] = []
+        let before = parked.count
         for (id, entry) in panels where wanted[id] == nil {
-            spare.append((entry.panel, entry.island, swipes[id]))
+            entry.island.set(.closed)
+            parked.append((id, entry.panel, entry.island, swipes[id]))
             panels[id] = nil
             swipes[id] = nil
         }
-        for id in wanted.keys where panels[id] == nil && !spare.isEmpty {
-            let moved = spare.removeLast()
-            moved.island.set(.closed)
-            panels[id] = (moved.panel, moved.island)
-            swipes[id] = moved.swipe
+        var unparked: [NotchPanel] = []
+        for id in wanted.keys where panels[id] == nil && !parked.isEmpty {
+            // An island whose screen has just gone moves first, so a draft follows the screen that shows it.
+            let own = parked.count > before ? nil : parked.firstIndex { $0.id == id }
+            let entry = parked.remove(at: own ?? parked.count - 1)
+            panels[id] = (entry.panel, entry.island)
+            swipes[id] = entry.swipe
+            unparked.append(entry.panel)
         }
-        spare.forEach { $0.panel.orderOut(nil) }
+        parked.forEach { $0.panel.orderOut(nil) }
         for (id, screen) in wanted {
             let geometry = NotchGeometry.of(screen)
             let frame = CGRect(
@@ -157,6 +163,7 @@ final class Panels {
             swipe.onEnd = { [weak island] in island?.swipeEnded() }
             swipes[id] = swipe
         }
+        unparked.filter { !$0.isVisible }.forEach { $0.orderFrontRegardless() }
         pointerScreen = wantedScreens().first.flatMap(Self.displayId)
         tick()
     }
