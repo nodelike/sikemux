@@ -103,13 +103,13 @@ pub fn is_tool_offered(
     offered: Option<&str>,
     simulator: bool,
     resources: bool,
-    setup: bool,
+    _setup: bool,
 ) -> bool {
     match offered {
         None => true,
         Some("simulator") => simulator,
         Some(flag) if flag == RESOURCES_OFFER => resources,
-        Some(flag) if flag == SETUP_OFFER => setup,
+        Some(flag) if flag == SETUP_OFFER => true,
         Some(_) => false,
     }
 }

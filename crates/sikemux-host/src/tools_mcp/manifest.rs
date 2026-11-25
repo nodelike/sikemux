@@ -9,7 +9,7 @@ use serde_json::{json, Map, Value};
 use sikemux_core::cli::manifest::{
     format_tool_line, gateway_instructions_with_list, is_tool_offered, GATEWAY_CALL, GUIDE, TOOLS,
 };
-use sikemux_core::cli::protocol::{RESOURCES_OFFER, SETUP_OFFER};
+use sikemux_core::cli::protocol::RESOURCES_OFFER;
 
 use super::family::{self, Chosen, Family};
 
@@ -400,14 +400,9 @@ impl Manifest {
 
     /// What `tools/list` gives: each family as one tool and the rest as they are, the
     /// built-in ones and the guide before the plugins'.
-    /// The setup tools are listed only once `setup`, after the agent read the guide's setup topic.
-    pub fn declarations(&self, plugins: &[Tool], setup: bool) -> Vec<Value> {
+    pub fn declarations(&self, plugins: &[Tool], _setup: bool) -> Vec<Value> {
         let tools = self.with(plugins);
         let (built_in, theirs) = tools.split_at(self.tools.len());
-        let built_in: Vec<&Tool> = (built_in.iter().copied())
-            .filter(|tool| setup || tool.offered.as_deref() != Some(SETUP_OFFER))
-            .collect();
-        let built_in = built_in.as_slice();
         let families = self.families_with(plugins);
         let mut declared = family::declarations(&families, built_in);
         declared.push(declaration(

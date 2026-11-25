@@ -37,9 +37,7 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
     "2025-06-18",
     LATEST_PROTOCOL_VERSION,
 ];
-/// Told with the guide's setup topic, which lists setup_check for the agent that read it.
-const SETUP_LISTED: &str = "setup_check is now in your tools. If your list does not show it, your tools were not read again: ask the person to press Check again on the Playbook's Setup page, which runs the same check, and read its result there.";
-const SETUP_GATEWAY_LISTED: &str = "setup_check is now available through call. Inspect its parameters with guide tool: \"setup_check\" if needed.";
+const SETUP_GATEWAY_LISTED: &str = "setup_check is available through call. Inspect its parameters with guide tool: \"setup_check\" if needed.";
 #[cfg(unix)]
 const PARENT_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// Asking whether to list the simulator tools must not hold up the host's handshake for long.
@@ -443,10 +441,9 @@ fn serve(offer: Arc<Offer>, agent_id: String) {
     }
 }
 
-/// Tells the agent its tools changed when the person signs in to a plugin, or
-/// switches one on or off, while it runs, and when a different Sikemux, such
-/// as an updated one, takes over the endpoint. It first asks as this server
-/// starts, waiting out a Sikemux that is restarting.
+/// Watches for Sikemux restarts and plugin updates so the guide and gateway tools stay fresh.
+/// Tool list changes for non-gateway chats are never pushed mid-session, since emitting
+/// `notifications/tools/list_changed` invalidates the prompt cache at byte 0.
 fn watch(offer: &Offer, patient: &Relay<'_>, quick: &Relay<'_>) {
     let mut seen: Option<u64> = None;
     let mut instance = None;
@@ -454,28 +451,18 @@ fn watch(offer: &Offer, patient: &Relay<'_>, quick: &Relay<'_>) {
         let now = harness::instance();
         if now != instance {
             seen = None;
-            let (changed, served) = offer.refresh(patient);
-            if changed {
-                tell_tools_changed();
-            }
+            let (_, served) = offer.refresh(patient);
             if served {
                 instance = now;
             }
         }
         match next_plugin_change(offer, quick, seen) {
-            Ok((version, changed)) => {
-                if changed {
-                    tell_tools_changed();
-                }
+            Ok((version, _)) => {
                 seen = Some(version);
             }
             Err(_) => std::thread::sleep(WATCH_RETRY),
         }
     }
-}
-
-fn tell_tools_changed() {
-    emit(&json!({ "jsonrpc": "2.0", "method": "notifications/tools/list_changed" }));
 }
 
 /// Waits for plugins to change after the `seen`th change, then asks for the
@@ -731,12 +718,6 @@ fn call(
     if name == offer.manifest().guide_name() {
         let topic = arguments.get("topic").and_then(Value::as_str);
         return match offer.manifest().guide_text(topic) {
-            Ok(guide) if topic == Some(SETUP_OFFER) => {
-                if !offer.setup.swap(true, Ordering::Relaxed) {
-                    tell_tools_changed();
-                }
-                content(vec![text(guide), text(SETUP_LISTED)], false)
-            }
             Ok(guide) => content(vec![text(guide)], false),
             Err(message) => invalid(&message),
         };
