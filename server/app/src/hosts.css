@@ -1,0 +1,147 @@
+.con-list > div {
+  border-bottom: 1px solid var(--line);
+}
+
+.con-list > div > button {
+  display: grid;
+  grid-template-columns: 30px minmax(180px, 260px) 1fr 84px 120px 16px;
+  gap: 22px;
+  align-items: center;
+  width: 100%;
+  min-height: 76px;
+  text-align: left;
+}
+
+.con-list > div > button:hover {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--hover) 24px,
+    var(--hover) calc(100% - 24px),
+    transparent
+  );
+}
+
+.con-list > div > button:hover .con-name b {
+  color: var(--lit);
+}
+
+.con-list .con-chev {
+  color: var(--meta);
+  transform: rotate(90deg);
+  transition: transform 0.14s var(--ease);
+}
+
+.con-list .open .con-chev {
+  transform: rotate(-90deg);
+}
+
+.con-name {
+  min-width: 0;
+}
+
+.con-name b {
+  display: block;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.con-name small {
+  display: block;
+  font-size: 12.5px;
+  color: var(--two);
+}
+
+.con-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--shine);
+  overflow: hidden;
+}
+
+.con-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--acc);
+}
+
+.con-uses {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.con-uses small {
+  font-size: var(--t2);
+  font-weight: 400;
+  color: var(--two);
+  margin-left: 5px;
+}
+
+.con-when {
+  font-size: 12.5px;
+  color: var(--two);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.con-list ul {
+  padding: 0 38px 16px 52px;
+}
+
+.con-list li {
+  display: grid;
+  grid-template-columns: minmax(80px, 120px) minmax(90px, 118px) 1fr 84px 136px;
+  gap: 22px;
+  align-items: center;
+  min-height: 34px;
+  font-size: var(--t);
+}
+
+.con-list li small {
+  color: var(--two);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.con-list li .con-bar {
+  height: 4px;
+}
+
+.con-list li em {
+  font-style: normal;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--two);
+}
+
+@media (max-width: 860px) {
+  .con-list > div > button {
+    grid-template-columns: 28px 1fr auto 14px;
+    gap: 14px;
+    min-height: 72px;
+  }
+
+  .con-list > div > button > .con-bar,
+  .con-when {
+    display: none;
+  }
+
+  .con-list ul {
+    padding: 0 0 14px 42px;
+  }
+
+  .con-list li {
+    grid-template-columns: minmax(70px, auto) 1fr auto;
+    gap: 10px;
+  }
+
+  .con-list li .con-bar {
+    display: none;
+  }
+}

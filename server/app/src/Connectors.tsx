@@ -1,20 +1,23 @@
 import { formatAgo } from "@shared/lib/format";
-import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
+import {
+  IconChevron,
+  IconExternal,
+  IconKey,
+  IconRefresh,
+} from "@shared/ui/Icons";
+import { useId, useState } from "react";
 
-import { drawTile, type Picture } from "./dots.ts";
 import { iconMark } from "./marks.ts";
-import { pluginSvg } from "./PluginMark.tsx";
-import { sceneOf, type SceneName } from "./scenes.ts";
+import { PluginMark } from "./PluginMark.tsx";
 import {
   bySignIn,
   hostOf,
-  listed,
   serviceName,
-  times,
   type Load,
   type SignIn,
 } from "./SignIns.tsx";
-import { Btn, btnClass, Section, Empty, Page, Problem, Txt } from "./ui.tsx";
+import { Btn, btnClass, Nothing, Page, Problem, Section } from "./ui.tsx";
+import "./hosts.css";
 
 const COUNTED = [
   "",
@@ -29,171 +32,177 @@ const COUNTED = [
   "nine sign-ins",
 ];
 
-const sceneFor = (plugin: string): SceneName =>
-  `brand-${plugin.replace(/^sikemux\./, "")}`;
-
-function pictureOf(plugin: string): Picture {
-  const svg = pluginSvg(plugin);
-  return svg
-    ? { svg, color: sceneOf(sceneFor(plugin)).tint }
-    : { ...iconMark("key"), color: sceneOf(sceneFor(plugin)).tint };
+function formatActor(actor: string): string {
+  if (actor === "Sikemux" || actor.startsWith("@")) return actor;
+  return `@${actor}`;
 }
 
 export function ConnectorsPage({ signIns: load }: { signIns: Load }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+
   if (load.state === "failed")
     return (
       <Page
-        title="Connectors didn't load"
-        lede="Your agents can still use them."
+        title="Connectors"
+        lede="The sign-ins your agents used in the last 30 days."
         mark={iconMark("plug")}
         scene="you"
         tone="failed"
-        actions={<Btn onClick={() => location.reload()}>Try again</Btn>}
       >
-        <div className="full-err">
-          <Problem>{load.message}</Problem>
-        </div>
+        <Nothing
+          title="Connectors didn't load"
+          actions={
+            <Btn quiet onClick={() => location.reload()}>
+              <IconRefresh size={14} />
+              Try again
+            </Btn>
+          }
+        >
+          Your agents can still use them.
+        </Nothing>
+        <Problem>{load.message}</Problem>
       </Page>
     );
+
   if (load.state === "loading")
     return (
-      <Page title="Connectors" mark={iconMark("plug")} scene="you">
+      <Page
+        title="Connectors"
+        lede="The sign-ins your agents used in the last 30 days."
+        mark={iconMark("plug")}
+        scene="you"
+      >
         <Section label="Last 30 days" busy />
       </Page>
     );
 
   const signIns = bySignIn(load.uses);
-  const first = signIns[0];
-  if (!first)
+  if (signIns.length === 0)
     return (
       <Page
-        title="Nothing used yet"
-        lede="When an agent uses a sign-in from your vault, it shows here."
+        title="Connectors"
+        lede="The sign-ins your agents used in the last 30 days."
         mark={iconMark("plug")}
         scene="you"
-        tone="waiting"
-        actions={
-          <a className={btnClass({})} href="sikemux://">
-            Open Sikemux
-          </a>
-        }
       >
-        <Section label="Last 30 days">
-          <Empty>
-            No sign-in from your account's vault has been used in the last 30
-            days.
-          </Empty>
-        </Section>
+        <Nothing
+          title="Nothing used yet"
+          actions={
+            <a className={btnClass({})} href="sikemux://">
+              <IconExternal size={14} />
+              Open Sikemux
+            </a>
+          }
+        >
+          When an agent uses a sign-in from your vault, it shows here.
+        </Nothing>
       </Page>
     );
+
+  const maxCount = Math.max(...signIns.map((signIn) => signIn.count), 1);
 
   return (
     <Page
       title="Connectors"
       lede={`The ${COUNTED[signIns.length] ?? `${signIns.length} sign-ins`} your agents used in the last 30 days.`}
-      mark={pictureOf(first.plugin)}
-      scene={sceneFor(first.plugin)}
+      mark={iconMark("plug")}
+      scene="you"
     >
-      <div className="tiles">
+      <div className="con-list">
         {signIns.map((signIn) => (
-          <ConnectorTile key={signIn.entryId} signIn={signIn} />
+          <ConnectorRow
+            key={signIn.entryId}
+            signIn={signIn}
+            maxCount={maxCount}
+            open={openId === signIn.entryId}
+            onToggle={() =>
+              setOpenId(openId === signIn.entryId ? null : signIn.entryId)
+            }
+          />
         ))}
       </div>
     </Page>
   );
 }
 
-const TILE_SIZE = 120;
-
-function ConnectorTile({ signIn }: { signIn: SignIn }) {
-  const [open, setOpen] = useState(false);
+function ConnectorRow({
+  signIn,
+  maxCount,
+  open,
+  onToggle,
+}: {
+  signIn: SignIn;
+  maxCount: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const breakdownId = useId();
-  const picture = pictureOf(signIn.plugin);
-  const scene = sceneFor(signIn.plugin);
-  const card = useRef<HTMLElement>(null);
-  const agents = new Set(
-    signIn.uses.map((use) => use.actor).filter((actor) => actor !== "Sikemux"),
-  );
-  const [only] = agents;
+  const agents = [
+    ...new Set(
+      signIn.uses
+        .map((use) => use.actor)
+        .filter((actor) => actor !== "Sikemux")
+        .map(formatActor),
+    ),
+  ];
   const by = [
-    ...(agents.size === 1 && only ? [only] : []),
-    ...(agents.size > 1 ? [`${agents.size} agents`] : []),
+    ...(agents.length > 2 ? [`${agents.length} agents`] : agents),
     ...(signIn.uses.some((use) => use.actor === "Sikemux") ? ["Sikemux"] : []),
   ];
   const hosts = [...new Set(signIn.uses.map(hostOf))];
 
   return (
-    <article
-      ref={card}
-      className="ct"
-      style={{ "--bt": sceneOf(scene).tint } as CSSProperties}
-    >
-      <TileMark picture={picture} card={card} />
-      <b>{serviceName(signIn.plugin)}</b>
-      <span className="dt">
-        {listed(by)} on{" "}
-        {hosts.length > 2 ? `${hosts.length} hosts` : listed(hosts)}
-      </span>
-      <span className="u">
-        <span>
-          {signIn.count === 1
-            ? "1 use"
-            : `${signIn.count.toLocaleString()} uses`}
-        </span>
-        <span>{formatAgo(signIn.lastAt)}</span>
-      </span>
-      <Txt
-        aria-label={`Details of ${serviceName(signIn.plugin)}`}
+    <div className={open ? "open" : undefined}>
+      <button
+        type="button"
         aria-expanded={open}
         aria-controls={open ? breakdownId : undefined}
-        onClick={() => setOpen(!open)}
+        onClick={onToggle}
       >
-        {open ? "Less" : "Details"}
-      </Txt>
+        <PluginMark
+          plugin={signIn.plugin}
+          size={30}
+          fallback={<IconKey size={20} />}
+        />
+        <span className="con-name">
+          <b>{serviceName(signIn.plugin)}</b>
+          <small>
+            {by.join(", ")} on{" "}
+            {hosts.length > 1 ? `${hosts.length} hosts` : hosts[0]}
+          </small>
+        </span>
+        <span className="con-bar" aria-hidden="true">
+          <i
+            style={{
+              width: `${Math.max(1.5, (signIn.count / maxCount) * 100)}%`,
+            }}
+          />
+        </span>
+        <span className="con-uses">
+          {signIn.count.toLocaleString()}
+          <small>{signIn.count === 1 ? "use" : "uses"}</small>
+        </span>
+        <span className="con-when">{formatAgo(signIn.lastAt)}</span>
+        <IconChevron size={14} className="con-chev" />
+      </button>
       {open ? (
-        <ul id={breakdownId} className="box">
+        <ul id={breakdownId}>
           {signIn.uses.map((use) => (
             <li key={`${use.hostKey}-${use.actor}`}>
-              {use.actor} on {hostOf(use)}
-              <br />
-              {times(use.count)} · {formatAgo(use.lastAt)}
+              <span>{formatActor(use.actor)}</span>
+              <small>{hostOf(use)}</small>
+              <span className="con-bar" aria-hidden="true">
+                <i
+                  style={{
+                    width: `${Math.max(1.5, (use.count / maxCount) * 100)}%`,
+                  }}
+                />
+              </span>
+              <em>{use.count.toLocaleString()}</em>
             </li>
           ))}
         </ul>
       ) : null}
-    </article>
-  );
-}
-
-/** The brand in dots, or its plain picture where dots can't be drawn. */
-function TileMark({
-  picture,
-  card,
-}: {
-  picture: Picture;
-  card: { readonly current: HTMLElement | null };
-}) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const [plain, setPlain] = useState(false);
-  const key = JSON.stringify(picture);
-  useEffect(() => {
-    if (!canvas.current || !card.current) return;
-    const stop = drawTile(canvas.current, JSON.parse(key) as Picture, {
-      size: TILE_SIZE,
-      hot: card.current,
-    });
-    setPlain(!stop);
-    return stop ?? undefined;
-  }, [key, card]);
-  return (
-    <span className="ct-mark" aria-hidden="true">
-      <canvas ref={canvas} hidden={plain} />
-      {plain && "svg" in picture ? (
-        <span
-          className="ct-plain"
-          dangerouslySetInnerHTML={{ __html: picture.svg }}
-        />
-      ) : null}
-    </span>
+    </div>
   );
 }

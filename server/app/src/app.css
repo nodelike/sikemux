@@ -607,47 +607,6 @@ canvas.dots {
 .strip b {
   background: var(--acc);
 }
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: var(--gap);
-  grid-column: 1/-1;
-}
-.ct {
-  background: linear-gradient(180deg, var(--sheet-hi), var(--sheet) 96px);
-  border-radius: var(--r-card);
-  padding: 10px 14px 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  box-shadow:
-    inset 0 0 0 1px var(--line),
-    inset 0 1px 0 var(--shine);
-  transition: box-shadow 0.16s;
-}
-.ct:hover {
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--bt) 50%, var(--line2));
-}
-.ct canvas {
-  align-self: center;
-  margin: 2px 0 4px;
-}
-.ct b {
-  font-weight: 600;
-}
-.ct .dt {
-  color: var(--two);
-  font-size: var(--t2);
-}
-.ct .u {
-  margin-top: auto;
-  padding-top: 8px;
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
-  color: var(--meta);
-  font-size: var(--t3);
-}
 .full-err {
   grid-column: 1/-1;
 }
@@ -824,9 +783,6 @@ canvas.dots {
     --gutter: 14px;
     --mark: 84px;
     --h1: 22px;
-  }
-  .tiles {
-    grid-template-columns: 1fr 1fr;
   }
   .field {
     font-size: 16px;
@@ -2289,25 +2245,6 @@ dialog.dlg::backdrop {
 }
 .form.below .field {
   flex: 1 1 200px;
-}
-.ct-mark {
-  align-self: center;
-  width: 120px;
-  height: 120px;
-  display: grid;
-  place-items: center;
-}
-.ct-plain {
-  width: 56px;
-  height: 56px;
-  color: var(--bt);
-}
-.ct-plain svg {
-  width: 100%;
-  height: 100%;
-}
-.ct .box {
-  width: 100%;
 }
 .soft {
   color: var(--two);

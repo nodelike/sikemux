@@ -94,11 +94,3 @@ export function bySignIn(uses: VaultUseRow[]): SignIn[] {
 }
 
 export const hostOf = (use: VaultUseRow) => use.hostName ?? "a host that left";
-
-export const times = (count: number) =>
-  count === 1 ? "once" : `${count.toLocaleString()} times`;
-
-export function listed(names: string[]): string {
-  if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
