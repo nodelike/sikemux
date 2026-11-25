@@ -10300,6 +10300,7 @@ dependencies = [
  "log",
  "minidump-common",
  "object",
+ "regex",
  "reqwest",
  "rustls",
  "scroll",

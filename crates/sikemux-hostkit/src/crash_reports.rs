@@ -11,15 +11,18 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use regex::Regex;
 use sentry::integrations::contexts::ContextIntegration;
 use sentry::integrations::minidump::MinidumpIntegration;
 use sentry::protocol::{
     Breadcrumb, DebugImage, DebugMeta, EnvelopeItem, Event, Exception, Frame, IpAddress, Mechanism,
-    SessionAttributes, SessionStatus, SessionUpdate, SpanId, Stacktrace,
+    SessionAttributes, SessionStatus, SessionUpdate, SpanId, Stacktrace, Transaction,
 };
 use sentry::transports::ReqwestHttpTransportOptions;
 use sentry::types::Uuid;
 use sentry::{Client, ClientOptions, Hub, Level, TransactionContext, Transport};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sikemux_corekit::usage::{self, Install, Sharing};
@@ -218,7 +221,7 @@ fn new_session() -> SessionUpdate<'static> {
         attributes: SessionAttributes {
             release: release(env!("CARGO_PKG_VERSION")).into(),
             environment: Some(environment().into()),
-            ip_address: None,
+            ip_address: Some(Ipv4Addr::UNSPECIFIED.into()),
             user_agent: None,
         },
     }
@@ -407,43 +410,74 @@ fn options(dsn: &str, process: Process, minidumps: MinidumpIntegration) -> Clien
     options.default_integrations = false;
     options.integrations = vec![Arc::new(ContextIntegration::new()), Arc::new(minidumps)];
     options.before_send = Some(Arc::new(move |event| before_send(event, process)));
-    options.transport = Some(Arc::new(|options: &ClientOptions| -> Arc<dyn Transport> {
-        let Some(transport) = sentry::TransportOptions::try_from_client_options(options)
-            .map(ReqwestHttpTransportOptions::from)
-        else {
-            return Arc::new(Discard);
-        };
-        let transport = match sikemux_base::http::builder().build() {
-            Ok(client) => transport.with_client(client),
-            Err(_) => transport,
-        };
-        Arc::new(WhileAllowed(transport.build()))
-    }));
+    options.transport = Some(Arc::new(
+        move |options: &ClientOptions| -> Arc<dyn Transport> {
+            let Some(transport) = sentry::TransportOptions::try_from_client_options(options)
+                .map(ReqwestHttpTransportOptions::from)
+            else {
+                return Arc::new(Discard);
+            };
+            let transport = match sikemux_base::http::builder().build() {
+                Ok(client) => transport.with_client(client),
+                Err(_) => transport,
+            };
+            Arc::new(WhileAllowed {
+                inner: transport.build(),
+                process,
+            })
+        },
+    ));
     options
 }
 
 /// Drops whatever is ready to leave once the person stops sharing, wherever it came from, and
 /// any attachment, which is where a crash's memory would be.
-struct WhileAllowed<T>(T);
+struct WhileAllowed<T> {
+    inner: T,
+    process: Process,
+}
 
 impl<T: Transport> Transport for WhileAllowed<T> {
     fn send_envelope(&self, envelope: sentry::Envelope) {
         if !allowed() {
             return;
         }
-        let envelope =
-            envelope.filter(|item: &EnvelopeItem| !matches!(item, EnvelopeItem::Attachment(_)));
-        if let Some(envelope) = envelope {
-            self.0.send_envelope(envelope);
+        let mut rebuilt = sentry::Envelope::new().with_headers(envelope.headers().clone());
+        let mut kept = false;
+        for item in envelope.into_items() {
+            match item {
+                EnvelopeItem::Attachment(_) => continue,
+                EnvelopeItem::Transaction(transaction) => {
+                    rebuilt.add_item(scrub_transaction(*transaction, self.process));
+                    kept = true;
+                }
+                EnvelopeItem::SessionUpdate(mut session) => {
+                    session.attributes.ip_address = Some(Ipv4Addr::UNSPECIFIED.into());
+                    rebuilt.add_item(session);
+                    kept = true;
+                }
+                EnvelopeItem::SessionAggregates(mut aggregates) => {
+                    aggregates.attributes.ip_address = Some(Ipv4Addr::UNSPECIFIED.into());
+                    rebuilt.add_item(aggregates);
+                    kept = true;
+                }
+                other => {
+                    rebuilt.add_item(other);
+                    kept = true;
+                }
+            }
+        }
+        if kept {
+            self.inner.send_envelope(rebuilt);
         }
     }
 
     fn flush(&self, timeout: Duration) -> bool {
-        self.0.flush(timeout)
+        self.inner.flush(timeout)
     }
 
     fn shutdown(&self, timeout: Duration) -> bool {
-        self.0.shutdown(timeout)
+        self.inner.shutdown(timeout)
     }
 }
 
@@ -472,41 +506,148 @@ fn before_send(mut event: Event<'static>, process: Process) -> Option<Event<'sta
             .entry(tag.to_owned())
             .or_insert_with(|| value.to_owned());
     }
-    Some(without_home(event))
+    Some(scrub_json(event))
 }
 
-/// Writes the person's home folder as `~` everywhere in the event, so no path names them.
-fn without_home(event: Event<'static>) -> Event<'static> {
-    let Some(home) = sikemux_process::paths::home() else {
-        return event;
-    };
-    let home = home.to_string_lossy();
-    if home.len() < 2 {
-        return event;
+fn scrub_transaction(
+    mut transaction: Transaction<'static>,
+    process: Process,
+) -> Transaction<'static> {
+    transaction.server_name = None;
+    let user = transaction.user.get_or_insert_with(Default::default);
+    user.ip_address = Some(IpAddress::Exact(Ipv4Addr::UNSPECIFIED.into()));
+    if user.id.is_none() {
+        user.id = USER.get().cloned();
     }
-    let Ok(mut value) = serde_json::to_value(&event) else {
-        return event;
-    };
-    replace_home(&mut value, &home);
-    serde_json::from_value(value).unwrap_or(event)
+    let channel = channel(transaction.release.as_deref().unwrap_or_default());
+    for (tag, value) in [
+        ("process", process.name()),
+        ("channel", channel),
+        ("install", install().name()),
+    ] {
+        transaction
+            .tags
+            .entry(tag.to_owned())
+            .or_insert_with(|| value.to_owned());
+    }
+    scrub_json(transaction)
 }
 
-fn replace_home(value: &mut Value, home: &str) {
+fn scrub_json<T: Serialize + DeserializeOwned>(item: T) -> T {
+    let home = sikemux_process::paths::home()
+        .map(|path| path.to_string_lossy().into_owned())
+        .filter(|path| path.len() >= 2);
+    let Ok(mut value) = serde_json::to_value(&item) else {
+        return item;
+    };
+    scrub_value(&mut value, home.as_deref());
+    serde_json::from_value(value).unwrap_or(item)
+}
+
+fn scrub_value(value: &mut Value, home: Option<&str>) {
     match value {
-        Value::String(text) if text.contains(home) => *text = text.replace(home, "~"),
-        Value::Array(items) => items.iter_mut().for_each(|item| replace_home(item, home)),
+        Value::String(text) => {
+            let cleaned = scrub_pii(text, home);
+            if cleaned != *text {
+                *text = cleaned;
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(|item| scrub_value(item, home)),
         Value::Object(fields) => fields
             .values_mut()
-            .for_each(|field| replace_home(field, home)),
+            .for_each(|field| scrub_value(field, home)),
         _ => {}
     }
 }
 
-/// Writes `<path>` for each word holding a path or an address, which could name a project.
+struct Scrubbers {
+    user_home: Regex,
+    url_userinfo: Regex,
+    url_query: Regex,
+    url_origin: Regex,
+    email: Regex,
+    auth_header: Regex,
+    known_token: Regex,
+    kv_secret: Regex,
+    abs_path: Regex,
+}
+
+fn scrubbers() -> &'static Scrubbers {
+    static SCRUBBERS: OnceLock<Scrubbers> = OnceLock::new();
+    SCRUBBERS.get_or_init(|| {
+        #[expect(clippy::expect_used, reason = "compile-time constant regexes")]
+        Scrubbers {
+            user_home: Regex::new(r#"(?i)(?:/Users/|/home/|C:\\Users\\)[^/\\\s"'<>`]+"#)
+                .expect("valid user_home regex"),
+            url_userinfo: Regex::new(r#"([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s"'<>`/@]+@"#)
+                .expect("valid url_userinfo regex"),
+            url_query: Regex::new(r#"([a-zA-Z][a-zA-Z0-9+.-]*://[^\s"'<>`?#]+)[?#][^\s"'<>`]*"#)
+                .expect("valid url_query regex"),
+            url_origin: Regex::new(
+                r#"([a-zA-Z][a-zA-Z0-9+.-]*://)(?:[^\s"'<>`/@]+@)?([^\s"'<>`/?#]+)[^\s"'<>`]*"#,
+            )
+            .expect("valid url_origin regex"),
+            email: Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+                .expect("valid email regex"),
+            auth_header: Regex::new(r"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}")
+                .expect("valid auth_header regex"),
+            known_token: Regex::new(
+                r"\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|AIza[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16})\b",
+            )
+            .expect("valid known_token regex"),
+            kv_secret: Regex::new(
+                r#"(?i)\b(token|api[_-]?key|secret|password|passwd|access_token|refresh_token|authorization)\s*[:=]\s*[^\s&"',;}\])]+"#,
+            )
+            .expect("valid kv_secret regex"),
+            abs_path: Regex::new(
+                r#"(?:~|[A-Za-z]:\\|/(?:Users|home|var|tmp|opt|Library|Volumes|Applications|System|private|etc|mnt|srv|root))(?:[/\\][A-Za-z0-9._+-]+(?: [A-Za-z0-9._+-]+){0,3})*(?:[/\\][^\s"'<>`:,;)\]]+)"#,
+            )
+            .expect("valid abs_path regex"),
+        }
+    })
+}
+
+fn scrub_pii(text: &str, home: Option<&str>) -> String {
+    let mut out = match home {
+        Some(home) if text.contains(home) => text.replace(home, "~"),
+        _ => text.to_owned(),
+    };
+    let s = scrubbers();
+    out = s.user_home.replace_all(&out, "~").into_owned();
+    out = s.url_userinfo.replace_all(&out, "$1").into_owned();
+    out = s.url_query.replace_all(&out, "$1").into_owned();
+    out = s.email.replace_all(&out, "<email>").into_owned();
+    out = s
+        .auth_header
+        .replace_all(&out, "$1 <redacted>")
+        .into_owned();
+    out = s.known_token.replace_all(&out, "<token>").into_owned();
+    out = s.kv_secret.replace_all(&out, "$1=<redacted>").into_owned();
+    out
+}
+
+fn is_crate_relative_path(word: &str) -> bool {
+    let trimmed =
+        word.trim_matches(|ch: char| matches!(ch, '"' | '\'' | '(' | ')' | '[' | ']' | ',' | ';'));
+    ["crates/", "app/", "helpers/", "mobile/", "server/"]
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
+}
+
 fn without_paths(text: &str) -> String {
-    text.split(' ')
+    let home = sikemux_process::paths::home()
+        .map(|path| path.to_string_lossy().into_owned())
+        .filter(|path| path.len() >= 2);
+    let s = scrubbers();
+    let scrubbed = scrub_pii(text, home.as_deref());
+    let scrubbed = s.url_origin.replace_all(&scrubbed, "$1$2");
+    let scrubbed = s.abs_path.replace_all(&scrubbed, "<path>");
+    scrubbed
+        .split(' ')
         .map(|word| {
-            if word.contains(['/', '\\']) {
+            if word.contains("://") || is_crate_relative_path(word) {
+                word
+            } else if word.contains(['/', '\\']) {
                 "<path>"
             } else {
                 word
