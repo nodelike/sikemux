@@ -302,7 +302,7 @@ async fn sync(core: &Arc<Core>) {
     let Some(Sharing {
         shared,
         shut,
-        unheard,
+        aside,
         orgs,
     }) = sharing
     else {
@@ -311,7 +311,7 @@ async fn sync(core: &Arc<Core>) {
     {
         let memory = core.memory();
         let mut state = memory.state.locked();
-        end(core, &mut state, &shared, &unheard);
+        end(core, &mut state, &shared, &aside);
         let reshut = state.shut != shut;
         let cleared = super::waiting::follow_shares(core, &mut state, &orgs);
         state.shared = shared.clone();
@@ -346,9 +346,9 @@ struct Sharing {
     shared: HashMap<String, Shared>,
     /// Those whose org's vault this host cannot open, with the org's name.
     shut: HashMap<String, String>,
-    /// The orgs whose vault this host holds no key to and has not heard from yet, whose projects
-    /// are in neither map.
-    unheard: HashSet<String>,
+    /// The orgs whose vault this host holds no key to and has not heard from yet, and those it
+    /// doesn't show, whose projects are in neither map.
+    aside: HashSet<String>,
     /// The org each project open here is shared with, by its store's key, whether or not this
     /// host can open its vault.
     orgs: HashMap<String, String>,
@@ -368,7 +368,7 @@ async fn sharing(core: &Arc<Core>) -> Option<Sharing> {
             }
         }
     }
-    let (mut shared, mut shut, mut unheard) = (HashMap::new(), HashMap::new(), HashSet::new());
+    let (mut shared, mut shut, mut aside) = (HashMap::new(), HashMap::new(), HashSet::new());
     let mut shared_orgs = HashMap::new();
     for identity in (core.workspaces().projects().into_iter()).filter_map(|known| known.identity) {
         let project = crate::server::shares::key(&identity);
@@ -384,6 +384,10 @@ async fn sharing(core: &Arc<Core>) -> Option<Sharing> {
         ) else {
             continue;
         };
+        if org.hidden {
+            aside.insert(list.org.clone());
+            continue;
+        }
         match vault::holds_key(core, &list.org) {
             Some(true) => {}
             Some(false) => {
@@ -391,7 +395,7 @@ async fn sharing(core: &Arc<Core>) -> Option<Sharing> {
                 continue;
             }
             None => {
-                unheard.insert(list.org.clone());
+                aside.insert(list.org.clone());
                 continue;
             }
         }
@@ -421,20 +425,20 @@ async fn sharing(core: &Arc<Core>) -> Option<Sharing> {
     Some(Sharing {
         shared,
         shut,
-        unheard,
+        aside,
         orgs: shared_orgs,
     })
 }
 
 /// Ends each org's store kept here that no project open here is shared with any more, leaving
-/// those of `unheard` orgs alone: what this account's person put there comes back to the project's
+/// those of `aside` orgs alone: what this account's person put there comes back to the project's
 /// own store, and the rest goes.
-fn end(core: &Core, state: &mut State, now: &HashMap<String, Shared>, unheard: &HashSet<String>) {
+fn end(core: &Core, state: &mut State, now: &HashMap<String, Shared>, aside: &HashSet<String>) {
     let open: HashSet<String> = now.values().map(Shared::key).collect();
     let waits = |key: &str| {
         (key.strip_prefix("org:")
             .and_then(|rest| rest.split(':').next()))
-        .is_some_and(|org| unheard.contains(org))
+        .is_some_and(|org| aside.contains(org))
     };
     let was = |key: &str| {
         (state.shared.iter())

@@ -75,7 +75,7 @@ fn follow(bench: &mut Workbench, channel: UpdateChannel, cx: &mut Context<Workbe
     bench.confirm(
         t!("Switch to stable releases?"),
         t!(
-            "Team is in preview for people on nightly. On stable, this computer stops showing {orgs}: no shared boards, no teammates, and agents here stop using its keys. Nothing is deleted, and it all comes back on nightly. On app.sikemux.com you can still read it, leave it or hand it over.",
+            "Team is in preview for people on nightly. On stable, this computer stops showing {orgs}: no shared boards or rules, no teammates, and agents here stop using its keys. Nothing is deleted, and it all comes back on nightly. On app.sikemux.com you can still read it, leave it or hand it over.",
             orgs = preview.join(", ")
         ),
         t!("Switch to stable"),

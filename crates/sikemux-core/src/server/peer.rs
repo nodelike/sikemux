@@ -603,7 +603,8 @@ fn forget(core: &Core, gone: impl Fn(&Copy) -> bool) -> bool {
     forgot
 }
 
-/// The kept copies of teammates' boards for the repository of the project at `folder`.
+/// The kept copies of teammates' boards for the repository of the project at `folder`, without
+/// those of an org this host doesn't show.
 fn copies_of(core: &Core, folder: &str) -> Vec<Copy> {
     let Some(project) = (core.workspaces().projects().into_iter())
         .find(|known| known.path.as_os_str() == folder)
@@ -612,14 +613,18 @@ fn copies_of(core: &Core, folder: &str) -> Vec<Copy> {
         return Vec::new();
     };
     let owner = core.remote().owner();
-    let copies = core.peer().copies.locked();
-    if copies.owner != owner {
-        return Vec::new();
-    }
-    (copies.boards.iter())
-        .filter(|copy| copy.project == project)
-        .cloned()
-        .collect()
+    let mut found: Vec<Copy> = {
+        let copies = core.peer().copies.locked();
+        if copies.owner != owner {
+            return Vec::new();
+        }
+        (copies.boards.iter())
+            .filter(|copy| copy.project == project)
+            .cloned()
+            .collect()
+    };
+    found.retain(|copy| !shares::hidden(core, &copy.org));
+    found
 }
 
 /// The tasks on teammates' boards for the repository of the project at `folder`, in the order

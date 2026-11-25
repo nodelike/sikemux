@@ -49,7 +49,7 @@ pub(crate) fn org_name(core: &Core, org: &str) -> Option<String> {
         .map(|known| known.name)
 }
 
-fn hidden(core: &Core, org: &str) -> bool {
+pub(crate) fn hidden(core: &Core, org: &str) -> bool {
     orgs(core)
         .iter()
         .any(|known| known.id == org && known.hidden)

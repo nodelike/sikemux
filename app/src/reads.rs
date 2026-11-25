@@ -158,7 +158,7 @@ impl Read {
             }
             Read::Mods => (call::Mods::METHOD, &[Topic::Mods]),
             Read::Tasks => (call::Tasks::METHOD, &[Topic::Tasks, Topic::Runs]),
-            Read::TaskList => (call::ProjectTasks::METHOD, &[Topic::Boards]),
+            Read::TaskList => (call::ProjectTasks::METHOD, &[Topic::Boards, Topic::Account]),
             Read::Sharing => (
                 call::ProjectSharing::METHOD,
                 &[Topic::Boards, Topic::Account],

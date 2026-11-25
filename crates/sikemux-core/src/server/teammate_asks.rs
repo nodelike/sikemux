@@ -381,7 +381,8 @@ pub(crate) fn of_project(core: &Core, folder: &str) -> Option<TeammateAsks> {
     if asked.is_empty() && !stopped.everyone && stopped.people.is_empty() {
         return None;
     }
-    let org = super::shares::shared_with(core, folder)?;
+    let org =
+        super::shares::shared_with(core, folder).filter(|org| !super::shares::hidden(core, org))?;
     let ids: Vec<u64> = asked.iter().filter_map(|asked| asked.task).collect();
     let titles = crate::server::board::titles(core, folder, &ids);
     let picture = |member: &str| {
