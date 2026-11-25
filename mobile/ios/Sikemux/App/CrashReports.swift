@@ -9,13 +9,13 @@ import Sentry
 @Observable
 final class CrashReports {
     static let shared = CrashReports()
-    private static let allowedKey = "sikemux.crashReports"
+    nonisolated private static let allowedKey = "sikemux.crashReports"
     private static let dsn = (Bundle.main.object(forInfoDictionaryKey: "SikemuxSentryDSN") as? String) ?? ""
 
     var on: Bool {
         didSet {
             UserDefaults.standard.set(on, forKey: Self.allowedKey)
-            if on { start() } else { SentrySDK.close() }
+            if on { start() } else { stop() }
         }
     }
 
@@ -23,13 +23,14 @@ final class CrashReports {
     @ObservationIgnored private var starting = false
 
     private init() {
-        on = UserDefaults.standard.object(forKey: Self.allowedKey) as? Bool ?? true
+        on = Self.allowed()
     }
 
     /// Starts the SDK off the main thread, since starting it took about 90 ms of launch there; the SDK queues the
     /// part that must run on the main thread, its crash handler, for after the first frame.
     func start() {
-        guard on, !Self.dsn.isEmpty, !SentrySDK.isEnabled, !starting else { return }
+        guard on else { return Self.forget() }
+        guard !Self.dsn.isEmpty, !SentrySDK.isEnabled, !starting else { return }
         starting = true
         let release = "sikemux-mobile@\(Versions.fromBuild(Config.build) ?? Config.version)+\(Config.build)"
         let dsn = Self.dsn
@@ -42,6 +43,7 @@ final class CrashReports {
     nonisolated private static func startSDK(dsn: String, release: String) {
         SentrySDK.start { options in
             options.dsn = dsn
+            options.urlSession = OnlyWhileShared.session()
             options.releaseName = release
             options.environment = "production"
             options.sendDefaultPii = false
@@ -61,7 +63,24 @@ final class CrashReports {
     /// Runs after the SDK's own main-thread setup, which it queued first.
     private func started() {
         starting = false
-        if on { name() } else { SentrySDK.close() }
+        if on { name() } else { stop() }
+    }
+
+    private func stop() {
+        SentrySDK.close()
+        Self.forget()
+    }
+
+    nonisolated fileprivate static func allowed() -> Bool {
+        UserDefaults.standard.object(forKey: allowedKey) as? Bool ?? true
+    }
+
+    /// Drops what the SDK keeps on the phone until it can send it.
+    nonisolated private static func forget() {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        for name in ["io.sentry", "SentryCrash"] {
+            try? FileManager.default.removeItem(at: caches.appendingPathComponent(name))
+        }
     }
 
     /// Names the person by the same one-way hash of their account the Mac's usage ping sends.
@@ -90,4 +109,23 @@ final class CrashReports {
         user.ipAddress = "0.0.0.0"
         return user
     }
+}
+
+/// Refuses each request the SDK makes once sharing is off, since the SDK sends what it queued earlier as it closes.
+private final class OnlyWhileShared: URLProtocol {
+    static func session() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OnlyWhileShared.self] + (configuration.protocolClasses ?? [])
+        return URLSession(configuration: configuration)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { !CrashReports.allowed() }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
+    }
+
+    override func stopLoading() {}
 }

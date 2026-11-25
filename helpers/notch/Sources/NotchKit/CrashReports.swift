@@ -16,6 +16,7 @@ enum CrashReports {
         SentrySDK.start { options in
             options.dsn = dsn
             options.cacheDirectoryPath = waiting.path
+            options.urlSession = OnlyWhileShared.session()
             options.releaseName = "sikemux@\(version)"
             options.environment = info["SikemuxSentryEnvironment"] as? String ?? "dev"
             options.sendDefaultPii = false
@@ -49,11 +50,11 @@ enum CrashReports {
     private static let waiting = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("com.nodelike.sikemux/notch-crash-reports")
 
-    private static func forget() {
+    fileprivate static func forget() {
         try? FileManager.default.removeItem(at: waiting)
     }
 
-    private static func allowed() -> Bool {
+    fileprivate static func allowed() -> Bool {
         let environment = ProcessInfo.processInfo.environment
         let optedOut = ["DO_NOT_TRACK", "CI"].contains { name in
             let value = (environment[name] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -85,4 +86,25 @@ enum CrashReports {
         event.message = event.message.map { SentryMessage(formatted: tilde($0.formatted) ?? "") }
         return event
     }
+}
+
+/// Refuses each request the SDK makes once sharing is off, since the SDK sends what it queued
+/// earlier without asking anyone, and drops what waits.
+private final class OnlyWhileShared: URLProtocol {
+    static func session() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OnlyWhileShared.self] + (configuration.protocolClasses ?? [])
+        return URLSession(configuration: configuration)
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { !CrashReports.allowed() }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        CrashReports.forget()
+        client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
+    }
+
+    override func stopLoading() {}
 }

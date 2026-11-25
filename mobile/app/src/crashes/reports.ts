@@ -3,7 +3,7 @@ import * as Sentry from '@sentry/react-native';
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 import { nativeApplicationVersion, nativeBuildVersion } from 'expo-application';
 import * as Crypto from 'expo-crypto';
-import { File, Paths } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 import * as Updates from 'expo-updates';
 
 import { versionFromBuild } from '@/network/versions';
@@ -17,10 +17,10 @@ export const reporting = !__DEV__ && process.env.EXPO_PUBLIC_SENTRY === '1';
 const declined = reporting ? new File(Paths.document, 'crash-reports-off') : undefined;
 const shared = externalValue(!declined?.exists);
 
-/** Console lines and touched labels can hold what the person typed or read, so neither leaves the phone. */
 /** Sentry works out a city from the sender's address unless the event names one, so every event names none. */
 const NO_IP = '0.0.0.0';
 
+/** Console lines and touched labels can hold what the person typed or read, so neither leaves the phone. */
 const DROPPED_BREADCRUMBS = new Set(['console', 'touch']);
 
 function keepBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb | null {
@@ -50,7 +50,29 @@ function start() {
   });
 }
 
-if (reporting && shared.get()) start();
+/** Drops the reports Sentry's native SDK keeps for when the phone is online again. */
+function forget() {
+  try {
+    const waiting = new Directory(Paths.cache, 'sentry');
+    if (waiting.exists) waiting.delete();
+  } catch (error) {
+    console.warn('sikemux: could not drop the waiting crash reports', error);
+  }
+}
+
+/** Closing sends what still waits, so that is dropped first, and again for what closing wrote. */
+async function stop() {
+  const client = Sentry.getClient();
+  if (client) client.getOptions().enabled = false;
+  forget();
+  await Sentry.close();
+  if (!shared.get()) forget();
+}
+
+if (reporting) {
+  if (shared.get()) start();
+  else forget();
+}
 
 export function useCrashReportsShared(): boolean {
   return useExternalValue(shared);
@@ -64,7 +86,7 @@ export function shareCrashReports(next: boolean) {
     start();
   } else {
     if (!declined.exists) declined.create();
-    void Sentry.close();
+    void stop();
   }
 }
 
