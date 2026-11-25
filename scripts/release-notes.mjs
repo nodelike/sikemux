@@ -2,7 +2,7 @@
 // Lists what the commits after <from>, up to <to>, changed for people, one bullet a change,
 // oldest first: a commit's `Docs:` lines, or its subject when it has none. Prints nothing
 // when nobody would notice any of them. What only people on nightly can see yet, in a commit's
-// `Nightly:` lines, is listed with --nightly alone, and says nothing anywhere else.
+// `Nightly:` lines or about Team, is listed with --nightly alone.
 import { execFileSync } from "node:child_process";
 
 const CODE = {
@@ -18,8 +18,8 @@ const UNSEEN_KINDS =
   /^(test|chore|docs|ci|build|refactor|style|film|shots|drive|deps|release|server|deploy)$| (test|check)s?$/;
 const UNSEEN_WORDS = /\b(tests?|unused|(byte|schema) budgets?|swift-format)\b/;
 const READABLE = 160;
-/** About Team, which stable doesn't have, and written before `Nightly:` lines could say so. */
-const TEAM = /^(3121cf74c|44a887d52)/;
+/** About Team, which stable doesn't have, in whichever line of a commit says it. */
+const TEAM = /\borgs?\b|\bTeam (plan|preview)\b|^team: /i;
 
 const args = process.argv.slice(2);
 const nightly = args.includes("--nightly");
@@ -93,8 +93,7 @@ function readable(text) {
     .replace(/^ios\b/, "iOS");
 }
 
-function notes({ sha, subject, body, files }) {
-  if (TEAM.test(sha)) return [];
+function notes({ subject, body, files }) {
   const docs = marked("Docs", body);
   const early = marked("Nightly", body);
   const said = [...docs, ...(nightly ? early : [])].filter(
@@ -126,5 +125,8 @@ for (const revert of all.filter(({ subject }) => /^revert\b/i.test(subject))) {
   const reverted = named && all.find(({ sha }) => sha.startsWith(named));
   if (reverted) undone.add(reverted).add(revert);
 }
-const listed = all.filter((commit) => !undone.has(commit)).flatMap(notes);
+const listed = all
+  .filter((commit) => !undone.has(commit))
+  .flatMap(notes)
+  .filter((line) => nightly || !TEAM.test(line));
 for (const line of new Set(listed)) console.log(`- ${line}`);

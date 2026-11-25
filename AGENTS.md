@@ -135,8 +135,9 @@ local Git repo, ignored by this one: file references and contacts there and comm
 - A change that adds, removes or renames something users see carries one `Docs:` line in its
   commit body saying what changed for them. Leave the pages alone: a daily docs pass, a board
   card at 18:00, writes them from those lines, so the docs trail main by up to a day.
-- What only people on nightly can see yet, such as Team, carries a `Nightly:` line instead, so
-  nightly's notes list it and stable's notes, the docs and the site stay silent.
+- What only people on nightly can see yet, such as Team and anything of an org's, carries a
+  `Nightly:` line instead, so nightly's notes list it and stable's notes, the docs and the site
+  stay silent.
 - The pages under `reference/` are generated: run `pnpm docs:reference` after changing
   a default shortcut, the CLI's help or `tools/tools.json`. CI fails while they are
   out of date.
