@@ -2,7 +2,13 @@
 // Cargo never deletes a build once the hashes that name it change, and every
 // Cargo.lock edit or `-p` feature set changes them. This drops the copies no
 // build has used lately while keeping the ones the current checkout needs.
-import { readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 const HOUR = 3600 * 1000;
@@ -19,6 +25,7 @@ const dryRun = args.includes("--dry-run");
 const target =
   args.find((arg) => !arg.startsWith("--")) ??
   join(import.meta.dirname, "..", "target");
+if (!existsSync(target)) process.exit(0);
 const now = Date.now();
 let freed = 0;
 
@@ -120,18 +127,29 @@ function pruneDeps(dir) {
 }
 
 // Cargo trusts a fingerprint without checking its outputs still exist, so a
-// fingerprint left behind by a removed library makes the next link fail.
+// fingerprint left behind by a removed library or example makes the next link fail.
 function pruneFingerprints(profile) {
-  const outputs = new Set(
+  const deps = new Set(
     entries(join(profile, "deps")).map((entry) => entry.name.split(".")[0]),
+  );
+  const examples = new Set(
+    entries(join(profile, "examples")).map((entry) => entry.name.split(".")[0]),
   );
   const dir = join(profile, ".fingerprint");
   for (const entry of entries(dir)) {
     const hash = entry.name.slice(entry.name.lastIndexOf("-") + 1);
-    const lib = entries(join(dir, entry.name)).find(
+    const files = entries(join(dir, entry.name));
+    const lib = files.find(
       (file) => file.name.startsWith("lib-") && !file.name.includes("."),
     );
-    if (lib && !outputs.has(`lib${lib.name.slice(4)}-${hash}`)) {
+    if (lib && !deps.has(`lib${lib.name.slice(4)}-${hash}`)) {
+      remove(join(dir, entry.name));
+      continue;
+    }
+    const example = files.find(
+      (file) => file.name.startsWith("example-") && !file.name.includes("."),
+    );
+    if (example && !examples.has(`${example.name.slice(8)}-${hash}`)) {
       remove(join(dir, entry.name));
     }
   }
@@ -140,6 +158,7 @@ function pruneFingerprints(profile) {
 for (const profile of profileDirs(target)) {
   pruneIncremental(join(profile, "incremental"));
   pruneDeps(join(profile, "deps"));
+  pruneDeps(join(profile, "examples"));
   pruneFingerprints(profile);
 }
 

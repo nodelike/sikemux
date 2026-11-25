@@ -51,6 +51,7 @@ pub fn trim(target: &Path) -> u64 {
     for profile in profiles(target, 0) {
         freed += trim_incremental(&profile.join("incremental"));
         freed += trim_deps(&profile.join("deps"));
+        freed += trim_deps(&profile.join("examples"));
         freed += trim_fingerprints(&profile);
     }
     freed
@@ -172,23 +173,41 @@ fn trim_deps(dir: &Path) -> u64 {
 }
 
 /// Cargo trusts a fingerprint without checking its outputs still exist, so a fingerprint left
-/// behind by a removed library makes the next link fail.
+/// behind by a removed library or example makes the next link fail.
 fn trim_fingerprints(profile: &Path) -> u64 {
-    let outputs: HashSet<String> = (names(&profile.join("deps")).into_iter())
-        .map(|name| name.split('.').next().unwrap_or_default().to_owned())
-        .collect();
+    let stems = |folder: &str| -> HashSet<String> {
+        (names(&profile.join(folder)).into_iter())
+            .map(|name| name.split('.').next().unwrap_or_default().to_owned())
+            .collect()
+    };
+    let deps = stems("deps");
+    let examples = stems("examples");
     let dir = profile.join(".fingerprint");
     let mut freed = 0;
     for name in names(&dir) {
         let hash = name
             .rsplit_once('-')
             .map_or(name.as_str(), |(_, hash)| hash);
-        let lib = names(&dir.join(&name))
-            .into_iter()
-            .find(|file| file.starts_with("lib-") && !file.contains('.'));
-        if let Some(lib) = lib {
-            let output = format!("lib{}-{hash}", lib.strip_prefix("lib-").unwrap_or(&lib));
-            if !outputs.contains(&output) {
+        let files = names(&dir.join(&name));
+        if let Some(lib) = files
+            .iter()
+            .find(|file| file.starts_with("lib-") && !file.contains('.'))
+        {
+            let output = format!("lib{}-{hash}", lib.strip_prefix("lib-").unwrap_or(lib));
+            if !deps.contains(&output) {
+                freed += remove(&dir.join(&name));
+                continue;
+            }
+        }
+        if let Some(example) = files
+            .iter()
+            .find(|file| file.starts_with("example-") && !file.contains('.'))
+        {
+            let output = format!(
+                "{}-{hash}",
+                example.strip_prefix("example-").unwrap_or(example)
+            );
+            if !examples.contains(&output) {
                 freed += remove(&dir.join(&name));
             }
         }

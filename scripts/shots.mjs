@@ -371,6 +371,18 @@ function compare() {
   );
 }
 
+function trimTarget() {
+  const target = join(checkout, "target");
+  if (!existsSync(target)) return;
+  const result = spawnSync(
+    process.execPath,
+    [join(here, "scripts/prune-target.mjs"), "--throttled", target],
+    { cwd: here, encoding: "utf8" },
+  );
+  const line = result.stdout?.trim();
+  if (line && !line.startsWith("Freed 0.0 GB")) say(line);
+}
+
 if (options.compare) {
   compare();
   say(`wrote ${join(out, "compare.html")}`);
@@ -381,7 +393,11 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 say(`after: ${commit.slice(0, 10)}`);
 moveTo(commit);
-PLATFORMS[platform]("after");
+try {
+  PLATFORMS[platform]("after");
+} finally {
+  trimTarget();
+}
 if (platform === "iphone") {
   iphoneSteps();
 } else {

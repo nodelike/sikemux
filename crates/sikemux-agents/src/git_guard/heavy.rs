@@ -134,6 +134,7 @@ const NEVER_STOOD_IN: &[&str] = &[
 /// Compiler caches a build hands rustc to, the first one installed.
 const CACHES: &[&str] = &["kache", "sccache"];
 const KACHE_INCREMENTAL: &str = "KACHE_ADAPTIVE_INCREMENTAL";
+const KACHE_EXECUTABLES: &str = "KACHE_CACHE_EXECUTABLES";
 
 /// The programs of the built-in list, which the shim always stands in for.
 pub(crate) fn built_in_programs() -> impl Iterator<Item = &'static str> {
@@ -320,6 +321,9 @@ pub(crate) fn rustc_cache() -> Vec<(String, String)> {
         .is_some_and(|name| name == "kache");
     if kache && std::env::var_os(KACHE_INCREMENTAL).is_none() {
         env.push((KACHE_INCREMENTAL.to_owned(), "0".to_owned()));
+    }
+    if kache && std::env::var_os(KACHE_EXECUTABLES).is_none() {
+        env.push((KACHE_EXECUTABLES.to_owned(), "0".to_owned()));
     }
     env
 }

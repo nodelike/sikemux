@@ -233,6 +233,9 @@ def main():
         # kache's own copies of each crate's incremental state in target/*/incremental.kache-auto
         # go only after 30 days unused, and reached 86 GB in the main checkout.
         env.setdefault("KACHE_ADAPTIVE_INCREMENTAL", "0")
+        # Final binaries and test executables are 450-880 MB each with near-zero reuse across
+        # branches, pushing kache past its 20 GiB cap and into 2-hour GC backoff.
+        env.setdefault("KACHE_CACHE_EXECUTABLES", "0")
     policy = shutil.which("taskpolicy") if sys.platform == "darwin" and "SIKEMUX_AGENT_ID" in env else None
     if policy:
         command = [policy, "-c", "utility", *command]

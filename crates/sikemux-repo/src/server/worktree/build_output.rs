@@ -668,11 +668,22 @@ fn remove_outputs(tree: &Path, outputs: Vec<PathBuf>) -> Option<u64> {
 }
 
 fn delete(folder: &Path) {
-    if let Err(error) = std::fs::remove_dir_all(folder) {
-        eprintln!(
-            "sikemux core: {} was not all removed: {error}",
-            folder.display()
-        );
+    // APFS can return ENOTEMPTY mid-walk when unlinking large cloned directories; retrying finishes them.
+    for attempt in 0..5 {
+        match std::fs::remove_dir_all(folder) {
+            Ok(()) => return,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+            Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty && attempt < 4 => {
+                continue;
+            }
+            Err(error) => {
+                eprintln!(
+                    "sikemux core: {} was not all removed: {error}",
+                    folder.display()
+                );
+                return;
+            }
+        }
     }
 }
 
