@@ -1,0 +1,560 @@
+.gt {
+  position: relative;
+  z-index: 1;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: 64px 1fr 64px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 56px;
+}
+
+.gtop {
+  display: flex;
+  align-items: center;
+}
+
+.gback,
+.gtop .txt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--two);
+}
+
+.gback:hover,
+.gtop .txt:hover {
+  color: var(--lit);
+}
+
+.gin {
+  display: grid;
+  grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
+  gap: 72px;
+  align-items: center;
+}
+
+.gtx {
+  min-width: 0;
+}
+
+.gtx h1 {
+  font-size: 40px;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.gl {
+  margin: 14px 0 0;
+  font-size: 15.5px;
+  line-height: 1.55;
+  color: var(--two);
+  text-wrap: pretty;
+}
+
+.gl b,
+.gl .lit {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.gl code,
+.gs code,
+.gf code {
+  font: 500 0.9em var(--mono);
+  color: var(--ink);
+}
+
+.gl a,
+.gs a,
+.gfacts a,
+.gt .facts a {
+  color: var(--acc-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-underline-offset: 3px;
+}
+
+.gb {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 400px;
+}
+
+.gb:empty {
+  display: none;
+}
+
+.gb > form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.gs {
+  margin: 20px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--meta);
+  max-width: 400px;
+}
+
+.gs .txt.bad {
+  padding: 0;
+  font-size: 12.5px;
+}
+
+.gin .markbox {
+  position: relative;
+  width: min(420px, 100%);
+  aspect-ratio: 1;
+  justify-self: end;
+}
+
+.gfoot {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  font-size: 12px;
+  color: var(--meta);
+}
+
+.gfoot img {
+  height: 18px;
+  width: auto;
+  display: block;
+  margin-right: auto;
+}
+
+.gfoot .gap {
+  flex: 1;
+}
+
+.gfoot a {
+  color: var(--meta);
+}
+
+.gfoot a:hover {
+  color: var(--lit);
+}
+
+.ways {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gb .btn {
+  height: 42px;
+  padding: 0 18px;
+  font-size: 14px;
+  border-radius: 9px;
+  gap: 9px;
+}
+
+.gb .btn[data-busy] {
+  opacity: 1;
+}
+
+.ways .btn,
+.gb .btn.wide {
+  width: 100%;
+  justify-content: center;
+}
+
+.gdo {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.orl {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--meta);
+}
+
+.orl::before,
+.orl::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line2);
+}
+
+.gf {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.gf > span:first-child:not(.gfi) {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.gfi {
+  display: flex;
+  align-items: center;
+  height: 42px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--well) 85%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  padding: 0 4px 0 14px;
+}
+
+.gfi:focus-within {
+  box-shadow: inset 0 0 0 1px var(--acc);
+}
+
+.gf.bad .gfi {
+  box-shadow: inset 0 0 0 1px var(--bad);
+}
+
+.gfi input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: 0;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14.5px;
+}
+
+.gfi input::placeholder {
+  color: var(--meta);
+}
+
+.gfi button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: var(--meta);
+  border-radius: 6px;
+  flex: none;
+}
+
+.gfi button:hover {
+  color: var(--lit);
+}
+
+.tiles {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  max-width: 372px;
+}
+
+.tiles span {
+  display: grid;
+  place-items: center;
+  height: 58px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--well) 85%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--lit);
+}
+
+.tiles .cur {
+  box-shadow: inset 0 0 0 1.5px var(--acc);
+}
+
+.tiles:has(input:focus-visible) .cur {
+  box-shadow:
+    inset 0 0 0 1.5px var(--acc),
+    0 0 0 3px var(--acc-ring);
+}
+
+.tiles.bad span {
+  box-shadow: inset 0 0 0 1px var(--bad);
+  color: var(--bad-ink);
+}
+
+.tiles.off span {
+  opacity: 0.6;
+}
+
+.tiles input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  font-size: 16px;
+}
+
+.dlg .tiles span {
+  height: 46px;
+  font-size: 19px;
+}
+
+.gfacts,
+.gt .facts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line2);
+}
+
+.gfacts li,
+.gt .facts li {
+  display: flex;
+  gap: 13px;
+  align-items: flex-start;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+
+.gfacts svg,
+.gt .facts svg {
+  color: var(--two);
+  margin-top: 2px;
+  flex: none;
+}
+
+.gfacts b,
+.gt .facts b {
+  font-weight: 500;
+  display: block;
+  color: var(--ink);
+}
+
+.gfacts small,
+.gt .facts small {
+  color: var(--two);
+  font-size: 12.5px;
+  display: block;
+}
+
+.gwho {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.gwho-tx,
+.gwho > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+
+.gwho b {
+  display: block;
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--ink);
+}
+
+.gwho small {
+  color: var(--two);
+  font-size: 12.5px;
+  line-height: 1.4;
+  display: block;
+}
+
+.gnote {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.gnote svg {
+  color: var(--acc);
+  margin-top: 2px;
+  flex: none;
+}
+
+.gnote > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.gaddr {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.gaddr svg {
+  color: var(--two);
+  flex: none;
+}
+
+.twos {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line2);
+  border-bottom: 1px solid var(--line);
+}
+
+.twos-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.twos-tx {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.twos b {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.twos small {
+  color: var(--two);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.twos-arrow {
+  flex: none;
+  color: var(--acc);
+  transform: rotate(180deg);
+}
+
+.hcode input {
+  width: 100%;
+  height: 68px;
+  border: 0;
+  outline: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--well) 85%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  color: var(--ink);
+  font: 600 28px var(--mono);
+  letter-spacing: 0.06em;
+  text-align: center;
+}
+
+.hcode input:focus {
+  box-shadow: inset 0 0 0 1.5px var(--acc);
+}
+
+.hcode.bad input {
+  box-shadow: inset 0 0 0 1px var(--bad);
+}
+
+.hcode input::placeholder {
+  color: var(--seat);
+}
+
+.hbig {
+  font: 600 46px / 1 var(--mono);
+  letter-spacing: 0.03em;
+  color: var(--bright, var(--lit));
+  padding: 2px 0 8px;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .gt {
+    padding: 0 24px;
+    grid-template-rows: 56px 1fr 60px;
+  }
+
+  .gin {
+    grid-template-columns: 1fr;
+    gap: 26px;
+    align-content: center;
+    justify-items: start;
+  }
+
+  .gin .markbox {
+    order: -1;
+    width: 132px;
+    justify-self: start;
+  }
+
+  .gtx {
+    width: 100%;
+  }
+
+  .gtx h1 {
+    font-size: 31px;
+  }
+
+  .gl {
+    font-size: 15px;
+  }
+
+  .gb,
+  .gs {
+    max-width: none;
+  }
+
+  .gb {
+    margin-top: 24px;
+  }
+
+  .gb .btn {
+    height: 48px;
+    font-size: 15px;
+  }
+
+  .gfi {
+    height: 48px;
+  }
+
+  .gfi input {
+    font-size: 16px;
+  }
+
+  .gdo {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .gdo .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .gdo .txt {
+    align-self: center;
+    height: 40px;
+  }
+
+  .hbig {
+    font-size: 36px;
+  }
+
+  .tiles {
+    max-width: none;
+  }
+}
