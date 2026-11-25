@@ -426,6 +426,19 @@ pub mod keys {
         org::open_to_writes(core, org).is_ok()
     }
 
+    /// Why this host writes no project's entry to the org's vault, if it does not.
+    pub async fn put_project_refused(core: &Core, org: &str) -> Option<String> {
+        let at = org::At {
+            revision: 0,
+            made: None,
+        };
+        let body = serde_json::json!({});
+        org::put_project(core, org, org::PROJECT_MEMORY, "id", &at, &body, &[])
+            .await
+            .err()
+            .map(|error| error.to_string())
+    }
+
     /// Has this host hold `key` as it kept it from before hosts were let in by their codes.
     pub fn keep_from_before(core: &Core, org: &str, key: Key, generation: i64) {
         org::keep_from_before(core, org, key, generation);

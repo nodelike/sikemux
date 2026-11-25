@@ -1212,7 +1212,9 @@ fn org_group(
     let remade =
         (vault.remade_at).filter(|at| states && !waiting && now_ms().saturating_sub(*at) < WEEK_MS);
     let lets_in = states && vault.active && vault.status == OrgVaultStatus::Open;
-    if keys.is_empty() && !waiting && !adds && !lets_in {
+    let unreadable = (vault.unreadable.iter()).filter(|_| states);
+    let removes = unreadable.clone().next().is_some();
+    if keys.is_empty() && !waiting && !adds && !lets_in && !removes {
         return None;
     }
     let sub = match (vault.active, vault.writes) {
@@ -1275,11 +1277,7 @@ fn org_group(
             keys.iter()
                 .map(|key| org_key_row(bench, fields, vault, key, this, cx)),
         )
-        .when(states && vault.active && vault.writes, |body| {
-            let rows =
-                (vault.unreadable.iter()).map(|id| unreadable_row(fields, vault, id, this, cx));
-            body.children(rows)
-        })
+        .children(unreadable.map(|id| unreadable_row(fields, vault, id, this, cx)))
         .when(lets_in, |body| body.child(let_in_row(vault, this, cx)))
         .when(adds, |body| body.child(org_add_row(vault, kind, this)));
     let card = rows::section("", None, Some(sub.into()), false, body, cx);

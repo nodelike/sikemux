@@ -659,6 +659,28 @@ async fn a_projects_entry_that_does_not_open_does_not_stop_the_key_being_replace
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_key_that_has_opened_nothing_replaces_nothing() {
+    let kept = server();
+    let (key, other) = (random_key().unwrap(), random_key().unwrap());
+    let org = kept.locked().org.clone();
+    let seal = |key: &Key, id, revision| {
+        keys::org_entry(key, &org, id, (1, revision), &json!({ "rules": ["kept"] })).unwrap()
+    };
+    let owner = Host::from_before(&kept, &key).await;
+    let store = ("store", "project-memory");
+    kept.locked().put(store, 3, seal(&other, store, 3));
+    owner.read().await;
+    owner.read().await;
+    assert_eq!(kept.locked().generation, 1);
+    assert!(kept.locked().ended.is_empty());
+
+    let read = ("read", "project-memory");
+    kept.locked().put(read, 1, seal(&key, read, 1));
+    owner.read().await;
+    assert_eq!(kept.locked().generation, 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_list_without_the_host_reading_it_drops_no_host_it_trusts() {
     let kept = server();
     let founder = Host::founder(&kept).await;
@@ -731,6 +753,8 @@ async fn a_members_host_seals_no_key_from_before_hosts_were_let_in() {
     let own = Host::new(&kept, MEMBER, OrgRole::User).await;
     let code = own.code().await;
     assert!(member.let_in(&code).await.is_err());
+    let refused = keys::put_project_refused(&member.core, &member.org.id).await;
+    assert!(refused.is_some_and(|why| why.contains("replaced first")));
     member.read().await;
     assert_eq!(holders(&kept), [member.me()]);
 }

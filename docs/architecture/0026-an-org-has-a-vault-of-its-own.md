@@ -46,13 +46,19 @@ group's and must reach a different set of hosts: every host of every member, and
   every entry again under it in one request; the server drops every other wrap. Until then it takes
   no write, so nothing new is sealed under a key someone gone holds. One request wraps
   the new key for at most 500 hosts, its own first, then those that held the old key; the rest wait
-  for the next round. A host that signed out or was let go by its account drops its copy of every
-  org vault. One whose account left the org drops that org's.
+  for the next round. A plain member's hosts newly get the key at most five times an hour, so adding
+  and removing hosts does not keep the vault from being written. A host that signed out or was let
+  go by its account drops its copy of every org vault. One whose account left the org drops that
+  org's.
 - **A shared project's entry never stops the key being replaced.** Any member may write one. Where
   one does not open, or is older than the replacing host's copy, that host puts its own copy back,
-  and with none removes the entry, whose id is kept as ended like any other removal. An entry only
-  owners and admins write does stop it, until one of them removes it or writes it again; one no host
-  could open can be removed too.
+  and with none removes the entry, whose id is kept as ended like any other removal. What it puts
+  back for revision R becomes R+2, so a host holding an older copy can bring one back that way, and
+  a server that shows two managers' hosts different vaults can have one's copies put over the
+  other's. A key that a host did not make and that has opened nothing there may not be the vault's,
+  so that host replaces nothing until an entry opens or an owner or admin removes those that do
+  not. An entry only owners and admins write does stop it,
+  until one of them removes it or writes it again; one no host could open can be removed too.
 - **A key that may have gone to hosts nobody let in is replaced once.** A core keeps with its key
   whether every host it was sealed for was let in: it made the key itself, or a host it trusts sealed
   it. Without that mark, as on every key from before hosts were let in, the host seals it for no
@@ -74,7 +80,7 @@ group's and must reach a different set of hosts: every host of every member, and
   host the list leaves out does not use it.
 - **A lapsed plan freezes the vault and keeps it.** While an org's Team plan is not paid, the
   server refuses new entries and the core hands none of the org's entries to agents. It deletes
-  nothing, and replacing the key still works.
+  nothing, replacing the key still works, and an owner or admin may still remove an entry.
 - **An org's model key is a provider of its own, never a stand-in for the person's.** On each
   member's host it shows among the connected providers as the catalogue provider marked with the
   org, under its own id, and agents start on it only when it is chosen. The person's own key to

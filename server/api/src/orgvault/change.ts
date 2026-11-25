@@ -51,6 +51,9 @@ const MAX_OTHER_ENTRIES = {
   full: "An org keeps at most 100 model keys.",
 };
 
+/** How many of a plain member's hosts get an org's key in an hour. */
+const MEMBER_HOSTS_AN_HOUR = 5;
+
 export interface Asker {
   orgId: string;
   userId: string;
@@ -236,8 +239,8 @@ async function requireOwnHosts(
 
 /**
  * A member's host holding the key seals it for other members' hosts: an owner's or admin's for
- * any, anyone else's only for its own account's. A host that no host vouched for is left out, and
- * one that has a wrap keeps it.
+ * any, anyone else's only for its own account's. A host that no host vouched for is left out, as is
+ * one past its member's allowance, and one that has a wrap keeps it.
  */
 export async function addOrgKeys(
   trx: Transaction<Tables>,
@@ -252,27 +255,91 @@ export async function addOrgKeys(
   await requireMemberHosts(trx, asker.orgId, keys);
   if (member.role === "user") await requireOwnHosts(trx, asker, keys);
   await letIn(trx, asker, member, vouches ?? []);
-  const vouched = await vouchedKeys(trx, asker.orgId, keys);
-  const added = vouched.length
-    ? await trx
-        .insertInto("org_vault_keys")
-        .values(wrapRows(asker, generation, vouched))
-        .onConflict((oc) => oc.columns(["org_id", "host_key"]).doNothing())
-        .returning("host_key")
-        .execute()
-    : [];
+  const holders = await holdersAt(trx, asker.orgId, generation);
+  const fresh = (await vouchedKeys(trx, asker.orgId, keys)).filter(
+    (key) => !holders.has(key.hostKey),
+  );
+  const added = await withinAllowance(trx, asker.orgId, fresh);
+  if (added.length)
+    await trx
+      .insertInto("org_vault_keys")
+      .values(wrapRows(asker, generation, added))
+      .execute();
   if (added.length || vouches?.length) await vaultChanged(trx, asker.orgId);
-  if (!added.length) return;
+  await auditAdded(trx, asker, generation, added);
+}
+
+async function holdersAt(
+  trx: Transaction<Tables>,
+  orgId: string,
+  generation: number,
+): Promise<Set<string>> {
+  const rows = await trx
+    .selectFrom("org_vault_keys")
+    .select("host_key")
+    .where("org_id", "=", orgId)
+    .where("generation", "=", generation)
+    .execute();
+  return new Set(rows.map((row) => row.host_key));
+}
+
+/**
+ * Those of `keys`, all for hosts without one, that stay within how many of a plain member's hosts
+ * get the key in an hour. Each that leaves has the key replaced, and the vault takes no write
+ * until then.
+ */
+async function withinAllowance(
+  trx: Transaction<Tables>,
+  orgId: string,
+  keys: OrgWrappedKey[],
+): Promise<OrgWrappedKey[]> {
+  if (!keys.length) return [];
+  const hosts = await memberHosts(trx, orgId)
+    .where(
+      "devices.key",
+      "in",
+      keys.map((key) => key.hostKey),
+    )
+    .where("org_users.role", "=", "user")
+    .execute();
+  const memberOf = new Map(hosts.map((host) => [host.key, host.user_id]));
+  if (!memberOf.size) return keys;
   const given = await trx
+    .selectFrom("audit")
+    .select(sql<string>`detail->>'member'`.as("member"))
+    .select((eb) => eb.fn.countAll<string>().as("count"))
+    .where("subject", "=", orgId)
+    .where("action", "=", "org_vault.key_added")
+    .where("at", ">", sql<Date>`now() - interval '1 hour'`)
+    .groupBy("member")
+    .execute();
+  const counts = new Map(given.map((row) => [row.member, Number(row.count)]));
+  return keys.filter(({ hostKey }) => {
+    const member = memberOf.get(hostKey);
+    if (member === undefined) return true;
+    const count = (counts.get(member) ?? 0) + 1;
+    counts.set(member, count);
+    return count <= MEMBER_HOSTS_AN_HOUR;
+  });
+}
+
+async function auditAdded(
+  trx: Transaction<Tables>,
+  asker: Asker,
+  generation: number,
+  added: OrgWrappedKey[],
+): Promise<void> {
+  if (!added.length) return;
+  const hosts = await trx
     .selectFrom("devices")
     .select(["key", "user_id", "name"])
     .where(
       "key",
       "in",
-      added.map((row) => row.host_key),
+      added.map((key) => key.hostKey),
     )
     .execute();
-  for (const host of given)
+  for (const host of hosts)
     await auditOrg(trx, asker, "org_vault.key_added", {
       generation,
       host: host.key,
@@ -283,7 +350,8 @@ export async function addOrgKeys(
 
 /**
  * Every wrap is replaced by the new key's, so a host that left keeps only a key nothing is sealed
- * under. A host that neither held the key nor was vouched for is left out. Project entries that do
+ * under. A host that neither held the key nor was vouched for is left out, as is a new one
+ * past its member's allowance. Project entries that do
  * not open on the asking host are dropped, so no member's write can keep the key from being
  * replaced.
  */
@@ -302,15 +370,14 @@ export async function rotateOrgVault(
   await requireHolder(trx, asker, from);
   await requireMemberHosts(trx, orgId, keys);
   await letIn(trx, asker, member, vouches ?? []);
-  const holders = await trx
-    .selectFrom("org_vault_keys")
-    .select("host_key")
-    .where("org_id", "=", orgId)
-    .where("generation", "=", from)
-    .execute();
-  const held = new Set(holders.map((holder) => holder.host_key));
-  const vouched = new Set(await vouchedKeys(trx, orgId, keys));
-  const kept = keys.filter((key) => held.has(key.hostKey) || vouched.has(key));
+  const holders = await holdersAt(trx, orgId, from);
+  const vouched = await vouchedKeys(trx, orgId, keys);
+  const added = await withinAllowance(
+    trx,
+    orgId,
+    vouched.filter((key) => !holders.has(key.hostKey)),
+  );
+  const kept = [...keys.filter((key) => holders.has(key.hostKey)), ...added];
   const current = await trx
     .selectFrom("org_vault_entries")
     .select(["id", "kind", "revision"])
@@ -371,6 +438,7 @@ export async function rotateOrgVault(
     entries: entries.length,
     dropped: drops.length,
   });
+  await auditAdded(trx, asker, next, added);
 }
 
 /**

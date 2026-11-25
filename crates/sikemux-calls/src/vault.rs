@@ -86,7 +86,7 @@ pub struct ShownOrgVault {
     /// The account is an owner or admin there, so this host may add and remove entries.
     pub writes: bool,
     pub model_keys: Vec<ShownOrgModelKey>,
-    /// The entries an owner or admin wrote that this host cannot open, by id.
+    /// The entries that do not open here, for an owner or admin to remove, by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unreadable: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

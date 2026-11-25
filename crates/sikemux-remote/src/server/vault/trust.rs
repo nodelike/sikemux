@@ -76,14 +76,6 @@ pub struct Pins {
     floor: i64,
 }
 
-/// `floor`, unless a clock that was wrong once left it further off than a vouch may be.
-fn sound(floor: i64, now: i64) -> i64 {
-    match floor > now + AHEAD {
-        true => now,
-        false => floor,
-    }
-}
-
 fn under(host: &str, member: &str) -> String {
     format!("{host}|{member}")
 }
@@ -102,7 +94,7 @@ impl Pins {
         Pins {
             hosts: BTreeMap::new(),
             dropped: self.dropped.clone(),
-            floor: now.max(sound(self.floor, now)),
+            floor: now.max(self.floor),
         }
     }
 
@@ -150,7 +142,6 @@ impl Pins {
     /// vouches for what it signed before, as nothing here heard it leave. A list without this
     /// host itself says nothing of the others.
     pub fn refresh(&mut self, org: &str, me: &str, vault: &OrgVault, now: i64) {
-        self.floor = sound(self.floor, now);
         let Some(listed) = listed(vault).filter(|listed| listed.contains_key(me)) else {
             return;
         };
@@ -457,9 +448,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_clock_once_wrong_does_not_put_off_what_is_signed_later() {
+    fn a_clock_once_slow_brings_back_nothing_signed_before() {
         let now = 1_800_000_000_000;
-        let pins = Pins::default().cleared(now + 365 * 24 * 60 * 60 * 1000);
-        assert_eq!(pins.cleared(now).floor, now);
+        let slow = now - 365 * 24 * 60 * 60 * 1000;
+        let vault = serde_json::from_value(serde_json::json!({
+            "generation": 1, "key": null, "holders": [], "waiting": [], "rotate": false,
+            "remadeAt": null, "entries": [], "ended": [], "changes": 0, "since": null,
+            "hosts": [], "vouches": [],
+        }))
+        .unwrap();
+        let mut pins = Pins::default().cleared(now);
+        pins.refresh("org", "me", &vault, slow);
+        assert_eq!(pins.floor, now);
+        assert_eq!(pins.cleared(slow).floor, now);
     }
 }

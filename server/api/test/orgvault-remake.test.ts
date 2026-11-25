@@ -267,6 +267,66 @@ describe("replacing an org's vault key", () => {
   });
 });
 
+describe("how often a plain member's hosts newly get an org's key", () => {
+  it("is at most five times an hour, however the key is sealed", async () => {
+    const { orgId, owner, admin } = await vault();
+    const members = await database.db
+      .selectFrom("org_users")
+      .select(["id", "user_id"])
+      .where("org_id", "=", orgId)
+      .execute();
+    const of = (user: string) =>
+      members.find((row) => row.user_id === user)?.id ?? "";
+    const vouch = (host: TestDevice, user: string) =>
+      database.db
+        .insertInto("org_vault_vouches")
+        .values({
+          org_id: orgId,
+          host_key: host.key,
+          member: of(user),
+          by_key: owner.key,
+          by_member: of(OWNER),
+          at: 1,
+          signature: "A".repeat(86),
+        })
+        .execute();
+    const path = `/v1/orgs/${orgId}/vault`;
+    const held = async () =>
+      (
+        await database.db
+          .selectFrom("org_vault_keys")
+          .select("host_key")
+          .where("org_id", "=", orgId)
+          .execute()
+      ).map((row) => row.host_key);
+    const hosts: TestDevice[] = [];
+    for (let at = 0; at < 6; at += 1) {
+      const host = await registered(app, MEMBER, "host");
+      hosts.push(host);
+      await vouch(host, MEMBER);
+      const put = await signed(owner, `${path}/keys`, "PUT", {
+        generation: 1,
+        keys: [{ hostKey: host.key, wrapped: "key" }],
+        approvedOnly: true,
+      });
+      expect(put.status).toBe(200);
+    }
+    const given = [owner, ...hosts.slice(0, 5)].map(({ key }) => key);
+    expect((await held()).sort()).toEqual([...given].sort());
+
+    await vouch(admin, ADMIN);
+    const all = [owner, admin, ...hosts];
+    const rotated = await signed(owner, `${path}/rotate`, "POST", {
+      from: 1,
+      keys: all.map(({ key }) => ({ hostKey: key, wrapped: "next" })),
+      entries: [],
+      approvedOnly: true,
+    });
+    expect(rotated.status).toBe(200);
+    expect((await held()).sort()).toEqual([...given, admin.key].sort());
+  });
+});
+
 describe("a host that does not say it seals for approved hosts alone", () => {
   it("makes, seals, replaces and makes again no org's key", async () => {
     const { orgId, owner, admin } = await vault();

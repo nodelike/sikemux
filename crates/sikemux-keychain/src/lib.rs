@@ -112,9 +112,12 @@ fn name_like(raw: &str, what: &str) -> KeychainResult<String> {
     Ok(value.to_string())
 }
 
+/// Room for a list kept as one secret, such as the hosts an org's vault trusts.
+const SECRET: usize = 1024 * 1024;
+
 fn secret_like(raw: &str) -> KeychainResult<String> {
     let secret = raw.trim();
-    if secret.is_empty() || secret.len() > 8192 || secret.chars().any(char::is_control) {
+    if secret.is_empty() || secret.len() > SECRET || secret.chars().any(char::is_control) {
         return Err(KeychainError::Invalid(
             "that does not look like a token".into(),
         ));
@@ -206,6 +209,7 @@ mod tests {
     #[test]
     fn a_secret_is_one_line_of_text() {
         assert!(secret_like("two words; \"quoted\"").is_ok());
+        assert!(secret_like(&"a".repeat(100_000)).is_ok());
         for secret in ["", "   ", "a\nb", "a\u{7}b"] {
             assert!(secret_like(secret).is_err(), "{secret:?}");
         }
