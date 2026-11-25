@@ -16,20 +16,22 @@ api.sikemux.com {
 	import sikemux_headers
 	header Referrer-Policy "no-referrer"
 	encode zstd gzip
-	# A stashed file, a shared page and a mod's file may each be 25 MiB, and a push of mod documents
-	# 4 MiB; the API holds each to its own limit. Every other body stays small.
+	# Vault rotations may be ~46 MiB, stashed files, shared pages and mod files 25 MiB, and
+	# mod document pushes or vault keys/vouches up to ~4.3 MiB; the API holds each to its own
+	# limit. Every other body stays small.
+	@vault_rotate `method('POST') && path('/v1/vault/rotate', '/v1/orgs/*/vault/rotate')`
+	request_body @vault_rotate {
+		max_size 50MiB
+	}
 	@upload `(method('POST') && path('/v1/stash')) || (method('PUT') && path('/v1/pages/*', '/v1/mods/*/files/*'))`
 	request_body @upload {
 		max_size 26MiB
 	}
-	@mods_push {
-		method POST
-		path /v1/mods/documents
-	}
-	request_body @mods_push {
+	@batch `(method('POST') && path('/v1/mods/documents')) || (method('PUT') && path('/v1/vault/keys', '/v1/orgs/*/vault/keys', '/v1/orgs/*/vault/vouches'))`
+	request_body @batch {
 		max_size 5MiB
 	}
-	@small_body `!(method('POST') && path('/v1/stash', '/v1/mods/documents')) && !(method('PUT') && path('/v1/pages/*', '/v1/mods/*/files/*'))`
+	@small_body `!(method('POST') && path('/v1/stash', '/v1/mods/documents', '/v1/vault/rotate', '/v1/orgs/*/vault/rotate')) && !(method('PUT') && path('/v1/pages/*', '/v1/mods/*/files/*', '/v1/vault/keys', '/v1/orgs/*/vault/keys', '/v1/orgs/*/vault/vouches'))`
 	request_body @small_body {
 		max_size 1MiB
 	}
