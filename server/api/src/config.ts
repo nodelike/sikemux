@@ -14,6 +14,7 @@ import type { AppleKey } from "./apple-key.ts";
 import { settingsFrom } from "./env.ts";
 import { readJoinSigner, type JoinSigner } from "./join/signer.ts";
 import { readNetwork } from "./network/network.ts";
+import { readResend, type ResendSettings } from "./orgs/mail.ts";
 import { readPush, type PushSettings } from "./push/settings.ts";
 import { version } from "./version.ts";
 
@@ -69,6 +70,8 @@ export interface Config extends MigrationConfig {
   addressProofKey: Buffer | null;
   /** The Google client a work address is proven with; null hides verifying. */
   workGoogle: WorkGoogleSettings | null;
+  /** Resend API settings for org invite emails; null when RESEND_API_KEY is unset. */
+  resend: ResendSettings | null;
   billing: BillingSettings;
   /** Counts a host online only while it is connected, for a film that puts one to sleep. */
   presenceLiveOnly: boolean;
@@ -257,6 +260,7 @@ export function loadConfig(
     problems,
     standInIssuer ? clerkIssuer : null,
   );
+  const resend = readResend(env, problems);
 
   const provider = oneOf(
     "BILLING_PROVIDER",
@@ -303,6 +307,7 @@ export function loadConfig(
       : null,
     reviewAccountUserId,
     workGoogle,
+    resend,
     billing,
     presenceLiveOnly,
     logLevel,

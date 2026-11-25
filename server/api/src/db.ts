@@ -512,6 +512,8 @@ export interface Tables {
     id: Generated<string>;
     org_id: string;
     role: OrgRole;
+    email: ColumnType<string | null, string | null | undefined, string | null>;
+    sent_at: ColumnType<Date | null, Date | null | undefined, Date | null>;
     token_hash: string;
     invited_by: string;
     created_at: CreatedAt;

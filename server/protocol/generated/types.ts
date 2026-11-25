@@ -1263,6 +1263,10 @@ export interface OrgInvite {
   id: OrgInviteId;
   /** The role whoever accepts it joins with. */
   role: OrgRole;
+  /** The address the invite was emailed to; omitted for a link-only invite. */
+  email?: string;
+  /** When the invite email was last sent; omitted for a link-only invite. */
+  sentAt?: string;
   /** The name of who sent it, from their sign-in; null when it has none or cannot be read right now. */
   invitedBy: string | null;
   createdAt: string;
@@ -1271,9 +1275,11 @@ export interface OrgInvite {
 
 export interface OrgInviteCreate {
   role: OrgRole;
+  /** Email the invite to this address. Omit to make a shareable link without sending mail. */
+  email?: string;
 }
 
-/** A new invite. Nothing is sent: the inviter copies the link and passes it on. The link is shown only now; it works once, for 7 days. */
+/** A new or resent invite. When created with an email, Sikemux emails the link as well; the link is shown only now and works once, for 7 days. */
 export interface OrgInviteCreated {
   invite: OrgInvite;
   token: OrgInviteToken;

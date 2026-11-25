@@ -1305,6 +1305,12 @@ pub struct OrgInvite {
     pub id: OrgInviteId,
     /// The role whoever accepts it joins with.
     pub role: OrgRole,
+    /// The address the invite was emailed to; omitted for a link-only invite.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    /// When the invite email was last sent; omitted for a link-only invite.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sent_at: Option<String>,
     /// The name of who sent it, from their sign-in; null when it has none or cannot be read right now.
     pub invited_by: Option<String>,
     pub created_at: String,
@@ -1315,9 +1321,12 @@ pub struct OrgInvite {
 #[serde(rename_all = "camelCase")]
 pub struct OrgInviteCreate {
     pub role: OrgRole,
+    /// Email the invite to this address. Omit to make a shareable link without sending mail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
 }
 
-/// A new invite. Nothing is sent: the inviter copies the link and passes it on. The link is shown only now; it works once, for 7 days.
+/// A new or resent invite. When created with an email, Sikemux emails the link as well; the link is shown only now and works once, for 7 days.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgInviteCreated {

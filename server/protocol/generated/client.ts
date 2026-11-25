@@ -341,7 +341,7 @@ export function apiClient(send: Send) {
     /** Leave an org. */
     leaveOrg: (orgId: string) =>
       send<void>("POST", `/v1/orgs/${encodeURIComponent(orgId)}/leave`),
-    /** Make an invite link, as an owner or an admin. */
+    /** Create an org invite link or email invite, as an owner or an admin. */
     createOrgInvite: (orgId: string, body: OrgInviteCreate) =>
       send<OrgInviteCreated>(
         "POST",
@@ -353,6 +353,12 @@ export function apiClient(send: Send) {
       send<OrgInviteList>(
         "GET",
         `/v1/orgs/${encodeURIComponent(orgId)}/invites`,
+      ),
+    /** Resend an email invite with a fresh link, as an owner or an admin. */
+    resendOrgInvite: (orgId: string, inviteId: string) =>
+      send<OrgInviteCreated>(
+        "POST",
+        `/v1/orgs/${encodeURIComponent(orgId)}/invites/${encodeURIComponent(inviteId)}/resend`,
       ),
     /** Revoke an invite, as an owner or an admin. */
     revokeOrgInvite: (orgId: string, inviteId: string) =>

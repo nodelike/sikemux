@@ -122,6 +122,7 @@ export function testApp(
     hookHosts: new HookHosts(),
     presence: new Presence(),
     txtRecords: async () => [],
+    inviteMail: null,
     billing: {
       provider: new StandInProvider("https://api.sikemux.com"),
       live: false,

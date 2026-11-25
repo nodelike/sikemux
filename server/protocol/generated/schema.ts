@@ -2247,6 +2247,19 @@ export const schema = {
           description: "The role whoever accepts it joins with.",
           $ref: "#/$defs/OrgRole",
         },
+        email: {
+          description:
+            "The address the invite was emailed to; omitted for a link-only invite.",
+          type: "string",
+          minLength: 3,
+          maxLength: 320,
+        },
+        sentAt: {
+          description:
+            "When the invite email was last sent; omitted for a link-only invite.",
+          type: "string",
+          format: "date-time",
+        },
         invitedBy: {
           description:
             "The name of who sent it, from their sign-in; null when it has none or cannot be read right now.",
@@ -2261,13 +2274,22 @@ export const schema = {
     },
     OrgInviteCreate: {
       type: "object",
-      properties: { role: { $ref: "#/$defs/OrgRole" } },
+      properties: {
+        role: { $ref: "#/$defs/OrgRole" },
+        email: {
+          description:
+            "Email the invite to this address. Omit to make a shareable link without sending mail.",
+          type: "string",
+          minLength: 3,
+          maxLength: 320,
+        },
+      },
       required: ["role"],
       additionalProperties: false,
     },
     OrgInviteCreated: {
       description:
-        "A new invite. Nothing is sent: the inviter copies the link and passes it on. The link is shown only now; it works once, for 7 days.",
+        "A new or resent invite. When created with an email, Sikemux emails the link as well; the link is shown only now and works once, for 7 days.",
       type: "object",
       properties: {
         invite: { $ref: "#/$defs/OrgInvite" },

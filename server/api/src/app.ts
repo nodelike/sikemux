@@ -42,6 +42,7 @@ import type { Logger } from "./log.ts";
 import { networkRoutes } from "./network/routes.ts";
 import { membershipRoutes } from "./orgs/host.ts";
 import { orgLogoRoutes } from "./orgs/logo.ts";
+import type { InviteMailer } from "./orgs/mail.ts";
 import { invitePreviewRoutes, orgRoutes } from "./orgs/routes.ts";
 import { orgVaultRoutes } from "./orgvault/routes.ts";
 import { shareRoutes } from "./orgs/shares.ts";
@@ -100,6 +101,8 @@ export interface Services {
   presence: Presence;
   /** The TXT records at a DNS name, each one's strings joined; throws when the lookup fails. */
   txtRecords: (name: string) => Promise<string[]>;
+  /** Sends org invite emails via Resend; null when RESEND_API_KEY is unset. */
+  inviteMail: InviteMailer | null;
   billing: {
     /** Null when BILLING_PROVIDER is not set, and buying or changing anything answers unavailable. */
     provider: BillingProvider | null;

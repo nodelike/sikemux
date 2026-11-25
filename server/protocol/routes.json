@@ -1183,7 +1183,7 @@
       "method": "post",
       "path": "/v1/orgs/{orgId}/invites",
       "operationId": "createOrgInvite",
-      "summary": "Make an invite link, as an owner or an admin",
+      "summary": "Create an org invite link or email invite, as an owner or an admin",
       "auth": "session",
       "request": "OrgInviteCreate",
       "responses": {
@@ -1192,7 +1192,7 @@
           "body": "OrgInviteCreated"
         },
         "400": {
-          "description": "The body is not a valid OrgInviteCreate.",
+          "description": "The body is not a valid OrgInviteCreate, or the email address is invalid.",
           "body": "ApiError"
         },
         "403": {
@@ -1204,7 +1204,11 @@
           "body": "ApiError"
         },
         "409": {
-          "description": "Every seat is held by a member or a pending invite; add seats to the Team plan first.",
+          "description": "Every seat is held by a member or a pending invite, or a pending invite already exists for that email.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "Email invites are not configured, or the mail service could not send the email.",
           "body": "ApiError"
         }
       }
@@ -1226,6 +1230,39 @@
         },
         "404": {
           "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/orgs/{orgId}/invites/{inviteId}/resend",
+      "operationId": "resendOrgInvite",
+      "summary": "Resend an email invite with a fresh link, as an owner or an admin",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "A fresh invite link was emailed to the address and expires in 7 days.",
+          "body": "OrgInviteCreated"
+        },
+        "400": {
+          "description": "The invite is link-only and has no email address.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Your role in the org does not allow it. Only an owner resends an invite to be an owner.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "You are not in an org with that id, or the org has no pending invite with that id.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "Too many invite emails resent.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "Email invites are not configured, or the mail service could not send the email.",
           "body": "ApiError"
         }
       }

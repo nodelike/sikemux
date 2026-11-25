@@ -29,6 +29,26 @@ describe("loadConfig", () => {
     expect(loadConfig(minimal)).toMatchObject({
       host: "127.0.0.1",
       port: 4000,
+      resend: null,
+    });
+  });
+
+  it("reads optional Resend settings with the default sender", () => {
+    expect(
+      loadConfig({ ...minimal, RESEND_API_KEY: "re_test_123" }).resend,
+    ).toEqual({
+      apiKey: "re_test_123",
+      from: "Sikemux <invites@sikemux.com>",
+    });
+    expect(
+      loadConfig({
+        ...minimal,
+        RESEND_API_KEY: "re_test_123",
+        RESEND_FROM: "Team <team@sikemux.com>",
+      }).resend,
+    ).toEqual({
+      apiKey: "re_test_123",
+      from: "Team <team@sikemux.com>",
     });
   });
 

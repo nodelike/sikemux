@@ -32,6 +32,7 @@ import {
 import { PREVIEW_SEATS, requireTeam } from "../billing/team.ts";
 import type { Tables } from "../db.ts";
 import {
+  ApiFailure,
   badRequest,
   conflict,
   forbidden,
@@ -43,6 +44,7 @@ import { clientAddress, limit, perUser } from "../limits.ts";
 import { dropUnshared } from "../orgvault/projects.ts";
 import { domainRoutes } from "./domains.ts";
 import { auditRoutes } from "./log.ts";
+import { normalizeInviteEmail } from "./mail.ts";
 import { policyRoutes } from "./policy.ts";
 import { manages } from "./roles.ts";
 import {
@@ -78,6 +80,10 @@ function inviteBody(
   return {
     id: invite.id,
     role: invite.role,
+    ...(invite.email !== null ? { email: invite.email } : {}),
+    ...(invite.sent_at !== null
+      ? { sentAt: invite.sent_at.toISOString() }
+      : {}),
     invitedBy: named.get(invite.invited_by)?.name ?? null,
     createdAt: invite.created_at.toISOString(),
     expiresAt: invite.expires_at.toISOString(),
@@ -162,6 +168,7 @@ export function orgRoutes({
   appOrigin,
   billing: { live, provider },
   txtRecords,
+  inviteMail,
 }: Pick<
   Services,
   | "database"
@@ -171,6 +178,7 @@ export function orgRoutes({
   | "appOrigin"
   | "billing"
   | "txtRecords"
+  | "inviteMail"
 >) {
   const people = peopleNamer(clerk);
 
@@ -488,44 +496,110 @@ export function orgRoutes({
       async (c) => {
         const { userId } = c.get("identity");
         const orgId = orgIdOf(c);
-        const { role: invited } = await readBody(c, "OrgInviteCreate");
+        const { role: invited, email: rawEmail } = await readBody(
+          c,
+          "OrgInviteCreate",
+        );
+        const email =
+          rawEmail !== undefined ? normalizeInviteEmail(rawEmail) : null;
+        if (email !== null && !inviteMail)
+          throw new ApiFailure(
+            503,
+            "unavailable",
+            "Email invites are not configured",
+          );
         const token = randomBytes(32).toString("base64url");
-        const invite = await db.transaction().execute(async (trx) => {
-          const { role } = await membership(trx, orgId, userId, {
-            lock: true,
+        const { invite, orgName: targetOrgName } = await db
+          .transaction()
+          .execute(async (trx) => {
+            const { org, role } = await membership(trx, orgId, userId, {
+              lock: true,
+            });
+            requireRole(role, ["owner", "admin"]);
+            if (!manages(role, invited))
+              throw forbidden("Only an owner may invite an owner.");
+            if (email !== null) {
+              const duplicate = await openInvites(trx, orgId)
+                .select("id")
+                .where("email", "=", email)
+                .executeTakeFirst();
+              if (duplicate)
+                throw conflict(
+                  "There is already a pending invite for that email address.",
+                );
+            }
+            if ((await seatsHeld(trx, orgId)) >= (await seatLimit(trx, orgId)))
+              throw conflict(
+                "Every seat is held by a member or a pending invite; add seats to the Team plan first.",
+              );
+            const created = await trx
+              .insertInto("org_invites")
+              .values({
+                org_id: orgId,
+                role: invited,
+                email,
+                sent_at: email !== null ? sql<Date>`now()` : null,
+                token_hash: inviteTokenHash(token),
+                invited_by: userId,
+                expires_at: sql<Date>`now() + make_interval(days => ${INVITE_DAYS})`,
+              })
+              .returningAll()
+              .executeTakeFirstOrThrow();
+            if (email === null) {
+              await audit(trx, {
+                userId,
+                actor: `user:${userId}`,
+                action: "org.invite_created",
+                subject: orgId,
+                detail: { inviteId: created.id, role: invited },
+              });
+            }
+            return { invite: created, orgName: org.name };
           });
-          requireRole(role, ["owner", "admin"]);
-          if (!manages(role, invited))
-            throw forbidden("Only an owner may invite an owner.");
-          if ((await seatsHeld(trx, orgId)) >= (await seatLimit(trx, orgId)))
-            throw conflict(
-              "Every seat is held by a member or a pending invite; add seats to the Team plan first.",
+        const named = await people(c, [userId]);
+        const link = `${appOrigin}/orgs/join#${token}`;
+        if (email !== null && inviteMail) {
+          try {
+            await inviteMail.sendInvite(
+              {
+                to: email,
+                orgName: targetOrgName,
+                invitedBy: named.get(userId)?.name ?? null,
+                role: invited,
+                expiresAt: invite.expires_at,
+                link,
+              },
+              c.get("log"),
             );
-          const created = await trx
-            .insertInto("org_invites")
-            .values({
-              org_id: orgId,
-              role: invited,
-              token_hash: inviteTokenHash(token),
-              invited_by: userId,
-              expires_at: sql<Date>`now() + make_interval(days => ${INVITE_DAYS})`,
-            })
-            .returningAll()
-            .executeTakeFirstOrThrow();
-          await audit(trx, {
+          } catch (error) {
+            await db
+              .deleteFrom("org_invites")
+              .where("id", "=", invite.id)
+              .where("accepted_at", "is", null)
+              .execute()
+              .catch((cleanupError: unknown) =>
+                c
+                  .get("log")
+                  .error(
+                    { err: cleanupError, orgId, inviteId: invite.id },
+                    "failed to roll back unsent org invite",
+                  ),
+              );
+            throw error;
+          }
+          await audit(db, {
             userId,
             actor: `user:${userId}`,
             action: "org.invite_created",
             subject: orgId,
-            detail: { inviteId: created.id, role: invited },
+            detail: { inviteId: invite.id, role: invited },
           });
-          return created;
-        });
+        }
         c.get("log").info({ orgId, inviteId: invite.id }, "invited to an org");
         const body: OrgInviteCreated = {
-          invite: inviteBody(invite, await people(c, [userId])),
+          invite: inviteBody(invite, named),
           token,
-          link: `${appOrigin}/orgs/join#${token}`,
+          link,
         };
         return c.json(body, 201);
       },
@@ -548,6 +622,114 @@ export function orgRoutes({
       };
       return c.json(body);
     })
+    .post(
+      "/:orgId/invites/:inviteId/resend",
+      perUser(limiter, "resend-org-invite", 10),
+      async (c) => {
+        const { userId } = c.get("identity");
+        const orgId = orgIdOf(c);
+        const inviteId = idParam(
+          c,
+          "inviteId",
+          "The org has no pending invite with that id.",
+        );
+        if (!inviteMail)
+          throw new ApiFailure(
+            503,
+            "unavailable",
+            "Email invites are not configured",
+          );
+        const token = randomBytes(32).toString("base64url");
+        const newHash = inviteTokenHash(token);
+        const {
+          updated,
+          previous,
+          orgName: targetOrgName,
+          email,
+        } = await db.transaction().execute(async (trx) => {
+          const { org, role } = await membership(trx, orgId, userId, {
+            lock: true,
+          });
+          requireRole(role, ["owner", "admin"]);
+          const existing = await openInvites(trx, orgId)
+            .selectAll()
+            .where("id", "=", inviteId)
+            .executeTakeFirst();
+          if (!existing)
+            throw notFound("The org has no pending invite with that id.");
+          if (!manages(role, existing.role))
+            throw forbidden(
+              "Only an owner may resend an invite to be an owner.",
+            );
+          if (existing.email === null)
+            throw badRequest("Only email invites can be resent.");
+          const refreshed = await trx
+            .updateTable("org_invites")
+            .set({
+              token_hash: newHash,
+              sent_at: sql<Date>`now()`,
+              expires_at: sql<Date>`now() + make_interval(days => ${INVITE_DAYS})`,
+            })
+            .where("id", "=", inviteId)
+            .returningAll()
+            .executeTakeFirstOrThrow();
+          return {
+            updated: refreshed,
+            previous: {
+              token_hash: existing.token_hash,
+              sent_at: existing.sent_at,
+              expires_at: existing.expires_at,
+            },
+            orgName: org.name,
+            email: existing.email,
+          };
+        });
+        const named = await people(c, [
+          ...new Set([updated.invited_by, userId]),
+        ]);
+        const link = `${appOrigin}/orgs/join#${token}`;
+        try {
+          await inviteMail.sendInvite(
+            {
+              to: email,
+              orgName: targetOrgName,
+              invitedBy:
+                named.get(userId)?.name ??
+                named.get(updated.invited_by)?.name ??
+                null,
+              role: updated.role,
+              expiresAt: updated.expires_at,
+              link,
+            },
+            c.get("log"),
+          );
+        } catch (error) {
+          await db
+            .updateTable("org_invites")
+            .set(previous)
+            .where("id", "=", inviteId)
+            .where("token_hash", "=", newHash)
+            .where("accepted_at", "is", null)
+            .execute()
+            .catch((cleanupError: unknown) =>
+              c
+                .get("log")
+                .error(
+                  { err: cleanupError, orgId, inviteId },
+                  "failed to restore org invite after resend failure",
+                ),
+            );
+          throw error;
+        }
+        c.get("log").info({ orgId, inviteId }, "resent an org invite");
+        const body: OrgInviteCreated = {
+          invite: inviteBody(updated, named),
+          token,
+          link,
+        };
+        return c.json(body);
+      },
+    )
     .delete(
       "/:orgId/invites/:inviteId",
       perUser(limiter, "revoke-org-invite", 30),

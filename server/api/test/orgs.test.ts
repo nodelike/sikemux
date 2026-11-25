@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { clerkBackend } from "../src/account/clerk.ts";
 import type { Database } from "../src/db.ts";
+import { resendInviteMailer, type InviteEmail } from "../src/orgs/mail.ts";
 import { caller, emptyTables, events, migratedDatabase } from "./accounts.ts";
 import { teamPlan } from "./billing.ts";
 import { FakeClerk } from "./clerk.ts";
@@ -298,6 +299,169 @@ describe("invites", () => {
       .where("id", "=", orgId)
       .execute();
     expect((await invite(OWNER, orgId, "user")).status).toBe(409);
+  });
+
+  it("return 503 when email invites are requested without Resend configured", async () => {
+    const orgId = await createOrg(3);
+    const response = await as(OWNER, `/v1/orgs/${orgId}/invites`, {
+      method: "POST",
+      json: { role: "user", email: "teammate@example.com" },
+    });
+    expect(response.status).toBe(503);
+    expect((await body(response, "ApiError")).error.message).toBe(
+      "Email invites are not configured",
+    );
+  });
+
+  it("validate, normalize, send, list, and resend email invites via Resend", async () => {
+    const sent: InviteEmail[] = [];
+    const resendBodies: Array<{
+      from: string;
+      to: string[];
+      subject: string;
+      html: string;
+      text: string;
+    }> = [];
+    const inviteMail = resendInviteMailer(
+      { apiKey: "re_test_key", from: "Sikemux <invites@sikemux.com>" },
+      async (url, init) => {
+        expect(url).toBe("https://api.resend.com/emails");
+        expect(
+          (init?.headers as Record<string, string> | undefined)?.authorization,
+        ).toBe("Bearer re_test_key");
+        resendBodies.push(JSON.parse(String(init?.body)));
+        return Response.json({ id: "email_1" });
+      },
+    );
+    app = testApp(database, undefined, {
+      clerk: new FakeClerk(),
+      inviteMail: {
+        async sendInvite(invite, log) {
+          sent.push(invite);
+          await inviteMail.sendInvite(invite, log);
+        },
+      },
+    });
+    call = caller(app);
+
+    const orgId = await createOrg(4);
+    expect(
+      (
+        await as(OWNER, `/v1/orgs/${orgId}/invites`, {
+          method: "POST",
+          json: { role: "user", email: "not-an-email" },
+        })
+      ).status,
+    ).toBe(400);
+
+    const createdRes = await as(OWNER, `/v1/orgs/${orgId}/invites`, {
+      method: "POST",
+      json: { role: "admin", email: "  Grace@Example.COM " },
+    });
+    expect(createdRes.status).toBe(201);
+    const created = await body(createdRes, "OrgInviteCreated");
+    expect(created.invite.email).toBe("grace@example.com");
+    expect(created.invite.sentAt).toBeDefined();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.to).toBe("grace@example.com");
+    expect(resendBodies[0]?.from).toBe("Sikemux <invites@sikemux.com>");
+    expect(resendBodies[0]?.html).toContain(created.link);
+    expect(resendBodies[0]?.text).toContain(created.link);
+    expect(resendBodies[0]?.text).toContain("Admin");
+
+    expect(
+      (
+        await as(OWNER, `/v1/orgs/${orgId}/invites`, {
+          method: "POST",
+          json: { role: "user", email: "grace@example.com" },
+        })
+      ).status,
+    ).toBe(409);
+
+    const listed = await body(
+      await as(OWNER, `/v1/orgs/${orgId}/invites`),
+      "OrgInviteList",
+    );
+    expect(listed.invites).toHaveLength(1);
+    expect(listed.invites[0]?.email).toBe("grace@example.com");
+    expect(listed.invites[0]?.sentAt).toBeDefined();
+
+    const resentRes = await as(
+      OWNER,
+      `/v1/orgs/${orgId}/invites/${created.invite.id}/resend`,
+      { method: "POST" },
+    );
+    expect(resentRes.status).toBe(200);
+    const resent = await body(resentRes, "OrgInviteCreated");
+    expect(resent.token).not.toBe(created.token);
+    expect(sent).toHaveLength(2);
+    expect((await join(MEMBER, created.token)).status).toBe(404);
+    expect((await join(MEMBER, resent.token)).status).toBe(200);
+
+    const linkOnly = await body(
+      await invite(OWNER, orgId, "user"),
+      "OrgInviteCreated",
+    );
+    expect(linkOnly.invite.email).toBeUndefined();
+    expect(
+      (
+        await as(
+          OWNER,
+          `/v1/orgs/${orgId}/invites/${linkOnly.invite.id}/resend`,
+          {
+            method: "POST",
+          },
+        )
+      ).status,
+    ).toBe(400);
+  });
+
+  it("rolls back the invite when Resend fails on create or resend", async () => {
+    let fail = true;
+    const inviteMail = resendInviteMailer(
+      { apiKey: "re_test_key", from: "Sikemux <invites@sikemux.com>" },
+      async () =>
+        fail
+          ? Response.json({ name: "application_error" }, { status: 500 })
+          : Response.json({ id: "email_ok" }),
+    );
+    app = testApp(database, undefined, {
+      clerk: new FakeClerk(),
+      inviteMail,
+    });
+    call = caller(app);
+
+    const orgId = await createOrg(2);
+    const failedCreate = await as(OWNER, `/v1/orgs/${orgId}/invites`, {
+      method: "POST",
+      json: { role: "user", email: "alex@example.com" },
+    });
+    expect(failedCreate.status).toBe(503);
+    const afterFailedCreate = await body(
+      await as(OWNER, `/v1/orgs/${orgId}/invites`),
+      "OrgInviteList",
+    );
+    expect(afterFailedCreate.invites).toHaveLength(0);
+
+    fail = false;
+    const created = await body(
+      await as(OWNER, `/v1/orgs/${orgId}/invites`, {
+        method: "POST",
+        json: { role: "user", email: "alex@example.com" },
+      }),
+      "OrgInviteCreated",
+    );
+    fail = true;
+    expect(
+      (
+        await as(
+          OWNER,
+          `/v1/orgs/${orgId}/invites/${created.invite.id}/resend`,
+          { method: "POST" },
+        )
+      ).status,
+    ).toBe(503);
+    expect((await join(MEMBER, created.token)).status).toBe(200);
   });
 });
 

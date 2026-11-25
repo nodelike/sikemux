@@ -2628,7 +2628,7 @@
     "/v1/orgs/{orgId}/invites": {
       "post": {
         "operationId": "createOrgInvite",
-        "summary": "Make an invite link, as an owner or an admin",
+        "summary": "Create an org invite link or email invite, as an owner or an admin",
         "security": [{ "session": [] }],
         "description": "Only the phone's and the web app's sign-ins.",
         "parameters": [
@@ -2657,7 +2657,7 @@
             }
           },
           "400": {
-            "description": "The body is not a valid OrgInviteCreate.",
+            "description": "The body is not a valid OrgInviteCreate, or the email address is invalid.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -2681,7 +2681,15 @@
             }
           },
           "409": {
-            "description": "Every seat is held by a member or a pending invite; add seats to the Team plan first.",
+            "description": "Every seat is held by a member or a pending invite, or a pending invite already exists for that email.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "Email invites are not configured, or the mail service could not send the email.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -2730,6 +2738,86 @@
           },
           "404": {
             "description": "You are not in an org with that id, or your account is not one plans are open to yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orgs/{orgId}/invites/{inviteId}/resend": {
+      "post": {
+        "operationId": "resendOrgInvite",
+        "summary": "Resend an email invite with a fresh link, as an owner or an admin",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "inviteId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A fresh invite link was emailed to the address and expires in 7 days.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OrgInviteCreated" }
+              }
+            }
+          },
+          "400": {
+            "description": "The invite is link-only and has no email address.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role in the org does not allow it. Only an owner resends an invite to be an owner.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "You are not in an org with that id, or the org has no pending invite with that id.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many invite emails resent.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "Email invites are not configured, or the mail service could not send the email.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -9061,6 +9149,17 @@
             "description": "The role whoever accepts it joins with.",
             "$ref": "#/components/schemas/OrgRole"
           },
+          "email": {
+            "description": "The address the invite was emailed to; omitted for a link-only invite.",
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 320
+          },
+          "sentAt": {
+            "description": "When the invite email was last sent; omitted for a link-only invite.",
+            "type": "string",
+            "format": "date-time"
+          },
           "invitedBy": {
             "description": "The name of who sent it, from their sign-in; null when it has none or cannot be read right now.",
             "type": ["string", "null"],
@@ -9074,12 +9173,20 @@
       },
       "OrgInviteCreate": {
         "type": "object",
-        "properties": { "role": { "$ref": "#/components/schemas/OrgRole" } },
+        "properties": {
+          "role": { "$ref": "#/components/schemas/OrgRole" },
+          "email": {
+            "description": "Email the invite to this address. Omit to make a shareable link without sending mail.",
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 320
+          }
+        },
         "required": ["role"],
         "additionalProperties": false
       },
       "OrgInviteCreated": {
-        "description": "A new invite. Nothing is sent: the inviter copies the link and passes it on. The link is shown only now; it works once, for 7 days.",
+        "description": "A new or resent invite. When created with an email, Sikemux emails the link as well; the link is shown only now and works once, for 7 days.",
         "type": "object",
         "properties": {
           "invite": { "$ref": "#/components/schemas/OrgInvite" },

@@ -14,15 +14,17 @@ import {
   IconCopy,
   IconHourglass,
   IconLink,
+  IconMail,
   IconMore,
   IconPause,
   IconPlus,
+  IconRefresh,
   IconTag,
   IconTrash,
   IconUndo,
   IconUsers,
 } from "@shared/ui/Icons";
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useId, useState, type MouseEvent } from "react";
 
 import { problemText } from "./api.ts";
 import { useClient } from "./client.ts";
@@ -55,6 +57,7 @@ import {
   Confirm,
   Dialog,
   Ending,
+  Field,
   Nothing,
   Notice,
   Page,
@@ -271,7 +274,7 @@ export function PeoplePage({
     if (roleFilter !== "any" && invite.role !== roleFilter) return false;
     if (!trimmed) return true;
     const text =
-      `invite link ${ROLE_WORDS[invite.role]} ${invite.invitedBy ?? ""}`.toLowerCase();
+      `${invite.email ?? "invite link"} ${ROLE_WORDS[invite.role]} ${invite.invitedBy ?? ""}`.toLowerCase();
     return text.includes(trimmed);
   });
 
@@ -410,7 +413,7 @@ export function PeoplePage({
           }
         >
           {only === "pending" && !trimmed && roleFilter === "any"
-            ? "Make a link with Invite when you want to bring someone in."
+            ? "Send an email invite or make a link with Invite when you want to bring someone in."
             : "Try another name, group or role."}
         </Nothing>
       ) : (
@@ -428,6 +431,14 @@ export function PeoplePage({
                 link={recentLinks[invite.id]}
                 fresh={made?.invite.id === invite.id}
                 onChanged={changed}
+                onResent={(resent) => {
+                  setRecentLinks((prev) => ({
+                    ...prev,
+                    [resent.invite.id]: resent.link,
+                  }));
+                  changed(`Invite resent to ${resent.invite.email}`);
+                }}
+                onProblem={setInlineProblem}
               />
             ))}
             {filteredMembers.map((member) => (
@@ -782,21 +793,60 @@ function InviteRow({
   link,
   fresh,
   onChanged,
+  onResent,
+  onProblem,
 }: {
   org: Org;
   invite: OrgInvite;
   link?: string;
   fresh?: boolean;
   onChanged: (text: string) => void;
+  onResent: (resent: OrgInviteCreated) => void;
+  onProblem: (text?: string) => void;
 }) {
   const client = useClient();
   const say = useToast();
   const action = useAction();
   const [revoking, setRevoking] = useState(false);
-  const canRevoke = manages(org.role, invite.role);
+  const canManage = manages(org.role, invite.role);
+  const isEmail = Boolean(invite.email);
+  const label = invite.email ?? "Invite link";
   const expiry = expiresIn(invite.expiresAt);
+  const detail = [
+    invite.invitedBy ? `By ${invite.invitedBy}` : null,
+    invite.sentAt ? `Sent ${formatDay(invite.sentAt, "short")}` : null,
+    expiry,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   const options = [
+    ...(isEmail && canManage
+      ? [
+          {
+            key: "resend",
+            name: "Resend",
+            detail: "Emails a fresh link",
+            icon: <IconRefresh size={14} />,
+            choose: () => {
+              onProblem(undefined);
+              void action.run(
+                async () => {
+                  const resent = await (
+                    await client("resend an invite")
+                  ).resendOrgInvite(org.id, invite.id);
+                  onResent(resent);
+                },
+                (error) => {
+                  const words = `${problemText(error)} The previous invite still works.`;
+                  onProblem(words);
+                  return words;
+                },
+              );
+            },
+          },
+        ]
+      : []),
     ...(link
       ? [
           {
@@ -810,11 +860,11 @@ function InviteRow({
           },
         ]
       : []),
-    ...(canRevoke
+    ...(canManage
       ? [
           {
             key: "revoke",
-            name: "Take back the invite",
+            name: "Revoke",
             detail: "Frees the seat",
             icon: <IconUndo size={14} />,
             bad: true,
@@ -838,16 +888,16 @@ function InviteRow({
         <Who
           lead={
             <span className="m-ghost" aria-hidden="true">
-              <IconLink size={13} />
+              {isEmail ? <IconMail size={13} /> : <IconLink size={13} />}
             </span>
           }
           name={
             <>
-              <span>Invite link</span>
+              <span>{label}</span>
               <Seal tone="wait">Invited</Seal>
             </>
           }
-          detail={`${invite.invitedBy ? `By ${invite.invitedBy} · ` : ""}${expiry}`}
+          detail={detail}
           phone={ROLE_WORDS[invite.role]}
         />
       </Td>
@@ -864,7 +914,7 @@ function InviteRow({
         {options.length > 0 ? (
           <Popover
             look="icon"
-            label="More for invite link"
+            label={isEmail ? `More for ${label}` : "More for invite link"}
             disabled={action.busy}
             trigger={<IconMore size={15} />}
             options={options}
@@ -874,10 +924,10 @@ function InviteRow({
       {revoking ? (
         <Confirm
           danger
-          title="Take back this invite?"
+          title={isEmail ? `Revoke invite to ${label}?` : "Revoke this invite?"}
           busy={action.busy}
           problem={action.problem}
-          label="Take back"
+          label="Revoke"
           onCancel={close}
           onConfirm={() =>
             void action.run(
@@ -886,13 +936,17 @@ function InviteRow({
                   await client("revoke an invite")
                 ).revokeOrgInvite(org.id, invite.id);
                 setRevoking(false);
-                onChanged("Invite link revoked. Its seat is free.");
+                onChanged(
+                  isEmail
+                    ? `Invite to ${label} revoked. Its seat is free.`
+                    : "Invite link revoked. Its seat is free.",
+                );
               },
-              (error) => `${problemText(error)} The link still works.`,
+              (error) => `${problemText(error)} The invite still works.`,
             )
           }
         >
-          <p>The link stops working and the seat is free again.</p>
+          <p>The invite link stops working and the seat is free again.</p>
         </Confirm>
       ) : null}
     </Tr>
@@ -917,15 +971,19 @@ function InviteDialog({
   const client = useClient();
   const cheer = useCheer();
   const action = useAction();
+  const emailId = useId();
   const roles = ROLES.filter((each) => manages(org.role, each)).reverse();
+  const [mode, setMode] = useState<"email" | "link">("email");
+  const [email, setEmail] = useState("");
   const [role, setRole] = useState<OrgRole>("user");
   const [copied, setCopied] = useState(false);
 
-  if (made)
+  if (made) {
+    const emailed = Boolean(made.invite.email);
     return (
       <Dialog
         wide
-        title="Link ready"
+        title={emailed ? "Invite sent" : "Link ready"}
         onClose={onClose}
         foot={
           <>
@@ -935,10 +993,12 @@ function InviteDialog({
                 quiet
                 onClick={() => {
                   setCopied(false);
+                  setEmail("");
+                  action.clear();
                   onAnother();
                 }}
               >
-                Make another
+                {emailed ? "Invite another" : "Make another"}
               </Btn>
             ) : null}
             <Btn onClick={onClose}>Done</Btn>
@@ -947,10 +1007,14 @@ function InviteDialog({
       >
         <div className="m-sentrow">
           <span className="m-tick" aria-hidden="true">
-            <IconLink size={13} />
+            {emailed ? <IconMail size={13} /> : <IconLink size={13} />}
           </span>
           <span className="m-sx">
-            <b>{ROLE_WORDS[made.invite.role]} invite</b>
+            <b>
+              {emailed
+                ? `Sent to ${made.invite.email}`
+                : `${ROLE_WORDS[made.invite.role]} invite`}
+            </b>
             <code>{made.link.replace(/^https?:\/\//, "")}</code>
           </span>
           <Btn
@@ -966,26 +1030,38 @@ function InviteDialog({
             }
           >
             {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
-            {copied ? "Copied" : "Copy"}
+            {copied ? "Copied" : "Copy link"}
           </Btn>
         </div>
         <p className="m-hint">
-          Copy it now: it is shown only here and works once, until{" "}
-          {formatDay(made.invite.expiresAt, "long")}.
+          {emailed
+            ? `They have until ${formatDay(made.invite.expiresAt, "long")} to join as ${roleArticle(made.invite.role)}. Copy the link above if you want to share it directly too.`
+            : `Copy it now: it is shown only here and works once, until ${formatDay(made.invite.expiresAt, "long")}.`}
         </p>
       </Dialog>
     );
+  }
+
+  const trimmedEmail = email.trim();
+  const canSubmit = mode === "link" || trimmedEmail.length > 0;
 
   const submit = () => {
+    if (!canSubmit) return;
     void action.run(
       async () => {
         const created = await (
-          await client("make an invite link")
-        ).createOrgInvite(org.id, { role });
+          await client(
+            mode === "email" ? "send an invite" : "make an invite link",
+          )
+        ).createOrgInvite(
+          org.id,
+          mode === "email" ? { role, email: trimmedEmail } : { role },
+        );
         cheer();
         onMade(created);
       },
-      (error) => `${problemText(error)} No link was made.`,
+      (error) =>
+        `${problemText(error)} ${mode === "email" ? "No invite was sent." : "No link was made."}`,
     );
   };
 
@@ -1005,12 +1081,45 @@ function InviteDialog({
           <Btn quiet disabled={action.busy} onClick={onClose}>
             Cancel
           </Btn>
-          <Btn type="submit" busy={action.busy}>
-            Make a link
+          <Btn type="submit" busy={action.busy} disabled={!canSubmit}>
+            {mode === "email" ? "Send invite" : "Make a link"}
           </Btn>
         </>
       }
     >
+      <div className="m-fl">
+        <Seg
+          label="Invite method"
+          value={mode}
+          disabled={action.busy}
+          onChange={(next) => {
+            setMode(next);
+            action.clear();
+          }}
+          options={[
+            { value: "email", name: "Email" },
+            { value: "link", name: "Link" },
+          ]}
+        />
+      </div>
+      {mode === "email" ? (
+        <div className="m-fl">
+          <label htmlFor={emailId}>Email</label>
+          <Field
+            id={emailId}
+            type="email"
+            placeholder="teammate@company.com"
+            autoComplete="off"
+            spellCheck={false}
+            value={email}
+            disabled={action.busy}
+            onChange={(event) => {
+              setEmail(event.target.value);
+              action.clear();
+            }}
+          />
+        </div>
+      ) : null}
       <div className="m-fl">
         <label>Role</label>
         <Seg
@@ -1028,14 +1137,30 @@ function InviteDialog({
       <Problem>{action.problem}</Problem>
       <div className="m-what">
         <span className="cap">What happens next</span>
-        <ol className="m-nexts">
-          <li>You send them the link yourself. Sikemux mails nobody.</li>
-          <li>They sign in, or make an account, and see who asked them.</li>
-          <li>
-            They join as {roleArticle(role)}. Unused links work once and hold a
-            seat for 7 days.
-          </li>
-        </ol>
+        {mode === "email" ? (
+          <ol className="m-nexts">
+            <li>
+              Sikemux emails {trimmedEmail || "them"} a one-time invite link to{" "}
+              {org.name}.
+            </li>
+            <li>
+              They sign in, or make an account, and join as {roleArticle(role)}.
+            </li>
+            <li>
+              Unused invites hold a seat for 7 days. You can resend or revoke
+              anytime.
+            </li>
+          </ol>
+        ) : (
+          <ol className="m-nexts">
+            <li>You send them the link yourself. Sikemux mails nobody.</li>
+            <li>They sign in, or make an account, and see who asked them.</li>
+            <li>
+              They join as {roleArticle(role)}. Unused links work once and hold
+              a seat for 7 days.
+            </li>
+          </ol>
+        )}
       </div>
     </Dialog>
   );

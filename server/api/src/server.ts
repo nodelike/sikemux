@@ -27,6 +27,7 @@ import { attachHooks } from "./hooks/server.ts";
 import { Presence } from "./live/hub.ts";
 import { attachLive } from "./live/server.ts";
 import { openPreviews } from "./pages/preview/previews.ts";
+import { resendInviteMailer } from "./orgs/mail.ts";
 import { NO_PLACES, openPlaces } from "./places.ts";
 import type { Logger } from "./log.ts";
 import { ApnsProvider } from "./push/apns.ts";
@@ -142,6 +143,9 @@ export async function startServer(config: Config, log: Logger) {
     log.warn(
       "STASH_DIR and STASH_KEY are not set: the stash answers unavailable",
     );
+  const inviteMail = config.resend ? resendInviteMailer(config.resend) : null;
+  if (!inviteMail)
+    log.warn("RESEND_API_KEY is not set: email org invites answer unavailable");
   const relayAccess = new RelayAccess(database.db);
   const hookHosts = new HookHosts();
   const presence = config.presenceLiveOnly
@@ -194,6 +198,7 @@ export async function startServer(config: Config, log: Logger) {
     presence,
     txtRecords: async (name) =>
       (await resolveTxt(name)).map((chunks) => chunks.join("")),
+    inviteMail,
     billing: { provider, live: config.billing.live },
   });
   const server = serve(

@@ -360,12 +360,9 @@ function auditLine(
             ...(entry.from ? [", was ", role(entry.from)] : []),
           ]);
     case "invite_created":
-      return renderParts([
-        "made an invite link for a ",
-        strong(role(entry.role)),
-      ]);
+      return renderParts(["invited a ", strong(role(entry.role))]);
     case "invite_revoked":
-      return renderParts(["revoked an invite link"]);
+      return renderParts(["revoked an invite"]);
     case "seats_changed":
       return entry.seats === undefined
         ? renderParts(["changed the seats"])

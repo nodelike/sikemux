@@ -424,6 +424,8 @@ Table org_invites {
   accepted_by text
   accepted_at timestamptz
   revoked_at timestamptz
+  email text [note: '(email IS NULL) OR ((email = lower(email)) AND ((length(email) >= 3) AND (length(email) <= 320)) AND (POSITION((\'@\') IN (email)) > 1))']
+  sent_at timestamptz
 
   indexes {
     (org_id, expires_at) [name: 'org_invites_open', note: 'where ((accepted_at IS NULL) AND (revoked_at IS NULL))']
