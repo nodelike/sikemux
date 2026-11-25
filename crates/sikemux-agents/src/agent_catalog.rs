@@ -688,7 +688,7 @@ pub const AGENTS: &[AgentEntry] = &[
         auto: false,
         commit_models: &[],
         careful_model: None,
-        efforts: &[],
+        efforts: &["low", "medium", "high", "xhigh"],
         install: Some("curl -fsSL https://antigravity.google/cli/install.sh | bash"),
         login: Some(&["acp", "--login"]),
         update: Some(&["update"]),

@@ -385,7 +385,7 @@
             "usage": true,
             "freeModels": false,
             "deletableChats": false,
-            "efforts": [],
+            "efforts": ["low", "medium", "high", "xhigh"],
             "install": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
             "login": ["acp", "--login"],
             "update": ["update"],

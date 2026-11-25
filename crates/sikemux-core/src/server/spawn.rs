@@ -104,6 +104,13 @@ fn own_checkout(params: &Value) -> Result<bool, String> {
     }
 }
 
+/// Default thinking effort for a newly spawned worker when the caller left `effort` out.
+/// Chats the person opens and explicit effort or model-level choices stay as they are.
+fn default_worker_effort(provider: &str, model: Option<&str>) -> Option<String> {
+    let neon = model.is_none_or(|model| model == "gemini-4-neon");
+    (provider == "antigravity" && neon).then(|| "medium".to_owned())
+}
+
 /// The reasoning effort asked for, when `provider`'s CLI takes it.
 fn effort_param(params: &Value, provider: &str) -> Result<Option<String>, String> {
     let Some(effort) = text_param(params, "effort", 32)? else {
@@ -327,6 +334,8 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
     )?;
     if let Some(effort) = plan.effort.clone() {
         launch.effort = Some(effort);
+    } else if plan.resume.is_none() && launch.effort.is_none() {
+        launch.effort = default_worker_effort(&plan.provider, launch.model.as_deref());
     }
     if let Some(saved) = &plan.resume {
         saved::same_account(&plan.provider, &launch, saved)?;
@@ -496,6 +505,8 @@ fn start(
     }
     if let Some(effort) = effort_param(params, &provider)? {
         launch.effort = Some(effort);
+    } else if resume.is_none() && launch.effort.is_none() {
+        launch.effort = default_worker_effort(&provider, launch.model.as_deref());
     }
     if let Some(saved) = resume {
         saved::same_account(&provider, &launch, saved)?;
