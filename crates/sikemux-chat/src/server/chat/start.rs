@@ -274,15 +274,22 @@ pub fn start(
         queue,
         replaced,
     } = core.chats().insert(core, launch_spec, origin, None)?;
-    if resume_id.is_none() && !briefed {
-        *chat.brief.locked() = (core.chat_above().memory_for_chat)(core, &chat.launch.cwd);
-    }
-    if core.workspaces().is_chief(chat.agent_id()) {
-        *chat.brief.locked() = Some((core.chat_above().chief_brief)(core, &chat.launch.cwd));
+    let pinned = resume_id
+        .as_deref()
+        .and_then(|session_id| core.chats().sessions.brief_for(chat.agent_id(), session_id));
+    if let Some(brief) = pinned {
+        chat.set_brief(brief);
     } else {
-        let mut brief = chat.brief.locked();
-        if brief.is_some() || !waking {
-            *brief = super::rotation::with_hired_seat(core, chat.agent_id(), brief.take());
+        if resume_id.is_none() && !briefed {
+            *chat.brief.locked() = (core.chat_above().memory_for_chat)(core, &chat.launch.cwd);
+        }
+        if core.workspaces().is_chief(chat.agent_id()) {
+            *chat.brief.locked() = Some((core.chat_above().chief_brief)(core, &chat.launch.cwd));
+        } else {
+            let mut brief = chat.brief.locked();
+            if brief.is_some() || !waking {
+                *brief = super::rotation::with_hired_seat(core, chat.agent_id(), brief.take());
+            }
         }
     }
     core.workspaces().note_begun(
@@ -373,6 +380,14 @@ pub fn resume(core: &Arc<Core>, record: ChatRecord) {
             queue,
             replaced,
         }) => {
+            let brief = record.brief.or_else(|| {
+                chat.launch
+                    .resume_id
+                    .as_deref()
+                    .and_then(|sid| core.chats().sessions.brief_for(chat.agent_id(), sid))
+                    .flatten()
+            });
+            chat.set_brief(brief);
             if record.unstarted {
                 wait_for_person(&chat);
             }
@@ -487,6 +502,14 @@ pub fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -> CoreR
         kept.origin.clone(),
         Some((feed, flags)),
     )?;
+    let brief = kept.brief.clone().or_else(|| {
+        launch_spec
+            .resume_id
+            .as_deref()
+            .and_then(|sid| core.chats().sessions.brief_for(chat.agent_id(), sid))
+            .flatten()
+    });
+    chat.set_brief(brief);
     if kept.unstarted {
         wait_for_person(&chat);
     }
@@ -627,6 +650,7 @@ pub fn adopt(
         old.reattach_subscribers();
     }
     chat.set_current(live.current);
+    chat.set_brief(live.brief);
     if let Some(kept) = live.model_grant {
         chat.hold_model_grant(core.model_proxy().restore(kept));
     }

@@ -519,7 +519,7 @@ pub async fn run<B: Backend>(
     chat.at_rest.store(false, Ordering::Release);
     let provider = launch.provider.clone();
     let (failed_tx, mut failed_rx) = mpsc::unbounded_channel::<Failed>();
-    let (broken_tx, mut broken_rx) = mpsc::unbounded_channel::<String>();
+    let (broken_tx, broken_rx) = mpsc::unbounded_channel::<String>();
     let (settled_tx, mut settled_rx) = mpsc::unbounded_channel::<u64>();
     // The agent signs in as whoever owns the folder it runs in, so that folder names the
     // account its live limits and failures belong to, whatever the chat was labelled.
@@ -600,6 +600,11 @@ pub async fn run<B: Backend>(
             let (backend, opened) = started?;
             if let Some(core) = chat.core.upgrade() {
                 core.workspaces().note_moved(chat.agent_id(), false);
+                if B::INSTRUCTIONS {
+                    core.chats()
+                        .sessions
+                        .pin_brief(chat.agent_id(), &opened.session_id, brief);
+                }
             }
             sink.loaded();
             let state = SessionState {
@@ -681,6 +686,7 @@ pub async fn run<B: Backend>(
         backend,
         state,
         stalled: stalled_tx,
+        broken: broken_rx,
         letter_turn: false,
         sink: telling,
     };
@@ -697,7 +703,7 @@ pub async fn run<B: Backend>(
         // agent.
         let woke = tokio::select! {
             biased;
-            Some(reason) = broken_rx.recv() => Woke::Broken(reason),
+            Some(reason) = running.broken.recv() => Woke::Broken(reason),
             Some(failed) = failed_rx.recv() => Woke::Failed(failed),
             Some(stalled) = stalled_rx.recv() => Woke::Stalled(stalled),
             Some(settled) = settled_rx.recv() => Woke::Settled(settled),
@@ -716,6 +722,7 @@ pub async fn run<B: Backend>(
                         Err(error) => eprintln!("sikemux core: no handoff note was taken: {error}"),
                     }
                 }
+                running.chat.meter.compaction_over();
                 ControlFlow::Continue(())
             }
             Woke::Command(Some(command)) => running.command(command).await,
@@ -742,10 +749,17 @@ struct Running<'a, B> {
     backend: B,
     state: SessionState,
     stalled: mpsc::UnboundedSender<u64>,
+    broken: mpsc::UnboundedReceiver<String>,
     /// The running turn was started by another agent's message.
     letter_turn: bool,
     /// Tells the chat what a fresh session under it says.
     sink: Sink,
+}
+
+enum Summarise {
+    Ready,
+    Cancelled,
+    Stopped { broke: bool, reason: String },
 }
 
 impl<B: Backend> Running<'_, B> {
@@ -898,6 +912,16 @@ impl<B: Backend> Running<'_, B> {
             }
         };
         self.sink.loaded();
+        if B::INSTRUCTIONS {
+            let rotated_brief =
+                (!brief.instructions.is_empty()).then(|| brief.instructions.clone());
+            self.chat.set_brief(rotated_brief.clone());
+            core.chats().sessions.pin_brief(
+                self.chat.agent_id(),
+                &opened.session_id,
+                rotated_brief,
+            );
+        }
         let from = std::mem::replace(&mut self.state.session_id, opened.session_id);
         self.state.setup = opened.setup;
         self.state.capabilities = opened.capabilities;
@@ -927,22 +951,37 @@ impl<B: Backend> Running<'_, B> {
 
     /// Summarises a big chat whose prompt cache expired before its message goes, unless the
     /// person keeps the full history, so the message reads the summary rather than all of it.
-    /// Answers whether the message may go: not once the person stopped the turn meanwhile.
-    async fn summarise_first(&mut self) -> bool {
+    async fn summarise_first(&mut self) -> Summarise {
         const LOOK: std::time::Duration = std::time::Duration::from_millis(200);
         if !cap::summarises_first(&self.chat) {
-            return true;
+            return Summarise::Ready;
         }
         cap::summarising(&self.chat);
         if let Err(error) = self.backend.compact().await {
             eprintln!("sikemux core: the chat goes as it is, as it was not summarised: {error}");
             self.chat.meter.compaction_over();
-            return true;
+            return Summarise::Ready;
         }
         while self.chat.meter.compacting() && !cap::summarise_stopped(&self.chat) {
-            tokio::time::sleep(LOOK).await;
+            tokio::select! {
+                biased;
+                Some(reason) = self.broken.recv() => {
+                    self.chat.meter.compaction_over();
+                    return Summarise::Stopped { broke: true, reason };
+                }
+                reason = self.backend.closed() => {
+                    self.chat.meter.compaction_over();
+                    return Summarise::Stopped { broke: false, reason };
+                }
+                () = tokio::time::sleep(LOOK) => {}
+            }
         }
-        !cap::summarise_stopped(&self.chat)
+        if cap::summarise_stopped(&self.chat) {
+            let _ = self.backend.cancel().await;
+            self.chat.meter.compaction_over();
+            return Summarise::Cancelled;
+        }
+        Summarise::Ready
     }
 
     /// Writes down where the chat stands before the loop waits for what comes next.
@@ -1307,7 +1346,7 @@ impl<B: Backend> Running<'_, B> {
             ChatCommand::HandOver { reply } => {
                 let _ = reply.send(Err("the chat's loop hands it over itself".into()));
             }
-            ChatCommand::TakeHandoff => {}
+            ChatCommand::TakeHandoff => self.chat.meter.compaction_over(),
         }
         ControlFlow::Continue(())
     }
@@ -1414,9 +1453,15 @@ impl<B: Backend> Running<'_, B> {
         }
         if !crate::server::chat::prompt::is_command(&replay.text) {
             self.rotate_if_due().await;
-            if !self.summarise_first().await {
-                self.chat.finish_turn(turn_answer(StopReason::Cancelled));
-                return ControlFlow::Continue(());
+            match self.summarise_first().await {
+                Summarise::Ready => {}
+                Summarise::Cancelled => {
+                    self.chat.finish_turn(turn_answer(StopReason::Cancelled));
+                    return ControlFlow::Continue(());
+                }
+                Summarise::Stopped { broke, reason } => {
+                    return ControlFlow::Break(self.stopped(broke, reason).await);
+                }
             }
         }
         self.send(replay).await;

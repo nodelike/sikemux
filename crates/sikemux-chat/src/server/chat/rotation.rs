@@ -132,6 +132,15 @@ impl State {
     }
 }
 
+/// The exact system-prompt brief a session started with, kept so resume and restart pass the
+/// same bytes and keep the prompt cache warm.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PinnedBrief {
+    pub session_id: String,
+    pub brief: Option<String>,
+}
+
 /// Where a chat's session stands, kept while the chat sleeps or its core starts again, so an
 /// away or full session still gives way when the chat wakes.
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,6 +150,8 @@ pub struct KeptSession {
     handoff: Option<(String, u64)>,
     full_session: Option<String>,
     meter: cap::KeptMeter,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    briefs: Vec<PinnedBrief>,
 }
 
 pub fn kept(chat: &Chat) -> KeptSession {
@@ -150,6 +161,7 @@ pub fn kept(chat: &Chat) -> KeptSession {
         handoff: inner.handoff.clone(),
         full_session: inner.full_session.clone(),
         meter: (inner.fresh.as_ref()).map_or_else(|| chat.meter.kept(), |fresh| fresh.meter),
+        briefs: Vec::new(),
     }
 }
 
@@ -177,12 +189,54 @@ impl Sessions {
         if !chat.chief() {
             return;
         }
-        let kept = kept(chat);
+        let mut kept = kept(chat);
         let mut saved = self.saved.locked();
+        if let Some(existing) = saved.get(chat.agent_id()) {
+            kept.briefs = existing.briefs.clone();
+        }
         if saved.get(chat.agent_id()) != Some(&kept) {
             saved.insert(chat.agent_id().to_owned(), kept);
             self.file.save_soon(&*saved);
         }
+    }
+
+    /// Pins the exact brief `session_id` launched with so resume and restart pass the same bytes.
+    pub fn pin_brief(&self, agent_id: &str, session_id: &str, brief: Option<String>) {
+        const KEPT_BRIEFS: usize = 2;
+        if session_id.is_empty() {
+            return;
+        }
+        let mut saved = self.saved.locked();
+        let entry = saved.entry(agent_id.to_owned()).or_default();
+        if entry
+            .briefs
+            .iter()
+            .any(|pinned| pinned.session_id == session_id && pinned.brief == brief)
+        {
+            return;
+        }
+        entry
+            .briefs
+            .retain(|pinned| pinned.session_id != session_id);
+        entry.briefs.push(PinnedBrief {
+            session_id: session_id.to_owned(),
+            brief,
+        });
+        if entry.briefs.len() > KEPT_BRIEFS {
+            let drop = entry.briefs.len() - KEPT_BRIEFS;
+            entry.briefs.drain(..drop);
+        }
+        self.file.save_soon(&*saved);
+    }
+
+    /// The exact brief snapshot pinned for `session_id`, if this session has one.
+    pub fn brief_for(&self, agent_id: &str, session_id: &str) -> Option<Option<String>> {
+        self.saved.locked().get(agent_id).and_then(|kept| {
+            kept.briefs
+                .iter()
+                .find(|pinned| pinned.session_id == session_id)
+                .map(|pinned| pinned.brief.clone())
+        })
     }
 
     pub fn kept(&self, agent_id: &str) -> Option<KeptSession> {
@@ -626,4 +680,50 @@ pub fn read(core: &Core, params: RotationBriefParams) -> CoreResult<RotationBrie
         .map_err(|_| "Sikemux no longer keeps that brief")?;
     let brief = serde_json::from_slice(&text).map_err(|_| "that brief could not be read")?;
     Ok(RotationBriefRead { brief })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pinned_brief_persists_byte_identically_across_restart_and_rotation() {
+        let dir = tempfile::tempdir().unwrap();
+        let sessions = Sessions::load(Some(dir.path()));
+        let original = "You are @Chief.\n\nRules:\n- #1 Follow rules.\nDecided:\n- #10 Old.";
+        sessions.pin_brief("chief-1", "sess-1", Some(original.to_owned()));
+        sessions.pin_brief("worker-1", "sess-w", None);
+        sessions.flush();
+
+        let reloaded = Sessions::load(Some(dir.path()));
+        assert_eq!(
+            reloaded.brief_for("chief-1", "sess-1"),
+            Some(Some(original.to_owned()))
+        );
+        assert_eq!(reloaded.brief_for("worker-1", "sess-w"), Some(None));
+        assert_eq!(reloaded.brief_for("chief-1", "sess-new"), None);
+
+        // Rotation pins the new session while keeping the old one until a 3rd rotation evicts it
+        let rotated = "You are @Chief.\n\nRules:\n- #1 Follow rules.\nDecided:\n- #11 New.";
+        reloaded.pin_brief("chief-1", "sess-2", Some(rotated.to_owned()));
+        assert_eq!(
+            reloaded.brief_for("chief-1", "sess-1"),
+            Some(Some(original.to_owned()))
+        );
+        assert_eq!(
+            reloaded.brief_for("chief-1", "sess-2"),
+            Some(Some(rotated.to_owned()))
+        );
+
+        reloaded.pin_brief("chief-1", "sess-3", Some("third".to_owned()));
+        assert_eq!(reloaded.brief_for("chief-1", "sess-1"), None);
+        assert_eq!(
+            reloaded.brief_for("chief-1", "sess-2"),
+            Some(Some(rotated.to_owned()))
+        );
+        assert_eq!(
+            reloaded.brief_for("chief-1", "sess-3"),
+            Some(Some("third".to_owned()))
+        );
+    }
 }

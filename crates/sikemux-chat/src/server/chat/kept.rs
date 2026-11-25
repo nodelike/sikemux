@@ -46,6 +46,9 @@ pub struct KeptChat {
     /// Its agent never started: it waits for the person, as a new chat does.
     #[serde(default)]
     pub unstarted: bool,
+    /// The immutable system-prompt brief snapshot the session started with.
+    #[serde(default)]
+    pub brief: Option<String>,
 }
 
 /// The agent's process, which a core that died leaves running.

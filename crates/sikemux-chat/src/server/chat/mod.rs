@@ -433,6 +433,10 @@ impl Chat {
         self.brief.locked().clone()
     }
 
+    pub fn set_brief(&self, brief: Option<String>) {
+        *self.brief.locked() = brief;
+    }
+
     pub fn keep_task(&self, task: &str) {
         *self.given_task.locked() = Some(task.to_owned());
     }
@@ -964,6 +968,7 @@ impl Chat {
                 .cloned(),
             reloadable: progress.reloadable,
             unstarted: self.unstarted(),
+            brief: self.brief(),
         });
     }
 
@@ -1440,12 +1445,14 @@ impl Chat {
     pub fn send(&self, command: ChatCommand) -> CoreResult<()> {
         if self.unstarted.load(Ordering::Acquire) {
             match command {
+                ChatCommand::Compact | ChatCommand::TakeHandoff => {
+                    self.meter.compaction_over();
+                    return Ok(());
+                }
                 ChatCommand::Cancel
                 | ChatCommand::StopTask { .. }
                 | ChatCommand::DiscardFailed
-                | ChatCommand::Compact
-                | ChatCommand::Suggest
-                | ChatCommand::TakeHandoff => return Ok(()),
+                | ChatCommand::Suggest => return Ok(()),
                 ChatCommand::HandOver { reply } => {
                     let _ = reply.send(Err("it had not started".into()));
                     return Ok(());
@@ -1606,6 +1613,7 @@ impl Chat {
             origin: self.origin.clone(),
             notice: None,
             unstarted: false,
+            brief: self.brief(),
         })
     }
 
@@ -1617,6 +1625,7 @@ impl Chat {
             origin: self.origin.clone(),
             notice: None,
             unstarted: self.unstarted(),
+            brief: self.brief(),
         })
     }
 
@@ -1690,6 +1699,7 @@ impl Chat {
                 agent: handed.released.record(),
                 cli_version: self.cli_version(),
                 model_grant: self.model_grant.locked().take().map(ModelGrant::hand_over),
+                brief: self.brief(),
             },
             released: handed.released,
             subscribers,
@@ -1715,6 +1725,8 @@ pub struct LiveChat {
     pub agent: native::AgentRecord,
     cli_version: Option<String>,
     model_grant: Option<KeptGrant>,
+    #[serde(default)]
+    brief: Option<String>,
 }
 
 /// A [`LiveChat`] and the pipes to its agent, still open in this process.
@@ -1755,6 +1767,9 @@ pub struct ChatRecord {
     /// Its agent never started, so it waits for the person again.
     #[serde(default)]
     pub unstarted: bool,
+    /// The immutable system-prompt brief snapshot the session started with.
+    #[serde(default)]
+    pub brief: Option<String>,
 }
 
 pub fn permission_gone() -> CoreError {

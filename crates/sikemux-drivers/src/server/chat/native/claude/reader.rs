@@ -2048,6 +2048,7 @@ impl Reads for Reader {
     fn closed(&mut self) {
         self.control.close();
         self.asking.close();
+        self.sink.compaction_over();
     }
 }
 

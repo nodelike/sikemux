@@ -32,9 +32,11 @@ const OPEN_SHARE: usize = 3_000;
 const COMPACTING_MS: u64 = 10 * 60_000;
 /// Claude Code keeps the prompt cache an hour; idle this long, a compaction still reads it warm.
 const IDLE_COMPACT_MS: u64 = 50 * 60_000;
+const SLEEP_COMPACT_MS: u64 = 40 * 60_000;
 const CACHE_MS: u64 = 60 * 60_000;
 /// Gemini implicit prompt cache expires near 5 minutes; compact at 4 minutes while still warm.
 const ANTIGRAVITY_IDLE_COMPACT_MS: u64 = 4 * 60_000;
+const ANTIGRAVITY_SLEEP_COMPACT_MS: u64 = 3 * 60_000;
 const ANTIGRAVITY_CACHE_MS: u64 = 5 * 60_000;
 const ANTIGRAVITY_IDLE_COMPACT_TOKENS: u64 = 100_000;
 
@@ -68,6 +70,14 @@ fn idle_compact_ms_for(provider: &str) -> Option<u64> {
     match provider {
         "claude" => Some(IDLE_COMPACT_MS),
         "antigravity" => Some(ANTIGRAVITY_IDLE_COMPACT_MS),
+        _ => None,
+    }
+}
+
+fn sleep_compact_ms_for(provider: &str) -> Option<u64> {
+    match provider {
+        "claude" => Some(SLEEP_COMPACT_MS),
+        "antigravity" => Some(ANTIGRAVITY_SLEEP_COMPACT_MS),
         _ => None,
     }
 }
@@ -497,13 +507,16 @@ pub fn compact_idle(core: &Core, now: u64) {
     }
 }
 
-/// Compacts a big chat about to sleep while its cache is still warm, as it may sleep past the
-/// cache's life. Answers whether it is compacting, to sleep once it is done.
+/// Compacts a big chat about to sleep only once it has already sat idle long enough that its
+/// cache is nearing expiry, so brief tab switches never trigger compaction.
 pub fn compact_before_sleep(core: &Core, agent_id: &str, now: u64) -> bool {
     let Some(chat) = core.chats().get(agent_id) else {
         return false;
     };
-    let Some(cache_life) = cache_ms_for(chat.provider()) else {
+    let (Some(cache_life), Some(min_idle)) = (
+        cache_ms_for(chat.provider()),
+        sleep_compact_ms_for(chat.provider()),
+    ) else {
         return false;
     };
     let due = !chat.chief()
@@ -514,7 +527,7 @@ pub fn compact_before_sleep(core: &Core, agent_id: &str, now: u64) -> bool {
         && !waiting_on_process(core, &chat)
         && (chat.meter)
             .worth_compacting(now, big_from(&chat), cache_life)
-            .is_some();
+            .is_some_and(|idle| idle >= min_idle);
     if due {
         compact(core, &chat, now);
     }
@@ -529,7 +542,9 @@ fn compact(core: &Core, chat: &Chat, now: u64) {
     } else {
         ChatCommand::Compact
     };
-    let _ = chat.send(command);
+    if chat.send(command).is_err() {
+        chat.meter.compaction_over();
+    }
 }
 
 /// A chat stays awake while it compacts, and a chief's until its idle stretch has been
@@ -544,4 +559,60 @@ pub fn holds_awake(core: &Core, agent_id: &str, now: u64) -> bool {
                         .is_some()
                 }))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sleep_compact_skips_brief_tab_switches_and_fires_near_cache_expiry() {
+        let meter = Meter::default();
+        meter.take_up(KeptMeter {
+            last_call_ms: 1_000_000,
+            context: 180_000,
+            compacted: false,
+            keeps_history: false,
+            forgot_at: 0,
+        });
+        let claude_life = cache_ms_for("claude").unwrap();
+        let claude_min = sleep_compact_ms_for("claude").unwrap();
+        // 30s and 2m idle must not compact before sleep
+        assert!(meter
+            .worth_compacting(1_000_000 + 30_000, IDLE_COMPACT_TOKENS, claude_life)
+            .is_some_and(|idle| idle < claude_min));
+        assert!(meter
+            .worth_compacting(1_000_000 + 2 * 60_000, IDLE_COMPACT_TOKENS, claude_life)
+            .is_some_and(|idle| idle < claude_min));
+        // 40m idle is eligible to compact before sleep while cache is still warm
+        assert!(meter
+            .worth_compacting(1_000_000 + 40 * 60_000, IDLE_COMPACT_TOKENS, claude_life)
+            .is_some_and(|idle| idle >= claude_min));
+
+        let agy_life = cache_ms_for("antigravity").unwrap();
+        let agy_min = sleep_compact_ms_for("antigravity").unwrap();
+        assert!(meter
+            .worth_compacting(
+                1_000_000 + 2 * 60_000,
+                ANTIGRAVITY_IDLE_COMPACT_TOKENS,
+                agy_life
+            )
+            .is_some_and(|idle| idle < agy_min));
+        assert!(meter
+            .worth_compacting(
+                1_000_000 + 3 * 60_000,
+                ANTIGRAVITY_IDLE_COMPACT_TOKENS,
+                agy_life
+            )
+            .is_some_and(|idle| idle >= agy_min));
+    }
+
+    #[test]
+    fn compaction_over_clears_compacting_wake_lock_immediately() {
+        let meter = Meter::default();
+        meter.compacting_since.store(epoch_ms(), Ordering::Release);
+        assert!(meter.compacting());
+        meter.compaction_over();
+        assert!(!meter.compacting());
+    }
 }
