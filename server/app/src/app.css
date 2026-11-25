@@ -610,17 +610,6 @@ canvas.dots {
 .full-err {
   grid-column: 1/-1;
 }
-.linkbox {
-  display: flex;
-  align-items: center;
-  min-height: var(--ctl);
-  max-width: 100%;
-  padding: 4px 10px;
-  border-radius: var(--r);
-  background: var(--well);
-  box-shadow: inset 0 0 0 1px var(--fline);
-  overflow-wrap: anywhere;
-}
 .form {
   align-items: center;
   display: flex;
@@ -2015,16 +2004,6 @@ dialog.dlg::backdrop {
 
 .after {
   grid-column: 1 / -1;
-}
-.box .line {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 32px;
-}
-.box .line > span:nth-child(2) {
-  flex: 1;
-  min-width: 0;
 }
 .box > form {
   display: contents;

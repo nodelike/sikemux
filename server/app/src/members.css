@@ -1,0 +1,333 @@
+/* Members, Invite, Groups and Domains. */
+
+.m-down {
+  rotate: 90deg;
+}
+
+.m-dim {
+  color: var(--two);
+  font-size: var(--t2);
+}
+
+.m-none {
+  color: var(--meta);
+  font-size: var(--t2);
+}
+
+.m-plainrole {
+  font-size: var(--t2);
+  color: var(--two);
+}
+
+.m-seats {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: var(--ctl);
+  padding: 0 10px;
+  border-radius: var(--r);
+  color: var(--two);
+  font-size: var(--t2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+a.m-seats:hover {
+  background: var(--on);
+  color: var(--lit);
+}
+
+.m-bar {
+  width: 56px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line2);
+  overflow: hidden;
+  flex: none;
+}
+
+.m-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--acc);
+}
+
+.tr.soft .who {
+  padding: 6px 0;
+}
+
+.m-ghost {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+  color: var(--meta);
+  background: repeating-conic-gradient(
+      var(--line2) 0 12deg,
+      transparent 12deg 24deg
+    )
+    border-box;
+}
+
+.m-ghost::before {
+  content: "";
+  position: absolute;
+  inset: 1.2px;
+  border-radius: 50%;
+  background: var(--sheet-hi);
+  z-index: -1;
+}
+
+.m-skel-av {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.m-skel-bar {
+  height: 10px;
+  border-radius: 4px;
+}
+
+.m-skel-chip {
+  height: 18px;
+  border-radius: 4px;
+}
+
+.m-solo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.m-solo > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.m-solo b {
+  font-weight: 600;
+}
+
+.m-solo p {
+  margin-top: 2px;
+  color: var(--two);
+  font-size: var(--t2);
+}
+
+.m-fl {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.m-fl > label {
+  font-size: var(--t2);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.m-fl .seg {
+  display: flex;
+}
+
+.m-fl .seg button {
+  flex: 1;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.m-hint {
+  font-size: var(--t2);
+  color: var(--two);
+  line-height: 1.45;
+}
+
+.m-what {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.m-nexts {
+  counter-reset: next;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.m-nexts li {
+  counter-increment: next;
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 9px;
+  font-size: var(--t2);
+  color: var(--two);
+  line-height: 1.45;
+}
+
+.m-nexts li::before {
+  content: counter(next);
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--on);
+  font-size: var(--t3);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.m-sentrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 50px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.m-tick {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--acc-bg);
+  color: var(--acc);
+}
+
+.m-sx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.m-sx b {
+  font-weight: 500;
+  font-size: var(--t);
+  color: var(--ink);
+}
+
+.m-sx code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--two);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn.m-did {
+  color: var(--ok);
+}
+
+.m-picklist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 360px;
+  overflow-y: auto;
+  margin: 0 -8px;
+}
+
+.m-pickrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 8px;
+  border-radius: var(--r);
+}
+
+.m-pickrow:hover {
+  background: var(--hover);
+}
+
+.m-pickrow-who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.m-pickrow-who b {
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-pickrow-who small {
+  color: var(--two);
+  font-size: var(--t2);
+}
+
+.m-dlg-search .search {
+  width: 100%;
+}
+
+/* Billing seats strip (kept for Seats.tsx compatibility). */
+.m-seatw {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.m-seatstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.m-seat-link,
+.m-seat-free {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+
+.m-seat-link {
+  background: var(--acc-bg);
+  color: var(--acc);
+}
+
+.m-seat-free {
+  box-shadow: inset 0 0 0 1.5px var(--line2);
+}
+
+@media (max-width: 860px) {
+  .tools .m-seats {
+    order: 5;
+    padding: 0;
+  }
+
+  .m-solo {
+    flex-wrap: wrap;
+  }
+
+  .m-solo .btn {
+    width: 100%;
+  }
+
+  .m-fl .seg button {
+    height: 36px;
+  }
+}

@@ -9,21 +9,26 @@ import type {
 } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
 import {
+  IconCheck,
+  IconChevron,
   IconCopy,
-  IconExpandAll,
+  IconHourglass,
   IconLink,
-  IconLogOut,
   IconMore,
+  IconPause,
   IconPlus,
-  IconStack,
+  IconTag,
+  IconTrash,
+  IconUndo,
+  IconUsers,
 } from "@shared/ui/Icons";
-import { useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 
 import { problemText } from "./api.ts";
 import { useClient } from "./Billing.tsx";
 import { useCheer } from "./Field.tsx";
 import { useOrgMark } from "./logos.ts";
-import { iconMark } from "./marks.ts";
+import "./members.css";
 import { orgPath } from "./navigation.ts";
 import {
   changeable,
@@ -35,43 +40,91 @@ import {
   useLoad,
 } from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
-import { freeSeats, MemberAvatar, people, Seats } from "./Seats.tsx";
+import {
+  copyText,
+  freeSeats,
+  MemberAvatar,
+  nameOf,
+  people,
+  SeatsStrip,
+} from "./Seats.tsx";
 import {
   Btn,
   btnClass,
-  Section,
   Chip,
   Confirm,
-  Empty,
-  Field,
+  Dialog,
+  Ending,
+  Nothing,
+  Notice,
   Page,
   Popover,
   Problem,
-  Row,
-  Rows,
+  Seal,
+  Search,
   Seg,
   Switch,
-  Tile,
-  Txt,
+  Table,
+  Td,
+  Tr,
   useAction,
   useToast,
+  Who,
 } from "./ui.tsx";
 
 const ROLES: OrgRole[] = ["owner", "admin", "user"];
 
 const ROLE_DETAIL: Record<OrgRole, string> = {
   owner: "Everything, with the bill",
-  admin: "People, domains and policy",
+  admin: "People, domains and rules",
   user: "Works in the org",
 };
 
-const nameOf = (member: OrgMember) => member.name ?? "Someone";
+const ROLE_FILTER_LABELS: Record<"any" | OrgRole, string> = {
+  any: "Any role",
+  owner: "Owners",
+  admin: "Admins",
+  user: "Members",
+};
 
-const copyText = (text: string) =>
-  navigator.clipboard.writeText(text).then(
-    () => true,
-    () => false,
+const MEMBER_COLS =
+  "minmax(210px, 1.6fr) 112px minmax(140px, 1.1fr) 118px 44px";
+
+const roleArticle = (role: OrgRole) =>
+  role === "owner" ? "an Owner" : role === "admin" ? "an Admin" : "a Member";
+
+function expiresIn(iso: string): string {
+  const days = Math.ceil((Date.parse(iso) - Date.now()) / 86_400_000);
+  if (!Number.isFinite(days)) return `Ends ${formatDay(iso, "short")}`;
+  if (days <= 0) return "Ends today";
+  if (days === 1) return "Ends tomorrow";
+  return `${days} days left`;
+}
+
+function ownerNames(members: OrgMember[]): string {
+  const names = members
+    .filter((each) => each.role === "owner")
+    .map((each) => each.name)
+    .filter((each): each is string => Boolean(each));
+  if (names.length === 0) return "an owner";
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
+}
+
+function usePhone(): boolean {
+  const [phone, setPhone] = useState(
+    () =>
+      typeof matchMedia !== "undefined" &&
+      matchMedia("(max-width: 860px)").matches,
   );
+  useEffect(() => {
+    const query = matchMedia("(max-width: 860px)");
+    const update = () => setPhone(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return phone;
+}
 
 export function PeoplePage({
   org,
@@ -90,8 +143,17 @@ export function PeoplePage({
 }) {
   const client = useClient();
   const say = useToast();
+  const phone = usePhone();
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"any" | OrgRole>("any");
+  const [only, setOnly] = useState<"all" | "pending">("all");
   const [inviting, setInviting] = useState(false);
   const [made, setMade] = useState<OrgInviteCreated>();
+  const [recentLinks, setRecentLinks] = useState<Record<string, string>>({});
+  const [inlineProblem, setInlineProblem] = useState<string>();
+  const [groupsFor, setGroupsFor] = useState<string>();
+  const [askingLeave, setAskingLeave] = useState(false);
+
   const loaded = useLoad(async () => {
     const routes = await client("see your org");
     const [{ members }, { invites }, { teams }] = await Promise.all([
@@ -105,6 +167,7 @@ export function PeoplePage({
   }, `${version}:${org.role}`);
 
   const changed = (text: string, undo?: () => Promise<void>) => {
+    setInlineProblem(undefined);
     say(text, undo);
     loaded.again();
     void reload();
@@ -112,91 +175,47 @@ export function PeoplePage({
 
   const scene = orgScene(org.id);
   const mark = useOrgMark(org);
+  const { members, invites, teams } = loaded.data ?? {};
+  const free = freeSeats(org);
+  const open = changeable(org, team);
+  const ended = renewable(org, team);
+  const billing = orgPath(org.id, "billing");
+  const canManageOrg = runs(org) && open;
 
   if (loaded.problem)
     return (
       <Page
-        title="People didn't load"
-        lede="Nothing in the org has changed."
-        actions={<Btn onClick={loaded.again}>Try again</Btn>}
+        title="Members"
+        lede="Everyone in the org."
         mark={mark}
         scene={scene}
         tone="failed"
       >
-        <Section label="People">
-          <Problem>{loaded.problem}</Problem>
-        </Section>
+        <Nothing
+          title="Members didn't load"
+          actions={<Btn onClick={loaded.again}>Try again</Btn>}
+        >
+          {loaded.problem} Nothing in the org has changed.
+        </Nothing>
       </Page>
     );
 
-  const { members, invites, teams } = loaded.data ?? {};
-  const free = freeSeats(org);
   const boss = members?.find((each) => each.role === "owner");
   const bossName = boss?.name ?? "An owner";
-  const open = changeable(org, team);
-  const ended = renewable(org, team);
-  const billing = orgPath(org.id, "billing");
-
-  const body = members && invites && teams && (
-    <>
-      <Section label="People" count={members.length}>
-        <Rows>
-          {members.map((member) => (
-            <MemberRow
-              key={member.id}
-              org={org}
-              member={member}
-              groups={teams
-                .filter((each) => each.members.includes(member.id))
-                .map((each) => each.name)}
-              onChanged={changed}
-            />
-          ))}
-        </Rows>
-      </Section>
-      <Seats org={org} members={members} />
-      {runs(org) && (open || invites.length > 0) ? (
-        <Invites org={org} invites={invites} made={made} onChanged={changed} />
-      ) : null}
-      <Groups
-        org={org}
-        members={members}
-        teams={teams}
-        editable={runs(org) && open}
-        onChanged={changed}
-      />
-      <Leave org={org} members={members} onLeft={onLeft} />
-    </>
+  const soleOwner = Boolean(
+    members &&
+    org.role === "owner" &&
+    members.filter((each) => each.role === "owner").length === 1,
   );
 
-  if (inviting && open)
-    return (
-      <InvitePage
-        org={org}
-        made={made}
-        onMade={(created) => {
-          setMade(created);
-          loaded.again();
-          void reload();
-        }}
-        onAnother={() => setMade(undefined)}
-        onClose={() => setInviting(false)}
-      >
-        {body}
-      </InvitePage>
-    );
-
-  if (frozen(org))
-    return (
-      <Page
-        title={`${org.name} is ${ended ? "frozen" : "paused"}`}
-        lede={
-          ended
-            ? "Its Team plan ended. Nothing is deleted."
-            : "Team isn't open to your account now. Nothing is deleted."
-        }
+  const notice = frozen(org) ? (
+    ended ? (
+      <Notice
+        icon={<IconHourglass size={17} />}
+        tone="cold"
+        title={`${org.name} is frozen`}
         actions={
-          !ended ? undefined : org.role === "owner" ? (
+          org.role === "owner" ? (
             <a
               className={btnClass({})}
               href={billing}
@@ -205,178 +224,341 @@ export function PeoplePage({
               Renew Team
             </a>
           ) : (
-            <p className="note">{bossName} can renew it.</p>
+            <span className="m-dim">{bossName} can renew it</span>
           )
         }
-        mark={mark}
-        scene={scene}
-        tone="waiting"
       >
-        {body ?? <Loading />}
-      </Page>
-    );
+        Its Team plan ended. Nothing is deleted.
+      </Notice>
+    ) : (
+      <Notice icon={<IconPause size={17} />} title={`${org.name} is paused`}>
+        Team isn't open to your account now. Nothing is deleted.
+      </Notice>
+    )
+  ) : !members ? null : !open ? (
+    <Notice
+      icon={<IconPause size={17} />}
+      title="Team isn't open to your account now"
+    >
+      You can still read, hand over and leave.
+    </Notice>
+  ) : !runs(org) ? (
+    <Notice icon={<IconUsers size={17} />} title="Want to bring someone in?">
+      Ask {ownerNames(members)} for an invite.
+    </Notice>
+  ) : free === 0 ? (
+    org.preview ? (
+      <Notice
+        icon={<IconUsers size={17} />}
+        title={`The preview holds ${org.seats.limit}`}
+      >
+        Take back an invite or remove someone to free a seat.
+      </Notice>
+    ) : (
+      <Notice icon={<IconUsers size={17} />} title="Every seat is taken">
+        {org.role === "owner"
+          ? "Add seats, or take back an invite to free one."
+          : `${bossName} can add seats.`}
+      </Notice>
+    )
+  ) : null;
+
+  const trimmed = query.trim().toLowerCase();
+  const teamsOf = (memberId: string) =>
+    teams?.filter((each) => each.members.includes(memberId)) ?? [];
+
+  const filteredInvites = (invites ?? []).filter((invite) => {
+    if (roleFilter !== "any" && invite.role !== roleFilter) return false;
+    if (!trimmed) return true;
+    const text =
+      `invite link ${ROLE_WORDS[invite.role]} ${invite.invitedBy ?? ""}`.toLowerCase();
+    return text.includes(trimmed);
+  });
+
+  const filteredMembers =
+    only === "pending"
+      ? []
+      : (members ?? []).filter((member) => {
+          if (roleFilter !== "any" && member.role !== roleFilter) return false;
+          if (!trimmed) return true;
+          const groupNames = teamsOf(member.id)
+            .map((each) => each.name)
+            .join(" ");
+          return `${nameOf(member)} ${groupNames}`
+            .toLowerCase()
+            .includes(trimmed);
+        });
+
+  const hasFilter = trimmed !== "" || roleFilter !== "any" || only !== "all";
+  const clearFilters = () => {
+    setQuery("");
+    setRoleFilter("any");
+    setOnly("all");
+  };
+
+  const openInvite = () => {
+    setMade(undefined);
+    setInviting(true);
+  };
+
+  const inviteButton = !canManageOrg ? null : free === 0 &&
+    !org.preview &&
+    org.role === "owner" ? (
+    <a className={btnClass({})} href={billing} onClick={follow(billing)}>
+      <IconPlus size={14} />
+      Add seats
+    </a>
+  ) : free === 0 ? (
+    <Btn disabled>
+      <IconPlus size={14} />
+      Invite
+    </Btn>
+  ) : (
+    <Btn onClick={openInvite}>
+      <IconPlus size={14} />
+      Invite
+    </Btn>
+  );
+
+  const tools = (
+    <>
+      <Search
+        label="Find a person or group"
+        value={query}
+        onChange={setQuery}
+      />
+      <span className="wide">
+        <Popover
+          look="pick"
+          align="left"
+          label="Filter by role"
+          trigger={
+            <>
+              <span>{ROLE_FILTER_LABELS[roleFilter]}</span>
+              <IconChevron size={12} className="m-down" />
+            </>
+          }
+          options={(["any", "owner", "admin", "user"] as const).map((key) => ({
+            key,
+            name: ROLE_FILTER_LABELS[key],
+            chosen: roleFilter === key,
+            choose: () => setRoleFilter(key),
+          }))}
+        />
+      </span>
+      {runs(org) ? (
+        <Seg
+          label="Show"
+          value={only}
+          onChange={setOnly}
+          options={[
+            { value: "all", name: "Everyone" },
+            {
+              value: "pending",
+              name: invites?.length ? `Invited ${invites.length}` : "Invited",
+            },
+          ]}
+        />
+      ) : null}
+      <span className="gap" />
+      {members ? (
+        <SeatsStrip
+          org={org}
+          href={org.role === "owner" ? billing : undefined}
+          onClick={org.role === "owner" ? follow(billing) : undefined}
+        />
+      ) : null}
+      {inviteButton}
+    </>
+  );
+
+  const lede = !members
+    ? "Everyone in the org."
+    : members.length === 1 && !invites?.length
+      ? "Only you so far."
+      : `${people(members.length)}${invites?.length ? `, ${invites.length} invited` : ""}.`;
+
+  const groupMember = groupsFor
+    ? members?.find((each) => each.id === groupsFor)
+    : undefined;
 
   return (
     <Page
-      title={org.name}
-      lede={
-        !members
-          ? "Loading its people…"
-          : free === 0
-            ? "Every seat is taken."
-            : members.length === 1
-              ? `Only you so far. ${free} ${free === 1 ? "seat is" : "seats are"} waiting.`
-              : `${people(members.length)} here. ${free} of ${org.seats.limit} seats are free.`
-      }
-      actions={
-        !members ? undefined : !open ? (
-          <p className="note">
-            Team isn't open to your account now. You can still read, hand over
-            and leave.
-          </p>
-        ) : !runs(org) ? (
-          <p className="note">
-            Ask {bossName} for an invite link to bring someone in.
-          </p>
-        ) : free > 0 ? (
-          <Btn
-            onClick={() => {
-              setMade(undefined);
-              setInviting(true);
-            }}
-          >
-            Invite someone
-          </Btn>
-        ) : org.preview ? (
-          <p className="note">
-            The preview holds {org.seats.limit}. Revoke a link or remove someone
-            to free a seat.
-          </p>
-        ) : org.role === "owner" ? (
-          <a className={btnClass({})} href={billing} onClick={follow(billing)}>
-            Add seats
-          </a>
-        ) : (
-          <p className="note">{bossName} can add seats.</p>
-        )
-      }
+      title="Members"
+      lede={lede}
+      notice={notice}
+      tools={tools}
       mark={mark}
       scene={scene}
+      tone={frozen(org) ? "waiting" : undefined}
     >
-      {body ?? <Loading />}
+      {inlineProblem ? <Problem>{inlineProblem}</Problem> : null}
+
+      {!members || !invites || !teams ? (
+        <TableSkeleton />
+      ) : filteredMembers.length === 0 && filteredInvites.length === 0 ? (
+        <Nothing
+          title={
+            only === "pending" && !trimmed && roleFilter === "any"
+              ? "No invites are waiting"
+              : "Nobody matches"
+          }
+          actions={
+            <Btn quiet onClick={clearFilters}>
+              Clear
+            </Btn>
+          }
+        >
+          {only === "pending" && !trimmed && roleFilter === "any"
+            ? "Make a link with Invite when you want to bring someone in."
+            : "Try another name, group or role."}
+        </Nothing>
+      ) : (
+        <div>
+          <Table
+            label="Members"
+            cols={MEMBER_COLS}
+            heads={["Member", "Role", "Groups", "Joined", ""]}
+          >
+            {filteredInvites.map((invite) => (
+              <InviteRow
+                key={invite.id}
+                org={org}
+                invite={invite}
+                link={recentLinks[invite.id]}
+                fresh={made?.invite.id === invite.id}
+                onChanged={changed}
+              />
+            ))}
+            {filteredMembers.map((member) => (
+              <MemberRow
+                key={member.id}
+                org={org}
+                member={member}
+                groups={teamsOf(member.id)}
+                open={open}
+                canEditGroups={canManageOrg}
+                phone={phone}
+                onOpenGroups={() => setGroupsFor(member.id)}
+                onChanged={changed}
+                onProblem={setInlineProblem}
+              />
+            ))}
+          </Table>
+          {members.length === 1 &&
+          invites.length === 0 &&
+          !hasFilter &&
+          canManageOrg &&
+          free > 0 ? (
+            <div className="m-solo">
+              <span className="m-ghost" aria-hidden="true">
+                <IconPlus size={13} />
+              </span>
+              <div>
+                <b>It's only you here</b>
+                <p>
+                  Invite the people you build with. {free} of your{" "}
+                  {org.seats.limit} seats are free.
+                </p>
+              </div>
+              <Btn quiet onClick={openInvite}>
+                <IconPlus size={14} />
+                Invite
+              </Btn>
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {members ? (
+        <Ending
+          title={`Leave ${org.name}`}
+          actions={
+            <Btn bad disabled={soleOwner} onClick={() => setAskingLeave(true)}>
+              Leave
+            </Btn>
+          }
+        >
+          {soleOwner
+            ? "Make someone else an owner first."
+            : "Your hosts and account stay yours. You give up your seat and the Pro it gives you."}
+        </Ending>
+      ) : null}
+
+      {inviting && canManageOrg ? (
+        <InviteDialog
+          org={org}
+          free={free}
+          made={made}
+          onMade={(created) => {
+            setMade(created);
+            setRecentLinks((prev) => ({
+              ...prev,
+              [created.invite.id]: created.link,
+            }));
+            loaded.again();
+            void reload();
+          }}
+          onAnother={() => setMade(undefined)}
+          onClose={() => setInviting(false)}
+        />
+      ) : null}
+
+      {groupMember && teams && canManageOrg ? (
+        <MemberGroupsDialog
+          org={org}
+          member={groupMember}
+          teams={teams}
+          onChanged={changed}
+          onClose={() => setGroupsFor(undefined)}
+        />
+      ) : null}
+
+      {askingLeave && !soleOwner ? (
+        <LeaveConfirm
+          org={org}
+          onCancel={() => setAskingLeave(false)}
+          onLeft={onLeft}
+        />
+      ) : null}
     </Page>
   );
 }
 
-const Loading = () => (
-  <>
-    <Section label="People" busy />
-    <Section label="Seats" busy />
-  </>
-);
-
-function InvitePage({
-  org,
-  made,
-  onMade,
-  onAnother,
-  onClose,
-  children,
-}: {
-  org: Org;
-  made?: OrgInviteCreated;
-  onMade: (created: OrgInviteCreated) => void;
-  onAnother: () => void;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  const client = useClient();
-  const cheer = useCheer();
-  const action = useAction();
-  const roles = ROLES.filter((each) => manages(org.role, each)).reverse();
-  const [role, setRole] = useState<OrgRole>("user");
-  const [copied, setCopied] = useState(false);
-
-  if (made)
-    return (
-      <Page
-        title="Link ready"
-        lede="Send it yourself. It works once, for 7 days."
-        actions={
-          <div className="form">
-            <code className="linkbox mono">{made.link}</code>
-            <Btn onClick={() => void copyText(made.link).then(setCopied)}>
-              <IconCopy size={14} />
-              {copied ? "Copied" : "Copy link"}
-            </Btn>
-            <Btn
-              quiet
-              onClick={() => {
-                setCopied(false);
-                onAnother();
-              }}
-            >
-              Make another
-            </Btn>
-            <Btn quiet onClick={onClose}>
-              Done
-            </Btn>
-          </div>
-        }
-        mark={iconMark("link")}
-        scene={orgScene(org.id)}
-      >
-        {children}
-      </Page>
-    );
-
+function TableSkeleton() {
   return (
-    <Page
-      title={`Invite to ${org.name}`}
-      lede="They join as"
-      actions={
-        <>
-          <div className="form">
-            <Seg
-              label="Joins as"
-              value={role}
-              disabled={action.busy}
-              onChange={setRole}
-              options={roles.map((each) => ({
-                value: each,
-                name: ROLE_WORDS[each],
-              }))}
-            />
-            <Btn
-              busy={action.busy}
-              onClick={() =>
-                void action.run(
-                  async () => {
-                    const created = await (
-                      await client("make an invite link")
-                    ).createOrgInvite(org.id, { role });
-                    cheer();
-                    onMade(created);
-                  },
-                  (error) => `${problemText(error)} No link was made.`,
-                )
-              }
-            >
-              Make a link
-            </Btn>
-            <Btn quiet disabled={action.busy} onClick={onClose}>
-              Back
-            </Btn>
-          </div>
-          <Problem>{action.problem}</Problem>
-        </>
-      }
-      mark={iconMark("link")}
-      scene={orgScene(org.id)}
-      tone={action.problem ? "failed" : undefined}
+    <Table
+      label="Members"
+      cols={MEMBER_COLS}
+      heads={["Member", "Role", "Groups", "Joined", ""]}
     >
-      {children}
-    </Page>
+      {Array.from({ length: 7 }, (_, at) => (
+        <Tr key={at}>
+          <Td>
+            <span className="who">
+              <span className="skel m-skel-av" />
+              <span
+                className="skel m-skel-bar"
+                style={{ width: 110 + ((at * 37) % 60) }}
+              />
+            </span>
+          </Td>
+          <Td wide>
+            <span className="skel m-skel-bar" style={{ width: 52 }} />
+          </Td>
+          <Td wide>
+            <span
+              className="skel m-skel-chip"
+              style={{ width: 70 + ((at * 23) % 50) }}
+            />
+          </Td>
+          <Td wide>
+            <span className="skel m-skel-bar" style={{ width: 70 }} />
+          </Td>
+          <Td end />
+        </Tr>
+      ))}
+    </Table>
   );
 }
 
@@ -384,105 +566,176 @@ function MemberRow({
   org,
   member,
   groups,
+  open,
+  canEditGroups,
+  phone,
+  onOpenGroups,
   onChanged,
+  onProblem,
 }: {
   org: Org;
   member: OrgMember;
-  groups: string[];
+  groups: OrgTeam[];
+  open: boolean;
+  canEditGroups: boolean;
+  phone: boolean;
+  onOpenGroups: () => void;
   onChanged: (text: string, undo?: () => Promise<void>) => void;
+  onProblem: (text?: string) => void;
 }) {
   const client = useClient();
   const action = useAction();
   const [asking, setAsking] = useState<"owner" | "remove">();
   const name = nameOf(member);
-  const canManage = !member.you && manages(org.role, member.role);
+  const canManage = !member.you && open && manages(org.role, member.role);
+  const manageableRoles = ROLES.filter((each) => manages(org.role, each));
 
-  const put = async (role: OrgRole) => {
+  const putRole = async (role: OrgRole) => {
     await (
       await client("change a role")
     ).setOrgMemberRole(org.id, member.id, { role });
   };
-  const setRole = (role: OrgRole) => {
+
+  const setRole = (role: OrgRole, inDialog = false) => {
     const before = member.role;
+    onProblem(undefined);
     void action.run(
       async () => {
-        await put(role);
+        await putRole(role);
         setAsking(undefined);
         onChanged(`${name} is now ${ROLE_WORDS[role]}`, async () => {
-          await put(before);
+          await putRole(before);
           onChanged(`${name} is ${ROLE_WORDS[before]} again`);
         });
       },
-      (error) => `${problemText(error)} Their role is unchanged.`,
+      (error) => {
+        const words = `${problemText(error)} Their role is unchanged.`;
+        if (!inDialog) onProblem(words);
+        return words;
+      },
     );
   };
+
+  const chooseRole = (role: OrgRole) => {
+    action.clear();
+    if (role === "owner" && member.role !== "owner") setAsking("owner");
+    else if (role !== member.role) setRole(role);
+  };
+
   const close = () => {
     action.clear();
     setAsking(undefined);
   };
 
+  const menuOptions = [
+    ...(phone && canManage
+      ? manageableRoles.map((each) => ({
+          key: `role-${each}`,
+          name: ROLE_WORDS[each],
+          detail: ROLE_DETAIL[each],
+          chosen: each === member.role,
+          choose: () => chooseRole(each),
+        }))
+      : []),
+    ...(canEditGroups
+      ? [
+          {
+            key: "groups",
+            name: "Change groups",
+            icon: <IconTag size={14} />,
+            choose: onOpenGroups,
+          },
+        ]
+      : []),
+    ...(canManage
+      ? [
+          {
+            key: "remove",
+            name: `Remove from ${org.name}`,
+            icon: <IconTrash size={14} />,
+            bad: true,
+            choose: () => {
+              action.clear();
+              setAsking("remove");
+            },
+          },
+        ]
+      : []),
+  ];
+
   return (
-    <Row
-      lead={<MemberAvatar member={member} />}
-      name={
-        <>
-          {name}
-          {member.you ? <Chip tone="you">You</Chip> : null}
-        </>
-      }
-      detail={[
-        ...groups,
-        `${groups.length > 0 ? "joined" : "Joined"} ${formatDay(member.joinedAt, "short")}`,
-      ].join(" · ")}
-      end={
-        canManage ? (
+    <Tr>
+      <Td>
+        <Who
+          lead={<MemberAvatar member={member} size={28} />}
+          name={
+            <>
+              {name}
+              {member.you ? <Chip tone="you">You</Chip> : null}
+            </>
+          }
+          phone={[
+            ROLE_WORDS[member.role],
+            ...groups.map((each) => each.name),
+          ].join(", ")}
+        />
+      </Td>
+      <Td wide>
+        {canManage ? (
           <Popover
+            align="left"
             label={`${name}'s role`}
             disabled={action.busy}
             trigger={
               <>
                 {ROLE_WORDS[member.role]}
-                <IconExpandAll size={12} />
+                <IconChevron size={12} className="m-down" />
               </>
             }
-            options={[
-              ...ROLES.filter((each) => manages(org.role, each)).map(
-                (each) => ({
-                  key: each,
-                  name: ROLE_WORDS[each],
-                  detail: ROLE_DETAIL[each],
-                  chosen: each === member.role,
-                  choose: () => {
-                    action.clear();
-                    if (each === "owner" && member.role !== "owner")
-                      setAsking("owner");
-                    else if (each !== member.role) setRole(each);
-                  },
-                }),
-              ),
-              {
-                key: "remove",
-                name: "Remove from org",
-                bad: true,
-                choose: () => {
-                  action.clear();
-                  setAsking("remove");
-                },
-              },
-            ]}
+            options={manageableRoles.map((each) => ({
+              key: each,
+              name: ROLE_WORDS[each],
+              detail: ROLE_DETAIL[each],
+              chosen: each === member.role,
+              choose: () => chooseRole(each),
+            }))}
           />
         ) : (
-          ROLE_WORDS[member.role]
-        )
-      }
-    >
+          <span className="m-plainrole">{ROLE_WORDS[member.role]}</span>
+        )}
+      </Td>
+      <Td wide>
+        {groups.length > 0 ? (
+          <span className="chips">
+            {groups.slice(0, 2).map((each) => (
+              <Chip key={each.id}>{each.name}</Chip>
+            ))}
+            {groups.length > 2 ? <Chip>+{groups.length - 2}</Chip> : null}
+          </span>
+        ) : (
+          <span className="m-none">None</span>
+        )}
+      </Td>
+      <Td wide>{formatDay(member.joinedAt, "short")}</Td>
+      <Td end>
+        {menuOptions.length > 0 ? (
+          <Popover
+            look="icon"
+            label={`More for ${name}`}
+            disabled={action.busy}
+            trigger={<IconMore size={15} />}
+            options={menuOptions}
+          />
+        ) : null}
+      </Td>
       {asking === "owner" ? (
         <Confirm
+          title={`Make ${name} an owner?`}
           busy={action.busy}
           problem={action.problem}
           label="Make owner"
           onCancel={close}
-          onConfirm={() => setRole("owner")}
+          onConfirm={() => setRole("owner", true)}
         >
           <p>
             {name} gets everything you have in {org.name}: its people, its bill
@@ -492,9 +745,10 @@ function MemberRow({
       ) : asking === "remove" ? (
         <Confirm
           danger
+          title={`Remove ${name}?`}
           busy={action.busy}
           problem={action.problem}
-          label={`Remove ${name}`}
+          label="Remove"
           onCancel={close}
           onConfirm={() =>
             void action.run(
@@ -502,6 +756,7 @@ function MemberRow({
                 await (
                   await client("remove someone")
                 ).removeOrgMember(org.id, member.id);
+                setAsking(undefined);
                 onChanged(`${name} was removed. Their seat is free.`);
               },
               (error) => `${problemText(error)} They are still in the org.`,
@@ -513,52 +768,8 @@ function MemberRow({
             Their own hosts stay theirs.
           </p>
         </Confirm>
-      ) : action.problem ? (
-        <Problem>{action.problem}</Problem>
       ) : null}
-    </Row>
-  );
-}
-
-function Invites({
-  org,
-  invites,
-  made,
-  onChanged,
-}: {
-  org: Org;
-  invites: OrgInvite[];
-  made?: OrgInviteCreated;
-  onChanged: (text: string) => void;
-}) {
-  return (
-    <Section
-      label="Invite links"
-      count={invites.length || undefined}
-      foot={
-        invites.length > 0
-          ? "You send each link yourself. It works once and holds a seat for 7 days."
-          : undefined
-      }
-    >
-      {invites.length > 0 ? (
-        <Rows>
-          {invites.map((invite) => (
-            <InviteRow
-              key={invite.id}
-              org={org}
-              invite={invite}
-              link={made?.invite.id === invite.id ? made.link : undefined}
-              onChanged={onChanged}
-            />
-          ))}
-        </Rows>
-      ) : (
-        <Empty>
-          No open links. You make a link and send it yourself; we mail nobody.
-        </Empty>
-      )}
-    </Section>
+    </Tr>
   );
 }
 
@@ -566,431 +777,385 @@ function InviteRow({
   org,
   invite,
   link,
+  fresh,
   onChanged,
 }: {
   org: Org;
   invite: OrgInvite;
   link?: string;
+  fresh?: boolean;
   onChanged: (text: string) => void;
 }) {
   const client = useClient();
+  const say = useToast();
   const action = useAction();
-  const [copied, setCopied] = useState(false);
-  return (
-    <Row
-      lead={
-        <Tile>
-          <IconLink size={14} />
-        </Tile>
-      }
-      name={
-        link ? (
-          <span className="mono">{link.replace(/^https?:\/\//, "")}</span>
-        ) : (
-          `Made ${formatDay(invite.createdAt, "short")}${invite.invitedBy ? ` by ${invite.invitedBy}` : ""}`
-        )
-      }
-      detail={
-        link
-          ? `Joins as ${ROLE_WORDS[invite.role]} · shown once · ends in 7 days`
-          : `Joins as ${ROLE_WORDS[invite.role]} · ends ${formatDay(invite.expiresAt, "short")}`
-      }
-      end={
-        <>
-          {link ? (
-            <Btn
-              small
-              quiet
-              onClick={() => void copyText(link).then(setCopied)}
-            >
-              <IconCopy size={13} />
-              {copied ? "Copied" : "Copy"}
-            </Btn>
-          ) : null}
-          {manages(org.role, invite.role) ? (
-            <Txt
-              bad
-              disabled={action.busy}
-              onClick={() =>
-                void action.run(
-                  async () => {
-                    await (
-                      await client("revoke an invite")
-                    ).revokeOrgInvite(org.id, invite.id);
-                    onChanged("Invite link revoked. Its seat is free.");
-                  },
-                  (error) => `${problemText(error)} The link still works.`,
-                )
-              }
-            >
-              {action.busy ? "Revoking…" : "Revoke"}
-            </Txt>
-          ) : null}
-        </>
-      }
-    >
-      {action.problem ? <Problem>{action.problem}</Problem> : null}
-    </Row>
-  );
-}
+  const [revoking, setRevoking] = useState(false);
+  const canRevoke = manages(org.role, invite.role);
+  const expiry = expiresIn(invite.expiresAt);
 
-function Groups({
-  org,
-  members,
-  teams,
-  editable,
-  onChanged,
-}: {
-  org: Org;
-  members: OrgMember[];
-  teams: OrgTeam[];
-  editable: boolean;
-  onChanged: (text: string) => void;
-}) {
-  const client = useClient();
-  const action = useAction();
-  const [name, setName] = useState<string>();
-  if (teams.length === 0 && !editable) return null;
+  const options = [
+    ...(link
+      ? [
+          {
+            key: "copy",
+            name: "Copy link",
+            icon: <IconCopy size={14} />,
+            choose: () =>
+              void copyText(link).then((ok) =>
+                say(ok ? "Link copied" : "Couldn't copy link"),
+              ),
+          },
+        ]
+      : []),
+    ...(canRevoke
+      ? [
+          {
+            key: "revoke",
+            name: "Take back the invite",
+            detail: "Frees the seat",
+            icon: <IconUndo size={14} />,
+            bad: true,
+            choose: () => {
+              action.clear();
+              setRevoking(true);
+            },
+          },
+        ]
+      : []),
+  ];
 
   const close = () => {
     action.clear();
-    setName(undefined);
-  };
-  const make = () => {
-    const wanted = name?.trim();
-    if (!wanted) return;
-    void action.run(
-      async () => {
-        await (
-          await client("make a group")
-        ).createOrgTeam(org.id, { name: wanted });
-        setName(undefined);
-        onChanged(`Made ${wanted}`);
-      },
-      (error) => `${problemText(error)} No group was made.`,
-    );
+    setRevoking(false);
   };
 
   return (
-    <Section
-      label="Groups"
-      count={teams.length || undefined}
-      aside={
-        editable && name === undefined ? (
-          <Txt onClick={() => setName("")}>
-            <IconPlus size={13} />
-            New group
-          </Txt>
-        ) : null
-      }
-    >
-      {name !== undefined ? (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            make();
-          }}
-        >
-          <Confirm
-            busy={action.busy}
-            problem={action.problem}
-            label="Make group"
-            unchanged={!name.trim()}
-            onCancel={close}
-            onConfirm={make}
-          >
-            <Field
-              aria-label="Group name"
-              placeholder="Design"
-              value={name}
-              maxLength={64}
-              autoFocus
-              onChange={(event) => setName(event.target.value)}
-            />
-          </Confirm>
-        </form>
-      ) : null}
-      {teams.length > 0 ? (
-        <Rows>
-          {teams.map((each) => (
-            <GroupRow
-              key={each.id}
-              org={org}
-              group={each}
-              members={members}
-              editable={editable}
-              onChanged={onChanged}
-            />
-          ))}
-        </Rows>
-      ) : name === undefined ? (
-        <Empty>No groups. One is a short list of people you name.</Empty>
-      ) : null}
-    </Section>
-  );
-}
-
-function GroupRow({
-  org,
-  group,
-  members,
-  editable,
-  onChanged,
-}: {
-  org: Org;
-  group: OrgTeam;
-  members: OrgMember[];
-  editable: boolean;
-  onChanged: (text: string) => void;
-}) {
-  const client = useClient();
-  const action = useAction();
-  const [open, setOpen] = useState<"people" | "rename" | "delete">();
-  const [name, setName] = useState(group.name);
-  const inside = members.filter((each) => group.members.includes(each.id));
-  const close = () => {
-    action.clear();
-    setOpen(undefined);
-  };
-  const more = inside.length - 3;
-
-  return (
-    <Row
-      lead={
-        <Tile>
-          <IconStack size={14} />
-        </Tile>
-      }
-      name={group.name}
-      detail={
-        inside.length === 0
-          ? "Nobody yet"
-          : `${inside.slice(0, 3).map(nameOf).join(", ")}${more > 0 ? ` and ${more} more` : ""}`
-      }
-      end={
-        <>
-          <span className="stack" aria-hidden="true">
-            {inside.slice(0, 3).map((each) => (
-              <MemberAvatar key={each.id} member={each} />
-            ))}
-          </span>
-          {editable ? (
-            <Popover
-              label={`Change ${group.name}`}
-              trigger={<IconMore size={14} />}
-              options={[
-                {
-                  key: "people",
-                  name: "People",
-                  choose: () => setOpen("people"),
-                },
-                {
-                  key: "rename",
-                  name: "Rename",
-                  choose: () => {
-                    setName(group.name);
-                    setOpen("rename");
-                  },
-                },
-                {
-                  key: "delete",
-                  name: "Delete group",
-                  bad: true,
-                  choose: () => setOpen("delete"),
-                },
-              ]}
-            />
-          ) : null}
-        </>
-      }
-    >
-      {!editable ? null : open === "people" ? (
-        <div className="box">
-          {members.map((member) => (
-            <GroupPick
-              key={member.id}
-              org={org}
-              group={group}
-              member={member}
-              onChanged={onChanged}
-            />
-          ))}
-          <div className="do">
-            <Btn small quiet onClick={close}>
-              Done
-            </Btn>
-          </div>
-        </div>
-      ) : open === "rename" ? (
-        <Confirm
-          busy={action.busy}
-          problem={action.problem}
-          label="Rename"
-          unchanged={!name.trim() || name.trim() === group.name}
-          onCancel={close}
-          onConfirm={() =>
-            void action.run(
-              async () => {
-                const renamed = await (
-                  await client("rename a group")
-                ).renameOrgTeam(org.id, group.id, { name: name.trim() });
-                setOpen(undefined);
-                onChanged(`${group.name} is now ${renamed.name}`);
-              },
-              (error) => `${problemText(error)} Its name is unchanged.`,
-            )
+    <Tr soft lit={fresh}>
+      <Td>
+        <Who
+          lead={
+            <span className="m-ghost" aria-hidden="true">
+              <IconLink size={13} />
+            </span>
           }
-        >
-          <Field
-            aria-label="Group name"
-            value={name}
-            maxLength={64}
-            onChange={(event) => setName(event.target.value)}
+          name={
+            <>
+              <span>Invite link</span>
+              <Seal tone="wait">Invited</Seal>
+            </>
+          }
+          detail={`${invite.invitedBy ? `By ${invite.invitedBy} · ` : ""}${expiry}`}
+          phone={ROLE_WORDS[invite.role]}
+        />
+      </Td>
+      <Td wide>
+        <span className="m-plainrole">{ROLE_WORDS[invite.role]}</span>
+      </Td>
+      <Td wide>
+        <span className="m-none">—</span>
+      </Td>
+      <Td wide>
+        <span className="m-none">—</span>
+      </Td>
+      <Td end>
+        {options.length > 0 ? (
+          <Popover
+            look="icon"
+            label="More for invite link"
+            disabled={action.busy}
+            trigger={<IconMore size={15} />}
+            options={options}
           />
-        </Confirm>
-      ) : open === "delete" ? (
+        ) : null}
+      </Td>
+      {revoking ? (
         <Confirm
           danger
+          title="Take back this invite?"
           busy={action.busy}
           problem={action.problem}
-          label={`Delete ${group.name}`}
+          label="Take back"
           onCancel={close}
           onConfirm={() =>
             void action.run(
               async () => {
                 await (
-                  await client("delete a group")
-                ).deleteOrgTeam(org.id, group.id);
-                onChanged(`Deleted ${group.name}`);
+                  await client("revoke an invite")
+                ).revokeOrgInvite(org.id, invite.id);
+                setRevoking(false);
+                onChanged("Invite link revoked. Its seat is free.");
               },
-              (error) => `${problemText(error)} The group is still there.`,
+              (error) => `${problemText(error)} The link still works.`,
             )
           }
         >
-          <p>Its members stay in {org.name}; only the list goes.</p>
+          <p>The link stops working and the seat is free again.</p>
         </Confirm>
       ) : null}
-    </Row>
+    </Tr>
   );
 }
 
-function GroupPick({
+function InviteDialog({
   org,
-  group,
-  member,
-  onChanged,
+  free,
+  made,
+  onMade,
+  onAnother,
+  onClose,
 }: {
   org: Org;
-  group: OrgTeam;
-  member: OrgMember;
-  onChanged: (text: string) => void;
+  free: number;
+  made?: OrgInviteCreated;
+  onMade: (created: OrgInviteCreated) => void;
+  onAnother: () => void;
+  onClose: () => void;
 }) {
   const client = useClient();
+  const cheer = useCheer();
   const action = useAction();
-  const name = nameOf(member);
-  const inside = group.members.includes(member.id);
+  const roles = ROLES.filter((each) => manages(org.role, each)).reverse();
+  const [role, setRole] = useState<OrgRole>("user");
+  const [copied, setCopied] = useState(false);
+
+  if (made)
+    return (
+      <Dialog
+        wide
+        title="Link ready"
+        onClose={onClose}
+        foot={
+          <>
+            <span className="gap" />
+            {free > 0 ? (
+              <Btn
+                quiet
+                onClick={() => {
+                  setCopied(false);
+                  onAnother();
+                }}
+              >
+                Make another
+              </Btn>
+            ) : null}
+            <Btn onClick={onClose}>Done</Btn>
+          </>
+        }
+      >
+        <div className="m-sentrow">
+          <span className="m-tick" aria-hidden="true">
+            <IconLink size={13} />
+          </span>
+          <span className="m-sx">
+            <b>{ROLE_WORDS[made.invite.role]} invite</b>
+            <code>{made.link.replace(/^https?:\/\//, "")}</code>
+          </span>
+          <Btn
+            small
+            quiet
+            className={copied ? "m-did" : undefined}
+            onClick={() =>
+              void copyText(made.link).then((ok) => {
+                if (!ok) return;
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1600);
+              })
+            }
+          >
+            {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+            {copied ? "Copied" : "Copy"}
+          </Btn>
+        </div>
+        <p className="m-hint">
+          Copy it now: it is shown only here and works once, until{" "}
+          {formatDay(made.invite.expiresAt, "long")}.
+        </p>
+      </Dialog>
+    );
+
+  const submit = () => {
+    void action.run(
+      async () => {
+        const created = await (
+          await client("make an invite link")
+        ).createOrgInvite(org.id, { role });
+        cheer();
+        onMade(created);
+      },
+      (error) => `${problemText(error)} No link was made.`,
+    );
+  };
+
   return (
-    <>
-      <div className="line">
-        <MemberAvatar member={member} size={20} />
-        <span>{name}</span>
-        <Switch
-          label={`${name} in ${group.name}`}
-          on={inside}
+    <Dialog
+      wide
+      title={`Invite to ${org.name}`}
+      busy={action.busy}
+      onClose={onClose}
+      onSubmit={submit}
+      foot={
+        <>
+          <span className="m-dim">
+            {free} free {free === 1 ? "seat" : "seats"}
+          </span>
+          <span className="gap" />
+          <Btn quiet disabled={action.busy} onClick={onClose}>
+            Cancel
+          </Btn>
+          <Btn type="submit" busy={action.busy}>
+            Make a link
+          </Btn>
+        </>
+      }
+    >
+      <div className="m-fl">
+        <label>Role</label>
+        <Seg
+          label="Role"
+          value={role}
           disabled={action.busy}
-          onChange={(on) =>
-            void action.run(
-              async () => {
-                const routes = await client("change a group");
-                if (on)
-                  await routes.addOrgTeamMember(org.id, group.id, member.id);
-                else
-                  await routes.removeOrgTeamMember(org.id, group.id, member.id);
-                onChanged(
-                  on
-                    ? `${name} is in ${group.name}`
-                    : `${name} is out of ${group.name}`,
-                );
-              },
-              (error) => `${problemText(error)} The group is unchanged.`,
-            )
-          }
+          onChange={setRole}
+          options={roles.map((each) => ({
+            value: each,
+            name: ROLE_WORDS[each],
+          }))}
         />
+        <p className="m-hint">{ROLE_DETAIL[role]}.</p>
       </div>
       <Problem>{action.problem}</Problem>
-    </>
+      <div className="m-what">
+        <span className="cap">What happens next</span>
+        <ol className="m-nexts">
+          <li>You send them the link yourself. Sikemux mails nobody.</li>
+          <li>They sign in, or make an account, and see who asked them.</li>
+          <li>
+            They join as {roleArticle(role)}. Unused links work once and hold a
+            seat for 7 days.
+          </li>
+        </ol>
+      </div>
+    </Dialog>
   );
 }
 
-function Leave({
+function MemberGroupsDialog({
   org,
-  members,
+  member,
+  teams,
+  onChanged,
+  onClose,
+}: {
+  org: Org;
+  member: OrgMember;
+  teams: OrgTeam[];
+  onChanged: (text: string) => void;
+  onClose: () => void;
+}) {
+  const client = useClient();
+  const [query, setQuery] = useState("");
+  const [busyId, setBusyId] = useState<string>();
+  const [problem, setProblem] = useState<string>();
+  const name = nameOf(member);
+  const trimmed = query.trim().toLowerCase();
+  const shown = trimmed
+    ? teams.filter((each) => each.name.toLowerCase().includes(trimmed))
+    : teams;
+
+  const toggle = async (team: OrgTeam, on: boolean) => {
+    setBusyId(team.id);
+    setProblem(undefined);
+    try {
+      const routes = await client("change a group");
+      if (on) await routes.addOrgTeamMember(org.id, team.id, member.id);
+      else await routes.removeOrgTeamMember(org.id, team.id, member.id);
+      onChanged(
+        on ? `${name} is in ${team.name}` : `${name} is out of ${team.name}`,
+      );
+    } catch (error) {
+      setProblem(`${problemText(error)} The group is unchanged.`);
+    } finally {
+      setBusyId(undefined);
+    }
+  };
+
+  return (
+    <Dialog
+      title={`${name}'s groups`}
+      busy={busyId !== undefined}
+      onClose={onClose}
+      foot={<Btn onClick={onClose}>Done</Btn>}
+    >
+      {teams.length > 0 ? (
+        <div className="m-dlg-search">
+          <Search label="Find a group" value={query} onChange={setQuery} />
+        </div>
+      ) : null}
+      <Problem>{problem}</Problem>
+      {teams.length === 0 ? (
+        <p className="m-hint">No groups yet. Make one on the Groups page.</p>
+      ) : shown.length === 0 ? (
+        <p className="m-hint">No group matches "{query}".</p>
+      ) : (
+        <div className="m-picklist">
+          {shown.map((team) => {
+            const inside = team.members.includes(member.id);
+            return (
+              <div key={team.id} className="m-pickrow">
+                <span className="m-pickrow-who">
+                  <b>{team.name}</b>
+                  <small>{people(team.members.length)}</small>
+                </span>
+                <Switch
+                  label={`${name} in ${team.name}`}
+                  on={inside}
+                  disabled={busyId === team.id}
+                  onChange={(on) => void toggle(team, on)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
+function LeaveConfirm({
+  org,
+  onCancel,
   onLeft,
 }: {
   org: Org;
-  members: OrgMember[];
+  onCancel: () => void;
   onLeft: () => Promise<void>;
 }) {
   const client = useClient();
   const say = useToast();
   const action = useAction();
-  const [asking, setAsking] = useState(false);
-  const soleOwner =
-    org.role === "owner" &&
-    members.filter((each) => each.role === "owner").length === 1;
   return (
-    <Section label="Leave">
-      <Rows>
-        <Row
-          lead={
-            <Tile>
-              <IconLogOut size={14} />
-            </Tile>
-          }
-          name={`Leave ${org.name}`}
-          detail={
-            soleOwner
-              ? "Make someone else an owner first."
-              : "Your hosts and account stay yours."
-          }
-          end={
-            soleOwner || asking ? null : (
-              <Txt bad onClick={() => setAsking(true)}>
-                Leave
-              </Txt>
-            )
-          }
-        >
-          {asking && !soleOwner ? (
-            <Confirm
-              danger
-              busy={action.busy}
-              problem={action.problem}
-              label={`Leave ${org.name}`}
-              onCancel={() => {
-                action.clear();
-                setAsking(false);
-              }}
-              onConfirm={() =>
-                void action.run(
-                  async () => {
-                    await (await client("leave the org")).leaveOrg(org.id);
-                    say(`You left ${org.name}`);
-                    await onLeft();
-                  },
-                  (error) => `${problemText(error)} You are still in it.`,
-                )
-              }
-            >
-              <p>
-                {org.role === "owner"
-                  ? "You give up its seat at once. If you pay for its Team plan, the plan ends at the close of this period."
-                  : "You give up its seat, and the Pro it gives you, at once."}
-              </p>
-            </Confirm>
-          ) : null}
-        </Row>
-      </Rows>
-    </Section>
+    <Confirm
+      danger
+      title={`Leave ${org.name}?`}
+      busy={action.busy}
+      problem={action.problem}
+      label={`Leave ${org.name}`}
+      onCancel={onCancel}
+      onConfirm={() =>
+        void action.run(
+          async () => {
+            await (await client("leave the org")).leaveOrg(org.id);
+            say(`You left ${org.name}`);
+            await onLeft();
+          },
+          (error) => `${problemText(error)} You are still in it.`,
+        )
+      }
+    >
+      <p>
+        {org.role === "owner"
+          ? "You give up its seat at once. If you pay for its Team plan, the plan ends at the close of this period."
+          : "You give up its seat, and the Pro it gives you, at once."}
+      </p>
+    </Confirm>
   );
 }
