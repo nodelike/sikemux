@@ -300,6 +300,42 @@ pub fn in_line(core: &Core, agent_id: &str) -> Option<InLine> {
     })
 }
 
+struct RunningGuard<F: FnOnce()> {
+    on_abort: Option<F>,
+}
+
+impl<F: FnOnce()> RunningGuard<F> {
+    fn new(on_abort: F) -> Self {
+        Self {
+            on_abort: Some(on_abort),
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.on_abort = None;
+    }
+}
+
+impl<F: FnOnce()> Drop for RunningGuard<F> {
+    fn drop(&mut self) {
+        if let Some(on_abort) = self.on_abort.take() {
+            on_abort();
+        }
+    }
+}
+
+fn finish_running(queue: &LandQueue, key: &Key) -> bool {
+    let mut lines = queue.0.locked();
+    match lines.get_mut(key) {
+        Some(line) => {
+            line.lane.running = false;
+            line.waiting.iter_mut().for_each(|w| w.checking = false);
+            !line.waiting.is_empty()
+        }
+        None => false,
+    }
+}
+
 /// Starts the queue for `key` when it is not running.
 fn wake(core: &Core, key: Key) {
     let Some(core) = core.arc() else {
@@ -318,14 +354,24 @@ fn wake(core: &Core, key: Key) {
         }
         line.lane.running = true;
     }
+    let mut running = RunningGuard::new({
+        let core = core.clone();
+        let key = key.clone();
+        move || {
+            if finish_running(core.land_queue(), &key) {
+                wake(&core, key);
+            }
+        }
+    });
     runtime.spawn(async move {
         let (repo, branch) = key.clone();
         let to_remote = blocking(move || Ok(on_remote(&repo, &branch)))
             .await
             .unwrap_or(false);
         loop {
-            let turn = merge_queue::checkout_turn(to_remote).await;
+            let turn = merge_queue::checkout_turn(&key.0, to_remote).await;
             let Some(batch) = next(&core, &key) else {
+                running.disarm();
                 return;
             };
             let passed = check(&core, &key, batch).await;
@@ -1113,7 +1159,7 @@ pub async fn check_before_push(
     if from == head {
         return Ok(());
     }
-    let _turn = merge_queue::checkout_turn(true).await;
+    let _turn = merge_queue::checkout_turn(repo, true).await;
     let checked = check_from(core, &key, &from, head, agent).await;
     crate::server::worktree::agent::trim_merge_queue(repo).await;
     checked
@@ -1562,4 +1608,90 @@ fn within_repo(path: &Path) -> Option<String> {
         }
     }
     (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn dummy_waiting(agent: &str, checking: bool) -> Waiting {
+        Waiting {
+            agent: agent.to_owned(),
+            checkout: None,
+            head: "0123456789abcdef".into(),
+            since: None,
+            push: false,
+            queued_at: 1,
+            checking,
+            ran_out_of_time: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn running_guard_resets_lane_and_rewakes_after_panic() {
+        let queue = Arc::new(LandQueue::default());
+        let key: Key = (PathBuf::from("/tmp/repo-panic"), "main".into());
+        {
+            let mut lines = queue.0.locked();
+            let line = lines.entry(key.clone()).or_default();
+            line.lane.running = true;
+            line.waiting.push(dummy_waiting("agent-a", true));
+        }
+
+        let rewakes = Arc::new(AtomicUsize::new(0));
+        let queue_for_task = queue.clone();
+        let key_for_task = key.clone();
+        let rewakes_for_task = rewakes.clone();
+        let handle = tokio::spawn(async move {
+            let _guard = RunningGuard::new(move || {
+                if finish_running(&queue_for_task, &key_for_task) {
+                    rewakes_for_task.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+            panic!("simulated lane panic");
+        });
+        let err = handle.await.expect_err("task should panic");
+        assert!(err.is_panic());
+
+        assert_eq!(rewakes.load(Ordering::SeqCst), 1);
+        let lines = queue.0.locked();
+        let line = lines.get(&key).expect("line still present");
+        assert!(!line.lane.running, "running must reset after panic");
+        assert!(
+            line.waiting.iter().all(|w| !w.checking),
+            "checking flags must reset after panic"
+        );
+    }
+
+    #[test]
+    fn disarmed_running_guard_does_not_reset_replacement_line() {
+        let queue = Arc::new(LandQueue::default());
+        let key: Key = (PathBuf::from("/tmp/repo-disarm"), "main".into());
+        {
+            let mut lines = queue.0.locked();
+            let line = lines.entry(key.clone()).or_default();
+            line.lane.running = true;
+            line.waiting.push(dummy_waiting("agent-b", true));
+        }
+
+        let rewakes = Arc::new(AtomicUsize::new(0));
+        let queue_for_guard = queue.clone();
+        let key_for_guard = key.clone();
+        let rewakes_for_guard = rewakes.clone();
+        {
+            let mut guard = RunningGuard::new(move || {
+                if finish_running(&queue_for_guard, &key_for_guard) {
+                    rewakes_for_guard.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+            guard.disarm();
+        }
+
+        assert_eq!(rewakes.load(Ordering::SeqCst), 0);
+        let lines = queue.0.locked();
+        let line = lines.get(&key).expect("line still present");
+        assert!(line.lane.running, "disarmed guard must not touch new line");
+        assert!(line.waiting[0].checking);
+    }
 }
