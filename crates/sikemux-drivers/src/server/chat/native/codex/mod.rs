@@ -576,7 +576,10 @@ impl Backend for Codex {
             .map(|read| read.get("account").cloned().unwrap_or(Value::Null))
             .unwrap_or(Value::Null);
         let models = if launch.model_provider.is_some() {
-            Models::default()
+            Models {
+                listed: Vec::new(),
+                takes_unlisted: true,
+            }
         } else {
             list_models(&rpc).await.map_err(failed)?
         };

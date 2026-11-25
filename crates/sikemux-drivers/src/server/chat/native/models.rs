@@ -121,6 +121,9 @@ impl Models {
     }
 
     pub fn supports_effort(&self, model: &str, effort: &str) -> bool {
+        if self.takes_unlisted && self.find(model).is_none() {
+            return !effort.is_empty();
+        }
         self.efforts(model)
             .iter()
             .any(|option| option.value == effort)
@@ -187,5 +190,28 @@ impl Models {
             ));
         }
         Value::Array(options)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unlisted_models_preserve_model_and_effort_for_routed_providers() {
+        let models = Models {
+            listed: Vec::new(),
+            takes_unlisted: true,
+        };
+        assert!(models.offers("custom/routed-model"));
+        assert!(models.supports_effort("custom/routed-model", "high"));
+        assert!(!models.supports_effort("custom/routed-model", ""));
+        assert_eq!(
+            models
+                .effort_for("custom/routed-model", Some("high"))
+                .as_deref(),
+            Some("high")
+        );
+        assert_eq!(models.effort_for("custom/routed-model", None), None);
     }
 }
