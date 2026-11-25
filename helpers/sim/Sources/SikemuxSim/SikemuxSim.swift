@@ -30,6 +30,7 @@ struct SikemuxSim {
                 Output.failure(unreadable.id, "protocol", unreadable.message)
             }
         }
+        await simulators.liftAllFingers()
     }
 
     /// What a finger or a key does on a device, kept in the order it arrived, one at a time per device.

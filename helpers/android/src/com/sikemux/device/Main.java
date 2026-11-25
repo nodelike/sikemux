@@ -177,27 +177,45 @@ public final class Main {
 
     /** Fingers that go down on the first frame, follow each frame at its time, and lift after the last. */
     private void gesture(JSONArray frames) throws Exception {
+        if (frames.length() == 0) {
+            return;
+        }
         long down = SystemClock.uptimeMillis();
-        int fingers = frames.getJSONObject(0).getJSONArray("pointers").length();
         float[][] at = points(frames.getJSONObject(0));
-        inject(down, MotionEvent.ACTION_DOWN, at, 1);
-        for (int finger = 1; finger < fingers; finger++) {
-            inject(down, MotionEvent.ACTION_POINTER_DOWN | (finger << MotionEvent.ACTION_POINTER_INDEX_SHIFT), at, finger + 1);
+        int fingers = at.length;
+        if (fingers == 0) {
+            return;
         }
-        for (int i = 1; i < frames.length(); i++) {
-            JSONObject frame = frames.getJSONObject(i);
-            long due = down + (long) (frame.getDouble("t") * 1000);
-            long wait = due - SystemClock.uptimeMillis();
-            if (wait > 0) {
-                Thread.sleep(wait);
+        int downCount = 0;
+        try {
+            inject(down, MotionEvent.ACTION_DOWN, at, 1);
+            downCount = 1;
+            for (int finger = 1; finger < fingers; finger++) {
+                inject(down, MotionEvent.ACTION_POINTER_DOWN | (finger << MotionEvent.ACTION_POINTER_INDEX_SHIFT), at, finger + 1);
+                downCount = finger + 1;
             }
-            at = points(frame);
-            inject(down, MotionEvent.ACTION_MOVE, at, fingers);
+            for (int i = 1; i < frames.length(); i++) {
+                JSONObject frame = frames.getJSONObject(i);
+                long due = down + (long) (frame.getDouble("t") * 1000);
+                long wait = due - SystemClock.uptimeMillis();
+                if (wait > 0) {
+                    Thread.sleep(wait);
+                }
+                float[][] next = points(frame);
+                if (next.length < fingers) {
+                    throw new IllegalArgumentException("gesture frame has fewer pointers than started");
+                }
+                at = next;
+                inject(down, MotionEvent.ACTION_MOVE, at, fingers);
+            }
+        } finally {
+            if (downCount > 0) {
+                for (int finger = downCount - 1; finger > 0; finger--) {
+                    inject(down, MotionEvent.ACTION_POINTER_UP | (finger << MotionEvent.ACTION_POINTER_INDEX_SHIFT), at, finger + 1);
+                }
+                inject(down, MotionEvent.ACTION_UP, at, 1);
+            }
         }
-        for (int finger = fingers - 1; finger > 0; finger--) {
-            inject(down, MotionEvent.ACTION_POINTER_UP | (finger << MotionEvent.ACTION_POINTER_INDEX_SHIFT), at, finger + 1);
-        }
-        inject(down, MotionEvent.ACTION_UP, at, 1);
     }
 
     private static float[][] points(JSONObject frame) throws Exception {
@@ -241,8 +259,11 @@ public final class Main {
         }
         MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, fingers, properties, coords,
                 0, 0, 1, 1, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
-        automation.injectInputEvent(event, true);
-        event.recycle();
+        try {
+            automation.injectInputEvent(event, true);
+        } finally {
+            event.recycle();
+        }
     }
 
     private void key(int code, String phase) {
@@ -287,16 +308,26 @@ public final class Main {
         if (shot == null) {
             throw new IllegalStateException("the screen could not be read");
         }
-        int width = Math.max(1, (int) Math.round(shot.getWidth() * scale));
-        int height = Math.max(1, (int) Math.round(shot.getHeight() * scale));
-        Bitmap sized = scale == 1 ? shot : Bitmap.createScaledBitmap(shot, width, height, true);
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        boolean png = format.equals("png");
-        sized.compress(png ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG, 80, bytes);
-        JSONObject reply = new JSONObject();
-        reply.put(png ? "png" : "jpeg", Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP));
-        reply.put("width", width);
-        reply.put("height", height);
-        return reply;
+        Bitmap sized = shot;
+        try {
+            int width = Math.max(1, (int) Math.round(shot.getWidth() * scale));
+            int height = Math.max(1, (int) Math.round(shot.getHeight() * scale));
+            if (scale != 1) {
+                sized = Bitmap.createScaledBitmap(shot, width, height, true);
+            }
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            boolean png = format.equals("png");
+            sized.compress(png ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG, 80, bytes);
+            JSONObject reply = new JSONObject();
+            reply.put(png ? "png" : "jpeg", Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP));
+            reply.put("width", width);
+            reply.put("height", height);
+            return reply;
+        } finally {
+            if (sized != shot) {
+                sized.recycle();
+            }
+            shot.recycle();
+        }
     }
 }

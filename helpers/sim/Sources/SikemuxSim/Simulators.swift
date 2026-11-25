@@ -256,7 +256,11 @@ actor Simulators {
     private func forget(_ udid: String) {
         touch[udid] = nil
         known[udid] = nil
-        fingers.removeValue(forKey: udid)?.events.finish()
+        if let finger = fingers.removeValue(forKey: udid) {
+            finger.timeout?.cancel()
+            finger.put(.up, finger.lastPoint)
+            finger.events.finish()
+        }
         turned[udid] = nil
         portraitTouches.remove(udid)
         for key in tails.keys where key.hasPrefix(udid + " ") {
@@ -324,6 +328,8 @@ actor Simulators {
         return connecting
     }
 
+    static let fingerTimeout: TimeInterval = 10
+
     /// A live touch from the person: `down` starts a gesture, `move`s join it as they come, and `up`
     /// ends it and waits until the device has taken it all in.
     func touch(_ phase: String, at turnedPoint: CGPoint, on udid: String?) async throws {
@@ -332,12 +338,17 @@ actor Simulators {
         switch phase {
         case "down":
             await lift(simulator.udid, at: nil)
-            let finger = try await press(simulator, edge: try await edge(at: turnedPoint, on: simulator.udid))
+            let finger = try await press(simulator, at: point, edge: try await edge(at: turnedPoint, on: simulator.udid))
+            await lift(simulator.udid, at: nil)
             fingers[simulator.udid] = finger
             finger.put(.down, point)
+            armFingerTimeout(for: simulator.udid, id: finger.id)
         case "move":
-            guard let finger = fingers[simulator.udid] else { return try await touch("down", at: turnedPoint, on: udid) }
+            guard var finger = fingers[simulator.udid] else { return try await touch("down", at: turnedPoint, on: udid) }
+            finger.lastPoint = point
+            fingers[simulator.udid] = finger
             finger.put(.down, point)
+            armFingerTimeout(for: simulator.udid, id: finger.id)
         case "up":
             await lift(simulator.udid, at: point)
         default:
@@ -345,16 +356,39 @@ actor Simulators {
         }
     }
 
-    private func press(_ simulator: Simulator, edge: SimulatorHIDEdge) async throws -> Finger {
+    func liftAllFingers() async {
+        for udid in Array(fingers.keys) {
+            await lift(udid, at: nil)
+        }
+    }
+
+    private func press(_ simulator: Simulator, at point: CGPoint, edge: SimulatorHIDEdge) async throws -> Finger {
         let hid = try await connection(to: simulator).value
         let (events, feed) = AsyncStream<SimulatorHIDEvent>.makeStream()
         let gesture = Task { try await hid.send(events: events, logger: simulator.logger) }
-        return Finger(events: feed, gesture: gesture, edge: edge)
+        return Finger(id: UUID(), events: feed, gesture: gesture, edge: edge, lastPoint: point, timeout: nil)
+    }
+
+    private func armFingerTimeout(for udid: String, id: UUID) {
+        guard var finger = fingers[udid], finger.id == id else { return }
+        finger.timeout?.cancel()
+        finger.timeout = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.fingerTimeout * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await self?.liftIfMatching(udid, id: id)
+        }
+        fingers[udid] = finger
+    }
+
+    private func liftIfMatching(_ udid: String, id: UUID) async {
+        guard fingers[udid]?.id == id else { return }
+        await lift(udid, at: nil)
     }
 
     private func lift(_ udid: String, at point: CGPoint?) async {
         guard let finger = fingers.removeValue(forKey: udid) else { return }
-        if let point { finger.put(.up, point) }
+        finger.timeout?.cancel()
+        finger.put(.up, point ?? finger.lastPoint)
         finger.events.finish()
         if (try? await finger.gesture.value) == nil, touch[udid] != nil { touch[udid] = nil }
     }
@@ -546,9 +580,12 @@ actor Simulators {
 }
 
 private struct Finger {
+    let id: UUID
     let events: AsyncStream<SimulatorHIDEvent>.Continuation
     let gesture: Task<Void, Error>
     let edge: SimulatorHIDEdge
+    var lastPoint: CGPoint
+    var timeout: Task<Void, Never>?
 
     func put(_ direction: SimulatorHIDDirection, _ point: CGPoint) {
         events.yield(.touch(direction: direction, x: point.x, y: point.y, edge: edge))

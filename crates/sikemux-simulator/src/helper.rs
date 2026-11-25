@@ -36,6 +36,7 @@ const HANGS_BEFORE_RESTART: u32 = 3;
 /// How many frames may wait for the page before the helper's socket is left
 /// unread, which is how the helper learns to drop frames.
 const UNREAD_FRAMES: u64 = 12;
+const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
 
 type Reply = Result<Value, String>;
 type Waiting = Arc<Mutex<Pending>>;
@@ -201,6 +202,9 @@ impl SimManager {
             None => false,
         };
         if !running {
+            if let Some(old) = slot.take() {
+                retire(old);
+            }
             *slot = Some(self.spawn(executable.clone())?);
         }
         let mut sender = Some(sender);
@@ -216,6 +220,9 @@ impl SimManager {
                 break;
             }
             drop(pending);
+            if let Some(old) = slot.take() {
+                retire(old);
+            }
             *slot = Some(self.spawn(executable.clone())?);
         }
         let Some(helper) = slot.as_mut().filter(|_| sender.is_none()) else {
@@ -314,6 +321,12 @@ impl SimManager {
             .values()
             .any(|watch| watch.udid == udid && watch.format == format)
     }
+}
+
+fn retire(mut helper: Helper) {
+    let _ = helper.child.kill();
+    let _ = helper.child.wait();
+    fail_all(&helper.waiting, "the simulator helper stopped");
 }
 
 fn fail_all(waiting: &Waiting, message: &str) {
@@ -481,6 +494,12 @@ async fn forward_frames(
         read.caught_up(sent).await;
         let frame = async {
             let length = socket.read_u32().await? as usize;
+            if length > MAX_FRAME_BYTES {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("frame size {length} exceeds {MAX_FRAME_BYTES} bytes"),
+                ));
+            }
             let mut frame = vec![0; length];
             socket.read_exact(&mut frame).await?;
             Ok::<_, std::io::Error>(frame)

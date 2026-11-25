@@ -8,6 +8,7 @@ import os
 final class FrameStream: NSObject, DataConsumer, DataConsumerAsync, @unchecked Sendable {
     /// Frames a viewer may have unread before newer ones are dropped for it.
     static let inFlightLimit = 2
+    static let handshakeTimeout: TimeInterval = 5
 
     let token: String
     /// H.264 frames build on the ones before, so a viewer that missed one waits for the next key frame.
@@ -15,6 +16,7 @@ final class FrameStream: NSObject, DataConsumer, DataConsumerAsync, @unchecked S
     private let listener: NWListener
     private let queue = DispatchQueue(label: "sikemux-sim.frames")
     private var viewers: [Viewer] = []
+    private var pending: [ObjectIdentifier: (connection: NWConnection, timeout: DispatchWorkItem)] = [:]
     private var quietSince = Date()
     private var keyFrameAsked = false
     private var stopped = false
@@ -64,6 +66,12 @@ final class FrameStream: NSObject, DataConsumer, DataConsumerAsync, @unchecked S
         listener.cancel()
         queue.async {
             self.stopped = true
+            let pendingConnections = self.pending.values
+            self.pending.removeAll()
+            for entry in pendingConnections {
+                entry.timeout.cancel()
+                entry.connection.cancel()
+            }
             self.viewers.forEach { $0.connection.cancel() }
         }
     }
@@ -79,12 +87,25 @@ final class FrameStream: NSObject, DataConsumer, DataConsumerAsync, @unchecked S
     }
 
     private func admit(_ connection: NWConnection) {
+        guard !stopped else {
+            connection.cancel()
+            return
+        }
+        let id = ObjectIdentifier(connection)
+        let timeout = DispatchWorkItem { [weak self, weak connection] in
+            guard let self, let connection else { return }
+            self.pending.removeValue(forKey: id)
+            connection.cancel()
+        }
+        pending[id] = (connection, timeout)
+        queue.asyncAfter(deadline: .now() + Self.handshakeTimeout, execute: timeout)
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             guard let self, let connection else { return }
             switch state {
             case .ready:
                 self.checkToken(of: connection)
             case .failed, .cancelled:
+                self.cancelPending(connection)
                 self.leave(connection)
             default:
                 break
@@ -93,10 +114,15 @@ final class FrameStream: NSObject, DataConsumer, DataConsumerAsync, @unchecked S
         connection.start(queue: queue)
     }
 
+    private func cancelPending(_ connection: NWConnection) {
+        pending.removeValue(forKey: ObjectIdentifier(connection))?.timeout.cancel()
+    }
+
     private func checkToken(of connection: NWConnection) {
         let expected = Data((token + "\n").utf8)
         connection.receive(minimumIncompleteLength: expected.count, maximumLength: expected.count) { [weak self] data, _, _, _ in
             guard let self else { return }
+            self.cancelPending(connection)
             guard data == expected, !self.stopped else { return connection.cancel() }
             self.viewers.append(Viewer(connection))
             self.watchForClose(connection)
