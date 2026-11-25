@@ -38,6 +38,7 @@ export type AuditAction =
   | "vault.entry_removed"
   | "org_vault.created"
   | "org_vault.host_vouched"
+  | "org_vault.host_let_in"
   | "org_vault.key_added"
   | "org_vault.rotated"
   | "org_vault.entry_written"

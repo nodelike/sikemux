@@ -91,8 +91,8 @@ async function mayVouch(
     return undefined;
   };
   const allowed = vouches.flatMap((vouch) => {
-    const member = listed.get(vouch.hostKey)?.member;
-    return member && !refusal(vouch.hostKey) ? [{ vouch, member }] : [];
+    const host = listed.get(vouch.hostKey);
+    return host && !refusal(vouch.hostKey) ? [{ vouch, host }] : [];
   });
   return { allowed, refused: wanted.map(refusal).find(Boolean) };
 }
@@ -101,16 +101,16 @@ async function insertVouches(
   trx: Transaction<Tables>,
   asker: Asker,
   member: Member,
-  allowed: { vouch: OrgVaultVouchPut; member: string }[],
+  allowed: Awaited<ReturnType<typeof mayVouch>>["allowed"],
 ): Promise<boolean> {
   if (!allowed.length) return false;
   const kept = await trx
     .insertInto("org_vault_vouches")
     .values(
-      allowed.map(({ vouch, member: theirs }) => ({
+      allowed.map(({ vouch, host }) => ({
         org_id: asker.orgId,
         host_key: vouch.hostKey,
-        member: theirs,
+        member: host.member,
         by_key: asker.hostKey,
         by_member: member.id,
         at: vouch.at,
@@ -157,8 +157,18 @@ async function insertVouches(
     )
     .returning("host_key")
     .execute();
-  for (const { host_key: host } of kept)
-    await auditOrg(trx, asker, "org_vault.host_vouched", { host });
+  const keptKeys = new Set(kept.map((row) => row.host_key));
+  for (const { vouch, host } of allowed) {
+    if (!keptKeys.has(vouch.hostKey)) continue;
+    if (vouch.introduction)
+      await auditOrg(trx, asker, "org_vault.host_let_in", {
+        host: host.key,
+        member: host.user_id,
+        computer: host.name,
+      });
+    else
+      await auditOrg(trx, asker, "org_vault.host_vouched", { host: host.key });
+  }
   return kept.length > 0;
 }
 

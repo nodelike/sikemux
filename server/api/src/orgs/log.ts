@@ -43,7 +43,7 @@ const SHOWN: Record<string, OrgAuditAction> = {
   "org.policy_changed": "policy_changed",
   "org.seat_moved": "seat_moved",
   "org_vault.created": "vault_created",
-  "org_vault.key_added": "vault_host_added",
+  "org_vault.host_let_in": "vault_host_added",
   "org_vault.rotated": "vault_rotated",
   "org_vault.entry_written": "vault_entry_written",
   "org_vault.entry_removed": "vault_entry_removed",
@@ -82,9 +82,9 @@ const doerOf = (row: Selectable<Tables["audit"]>) =>
       ? row.user_id
       : null;
 
-/** Who it happened to: the member whose computer was given the vault's key, or the row's person. */
+/** Who it happened to: the member whose computer was let into the vault, or the row's person. */
 const subjectOf = (row: Selectable<Tables["audit"]>) =>
-  row.action === "org_vault.key_added"
+  row.action === "org_vault.host_let_in"
     ? (text((row.detail as Record<string, unknown>).member) ?? null)
     : row.user_id;
 
