@@ -9,24 +9,56 @@ const TRACES_SAMPLE_RATE = 0.05;
 const SERVICE_HOSTS =
   /(^|\.)(sikemux\.com|clerk\.com|apple\.com|googleapis\.com)$/;
 const PRIVATE_KEY =
-  /authorization|cookie|token|secret|password|email|address|query|connection_string|^ip$/i;
+  /authorization|cookie|token|secret|password|email|address|query|connection_string|^ip$|x-page-proof|x-page-title|x-page-shared-by|proof/i;
 const HOOK_TOKEN = /(\/v1\/hooks\/[^/?#]+\/)[^/?#]+/g;
+const SHARE_ID = /(\/v1\/(?:pages|shares)\/)[^/?#]+/g;
 const KEPT_HEADERS = ["user-agent", "content-type", "content-length"];
 
 /** The pseudonym the apps' usage pings give an account, so Sentry counts people without knowing who they are. */
 const accountHash = (userId: string) =>
   createHash("sha256").update(`sikemux-usage|${userId}`).digest("hex");
 
-const withoutHookToken = (text: string) =>
-  text.includes("/v1/hooks/") ? text.replace(HOOK_TOKEN, "$1[token]") : text;
+const scrubText = (text: string) => {
+  let out = text;
+  if (out.includes("/v1/hooks/")) out = out.replace(HOOK_TOKEN, "$1[token]");
+  if (out.includes("/v1/pages/") || out.includes("/v1/shares/"))
+    out = out.replace(SHARE_ID, "$1[id]");
+  return out;
+};
 
-function scrub(fields: Record<string, unknown> | undefined) {
-  if (!fields) return;
+const MAX_SCRUB_DEPTH = 10;
+
+function scrubValue(
+  value: unknown,
+  seen: WeakSet<object>,
+  depth: number,
+): unknown {
+  if (typeof value === "string") return scrubText(value);
+  if (!value || typeof value !== "object" || depth >= MAX_SCRUB_DEPTH)
+    return value;
+  if (seen.has(value)) return value;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1)
+      value[i] = scrubValue(value[i], seen, depth + 1);
+    return value;
+  }
+  scrub(value as Record<string, unknown>, seen, depth + 1);
+  return value;
+}
+
+function scrub(
+  fields: Record<string, unknown> | undefined,
+  seen = new WeakSet<object>(),
+  depth = 0,
+) {
+  if (!fields || depth >= MAX_SCRUB_DEPTH) return;
+  seen.add(fields);
   for (const [key, value] of Object.entries(fields)) {
     if (key === "userId" && typeof value === "string")
       fields[key] = accountHash(value);
     else if (PRIVATE_KEY.test(key)) Reflect.deleteProperty(fields, key);
-    else if (typeof value === "string") fields[key] = withoutHookToken(value);
+    else fields[key] = scrubValue(value, seen, depth);
   }
 }
 
@@ -35,7 +67,7 @@ function scrubEvent<E extends Sentry.Event>(event: E): E {
     const { method, url, headers = {} } = event.request;
     event.request = {
       ...(method && { method }),
-      ...(url && { url: withoutHookToken(url.replace(/[?#].*$/, "")) }),
+      ...(url && { url: scrubText(url.replace(/[?#].*$/, "")) }),
       headers: Object.fromEntries(
         KEPT_HEADERS.flatMap((name) =>
           headers[name] ? [[name, headers[name]]] : [],
@@ -43,12 +75,22 @@ function scrubEvent<E extends Sentry.Event>(event: E): E {
       ),
     };
   }
-  if (event.transaction)
-    event.transaction = withoutHookToken(event.transaction);
+  if (event.transaction) event.transaction = scrubText(event.transaction);
+  if (event.message) event.message = scrubText(event.message);
   if (event.user) event.user = event.user.id ? { id: event.user.id } : {};
-  scrub(event.contexts?.trace?.data);
-  scrub(event.contexts?.pino);
-  for (const crumb of event.breadcrumbs ?? []) scrub(crumb.data);
+  scrub(event.extra);
+  if (event.contexts) {
+    for (const ctx of Object.values(event.contexts))
+      if (ctx && typeof ctx === "object") scrub(ctx);
+  }
+  for (const exception of event.exception?.values ?? []) {
+    if (exception.value) exception.value = scrubText(exception.value);
+    scrub(exception.mechanism?.data);
+  }
+  for (const crumb of event.breadcrumbs ?? []) {
+    if (crumb.message) crumb.message = scrubText(crumb.message);
+    scrub(crumb.data);
+  }
   return event;
 }
 
@@ -112,7 +154,7 @@ export function startSentry(env: NodeJS.ProcessEnv) {
     ],
     beforeSend: scrubEvent,
     beforeSendSpan(span) {
-      span.name = withoutHookToken(span.name);
+      span.name = scrubText(span.name);
       scrub(span.attributes);
       return span;
     },

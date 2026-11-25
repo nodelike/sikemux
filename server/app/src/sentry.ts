@@ -5,8 +5,11 @@ import { config } from "./config.ts";
 const TRACES_SAMPLE_RATE = 0.05;
 const KEPT_HEADERS = ["User-Agent"];
 
-/** Without its query and fragment, where sign-ins carry codes and a shared chat its key. */
-const bare = (url: string) => url.replace(/[?#].*$/, "");
+/** Without its query, fragment, or share/page id. */
+const bare = (url: string) =>
+  url
+    .replace(/[?#].*$/, "")
+    .replace(/(\/(?:p|s|v1\/pages|v1\/shares)\/)[^/?#]+/g, "$1[id]");
 
 function scrub(fields: Record<string, unknown> | undefined) {
   if (!fields) return;
@@ -46,6 +49,7 @@ export function startSentry(dsn: string) {
           ),
         };
       }
+      if (event.transaction) event.transaction = bare(event.transaction);
       if (event.user) event.user = event.user.id ? { id: event.user.id } : {};
       for (const crumb of event.breadcrumbs ?? []) scrub(crumb.data);
       return event;

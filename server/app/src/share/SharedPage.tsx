@@ -40,9 +40,9 @@ type FetchResult =
 
 /**
  * The page's scripts run, but may fetch nothing: with no allow-same-origin the frame has an origin
- * of its own, so it cannot reach this page, its sign-in or the API either.
+ * of its own, and local assets are already inlined as data:/blob: so remote tracking is blocked.
  */
-const FRAME_POLICY = `<meta http-equiv="Content-Security-Policy" content="connect-src 'none'; form-action 'none'">`;
+const FRAME_POLICY = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data: blob:; media-src data: blob:; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'">`;
 
 function scrollBridge(scroll: ScrollPos): string {
   const x = Math.max(0, Math.round(scroll.x));
