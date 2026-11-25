@@ -3,6 +3,10 @@ use serde_json::{json, Value};
 /// Every Claude chat but a Fable one is launched with this window. Claude compacts about 33K
 /// tokens under it, so near 150K.
 pub const CLAUDE_WINDOW: u64 = 183_000;
+/// Antigravity ACP sessions are compacted once a turn finishes at or past this context size.
+pub const ANTIGRAVITY_AUTO_COMPACT: u64 = 150_000;
+/// Env var honored by Antigravity CLI (ignored by `agy acp` as of 1.5.16, kept for terminal/future ACP).
+pub const ANTIGRAVITY_COMPACT_ENV: (&str, &str) = ("AGY_CLI_AUTO_COMPACT_OVERRIDE", "150K");
 /// A Fable chat compacts near 250K instead: at 150K it ran out of room twice as fast as Opus,
 /// and its cheap cache reads make the larger context cost no more than the extra compactions.
 const FABLE_WINDOW: u64 = 283_000;

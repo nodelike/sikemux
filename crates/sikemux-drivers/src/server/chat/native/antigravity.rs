@@ -380,6 +380,17 @@ pub(super) fn launch_args(mode: PermissionMode) -> Vec<String> {
     }
 }
 
+pub(super) fn launch_env(
+    existing: &std::collections::BTreeMap<String, String>,
+) -> Vec<(String, String)> {
+    let (key, value) = crate::server::chat::cap::ANTIGRAVITY_COMPACT_ENV;
+    if existing.contains_key(key) {
+        Vec::new()
+    } else {
+        vec![(key.to_owned(), value.to_owned())]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

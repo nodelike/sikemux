@@ -103,6 +103,18 @@ fn compact_word(launch: &ChatLaunch) -> &'static str {
     }
 }
 
+/// Whether an `available_commands_update` payload advertises compaction natively.
+fn advertises_compact(update: &Value, word: &str) -> bool {
+    update["sessionUpdate"] == "available_commands_update"
+        && update["availableCommands"]
+            .as_array()
+            .is_some_and(|commands| {
+                commands
+                    .iter()
+                    .any(|command| command["name"] == word || command["name"] == COMPACT)
+            })
+}
+
 /// Offers `/compact` in the agent's command list whatever the agent calls it, and offers it
 /// even where the agent takes it without listing it.
 fn offer_compact(update: &mut Value, word: &str) {
@@ -233,6 +245,14 @@ struct Turns {
     /// prompted, so its end can tell an error it recorded since.
     #[serde(skip)]
     log: Option<(String, i64)>,
+    #[serde(default)]
+    native_compact: bool,
+    #[serde(default)]
+    compacting: bool,
+    #[serde(default)]
+    last_used: u64,
+    #[serde(skip)]
+    compact_done: Arc<tokio::sync::Notify>,
 }
 
 impl Turns {
@@ -361,6 +381,20 @@ impl Driver {
                     self.sink.error(describe(&error));
                 }
             }
+            Purpose::Compact(_) => {
+                let used = {
+                    let mut turns = self.turns.locked();
+                    turns.compacting = false;
+                    turns.compact_done.notify_waiters();
+                    turns.last_used
+                };
+                if result.is_ok_and(|answer| {
+                    answer.get("stopReason").and_then(Value::as_str) != Some("cancelled")
+                }) {
+                    self.sink.compacted(used);
+                }
+                self.sink.compaction_over();
+            }
             _ => {}
         }
     }
@@ -459,6 +493,26 @@ impl Reads for Driver {
                     .and_then(Value::as_str)
                     .unwrap_or_default();
                 if self.antigravity {
+                    if advertises_compact(&update, self.compact) {
+                        self.turns.locked().native_compact = true;
+                    }
+                    if UpdateKind::of(&update) == Some(UpdateKind::UsageUpdate) {
+                        if let Some(used) = update.get("used").and_then(Value::as_u64) {
+                            let compacting = {
+                                let mut turns = self.turns.locked();
+                                turns.last_used = used;
+                                turns.compacting
+                            };
+                            if !self.sink.reloading() && !compacting {
+                                self.sink.called(used);
+                            }
+                            if compacting {
+                                return self.sink.update(session_id, update);
+                            }
+                        }
+                    } else if self.turns.locked().compacting {
+                        return;
+                    }
                     if let Some((card, prompt)) = antigravity::spawn(&update) {
                         if card.is_null() {
                             return;
@@ -489,7 +543,18 @@ impl Reads for Driver {
     }
 
     fn closed(&mut self) {
-        self.turns.locked().gone = true;
+        let was_compacting = {
+            let mut turns = self.turns.locked();
+            turns.gone = true;
+            let was = std::mem::take(&mut turns.compacting);
+            if was {
+                turns.compact_done.notify_waiters();
+            }
+            was
+        };
+        if was_compacting {
+            self.sink.compaction_over();
+        }
         self.rpc.close();
     }
 }
@@ -545,13 +610,15 @@ pub struct Acp {
 
 impl Acp {
     async fn begin(launch: &ChatLaunch, sink: Sink) -> Result<(Self, Opened), String> {
-        let args = if is_antigravity(launch) {
-            antigravity::launch_args(launch.permission_mode)
+        let (args, extra_env) = if is_antigravity(launch) {
+            (
+                antigravity::launch_args(launch.permission_mode),
+                antigravity::launch_env(&launch.env),
+            )
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
-        let (process, writer, lines) =
-            Process::spawn(launch, args, Vec::<(String, String)>::new())?;
+        let (process, writer, lines) = Process::spawn(launch, args, extra_env)?;
         let driver = Driver {
             rpc: Rpc::new(writer, true),
             sink,
@@ -902,6 +969,15 @@ impl Backend for Acp {
     }
 
     async fn prompt(&mut self, turn: u64, prompt: Prompt) -> Result<(), String> {
+        let compacting = {
+            let turns = self.driver.turns.locked();
+            turns
+                .compacting
+                .then(|| turns.compact_done.clone().notified_owned())
+        };
+        if let Some(done) = compacting {
+            let _ = tokio::time::timeout(Duration::from_secs(60), done).await;
+        }
         let blocks = prompt_blocks(
             in_own_words(prompt.text, self.driver.compact),
             prompt.paths,
@@ -926,6 +1002,44 @@ impl Backend for Acp {
             params(request)?,
             Purpose::Prompt(turn),
         )
+    }
+
+    async fn compact(&mut self) -> Result<(), String> {
+        if !self.driver.antigravity {
+            return Err("this agent cannot compact quietly".to_owned());
+        }
+        {
+            let mut turns = self.driver.turns.locked();
+            if !turns.native_compact {
+                return Err("this Antigravity version does not advertise /compact".to_owned());
+            }
+            if self.driver.sink.running() || turns.unanswered > 0 || turns.unprompted {
+                return Err("the chat is working".to_owned());
+            }
+            if turns.compacting {
+                return Ok(());
+            }
+            turns.compacting = true;
+        }
+        let text = format!(
+            "/{} {}",
+            self.driver.compact,
+            crate::server::chat::cap::IDLE_FOCUS
+        );
+        let request =
+            PromptRequest::new(self.kept.session_id.clone(), vec![ContentBlock::from(text)]);
+        self.driver
+            .rpc
+            .send_for(
+                AGENT_METHOD_NAMES.session_prompt,
+                params(request)?,
+                Purpose::Compact(0),
+            )
+            .inspect_err(|_| {
+                let mut turns = self.driver.turns.locked();
+                turns.compacting = false;
+                turns.compact_done.notify_waiters();
+            })
     }
 
     fn steer(

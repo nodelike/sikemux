@@ -144,6 +144,10 @@ impl Meter {
         self.last_call_ms.load(Ordering::Acquire)
     }
 
+    pub fn is_compacted(&self) -> bool {
+        self.compacted.load(Ordering::Acquire)
+    }
+
     /// A fresh session starts with nothing in it, and no call yet.
     pub fn started_fresh(&self) {
         self.last_call_ms.store(0, Ordering::Release);
@@ -397,6 +401,37 @@ pub fn keep_history(core: &Core, params: KeepHistoryParams) -> CoreResult<()> {
         .ok_or("no such chat")?;
     feed.set_expired_cache(expired_from(claude, meter, epoch_ms()));
     Ok(())
+}
+
+fn waiting_on_process(core: &Core, chat: &Chat) -> bool {
+    chat.feed.running_tasks() > 0
+        || chat.feed.running_subagents() > 0
+        || (core.chat_above().turn_state_now)(core, chat.agent_id()).is_some_and(|turn| {
+            turn.state == TurnPhase::Working
+                || turn
+                    .wait
+                    .as_ref()
+                    .is_some_and(|wait| wait.kind == TurnWaitKind::Process)
+        })
+}
+
+/// Compacts an idle Antigravity chat whose context crossed the 150K cap right after its turn
+/// finishes, while its prompt cache is still hot.
+pub fn compact_over_cap(core: &Core, chat: &Chat, now: u64) -> bool {
+    let due = chat.provider() == "antigravity"
+        && chat.is_ready()
+        && !chat.prompted()
+        && chat.state_now() == AgentState::Idle
+        && !chat.feed.has_queued()
+        && !chat.meter.compacting()
+        && !chat.meter.is_compacted()
+        && chat.meter.context() >= sikemux_drivers::server::chat::cap::ANTIGRAVITY_AUTO_COMPACT
+        && !waiting_on_process(core, chat);
+    if due {
+        chat.meter.compacted.store(true, Ordering::Release);
+        chat.meter.compacting_since.store(now, Ordering::Release);
+    }
+    due
 }
 
 /// Asks each big chat that has sat idle long enough to compact before its cache dies.

@@ -645,6 +645,7 @@ pub async fn run<B: Backend>(
     let end = loop {
         if !running.chat.prompted() && commands.is_empty() {
             running.ready_rotation(commands).await;
+            running.compact_over_cap().await;
         }
         running.rest();
         // What the agent already said is taken in before the next command,
@@ -757,6 +758,21 @@ impl<B: Backend> Running<'_, B> {
         }
         let note = self.take_note(commands).await.ok();
         rotation::readied(&self.chat, &session, note);
+    }
+
+    /// Compacts an Antigravity chat that finished a turn at or past its 150K cap while its
+    /// prompt cache is still hot.
+    async fn compact_over_cap(&mut self) {
+        let Some(core) = self.chat.core.upgrade() else {
+            return;
+        };
+        if !cap::compact_over_cap(&core, &self.chat, sikemux_process::clock::epoch_ms()) {
+            return;
+        }
+        if let Err(error) = self.backend.compact().await {
+            self.chat.meter.compaction_over();
+            eprintln!("sikemux core: an Antigravity chat over 150K was not compacted: {error}");
+        }
     }
 
     /// Takes the session's handoff note, unless the person sends a message or Stop first: the
@@ -1232,10 +1248,11 @@ impl<B: Backend> Running<'_, B> {
                 });
             }
             ChatCommand::Compact => {
-                if !self.chat.prompted() {
-                    if let Err(error) = self.backend.compact().await {
-                        eprintln!("sikemux core: an idle chat was not compacted: {error}");
-                    }
+                if self.chat.prompted() {
+                    self.chat.meter.compaction_over();
+                } else if let Err(error) = self.backend.compact().await {
+                    self.chat.meter.compaction_over();
+                    eprintln!("sikemux core: an idle chat was not compacted: {error}");
                 }
             }
             ChatCommand::Suggest => {
