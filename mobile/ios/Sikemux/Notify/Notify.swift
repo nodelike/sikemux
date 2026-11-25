@@ -24,6 +24,7 @@ final class Notify {
     private static let prefs = NotifyPrefs(needsYou: true, finished: true, problems: true, when: .away, muted: [])
     /// APNs tokens can go quiet without changing; sending one again now and then keeps the server's copy fresh.
     private static let resend: TimeInterval = 30 * 24 * 60 * 60
+    private static let tokenWait: Duration = .seconds(15)
 
     /// Nil until the person first chooses.
     private(set) var choice: Choice?
@@ -35,7 +36,7 @@ final class Notify {
     private(set) var syncProblem: String?
 
     @ObservationIgnored private var unread = true
-    @ObservationIgnored private var token: CheckedContinuation<Data, Error>?
+    @ObservationIgnored private var token: (id: UUID, continuation: CheckedContinuation<Data, Error>)?
     @ObservationIgnored private var syncing: Task<Void, Error>?
 
     private init() {
@@ -231,16 +232,33 @@ final class Notify {
     }
 
     private func deviceToken() async throws -> Data {
-        try await withCheckedThrowingContinuation { waiting in
-            token?.resume(throwing: CancellationError())
-            token = waiting
+        let attempt = UUID()
+        let timeout = Task { [weak self] in
+            try? await Task.sleep(for: Self.tokenWait)
+            guard !Task.isCancelled else { return }
+            self?.timedOut(attempt)
+        }
+        defer { timeout.cancel() }
+        return try await withCheckedThrowingContinuation { waiting in
+            token?.continuation.resume(throwing: CancellationError())
+            token = (attempt, waiting)
             UIApplication.shared.registerForRemoteNotifications()
         }
     }
 
-    func registered(_ result: Result<Data, Error>) {
-        token?.resume(with: result)
+    private func timedOut(_ id: UUID) {
+        guard token?.id == id else { return }
+        let waiting = token?.continuation
         token = nil
+        waiting?.resume(
+            throwing: ApiProblem(
+                status: nil, code: nil, message: String(localized: "Apple did not return a push token in time.")))
+    }
+
+    func registered(_ result: Result<Data, Error>) {
+        let waiting = token?.continuation
+        token = nil
+        waiting?.resume(with: result)
     }
 
     /// The simulator and builds signed for development get their tokens from Apple's sandbox; App Store and
@@ -284,7 +302,10 @@ final class Notify {
     /// Gives a host this phone's notification key on each connection, while notifications are on. A host older than
     /// notifications never answers.
     func shareKey(_ host: String, _ connection: Connection) async {
+        recall()
         guard choice == .on else { return }
+        if allowed == nil { await checkAllowed() }
+        guard allowed == true else { return }
         let key = hostKey(host)
         do {
             let prefs = String(decoding: try JSONEncoder().encode(Self.prefs), as: UTF8.self)

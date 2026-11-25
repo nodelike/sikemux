@@ -34,6 +34,8 @@ enum Route: Hashable {
             case nil: self = .device(core: core, tab: query["tab"].flatMap(DeviceTab.init))
             case "chat" where words.count > 3:
                 self = .chat(core: core, agent: words[3])
+            case "call" where words.count > 3:
+                self = .call(core: core, call: words[3])
             case "new": self = .newChat(core: core, project: query["project"], launcher: query["launcher"])
             case "pairing": self = .pairing(core: core)
             default: return nil
@@ -52,7 +54,7 @@ enum Route: Hashable {
     /// The screens a link to this one opens over, so back goes where it would have.
     var under: [Route] {
         switch self {
-        case .chat(let core, _), .newChat(let core, _, _), .pairing(let core): [.device(core: core)]
+        case .chat(let core, _), .call(let core, _), .newChat(let core, _, _), .pairing(let core): [.device(core: core)]
         default: []
         }
     }

@@ -121,6 +121,7 @@ class Notifier(private val context: Context) {
         extras.getString(EXTRA_AGENT)?.let { put("agent", it) }
         extras.getString(EXTRA_KIND)?.let { put("kind", it) }
         extras.getString(EXTRA_REQUEST)?.let { put("request", it) }
+        extras.getString(EXTRA_CALL)?.let { put("call", it) }
       }
     }
   }
@@ -182,6 +183,7 @@ class Notifier(private val context: Context) {
     putString(EXTRA_AGENT, card.agentId)
     putString(EXTRA_KIND, card.kind.wire)
     card.requestId?.let { putString(EXTRA_REQUEST, it) }
+    card.callId?.let { putString(EXTRA_CALL, it) }
   }
 
   /** Opens the app at `url`, rewritten to this build's own scheme; without one, opens the app where it was. */
@@ -314,6 +316,7 @@ class Notifier(private val context: Context) {
     private const val EXTRA_AGENT = "sikemux.agent"
     private const val EXTRA_KIND = "sikemux.kind"
     private const val EXTRA_REQUEST = "sikemux.request"
+    private const val EXTRA_CALL = "sikemux.call"
     private val CHANNELS = setOf(NEEDS_YOU, FINISHED, PROBLEMS)
 
     /** A channel this app does not make would drop the card, so it goes where the person is asked for. */

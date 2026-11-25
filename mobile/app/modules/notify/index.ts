@@ -1,6 +1,6 @@
 import { requireOptionalNativeModule } from 'expo';
 
-export type ShownCard = { tag: string; host: string; agent?: string; kind?: string; request?: string };
+export type ShownCard = { tag: string; host: string; agent?: string; kind?: string; request?: string; call?: string };
 
 export type AnswerOutcome = 'answered' | 'sent' | 'rejected' | 'gone' | 'failed';
 

@@ -7,13 +7,40 @@ final class NotificationService: UNNotificationServiceExtension {
         _ request: UNNotificationRequest,
         withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
     ) {
-        let shown = Self.content(for: request.content) ?? request.content
-        guard let category = Card.kept(in: shown.userInfo)?.callCategory else { return contentHandler(shown) }
-        // UserNotifications' types are not Sendable; these are handed once to the task that delivers the card.
-        nonisolated(unsafe) let delivery = (content: shown, category: category, show: contentHandler)
-        Task {
-            await Self.register(delivery.category)
-            delivery.show(delivery.content)
+        switch Self.resolve(request.content) {
+        case .clear(let collapseId):
+            nonisolated(unsafe) let show = contentHandler
+            Task {
+                await Self.cancel(collapseId: collapseId)
+                show(UNMutableNotificationContent())
+            }
+        case .show(let shown):
+            guard let category = Card.kept(in: shown.userInfo)?.callCategory else { return contentHandler(shown) }
+            // UserNotifications' types are not Sendable; these are handed once to the task that delivers the card.
+            nonisolated(unsafe) let delivery = (content: shown, category: category, show: contentHandler)
+            Task {
+                await Self.register(delivery.category)
+                delivery.show(delivery.content)
+            }
+        case .fallback:
+            contentHandler(request.content)
+        }
+    }
+
+    private enum Resolution {
+        case show(UNNotificationContent)
+        case clear(String)
+        case fallback
+    }
+
+    private static func cancel(collapseId: String) async {
+        let center = UNUserNotificationCenter.current()
+        let matching = await center.deliveredNotifications().filter { notification in
+            let tag = (notification.request.content.userInfo["c"] as? String) ?? notification.request.identifier
+            return tag == collapseId
+        }
+        if !matching.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: matching.map(\.request.identifier))
         }
     }
 
@@ -31,19 +58,31 @@ final class NotificationService: UNNotificationServiceExtension {
     }
 
     static func content(for pushed: UNNotificationContent) -> UNNotificationContent? {
-        guard let blob = pushed.userInfo["b"] as? String else { return nil }
+        switch resolve(pushed) {
+        case .show(let content): return content
+        case .clear: return UNMutableNotificationContent()
+        case .fallback: return nil
+        }
+    }
+
+    private static func resolve(_ pushed: UNNotificationContent) -> Resolution {
+        if pushed.userInfo["t"] as? String == "clear", let collapseId = pushed.userInfo["c"] as? String {
+            return .clear(collapseId)
+        }
+        guard let blob = pushed.userInfo["b"] as? String else { return .fallback }
         let keys = Keys()
-        guard let phone = keys.phone else { return nil }
+        guard let phone = keys.phone else { return .fallback }
         switch Envelope.open(blob, phone: phone, keys: keys.all()) {
         case .read(let host, let plaintext):
-            guard let card = Card.parse(plaintext, host: host) else { return nil }
+            guard let card = Card.parse(plaintext, host: host) else { return .fallback }
             GlanceStore.heard(card)
-            return card.kind == .clear ? nil : show(card, over: pushed)
+            if card.kind == .clear { return .clear(card.collapseId) }
+            return show(card, over: pushed).map(Resolution.show) ?? .fallback
         case .unreadable(let host):
             keys.unreadable(host: host)
-            return nil
+            return .fallback
         case .noKey, .unknown:
-            return nil
+            return .fallback
         }
     }
 

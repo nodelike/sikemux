@@ -11,8 +11,9 @@ enum CardAction: String {
 /// The cards hosts sent that show now: tidied as hosts settle what they asked, and answered or opened when tapped.
 @MainActor
 enum Cards {
-    /// The permission requests each host's last view held, so a view that settles none needs no look at the cards.
+    /// The permission requests and open calls each host's last view held, so a view that settles none needs no look at the cards.
     private static var pendingSeen: [String: Set<String>] = [:]
+    private static var openCallsSeen: [String: Set<String>] = [:]
     private static var arrivals: [UUID: (host: String, kind: NotificationKind, call: @MainActor () -> Void)] = [:]
 
     private static func dismissShown(_ settled: @escaping (Card) -> Bool) {
@@ -22,15 +23,23 @@ enum Cards {
     }
 
     /// Removes the cards a host's current view shows are settled. Listing the shown cards is a trip into the
-    /// system, so it happens only when a request went away, or on a connection's first view, which may settle cards
-    /// that arrived while the phone was away.
+    /// system, so it happens only when a request or call went away, or on a connection's first view, which may settle
+    /// cards that arrived while the phone was away.
     static func reconcile(host: String, view: DeviceView, fresh: Bool) {
         let pending = Set(view.attentions.map(\.id))
-        let before = pendingSeen[host]
+        let openCalls = Set((view.calls ?? []).filter { $0.state == .open }.map(\.id))
+        let beforePending = pendingSeen[host]
+        let beforeCalls = openCallsSeen[host]
         pendingSeen[host] = pending
-        if !fresh, let before, before.isSubset(of: pending) { return }
+        openCallsSeen[host] = openCalls
+        let permissionsUnchanged = beforePending.map { $0.isSubset(of: pending) } ?? false
+        let callsUnchanged = beforeCalls.map { $0.isSubset(of: openCalls) } ?? false
+        if !fresh, permissionsUnchanged, callsUnchanged { return }
         dismissShown { card in
-            card.hostKey == host && card.kind == .permission && card.requestId.map { !pending.contains($0) } == true
+            guard card.hostKey == host else { return false }
+            if card.kind == .permission, let requestId = card.requestId { return !pending.contains(requestId) }
+            if let callId = card.callId { return !openCalls.contains(callId) }
+            return false
         }
     }
 
@@ -41,6 +50,8 @@ enum Cards {
 
     /// Removes every card from a host, as when it is forgotten.
     static func dismiss(host: String) {
+        pendingSeen[host] = nil
+        openCallsSeen[host] = nil
         dismissShown { $0.hostKey == host }
     }
 

@@ -64,7 +64,7 @@ class Keys(context: Context) {
     }
   }
 
-  private fun wrapping(): SecretKey {
+  private fun wrapping(): SecretKey = synchronized(LOCK) {
     val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
     (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
     val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE)
@@ -75,7 +75,7 @@ class Keys(context: Context) {
         .setKeySize(256)
         .build(),
     )
-    return generator.generateKey()
+    generator.generateKey()
   }
 
   private fun wrap(key: ByteArray): String {
@@ -92,6 +92,7 @@ class Keys(context: Context) {
   }
 
   companion object {
+    private val LOCK = Any()
     private const val FILE = "sikemux-notify"
     private const val KEYSTORE = "AndroidKeyStore"
     private const val ALIAS = "sikemux-notify"

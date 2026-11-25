@@ -9,11 +9,17 @@ import { answerFailed } from '@/calls/hostCalls';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
 
-/** Permission cards whose request the host no longer has: it was answered or withdrawn elsewhere. */
+/** Permission and call cards whose request or call the host no longer has open. */
 export function settledCards(shown: ShownCard[], host: string, snapshot: Snapshot): string[] {
   const pending = new Set(snapshot.attentions.map((attention) => attention.id));
+  const openCalls = new Set((snapshot.calls ?? []).filter((call) => call.state === 'open').map((call) => call.id));
   return shown
-    .filter((card) => card.host === host && card.kind === 'permission' && card.request && !pending.has(card.request))
+    .filter((card) => {
+      if (card.host !== host) return false;
+      if (card.kind === 'permission' && card.request) return !pending.has(card.request);
+      if (card.call) return !openCalls.has(card.call);
+      return false;
+    })
     .map((card) => card.tag);
 }
 
@@ -26,19 +32,25 @@ function dismissShown(pick: (shown: ShownCard[]) => string[]) {
     .catch((error: unknown) => console.warn('sikemux: could not tidy the notification cards', error));
 }
 
-/** The permission requests each host's last view held, so a view that settles none needs no look at the cards. */
+/** The permission requests and open calls each host's last view held, so a view that settles none needs no look at the cards. */
 const pendingSeen = new Map<string, Set<string>>();
+const openCallsSeen = new Map<string, Set<string>>();
 
 /**
  * Removes the cards a host's current view shows are settled, as the app hears it. Listing the shown cards is a
- * trip into the system, so it happens only when a request went away, or on a connection's first view, which may
+ * trip into the system, so it happens only when a request or call went away, or on a connection's first view, which may
  * settle cards that arrived while the phone was away.
  */
 export function reconcileCards(host: string, snapshot: Snapshot, fresh: boolean) {
   const pending = new Set(snapshot.attentions.map((attention) => attention.id));
-  const before = pendingSeen.get(host);
+  const openCalls = new Set((snapshot.calls ?? []).filter((call) => call.state === 'open').map((call) => call.id));
+  const beforePending = pendingSeen.get(host);
+  const beforeCalls = openCallsSeen.get(host);
   pendingSeen.set(host, pending);
-  if (!fresh && before && [...before].every((id) => pending.has(id))) return;
+  openCallsSeen.set(host, openCalls);
+  const permissionsUnchanged = !!beforePending && [...beforePending].every((id) => pending.has(id));
+  const callsUnchanged = !!beforeCalls && [...beforeCalls].every((id) => openCalls.has(id));
+  if (!fresh && permissionsUnchanged && callsUnchanged) return;
   dismissShown((shown) => settledCards(shown, host, snapshot));
 }
 
@@ -49,6 +61,8 @@ export function dismissCardsFor(host: string, agent: string) {
 
 /** Removes every card from a host, as when it is forgotten. */
 export function dismissHostCards(host: string) {
+  pendingSeen.delete(host);
+  openCallsSeen.delete(host);
   dismissShown((shown) => shown.filter((card) => card.host === host).map((card) => card.tag));
 }
 
