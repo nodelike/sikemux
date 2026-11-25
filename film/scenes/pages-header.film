@@ -1,0 +1,26 @@
+# An artifact's header: its title on the left, cut short and in full on hover, and its icons on the
+# right, on a narrow desk and an expanded one.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies pages-header.json
+project storefront shop
+patch pages-notes.diff
+chat Wren
+title "Cache the product pages"
+say "Show me the stores side by side."
+settle 10
+front Wren
+settle 2
+click 1083,69
+settle 4
+snap pages-header-narrow
+move 780,98
+settle 2
+snap pages-header-hover
+move 780,400
+settle 1
+click 1092,63
+settle 3
+snap pages-header-wide

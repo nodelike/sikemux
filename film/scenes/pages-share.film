@@ -1,4 +1,4 @@
-# A page shared from its reader on a local accounts API: the Share dialog, its link, then the page
+# A page shared from its header on a desk, on a local accounts API: the Share dialog, its link, then the page
 # in the tab rail's Shared section.
 stage 1440 900
 window 1440 900
@@ -12,9 +12,14 @@ chat Wren
 title "Cache the product pages"
 say "Plan the product page cache and show me the numbers."
 settle 10
+front Wren
+settle 2
 key cmd-alt-8
 settle 3
-click 1057,69
+click 1223,188
+settle 4
+click 1007,98
+move 900,60
 settle 1
 snap pages-share-dialog
 key enter

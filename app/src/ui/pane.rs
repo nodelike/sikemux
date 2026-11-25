@@ -87,6 +87,16 @@ pub fn floating_panel(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
         .shadow(t.shadow_float())
 }
 
+/// What a pane's header says the pane is: one line, cut with an ellipsis where room runs out.
+pub fn pane_title(title: impl Into<SharedString>, color: Hsla) -> Stateful<Div> {
+    text(title, TEXT_SM, FontWeight::MEDIUM)
+        .id("pane-title")
+        .min_w_0()
+        .overflow_hidden()
+        .text_ellipsis()
+        .text_color(color)
+}
+
 /// An agent pane's header: a bar across the top of the frame, what the pane is on the left
 /// and its controls and actions on the right. What the pane shows starts below it, so
 /// nothing passes underneath.
@@ -201,12 +211,7 @@ impl RenderOnce for PaneHeader {
             .children(self.title_view.or_else(|| {
                 let double_click = self.on_title_double_click;
                 (!self.title.is_empty()).then(|| {
-                    text(self.title, TEXT_SM, FontWeight::MEDIUM)
-                        .id("pane-title")
-                        .min_w_0()
-                        .overflow_hidden()
-                        .text_ellipsis()
-                        .text_color(primary)
+                    pane_title(self.title, primary)
                         .when_some(double_click, |title, handler| {
                             title.clicks_keep_cursor(move |event, window, cx| {
                                 if event.click_count() == 2 {

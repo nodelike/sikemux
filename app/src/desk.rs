@@ -2881,9 +2881,10 @@ fn pages_desk(
     }
     let artifact = front.and_then(|tab| {
         let id = page_id_of(tab.local_file.as_deref()?)?;
-        Some((id.to_owned(), tab.title.clone()))
+        let listed = bench.pages.page(id).map(|page| page.title.clone());
+        Some((id.to_owned(), listed.unwrap_or_else(|| tab.title.clone())))
     });
-    let is_artifact = artifact.is_some();
+    let title = artifact.as_ref().map(|(_, title)| title.clone());
     let keeping = artifact.and_then(|(id, title)| keep_and_share(bench, agent, id, title, cx));
     let foot = (bench.page_on_desk(agent, cx)).map(|_| page_foot(bench, agent, cx));
     let page = bench.desks.read(cx).pages.get(agent);
@@ -2891,11 +2892,11 @@ fn pages_desk(
         page.footed.store(foot.is_some(), Ordering::Relaxed);
     }
     let bar = second_row(cx)
-        .map(|bar| match is_artifact {
-            true => bar
-                .children(keeping.into_iter().flatten())
-                .child(div().flex_1()),
-            false => navigation(bar, bench, agent, front, window, cx),
+        .map(|bar| match title {
+            Some(title) => bar
+                .child(artifact_title(title, cx))
+                .children(keeping.into_iter().flatten()),
+            None => navigation(bar, bench, agent, front, window, cx),
         })
         .children(front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
         .child(snip_toggle(bench, agent, cx))
@@ -3022,6 +3023,14 @@ fn navigation(
     }))
 }
 
+/// The title of the artifact in front, at the start of its bar and in full on hover.
+fn artifact_title(title: String, cx: &App) -> impl IntoElement {
+    ui::pane_title(title.clone(), Tokens::get(cx).text_primary)
+        .flex_1()
+        .pl(SPACE_1)
+        .tooltip(ui::tooltip(title))
+}
+
 /// Keep and Share for the artifact of the agent's tab in front.
 fn keep_and_share(
     bench: &Workbench,
@@ -3030,7 +3039,7 @@ fn keep_and_share(
     title: String,
     cx: &mut Context<Workbench>,
 ) -> Option<[IconButton; 2]> {
-    let Some(life) = bench.pages.life_of(&id) else {
+    let Some(listed) = bench.pages.page(&id) else {
         let folder = crate::calls::project_of(bench, agent)?;
         let this = cx.weak_entity();
         cx.defer(move |cx| {
@@ -3040,7 +3049,8 @@ fn keep_and_share(
         });
         return None;
     };
-    let (kept, shared) = (life == PageLife::Kept, bench.pages.share_of(&id).is_some());
+    let (life, shared) = (listed.life, listed.shared.is_some());
+    let kept = life == PageLife::Kept;
     let accent = Tokens::get(cx).accent;
     let icon = match kept {
         true => Icon::Pin,

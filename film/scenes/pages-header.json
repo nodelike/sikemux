@@ -1,0 +1,3 @@
+[
+ {"when": "stores side by side", "steps": [{"tool": "mcp__sikemux-tools__page_show", "call": "page.show", "input": {"path": "notes/latency.html", "title": "Redis, SQLite and an in-process cache compared for the product pages"}, "ms": 400}, {"say": "The comparison is up."}]}
+]

@@ -37,18 +37,14 @@ impl Pages {
         self.listed.get(folder)?.as_ref()
     }
 
-    /// How long Sikemux keeps page `id`, as its project's list last said.
-    pub(crate) fn life_of(&self, id: &str) -> Option<PageLife> {
-        (self.listed.values().flatten().flatten())
-            .find(|page| page.id == id)
-            .map(|page| page.life)
+    /// Page `id`, as its project's list last said.
+    pub(crate) fn page(&self, id: &str) -> Option<&ListedPage> {
+        (self.listed.values().flatten().flatten()).find(|page| page.id == id)
     }
 
     /// The link page `id` is shared through, as its project's list last said.
     pub(crate) fn share_of(&self, id: &str) -> Option<&PageShare> {
-        (self.listed.values().flatten().flatten())
-            .find(|page| page.id == id)
-            .and_then(|page| page.shared.as_ref())
+        self.page(id)?.shared.as_ref()
     }
 
     /// Page `id` is shared through `share` now, or no longer, as the core answered, until its
