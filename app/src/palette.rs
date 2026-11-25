@@ -976,7 +976,7 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
                     .child(match mark {
                         Mark::Icon(glyph) => ui::picture(glyph, 14., t.text_tertiary),
                         Mark::Place(glyph) => ui::picture(glyph, 14., t.live),
-                        Mark::Agent(provider) => ui::mark(&provider, 14.),
+                        Mark::Agent(provider) => ui::mark(&provider, 14., cx),
                         Mark::Open(agent) => agent.mark(14., cx),
                     }),
             )

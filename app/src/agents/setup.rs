@@ -9,7 +9,6 @@ use gpui_kit::{
     div, px, size, AnyElement, Context, Entity, FocusHandle, IntoElement, ParentElement, Pixels,
     Size, Styled, Window,
 };
-use sikemux_agents::agent_accounts::by_hand;
 use sikemux_agents::agent_accounts::status::AgentStatus;
 use sikemux_agents::agent_accounts::status::FREE_MODELS;
 use sikemux_calls::agent_accounts::Account;
@@ -487,7 +486,8 @@ pub fn next_step(bench: &Workbench, agent: &Found) -> Option<(&'static str, Shee
                 .accounts
                 .current(&agent.kind)
                 .and_then(|profile| profile.config_path.clone());
-            signing_in(agent, folder.as_deref()).map(|sheet| (t!("Sign in"), sheet))
+            signing_in(&bench.reads.catalog, agent, folder.as_deref())
+                .map(|sheet| (t!("Sign in"), sheet))
         }
         _ => None,
     }
@@ -571,7 +571,7 @@ fn start_sign_in(
     let mut found = bench.agent_setup.found.iter().flatten();
     let sheet = found
         .find(|found| found.kind == provider)
-        .and_then(|found| signing_in(found, folder));
+        .and_then(|found| signing_in(&bench.reads.catalog, found, folder));
     match sheet {
         Some(sheet) => run(bench, sheet, cx),
         None => {
@@ -586,8 +586,12 @@ fn start_sign_in(
 
 /// The agent's own sign-in, on the account folder it runs on now. `None` for one Sikemux signs
 /// in, since the agent's own command would sign in the account it keeps itself.
-pub fn signing_in(agent: &Found, folder: Option<&str>) -> Option<Sheet> {
-    if folder.is_some() && by_hand(&agent.kind) {
+pub fn signing_in(
+    catalog: &crate::reads::Catalog,
+    agent: &Found,
+    folder: Option<&str>,
+) -> Option<Sheet> {
+    if folder.is_some() && catalog.by_hand(&agent.kind) {
         return None;
     }
     let args = agent.login.clone()?;
@@ -596,7 +600,7 @@ pub fn signing_in(agent: &Found, folder: Option<&str>) -> Option<Sheet> {
         .chain(args.iter().cloned())
         .collect::<Vec<_>>()
         .join(" ");
-    let variable = sikemux_agents::launch::account_variable(&agent.kind);
+    let variable = catalog.account_variable(&agent.kind);
     let words: Vec<String> = std::iter::once(program)
         .chain(args)
         .map(|word| quoted(&word))
@@ -998,7 +1002,7 @@ fn body(
                 cx,
             ))
     });
-    let screen = sign_in::Screen::new("agent-sheet", ui::mark(&sheet.kind, 34.), title)
+    let screen = sign_in::Screen::new("agent-sheet", ui::mark(&sheet.kind, 34., cx), title)
         .lede(lede)
         .children(terminal);
     let screen = match &sheet.phase {

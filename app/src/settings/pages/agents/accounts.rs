@@ -423,7 +423,7 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
                 .clicks(on(this, |bench, _, cx| accounts::close_dialog(bench, cx))),
         )
     };
-    let mark = ui::mark(&open.provider, 34.);
+    let mark = ui::mark(&open.provider, 34., cx);
     let screen = match (account, signing) {
         (None, _) if !accounts::keeps_several(bench, &open.provider) => {
             one_sign_in(mark, &label, this)

@@ -1228,7 +1228,7 @@ fn luminance_fit(colour: Hsla) -> f32 {
     (lum(reference) / lum(colour.to_rgb()).max(0.001)).sqrt()
 }
 /// An agent's mark at the size that reads as `target`, its ink flush with the left of a box.
-fn sized_mark(kind: &str, target: f32) -> (Div, f32, f32) {
+fn sized_mark(kind: &str, target: f32, cx: &App) -> (Div, f32, f32) {
     let [left, top, right, bottom, area] = mark_ink(kind);
     let (ink_width, ink_height) = (right - left, bottom - top);
     let optical = (area * ink_width * ink_height).powf(0.25);
@@ -1246,7 +1246,7 @@ fn sized_mark(kind: &str, target: f32) -> (Div, f32, f32) {
                 .absolute()
                 .left(px(-left * size))
                 .top(px(box_height / 2. - (top + bottom) / 2. * size))
-                .child(ui::mark(kind, size)),
+                .child(ui::mark(kind, size, cx)),
         );
     (slot, box_width, box_height)
 }
@@ -1539,7 +1539,7 @@ fn agent_tile(
     let t = Tokens::get(cx).clone();
     let welcome_fade = welcome_in(bench).map_or(1., |welcome| welcome.fade.get());
     let state = tile_state(bench, agent, &t);
-    let brand = theme::brand(&agent.kind);
+    let brand = theme::brand(&agent.kind, cx);
     let busy = bench.agent_setup.busy();
     let (edge, left) = (room.fit(40., 10.), room.fit(44., 14.));
     let (name_size, word_size) = (room.fit(30., 16.), room.fit(17., 13.));
@@ -1549,7 +1549,7 @@ fn agent_tile(
     let target = room
         .fit(46., 28.)
         .min((size.1 - edge * 2. - labels - MARK_TO_NAME) / MARK_BOX);
-    let (slot, slot_width, slot_height) = sized_mark(&agent.kind, target);
+    let (slot, slot_width, slot_height) = sized_mark(&agent.kind, target, cx);
     let widest = (agent.label.chars().count() as f32 * name_size)
         .max(state.word.chars().count() as f32 * word_size)
         * 0.56;

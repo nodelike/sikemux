@@ -433,11 +433,16 @@ fn black(alpha: f32) -> Hsla {
     }
 }
 
+/// Sikemux's own brand purple.
+pub fn sikemux_brand() -> Hsla {
+    hex(0xa277ff).into()
+}
+
 /// The agent's colour in the catalog, Sikemux's own, or a neutral one for a kind it does not list.
-pub fn brand(provider: &str) -> Hsla {
-    match sikemux_agents::agent_catalog::agent(provider) {
-        Some(agent) => color(agent.brand),
-        None if provider == "sikemux" => hex(0xa277ff).into(),
+pub fn brand(provider: &str, cx: &App) -> Hsla {
+    match crate::reads::Catalog::global(cx).kind(provider) {
+        Some(agent) => color(&agent.brand),
+        None if provider == "sikemux" => sikemux_brand(),
         None => hex(0x8b8898).into(),
     }
 }

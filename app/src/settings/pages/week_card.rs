@@ -1,6 +1,7 @@
 //! The picture of the last seven days that Settings ▸ Usage shares: which models did the work and
 //! in what share, the commits and the agent hours, drawn on Sikemux's black and purple.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::{Arc, LazyLock};
@@ -10,6 +11,7 @@ use resvg::{tiny_skia, usvg};
 use sikemux_calls::activity_log::ActivitySummary;
 
 use crate::icons::{self, Icon};
+use crate::reads::Catalog;
 use crate::theme;
 
 /// The card's own size; the saved picture is twice it.
@@ -77,15 +79,18 @@ pub fn window() -> (i64, String) {
 
 impl Card {
     /// The week in `summary`, or none when no agent used a model in it.
-    pub fn of(summary: &ActivitySummary, range: &str) -> Option<Card> {
-        let mut families: HashMap<&'static str, (Family, u64)> = HashMap::new();
+    pub fn of(summary: &ActivitySummary, range: &str, catalog: &Catalog) -> Option<Card> {
+        let mut families: HashMap<Cow<'static, str>, (Family, u64)> = HashMap::new();
         for model in &summary.models {
             let tokens = (model.input + model.output + model.cache_write).max(0) as u64;
             if tokens == 0 {
                 continue;
             }
-            let family = family(&model.model, &model.agent);
-            families.entry(family.label).or_insert((family, 0)).1 += tokens;
+            let family = family(&model.model, &model.agent, catalog);
+            families
+                .entry(family.label.clone())
+                .or_insert((family, 0))
+                .1 += tokens;
         }
         let total: u64 = families.values().map(|(_, tokens)| tokens).sum();
         if total == 0 {
@@ -95,7 +100,7 @@ impl Card {
         ranked.sort_by(|a, b| {
             (a.0.icon.is_none().cmp(&b.0.icon.is_none()))
                 .then(b.1.cmp(&a.1))
-                .then(a.0.label.cmp(b.0.label))
+                .then(a.0.label.cmp(&b.0.label))
         });
         let count = ranked.len();
         let named = ranked
@@ -105,7 +110,9 @@ impl Card {
                 family.icon.is_some() && tokens * 100 >= SMALLEST_PERCENT * total
             })
             .count();
-        let lead_label = ranked.first().map_or("", |(family, _)| family.label);
+        let lead_label = ranked
+            .first()
+            .map_or("", |(family, _)| family.label.as_ref());
         let (kept, folded) = ranked.split_at(named);
         let other: u64 = folded.iter().map(|(_, tokens)| tokens).sum();
         let mut shares: Vec<u64> = kept.iter().map(|(_, tokens)| *tokens).collect();
@@ -117,9 +124,9 @@ impl Card {
             .iter()
             .zip(&percents)
             .map(|((family, _), percent)| Slice {
-                label: family.label.to_owned(),
+                label: family.label.as_ref().to_owned(),
                 percent: *percent,
-                color: family.color.to_owned(),
+                color: family.color.as_ref().to_owned(),
                 icon: family.icon,
             })
             .collect();
@@ -208,12 +215,12 @@ fn number_word(count: usize) -> String {
 
 /// Who made a model, as the card names it.
 struct Family {
-    label: &'static str,
+    label: Cow<'static, str>,
     icon: Option<Icon>,
-    color: &'static str,
+    color: Cow<'static, str>,
 }
 
-fn family(model: &str, agent: &str) -> Family {
+fn family(model: &str, agent: &str, catalog: &Catalog) -> Family {
     let name = model
         .rsplit('/')
         .next()
@@ -223,10 +230,10 @@ fn family(model: &str, agent: &str) -> Family {
         .split(['-', '.', ':', '_', ' '])
         .next()
         .unwrap_or_default();
-    let known = |label, icon, color| Family {
-        label,
+    let known = |label: &'static str, icon, color: &'static str| Family {
+        label: Cow::Borrowed(label),
         icon: Some(icon),
-        color,
+        color: Cow::Borrowed(color),
     };
     match first {
         "claude" | "opus" | "sonnet" | "haiku" | "fable" => {
@@ -242,16 +249,16 @@ fn family(model: &str, agent: &str) -> Family {
         "minimax" => known("MiniMax", Icon::MiniMax, "#f23f5d"),
         "llama" => known("Llama", Icon::Meta, "#0081fb"),
         "mistral" | "codestral" | "devstral" => known("Mistral", Icon::Mistral, "#fa520f"),
-        _ => match sikemux_agents::agent_catalog::agent(agent) {
+        _ => match catalog.kind(agent) {
             Some(entry) => Family {
-                label: entry.label,
+                label: Cow::Owned(entry.label.clone()),
                 icon: Some(icons::agent(agent)),
-                color: entry.brand,
+                color: Cow::Owned(entry.brand.clone()),
             },
             None => Family {
-                label: "other",
+                label: Cow::Borrowed("other"),
                 icon: None,
-                color: OTHER_COLOR,
+                color: Cow::Borrowed(OTHER_COLOR),
             },
         },
     }

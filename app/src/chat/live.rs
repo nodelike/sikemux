@@ -242,7 +242,7 @@ pub fn dock(
     asks: Vec<AnyElement>,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
-    let handoff = handoff(agent, chat, cx);
+    let handoff = handoff(bench, agent, chat, cx);
     let guests = guests(&agent.id, chat, cx);
     let queued = queued(bench, &agent.id, chat, cx);
     let running = running(agent, chat, cx);
@@ -466,7 +466,7 @@ fn running(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
     )];
     if chat.groups_folded.contains(RUNNING) {
         let subagent = (!subagents.is_empty())
-            .then(|| kind_count(ui::mark(&agent.provider, 13.), subagents.len(), &t));
+            .then(|| kind_count(ui::mark(&agent.provider, 13., cx), subagents.len(), &t));
         let tasks = kinds.iter().map(|(kind, group)| {
             let icon = ui::icon(task_icon(kind), 12.)
                 .text_color(tints.task)
@@ -499,7 +499,7 @@ fn running(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
             rows.extend(
                 task.agents
                     .iter()
-                    .map(|worker| workflow_agent(agent, worker, &t, &tints)),
+                    .map(|worker| workflow_agent(agent, worker, &t, &tints, cx)),
             );
         }
     }
@@ -647,7 +647,7 @@ fn subagent_row(
         let stopping = chat.stopping.contains(&card.session_id);
         stop(&agent.id, &card.session_id, &card.name, stopping, t, cx)
     });
-    subagent_line(card, &agent.provider, stop, t).into_any_element()
+    subagent_line(card, &agent.provider, stop, t, cx).into_any_element()
 }
 
 /// A subagent's row, drawn alike in the transcript and the dock: its name, what it is doing
@@ -657,6 +657,7 @@ pub(super) fn subagent_line(
     provider: &str,
     after: Option<AnyElement>,
     t: &Tokens,
+    cx: &gpui_kit::App,
 ) -> Div {
     let running = card.state == SubagentState::Running;
     let detail = match &card.last_tool {
@@ -702,7 +703,7 @@ pub(super) fn subagent_line(
         .into_any_element();
     work_row(
         t,
-        ui::mark(provider, 13.),
+        ui::mark(provider, 13., cx),
         card.name.clone(),
         Some((detail, false)),
         cost([model, tokens(card.tokens), calls]),
@@ -815,6 +816,7 @@ fn workflow_agent(
     worker: &WorkflowAgent,
     t: &Tokens,
     tints: &Tints,
+    cx: &gpui_kit::App,
 ) -> AnyElement {
     let detail = match worker.state {
         WorkflowAgentState::Failed => worker.error.clone().or(worker.phase.clone()),
@@ -845,7 +847,7 @@ fn workflow_agent(
     );
     let mark = div()
         .when(quiet, |mark| mark.opacity(0.6))
-        .child(ui::mark(&agent.provider, 13.))
+        .child(ui::mark(&agent.provider, 13., cx))
         .into_any_element();
     work_row(
         t,
@@ -913,13 +915,14 @@ fn queued_words(
     words.into_any_element()
 }
 
-fn agent_label(provider: &str) -> &str {
-    sikemux_agents::agent_catalog::agent(provider).map_or(provider, |agent| agent.label)
-}
-
 /// What the chat's next message hands to the agent that took it over, or that starts it as a
 /// fork, with a button to send it without.
-fn handoff(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option<Group> {
+fn handoff(
+    bench: &Workbench,
+    agent: &AgentRow,
+    chat: &Chat,
+    cx: &mut Context<Workbench>,
+) -> Option<Group> {
     let handoff = chat.state.as_ref()?.handoff.as_ref()?;
     let t = Tokens::get(cx).clone();
     let mut said = Vec::new();
@@ -942,22 +945,22 @@ fn handoff(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
     let lead = match handoff.forked_from {
         Some(_) => t!(
             "Forked from a chat with {agent}",
-            agent = agent_label(&handoff.from)
+            agent = bench.reads.catalog.label(&handoff.from)
         ),
         None => t!(
             "Hands over to {agent}",
-            agent = agent_label(&agent.provider)
+            agent = bench.reads.catalog.label(&agent.provider)
         ),
     };
     let marks = div()
         .flex()
         .items_center()
         .gap(SPACE_1)
-        .child(ui::mark(&handoff.from, 12.))
+        .child(ui::mark(&handoff.from, 12., cx))
         .when(handoff.forked_from.is_none(), |marks| {
             marks
                 .child(div().text_color(t.text_disabled).child("→"))
-                .child(ui::mark(&agent.provider, 12.))
+                .child(ui::mark(&agent.provider, 12., cx))
         })
         .into_any_element();
     let words = vec![

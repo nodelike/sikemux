@@ -239,7 +239,8 @@ pub fn view(
     let mut facts: Vec<AnyElement> = Vec::new();
     if let Some(turn) = agent.turn.as_ref() {
         let now = ui::time::now_ms();
-        let said = crate::turn_line::said(turn, crate::turn_line::maker(&agent.provider), now);
+        let maker = crate::turn_line::maker(&agent.provider, cx);
+        let said = crate::turn_line::said(turn, &maker, now);
         let timed = crate::turn_line::short(turn, now).is_some();
         let brief = (crate::turn_line::brief(turn, now).filter(|_| timed)).map(|brief| {
             div()
@@ -363,7 +364,7 @@ pub fn paused(
     let t = Tokens::get(cx).clone();
     let count = recent.triggers.len();
     let header = header(
-        ui::mark(&recent.provider, 20.).into_any_element(),
+        ui::mark(&recent.provider, 20., cx).into_any_element(),
         recent.title.clone(),
         match count {
             1 => t!("1 trigger paused until it is opened again").to_owned(),

@@ -140,7 +140,7 @@ pub fn face(picture: Arc<Image>, provider: &str, size: f32, cx: &gpui_kit::App) 
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(crate::ui::mark(provider, disc - 1.)),
+                        .child(crate::ui::mark(provider, disc - 1., cx)),
                 ),
         )
 }

@@ -1,4 +1,5 @@
 use sikemux_calls::call;
+use sikemux_calls::chat::ChatLeftOutParams;
 use sikemux_calls::chat::ChatPageParams;
 use sikemux_calls::chat::ToolDetailParams;
 use sikemux_calls::chat_find::FindAnswer;
@@ -9,7 +10,7 @@ use sikemux_calls::streams::StreamParams;
 use sikemux_calls::workspace::AgentPatch;
 use sikemux_calls::workspace::UpdateAgentParams;
 use sikemux_view::changed::Topic;
-use sikemux_view::chat::{ChatPage, ToolDetail};
+use sikemux_view::chat::{ChatPage, RestoredPart, ToolDetail};
 use sikemux_view::device::HostInfo;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
@@ -140,6 +141,11 @@ pub enum ChatNews {
     Detail {
         tool: String,
         detail: ToolDetail,
+    },
+    /// A message's text parts with its left-out sentences restored by the core.
+    LeftOut {
+        message: String,
+        parts: Vec<RestoredPart>,
     },
     /// The core turned down what the person sent, which goes back to them with why.
     Refused {
@@ -449,6 +455,11 @@ pub enum ChatAsk {
         agent: String,
         tool: String,
     },
+    /// A message's text parts with its left-out sentences put back, from `chatLeftOut`.
+    LeftOut {
+        agent: String,
+        message: String,
+    },
 }
 
 impl ChatAsk {
@@ -472,7 +483,8 @@ impl ChatAsk {
             | ChatAsk::Mode { agent, .. }
             | ChatAsk::Config { agent, .. }
             | ChatAsk::StopTask { agent, .. }
-            | ChatAsk::Detail { agent, .. } => agent,
+            | ChatAsk::Detail { agent, .. }
+            | ChatAsk::LeftOut { agent, .. } => agent,
         }
     }
 }
@@ -2103,6 +2115,26 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
                 Ok(detail) => (agent, ChatNews::Detail { tool, detail }),
                 Err(error) => {
                     return eprintln!("sikemux: the core refused a tool's detail: {error}")
+                }
+            }
+        }
+        ChatAsk::LeftOut { agent, message } => {
+            let asked = ChatLeftOutParams {
+                agent_id: agent.clone(),
+                message_id: message.clone(),
+            };
+            match called::<call::ChatLeftOut>(client, asked).await {
+                Ok(got) => (
+                    agent,
+                    ChatNews::LeftOut {
+                        message,
+                        parts: got.parts,
+                    },
+                ),
+                Err(error) => {
+                    return eprintln!(
+                        "sikemux: the core refused a message's left-out text: {error}"
+                    )
                 }
             }
         }

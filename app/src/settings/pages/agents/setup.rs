@@ -272,7 +272,7 @@ fn row(
         .hover(|row| row.bg(t.surface_hover))
         .when(missing, |row| row.opacity(0.7))
         .child(rows::row_parts(
-            Some(ui::mark(agent.kind, 16.)),
+            Some(ui::mark(agent.kind, 16., cx)),
             label,
             about,
             control,
@@ -331,7 +331,7 @@ fn state(bench: &Workbench, agent: &Agent, this: &Entity<Workbench>, cx: &App) -
         Some((found, AgentStatus::SignedOut)) => {
             let folder = (bench.accounts.current(agent.kind))
                 .and_then(|profile| profile.config_path.clone());
-            match signing_in(found, folder.as_deref()) {
+            match signing_in(&bench.reads.catalog, found, folder.as_deref()) {
                 Some(sheet) => sheet_button(
                     format!("agent-sign-in-{}", agent.kind),
                     t!("Sign in"),

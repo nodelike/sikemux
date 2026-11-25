@@ -759,6 +759,7 @@ fn agent_button(
     agent: &Agent,
     pressed: bool,
     t: &Tokens,
+    cx: &App,
     on: impl Fn(&mut Window, &mut App) + 'static,
 ) -> AnyElement {
     let tip = match agent.installing {
@@ -785,7 +786,7 @@ fn agent_button(
             true => button.bg(t.surface_chosen),
             false => button.hover(|style| style.bg(t.surface_hover)),
         })
-        .child(ui::mark(&agent.provider, 16.))
+        .child(ui::mark(&agent.provider, 16., cx))
         .tooltip(ui::tooltip(tip))
         .clicks(move |_, window, cx| on(window, cx))
         .into_any_element()
@@ -1082,7 +1083,7 @@ impl Menu {
                 model: None,
                 model_provider: None,
             };
-            agent_button(&agent, pressed, t, move |window, cx| {
+            agent_button(&agent, pressed, t, cx, move |window, cx| {
                 if !pressed {
                     let going = going.clone();
                     menu.update(cx, |menu, cx| menu.show_agent(going, window, cx));
@@ -1318,7 +1319,7 @@ impl Menu {
             Need::InstallFailed => t!("{agent} did not install", agent = label),
             Need::SignIn(_) | Need::Ready => t!("Sign in to {agent}", agent = label),
         };
-        let screen = sign_in::Screen::new("model-welcome", ui::mark(provider, 34.), title)
+        let screen = sign_in::Screen::new("model-welcome", ui::mark(provider, 34., cx), title)
             .when_some(about, |screen, about| screen.lede(about));
         let screen = match need {
             Need::Install { broken } => screen

@@ -2709,7 +2709,7 @@ name = "film-frame"
 version = "0.1.0"
 dependencies = [
  "image",
- "resvg 0.45.1",
+ "resvg 0.46.0",
 ]
 
 [[package]]
@@ -9873,7 +9873,7 @@ dependencies = [
 name = "sikemux-browser"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
+ "base64 0.22.1",
  "block2 0.6.2",
  "dispatch2",
  "gdkx11",
@@ -10216,7 +10216,6 @@ dependencies = [
  "sikemux-markdown",
  "sikemux-plugin-api",
  "sikemux-process",
- "sikemux-pty",
  "sikemux-simulator",
  "sikemux-view",
  "sikemux-voice",
@@ -10360,7 +10359,7 @@ dependencies = [
 name = "sikemux-loopback"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
+ "base64 0.22.1",
  "getrandom 0.3.4",
  "hex",
  "sha2 0.11.0",
@@ -10420,7 +10419,7 @@ dependencies = [
 name = "sikemux-plugin-api"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
+ "base64 0.22.1",
  "reqwest",
  "rustls",
  "serde",
@@ -10503,7 +10502,7 @@ dependencies = [
 name = "sikemux-plugin-github"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
+ "base64 0.22.1",
  "futures",
  "reqwest",
  "ring",
@@ -10537,7 +10536,7 @@ dependencies = [
 name = "sikemux-plugin-googleplay"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
+ "base64 0.22.1",
  "futures",
  "reqwest",
  "ring",

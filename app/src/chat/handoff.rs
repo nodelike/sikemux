@@ -30,7 +30,7 @@ fn side(side: &HandoffSide, looks: &Drawn, cx: &App) -> Div {
         Some(maker) => crate::icons::model_provider(maker),
         None => crate::icons::agent(&side.agent),
     };
-    let tint = maker_colour(side);
+    let tint = maker_colour(side, cx);
     div()
         .flex()
         .min_w_0()
@@ -41,16 +41,11 @@ fn side(side: &HandoffSide, looks: &Drawn, cx: &App) -> Div {
 }
 
 /// The brand of the agent its maker makes, else of the agent it ran on.
-fn maker_colour(side: &HandoffSide) -> Hsla {
-    let made = (side.maker.as_deref()).and_then(|maker| {
-        (sikemux_agents::agent_catalog::AGENTS.iter()).find(|agent| {
-            agent
-                .maker
-                .is_some_and(|made| made.eq_ignore_ascii_case(maker))
-        })
-    });
+fn maker_colour(side: &HandoffSide, cx: &App) -> Hsla {
+    let made =
+        (side.maker.as_deref()).and_then(|maker| crate::reads::Catalog::global(cx).by_maker(maker));
     match made {
-        Some(agent) => theme::color(agent.brand),
-        None => theme::brand(&side.agent),
+        Some(agent) => theme::color(&agent.brand),
+        None => theme::brand(&side.agent, cx),
     }
 }

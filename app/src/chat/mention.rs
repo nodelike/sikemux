@@ -1098,7 +1098,7 @@ pub fn dock(
                 let row = bench.agent_by_id(id);
                 let shown = DockRow::new(format!("@{name}"), choose).mark(
                     row.as_ref()
-                        .map_or_else(|| ui::mark(provider, 13.), |agent| agent.mark(13., cx)),
+                        .map_or_else(|| ui::mark(provider, 13., cx), |agent| agent.mark(13., cx)),
                 );
                 match title {
                     Some(title) => shown.detail(title.clone()),
@@ -1160,7 +1160,7 @@ pub fn dock(
                     None => DockRow::new(title.clone(), choose)
                         .aside(active_at.map(|at| crate::ui::time::age(at).into())),
                 };
-                row.mark(ui::mark(cli, 13.)).divided(divided)
+                row.mark(ui::mark(cli, 13., cx)).divided(divided)
             }
             Choice::Tracked(item) => {
                 let (sign, icon) = match item.kind {

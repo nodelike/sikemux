@@ -456,7 +456,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                         .items_start()
                         .gap(px(9.))
                         .text_size(crate::theme::ui_text(TEXT_XS))
-                        .child(div().pt(px(1.)).child(ui::mark(&agent, 14.)))
+                        .child(div().pt(px(1.)).child(ui::mark(&agent, 14., cx)))
                         .child(
                             div()
                                 .flex_1()

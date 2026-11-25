@@ -254,9 +254,10 @@ fn fix_button(bench: &Workbench, request: String, cx: &mut Context<Workbench>) -
                     request.clone(),
                     choice.provider.clone(),
                 );
+                let tint = crate::theme::brand(&provider, cx);
                 popup = popup.item(
                     ui::MenuRow::new(choice.label.clone())
-                        .mark(move || ui::mark(&provider, 14.))
+                        .mark(move || ui::mark_tinted(&provider, 14., tint))
                         .item(cx)
                         .on_click(move |_, window, cx| {
                             let (to, text) = (to.clone(), text.clone());

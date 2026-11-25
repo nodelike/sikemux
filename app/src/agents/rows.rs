@@ -135,7 +135,7 @@ impl Workbench {
     pub fn agent_mark(&self, id: &str, cli: &str, size: f32, cx: &App) -> AnyElement {
         match self.agent_by_id(id) {
             Some(row) => row.mark(size, cx),
-            None => crate::ui::mark(cli, size),
+            None => crate::ui::mark(cli, size, cx),
         }
     }
 

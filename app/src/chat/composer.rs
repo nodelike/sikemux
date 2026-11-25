@@ -1226,7 +1226,7 @@ fn picker_face<E: Styled + ParentElement + IntoElement>(
         })
         .when(!enabled, |trigger| trigger.opacity(0.45))
         .child(match provider {
-            Some(provider) => ui::mark(provider, 17.),
+            Some(provider) => ui::mark(provider, 17., cx),
             None => ui::icon(Icon::Gauge, 14.)
                 .text_color(t.text_tertiary)
                 .into_any_element(),
@@ -1343,8 +1343,11 @@ fn context_meter(
     let signal = match percent {
         p if p >= 90. => t.danger,
         p if p >= 70. => t.warn,
-        _ if sikemux_agents::agent_catalog::agent(provider).is_some_and(|agent| agent.usage) => {
-            theme::brand(provider)
+        _ if crate::reads::Catalog::global(cx)
+            .kind(provider)
+            .is_some_and(|agent| agent.usage) =>
+        {
+            theme::brand(provider, cx)
         }
         _ => t.accent,
     };

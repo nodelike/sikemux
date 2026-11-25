@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use gpui_kit::{Context, SharedString};
 use gpui_transcript::{Passage, Row};
 use sikemux_calls::call;
-use sikemux_calls::chat::ChatPageParams;
+use sikemux_calls::chat::{ChatLeftOutParams, ChatPageParams};
 use sikemux_calls::chat_find::{FindAt, FindDirection, FindHit, FindParams};
 use sikemux_view::chat::{quote_cut, ChatPart, ChatRole, REPLY_URI};
 
@@ -151,16 +151,51 @@ impl Look {
         let whole = !self.uri.contains('#');
         let held = bench.update(cx, |bench, cx| {
             let chat = bench.chats.open.get_mut(agent)?;
-            let found = chat.transcript.update(cx, |transcript, cx| {
+            let (found, needs_left_out) = chat.transcript.update(cx, |transcript, cx| {
                 let rows = transcript.settled(cx);
                 let row = (!whole).then_some(hit.row.as_str());
-                found_in(rows, &self.uri, &self.quote, row)
-            })?;
-            chat.show_passage(found, cx);
-            Some(())
+                let found = found_in(rows, &self.uri, &self.quote, row);
+                let needs = found.is_none()
+                    && rows.iter().any(|held| {
+                        held.id() == hit.row
+                            && !held.message.left_out.is_empty()
+                            && held.restored.is_empty()
+                    });
+                (found, needs)
+            });
+            if let Some(found) = found {
+                chat.show_passage(found, cx);
+                return Some(true);
+            }
+            needs_left_out.then_some(false)
         });
         match held {
-            Ok(Some(())) => return Ok(true),
+            Ok(Some(true)) => return Ok(true),
+            Ok(Some(false)) => {
+                if let Ok(got) = self
+                    .target
+                    .request_typed::<call::ChatLeftOut>(ChatLeftOutParams {
+                        agent_id: agent.to_owned(),
+                        message_id: hit.row.clone(),
+                    })
+                    .await
+                {
+                    let matched = bench.update(cx, |bench, cx| {
+                        let chat = bench.chats.open.get_mut(agent)?;
+                        chat.left_out(hit.row.clone(), got.parts, cx);
+                        let found = chat.transcript.update(cx, |transcript, cx| {
+                            let rows = transcript.settled(cx);
+                            let row = (!whole).then_some(hit.row.as_str());
+                            found_in(rows, &self.uri, &self.quote, row)
+                        })?;
+                        chat.show_passage(found, cx);
+                        Some(())
+                    });
+                    if matches!(matched, Ok(Some(()))) {
+                        return Ok(true);
+                    }
+                }
+            }
             Ok(None) => {}
             Err(_) => return Ok(true),
         }
@@ -169,12 +204,33 @@ impl Look {
             ..ChatPageParams::new(agent, self.params.feed.clone())
         };
         let page = self.target.request_typed::<call::ChatPage>(params).await?;
+        let restored = if page
+            .rows
+            .iter()
+            .any(|row| row.id == hit.row && !row.left_out.is_empty())
+        {
+            self.target
+                .request_typed::<call::ChatLeftOut>(ChatLeftOutParams {
+                    agent_id: agent.to_owned(),
+                    message_id: hit.row.clone(),
+                })
+                .await
+                .ok()
+                .map(|got| got.parts)
+        } else {
+            None
+        };
         let shown = bench.update(cx, |bench, cx| {
             let chat = bench.chats.open.get_mut(agent)?;
             if chat.mark.as_ref().map(|mark| &mark.feed) != Some(&self.params.feed) {
                 return None;
             }
-            let rows: Vec<ChatRow> = page.rows.iter().cloned().map(ChatRow::new).collect();
+            let mut rows: Vec<ChatRow> = page.rows.iter().cloned().map(ChatRow::new).collect();
+            if let Some(parts) = restored.as_deref() {
+                if let Some(row) = rows.iter_mut().find(|row| row.id() == hit.row) {
+                    row.set_restored(parts);
+                }
+            }
             let found = found_in(&rows, &self.uri, &self.quote, None)?;
             let shown = (rows.iter()).any(|row| row.id() == found.row && chat.shows(&row.message));
             if !shown {
@@ -182,6 +238,9 @@ impl Look {
             }
             let chat = bench.chats.open.get_mut(agent)?;
             chat.around_page(page, cx);
+            if let Some(parts) = restored {
+                chat.left_out(hit.row.clone(), parts, cx);
+            }
             chat.transcript.update(cx, |transcript, cx| {
                 transcript.settled(cx);
             });

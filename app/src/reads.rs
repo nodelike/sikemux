@@ -194,10 +194,19 @@ impl Read {
 }
 
 /// The agents the core can run, as its catalog lists them.
-#[derive(Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Catalog(Vec<CatalogAgent>);
 
+impl gpui_kit::Global for Catalog {}
+
+static EMPTY_CATALOG: Catalog = Catalog(Vec::new());
+
 impl Catalog {
+    /// The catalog last sent by the core, or empty before it arrives.
+    pub fn global(cx: &gpui_kit::App) -> &Self {
+        cx.try_global::<Self>().unwrap_or(&EMPTY_CATALOG)
+    }
+
     pub fn agents(&self) -> impl Iterator<Item = &CatalogAgent> {
         self.0.iter()
     }
@@ -207,9 +216,31 @@ impl Catalog {
         self.0.iter().find(|agent| agent.kind == provider)
     }
 
+    /// The catalog's entry whose maker matches `maker` (case-insensitively).
+    pub fn by_maker(&self, maker: &str) -> Option<&CatalogAgent> {
+        self.0.iter().find(|agent| {
+            agent
+                .maker
+                .as_deref()
+                .is_some_and(|made| made.eq_ignore_ascii_case(maker))
+        })
+    }
+
     /// What the agent kind is called, such as "Claude", or its id until the catalog is read.
     pub fn label<'a>(&'a self, provider: &'a str) -> &'a str {
         self.kind(provider).map_or(provider, |agent| &agent.label)
+    }
+
+    /// Whether only the person ever moves `provider`'s chats between its accounts.
+    pub fn by_hand(&self, provider: &str) -> bool {
+        self.kind(provider)
+            .is_some_and(|agent| agent.accounts_by_hand)
+    }
+
+    /// The environment variable naming `provider`'s account folder, when it keeps accounts.
+    pub fn account_variable(&self, provider: &str) -> Option<&str> {
+        self.kind(provider)
+            .and_then(|agent| agent.account_variable.as_deref())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -595,6 +626,7 @@ impl Workbench {
                 if !keep_decoded(&mut self.reads.catalog.0, value, "agent catalog") {
                     return;
                 }
+                cx.set_global(self.reads.catalog.clone());
                 self.git.catalog(&self.reads.catalog, cx);
                 self.redraw_composers(cx);
                 let mut dirty = PartSet::AGENTS | PartSet::STAGE;

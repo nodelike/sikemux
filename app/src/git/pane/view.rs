@@ -859,9 +859,10 @@ pub(crate) fn writer_picker(pane: &GitPane, cx: &mut Context<GitPane>) -> impl I
                     let picked = Some((kind.clone(), model.clone()));
                     let checked = picked == current;
                     let (view, kind) = (view.clone(), kind.clone());
+                    let tint = theme::brand(&kind, cx);
                     popup = popup.item(
                         ui::MenuRow::new(format!("{label} · {model}"))
-                            .mark(move || ui::mark(&kind, 13.))
+                            .mark(move || ui::mark_tinted(&kind, 13., tint))
                             .item(cx)
                             .checked(checked)
                             .on_click(move |_, _, cx| {
@@ -1014,7 +1015,7 @@ pub(crate) fn faces(pane: &GitPane, path: &str, cx: &App) -> Option<AnyElement> 
         .take(MAX_FACES)
         .map(|(id, cli)| match rows.iter().find(|row| &row.id == id) {
             Some(row) => row.mark(14., cx),
-            None => ui::mark(cli, 14.),
+            None => ui::mark(cli, 14., cx),
         })
         .collect();
     Some(

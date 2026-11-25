@@ -1051,7 +1051,7 @@ pub(crate) fn teammate_pill(
         .child(person.name.clone())
         .when_some(agent, |pill, (name, cli)| {
             pill.child(div().text_color(t.text_disabled).child("·"))
-                .child(ui::mark(cli, size))
+                .child(ui::mark(cli, size, cx))
                 .child(format!("@{name}"))
         })
         .into_any_element()

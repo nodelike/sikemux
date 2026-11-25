@@ -1042,6 +1042,12 @@ fn left_out(row: &ChatRow, looks: &Drawn, cx: &App) -> Option<AnyElement> {
     };
     let faint = Tokens::get(cx).text_tertiary;
     let (reader, ink) = (looks.reader.clone(), looks.ink);
+    let need_fetch = !open && row.restored.is_empty();
+    let (bench, agent, message) = (
+        looks.bench.clone(),
+        looks.agent.clone(),
+        row.message.id.clone(),
+    );
     let toggle = div()
         .id(SharedString::from(key.clone()))
         .hover(move |toggle| toggle.text_color(ink))
@@ -1050,7 +1056,15 @@ fn left_out(row: &ChatRow, looks: &Drawn, cx: &App) -> Option<AnyElement> {
             reader.update(cx, |reading, cx| {
                 reading.toggle(&key);
                 cx.notify();
-            })
+            });
+            if need_fetch {
+                let _ = bench.update(cx, |bench, _| {
+                    bench.ask_chat(crate::core::ChatAsk::LeftOut {
+                        agent: agent.clone(),
+                        message: message.clone(),
+                    });
+                });
+            }
         });
     Some(
         div()
@@ -1584,6 +1598,7 @@ pub(super) fn subagent(
             &looks.provider,
             Some(chevron.into_any_element()),
             &t,
+            cx,
         ));
     let body = open.then(|| {
         let rows = looks

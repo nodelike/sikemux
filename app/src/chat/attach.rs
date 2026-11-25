@@ -1451,9 +1451,9 @@ pub(crate) fn named(
     context: &[SentContext],
     agents: &[(String, String)],
 ) -> Vec<Mention> {
-    mentions_in(&sikemux_fold::sent_spans(
+    mentions_in(&sikemux_view::sent::sent_spans(
         written,
-        sikemux_fold::SentNames {
+        sikemux_view::sent::SentNames {
             attachments,
             context,
             agents,

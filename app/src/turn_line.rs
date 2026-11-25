@@ -518,8 +518,11 @@ pub fn line(
 }
 
 /// The agent's own name for `provider`, such as Claude, as a failure names it.
-pub fn maker(provider: &str) -> &'static str {
-    sikemux_agents::agent_catalog::agent(provider).map_or(t!("the agent"), |agent| agent.label)
+pub fn maker(provider: &str, cx: &App) -> String {
+    crate::reads::Catalog::global(cx)
+        .kind(provider)
+        .map(|agent| agent.label.clone())
+        .unwrap_or_else(|| t!("the agent").to_owned())
 }
 
 /// Whether the words count time by the second while the turn stands so.
@@ -537,7 +540,7 @@ pub fn header(turn: &TurnState, provider: &str, key: SharedString) -> AnyElement
         key.clone(),
         HeaderFact {
             turn: turn.clone(),
-            maker: maker(provider),
+            provider: provider.to_owned(),
             key,
         },
     )
@@ -546,7 +549,7 @@ pub fn header(turn: &TurnState, provider: &str, key: SharedString) -> AnyElement
 
 struct HeaderFact {
     turn: TurnState,
-    maker: &'static str,
+    provider: String,
     key: SharedString,
 }
 
@@ -555,7 +558,8 @@ impl Render for HeaderFact {
         if ticks(self.turn.state) {
             ui::clock::second(window, cx);
         }
-        match said(&self.turn, self.maker, ui::time::now_ms()) {
+        let maker = maker(&self.provider, cx);
+        match said(&self.turn, &maker, ui::time::now_ms()) {
             Some(said) => header_fact(&said, self.key.clone(), cx).into_any_element(),
             None => div().into_any_element(),
         }

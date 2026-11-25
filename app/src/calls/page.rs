@@ -1134,7 +1134,7 @@ fn asker_pill(call: &PersonCall, through: Through, cx: &App) -> AnyElement {
     let Through { target, bench, .. } = through;
     let asker = (bench.upgrade())
         .map(|strong| asker_mark(strong.read(cx), call, 12., cx))
-        .unwrap_or_else(|| ui::mark(&call.asker.cli, 12.));
+        .unwrap_or_else(|| ui::mark(&call.asker.cli, 12., cx));
     crate::chat::agent_pill_of(
         &call.asker.agent_id,
         &call.asker.name,

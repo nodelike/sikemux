@@ -34,6 +34,12 @@ pub struct CatalogAgent {
     /// It keeps each sign-in in its own folder, so the person can hold
     /// several accounts.
     pub accounts: bool,
+    /// Only the person chooses among its accounts; the app never switches them itself.
+    #[serde(default)]
+    pub accounts_by_hand: bool,
+    /// The environment variable naming its account folder when it keeps accounts.
+    #[serde(default)]
+    pub account_variable: Option<String>,
     /// The app can read how much of its plan is used.
     pub usage: bool,
     /// It runs free models with no account or key, so it works before any sign-in.

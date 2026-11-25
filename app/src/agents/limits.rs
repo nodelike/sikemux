@@ -265,7 +265,7 @@ impl<'a> Agent<'a> {
 /// Whether the agent has limits to show. One without accounts shows them only once the core
 /// has read some, as only some of its sign-ins have any.
 fn reports_limits(bench: &Workbench, provider: &str) -> bool {
-    let Some(agent) = sikemux_agents::agent_catalog::agent(provider) else {
+    let Some(agent) = bench.reads.catalog.kind(provider) else {
         return false;
     };
     let read = || (bench.reads.usage.iter()).any(|account| account.provider == provider);
@@ -845,7 +845,7 @@ fn group_head(view: &View, agent: &Agent, folded: bool, cx: &App) -> Div {
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .child(ui::mark(agent.provider, 12.))
+        .child(ui::mark(agent.provider, 12., cx))
         .child(spaced(agent.name.to_uppercase(), TEXT_3XS, cx))
         .children(own_name)
         .children(only.and_then(Shown::tier).map(|tier| tier_pill(tier, cx)))

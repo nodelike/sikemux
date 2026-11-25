@@ -150,7 +150,7 @@ impl Activity {
     fn mark(&self, cx: &App) -> AnyElement {
         match &self.agent {
             Some(agent) => agent.mark(21., cx),
-            None => ui::mark(&self.provider, 21.).into_any_element(),
+            None => ui::mark(&self.provider, 21., cx).into_any_element(),
         }
     }
 
@@ -165,7 +165,8 @@ impl Activity {
             TurnPhase::NeedsYou => Some(self.open_elsewhere(turn, cx)?),
             _ => None,
         };
-        let said = turn_line::said(turn, turn_line::maker(&self.provider), ui::time::now_ms())?;
+        let maker = turn_line::maker(&self.provider, cx);
+        let said = turn_line::said(turn, &maker, ui::time::now_ms())?;
         if turn_line::ticks(turn.state) {
             ui::clock::second(window, cx);
         }
@@ -573,7 +574,7 @@ impl Workbench {
             .iter()
             .flatten()
             .find(|found| found.kind == provider)
-            .and_then(|found| crate::agents::setup::signing_in(found, None));
+            .and_then(|found| crate::agents::setup::signing_in(&self.reads.catalog, found, None));
         match sheet {
             Some(sheet) => crate::agents::setup::run(self, sheet, cx),
             None => crate::accounts::sign_in_agent(self, provider, None, window, cx),
@@ -680,16 +681,16 @@ pub(super) fn trouble(
     let error = head.error.clone()?;
     let failure = head.failure.as_ref();
     let network = failure.is_some_and(|failure| failure.kind == FailureKind::Network);
-    let maker = turn_line::maker(&agent.provider);
+    let maker = turn_line::maker(&agent.provider, cx);
     let parts = match head
         .turn
         .as_ref()
         .filter(|turn| turn.state == TurnPhase::Failed)
     {
-        Some(turn) => turn_line::said(turn, maker, now_ms())
+        Some(turn) => turn_line::said(turn, &maker, now_ms())
             .map(|said| said.parts.into_iter().map(String::from).collect())
             .unwrap_or_else(|| vec![error.clone()]),
-        None if network => vec![t!("lost the connection to {maker}", maker = maker)],
+        None if network => vec![t!("lost the connection to {maker}", maker = &maker)],
         None => vec![error],
     };
     let mut buttons = Vec::new();

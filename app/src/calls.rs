@@ -722,7 +722,7 @@ fn asker_mark(bench: &Workbench, call: &PersonCall, size: f32, cx: &App) -> AnyE
     }
     match bench.agent_by_id(&call.asker.agent_id) {
         Some(agent) => agent.mark(size, cx),
-        None => ui::mark(&call.asker.cli, size),
+        None => ui::mark(&call.asker.cli, size, cx),
     }
 }
 
@@ -1004,7 +1004,7 @@ fn who(
     let t = Tokens::get(cx).clone();
     let asker = (bench.upgrade())
         .map(|strong| asker_mark(strong.read(cx), call, 13., cx))
-        .unwrap_or_else(|| ui::mark(&call.asker.cli, 13.));
+        .unwrap_or_else(|| ui::mark(&call.asker.cli, 13., cx));
     div()
         .h(px(FACE))
         .flex()
@@ -1029,7 +1029,7 @@ fn who(
                 .child(crate::chat::agent_pill_of(
                     &about.agent_id,
                     &about.name,
-                    ui::mark(&about.cli, 13.),
+                    ui::mark(&about.cli, 13., cx),
                     12.,
                     target.clone(),
                     bench,
@@ -1814,7 +1814,7 @@ fn folded(
     let t = Tokens::get(cx);
     let asker = (bench.upgrade())
         .map(|strong| asker_mark(strong.read(cx), call, 12., cx))
-        .unwrap_or_else(|| ui::mark(&call.asker.cli, 12.));
+        .unwrap_or_else(|| ui::mark(&call.asker.cli, 12., cx));
     let (cards, id) = (cards.clone(), call.id.clone());
     let hover = t.surface_hover;
     BaseButton::new(SharedString::from(format!("call-row-{}", call.id)))

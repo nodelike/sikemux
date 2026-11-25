@@ -32,7 +32,8 @@ use sikemux_view::catalog::ChatDriver;
 use sikemux_view::chat::{
     AgentLetter, AgentNotice, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole,
     ChatView, FiredRequest, LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree,
-    PermissionAsk, SubagentCard, SubagentState, TeamFold, TeamLine, ToolDetail, WorkFold,
+    PermissionAsk, RestoredPart, SubagentCard, SubagentState, TeamFold, TeamLine, ToolDetail,
+    WorkFold,
 };
 use sikemux_view::layout::PaneKind;
 use sikemux_view::questions::{AgentQuestion, QuestionState};
@@ -256,7 +257,6 @@ impl ChatRow {
             folds: None,
         };
         row.read_docs();
-        row.read_restored();
         row
     }
 
@@ -309,8 +309,9 @@ impl ChatRow {
         self.restored.iter().find(|doc| doc.part == part)
     }
 
-    fn read_restored(&mut self) {
-        self.restored = (sikemux_fold::restored_parts(&self.message).iter())
+    fn set_restored(&mut self, parts: &[RestoredPart]) {
+        self.restored = parts
+            .iter()
             .map(|part| Doc::of_tree(&part.part, &part.md))
             .collect();
     }
@@ -431,6 +432,7 @@ impl ChatRow {
     fn set(&mut self, fields: changes::Fields<ChatMessage>, docs: bool) {
         self.sent_folds();
         let was = docs.then(|| self.message.parts.clone());
+        let had_left_out = self.message.left_out.clone();
         for field in fields {
             field(&mut self.message);
         }
@@ -443,7 +445,9 @@ impl ChatRow {
         if docs {
             self.read_docs();
         }
-        self.read_restored();
+        if docs || self.message.left_out != had_left_out {
+            self.restored.clear();
+        }
     }
 }
 
@@ -1174,6 +1178,39 @@ impl Chat {
         });
     }
 
+    /// What the core sent of a message whose left-out sentences the reader asked to see.
+    fn left_out(&mut self, message: String, parts: Vec<RestoredPart>, cx: &mut App) {
+        self.transcript.update(cx, |transcript, cx| {
+            transcript.push(
+                Change::Update(
+                    message.into(),
+                    Box::new(move |row| row.set_restored(&parts)),
+                ),
+                cx,
+            );
+            transcript.list().remeasure();
+        });
+    }
+
+    /// Open left-out rows whose restored text has not been fetched from the core yet.
+    fn wanted_left_out(&self, cx: &App) -> Vec<String> {
+        let opened = &self.reader.read(cx).opened;
+        if opened.is_empty() {
+            return Vec::new();
+        }
+        self.transcript
+            .read(cx)
+            .rows()
+            .iter()
+            .filter(|row| {
+                !row.message.left_out.is_empty()
+                    && row.restored.is_empty()
+                    && opened.contains(&rows::left_out_key(row))
+            })
+            .map(|row| row.id().to_owned())
+            .collect()
+    }
+
     /// Takes what the core sent about this chat, other than what a find found, and asks it
     /// for what that leaves missing.
     pub fn hear(&mut self, agent: &str, news: ChatNews, cx: &mut App) {
@@ -1214,6 +1251,15 @@ impl Chat {
                         },
                     );
                 }
+                for message in self.wanted_left_out(cx) {
+                    ask(
+                        self,
+                        ChatAsk::LeftOut {
+                            agent: agent.to_owned(),
+                            message,
+                        },
+                    );
+                }
             }
             ChatNews::Page(page) => {
                 self.page(page, cx);
@@ -1235,6 +1281,7 @@ impl Chat {
             }
             ChatNews::Found { .. } => {}
             ChatNews::Detail { tool, detail } => self.detail(tool, detail, cx),
+            ChatNews::LeftOut { message, parts } => self.left_out(message, parts, cx),
             ChatNews::Replied { request, error } => self.replied(&request, error),
             ChatNews::TaskStopped { task, error } => self.task_stopped(&task, error),
             ChatNews::Refused { error, text } => {

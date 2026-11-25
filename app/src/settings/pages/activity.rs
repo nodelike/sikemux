@@ -298,7 +298,11 @@ fn shares(
             })
             .collect();
             let (mark, title, under) = match agents {
-                true => (ui::mark(name, 20.), bench.agent_name(name).to_owned(), None),
+                true => (
+                    ui::mark(name, 20., cx),
+                    bench.agent_name(name).to_owned(),
+                    None,
+                ),
                 false => (
                     ui::icon(Icon::Folder, 16.)
                         .text_color(t.text_tertiary)
@@ -474,7 +478,7 @@ fn models(
                 false => opener(t!("Set price"), "price-set").into_any_element(),
             };
             let row = share_row(
-                ui::mark(&model.agent, 20.),
+                ui::mark(&model.agent, 20., cx),
                 name.clone(),
                 (name != id).then(|| id.clone()),
                 details.join(" · "),
@@ -485,7 +489,7 @@ fn models(
                 true => row.child(opener(t!("your price"), "price-own")),
                 false => row,
             };
-            let split = (model.priced && cost > 0.).then(|| cost_split(model, &t));
+            let split = (model.priced && cost > 0.).then(|| cost_split(model, &t, cx));
             div()
                 .border_b(crate::theme::border())
                 .border_color(t.line_soft)
@@ -500,11 +504,11 @@ fn models(
 
 /// What a model's cost went on, by kind of token: cache writes first, as where a cold resume
 /// or a rotation spends.
-fn cost_split(model: &ActivityModel, t: &Tokens) -> AnyElement {
+fn cost_split(model: &ActivityModel, t: &Tokens, cx: &App) -> AnyElement {
     let costs = &model.costs;
     let parts = [
         (t!("Cache write"), costs.cache_write, t.warn),
-        (t!("Output"), costs.output, theme::brand(&model.agent)),
+        (t!("Output"), costs.output, theme::brand(&model.agent, cx)),
         (t!("Cache read"), costs.cache_read, t.accent),
         (t!("Input"), costs.input, t.text_tertiary),
     ];
@@ -613,7 +617,9 @@ pub fn week_read(
     let (_, range) = week_card::window();
     let card = match summary {
         None => Err(Week::Failed),
-        Some(summary) => week_card::Card::of(&summary, &range).ok_or(Week::Empty),
+        Some(summary) => {
+            week_card::Card::of(&summary, &range, &bench.reads.catalog).ok_or(Week::Empty)
+        }
     };
     let card = match card {
         Ok(card) => card,

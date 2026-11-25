@@ -519,7 +519,7 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
                     )
                     .into_any_element()
             }
-            false => ui::mark(&agent.provider, 16.).into_any_element(),
+            false => ui::mark(&agent.provider, 16., cx).into_any_element(),
         })
         .name(
             (agent.handle().is_some())

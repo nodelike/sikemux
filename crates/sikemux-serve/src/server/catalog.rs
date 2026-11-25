@@ -16,6 +16,11 @@ pub fn view() -> Vec<CatalogAgent> {
             maker: agent.maker.map(str::to_owned),
             featured: agent.featured,
             accounts: agent.accounts,
+            accounts_by_hand: agent.accounts_by_hand,
+            account_variable: agent
+                .accounts
+                .then(|| agent.home.as_ref().map(|home| home.variable.to_owned()))
+                .flatten(),
             usage: agent.usage,
             free_models: agent.free_models,
             deletable_chats: agent.deletable_chats,

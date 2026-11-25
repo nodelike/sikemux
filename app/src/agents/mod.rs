@@ -680,7 +680,7 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             t!("All harnesses").to_owned(),
         ),
         Some(launcher) => (
-            ui::mark(&launcher.provider, 16.),
+            ui::mark(&launcher.provider, 16., cx),
             harness_label(bench, launcher),
         ),
         None => {
@@ -763,9 +763,10 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             ));
             for (kind, label, peak) in &options {
                 let provider = kind.clone();
+                let tint = theme::brand(&provider, cx);
                 popup = popup.item(item(
                     ui::MenuRow::new(label.clone())
-                        .mark(move || ui::mark(&provider, 14.))
+                        .mark(move || ui::mark_tinted(&provider, 14., tint))
                         .when_some(*peak, |row, peak| row.hint(format!("{}%", peak.round()))),
                     Some(kind.clone()),
                     cx,
@@ -812,7 +813,7 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
         SharedString::from(format!("recent-{}", recent.id)),
         recent.title.clone(),
     )
-    .mark(22., ui::mark(&recent.provider, 20.))
+    .mark(22., ui::mark(&recent.provider, 20., cx))
     .compact(bench.rail_compact())
     .when_some(bench.said_in(&recent.id), |row, said| {
         row.subtitle(crate::pickers::recent::said_line(said, cx))

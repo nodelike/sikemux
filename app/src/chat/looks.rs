@@ -88,7 +88,7 @@ impl Looks {
     pub(super) fn mark_of(&self, agent: &str, cli: &str, size: f32, cx: &App) -> AnyElement {
         match self.bench.upgrade() {
             Some(bench) => bench.read(cx).agent_mark(agent, cli, size, cx),
-            None => ui::mark(cli, size),
+            None => ui::mark(cli, size, cx),
         }
     }
 

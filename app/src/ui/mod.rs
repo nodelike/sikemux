@@ -126,12 +126,21 @@ pub fn picture(glyph: Icon, size: f32, tint: Hsla) -> AnyElement {
 /// A project's chief's mark in place of a face: Sikemux's purple S, filling three quarters of a
 /// `size` box as the notch island draws it. The S fills only 265 of its glyph's 420-wide box.
 pub fn chief_mark(size: f32) -> AnyElement {
-    mark_box(size, mark("sikemux", size * 0.75 * 420. / 265.)).into_any_element()
+    mark_box(
+        size,
+        mark_tinted("sikemux", size * 0.75 * 420. / 265., theme::sikemux_brand()),
+    )
+    .into_any_element()
 }
 
 /// An agent's mark at `size`, in its brand colour.
-pub fn mark(provider: &str, size: f32) -> AnyElement {
-    picture(icons::agent(provider), size, theme::brand(provider))
+pub fn mark(provider: &str, size: f32, cx: &App) -> AnyElement {
+    mark_tinted(provider, size, theme::brand(provider, cx))
+}
+
+/// An agent's mark at `size`, in an already-resolved `tint`.
+pub fn mark_tinted(provider: &str, size: f32, tint: Hsla) -> AnyElement {
+    picture(icons::agent(provider), size, tint)
 }
 
 /// How a CI run, job or check went, as GitHub draws it: a filled circle with its
@@ -217,7 +226,7 @@ pub fn agent_mark(
     let Some((face, image)) =
         face.and_then(|face| crate::faces::image(face, group, cx).map(|image| (face, image)))
     else {
-        return mark(provider, size);
+        return mark(provider, size, cx);
     };
     match moving_face::moves(group, cx) {
         true => moving_face::face(id, face, group, image, size),
@@ -242,7 +251,7 @@ pub fn still_mark(
             .size(px(size))
             .flex_none()
             .into_any_element(),
-        None => mark(provider, size),
+        None => mark(provider, size, cx),
     }
 }
 

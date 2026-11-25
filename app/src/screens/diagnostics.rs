@@ -12,8 +12,8 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Window,
 };
 use serde_json::{json, Value};
-use sikemux_pty::agent_detection::ManifestReloadReport;
-use sikemux_pty::agent_detection::ManifestSourceKind;
+use sikemux_view::detection::ManifestReloadReport;
+use sikemux_view::detection::ManifestSourceKind;
 use tokio::sync::oneshot;
 
 use crate::core::{Ask, Detection};

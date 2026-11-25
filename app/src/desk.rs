@@ -2582,7 +2582,7 @@ fn head(
     });
     let acting = bench
         .agent_by_id(agent)
-        .map(|row| (crate::theme::brand(&row.provider), row));
+        .map(|row| (crate::theme::brand(&row.provider, cx), row));
     ui::forget_spots(|| format!("desk-page-{agent}-"));
     ui::forget_spots(|| format!("desk-item-{agent}-"));
     ui::forget_spots(|| format!("desk-close-{agent}-"));
