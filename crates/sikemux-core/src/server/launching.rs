@@ -320,8 +320,8 @@ pub(crate) fn own_tools(core: &Core, launch: &mut ChatLaunch) {
             Err(error) => eprintln!("sikemux core: {error}"),
         }
     }
-    let gateway = AgentKind::from_name(&launch.provider) == Some(AgentKind::Antigravity);
-    match tools.chat_server(&launch.agent_id, gateway) {
+    let antigravity = AgentKind::from_name(&launch.provider) == Some(AgentKind::Antigravity);
+    match tools.chat_server(&launch.agent_id, antigravity, antigravity) {
         Ok(server) => launch.mcp_servers = vec![server],
         Err(error) => {
             eprintln!("sikemux core: Sikemux tools are unavailable to this chat: {error}")

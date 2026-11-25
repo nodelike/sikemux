@@ -629,6 +629,7 @@ fn a_host_is_answered_before_and_after_it_says_it_is_ready() {
     let answered = |initialized: bool, method: &str, params: Value| match route(
         &manifest,
         false,
+        false,
         initialized,
         json!(7),
         method,
@@ -643,6 +644,19 @@ fn a_host_is_answered_before_and_after_it_says_it_is_ready() {
         json!({ "protocolVersion": "2025-06-18" }),
     );
     assert_eq!(start["result"]["protocolVersion"], json!("2025-06-18"));
+    assert!(start["result"]["instructions"].is_string());
+    let Route::Answer(omitted) = route(
+        &manifest,
+        true,
+        true,
+        false,
+        json!(8),
+        "initialize",
+        json!({ "protocolVersion": "2025-06-18" }),
+    ) else {
+        panic!("initialize should answer immediately");
+    };
+    assert!(omitted["result"].get("instructions").is_none());
     assert_eq!(
         start["result"]["serverInfo"]["name"],
         json!("sikemux-tools")
@@ -669,12 +683,21 @@ fn a_host_is_answered_before_and_after_it_says_it_is_ready() {
         json!({ "code": -32601, "message": "Method not found" })
     );
     assert!(matches!(
-        route(&manifest, false, true, json!(7), "tools/list", json!({})),
+        route(
+            &manifest,
+            false,
+            false,
+            true,
+            json!(7),
+            "tools/list",
+            json!({})
+        ),
         Route::List { .. }
     ));
     assert!(matches!(
         route(
             &manifest,
+            false,
             false,
             true,
             json!(7),

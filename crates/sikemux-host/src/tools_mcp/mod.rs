@@ -45,7 +45,7 @@ const OFFER_TIMEOUT: Duration = Duration::from_secs(3);
 /// How long to wait before asking again when Sikemux could not say whether plugins changed.
 const WATCH_RETRY: Duration = Duration::from_secs(15);
 
-pub fn run(gateway: bool) -> i32 {
+pub fn run(gateway: bool, omit_instructions: bool) -> i32 {
     let agent_id = match agent_id() {
         Ok(agent_id) => agent_id,
         Err(message) => {
@@ -58,7 +58,7 @@ pub fn run(gateway: bool) -> i32 {
     let resources = std::env::current_dir()
         .is_ok_and(|cwd| sikemux_core::tasks::config::names_resources_near(&cwd));
     serve(
-        Arc::new(Offer::new(simulator, resources, gateway)),
+        Arc::new(Offer::new(simulator, resources, gateway, omit_instructions)),
         agent_id,
     );
     0
@@ -121,6 +121,7 @@ struct Offer {
     /// The agent's project names things only one agent uses at a time.
     resources: bool,
     gateway: bool,
+    omit_instructions: bool,
     built: Arc<Manifest>,
     served: Mutex<Option<Arc<Manifest>>>,
     plugins: Mutex<Option<Arc<Vec<Tool>>>>,
@@ -136,12 +137,13 @@ struct Offer {
 }
 
 impl Offer {
-    fn new(simulator: bool, resources: bool, gateway: bool) -> Self {
+    fn new(simulator: bool, resources: bool, gateway: bool, omit_instructions: bool) -> Self {
         let built = (Manifest::load().with_resources(resources)).offering(simulator);
         Self {
             simulator,
             resources,
             gateway,
+            omit_instructions,
             told_guide: Mutex::default(),
             built: Arc::new(built),
             served: Mutex::default(),
@@ -168,6 +170,7 @@ impl Offer {
             simulator: true,
             resources: false,
             gateway,
+            omit_instructions: false,
             built: Arc::new(Manifest::load()),
             told_guide: Mutex::new(Some(manifest.guide_source().to_owned())),
             served: Mutex::new(Some(Arc::new(manifest))),
@@ -383,6 +386,7 @@ fn serve(offer: Arc<Offer>, agent_id: String) {
         match route(
             &offer.manifest(),
             offer.gateway,
+            offer.omit_instructions,
             initialized.load(Ordering::Acquire),
             id,
             method,
@@ -574,13 +578,17 @@ enum Route {
 fn route(
     manifest: &Manifest,
     gateway: bool,
+    omit_instructions: bool,
     initialized: bool,
     id: Value,
     method: &str,
     params: Value,
 ) -> Route {
     if method == "initialize" {
-        return Route::Answer(reply(id, initialize(manifest, gateway, &params)));
+        return Route::Answer(reply(
+            id,
+            initialize(manifest, gateway, omit_instructions, &params),
+        ));
     }
     if !initialized {
         return Route::Answer(failure(
@@ -608,7 +616,12 @@ fn route(
     }
 }
 
-fn initialize(manifest: &Manifest, gateway: bool, params: &Value) -> Value {
+fn initialize(
+    manifest: &Manifest,
+    gateway: bool,
+    omit_instructions: bool,
+    params: &Value,
+) -> Value {
     let requested = params
         .get("protocolVersion")
         .and_then(Value::as_str)
@@ -618,17 +631,22 @@ fn initialize(manifest: &Manifest, gateway: bool, params: &Value) -> Value {
     } else {
         LATEST_PROTOCOL_VERSION
     };
-    let instructions = if gateway {
-        manifest.gateway_instructions(&[], false)
-    } else {
-        manifest.instructions()
-    };
-    json!({
+    let mut result = json!({
         "protocolVersion": version,
         "capabilities": { "experimental": {}, "tools": { "listChanged": true } },
         "serverInfo": { "name": "sikemux-tools", "version": env!("CARGO_PKG_VERSION") },
-        "instructions": instructions,
-    })
+    });
+    if !omit_instructions {
+        let instructions = if gateway {
+            manifest.gateway_instructions(&[], false)
+        } else {
+            manifest.instructions()
+        };
+        if let Some(fields) = result.as_object_mut() {
+            fields.insert("instructions".into(), json!(instructions));
+        }
+    }
+    result
 }
 
 fn list(offer: &Offer, relay: &Relay<'_>) -> Vec<Value> {

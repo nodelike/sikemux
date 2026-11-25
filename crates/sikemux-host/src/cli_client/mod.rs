@@ -31,6 +31,7 @@ pub use open::{current_project, project_root};
 /// Starts this binary as the MCP server agents use to reach their tools, instead of the editor.
 pub const TOOLS_MCP_FLAG: &str = "--tools-mcp";
 pub const TOOLS_MCP_GATEWAY_FLAG: &str = "--gateway";
+pub const TOOLS_MCP_NO_INSTRUCTIONS_FLAG: &str = "--no-init-instructions";
 pub fn run() -> i32 {
     match run_inner() {
         Ok(code) => code,

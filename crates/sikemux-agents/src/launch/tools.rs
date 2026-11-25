@@ -25,6 +25,7 @@ type EnvironmentVariable = (String, String);
 const CONFIG_TIMEOUT: Duration = Duration::from_secs(5);
 const TOOLS_MCP_FLAG: &str = "--tools-mcp";
 const TOOLS_MCP_GATEWAY_FLAG: &str = "--gateway";
+const TOOLS_MCP_NO_INSTRUCTIONS_FLAG: &str = "--no-init-instructions";
 /// The tools' server name, and the one for agents whose config keys take no hyphen.
 pub const TOOLS_SERVER: &str = "sikemux-tools";
 const TOOLS_KEY: &str = "sikemux_tools";
@@ -215,14 +216,22 @@ impl Tools {
     }
 
     /// The tools as a chat is handed them, over the protocol itself.
-    pub fn chat_server(&self, agent_id: &str, gateway: bool) -> Result<Value, String> {
+    pub fn chat_server(
+        &self,
+        agent_id: &str,
+        gateway: bool,
+        omit_instructions: bool,
+    ) -> Result<Value, String> {
         valid_agent_id(agent_id)?;
         let mut server = McpServerStdio::new(TOOLS_SERVER, absolute_command(&self.executable)?);
-        server.args = if gateway {
-            vec![TOOLS_MCP_FLAG.into(), TOOLS_MCP_GATEWAY_FLAG.into()]
-        } else {
-            vec![TOOLS_MCP_FLAG.into()]
-        };
+        let mut args = vec![TOOLS_MCP_FLAG.into()];
+        if gateway {
+            args.push(TOOLS_MCP_GATEWAY_FLAG.into());
+        }
+        if omit_instructions {
+            args.push(TOOLS_MCP_NO_INSTRUCTIONS_FLAG.into());
+        }
+        server.args = args;
         server.env = self
             .base_environment(agent_id)
             .into_iter()
