@@ -1337,6 +1337,12 @@ async fn edit(
     let params = &request.params;
     let withdraw = matches!(params.get("withdraw"), Some(Value::Bool(true)));
     let text = text_param(params, "question", MAX_QUESTION_BYTES)?;
+    if withdraw {
+        if let Some(taken) = super::ship::take_back(core, agent_id, id) {
+            taken?;
+            return Ok(json!({ "withdrawn": id }));
+        }
+    }
     if let Some(reason) = text.as_deref().filter(|_| !withdraw) {
         if super::ship::explain_held(core, agent_id, id, reason) {
             return Ok(json!({ "edited": id }));

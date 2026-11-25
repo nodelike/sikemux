@@ -107,21 +107,41 @@ pub fn starter_of(root: &Path, file: &str) -> Option<String> {
 }
 
 /// Whether a push to the branch of the project at `root` deploys it to production on Vercel:
-/// the project is a Vercel one and its config doesn't turn off deploys from Git.
+/// the project is a Vercel one and its config doesn't turn off deploys from Git, in the checkout
+/// or as committed or last pushed there.
 pub fn vercel_deploys_pushes(root: &Path) -> bool {
-    let config = read(root, "vercel.json");
-    if config.is_none() && read(root, ".vercel/project.json").is_none() {
-        return false;
+    let committed = |reference: &str| {
+        let file = format!("{reference}:vercel.json");
+        crate::git::Git::quick(root).trimmed(&["show", &file]).ok()
+    };
+    let deploys = |config: Option<String>| {
+        config.is_some_and(|text| {
+            !turns_off_deploys(&serde_json::from_str(&text).unwrap_or_default())
+        })
+    };
+    let here = read(root, "vercel.json");
+    if here.is_none() && read(root, ".vercel/project.json").is_some() {
+        return true;
     }
-    let config = config
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .unwrap_or_default();
+    deploys(here)
+        || ["HEAD", "origin/HEAD", "origin/main", "origin/master"]
+            .iter()
+            .any(|reference| deploys(committed(reference)))
+}
+
+fn turns_off_deploys(config: &serde_json::Value) -> bool {
     let turned_off = match config.pointer("/git/deploymentEnabled") {
         Some(serde_json::Value::Bool(enabled)) => !enabled,
-        Some(serde_json::Value::Object(branches)) => branches.values().all(|on| on == false),
+        Some(serde_json::Value::Object(branches)) => {
+            let mut own = ["main", "master", "*", "**"]
+                .into_iter()
+                .filter_map(|name| branches.get(name))
+                .peekable();
+            own.peek().is_some() && own.all(|on| on == false)
+        }
         _ => false,
     };
-    !turned_off && config.pointer("/github/enabled") != Some(&serde_json::Value::Bool(false))
+    turned_off || config.pointer("/github/enabled") == Some(&serde_json::Value::Bool(false))
 }
 
 /// Each deployment environment a workflow names that reads as production, and the stable

@@ -56,6 +56,11 @@ pub fn covers(fact: &Recognise, ship: &Ship) -> bool {
             tool == by && name == at
         }
         (Recognise::Package { registry }, Some(Target::Package { registry: at })) => registry == at,
+        (Recognise::Command { words }, Some(Target::Workflow { file, .. }))
+            if words.strip_prefix("gh workflow run ") == Some(file) =>
+        {
+            true
+        }
         (Recognise::Command { words }, _) => {
             let said: Vec<String> = ship.what.split_whitespace().map(str::to_owned).collect();
             leads(words, &said)
@@ -166,6 +171,7 @@ pub fn new_place(
         health: None,
         step: None,
         recurs: false,
+        routine_only: false,
     }
 }
 

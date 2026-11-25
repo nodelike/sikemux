@@ -54,6 +54,9 @@ pub enum Entry {
     /// An agent that waited on it no longer does, while others still do.
     #[serde(rename_all = "camelCase")]
     Left { id: String, source: Source, at: u64 },
+    /// An agent took back its own wait on a call the core raised, which others still wait on.
+    #[serde(rename_all = "camelCase")]
+    Quit { id: String, agent: String, at: u64 },
     /// Its asker changed what it asks while it was open.
     #[serde(rename_all = "camelCase")]
     Edited { id: String, call: Box<PersonCall> },
@@ -71,6 +74,7 @@ impl Entry {
             | Entry::Answered { id, .. }
             | Entry::Reopened { id, .. }
             | Entry::Left { id, .. }
+            | Entry::Quit { id, .. }
             | Entry::Started { id, .. }
             | Entry::Came { id, .. } => id,
         }

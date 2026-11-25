@@ -26,6 +26,27 @@ pub struct Ship {
     pub target: Option<Target>,
 }
 
+/// What a write through GitHub's API changes of a repository's code, as a push or a merge would.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Lands {
+    Merge {
+        pull: String,
+    },
+    /// A branch written to; `HEAD` when the call leaves it to the repository.
+    Branch {
+        name: String,
+    },
+    /// A tag made, moved, deleted or released; empty when the call names none.
+    Tag {
+        name: String,
+    },
+    /// Any branch or tag.
+    Any,
+    /// What the call's own words don't say.
+    Unread,
+}
+
 /// Where an action lands, read from what it really runs with, never a guess.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
@@ -81,6 +102,8 @@ pub enum Target {
     /// command spells it, `{owner}/{repo}` included; empty when it names none, as a GraphQL call.
     GitHub {
         repo: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lands: Option<Lands>,
     },
     /// A tag pushed to the project's remote, which can start a release; empty when which tags
     /// can't be read.
@@ -281,7 +304,7 @@ pub(crate) fn target_of(
     env: &dyn Fn(&str) -> Option<String>,
     cwd: &Path,
 ) -> Option<Target> {
-    let program = base_name(program);
+    let program = program_name(program);
     if let Some((program, args)) = wrapped(program, args) {
         return target_of(program, args, env, cwd);
     }
@@ -383,13 +406,22 @@ pub(crate) fn target_of(
             .map(|address| Target::Site {
                 origin: address.origin().ascii_serialization(),
             }),
-        "gh" if args.windows(2).any(|pair| pair == ["workflow", "run"]) => {
-            Some(workflow(args, env, cwd))
+        "gh" if gh_args(args).starts_with(&["workflow".to_owned(), "run".to_owned()]) => {
+            Some(workflow(&gh_args(args), env, cwd))
         }
-        "gh" if args.first().is_some_and(|word| word == "api") => {
-            let call = github_api(args.get(1..).unwrap_or_default());
+        "gh" if gh_args(args).first().is_some_and(|word| word == "api") => {
+            let args: Vec<String> = gh_args(args).into_iter().skip(1).collect();
+            let call = github_api(&args);
             let repo = call.as_ref().and_then(ApiCall::repo).unwrap_or_default();
-            Some(Target::GitHub { repo })
+            if let Some(file) = call.as_ref().and_then(ApiCall::dispatches) {
+                return Some(Target::Workflow {
+                    file,
+                    environments: Vec::new(),
+                    inputs: args.to_vec(),
+                });
+            }
+            let lands = call.and_then(|call| call.lands(cwd));
+            Some(Target::GitHub { repo, lands })
         }
         "gh" => Some(package(GITHUB_RELEASES)),
         "npm" | "pnpm" | "yarn" if args.iter().any(|arg| arg == "publish") => Some(package("npm")),
@@ -582,6 +614,14 @@ pub(crate) fn target_of(
     }
 }
 
+/// The name of the program a command's first word runs, one spelled short in full.
+fn program_name(word: &str) -> &str {
+    match base_name(word) {
+        "vc" => "vercel",
+        name => name,
+    }
+}
+
 /// The program and arguments a runner such as `npx` or `pnpm dlx` starts.
 pub fn wrapped<'a>(program: &str, args: &'a [String]) -> Option<(&'a str, &'a [String])> {
     let skip = match program {
@@ -604,7 +644,7 @@ pub fn wrapped<'a>(program: &str, args: &'a [String]) -> Option<(&'a str, &'a [S
         .next()
         .filter(|name| !name.is_empty())
         .unwrap_or(program);
-    Some((base_name(program), args))
+    Some((program_name(program), args))
 }
 
 /// The stage a tool's own file names, as read from `file`, or an unnamed one.
@@ -973,6 +1013,7 @@ fn workflow(args: &[String], env: &dyn Fn(&str) -> Option<String>, cwd: &Path) -
 pub(crate) const PROGRAMS: &[&str] = &[
     "gh",
     "vercel",
+    "vc",
     "netlify",
     "fly",
     "flyctl",
@@ -1295,7 +1336,7 @@ pub(crate) fn of_program(
     cwd: &Path,
     alias: &dyn Fn(&str) -> Option<String>,
 ) -> Option<ShipKind> {
-    let program = base_name(program);
+    let program = program_name(program);
     if dry_run(args) {
         return None;
     }
@@ -1303,7 +1344,8 @@ pub(crate) fn of_program(
         let subcommand = git_args(args).first()?;
         return match subcommand.as_str() {
             "push" if git_args(args).iter().any(|arg| arg == "-n") => None,
-            "push" => Some(ShipKind::Push),
+            "push" | "send-pack" => Some(ShipKind::Push),
+            "subtree" if git_args(args).iter().any(|arg| arg == "push") => Some(ShipKind::Push),
             sub if !GIT_COMMANDS.contains(&sub) => {
                 let stands_for = alias(sub)?;
                 match stands_for.strip_prefix('!') {
@@ -1332,6 +1374,9 @@ pub(crate) fn of_program(
         .iter()
         .find(|arg| !arg.starts_with('-'))
         .map(String::as_str);
+    if program == "vercel" && vercel_takes_away(args) {
+        return Some(ShipKind::Deploy);
+    }
     if program == "vercel" && first.is_some_and(|first| VERCEL_READS.contains(&first)) {
         return None;
     }
@@ -1342,6 +1387,9 @@ pub(crate) fn of_program(
         && args.windows(2).any(|pair| pair == ["deploy", "list"])
     {
         return None;
+    }
+    if program == "vercel" && matches!(first, Some("rm" | "remove")) {
+        return Some(ShipKind::Deploy);
     }
     RULES
         .iter()
@@ -1389,110 +1437,274 @@ fn s3_destination(args: &[String]) -> Option<&String> {
 pub struct ApiCall {
     pub method: String,
     pub endpoint: String,
+    fields: Vec<String>,
+    /// The file its body is read from.
+    input: Option<String>,
 }
 
 impl ApiCall {
     /// The `owner/name` of the repository the endpoint changes, when it names one.
     pub fn repo(&self) -> Option<String> {
-        let path = self.endpoint.split(['?', '#']).next()?;
-        let mut parts = path.split('/');
+        let mut parts = self.path().split('/');
         let ("repos", Some(owner), Some(name)) = (parts.next()?, parts.next(), parts.next()) else {
             return None;
         };
         Some(format!("{owner}/{name}"))
     }
+
+    fn path(&self) -> &str {
+        self.endpoint.split(['?', '#']).next().unwrap_or_default()
+    }
+
+    /// The parts of the endpoint past the repository's own, given by name or by number.
+    fn under_repo(&self) -> Vec<&str> {
+        let parts: Vec<&str> = self.path().trim_end_matches('/').split('/').collect();
+        match parts.as_slice() {
+            ["repos", _, _, rest @ ..] | ["repositories", _, rest @ ..] => rest.to_vec(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The workflow it starts.
+    fn dispatches(&self) -> Option<String> {
+        match self.under_repo().as_slice() {
+            ["actions", "workflows", file, "dispatches"] => Some((*file).to_owned()),
+            _ => None,
+        }
+    }
+
+    fn lands(&self, cwd: &Path) -> Option<Lands> {
+        let of_ref = |name: &str| {
+            let name = name.strip_prefix("refs/").unwrap_or(name);
+            if let Some(tag) = name.strip_prefix("tags/") {
+                return Some(Lands::Tag {
+                    name: tag.to_owned(),
+                });
+            }
+            (name.strip_prefix("heads/")).map(|branch| Lands::Branch {
+                name: branch.to_owned(),
+            })
+        };
+        let branch = |field: &str| match self.field(field, cwd) {
+            Ok(name) => {
+                let name = name.unwrap_or_else(|| "HEAD".to_owned());
+                Lands::Branch {
+                    name: name.strip_prefix("refs/heads/").unwrap_or(&name).to_owned(),
+                }
+            }
+            Err(Unread) => Lands::Unread,
+        };
+        if self.endpoint == "graphql" {
+            return self.graphql_lands(cwd);
+        }
+        match self.under_repo().as_slice() {
+            ["pulls", pull, "merge"] => Some(Lands::Merge {
+                pull: (*pull).to_owned(),
+            }),
+            ["git", "refs"] => match self.field("ref", cwd) {
+                Ok(Some(name)) => of_ref(&name),
+                _ => Some(Lands::Unread),
+            },
+            ["git", "refs", name @ ..] => of_ref(&name.join("/")),
+            ["contents", ..] | ["merge-upstream"] => Some(branch("branch")),
+            ["merges"] => Some(branch("base")),
+            ["branches", from, "rename"] => Some(Lands::Branch {
+                name: (*from).to_owned(),
+            }),
+            ["releases", ..] if self.method != "DELETE" => self.release_lands(cwd),
+            ["actions", "runs", _, "pending_deployments"] => Some(Lands::Any),
+            _ => None,
+        }
+    }
+
+    /// A release published, or changed into one that is.
+    fn release_lands(&self, cwd: &Path) -> Option<Lands> {
+        let making = match self.under_repo().as_slice() {
+            ["releases"] => true,
+            ["releases", _] => false,
+            _ => return None,
+        };
+        let field = |name: &str| self.field(name, cwd);
+        let (Ok(tag), Ok(draft)) = (field("tag_name"), field("draft")) else {
+            return Some(Lands::Unread);
+        };
+        let publishes = match making {
+            true => draft.as_deref() != Some("true"),
+            false => {
+                tag.is_some()
+                    || draft.is_some()
+                    || ["prerelease", "make_latest"]
+                        .iter()
+                        .any(|name| !matches!(field(name), Ok(None)))
+            }
+        };
+        publishes.then(|| Lands::Tag {
+            name: tag.unwrap_or_default(),
+        })
+    }
+
+    fn graphql_lands(&self, cwd: &Path) -> Option<Lands> {
+        const MUTATIONS: [&str; 10] = [
+            "mergePullRequest",
+            "enablePullRequestAutoMerge",
+            "enqueuePullRequest",
+            "createCommitOnBranch",
+            "createRef",
+            "updateRef",
+            "updateRefs",
+            "deleteRef",
+            "mergeBranch",
+            "revertPullRequest",
+        ];
+        let Ok(query) = self.said("query", cwd, &|file| {
+            std::fs::read_to_string(cwd.join(file)).ok()
+        }) else {
+            return Some(Lands::Unread);
+        };
+        let query = query.unwrap_or_default();
+        (query.split(|c: char| !c.is_ascii_alphanumeric() && c != '_'))
+            .any(|word| MUTATIONS.contains(&word))
+            .then_some(Lands::Any)
+    }
+
+    /// What it sends as the field `name`, none when it doesn't send it.
+    fn field(&self, name: &str, cwd: &Path) -> Result<Option<String>, Unread> {
+        match self.said(name, cwd, &|_| None)? {
+            Some(said) if said.is_empty() || said.starts_with('{') => Err(Unread),
+            said => Ok(said),
+        }
+    }
+
+    fn said(
+        &self,
+        name: &str,
+        cwd: &Path,
+        from_file: &dyn Fn(&str) -> Option<String>,
+    ) -> Result<Option<String>, Unread> {
+        let mut said: Vec<String> = Vec::new();
+        for field in &self.fields {
+            if let Some(value) = (field.strip_prefix(name)).and_then(|rest| rest.strip_prefix('='))
+            {
+                said.push(match value.strip_prefix('@') {
+                    Some(file) => from_file(file).ok_or(Unread)?,
+                    None => value.to_owned(),
+                });
+            }
+        }
+        if let Some(file) = &self.input {
+            let text = std::fs::read_to_string(cwd.join(file)).map_err(|_| Unread)?;
+            let body: serde_json::Value = serde_json::from_str(&text).map_err(|_| Unread)?;
+            said.extend(body.get(name).map(|value| match value.as_str() {
+                Some(value) => value.to_owned(),
+                None => value.to_string(),
+            }));
+        }
+        match said.len() {
+            0 | 1 => Ok(said.pop()),
+            _ => Err(Unread),
+        }
+    }
 }
+
+/// A field whose value the command's own words and files don't say.
+struct Unread;
 
 /// What `gh api` run with `args`, the words after `api`, calls.
 pub fn github_api(args: &[impl AsRef<str>]) -> Option<ApiCall> {
-    const VALUED: [&str; 17] = [
-        "-X",
-        "--method",
-        "-f",
-        "-F",
-        "--field",
-        "--raw-field",
-        "-H",
-        "--header",
-        "-q",
-        "--jq",
-        "-t",
-        "--template",
-        "--input",
-        "-p",
-        "--preview",
-        "--hostname",
-        "--cache",
+    const VALUED: [(&str, &str); 10] = [
+        ("method", "X"),
+        ("raw-field", "f"),
+        ("field", "F"),
+        ("header", "H"),
+        ("jq", "q"),
+        ("template", "t"),
+        ("preview", "p"),
+        ("input", ""),
+        ("hostname", ""),
+        ("cache", ""),
     ];
-    let (mut endpoint, mut method, mut fields) = (None, None, false);
+    let (mut endpoint, mut method, mut input) = (None, None, None);
+    let mut fields = Vec::new();
     let mut words = args.iter().map(AsRef::as_ref);
     while let Some(arg) = words.next() {
-        if VALUED.contains(&arg) {
-            let value = words.next();
-            match arg {
-                "-X" | "--method" => method = value.map(str::to_ascii_uppercase),
-                "-f" | "-F" | "--field" | "--raw-field" | "--input" => fields = true,
-                _ => {}
+        let (flag, attached) = if let Some(long) = arg.strip_prefix("--") {
+            match long.split_once('=') {
+                Some((name, value)) => (name, Some(value)),
+                None => (long, None),
             }
-        } else if let Some(value) = arg.strip_prefix("--method=") {
-            method = Some(value.to_ascii_uppercase());
-        } else if !arg.starts_with('-') && endpoint.is_none() {
-            endpoint = Some(arg.trim_start_matches('/').to_owned());
+        } else if let Some(short) = arg.strip_prefix('-') {
+            let short = short.trim_start_matches('i');
+            let (letter, value) = short.split_at_checked(1).unwrap_or(("", ""));
+            let name = VALUED
+                .iter()
+                .find(|(_, short)| !letter.is_empty() && *short == letter);
+            let value = value.strip_prefix('=').unwrap_or(value);
+            (
+                name.map_or("", |(name, _)| *name),
+                (!value.is_empty()).then_some(value),
+            )
+        } else {
+            if endpoint.is_none() {
+                endpoint = Some(plain_endpoint(arg));
+            }
+            continue;
+        };
+        if !VALUED.iter().any(|(name, _)| *name == flag) {
+            continue;
+        }
+        let value = attached.or_else(|| words.next());
+        match flag {
+            "method" => method = value.map(str::to_ascii_uppercase),
+            "field" | "raw-field" => fields.extend(value.map(str::to_owned)),
+            "input" => input = Some(value.unwrap_or("-").to_owned()),
+            _ => {}
         }
     }
+    let writes = input.is_some() || !fields.is_empty();
     Some(ApiCall {
-        method: method.unwrap_or_else(|| if fields { "POST" } else { "GET" }.to_owned()),
+        method: method.unwrap_or_else(|| if writes { "POST" } else { "GET" }.to_owned()),
         endpoint: endpoint?,
+        fields,
+        input,
     })
+}
+
+/// A `gh api` endpoint as GitHub reads it: without its host, doubled slashes or escapes.
+fn plain_endpoint(said: &str) -> String {
+    let path = match said.split_once("://") {
+        Some((_, rest)) => {
+            let path = rest.split_once('/').map_or("", |(_, path)| path);
+            path.strip_prefix("api/v3/").unwrap_or(path)
+        }
+        None => said,
+    };
+    let (path, query) = path
+        .find(['?', '#'])
+        .map_or((path, ""), |at| path.split_at(at));
+    let decoded = sikemux_base::http::percent_decode(path).unwrap_or_else(|| path.to_owned());
+    let parts: Vec<&str> = decoded.split('/').filter(|part| !part.is_empty()).collect();
+    format!("{}{query}", parts.join("/"))
 }
 
 /// Whether `gh api` with `args` writes: a GraphQL query that holds a mutation, or a REST call
 /// with a method other than GET, or with fields and no method, which gh sends as a POST.
 fn api_writes(args: &[String], cwd: &Path) -> bool {
-    let at = args
-        .iter()
-        .position(|arg| arg == "api")
-        .map_or(0, |at| at + 1);
-    let endpoint = args.iter().skip(at).find(|arg| !arg.starts_with('-'));
-    let method = flag_value(args, &["-X", "--method"]);
-    if endpoint.is_some_and(|endpoint| endpoint == "graphql") {
-        let fields = (args.windows(2))
-            .filter_map(|pair| match pair {
-                [flag, field]
-                    if matches!(flag.as_str(), "-f" | "-F" | "--field" | "--raw-field") =>
-                {
-                    Some(field.as_str())
-                }
-                _ => None,
-            })
-            .chain(args.iter().filter_map(|arg| {
-                ["-f", "-F", "--field=", "--raw-field="]
-                    .iter()
-                    .find_map(|flag| arg.strip_prefix(flag).filter(|rest| rest.contains('=')))
-            }));
-        let mut query = None;
-        for field in fields {
-            if let Some(text) = field.strip_prefix("query=") {
-                query = Some(text);
-            }
-        }
-        let mutates = |text: &str| {
+    let args: Vec<String> = gh_args(args).into_iter().skip(1).collect();
+    let Some(call) = github_api(&args) else {
+        return false;
+    };
+    if call.endpoint != "graphql" {
+        return call.method != "GET";
+    }
+    let said = call.said("query", cwd, &|file| {
+        std::fs::read_to_string(cwd.join(file)).ok()
+    });
+    match said {
+        Ok(query) => query.is_some_and(|text| {
             text.split(|c: char| !c.is_ascii_alphanumeric())
                 .any(|word| word == "mutation")
-        };
-        return match query {
-            Some(text) => match text.strip_prefix('@') {
-                Some(file) => {
-                    std::fs::read_to_string(cwd.join(file)).map_or(true, |text| mutates(&text))
-                }
-                None => mutates(text),
-            },
-            None => has_flag(args, &["--input"]),
-        };
-    }
-    match method {
-        Some(verb) => !verb.eq_ignore_ascii_case("GET"),
-        None => has_flag(args, &["-f", "-F", "--field", "--raw-field", "--input"]),
+        }),
+        Err(Unread) => true,
     }
 }
 
@@ -1501,6 +1713,49 @@ const VERCEL_READS: [&str; 20] = [
     "ls", "list", "logs", "inspect", "whoami", "help", "pull", "env", "domains", "dns", "certs",
     "project", "projects", "teams", "login", "logout", "switch", "link", "dev", "build",
 ];
+
+/// Vercel's commands that change what is live without a deploy.
+const VERCEL_TAKES_AWAY: [[&str; 2]; 20] = [
+    ["env", "rm"],
+    ["env", "remove"],
+    ["project", "rm"],
+    ["project", "remove"],
+    ["projects", "rm"],
+    ["projects", "remove"],
+    ["domains", "rm"],
+    ["domains", "remove"],
+    ["domains", "move"],
+    ["domains", "mv"],
+    ["dns", "add"],
+    ["dns", "import"],
+    ["dns", "rm"],
+    ["dns", "remove"],
+    ["certs", "rm"],
+    ["certs", "remove"],
+    ["alias", "remove"],
+    ["blob", "del"],
+    ["blob", "delete-store"],
+    ["blob", "empty-store"],
+];
+
+/// Whether Vercel's command line run with `args` changes what is live without a deploy. An
+/// environment variable of preview or development only isn't live.
+pub fn vercel_takes_away(args: &[impl AsRef<str>]) -> bool {
+    let words: Vec<&str> = (args.iter().map(AsRef::as_ref))
+        .filter(|arg| !arg.starts_with('-'))
+        .collect();
+    let preview = words
+        .iter()
+        .any(|word| matches!(*word, "preview" | "development"))
+        && !words.contains(&"production");
+    VERCEL_TAKES_AWAY.iter().any(|[group, command]| {
+        (words.iter())
+            .position(|word| word == group)
+            .and_then(|at| words.get(at + 1..))
+            .is_some_and(|after| after.contains(command))
+            && !(*group == "env" && preview)
+    })
+}
 
 /// Switches of the deploy and publish programs known to take no value, after which a
 /// `--dry-run` is the program's own flag.
@@ -1731,8 +1986,39 @@ fn changes_cluster(program: &str, args: &[String]) -> bool {
     }
 }
 
+/// The words of a `gh` command with its subcommands first, found as gh finds them: a flag
+/// before them takes the word after it unless it has a value of its own.
+fn gh_args(args: &[String]) -> Vec<String> {
+    let (mut subcommands, mut rest) = (Vec::new(), Vec::new());
+    let mut words = args.iter();
+    while let Some(word) = words.next() {
+        let found = subcommands.len() == 2 || subcommands.first().is_some_and(|word| word == "api");
+        let short = word.starts_with('-') && word.len() == 2 && word != "-h";
+        let long = word.starts_with("--") && !matches!(word.as_str(), "--help" | "--version");
+        if found {
+            rest.push(word.clone());
+        } else if (short || long) && !word.contains('=') {
+            rest.push(word.clone());
+            rest.extend(words.next().cloned());
+        } else if word.starts_with('-') {
+            rest.push(word.clone());
+        } else {
+            subcommands.push(word.clone());
+        }
+    }
+    subcommands.append(&mut rest);
+    subcommands
+}
+
 fn matches(rule: &Rule, args: &[String], cwd: &Path) -> bool {
+    let github = rule.programs == ["gh"]
+        && rule.words.len() == 2
+        && gh_args(args)
+            .iter()
+            .zip(rule.words)
+            .all(|(arg, word)| arg == word);
     let follows = rule.words.is_empty()
+        || github
         || args
             .windows(rule.words.len())
             .any(|window| window.iter().zip(rule.words).all(|(arg, word)| arg == word));
@@ -2026,16 +2312,56 @@ pub(crate) fn of_invocation(
 /// Git settings given through the environment, which the push judge can't read, as the words
 /// that put them in front of the command.
 fn git_configured(program: &str, env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
-    let git = base_name(program) == "git";
+    if base_name(program) != "git" {
+        return None;
+    }
     let set = [
         "GIT_CONFIG_COUNT",
         "GIT_CONFIG_PARAMETERS",
         "GIT_CONFIG",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
         "GIT_DIR",
+        "GIT_COMMON_DIR",
+        "GIT_NAMESPACE",
     ]
     .into_iter()
     .find(|name| env(name).is_some());
-    set.filter(|_| git).map(|name| format!("{name}=…"))
+    let own_home = own_home();
+    let home = || {
+        let home = env("HOME")?;
+        (Path::new(&home) != own_home.as_deref()?).then_some("HOME")
+    };
+    let config_home = || {
+        let config = PathBuf::from(env("XDG_CONFIG_HOME")?);
+        let own = own_home.as_deref()?.join(".config");
+        (config != own && config.join("git/config").exists()).then_some("XDG_CONFIG_HOME")
+    };
+    set.or_else(home)
+        .or_else(config_home)
+        .map(|name| format!("{name}=…"))
+}
+
+/// The home this computer's accounts give the user, whatever `HOME` says.
+#[cfg(unix)]
+fn own_home() -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    static HOME: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    // SAFETY: getpwuid's record is read once, and its home is copied out at once.
+    let read = || unsafe {
+        let user = libc::getpwuid(libc::getuid());
+        if user.is_null() || (*user).pw_dir.is_null() {
+            return None;
+        }
+        let home = std::ffi::CStr::from_ptr((*user).pw_dir);
+        Some(std::ffi::OsStr::from_bytes(home.to_bytes()).into())
+    };
+    HOME.get_or_init(read).clone()
+}
+
+#[cfg(not(unix))]
+fn own_home() -> Option<PathBuf> {
+    None
 }
 
 /// Whether `words` begin with the words of `listed`, a path such as
@@ -2340,6 +2666,112 @@ mod environment_tests {
         let reads = ["-X", "POST", &read_only, "--data-binary", "@-"].map(str::to_owned);
         let read = of_invocation("curl", &reads, &|_| None, cwd).expect("a web write");
         assert_eq!(read.kind, ShipKind::Publish);
+    }
+
+    #[test]
+    fn github_and_vercel_changes_are_seen_however_spelled() {
+        let cwd = Path::new("/nowhere");
+        let seen = |line: &str| {
+            let words = words(line);
+            of_invocation(&words[0], &words[1..], &|_| None, cwd)
+        };
+        for line in [
+            "gh pr -R acme/site merge 5",
+            "gh -R acme/site pr merge 5",
+            "gh pr --squash=true merge 5",
+            "gh pr --body x merge 5",
+        ] {
+            assert_eq!(
+                seen(line).map(|ship| ship.kind),
+                Some(ShipKind::Merge),
+                "{line}"
+            );
+        }
+        for line in [
+            "vercel env rm KEY production",
+            "vercel project rm site",
+            "vercel dns rm rec_1",
+            "vercel rm dpl_A",
+            "vercel alias remove acme.dev",
+            "vercel env --debug rm KEY production",
+            "vc rm dpl_A",
+        ] {
+            assert_eq!(
+                seen(line).map(|ship| ship.kind),
+                Some(ShipKind::Deploy),
+                "{line}"
+            );
+        }
+        for line in [
+            "vercel env ls",
+            "vercel env rm KEY preview",
+            "vercel project ls",
+            "vercel dns ls",
+            "gh pr list --search merge",
+            "gh pr view 5 -R acme/site",
+        ] {
+            assert_eq!(seen(line), None, "{line}");
+        }
+        let lands = |line: &str| match seen(line).and_then(|ship| ship.target) {
+            Some(Target::GitHub { lands, .. }) => lands,
+            _ => None,
+        };
+        let branch = |name: &str| {
+            Some(Lands::Branch {
+                name: name.to_owned(),
+            })
+        };
+        let api = "gh api repos/acme/site";
+        assert_eq!(
+            lands(&format!("{api}/pulls/5/merge -X PUT")),
+            Some(Lands::Merge { pull: "5".into() })
+        );
+        assert_eq!(
+            lands(&format!("{api}/git/refs/heads/main -X PATCH -f sha=a")),
+            branch("main")
+        );
+        assert_eq!(
+            lands(&format!("{api}/git/refs -f ref=refs/tags/v1 -f sha=a")),
+            Some(Lands::Tag { name: "v1".into() })
+        );
+        assert_eq!(
+            lands(&format!("{api}/contents/a.txt -X PUT -f branch=pr-assets")),
+            branch("pr-assets")
+        );
+        assert_eq!(
+            lands(&format!("{api}/contents/a.txt -X PUT -f content=a")),
+            branch("HEAD")
+        );
+        assert_eq!(
+            lands(&format!("{api}/contents/a.txt -X PUT --input -")),
+            Some(Lands::Unread)
+        );
+        let merge = Some(Lands::Merge { pull: "5".into() });
+        for line in [
+            "gh api -XPUT repos//acme/site/pulls/5/merge",
+            "gh -X PUT api repos/acme/site/%70ulls/5/merge",
+            "gh api https://api.github.com/repos/acme/site/pulls/5/merge --method=PUT",
+            "gh api repositories/7/pulls/5/merge -X PUT",
+        ] {
+            assert_eq!(lands(line), merge, "{line}");
+        }
+        assert_eq!(
+            lands("gh api graphql -f query=mutation{mergePullRequest(input:{})}"),
+            Some(Lands::Any)
+        );
+        assert_eq!(
+            lands(&format!("{api}/contents/a.txt -XPUT -fbranch=pr-assets")),
+            branch("pr-assets")
+        );
+        assert_eq!(
+            lands(&format!("{api}/releases -f tag_name=v1")),
+            Some(Lands::Tag { name: "v1".into() })
+        );
+        assert_eq!(
+            lands(&format!("{api}/releases -f tag_name=v1 -F draft=true")),
+            None
+        );
+        assert_eq!(lands(&format!("{api}/issues/5/comments -f body=a")), None);
     }
 
     fn over_ssh(line: &str) -> Vec<Ship> {

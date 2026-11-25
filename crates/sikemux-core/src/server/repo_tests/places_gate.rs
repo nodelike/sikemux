@@ -21,7 +21,7 @@ use crate::server::ServerCore;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use sikemux_view::calls::{CallResult, CallState, PersonCall};
+use sikemux_view::calls::{CallResult, CallState, CallWhy, PersonCall};
 use sikemux_view::inbox::ShipKind;
 use sikemux_view::places::{Level, Recognise};
 use sikemux_view::slice::Verdict;
@@ -31,6 +31,7 @@ use crate::server::places::place::new_place;
 use crate::server::places::push::tests::git;
 use crate::server::places::*;
 use crate::server::ship::{self, Deploy, HoldParams};
+use crate::server::workspace::{AddProjectParams, AddProjectParamsExt};
 use crate::ship::Target;
 
 /// A clone on branch `work` with one change against main, as an agent's checkout.
@@ -938,6 +939,206 @@ async fn a_closed_askers_turn_counts_as_ended() {
     let call = open_calls(&core).remove(0);
     answer(&core, &call.id, "allow").await;
     assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
+}
+
+/// On 2026-11-25 two agents could not take back the calls the gate had raised for commands
+/// they no longer needed, so a late yes would still have let them run.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_takes_back_the_call_raised_for_its_own_change() {
+    let dir = repo();
+    let (cwd, project) = work_of(&dir);
+    let core = core_at(None, &project, vec![vercel_place()]);
+    let folder = AddProjectParams::at(cwd.clone());
+    let opened = (crate::server::workspace::add_project(&core, folder).await).unwrap();
+    let adopted = crate::server::names::Adopted {
+        agent_id: "other",
+        name: "Bo",
+        project: project.clone(),
+        parent: None,
+        provider: "claude",
+        reports: false,
+        task: None,
+    };
+    core.names().adopt(adopted, ["other".to_owned()].into());
+    for id in ["agent", "other"] {
+        let draft = serde_json::json!({
+            "id": id, "title": "claude", "provider": "claude",
+            "project": opened.id, "cwd": cwd, "permissionMode": "bypass",
+        });
+        let draft = serde_json::from_value(draft).unwrap();
+        core.workspaces().put_agent_draft(draft).unwrap();
+    }
+    let other = |core: &Core| ship::check(core, "other", deploy("vercel --prod"), &cwd);
+    let of = |id: &str| {
+        (crate::server::person_calls::shown(&core).into_iter())
+            .find(|call| call.id == id)
+            .unwrap()
+    };
+    assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
+    let call = open_calls(&core).remove(0);
+    assert!(ship::take_back(&core, "other", &call.id).is_none());
+    assert_eq!(ship::take_back(&core, "agent", &call.id), Some(Ok(())));
+    let outcome = of(&call.id).outcome.unwrap();
+    assert_eq!(outcome.result, CallResult::Withdrawn);
+    assert_eq!(outcome.why, Some(CallWhy::TakenBack));
+    let late = HoldParams {
+        hold: call.id.clone(),
+    };
+    assert!(
+        crate::server::person_calls::answer_hold(&core, &Peer::App, late, "allow")
+            .await
+            .is_err()
+    );
+    assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
+
+    let call = open_calls(&core).remove(0);
+    assert!(other(&core).is_err());
+    assert_eq!(ship::take_back(&core, "agent", &call.id), Some(Ok(())));
+    assert_eq!(of(&call.id).state, CallState::Open);
+    assert!(ship::take_back(&core, "agent", &call.id).is_none());
+    answer(&core, &call.id, "allow").await;
+    assert!(ship::take_back(&core, "other", &call.id).is_some_and(|taken| taken.is_err()));
+}
+
+/// The person was asked for the same site's change twice in an hour, with no way to say it
+/// need not wait again.
+#[tokio::test(flavor = "multi_thread")]
+async fn just_tell_me_covers_plain_pushes_and_nothing_else() {
+    let dir = repo();
+    let (cwd, project) = work_of(&dir);
+    std::fs::write(cwd.join("vercel.json"), "{}").unwrap();
+    let core = core_at(None, &project, found::in_files(&cwd));
+    let push = |what: &str| Ship {
+        kind: ShipKind::Push,
+        what: what.to_owned(),
+        target: None,
+    };
+    let offered = |call: &PersonCall| (call.options.iter()).any(|o| o.id == ship::FROM_NOW_ON);
+    let others = [
+        push("git push --force origin HEAD:main"),
+        push("git push origin +HEAD:main"),
+        push("git push origin :main"),
+        push("git push --no-verify origin HEAD:main"),
+        push("git -c push.default=current push origin HEAD:main"),
+        push("GIT_CONFIG_COUNT=… git push origin HEAD:main"),
+        Ship {
+            kind: ShipKind::Merge,
+            what: "gh pr merge 5 --admin".to_owned(),
+            target: None,
+        },
+        deploy("vercel --prod"),
+        deploy("vercel promote dpl_A"),
+    ];
+    for other in &others {
+        let ran = run(&core, other.clone(), &cwd);
+        assert!(ran.is_err(), "{}", other.what);
+        assert!(!open_calls(&core).iter().any(&offered), "{}", other.what);
+    }
+    std::fs::write(cwd.join("app.txt"), "more\n").unwrap();
+    git(&cwd, &["commit", "-am", "more"]);
+    assert!(run(&core, push("git push origin HEAD:main"), &cwd).is_err());
+    let call = open_calls(&core).into_iter().find(&offered).unwrap();
+    answer(&core, &call.id, ship::FROM_NOW_ON).await;
+    std::fs::write(cwd.join("app.txt"), "three\n").unwrap();
+    git(&cwd, &["commit", "-am", "three"]);
+    for other in &others {
+        assert!(
+            run(&core, other.clone(), &cwd).is_err(),
+            "{} ran",
+            other.what
+        );
+    }
+    let held = |what: &str| assert!(run(&core, push(what), &cwd).is_err(), "{what} ran");
+    for what in [
+        "git push origin HEAD:production",
+        "git push origin HEAD:refs/heads/release/0.7",
+        "git push origin main",
+        "git push origin main:main",
+    ] {
+        held(what);
+    }
+    for (key, value, what) in [
+        ("remote.origin.push", "+HEAD:main", "git push origin"),
+        ("remote.origin.push", "+work:main", "git push origin work"),
+        ("remote.origin.mirror", "true", "git push origin HEAD:main"),
+        ("push.followTags", "true", "git push origin HEAD:main"),
+        ("push.default", "matching", "git push origin"),
+        ("push.default", "upstream", "git push origin work"),
+    ] {
+        git(&cwd, &["config", "branch.work.remote", "origin"]);
+        git(&cwd, &["config", "branch.work.merge", "refs/heads/main"]);
+        git(&cwd, &["config", key, value]);
+        held(what);
+        git(&cwd, &["config", "--unset-all", key]);
+    }
+    let went = run(&core, push("git push origin HEAD:main"), &cwd).unwrap();
+    assert!(went.is_some());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_yes_to_a_push_covers_that_push() {
+    let dir = repo();
+    let (cwd, project) = work_of(&dir);
+    std::fs::write(cwd.join("vercel.json"), "{}").unwrap();
+    let core = core_at(None, &project, found::in_files(&cwd));
+    let push = |what: &str| Ship {
+        kind: ShipKind::Push,
+        what: what.to_owned(),
+        target: None,
+    };
+    let run = |ship: Ship| run(&core, ship, &cwd);
+    git(&cwd, &["branch", "other"]);
+    assert!(run(push("git push origin HEAD:main")).is_err());
+    let call = open_calls(&core).remove(0);
+    answer(&core, &call.id, "allow").await;
+    for other in [
+        push("git push origin other:production"),
+        deploy("vercel rollback dpl_A"),
+        deploy("vercel promote dpl_A"),
+        deploy("vercel --prod"),
+    ] {
+        let what = other.what.clone();
+        assert!(run(other).is_err(), "{what} ran");
+    }
+    assert!(run(push("git push origin HEAD:main")).is_ok());
+
+    let forced = "git push --force origin other:main";
+    let before: Vec<String> = (open_calls(&core).into_iter())
+        .map(|call| call.id)
+        .collect();
+    assert!(run(push(forced)).is_err());
+    let call = (open_calls(&core).into_iter())
+        .find(|call| !before.contains(&call.id))
+        .unwrap();
+    answer(&core, &call.id, "allow").await;
+    std::fs::write(cwd.join("app.txt"), "four\n").unwrap();
+    git(&cwd, &["commit", "-am", "four"]);
+    git(&cwd, &["branch", "-f", "other", "HEAD"]);
+    git(&cwd, &["reset", "--hard", "HEAD~1"]);
+    assert!(run(push(forced)).is_err());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_is_read_as_committed() {
+    let dir = repo();
+    let (cwd, project) = work_of(&dir);
+    std::fs::write(cwd.join("vercel.json"), "{}").unwrap();
+    git(&cwd, &["add", "vercel.json"]);
+    git(&cwd, &["commit", "-m", "vercel"]);
+    let core = core_at(None, &project, found::in_files(&cwd));
+    let push = || Ship {
+        kind: ShipKind::Push,
+        what: "git push origin HEAD:main".to_owned(),
+        target: None,
+    };
+    std::fs::write(
+        cwd.join("vercel.json"),
+        r#"{"git":{"deploymentEnabled":false}}"#,
+    )
+    .unwrap();
+    assert!(run(&core, push(), &cwd).is_err());
+    std::fs::remove_file(cwd.join("vercel.json")).unwrap();
+    assert!(run(&core, push(), &cwd).is_err());
 }
 
 /// Two folders each running `--kubeconfig kubeconfig.yaml` with a context called default gave

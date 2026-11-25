@@ -104,17 +104,19 @@ pub fn keep(places: &mut Vec<Place>, place: Place) {
 
 /// Where `ship`, an action of the agent called `agent`, lands in `project`. The places its
 /// files name and a production place the action itself names are kept from then on.
-/// `addresses` is what the action writes to, in full; none reads them from the action.
+/// `addresses` is what the action writes to, in full; none reads them from the action. `plain`
+/// is whether it is a push or merge through git with nothing else to it.
 pub fn judge(
     core: &Core,
     project: &str,
     ship: &Ship,
     agent: &str,
     addresses: Option<&str>,
+    plain: bool,
 ) -> Judged {
     let (places, confirmed) = current(core, project);
     let addresses = addresses.unwrap_or(&ship.what);
-    let judged = judge::judged_reading(&places, confirmed, ship, agent, addresses);
+    let judged = judge::judged_reading(&places, confirmed, ship, agent, addresses, plain);
     let kept = core.places().of(project).places;
     let found = places.len() != kept.len();
     if found || judged.keep {
@@ -197,23 +199,14 @@ pub fn accepted(core: &Core, project: &str, proposed: Vec<Place>) -> Result<(), 
     })
 }
 
-/// Keeps `place` by the person's answer on a call: production or not, at `level` when they
-/// set one, recorded as theirs, from where they tapped.
-pub fn kept_by_tap(
-    core: &Core,
-    project: &str,
-    mut place: Place,
-    production: bool,
-    level: Option<Level>,
-    from: Option<String>,
-) {
-    place.shown.production = production;
-    place.shown.level = level.unwrap_or(match production {
-        true => Level::Mine,
-        false => Level::Yours,
-    });
-    place.shown.said_by = Some(by_tap());
-    place.shown.said_from = from;
+/// The person said on a call to just tell them of routine changes to `place` from now on.
+pub fn just_tell(core: &Core, project: &str, place: Place, from: Option<String>) {
+    let tell = |place: &mut Place| {
+        place.shown.level = Level::TellMe;
+        place.shown.said_by = Some(by_tap());
+        place.shown.said_from = from.clone();
+        place.routine_only = true;
+    };
     let _ = change(core, project, |kept| {
         match kept
             .places
@@ -222,12 +215,13 @@ pub fn kept_by_tap(
         {
             Some(other) => {
                 other.shown.was = Some(other.shown.level);
-                other.shown.production = place.shown.production;
-                other.shown.level = place.shown.level;
-                other.shown.said_by = place.shown.said_by.clone();
-                other.shown.said_from = place.shown.said_from.clone();
+                tell(other);
             }
-            None => keep(&mut kept.places, place),
+            None => {
+                let mut place = place;
+                tell(&mut place);
+                keep(&mut kept.places, place);
+            }
         }
         Ok(())
     });
@@ -367,6 +361,7 @@ pub async fn set_level(
             if place.shown.level != params.level {
                 place.shown.was = Some(place.shown.level);
                 place.shown.level = params.level;
+                place.routine_only = false;
                 place.shown.said_by = Some(by_tap());
                 place.shown.said_from = from.clone();
             }

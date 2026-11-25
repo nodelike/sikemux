@@ -35,17 +35,19 @@ pub struct Judged {
 /// Where `ship` lands among `places`, as the person `confirmed` the list or not. `agent` is
 /// whose action it is, by name, for a place the core finds in it.
 pub fn judged(places: &[Place], confirmed: bool, ship: &Ship, agent: &str) -> Judged {
-    judged_reading(places, confirmed, ship, agent, &ship.what)
+    judged_reading(places, confirmed, ship, agent, &ship.what, false)
 }
 
 /// [`judged`] with `addresses`, what `ship` writes to with each address in full. A browser's
 /// write is shown and allowed without its address's query, which can still say what it changes.
+/// `plain` is whether `ship` is a push or merge through git with nothing else to it.
 pub fn judged_reading(
     places: &[Place],
     confirmed: bool,
     ship: &Ship,
     agent: &str,
     addresses: &str,
+    plain: bool,
 ) -> Judged {
     let recognising: Vec<&Place> = places
         .iter()
@@ -98,12 +100,12 @@ pub fn judged_reading(
     let strictest = (fact_place.as_ref().map(|(place, _)| place))
         .into_iter()
         .chain(production.iter().copied())
-        .max_by_key(|place| strictness(place.level(confirmed)));
+        .max_by_key(|place| strictness(level_for(place, confirmed, ship, plain)));
     if let Some(place) = strictest {
         let from_fact =
             (fact_place.as_ref()).is_some_and(|(found, _)| found.shown.id == place.shown.id);
         let keep = from_fact && fact_place.as_ref().is_some_and(|(_, keep)| *keep);
-        return by_level(place, confirmed, keep);
+        return by_level(place, level_for(place, confirmed, ship, plain), keep);
     }
     if let Some(place) = recognising.first() {
         return Judged {
@@ -167,8 +169,24 @@ fn strictness(level: Level) -> u8 {
     }
 }
 
-fn by_level(place: &Place, confirmed: bool, keep: bool) -> Judged {
-    let (goes, why) = match place.level(confirmed) {
+fn level_for(place: &Place, confirmed: bool, ship: &Ship, plain: bool) -> Level {
+    place.level_for(confirmed, plain && routine(place, ship))
+}
+
+/// Whether `ship`, a plain push or merge, is the change `place` sees again and again, which the
+/// person may say to just be told of: work that deploys from the project's own branch, or a tag
+/// of a kind that recurs there. A stable release never is.
+pub fn routine(place: &Place, ship: &Ship) -> bool {
+    place.recognises(ship)
+        && match (ship.kind, &ship.target) {
+            (ShipKind::Deploy, Some(Target::Vercel { production: true })) => true,
+            (ShipKind::Publish, Some(Target::Tag { name })) => place.recurs && !name.is_empty(),
+            _ => false,
+        }
+}
+
+fn by_level(place: &Place, level: Level, keep: bool) -> Judged {
+    let (goes, why) = match level {
         Level::Yours => (
             Goes::Freely,
             format!("{} is the agents' to change.", place.name()),
@@ -285,7 +303,7 @@ fn production_fact(ship: &Ship, addresses: &str, found_in: Option<String>) -> Op
         Target::Stage { tool, name } if says_production(name) => {
             Some(stage_place(tool, name, found_in))
         }
-        Target::GitHub { repo } if !repo.is_empty() => Some(new_place(
+        Target::GitHub { repo, .. } if !repo.is_empty() => Some(new_place(
             &format!("{repo} on GitHub"),
             true,
             Vec::new(),
@@ -555,6 +573,7 @@ mod tests {
             &nameservers,
             "Otter",
             "POST https://my.registrar.example/clientarea.php?action=domaindetails",
+            false,
         );
         assert_eq!(judged.goes, Goes::Asks);
         assert!(judged.keep);
@@ -568,6 +587,7 @@ mod tests {
             &own_panel,
             "Otter",
             "POST https://hosting.example.com/clientarea.php?action=domaindns",
+            false,
         );
         assert_eq!(judged.goes, Goes::Asks);
         let search = submit(

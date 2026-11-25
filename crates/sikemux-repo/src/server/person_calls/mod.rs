@@ -310,6 +310,12 @@ fn apply_with(book: &mut Book, entry: Entry, prune: bool) {
                 call.joined.retain(|asker| asker.agent_id != agent);
             }
         }
+        Entry::Quit { agent, .. } => {
+            if call.asker.agent_id == agent && !call.joined.is_empty() {
+                call.asker = call.joined.remove(0);
+            }
+            call.joined.retain(|asker| asker.agent_id != agent);
+        }
         Entry::Started { at, .. } => kept.started = Some(at),
         Entry::Edited { call: edited, .. } => {
             call.title = edited.title;
@@ -891,6 +897,62 @@ pub fn explain(core: &Core, agent_id: &str, id: &str, reason: &str) -> bool {
     drop(book);
     core.person_calls().changed(core);
     true
+}
+
+/// What came of an agent taking back a production call it waits on.
+pub enum TakenBack {
+    Done,
+    /// The person had answered it, or it had closed.
+    TooLate,
+    /// The agent waits on no such call.
+    NotTheirs,
+}
+
+/// Takes back `agent_id`'s wait on the call `id` of an action held for it: the call closes,
+/// unless an agent that isn't `gone` waits on it too.
+pub fn take_back(
+    core: &Core,
+    agent_id: &str,
+    id: &str,
+    why: Option<CallWhy>,
+    gone: impl Fn(&str) -> bool,
+) -> TakenBack {
+    let mut book = core.person_calls().book.locked();
+    let Some(kept) = kept(&book, id)
+        .filter(|kept| match kept.source {
+            Source::Hold(_) => true,
+            Source::Raised => kept.call.place.is_some(),
+            Source::Question(_) => false,
+        })
+        .filter(|kept| waits_on(&kept.call, agent_id))
+    else {
+        return TakenBack::NotTheirs;
+    };
+    if kept.call.state != CallState::Open {
+        return TakenBack::TooLate;
+    }
+    let others = std::iter::once(&kept.call.asker)
+        .chain(&kept.call.joined)
+        .any(|asker| asker.agent_id != agent_id && !gone(&asker.agent_id));
+    let id = id.to_owned();
+    let entry = match others {
+        true => Entry::Quit {
+            id,
+            agent: agent_id.to_owned(),
+            at: epoch_ms(),
+        },
+        false => Entry::Came {
+            id,
+            outcome: CallOutcome {
+                why,
+                ..outcome(CallResult::Withdrawn)
+            },
+        },
+    };
+    core.person_calls().write(&mut book, entry);
+    drop(book);
+    core.person_calls().changed(core);
+    TakenBack::Done
 }
 
 /// The newest call of `project` raised with `key`, open or not.

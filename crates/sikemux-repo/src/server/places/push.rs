@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use super::place::says_production;
 use crate::git::Git;
+use crate::ship::Lands;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reach {
@@ -58,6 +59,22 @@ const SWITCHES: [&str; 21] = [
 ];
 /// Long options of `git push` that take a value after `=` and change nothing of where it goes.
 const VALUED: [&str; 3] = ["--push-option", "--signed", "--recurse-submodules"];
+
+/// Options of `git push` that leave it one that only sends commits forward.
+const PLAIN_OPTIONS: [&str; 12] = [
+    "-u",
+    "--set-upstream",
+    "-q",
+    "--quiet",
+    "-v",
+    "--verbose",
+    "--verify",
+    "--porcelain",
+    "--progress",
+    "--no-progress",
+    "--atomic",
+    "--no-follow-tags",
+];
 
 /// Branch names that are a project's own or a release's whatever the remote's default is.
 const KEPT_BRANCHES: [&str; 9] = [
@@ -116,10 +133,198 @@ fn is_git(program: &str) -> bool {
     program.rsplit('/').next() == Some("git")
 }
 
+/// The words of a push that only sends commits forward: nothing forced or deleted, no hook
+/// skipped, and its one branch or tag sent to the remote the project's code is on.
+struct PlainWords<'a> {
+    /// What it names to send; none for the checkout's branch.
+    refspec: Option<&'a str>,
+    follows_tags: bool,
+}
+
+fn plain_words(what: &str) -> Option<PlainWords<'_>> {
+    let words: Vec<&str> = what.split_whitespace().collect();
+    let args = match words.as_slice() {
+        ["git", "push", args @ ..] | ["git", "-C", _, "push", args @ ..] => args,
+        _ => return None,
+    };
+    let (options, named): (Vec<&str>, Vec<&str>) =
+        args.iter().copied().partition(|arg| arg.starts_with('-'));
+    let refspec = match named.as_slice() {
+        [] | ["origin"] => None,
+        ["origin", refspec] => Some(*refspec),
+        _ => return None,
+    };
+    let forward =
+        refspec.is_none_or(|refspec| !refspec.starts_with(['+', ':']) && !refspec.contains('*'));
+    (forward && options.iter().all(|option| PLAIN_OPTIONS.contains(option))).then(|| PlainWords {
+        refspec,
+        follows_tags: !options.contains(&"--no-follow-tags"),
+    })
+}
+
+/// What git's config says of `key` in the checkout at `cwd`.
+fn config(key: &str, cwd: &Path) -> Option<String> {
+    let said = Git::quick(cwd)
+        .trimmed(&["config", "--get-all", key])
+        .ok()?;
+    let last = said.lines().last()?;
+    Some(last.to_owned())
+}
+
+fn config_on(key: &str, cwd: &Path) -> bool {
+    (Git::quick(cwd).trimmed(&["config", "--bool", key])).is_ok_and(|said| said == "true")
+}
+
+/// Whether git's config in the checkout at `cwd` makes a push to `remote` send other refs than
+/// its words name.
+fn config_redirects(remote: &str, follows_tags: bool, cwd: &Path) -> bool {
+    let submodules = config("push.recurseSubmodules", cwd)
+        .or_else(|| config("submodule.recurse", cwd))
+        .is_some_and(|said| !["no", "false", "check"].contains(&said.as_str()));
+    config(&format!("remote.{remote}.push"), cwd).is_some()
+        || pushes_elsewhere(remote, cwd)
+        || config_on(&format!("remote.{remote}.mirror"), cwd)
+        || (follows_tags && config_on("push.followTags", cwd))
+        || config("push.default", cwd)
+            .is_some_and(|said| !["simple", "current", "nothing"].contains(&said.as_str()))
+        || submodules
+}
+
+/// Whether `remote` is pushed to another repository than it is fetched from.
+fn pushes_elsewhere(remote: &str, cwd: &Path) -> bool {
+    let repository = |options: &[&str]| {
+        let args = [&["remote", "get-url"], options, &[remote]].concat();
+        let url = Git::quick(cwd).trimmed(&args).ok()?;
+        Some(match crate::server::credential::owner_and_name(&url) {
+            Some((owner, name)) => format!("{owner}/{name}"),
+            None => url,
+        })
+    };
+    repository(&["--push", "--all"]) != repository(&[])
+}
+
+/// Whether the push `what`, run from `cwd`, only sends the checkout's own commits to the
+/// project's own branch.
+pub fn is_plain(what: &str, cwd: &Path) -> bool {
+    let Some(words) = plain_words(what) else {
+        return false;
+    };
+    let cwd = &run_in(what, cwd);
+    if config_redirects("origin", words.follows_tags, cwd) || reach(what, cwd) != Reach::Project {
+        return false;
+    }
+    let git = || Git::quick(cwd);
+    let commit = |name: &str| {
+        let name = format!("{name}^{{commit}}");
+        git()
+            .trimmed(&["rev-parse", "--verify", "--quiet", &name])
+            .ok()
+    };
+    let (source, destination) = match words.refspec {
+        None => {
+            if push_remote(cwd).as_deref() != Some("origin") {
+                return false;
+            }
+            ("HEAD", pushed_to(cwd))
+        }
+        Some(refspec) => match refspec.split_once(':') {
+            Some((source, destination)) => (source, Some(destination.to_owned())),
+            None if matches!(refspec, "HEAD" | "@") => (
+                "HEAD",
+                git().trimmed(&["symbolic-ref", "--short", "HEAD"]).ok(),
+            ),
+            None => (refspec, Some(refspec.to_owned())),
+        },
+    };
+    destination.is_some_and(|destination| is_own_branch(&destination, cwd))
+        && commit(source).is_some_and(|sent| Some(sent) == commit("HEAD"))
+}
+
+/// Whether the push `what`, run from `cwd`, sends the one tag it names and nothing else.
+pub fn is_one_tag(what: &str, cwd: &Path) -> bool {
+    plain_words(what).is_some_and(|words| {
+        let named = words.refspec.is_some_and(|refspec| !refspec.contains(':'));
+        named && !config_redirects("origin", words.follows_tags, &run_in(what, cwd))
+    })
+}
+
+/// Whether `branch` is the one the project's own work lands on.
+fn is_own_branch(branch: &str, cwd: &Path) -> bool {
+    let branch = branch.strip_prefix("refs/heads/").unwrap_or(branch);
+    ["main", "master"].contains(&branch)
+        && default_branch("origin", cwd).is_none_or(|default| default == branch)
+}
+
+/// The commits the push `what`, run from `cwd`, sends as the checkout has them now, or every
+/// branch and tag where it doesn't name them.
+pub fn sent(what: &str, cwd: &Path) -> String {
+    let cwd = &run_in(what, cwd);
+    let git = || Git::quick(cwd);
+    let commit = |name: &str| {
+        git()
+            .trimmed(&["rev-parse", "--verify", "--quiet", name])
+            .unwrap_or_default()
+    };
+    let (options, refspecs) = refspecs(what).unwrap_or_default();
+    let many = ["--all", "--branches", "--mirror", "--tags", "--follow-tags"];
+    let unnamed = options.iter().any(|option| many.contains(option))
+        || refspecs.iter().any(|refspec| refspec.contains('*'));
+    match refspecs.is_empty() {
+        _ if unnamed || config_redirects("origin", true, cwd) => git()
+            .trimmed(&["for-each-ref", "refs/heads", "refs/tags"])
+            .unwrap_or_default(),
+        true => commit("HEAD"),
+        false => {
+            let sent: Vec<String> = (refspecs.iter())
+                .map(|refspec| refspec.trim_start_matches('+'))
+                .map(|refspec| commit(refspec.split(':').next().unwrap_or_default()))
+                .collect();
+            sent.join(" ")
+        }
+    }
+}
+
 /// Where the push `what`, run from `cwd`, lands, judged ref by ref: any tag it carries is
 /// judged as a tag pushed alone would be.
 pub fn reach(what: &str, cwd: &Path) -> Reach {
-    let unknown = || Reach::Tags(Vec::new());
+    let (reaches, mut unnamed) = match reaches(what, cwd) {
+        Ok(read) => read,
+        Err(reach) => return reach,
+    };
+    let mut carries_tags = unnamed;
+    let mut names = Vec::new();
+    for reached in &reaches {
+        if let Reach::Tags(given) = reached {
+            carries_tags = true;
+            unnamed |= given.is_empty();
+            names.extend(given.iter().cloned());
+        }
+    }
+    if carries_tags {
+        return Reach::Tags(if unnamed { Vec::new() } else { names });
+    }
+    match reaches.contains(&Reach::Project) {
+        true => Reach::Project,
+        false => Reach::Branches,
+    }
+}
+
+/// Whether the push `what`, run from `cwd`, may reach the project's branch, whatever tags it
+/// carries.
+pub fn may_reach_project(what: &str, cwd: &Path) -> bool {
+    reaches(what, cwd).map_or(true, |(reaches, _)| {
+        reaches.iter().any(|reached| match reached {
+            Reach::Project | Reach::Deploy { .. } => true,
+            Reach::Tags(names) => names.is_empty(),
+            Reach::Branches => false,
+        })
+    })
+}
+
+/// Where each ref of the push `what` lands, and whether it carries tags it doesn't name, or
+/// where all of it lands when its refs can't be told apart.
+fn reaches(what: &str, cwd: &Path) -> Result<(Vec<Reach>, bool), Reach> {
+    let unknown = || Err(Reach::Tags(Vec::new()));
     let words: Vec<&str> = what.split_whitespace().collect();
     let Some((_, rest)) = words.split_first().filter(|(program, _)| is_git(program)) else {
         return unknown();
@@ -132,7 +337,6 @@ pub fn reach(what: &str, cwd: &Path) -> Reach {
     let Some(("push", args)) = rest.split_first().map(|(push, args)| (*push, args)) else {
         return unknown();
     };
-    let git = || Git::quick(cwd);
     let mut positional: Vec<&str> = Vec::new();
     let mut tags = false;
     let mut deleting = false;
@@ -175,23 +379,20 @@ pub fn reach(what: &str, cwd: &Path) -> Reach {
         Some((remote, refspecs)) => ((*remote).to_owned(), refspecs.to_vec()),
         None => match push_remote(cwd) {
             Some(remote) => (remote, Vec::new()),
+            None if first_push(cwd).is_some() => ("origin".to_owned(), Vec::new()),
             None => return unknown(),
         },
     };
     if let Some(deploy) = deploy_remote(&remote, cwd) {
-        return deploy;
+        return Err(deploy);
     }
-    let mirror = git().trimmed(&["config", "--bool", &format!("remote.{remote}.mirror")]);
-    if mirror.is_ok_and(|said| said == "true") {
+    if config_on(&format!("remote.{remote}.mirror"), cwd) {
         return unknown();
     }
     let reaches = match refspecs.is_empty() {
         true => {
-            let pushes = git().trimmed(&["config", "--get-all", &format!("remote.{remote}.push")]);
-            let default = git()
-                .trimmed(&["config", "push.default"])
-                .unwrap_or_default();
-            if pushes.is_ok_and(|pushes| !pushes.is_empty()) {
+            let default = config("push.default", cwd).unwrap_or_default();
+            if config(&format!("remote.{remote}.push"), cwd).is_some() {
                 return unknown();
             }
             if default == "matching" {
@@ -199,7 +400,7 @@ pub fn reach(what: &str, cwd: &Path) -> Reach {
             } else if default == "nothing" {
                 vec![Reach::Branches]
             } else {
-                match pushed_to(cwd) {
+                match pushed_to(cwd).or_else(|| first_push(cwd)) {
                     Some(branch) => vec![branch_reach(&branch, &remote, cwd)],
                     None => return unknown(),
                 }
@@ -212,26 +413,7 @@ pub fn reach(what: &str, cwd: &Path) -> Reach {
             })
             .collect(),
     };
-    let follows = git()
-        .trimmed(&["config", "--bool", "push.followTags"])
-        .is_ok_and(|said| said == "true");
-    let mut carries_tags = tags || follows;
-    let mut unnamed = tags || follows;
-    let mut names = Vec::new();
-    for reached in &reaches {
-        if let Reach::Tags(given) = reached {
-            carries_tags = true;
-            unnamed |= given.is_empty();
-            names.extend(given.iter().cloned());
-        }
-    }
-    if carries_tags {
-        return Reach::Tags(if unnamed { Vec::new() } else { names });
-    }
-    match reaches.contains(&Reach::Project) {
-        true => Reach::Project,
-        false => Reach::Branches,
-    }
+    Ok((reaches, tags || config_on("push.followTags", cwd)))
 }
 
 /// The pull request a `gh pr merge` merges, as its words name it.
@@ -242,6 +424,18 @@ pub struct Merging {
     pub repo: Option<String>,
     /// Whether every word was understood, so that `pull` is the one merged.
     read: bool,
+    /// Whether it goes past what the repository asks of a merge.
+    overrides: bool,
+}
+
+/// The merge GitHub's API makes of `pull` in `repo`.
+pub fn api_merging(pull: &str, repo: &str) -> Merging {
+    Merging {
+        pull: Some(pull.to_owned()),
+        repo: (!repo.contains('{')).then(|| repo.to_owned()),
+        read: true,
+        overrides: true,
+    }
 }
 
 pub fn merging(what: &str) -> Merging {
@@ -249,6 +443,7 @@ pub fn merging(what: &str) -> Merging {
         pull: None,
         repo: None,
         read: false,
+        overrides: false,
     };
     let words: Vec<&str> = what.split_whitespace().collect();
     let args = match words.as_slice() {
@@ -262,7 +457,8 @@ pub fn merging(what: &str) -> Merging {
             "-R" | "--repo" => found.repo = args.next().map(|repo| (*repo).to_owned()),
             "--match-head-commit" => _ = args.next(),
             "-m" | "--merge" | "-s" | "--squash" | "-r" | "--rebase" | "-d" | "--delete-branch"
-            | "--auto" | "--admin" => {}
+            | "--auto" => {}
+            "--admin" => found.overrides = true,
             arg if arg.starts_with("--match-head-commit=") => {}
             arg if arg.starts_with("--repo=") => {
                 found.repo = arg.split_once('=').map(|(_, repo)| repo.to_owned());
@@ -281,29 +477,15 @@ pub fn merging(what: &str) -> Merging {
 impl Merging {
     /// Whether the pull request is of the repository checked out at `root`.
     pub fn is_into(&self, root: &Path) -> bool {
-        let Some(repo) = &self.repo else {
-            return true;
-        };
-        let mut named = repo.trim_end_matches(".git").rsplit('/');
-        let (Some(name), Some(owner)) = (named.next(), named.next()) else {
-            return true;
-        };
-        let remotes = Git::quick(root)
-            .trimmed(&["remote", "-v"])
-            .unwrap_or_default();
-        (remotes.lines())
-            .filter_map(|line| line.split_whitespace().nth(1))
-            .filter_map(crate::server::credential::owner_and_name)
-            .any(|(theirs, its)| {
-                theirs.eq_ignore_ascii_case(owner) && its.eq_ignore_ascii_case(name)
-            })
+        (self.repo.as_ref()).is_none_or(|repo| is_remote_of(repo, root))
     }
 
     /// Where a merge run from `cwd` lands in the repository checked out at `root`, and the
-    /// commit it merges. GitHub is asked for the branch it goes into.
-    pub fn reach(&self, root: &Path, cwd: &Path) -> (Reach, Option<String>) {
+    /// commit it merges, and whether it only does so into the project's own branch, as the
+    /// repository asks. GitHub is asked for the branch it goes into.
+    pub fn reach(&self, root: &Path, cwd: &Path) -> (Reach, Option<String>, bool) {
         if !self.read {
-            return (Reach::Project, None);
+            return (Reach::Project, None, false);
         }
         let mut view = sikemux_process::user_environment::command("gh");
         view.current_dir(cwd)
@@ -320,7 +502,48 @@ impl Merging {
         let field = |name: &str| found.as_ref()?.get(name)?.as_str().map(str::to_owned);
         let reach =
             field("baseRefName").map_or(Reach::Project, |base| branch_reach(&base, "origin", root));
-        (reach, field("headRefOid"))
+        let own = field("baseRefName").is_some_and(|base| is_own_branch(&base, root));
+        (reach, field("headRefOid"), own && !self.overrides)
+    }
+}
+
+/// Whether `repo`, an `owner/name` or address, is a remote of the checkout at `root`.
+pub fn is_remote_of(repo: &str, root: &Path) -> bool {
+    let mut named = repo.trim_end_matches(".git").rsplit('/');
+    let (Some(name), Some(owner)) = (named.next(), named.next()) else {
+        return true;
+    };
+    let remotes = Git::quick(root)
+        .trimmed(&["remote", "-v"])
+        .unwrap_or_default();
+    (remotes.lines())
+        .filter_map(|line| line.split_whitespace().nth(1))
+        .filter_map(crate::server::credential::owner_and_name)
+        .any(|(theirs, its)| {
+            (theirs.eq_ignore_ascii_case(owner) || owner == "{owner}")
+                && (its.eq_ignore_ascii_case(name) || name == "{repo}")
+        })
+}
+
+/// Where a write through GitHub's API to the code of the repository checked out at `root` lands.
+pub fn api_reach(lands: &Lands, root: &Path) -> Reach {
+    match lands {
+        Lands::Tag { name } => Reach::Tags(vec![name.clone()]),
+        Lands::Branch { name } => {
+            let has = |branch: &str| {
+                let full = format!("refs/remotes/origin/{branch}");
+                (Git::quick(root).trimmed(&["show-ref", "--verify", "--quiet", &full])).is_ok()
+            };
+            let default = (default_branch("origin", root)).or_else(|| {
+                ["main", "master"]
+                    .into_iter()
+                    .find(|branch| has(branch))
+                    .map(Into::into)
+            });
+            reach_beside(name, default)
+        }
+        Lands::Any | Lands::Unread => Reach::Tags(Vec::new()),
+        Lands::Merge { .. } => Reach::Project,
     }
 }
 
@@ -340,6 +563,23 @@ fn pushed_to(cwd: &Path) -> Option<String> {
         .ok()?;
     let rest = full.strip_prefix("refs/remotes/")?;
     rest.split_once('/').map(|(_, branch)| branch.to_owned())
+}
+
+/// The checkout's branch where git's config has its first push make one of its name on
+/// `origin`, the project's only remote.
+fn first_push(cwd: &Path) -> Option<String> {
+    let git = || Git::quick(cwd);
+    let makes = config_on("push.autoSetupRemote", cwd)
+        || config("push.default", cwd).is_some_and(|said| said == "current");
+    let branch = git().trimmed(&["symbolic-ref", "--short", "HEAD"]).ok()?;
+    let set = ["merge", "remote", "pushRemote"]
+        .iter()
+        .any(|key| config(&format!("branch.{branch}.{key}"), cwd).is_some());
+    let only_origin = git()
+        .trimmed(&["remote"])
+        .is_ok_and(|said| said == "origin")
+        && config("remote.pushDefault", cwd).is_none();
+    (makes && !set && only_origin).then_some(branch)
 }
 
 /// The deploy a push to `remote` is, when the remote isn't on the host the project's own
@@ -400,6 +640,9 @@ fn refspec_reach(refspec: &str, remote: &str, cwd: &Path) -> Reach {
     }
     let (source, destination) = match refspec.split_once(':') {
         Some((source, destination)) => (source, Some(destination)),
+        None if config(&format!("remote.{remote}.push"), cwd).is_some() => {
+            return Reach::Tags(Vec::new());
+        }
         None => (refspec, None),
     };
     let git = || Git::quick(cwd);
@@ -438,12 +681,22 @@ fn refspec_reach(refspec: &str, remote: &str, cwd: &Path) -> Reach {
         let name = destination.map_or_else(|| short(&resolved_or(&resolved, &source)), short);
         return Reach::Tags(vec![name]);
     }
-    let destination = destination.unwrap_or(&source);
+    let upstream = (destination.is_none())
+        .then(|| upstream_of(&source, cwd))
+        .flatten();
+    let destination = destination.or(upstream.as_deref()).unwrap_or(&source);
     if destination.is_empty() {
         return Reach::Project;
     }
     if destination.starts_with("refs/tags/") || destination.starts_with("tags/") {
         return Reach::Tags(vec![short(destination)]);
+    }
+    let version = destination
+        .strip_prefix('v')
+        .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()));
+    if refspec.contains(':') && version && !is_ref(&format!("refs/remotes/{remote}/{destination}"))
+    {
+        return Reach::Tags(vec![destination.to_owned()]);
     }
     let branch = (destination.strip_prefix("refs/heads/"))
         .or_else(|| destination.strip_prefix("heads/"))
@@ -455,6 +708,15 @@ fn refspec_reach(refspec: &str, remote: &str, cwd: &Path) -> Reach {
         return Reach::Tags(vec![branch.to_owned()]);
     }
     branch_reach(branch, remote, cwd)
+}
+
+/// The branch `push.default` sends the branch `source` to, when not one of its own name.
+fn upstream_of(source: &str, cwd: &Path) -> Option<String> {
+    config("push.default", cwd).filter(|said| said == "upstream" || said == "tracking")?;
+    let source = (source.strip_prefix("refs/heads/"))
+        .or_else(|| source.strip_prefix("heads/"))
+        .unwrap_or(source);
+    config(&format!("branch.{source}.merge"), cwd)
 }
 
 /// Whether the full name of a ref puts it in a folder of its own, such as `refs/notes/x`, where
@@ -559,11 +821,20 @@ fn resolved_or(resolved: &str, source: &str) -> String {
     }
 }
 
-fn branch_reach(branch: &str, remote: &str, cwd: &Path) -> Reach {
-    let default = Git::quick(cwd)
+/// The branch `remote` says is its own, as the checkout at `cwd` last saw it.
+fn default_branch(remote: &str, cwd: &Path) -> Option<String> {
+    let head = Git::quick(cwd)
         .trimmed(&["rev-parse", "--abbrev-ref", &format!("{remote}/HEAD")])
-        .ok()
-        .and_then(|head| head.strip_prefix(&format!("{remote}/")).map(str::to_owned));
+        .ok()?;
+    head.strip_prefix(&format!("{remote}/")).map(str::to_owned)
+}
+
+fn branch_reach(branch: &str, remote: &str, cwd: &Path) -> Reach {
+    reach_beside(branch, default_branch(remote, cwd))
+}
+
+/// What `branch` is in a repository whose own branch is `default`.
+fn reach_beside(branch: &str, default: Option<String>) -> Reach {
     let Some(default) = default else {
         return Reach::Project;
     };
@@ -804,6 +1075,23 @@ pub mod tests {
         assert_eq!(
             reached(&dir, "git push origin feature"),
             Reach::Tags(Vec::new())
+        );
+    }
+
+    #[test]
+    fn a_first_push_lands_on_a_branch_of_its_own() {
+        let dir = checkout();
+        let work = dir.path().join("work");
+        git(&work, &["remote", "remove", "production"]);
+        git(&work, &["checkout", "-b", "fresh"]);
+        git(&work, &["config", "push.autoSetupRemote", "false"]);
+        git(&work, &["config", "push.default", "simple"]);
+        assert_eq!(reached(&dir, "git push"), Reach::Tags(Vec::new()));
+        git(&work, &["config", "push.autoSetupRemote", "true"]);
+        assert_eq!(reached(&dir, "git push"), Reach::Branches);
+        assert_eq!(
+            reached(&dir, "git push -f origin HEAD:v0.7.0"),
+            Reach::Tags(vec!["v0.7.0".to_owned()])
         );
     }
 

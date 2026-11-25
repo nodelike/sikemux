@@ -26,17 +26,18 @@ use sikemux_process::sync::Locked;
 use sikemux_view::inbox::{ShipHold, ShipKind};
 use sikemux_view::slice::Verdict;
 
-use super::person_calls::Raise;
+use super::person_calls::{Raise, TakenBack};
 use super::places::push::{self, Reach};
 use super::places::{self, work, Goes, Judged};
 use super::plugged::Provided;
 use super::{person_calls, plugged, Core, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 use crate::git::Git;
-use crate::ship::{Looks, Ship, Target};
+use crate::ship::{Lands, Looks, Ship, Target};
 use sikemux_calls::board::Landing;
 use sikemux_view::calls::{
-    CallAsker, CallKind, CallOption, CallOutcome, CallPlace, CallResult, CallState, PersonCall,
+    CallAsker, CallKind, CallOption, CallOutcome, CallPlace, CallResult, CallState, CallWhy,
+    PersonCall,
 };
 use sikemux_view::places::Recognise;
 
@@ -319,14 +320,38 @@ fn check_call(
         .filter(|project| !project.is_empty())
         .unwrap_or_else(|| core.workspaces().project_of(cwd));
     let mut ship = ship;
-    if let Some(Target::GitHub { repo }) = ship.target.as_ref().map(Target::bare) {
-        if owned_here(repo, cwd, &project) {
-            return Ok(None);
+    let mut api_lands = None;
+    let mut api_merging = None;
+    if let Some(Target::GitHub { repo, lands }) = ship.target.as_ref().map(Target::bare) {
+        let ours = [cwd, Path::new(&project)]
+            .into_iter()
+            .any(|root| push::is_remote_of(repo, root));
+        match lands.clone().filter(|_| ours) {
+            Some(Lands::Merge { pull }) => {
+                api_merging = Some(push::api_merging(&pull, repo));
+                ship.kind = ShipKind::Merge;
+            }
+            Some(lands) => {
+                api_lands = Some(lands);
+                ship.kind = ShipKind::Push;
+            }
+            None if owned_here(repo, cwd, &project) => return Ok(None),
+            None => {}
         }
     }
     let pushed_in = push::run_in(&ship.what, cwd);
-    let merging = (ship.kind == ShipKind::Merge).then(|| push::merging(&ship.what));
+    let merging = (ship.kind == ShipKind::Merge)
+        .then(|| api_merging.unwrap_or_else(|| push::merging(&ship.what)));
+    let mut plain = call.is_none()
+        && match ship.kind {
+            ShipKind::Push => push::is_plain(&ship.what, cwd),
+            ShipKind::Publish => push::is_one_tag(&ship.what, cwd),
+            _ => false,
+        };
+    // A push that may do more than send the checkout's commits to its own branch.
+    let exact = ship.kind == ShipKind::Push && !plain;
     let sent_from_here = match &merging {
+        _ if api_lands.is_some() => false,
         Some(merging) => merging.repo.is_none(),
         None => ship.kind == ShipKind::Push,
     };
@@ -348,8 +373,9 @@ fn check_call(
     if let Some(merging) = &merging {
         let deployed = from_one(&|root| on_vercel(root) && merging.is_into(Path::new(root)));
         if let Some(deployed) = deployed {
-            let (reach, head) = merging.reach(Path::new(&deployed), &pushed_in);
+            let (reach, head, own) = merging.reach(Path::new(&deployed), &pushed_in);
             if reach == Reach::Project {
+                plain = own && call.is_none();
                 project = deployed;
                 sends = head;
                 ship = to_vercel(ship);
@@ -357,7 +383,27 @@ fn check_call(
         }
     }
     if ship.kind == ShipKind::Push {
-        match push::reach(&ship.what, cwd) {
+        let (reach, may_reach_project) = match &api_lands {
+            Some(lands) => {
+                let reach = push::api_reach(lands, Path::new(&project));
+                let any = reach == Reach::Tags(Vec::new());
+                (reach, any)
+            }
+            None => (
+                push::reach(&ship.what, cwd),
+                push::may_reach_project(&ship.what, cwd),
+            ),
+        };
+        let published = |root: &str| tag_places(core, root) || releases_on_tags(core, root);
+        if api_lands == Some(Lands::Unread)
+            && from_one(&|root| published(root) || on_vercel(root)).is_some()
+        {
+            return Err(
+                "Not run: Sikemux can't read which branch or tag this changes. Put it in the command, or in a file given with --input or @, and run it again."
+                    .to_owned(),
+            );
+        }
+        match reach {
             Reach::Branches => return Ok(None),
             Reach::Project => {
                 if let Some(deployed) = from_one(&on_vercel) {
@@ -370,11 +416,12 @@ fn check_call(
                     return hold(core, agent_id, &project, ship, cwd, call, None);
                 }
                 sends = push::tag_commits(&names, &pushed_in);
+                let deployed = from_one(&on_vercel);
+                plain = call.is_none() && !names.is_empty() && push::is_one_tag(&ship.what, cwd);
                 let name = match names.as_slice() {
-                    [name] => name.clone(),
+                    [name] if !may_reach_project || deployed.is_none() => name.clone(),
                     _ => String::new(),
                 };
-                let published = |root: &str| tag_places(core, root) || releases_on_tags(core, root);
                 project = from_one(&published).unwrap_or(project);
                 let target = match (tag_places(core, &project), releases_on_tags(core, &project)) {
                     (true, _) => Some(Target::Tag { name }),
@@ -383,12 +430,19 @@ fn check_call(
                     }),
                     (false, false) => None,
                 };
-                if let Some(target) = target {
-                    ship = Ship {
-                        kind: ShipKind::Publish,
-                        target: Some(target),
-                        what: ship.what,
-                    };
+                match (target, deployed) {
+                    (Some(target), _) => {
+                        ship = Ship {
+                            kind: ShipKind::Publish,
+                            target: Some(target),
+                            what: ship.what,
+                        };
+                    }
+                    (None, Some(deployed)) if may_reach_project => {
+                        project = deployed;
+                        ship = to_vercel(ship);
+                    }
+                    (None, _) => {}
                 }
             }
             Reach::Deploy { tool, app } => {
@@ -416,9 +470,18 @@ fn check_call(
     }
     // A pull request's commits needn't be the checkout's, so a yes to a merge is kept for
     // that merge rather than for the work in the checkout.
-    let work_here = || work::of(cwd).filter(|_| merging.is_none());
+    let work_here = || work::of(cwd).filter(|_| merging.is_none() && !exact);
+    if exact {
+        let sent = (api_lands.is_none()).then(|| push::sent(&ship.what, cwd));
+        let parts = [sends, sent, work::of(cwd)];
+        sends = Some(parts.into_iter().flatten().collect());
+    } else if plain && ship.kind == ShipKind::Deploy {
+        sends = sends.or_else(|| Some("push".to_owned()));
+    } else if ship.kind == ShipKind::Deploy && names_its_own(&ship.what) {
+        sends = Some(ship.what.clone());
+    }
     let name = core.names().name_or_id(agent_id);
-    let judged = places::judge(core, &project, &ship, &name, addresses);
+    let judged = places::judge(core, &project, &ship, &name, addresses, plain);
     let place = judged.place.as_ref().map(|place| place.name().to_owned());
     let deploy = |call: Option<String>, telling: Option<Telling>| {
         let followed = ship.kind == ShipKind::Deploy || call.is_some() || telling.is_some();
@@ -498,6 +561,7 @@ fn check_call(
                 place: &gated,
                 key,
                 once,
+                routine: plain && places::judge::routine(&gated, &ship),
             };
             gate(core, agent_id, &project, ship, cwd, asking, judged.why)
         }
@@ -506,8 +570,9 @@ fn check_call(
 
 /// What a yes at `place` is kept under for `ship`, and whether it covers the action once. A
 /// deploy of work with a fingerprint is covered with its retries, however spelled, at the same
-/// target; anything else, or work git can't fingerprint, only as the exact action sending the
-/// same commits `sends`, such as those a pushed tag names, from any checkout of the project.
+/// target, but one sent by a push, or naming what it changes, apart from other deploys.
+/// Anything else, or work git can't fingerprint, is covered only as the exact action sending
+/// the same commits `sends`, such as those a pushed tag names, from any checkout of the project.
 pub fn key_of(
     place: &places::Place,
     ship: &Ship,
@@ -526,7 +591,13 @@ pub fn key_of(
     let id = &place.shown.id;
     match (ship.kind, work) {
         (ShipKind::Deploy, Some(work)) if !tool => (
-            format!("place:{id}:work:{work}:to:{}", digest(&target)),
+            format!(
+                "place:{id}:work:{work}:to:{}",
+                match sends {
+                    Some(sends) => digest(&format!("{target}\n{sends}")),
+                    None => digest(&target),
+                }
+            ),
             false,
         ),
         _ => {
@@ -535,6 +606,28 @@ pub fn key_of(
             (format!("place:{id}:work::action:{action}"), true)
         }
     }
+}
+
+/// Whether the Vercel command `what` changes what it names, such as an older deployment or a
+/// domain, rather than deploying the work in the checkout.
+fn names_its_own(what: &str) -> bool {
+    let words: Vec<&str> = what.split_whitespace().collect();
+    let named = [
+        "promote", "rollback", "redeploy", "alias", "rm", "remove", "--cwd", "--scope", "-S",
+        "--team", "-T", "--token", "-t",
+    ];
+    let is_vercel = |word: &str| {
+        let name = word
+            .rsplit('/')
+            .next()
+            .and_then(|name| name.split('@').next());
+        matches!(name, Some("vercel" | "vc"))
+    };
+    words.iter().any(|word| is_vercel(word))
+        && (words.iter().any(|word| {
+            let word = word.split('=').next().unwrap_or(word);
+            named.contains(&word)
+        }) || crate::ship::vercel_takes_away(&words))
 }
 
 /// Whether an answered call is a yes that still stands: picked as its allow option since this
@@ -585,7 +678,7 @@ fn refused(call: &PersonCall) -> bool {
     (call.answer.as_ref()).is_some_and(|answer| !said_yes(answer.option.as_deref()))
 }
 
-/// The option of a call at a place whose changes recur that says yes, and stops asking.
+/// The option of a routine change's call that says yes, and stops asking for such changes.
 pub const FROM_NOW_ON: &str = "allowFromNowOn";
 
 fn said_yes(option: Option<&str>) -> bool {
@@ -593,14 +686,16 @@ fn said_yes(option: Option<&str>) -> bool {
 }
 
 /// What a gate asks the person about: the place, the key its answer is kept under, and whether
-/// a yes covers the action once.
+/// a yes covers the action once. Only a routine change offers to stop asking.
 struct Asking<'a> {
     place: &'a places::Place,
     key: String,
     once: bool,
+    routine: bool,
 }
 
-/// The call that puts a change of `ship` to the production place `place` to the person.
+/// The call that puts a change of `ship` to the production place `place` to the person, which
+/// offers to stop asking for a routine one. With nothing to ask, it only tells.
 fn call_for(
     core: &Core,
     agent_id: &str,
@@ -608,7 +703,7 @@ fn call_for(
     ship: &Ship,
     cwd: &Path,
     place: &places::Place,
-    key: Option<String>,
+    asking: Option<&Asking<'_>>,
 ) -> Raise {
     let name = core.names().name_or_id(agent_id);
     let subject = (ship.kind == ShipKind::Deploy)
@@ -675,10 +770,18 @@ fn call_for(
                 person_calls::HOLD_ALLOW,
                 write.map_or_else(|| format!("Change {}", place.name()), |(_, button)| button),
             )),
-            place.recurs.then(|| {
-                let label = format!("Change {}, and from now on just tell me", place.name());
-                option(FROM_NOW_ON, label)
-            }),
+            asking
+                .is_some_and(|asking| asking.routine)
+                .then(|| CallOption {
+                    detail: Some(
+                        "For plain pushes and merges. Anything else there still waits for you."
+                            .to_owned(),
+                    ),
+                    ..option(
+                        FROM_NOW_ON,
+                        format!("Change {}, and from now on just tell me", place.name()),
+                    )
+                }),
             Some(option(person_calls::HOLD_REFUSE, "Not now".to_owned())),
         ]
         .into_iter()
@@ -693,7 +796,7 @@ fn call_for(
             id: place.shown.id.clone(),
             name: place.name().to_owned(),
         }),
-        key,
+        key: asking.map(|asking| asking.key.clone()),
         yes: Some(person_calls::HOLD_ALLOW.to_owned()),
     }
 }
@@ -809,11 +912,14 @@ fn gate(
     asking: Asking<'_>,
     why: Option<String>,
 ) -> Result<Option<Deploy>, String> {
-    let Asking { place, key, once } = asking;
-    if let Some(no) = person_calls::find_key(core, project, &key).filter(refused) {
+    let Asking {
+        place, key, once, ..
+    } = &asking;
+    let once = *once;
+    if let Some(no) = person_calls::find_key(core, project, key).filter(refused) {
         let answered = no.answer.as_ref().map_or(0, |answer| answer.at);
         let spoke = core.ship().spoke_at(agent_id);
-        let yes_since = person_calls::find_keys(core, project, |held| same_place(held, &key))
+        let yes_since = person_calls::find_keys(core, project, |held| same_place(held, key))
             .into_iter()
             .filter_map(|(_, call)| call.answer)
             .any(|answer| said_yes(answer.option.as_deref()) && answer.at > answered);
@@ -827,7 +933,7 @@ fn gate(
     let stale: Vec<String> = (core.ship().state.locked().holds.iter())
         .filter(|hold| hold.agent_id == agent_id)
         .filter_map(|hold| hold.key.as_deref().map(|held| (hold, held)))
-        .filter(|(_, held)| *held != key && same_place(held, &key))
+        .filter(|(_, held)| *held != key && same_place(held, key))
         .map(|(hold, _)| hold.token.clone())
         .collect();
     for token in stale {
@@ -854,15 +960,7 @@ fn gate(
         );
         tell_soon(core, agent_id, text);
     }
-    let raise = call_for(
-        core,
-        agent_id,
-        project,
-        &ship,
-        cwd,
-        place,
-        Some(key.clone()),
-    );
+    let raise = call_for(core, agent_id, project, &ship, cwd, place, Some(&asking));
     let id = match person_calls::raise(core, raise) {
         Ok(id) => id,
         Err(why) => {
@@ -890,7 +988,7 @@ fn gate(
                 because: None,
                 deploy: None,
                 call: None,
-                key: Some(key),
+                key: Some(key.clone()),
                 ship: ship.clone(),
             });
         }
@@ -918,7 +1016,7 @@ fn gate(
 
 /// What the agent waiting on the held call `id` is asked for, so the person reads its reason.
 fn explain(id: &str) -> String {
-    format!("Now call ask with edit: \"{id}\" and, as question, one or two plain sentences for the person: why this is needed and what is lost if they say yes.")
+    format!("Now call ask with edit: \"{id}\" and, as question, one or two plain sentences for the person: why this is needed and what is lost if they say yes. If you stop needing it, take it back: the same edit with withdraw: true.")
 }
 
 /// A held call's question with its agent's reason under it, in place of any before.
@@ -1023,30 +1121,38 @@ fn same_place(one: &str, other: &str) -> bool {
 }
 
 /// Drops `agent_id`'s wait on the gate call `token`, and withdraws the call when nobody else
-/// waits on it, telling the others that joined it why.
+/// waits on it.
 fn withdraw(core: &Core, agent_id: &str, token: &str, why: &str) {
-    let others: Vec<String> = {
-        let mut state = core.ship().state.locked();
-        state
-            .holds
-            .retain(|hold| !(hold.token == token && hold.agent_id == agent_id));
-        (state.holds.iter())
-            .filter(|hold| hold.token == token)
-            .map(|hold| hold.agent_id.clone())
-            .collect()
-    };
-    if !others.is_empty() {
-        return;
+    if let TakenBack::Done = drop_hold(core, agent_id, token, None) {
+        eprintln!("sikemux core: @{agent_id}'s wait on call {token} was withdrawn, as {why}");
     }
-    let outcome = CallOutcome {
-        result: CallResult::Withdrawn,
-        healthy: None,
-        roll_back: false,
-        why: None,
-        at: epoch_ms(),
-    };
-    person_calls::set_outcome(core, token, outcome);
-    eprintln!("sikemux core: call {token} was withdrawn, as {why}");
+}
+
+/// Takes back the production call `id` that `agent_id` waits on, with the action held for it,
+/// so a later yes runs nothing. None when that agent waits on no such call.
+pub fn take_back(core: &Core, agent_id: &str, id: &str) -> Option<Result<(), String>> {
+    match drop_hold(core, agent_id, id, Some(CallWhy::TakenBack)) {
+        TakenBack::Done => Some(Ok(())),
+        TakenBack::TooLate => Some(Err(
+            "that call was answered or closed already, so there is nothing left to take back"
+                .to_owned(),
+        )),
+        TakenBack::NotTheirs => None,
+    }
+}
+
+/// Takes back `agent_id`'s wait on the call `id` and drops what is held for it, while the call
+/// still waits on the person.
+fn drop_hold(core: &Core, agent_id: &str, id: &str, why: Option<CallWhy>) -> TakenBack {
+    let mut state = core.ship().state.locked();
+    let gone = |agent: &str| core.workspaces().closed(agent);
+    let taken = person_calls::take_back(core, agent_id, id, why, gone);
+    if let TakenBack::Done = taken {
+        (state.holds).retain(|hold| !(hold.token == id && hold.agent_id == agent_id));
+        drop(state);
+        core.changed(What::Agents);
+    }
+    taken
 }
 
 /// Holds `ship` for the person, unless they allowed exactly it or a deploy to its place
@@ -1743,14 +1849,9 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
         sikemux_view::calls::CallClient::Device { .. } => "a paired phone".to_owned(),
         _ => "Sikemux".to_owned(),
     });
-    let keep =
-        |place: places::Place, production: bool, level: Option<sikemux_view::places::Level>| {
-            let project = call.project.clone();
-            places::kept_by_tap(core, &project, place, production, level, from.clone())
-        };
     if option.as_deref() == Some(FROM_NOW_ON) {
         if let Some(place) = place_of(core, call) {
-            keep(place, true, Some(sikemux_view::places::Level::TellMe));
+            places::just_tell(core, &call.project, place, from);
         }
     }
     let asked = call.question.lines().next().unwrap_or_default();

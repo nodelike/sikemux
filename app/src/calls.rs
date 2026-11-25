@@ -16,7 +16,7 @@ use gpui_kit::{
 };
 use sikemux_calls::call;
 use sikemux_view::calls::{
-    AnswerCallParams, CallAnswer, CallClient, CallKind, CallParams, CallResult, CallState,
+    AnswerCallParams, CallAnswer, CallClient, CallKind, CallParams, CallResult, CallState, CallWhy,
     PersonCall, LOOK_SEEN,
 };
 use sikemux_view::device::DeviceView;
@@ -1365,6 +1365,9 @@ fn notice(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
             (CallResult::NotShipped, _) => t!("not shipped").to_owned(),
             (CallResult::Failed, _) => t!("it failed").to_owned(),
             (CallResult::MayHaveRun, _) => t!("may have run, Sikemux restarted").to_owned(),
+            (CallResult::Withdrawn, _) if outcome.why == Some(CallWhy::TakenBack) => {
+                t!("@{name} took it back", name = call.asker.name)
+            }
             (CallResult::Withdrawn, _) => {
                 t!("@{name} went on without an answer", name = call.asker.name)
             }

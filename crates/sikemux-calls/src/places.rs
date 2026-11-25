@@ -49,6 +49,10 @@ pub struct Place {
     /// to stop asking.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub recurs: bool,
+    /// The person said on a call to just tell them from now on, which goes for a plain push or
+    /// merge through git alone: anything else there still waits for their yes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub routine_only: bool,
 }
 
 /// What a slice needs at a place's step besides a deploy there that went well.
@@ -68,8 +72,14 @@ impl Place {
     /// What agents may do there now: a production place is at `mine` until the person
     /// confirms the list, or sets this place's level themselves.
     pub fn level(&self, confirmed: bool) -> Level {
+        self.level_for(confirmed, false)
+    }
+
+    /// [`Self::level`] for one change there, `routine` or not.
+    pub fn level_for(&self, confirmed: bool, routine: bool) -> Level {
         let unseen = !confirmed && self.shown.said_by.is_none();
-        match self.shown.production && unseen {
+        let beyond = self.routine_only && !routine;
+        match self.shown.production && (unseen || beyond) {
             true => Level::Mine,
             false => self.shown.level,
         }

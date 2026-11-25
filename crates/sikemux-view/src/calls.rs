@@ -242,6 +242,8 @@ pub struct CallOutcome {
 pub enum CallWhy {
     /// Sikemux restarted after the person said yes and before it ran, so the yes lapsed.
     Restarted,
+    /// The agent that asked no longer needed it.
+    TakenBack,
     /// One from a later release.
     #[serde(other)]
     Unknown,
