@@ -28,6 +28,8 @@ pub type FrameWriter = BufWriter<Box<dyn AsyncWrite + Send + Unpin>>;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 /// A client that stops reading entirely is cut off rather than buffered for.
 const MAX_CLIENT_BACKLOG: usize = 64 * 1024 * 1024;
+const WRITE_BATCH_BYTES: usize = 64 * 1024;
+const WRITE_BATCH_FRAMES: usize = 64;
 pub const SHUTDOWN_FLUSH: Duration = Duration::from_secs(1);
 
 pub struct ClientConn {
@@ -336,9 +338,14 @@ async fn write_frames(
     let older = older_phones::needs(version);
     while let Some(frame) = queue.recv().await {
         let mut written = frame.len();
+        let mut frames = 1usize;
         writer.write_all(&older_phones::fit(older, &frame)).await?;
-        while let Ok(frame) = queue.try_recv() {
+        while written < WRITE_BATCH_BYTES && frames < WRITE_BATCH_FRAMES {
+            let Ok(frame) = queue.try_recv() else {
+                break;
+            };
             written += frame.len();
+            frames += 1;
             writer.write_all(&older_phones::fit(older, &frame)).await?;
         }
         writer.flush().await?;
@@ -472,5 +479,202 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    struct FlushHookWriter {
+        written: Vec<u8>,
+        flushes: usize,
+        on_flush: Option<Box<dyn FnMut(usize) + Send>>,
+    }
+
+    impl tokio::io::AsyncWrite for FlushHookWriter {
+        fn poll_write(
+            mut self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+            buf: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            self.written.extend_from_slice(buf);
+            std::task::Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(
+            mut self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            self.flushes += 1;
+            let count = self.flushes;
+            if let Some(hook) = self.on_flush.as_mut() {
+                hook(count);
+            }
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    fn test_client() -> (
+        std::sync::Arc<super::ClientConn>,
+        tokio::sync::mpsc::UnboundedReceiver<std::sync::Arc<[u8]>>,
+    ) {
+        let (frames, queue) = tokio::sync::mpsc::unbounded_channel();
+        let client = std::sync::Arc::new(super::ClientConn {
+            id: 1,
+            peer: super::Peer::Local,
+            pid: None,
+            frames,
+            queued: std::sync::atomic::AtomicUsize::new(0),
+            closed: std::sync::atomic::AtomicBool::new(false),
+            kick: tokio::sync::Notify::new(),
+            streams: std::sync::Mutex::new(std::collections::HashMap::new()),
+            watches_view: std::sync::atomic::AtomicBool::new(false),
+            foreground: std::sync::atomic::AtomicBool::new(true),
+        });
+        (client, queue)
+    }
+
+    #[tokio::test]
+    async fn queued_decrements_at_byte_and_frame_batch_boundaries_while_queue_stays_non_empty() {
+        let (client, queue) = test_client();
+        let chunk: std::sync::Arc<[u8]> = vec![b'x'; 32 * 1024].into();
+        for _ in 0..6 {
+            assert!(client.send(chunk.clone()));
+        }
+        assert_eq!(client.backlog(), 6 * 32 * 1024);
+
+        let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let observed_hook = observed.clone();
+        let client_hook = client.clone();
+        let sink = FlushHookWriter {
+            written: Vec::new(),
+            flushes: 0,
+            on_flush: Some(Box::new(move |_| {
+                observed_hook.lock().unwrap().push(client_hook.backlog());
+            })),
+        };
+        let mut writer: super::FrameWriter =
+            tokio::io::BufWriter::with_capacity(64 * 1024, Box::new(sink));
+        let writer_client = client.clone();
+        let writer_task = tokio::spawn(async move {
+            let _ =
+                super::write_frames(&mut writer, queue, &writer_client, super::PROTOCOL_VERSION)
+                    .await;
+        });
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while client.backlog() > 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("byte-bounded batches drain");
+        writer_task.abort();
+        let _ = writer_task.await;
+
+        assert_eq!(
+            *observed.lock().unwrap(),
+            vec![192 * 1024, 128 * 1024, 64 * 1024]
+        );
+        assert!(!client.is_closed());
+
+        let (client, queue) = test_client();
+        let tiny: std::sync::Arc<[u8]> = vec![b'y'; 16].into();
+        for _ in 0..130 {
+            assert!(client.send(tiny.clone()));
+        }
+        let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let observed_hook = observed.clone();
+        let client_hook = client.clone();
+        let sink = FlushHookWriter {
+            written: Vec::new(),
+            flushes: 0,
+            on_flush: Some(Box::new(move |_| {
+                observed_hook.lock().unwrap().push(client_hook.backlog());
+            })),
+        };
+        let mut writer: super::FrameWriter =
+            tokio::io::BufWriter::with_capacity(64 * 1024, Box::new(sink));
+        let writer_client = client.clone();
+        let writer_task = tokio::spawn(async move {
+            let _ =
+                super::write_frames(&mut writer, queue, &writer_client, super::PROTOCOL_VERSION)
+                    .await;
+        });
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while client.backlog() > 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("frame-bounded batches drain");
+        writer_task.abort();
+        let _ = writer_task.await;
+
+        assert_eq!(
+            *observed.lock().unwrap(),
+            vec![130 * 16, (130 - 64) * 16, (130 - 128) * 16]
+        );
+        assert!(!client.is_closed());
+    }
+
+    #[tokio::test]
+    async fn sustained_non_empty_flood_past_max_backlog_never_disconnects_client() {
+        let (client, queue) = test_client();
+        let chunk: std::sync::Arc<[u8]> = vec![b'z'; 64 * 1024].into();
+        for _ in 0..4 {
+            assert!(client.send(chunk.clone()));
+        }
+
+        let remaining = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(1100));
+        let peak_backlog = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let remaining_hook = remaining.clone();
+        let peak_hook = peak_backlog.clone();
+        let client_hook = client.clone();
+        let chunk_hook = chunk.clone();
+        let sink = FlushHookWriter {
+            written: Vec::new(),
+            flushes: 0,
+            on_flush: Some(Box::new(move |_| {
+                let current = client_hook.backlog();
+                peak_hook.fetch_max(current, std::sync::atomic::Ordering::Relaxed);
+                if remaining_hook.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+                    remaining_hook.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                    assert!(
+                        client_hook.send(chunk_hook.clone()),
+                        "client must stay open while writer keeps up"
+                    );
+                }
+            })),
+        };
+        let mut writer: super::FrameWriter =
+            tokio::io::BufWriter::with_capacity(64 * 1024, Box::new(sink));
+        let writer_client = client.clone();
+        let writer_task = tokio::spawn(async move {
+            let _ =
+                super::write_frames(&mut writer, queue, &writer_client, super::PROTOCOL_VERSION)
+                    .await;
+        });
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while remaining.load(std::sync::atomic::Ordering::Relaxed) > 0 || client.backlog() > 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("sustained >64MB flood finishes cleanly");
+        writer_task.abort();
+        let _ = writer_task.await;
+
+        assert!(!client.is_closed());
+        assert_eq!(client.backlog(), 0);
+        assert!(
+            peak_backlog.load(std::sync::atomic::Ordering::Relaxed) < 1024 * 1024,
+            "backlog stayed bounded well below MAX_CLIENT_BACKLOG"
+        );
     }
 }
