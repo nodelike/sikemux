@@ -618,7 +618,7 @@ impl Menu {
             Act::SignIn(account) => {
                 if let Some(bench) = self.bench.upgrade() {
                     bench.update(cx, |bench, cx| {
-                        crate::accounts::sign_in(bench, &account, cx)
+                        crate::accounts::sign_in(bench, &account, window, cx)
                     });
                 }
             }
@@ -1286,7 +1286,7 @@ impl Menu {
         bench.update(cx, |bench, cx| {
             accounts::open_dialog(bench, provider, window, cx);
             if let Some(account) = account {
-                accounts::sign_in_again(bench, account, cx);
+                accounts::sign_in_again(bench, account, window, cx);
             }
         });
     }

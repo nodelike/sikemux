@@ -59,6 +59,10 @@ pub enum SignIn {
 pub struct Dialog {
     pub provider: String,
     pub name: Entity<InputState>,
+    /// The code the sign-in page shows, for an agent whose page always shows one.
+    pub code: Entity<InputState>,
+    /// The code last handed to the agent.
+    pub sent: Option<String>,
     /// The account signing in, once it has one.
     pub account: Option<String>,
     /// The account this dialog made, taken away again if it closes before signing in.
@@ -66,6 +70,12 @@ pub struct Dialog {
     pub busy: bool,
     /// Why the account could not be added.
     pub failed: Option<String>,
+}
+
+impl Dialog {
+    fn account(&self) -> Option<&str> {
+        self.account.as_deref()
+    }
 }
 
 #[derive(Default)]
@@ -571,7 +581,7 @@ pub fn open_sign_in(
 ) {
     open_dialog(bench, provider, window, cx);
     if let Some(id) = id {
-        sign_in_again(bench, id, cx);
+        sign_in_again(bench, id, window, cx);
     }
 }
 
@@ -708,13 +718,21 @@ fn signing_in(profile: &Profile) -> Result<SignInAccount, String> {
     })
 }
 
-/// Runs the account's own sign-in. The page it opens is kept for when no browser came up.
-pub fn sign_in(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>) {
+/// Runs the account's own sign-in, in the add-account dialog when its page shows a code to
+/// paste. The page it opens is kept for when no browser came up.
+pub fn sign_in(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut Context<Workbench>) {
     let Some(profile) = bench.accounts.profile(id).cloned() else {
         return;
     };
     if signs_in_itself(&profile) {
         return crate::agents::setup::sign_in(bench, &profile.provider, None, cx);
+    }
+    if by_hand(&profile.provider) {
+        let shown = (bench.accounts.dialog.as_ref()).filter(|open| open.account() == Some(id));
+        let Some(code) = shown.map(|open| open.code.clone()) else {
+            return open_sign_in(bench, &profile.provider, Some(id), window, cx);
+        };
+        code.update(cx, |code, cx| code.focus(window, cx));
     }
     if matches!(bench.accounts.signing.get(id), Some(SignIn::Waiting { .. })) {
         return;
@@ -829,9 +847,15 @@ pub fn submit_code(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>)
         return;
     };
     let Some(SignIn::Waiting {
-        code: Some(field), ..
+        url: Some(_),
+        code: field,
     }) = bench.accounts.signing.get(id)
     else {
+        return;
+    };
+    let dialog = (bench.accounts.dialog.as_mut())
+        .filter(|open| open.account() == Some(id) && by_hand(&open.provider));
+    let Some(field) = field.as_ref().or(dialog.as_deref().map(|open| &open.code)) else {
         return;
     };
     let code = field.read(cx).value().trim().to_owned();
@@ -841,25 +865,53 @@ pub fn submit_code(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>)
     let Ok(account) = signing_in(&profile) else {
         return;
     };
+    if let Some(dialog) = dialog {
+        dialog.sent = Some(code.clone());
+    }
     let asked =
         Target::here(&bench.asks).request_typed::<call::AgentSignInCode>(Code { account, code });
     cx.spawn(async move |bench, cx| {
         let answer = asked.await;
         let _ = bench.update(cx, |bench, cx| {
             if let Err(why) = answer {
+                if let Some(dialog) = bench.accounts.dialog.as_mut() {
+                    dialog.sent = None;
+                }
                 return bench.notify(crate::toast::error(why), cx);
             }
-            if let Some(SignIn::Waiting { url, code }) = bench.accounts.signing.get_mut(&profile.id)
+            if let Some(SignIn::Waiting { code, .. }) = bench.accounts.signing.get_mut(&profile.id)
             {
                 *code = None;
-                if by_hand(&profile.provider) {
-                    *url = None;
-                }
             }
             redraw(bench, cx);
         });
     })
     .detach();
+}
+
+/// Puts the code the person copied in the dialog's field, and hands it on when it is one of
+/// Google's.
+pub fn paste_code(
+    bench: &mut Workbench,
+    id: &str,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    let copied = cx.read_from_clipboard().and_then(|item| item.text());
+    let copied = copied.unwrap_or_default().trim().to_owned();
+    let Some(dialog) = &bench.accounts.dialog else {
+        return;
+    };
+    let code = dialog.code.clone();
+    let googles = copied.starts_with("4/") && !copied.contains(char::is_whitespace);
+    code.update(cx, |code, cx| {
+        code.set_value(copied, window, cx);
+        code.focus(window, cx);
+    });
+    match googles {
+        true => submit_code(bench, id, cx),
+        false => redraw(bench, cx),
+    }
 }
 
 pub fn sign_out(bench: &Workbench, id: &str, cx: &mut Context<Workbench>) {
@@ -891,9 +943,12 @@ pub fn open_dialog(
 ) {
     let name = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Work")));
     name.update(cx, |name, cx| name.focus(window, cx));
+    let code = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Code from the page")));
     bench.accounts.dialog = Some(Dialog {
         provider: provider.to_owned(),
         name,
+        code,
+        sent: None,
         account: None,
         made: None,
         busy: false,
@@ -903,21 +958,29 @@ pub fn open_dialog(
 }
 
 /// Signs an account already there in again, from the dialog.
-pub fn sign_in_again(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>) {
+pub fn sign_in_again(
+    bench: &mut Workbench,
+    id: &str,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
     let itself = bench.accounts.profile(id).is_some_and(signs_in_itself);
     if itself {
         bench.accounts.dialog = None;
     }
     if let Some(dialog) = bench.accounts.dialog.as_mut() {
         dialog.account = Some(id.to_owned());
+        dialog.sent = None;
+        let code = dialog.code.clone();
+        code.update(cx, |code, cx| code.set_value("", window, cx));
     }
     dismiss_failure(bench, id);
-    sign_in(bench, id, cx);
+    sign_in(bench, id, window, cx);
 }
 
 /// Makes the account named in the dialog: a folder of its own sharing the default one's
 /// chats and settings, then signs it in.
-pub fn add(bench: &mut Workbench, brand: String, cx: &mut Context<Workbench>) {
+pub fn add(bench: &mut Workbench, brand: String, window: &mut Window, cx: &mut Context<Workbench>) {
     let Some(dialog) = bench.accounts.dialog.as_mut() else {
         return;
     };
@@ -931,7 +994,7 @@ pub fn add(bench: &mut Workbench, brand: String, cx: &mut Context<Workbench>) {
     let provider = dialog.provider.clone();
     let asks = bench.asks.clone();
     redraw(bench, cx);
-    cx.spawn(async move |bench, cx| {
+    cx.spawn_in(window, async move |bench, cx| {
         let made = async {
             let here = Target::here(&asks);
             let folder = here
@@ -957,7 +1020,7 @@ pub fn add(bench: &mut Workbench, brand: String, cx: &mut Context<Workbench>) {
             Ok::<_, String>((id, book))
         }
         .await;
-        let _ = bench.update(cx, |bench, cx| {
+        let _ = bench.update_in(cx, |bench, window, cx| {
             let mut dialog = (bench.accounts.dialog.as_mut()).filter(|open| open.name == field);
             if let Some(dialog) = dialog.as_mut() {
                 dialog.busy = false;
@@ -978,7 +1041,7 @@ pub fn add(bench: &mut Workbench, brand: String, cx: &mut Context<Workbench>) {
                 dialog.made = Some(id.clone());
                 dialog.account = Some(id.clone());
             }
-            sign_in(bench, &id, cx);
+            sign_in(bench, &id, window, cx);
         });
     })
     .detach();

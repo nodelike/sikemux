@@ -86,9 +86,11 @@ struct SignIn {
     input: Option<ChildStdin>,
     stop: Option<oneshot::Sender<()>>,
     page: Option<Page>,
-    /// Ends when the sign-in has.
-    running: watch::Receiver<()>,
+    /// How the sign-in ended, once it has.
+    ended: Ended,
 }
+
+type Ended = watch::Receiver<Option<Result<(), String>>>;
 
 /// Takes a sign-in off the list as it ends, unless another took its place.
 struct Entry {
@@ -225,6 +227,32 @@ pub(super) async fn sign_in_launcher(core: &Arc<Core>, params: LauncherParams) -
 /// to every client, for when the person is elsewhere.
 pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()> {
     account.check()?;
+    // Its page gives a code only the sign-in that opened it takes, so asking again carries on
+    // with that one.
+    let same = match account.added_antigravity()? {
+        Some(_) => sign_ins()
+            .get(&account.key())
+            .filter(|sign_in| sign_in.stop.is_some())
+            .map(|sign_in| sign_in.ended.clone()),
+        None => None,
+    };
+    if let Some(mut same) = same {
+        pages_changed(core);
+        let ended = same.wait_for(Option::is_some).await;
+        return match ended.ok().and_then(|ended| ended.clone()) {
+            Some(ended) => Ok(ended?),
+            None => Err("Sign-in stopped".into()),
+        };
+    }
+    let (end, ended) = watch::channel(None);
+    let answer = run(core, &account, ended).await;
+    let _ = end.send(Some(
+        (answer.as_ref().copied()).map_err(|error| error.message.clone()),
+    ));
+    answer
+}
+
+async fn run(core: &Arc<Core>, account: &Account, ended: Ended) -> CoreResult<()> {
     link_shared(account.agent.as_str(), account.config_path.as_deref());
     let added = account.added_antigravity()?;
     let args = account
@@ -239,8 +267,6 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
         .stdout(sikemux_process::command::Stdio::piped())
         .stderr(sikemux_process::command::Stdio::piped())
         .kill_on_drop(true);
-    // Dropped last, once everything the sign-in wrote is dealt with.
-    let (_running, running) = watch::channel(());
     let store = added.as_ref().map(antigravity::Added::signing_in);
     let mut child = command
         .spawn()
@@ -255,7 +281,7 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
             input: child.stdin.take(),
             stop: Some(stop),
             page: None,
-            running,
+            ended,
         },
     );
     let entry = Entry {
@@ -350,7 +376,7 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
                     .keep_private()
                     .map_err(|_| "Could not keep this account's sign-in private")?;
             }
-            signed_in(core, &account);
+            signed_in(core, account);
             Ok(())
         }
         // What agy prints can hold its sign-in link.
@@ -399,10 +425,10 @@ pub(super) fn cancel(account: Account) {
 
 /// [`cancel`], answered once the sign-in has ended.
 pub(super) async fn stop(account: Account) {
-    let running = (sign_ins().get(&account.key())).map(|sign_in| sign_in.running.clone());
+    let ended = (sign_ins().get(&account.key())).map(|sign_in| sign_in.ended.clone());
     cancel(account);
-    if let Some(mut running) = running {
-        let _ = running.changed().await;
+    if let Some(mut ended) = ended {
+        let _ = ended.changed().await;
     }
 }
 

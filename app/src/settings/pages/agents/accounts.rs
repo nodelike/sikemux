@@ -4,7 +4,6 @@
 use crate::ui::Clicks;
 use std::rc::Rc;
 
-use gpui_kit::component::input::InputState;
 use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::prelude::FluentBuilder;
@@ -127,9 +126,9 @@ fn signing(bench: &Workbench, id: &str, this: &Entity<Workbench>, cx: &App) -> O
                 button(
                     "sign-in-retry",
                     t!("Try again"),
-                    Rc::new(move |bench, _, cx| {
+                    Rc::new(move |bench, window, cx| {
                         accounts::dismiss_failure(bench, &id);
-                        accounts::sign_in(bench, &id, cx);
+                        accounts::sign_in(bench, &id, window, cx);
                     }),
                 )
             })
@@ -165,9 +164,9 @@ fn account_row(
                 t!("Sign in"),
                 ui::Variant::Outline,
             )
-            .on_click(move |_, _, cx| {
+            .on_click(move |_, window, cx| {
                 let id = id.clone();
-                this.update(cx, |bench, cx| accounts::sign_in(bench, &id, cx))
+                this.update(cx, |bench, cx| accounts::sign_in(bench, &id, window, cx))
             })
             .into_any_element()
         }
@@ -370,28 +369,28 @@ pub fn dialog(
     };
     let go: dialog::Answer = {
         let this = this.clone();
-        Rc::new(move |_, cx| this.update(cx, submit))
+        Rc::new(move |window, cx| this.update(cx, |bench, cx| submit(bench, window, cx)))
     };
     let body = div().px(SPACE_1).pt(SPACE_1).child(screen);
     Some(dialog::floating(px(440.), body, go, close).into_any_element())
 }
 
-/// Answers the add-account dialog as its main button does: adds the named account, or
-/// closes the dialog once the account has signed in.
-fn submit(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+/// Answers the add-account dialog as its main button does: adds the named account, hands on the
+/// code typed, or closes the dialog once the account has signed in.
+fn submit(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let Some(open) = &bench.accounts.dialog else {
         return;
     };
-    match open.account.as_deref() {
+    match open.account.clone() {
         None if !accounts::keeps_several(bench, &open.provider) => {
             accounts::close_dialog(bench, cx)
         }
         None => {
             let brand = brand(bench, &open.provider);
-            accounts::add(bench, brand, cx);
+            accounts::add(bench, brand, window, cx);
         }
-        Some(id) if !bench.accounts.signing.contains_key(id) => accounts::close_dialog(bench, cx),
-        Some(_) => {}
+        Some(id) if !bench.accounts.signing.contains_key(&id) => accounts::close_dialog(bench, cx),
+        Some(id) => accounts::submit_code(bench, &id, cx),
     }
 }
 
@@ -447,8 +446,8 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
                     let id = profile.id.clone();
                     let again = {
                         let id = id.clone();
-                        on(this, move |bench, _, cx| {
-                            accounts::sign_in_again(bench, &id, cx)
+                        on(this, move |bench, window, cx| {
+                            accounts::sign_in_again(bench, &id, window, cx)
                         })
                     };
                     div()
@@ -504,8 +503,8 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
                 )
                 .wide()
                 .disabled(open.busy || empty)
-                .on_click(on(this, move |bench, _, cx| {
-                    accounts::add(bench, brand.clone(), cx)
+                .on_click(on(this, move |bench, window, cx| {
+                    accounts::add(bench, brand.clone(), window, cx)
                 })),
             )
             .when_some(again, |screen, again| {
@@ -515,8 +514,8 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
             })
             .child(cancel())
         }
-        (Some(profile), Some(SignIn::Waiting { url, code })) if by_hand(&profile.provider) => {
-            pasted_sign_in(profile, url.clone(), code.as_ref(), mark, &label, this, cx)
+        (Some(profile), Some(SignIn::Waiting { url, .. })) if by_hand(&profile.provider) => {
+            pasted_sign_in(profile, url.clone(), open, mark, &label, this, cx)
         }
         (Some(profile), Some(SignIn::Waiting { url, code })) => {
             let id = profile.id.clone();
@@ -585,9 +584,8 @@ fn screen(bench: &Workbench, this: &Entity<Workbench>, cx: &App) -> Option<sign_
             .child(
                 ui::Button::new("sign-in-retry", t!("Try again"), ui::Variant::Primary)
                     .wide()
-                    .on_click(on(this, move |bench, _, cx| {
-                        accounts::dismiss_failure(bench, &id);
-                        accounts::sign_in(bench, &id, cx);
+                    .on_click(on(this, move |bench, window, cx| {
+                        accounts::sign_in_again(bench, &id, window, cx);
                     })),
             )
             .child(cancel())
@@ -615,77 +613,69 @@ fn one_sign_in(mark: AnyElement, label: &str, this: &Entity<Workbench>) -> sign_
     )
 }
 
-/// A sign-in whose page shows a code to paste here, as it does wherever its agent has no browser
-/// of its own to come back to.
+/// A sign-in whose page, which its agent opens, shows a code to paste here. The field is there as
+/// the page opens, so the person has one page and one code.
 fn pasted_sign_in(
     profile: &Profile,
     url: Option<String>,
-    code: Option<&Entity<InputState>>,
+    open: &accounts::Dialog,
     mark: AnyElement,
     label: &str,
     this: &Entity<Workbench>,
     cx: &App,
 ) -> sign_in::Screen {
-    let screen = sign_in::Screen::new(
+    let close = on(this, |bench, _, cx| accounts::close_dialog(bench, cx));
+    let id = profile.id.clone();
+    let typed = open.code.read(cx).value().trim().to_owned();
+    let sent = open.sent.as_ref() == Some(&typed);
+    let open_page = url.clone();
+    let action = match (&url, typed.is_empty()) {
+        (None, _) => ui::Button::new(
+            "sign-in-send-code",
+            t!("Opening {label}'s page…", label = label),
+            ui::Variant::Primary,
+        )
+        .disabled(true),
+        (Some(_), true) => ui::Button::new(
+            "sign-in-paste-code",
+            t!("Paste the code"),
+            ui::Variant::Primary,
+        )
+        .on_click(on(this, move |bench, window, cx| {
+            accounts::paste_code(bench, &id, window, cx)
+        })),
+        (Some(_), false) => ui::Button::new(
+            "sign-in-send-code",
+            match sent {
+                true => t!("Signing in…"),
+                false => t!("Sign in"),
+            },
+            ui::Variant::Primary,
+        )
+        .disabled(sent)
+        .on_click(on(this, move |bench, _, cx| {
+            accounts::submit_code(bench, &id, cx)
+        })),
+    };
+    sign_in::Screen::new(
         "account-dialog",
         mark,
         t!("Sign in to {name}", name = profile.name),
-    );
-    let close = on(this, |bench, _, cx| accounts::close_dialog(bench, cx));
-    let id = profile.id.clone();
-    match (url, code) {
-        (Some(url), Some(field)) => screen
-            .lede(t!(
-                "Choose the Google account to add, then paste the code the page shows."
-            ))
-            .child(sign_in::Field::new(t!("Code from the page"), field).mono())
-            .child(
-                ui::Button::new("sign-in-send-code", t!("Sign in"), ui::Variant::Primary)
-                    .wide()
-                    .on_click(on(this, move |bench, _, cx| {
-                        accounts::submit_code(bench, &id, cx)
-                    })),
-            )
-            .child(
-                sign_in::links()
-                    .child(
-                        sign_in::link("sign-in-page", t!("Open the page again"), cx)
-                            .clicks(move |_, _, cx| cx.open_url(&url)),
-                    )
-                    .child(sign_in::link("account-dialog-cancel", t!("Cancel"), cx).clicks(close)),
-            ),
-        (Some(url), None) => screen
-            .lede(t!(
-                "The page opens in your browser and gives you a code to paste here."
-            ))
-            .child(
-                ui::Button::new(
-                    "sign-in-open-page",
-                    t!("Open the sign-in page"),
-                    ui::Variant::Primary,
-                )
-                .wide()
-                .on_click(on(this, move |bench, window, cx| {
-                    cx.open_url(&url);
-                    accounts::ask_code(bench, &id, window, cx)
-                })),
-            )
-            .child(
-                sign_in::links()
-                    .child(sign_in::link("account-dialog-cancel", t!("Cancel"), cx).clicks(close)),
-            ),
-        (None, _) => screen
-            .lede(t!(
-                "This account is signed in apart from the one {label} already has.",
-                label = label
-            ))
-            .child(sign_in::waiting(
-                "account-dialog-waiting",
-                t!("Waiting for {label}", label = label),
-                close,
-                cx,
-            )),
-    }
+    )
+    .lede(t!(
+        "Sign in with {label}'s page in your browser, then paste the code it shows.",
+        label = label
+    ))
+    .child(sign_in::Field::new(t!("Code from the page"), &open.code).mono())
+    .child(action.wide())
+    .child(
+        sign_in::links()
+            .children(open_page.map(|url| {
+                sign_in::link("sign-in-page", t!("Open the page again"), cx)
+                    .clicks(move |_, _, cx| cx.open_url(&url))
+            }))
+            .child(sign_in::link("account-dialog-cancel", t!("Cancel"), cx).clicks(close)),
+    )
 }
 
 /// Who the account signed in as, with the way to start using it while another is in use.
