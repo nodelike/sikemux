@@ -463,11 +463,20 @@ enum Asked {
 /// Asks the core about `ship`. `follows` when this program sees it end and can
 /// say how it went.
 fn asked(ship: &crate::ship::Ship, cwd: &Path, follows: bool) -> Asked {
-    let Some(endpoint) = footer::endpoint() else {
-        return Asked::Goes { went: None };
+    let endpoint = sikemux_process::paths::handed_cli_endpoint();
+    asked_at(endpoint.as_deref(), ship, cwd, follows)
+}
+
+fn asked_at(endpoint: Option<&Path>, ship: &crate::ship::Ship, cwd: &Path, follows: bool) -> Asked {
+    let Some(endpoint) = endpoint else {
+        return Asked::Held(format!(
+            "Sikemux could not ask whether `{}` may leave this machine: {} is not set.",
+            ship.what,
+            vars::CLI_ENDPOINT
+        ));
     };
     let answer = crate::cli::client::attempt(
-        &endpoint,
+        endpoint,
         &cwd.to_string_lossy(),
         None,
         crate::cli::protocol::SHIP_CHECK_METHOD,
@@ -1046,5 +1055,16 @@ mod tests {
             .collect();
         kept.sort();
         assert_eq!(left, kept);
+    }
+
+    #[test]
+    fn shim_fails_closed_without_cli_endpoint() {
+        let ship = crate::ship::Ship {
+            kind: sikemux_view::inbox::ShipKind::Deploy,
+            what: "vercel --prod".to_owned(),
+            target: Some(crate::ship::Target::Vercel { production: true }),
+        };
+        let result = asked_at(None, &ship, Path::new("/nowhere"), true);
+        assert!(matches!(result, Asked::Held(said) if said.contains(vars::CLI_ENDPOINT)));
     }
 }
