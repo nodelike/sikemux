@@ -1,0 +1,17 @@
+# An artifact whose ask is too tall for a short window.
+stage 1440 620
+window 1440 620
+prefer themeId aura-noir
+prefer starAsked true
+replies ask-artifact.json
+project storefront shop
+patch pages-notes.diff
+chat Juno
+title "Returns page"
+say "Show me the whole returns plan."
+settle 10
+front Juno
+settle 2
+click 1083,69
+settle 4
+snap ask-artifact-short

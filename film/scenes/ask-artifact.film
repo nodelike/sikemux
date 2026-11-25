@@ -1,0 +1,30 @@
+# The foot of an artifact an ask links: a long question of two paragraphs on a narrow desk and an
+# expanded one, and a question too tall for the desk.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer starAsked true
+replies ask-artifact.json
+project storefront shop
+patch pages-notes.diff
+chat Juno
+title "Returns page"
+say "Show me the whole returns plan."
+settle 10
+chat Wren
+title "Cache the product pages"
+say "Show me the stores side by side."
+settle 10
+front Juno
+settle 2
+click 1083,69
+settle 4
+snap ask-artifact-tall
+front Wren
+settle 2
+click 1083,69
+settle 4
+snap ask-artifact-narrow
+click 1092,63
+settle 3
+snap ask-artifact-wide
