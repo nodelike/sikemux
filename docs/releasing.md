@@ -221,12 +221,9 @@ An update carries a runtime version, a fingerprint of everything native in the a
 
 To promote a nightly update to stable, run **Mobile update** by hand with its id and the action `promote`. It serves the same signed update on `stable`.
 
-A bad update is taken back the same way, with one of two actions. Each channel serves what was put on it last, by publish or promotion time.
+A bad update is taken back with the action `withdraw`, then fixed forward. `withdraw` stops offering the update on every channel, so phones that have not taken it never do; the channel goes back to what it offered before, by publish or promotion time. Phones that already run it keep it until a fix pushed to `main` reaches them, except that one that crashes as it starts goes back to the code it ran before by itself.
 
-- `withdraw` stops offering the update on every channel, so phones that have not taken it never do; the channel goes back to what it offered before. Phones that already run it keep it.
-- `roll-back` also withdraws it, and sends phones that run it a signed order to go back to the code in their build. Only updates prepared after the roll-back reach those phones again, so fix forward with a new push to `main`.
-
-Both need `server/deploy/receive-release` and the `lib.sh` beside it on citadel to be the current ones; they are installed by `setup-citadel.sh`, not by a server deploy.
+Both actions need `server/deploy/receive-release` and the `lib.sh` beside it on citadel to be the current ones; they are installed by `setup-citadel.sh`, not by a server deploy.
 
 Locally, `node scripts/publish-update.mjs android nightly --dry-run` in `mobile/app` builds and signs an update without sending it, with the key from `UPDATES_SIGNING_KEY`. The key lives at `~/.config/sikemux/release/updates-signing-key.pem`.
 

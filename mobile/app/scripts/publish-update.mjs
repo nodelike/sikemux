@@ -265,23 +265,13 @@ function publish(dir, dryRun) {
   summarise([`Published ${update.id} to ${update.channel}`]);
 }
 
-/** Withdraws the update and sends a signed order for phones that took it to go back to the code in their build. */
-function rollBack(id) {
-  const directive = JSON.stringify({ type: 'rollBackToEmbedded', parameters: { commitTime: new Date().toISOString() } });
-  const file = join(mkdtempSync(join(tmpdir(), 'sikemux-rollback-')), 'directive.json');
-  writeFileSync(file, JSON.stringify({ directive, signature: signForPhones(Buffer.from(directive)) }));
-  ssh(`roll-back-update ${id}`, file);
-  summarise([`Rolled phones back from ${id} to the code in their build`]);
-}
-
 function usage() {
   stop(
     'usage: publish-update.mjs prepare android <nightly|stable> <dir>\n' +
       '       publish-update.mjs publish <dir> [--dry-run]\n' +
       '       publish-update.mjs android <nightly|stable> [--dry-run]\n' +
       '       publish-update.mjs promote <update id>\n' +
-      '       publish-update.mjs withdraw <update id>\n' +
-      '       publish-update.mjs roll-back <update id>',
+      '       publish-update.mjs withdraw <update id>',
   );
 }
 
@@ -302,9 +292,6 @@ async function main(argv) {
     if (!UUID.test(args[0])) stop(`${args[0]} is not an update id.`);
     ssh(`withdraw-update ${args[0]}`);
     summarise([`Withdrew ${args[0]}`]);
-  } else if (command === 'roll-back' && args.length === 1) {
-    if (!UUID.test(args[0])) stop(`${args[0]} is not an update id.`);
-    rollBack(args[0]);
   } else if (PLATFORMS.includes(command) && args.length === 1) {
     const dir = join(mkdtempSync(join(tmpdir(), 'sikemux-update-')), 'update');
     if (await prepare(command, args[0], dir)) publish(dir, dryRun);

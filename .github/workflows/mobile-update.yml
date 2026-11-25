@@ -3,9 +3,9 @@ run-name: ${{ inputs.update_id && format('{0} phone update {1}', inputs.action, 
 
 # The phone's JavaScript and assets go out over the air: every push to main that changes them
 # publishes an Android update to nightly. Running this by hand with an update id promotes that
-# update to stable, withdraws it from every channel so phones that have not taken it never do, or
-# rolls back the phones that took it to the code in their build. Phones only take an update made
-# for their runtime version, so one that needs new native code waits for the build that has it.
+# update to stable, or withdraws it from every channel so phones that have not taken it never do.
+# Phones only take an update made for their runtime version, so one that needs new native code
+# waits for the build that has it.
 # test/updatePaths.test.ts fails when the bundle reads a file these paths miss.
 on:
   push:
@@ -43,7 +43,7 @@ on:
       action:
         description: What to do with that update.
         type: choice
-        options: [promote, withdraw, roll-back]
+        options: [promote, withdraw]
         default: promote
 
 permissions:
@@ -189,13 +189,11 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 
-      # Rolling back signs the order phones obey with the update key, like an update.
       - name: Act on citadel
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           ACTION: ${{ inputs.action }}
           UPDATE_ID: ${{ inputs.update_id }}
-          UPDATES_SIGNING_KEY: ${{ inputs.action == 'roll-back' && secrets.UPDATES_SIGNING_KEY || '' }}
         run: |
           export DEPLOY_SSH_KEY_FILE=~/.ssh/deploy_key
           node mobile/app/scripts/publish-update.mjs "$ACTION" "$UPDATE_ID"

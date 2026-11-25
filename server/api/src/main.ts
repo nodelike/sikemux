@@ -29,34 +29,12 @@ import { setTeamAudience, TEAM_AUDIENCES } from "./billing/team-audience.ts";
 import {
   promoteUpdate,
   publishUpdate,
-  rollBackUpdate,
   UpdateRefused,
   withdrawUpdate,
 } from "./updates/publish.ts";
 
-const MAX_DIRECTIVE_FILE_BYTES = 16 * 1024;
-
 const updatesCertificate = () =>
   readFileSync(new URL("./updates-certificate.pem", import.meta.url), "utf8");
-
-/** Reads the `{ directive, signature }` file CI sends to roll phones back. */
-function readDirectiveFile(path: string) {
-  const bytes = readFileSync(path);
-  if (bytes.length > MAX_DIRECTIVE_FILE_BYTES)
-    throw new UpdateRefused("The directive file is too large.");
-  let value: unknown;
-  try {
-    value = JSON.parse(bytes.toString("utf8"));
-  } catch {
-    throw new UpdateRefused("The directive file is not JSON.");
-  }
-  const { directive, signature } = (value ?? {}) as Record<string, unknown>;
-  if (typeof directive !== "string" || typeof signature !== "string")
-    throw new UpdateRefused(
-      "The directive file must hold a directive and a signature, both strings.",
-    );
-  return { directive: Buffer.from(directive, "utf8"), signature };
-}
 
 function startLogging(level: Level) {
   const log = createLogger(level);

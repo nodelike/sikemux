@@ -5,8 +5,6 @@
 #   ssh sikemux-deploy@citadel publish-update < update.tar.gz     publishes a phone update
 #   ssh sikemux-deploy@citadel promote-update <update id>         offers an update on stable too
 #   ssh sikemux-deploy@citadel withdraw-update <update id>        stops offering an update
-#   ssh sikemux-deploy@citadel roll-back-update <update id> < directive.json
-#                                                                 rolls phones back from an update
 #   ssh sikemux-deploy@citadel team-audience <staff|nightly|everyone>
 #                                                                 sets who Team is open to
 set -euo pipefail
@@ -19,7 +17,6 @@ UPDATES="$ROOT/updates"
 KEEP=5
 MAX_BYTES=$((200 * 1024 * 1024))
 MAX_UPDATE_BYTES=$((100 * 1024 * 1024))
-MAX_DIRECTIVE_BYTES=$((16 * 1024))
 HEALTH=http://127.0.0.1:4000/v1/health
 export DATABASE_URL="$SIKEMUX_DATABASE_URL"
 
@@ -34,7 +31,6 @@ usage() {
          ssh sikemux-deploy@citadel publish-update < update.tar.gz
          ssh sikemux-deploy@citadel promote-update <update id>
          ssh sikemux-deploy@citadel withdraw-update <update id>
-         ssh sikemux-deploy@citadel roll-back-update <update id> < directive.json
          ssh sikemux-deploy@citadel team-audience <staff|nightly|everyone>"
 }
 
@@ -92,24 +88,6 @@ locked_command() {
   say "$doing"
   api "$@" || fail "$doing was refused"
   say "$done"
-  exit 0
-}
-
-roll_back_update() {
-  local id="$1"
-
-  exec 9>"$ROOT/deploy.lock"
-  flock 9
-
-  incoming="$(mktemp "$UPDATES/.directive.XXXXXX")"
-  trap 'rm -f "$incoming"' EXIT
-  head -c "$((MAX_DIRECTIVE_BYTES + 1))" >"$incoming"
-  [ "$(stat -c %s "$incoming")" -le "$MAX_DIRECTIVE_BYTES" ] ||
-    fail "the directive is larger than $((MAX_DIRECTIVE_BYTES / 1024)) KB"
-
-  say "rolling phones back from $id"
-  api roll-back-update "$id" "$incoming" || fail "rolling back $id was refused"
-  say "phones are told to roll back from $id"
   exit 0
 }
 

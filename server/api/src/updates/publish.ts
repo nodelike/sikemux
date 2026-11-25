@@ -23,7 +23,7 @@ import {
   type UpdatePlatform,
 } from "./update.ts";
 
-/** Refused publish, promote, withdrawal or rollback, with a reason meant for whoever ran it. */
+/** Refused publish, promote or withdrawal, with a reason meant for whoever ran it. */
 export class UpdateRefused extends Error {}
 
 function refuse(message: string): never {
@@ -51,8 +51,6 @@ const CONTENT_TYPE = /^[a-z]+\/[a-z0-9][a-z0-9.+-]{0,126}$/;
 const ASSET_KEY = /^[A-Za-z0-9_-]{1,128}$/;
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
-const COMMIT_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
-const CLOCK_SKEW_MS = 5 * 60 * 1000;
 const BUNDLE_FILES = ["assets", "manifest.json", "manifest.sig", "update.json"];
 
 const sha256 = (bytes: Buffer) => createHash("sha256").update(bytes);
@@ -189,17 +187,18 @@ async function readAssets(dir: string, assets: Asset[]) {
 }
 
 function checkSignature(
-  bytes: Buffer,
+  manifest: Buffer,
   signature: string,
   certificate: string,
-  [name, signatureName]: [string, string],
 ) {
-  if (!BASE64.test(signature)) refuse(`${signatureName} is not base64.`);
+  if (!BASE64.test(signature)) refuse("manifest.sig is not base64.");
   const { publicKey } = new X509Certificate(certificate);
   if (publicKey.asymmetricKeyType !== "rsa")
     refuse("The update certificate does not hold an RSA key.");
-  if (!verify("sha256", bytes, publicKey, Buffer.from(signature, "base64")))
-    refuse(`${signatureName} is not a signature of ${name} by the update key.`);
+  if (!verify("sha256", manifest, publicKey, Buffer.from(signature, "base64")))
+    refuse(
+      "manifest.sig is not a signature of manifest.json by the update key.",
+    );
 }
 
 /**
@@ -266,10 +265,7 @@ export async function publishUpdate(
     .trim();
   const assets = readManifest(manifest, update);
   await checkLayout(dir, assets);
-  checkSignature(manifest, signature, certificate, [
-    "manifest.json",
-    "manifest.sig",
-  ]);
+  checkSignature(manifest, signature, certificate);
   const files = await readAssets(dir, assets);
 
   const existing = await db
@@ -371,7 +367,7 @@ interface StoredUpdate {
 
 /**
  * Refuses an update phones on the channel would never take: one older than an update the channel
- * still offers, or made before the channel last rolled phones back to the code in their build.
+ * still offers.
  */
 async function checkChannelTakes(
   trx: Transaction<Tables>,
@@ -391,18 +387,6 @@ async function checkChannelTakes(
   if (newer)
     refuse(
       `${channel} already offers ${newer.id}, which is newer than ${update.id}; phones would never take it. Withdraw ${newer.id} first.`,
-    );
-  const rollback = await trx
-    .selectFrom("update_rollbacks")
-    .select("commit_time")
-    .where("channel", "=", channel)
-    .where("platform", "=", update.platform)
-    .where("runtime_version", "=", update.runtime_version)
-    .where("commit_time", ">=", update.created_at)
-    .executeTakeFirst();
-  if (rollback)
-    refuse(
-      `${channel} rolled phones back at ${rollback.commit_time.toISOString()}, after ${update.id} was made; phones would never take it. Publish a new update instead.`,
     );
 }
 
@@ -488,7 +472,7 @@ interface Withdrawn {
 
 /**
  * Stops offering an update on every channel it is on, so phones that have not taken it never do.
- * Phones already running it keep it; rolling back is what moves them.
+ * Phones already running it keep it until a newer one is published.
  */
 export async function withdrawUpdate(
   db: Kysely<Tables>,

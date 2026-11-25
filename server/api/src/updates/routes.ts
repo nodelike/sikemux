@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import { Hono } from "hono";
-import { sql } from "kysely";
 
 import type { Database } from "../db.ts";
 import { badRequest, type Env } from "../http.ts";
@@ -21,7 +20,7 @@ const RESPONSE_HEADERS = {
 
 /**
  * Expo's update protocol, version 1. Phones send headers, not JSON, so it sits outside /v1. Each
- * channel serves whatever was put on it last: an update, or a signed order to roll back.
+ * channel serves the update put on it last.
  */
 export function updateRoutes({ db }: Database, limiter: RateLimiter) {
   return new Hono<Env>().get(
@@ -41,60 +40,39 @@ export function updateRoutes({ db }: Database, limiter: RateLimiter) {
       if (!isChannel(channel))
         throw badRequest(`expo-channel-name is one of ${CHANNELS.join(", ")}.`);
 
-      const part = await db
-        .selectFrom("update_rollbacks")
-        .select([
-          sql<string>`'directive'`.as("name"),
-          "directive as body",
-          "signature",
-          "assigned_at",
-        ])
-        .where("platform", "=", platform)
-        .where("runtime_version", "=", runtimeVersion)
-        .where("channel", "=", channel)
-        .unionAll(
-          db
-            .selectFrom("updates")
-            .innerJoin(
-              "update_channels",
-              "update_channels.update_id",
-              "updates.id",
-            )
-            .select([
-              sql<string>`'manifest'`.as("name"),
-              "updates.manifest as body",
-              "updates.signature",
-              "update_channels.assigned_at",
-            ])
-            .where("updates.platform", "=", platform)
-            .where("updates.runtime_version", "=", runtimeVersion)
-            .where("update_channels.channel", "=", channel)
-            .where("update_channels.withdrawn_at", "is", null),
-        )
-        .orderBy("assigned_at", "desc")
-        .orderBy("name")
+      const update = await db
+        .selectFrom("updates")
+        .innerJoin("update_channels", "update_channels.update_id", "updates.id")
+        .select(["updates.manifest", "updates.signature"])
+        .where("updates.platform", "=", platform)
+        .where("updates.runtime_version", "=", runtimeVersion)
+        .where("update_channels.channel", "=", channel)
+        .where("update_channels.withdrawn_at", "is", null)
+        .orderBy("update_channels.assigned_at", "desc")
         .limit(1)
         .executeTakeFirst();
 
       for (const [name, value] of Object.entries(RESPONSE_HEADERS))
         c.header(name, value);
       // Protocol 1 reads an empty 204 as "nothing new", which needs no signature.
-      if (!part) return c.body(null, 204);
+      if (!update) return c.body(null, 204);
 
-      const boundary = boundaryFor(part.body);
+      const boundary = boundaryFor(update.manifest);
       const head = Buffer.from(
         [
           `--${boundary}`,
           "content-type: application/json; charset=utf-8",
-          `content-disposition: form-data; name="${part.name}"`,
-          `expo-signature: sig="${part.signature}", keyid="main", alg="rsa-v1_5-sha256"`,
+          `content-disposition: form-data; name="manifest"`,
+          `expo-signature: sig="${update.signature}", keyid="main", alg="rsa-v1_5-sha256"`,
           "",
           "",
         ].join("\r\n"),
       );
       const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
       c.header("content-type", `multipart/mixed; boundary=${boundary}`);
-      return c.body(new Uint8Array(Buffer.concat([head, part.body, tail])));
+      return c.body(
+        new Uint8Array(Buffer.concat([head, update.manifest, tail])),
+      );
     },
   );
 }

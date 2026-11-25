@@ -271,17 +271,6 @@ export interface Tables {
     assigned_at: CreatedAt;
     withdrawn_at: ColumnType<Date | null, never, Date | null>;
   };
-  update_rollbacks: {
-    id: Generated<string>;
-    update_id: string;
-    platform: UpdatePlatform;
-    runtime_version: string;
-    channel: UpdateChannel;
-    directive: Buffer;
-    signature: string;
-    commit_time: Date;
-    assigned_at: CreatedAt;
-  };
   shares: {
     id: string;
     user_id: string;

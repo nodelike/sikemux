@@ -1,4 +1,4 @@
-import { createHash, sign, verify, X509Certificate } from "node:crypto";
+import { createHash, verify, X509Certificate } from "node:crypto";
 import {
   mkdtempSync,
   readdirSync,
@@ -18,7 +18,6 @@ import {
   assetFileName,
   promoteUpdate,
   publishUpdate,
-  rollBackUpdate,
   withdrawUpdate,
 } from "../src/updates/publish.ts";
 import { body, freshDatabase, log, testApp } from "./support.ts";
@@ -47,9 +46,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await database.pool.query(
-    "truncate updates, update_channels, update_rollbacks, audit cascade",
-  );
+  await database.pool.query("truncate updates, update_channels, audit cascade");
   assetsDir = mkdtempSync(join(tmpdir(), "sikemux-update-assets-"));
 });
 
@@ -80,7 +77,7 @@ function askForUpdate(headers: Record<string, string> = {}) {
   });
 }
 
-async function servedPart(response: Response, name: string) {
+async function servedManifest(response: Response) {
   expect(response.status).toBe(200);
   const parts = readMultipart(
     response.headers.get("content-type") ?? "",
@@ -89,35 +86,16 @@ async function servedPart(response: Response, name: string) {
   expect(parts).toHaveLength(1);
   const [part] = parts;
   if (!part) throw new Error("no part");
-  expect(part.headers["content-disposition"]).toBe(`form-data; name="${name}"`);
+  expect(part.headers["content-disposition"]).toBe(
+    'form-data; name="manifest"',
+  );
   expect(part.headers["content-type"]).toMatch(/^application\/json/);
   return part;
-}
-
-function servedManifest(response: Response) {
-  return servedPart(response, "manifest");
 }
 
 async function servedId(headers: Record<string, string> = {}) {
   const part = await servedManifest(await askForUpdate(headers));
   return JSON.parse(part.body.toString()).id;
-}
-
-function directiveFor(commitTime: string, signWith = key) {
-  const directive = Buffer.from(
-    JSON.stringify({ type: "rollBackToEmbedded", parameters: { commitTime } }),
-  );
-  return {
-    directive,
-    signature: sign("sha256", directive, signWith).toString("base64"),
-  };
-}
-
-function rollBack(
-  id: string,
-  directive = directiveFor(new Date().toISOString()),
-) {
-  return rollBackUpdate(database.db, { id, ...directive, certificate });
 }
 
 async function auditActions() {
