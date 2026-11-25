@@ -275,7 +275,7 @@ final class Panels {
     private func applyVisibility() {
         let watchingDev = !store.options.dev && store.settings.yieldToDev
         let yielding = watchingDev && devRunning
-        let needsYou = store.entries.contains { $0.mark == .needs } || !store.devices.isEmpty
+        let needsYou = store.entries.contains { $0.mark == .needs } || !store.devices.isEmpty || !store.calls.isEmpty
         for (id, entry) in panels {
             let covered: Bool
             switch store.settings.fullScreen {

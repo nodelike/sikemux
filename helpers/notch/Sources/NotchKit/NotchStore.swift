@@ -43,6 +43,9 @@ final class NotchStore {
     @ObservationIgnored private var errorTimer: DispatchWorkItem?
     /// The calls this island told the core it drew.
     @ObservationIgnored private var seen: Set<String> = []
+    @ObservationIgnored private var drawnCalls: Set<String> = []
+    @ObservationIgnored private var inFlightSeen: Set<String> = []
+    @ObservationIgnored private var seenTimers: [String: DispatchWorkItem] = [:]
     @ObservationIgnored var onPeek: ((Peek) -> Void)?
     @ObservationIgnored var onSettings: (() -> Void)?
     @ObservationIgnored var onView: (() -> Void)?
@@ -214,8 +217,19 @@ final class NotchStore {
     /// once its call does.
     private func keepCalls(_ view: DeviceView) {
         calls = (view.calls ?? []).filter { $0.state == .open }.sorted { $0.raisedAt > $1.raisedAt }
+        let openIds = Set(calls.map(\.id))
         drafts = Dictionary(uniqueKeysWithValues: calls.map { ($0.id, drafts[$0.id] ?? CallDraft()) })
-        seen.formIntersection(calls.map(\.id))
+        seen.formIntersection(openIds)
+        drawnCalls.formIntersection(openIds)
+        inFlightSeen.formIntersection(openIds)
+        for id in seenTimers.keys where !openIds.contains(id) {
+            seenTimers.removeValue(forKey: id)?.cancel()
+        }
+        if link != nil {
+            for call in calls where drawnCalls.contains(call.id) {
+                saw(call)
+            }
+        }
     }
 
     /// A project's name, from the folder a call names it by.
@@ -259,6 +273,10 @@ final class NotchStore {
         }
         drafts = [:]
         seen = []
+        drawnCalls = []
+        inFlightSeen = []
+        seenTimers.values.forEach { $0.cancel() }
+        seenTimers = [:]
         devices = []
         deviceAsked = [:]
         onView?()
@@ -283,10 +301,40 @@ final class NotchStore {
     }
 
     /// Tells the core once that this island drew the call, which a production call needs before
-    /// its answer counts.
+    /// its answer counts, retrying on transient failures like iOS's CallStore.
     func saw(_ call: PersonCall) {
-        guard seen.insert(call.id).inserted else { return }
-        link?.request(CoreCall.CallSeen(params: CallParams(id: call.id)))
+        drawnCalls.insert(call.id)
+        guard !seen.contains(call.id), !inFlightSeen.contains(call.id), seenTimers[call.id] == nil else { return }
+        sendSeen(call.id, delays: [2, 5, 10])
+    }
+
+    private func sendSeen(_ id: String, delays: [TimeInterval]) {
+        guard let link, calls.contains(where: { $0.id == id }), !seen.contains(id) else {
+            inFlightSeen.remove(id)
+            seenTimers.removeValue(forKey: id)?.cancel()
+            return
+        }
+        inFlightSeen.insert(id)
+        link.request(CoreCall.CallSeen(params: CallParams(id: id))) { [weak self] result in
+            guard let self else { return }
+            self.inFlightSeen.remove(id)
+            switch result {
+            case .success:
+                self.seenTimers.removeValue(forKey: id)?.cancel()
+                self.seen.insert(id)
+            case .failure(let error):
+                FileHandle.standardError.write(Data("sikemux-notch: callSeen failed for \(id): \(error.message)\n".utf8))
+                guard let wait = delays.first, self.calls.contains(where: { $0.id == id }) else { return }
+                let rest = Array(delays.dropFirst())
+                let retry = DispatchWorkItem { [weak self] in
+                    self?.seenTimers.removeValue(forKey: id)
+                    self?.sendSeen(id, delays: rest)
+                }
+                self.seenTimers[id]?.cancel()
+                self.seenTimers[id] = retry
+                DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: retry)
+            }
+        }
     }
 
     /// Answers a call with what its card holds. The first answer anywhere wins.
@@ -458,12 +506,19 @@ final class NotchStore {
         return projects.max { (counts[$0.id] ?? 0) < (counts[$1.id] ?? 0) } ?? projects.first
     }
 
-    /// How many calls wait on you, or with none how many items need you, how many agents work, how many subagents run across every agent, and
+    /// How many calls wait on you, how many non-call items need you, how many agents work, how many subagents run across every agent, and
     /// how many items are done, leaving out what is none.
     var rollups: [(mark: Rollup, count: Int)] {
-        let waiting = view.workspace.projects.reduce(0) { $0 + ($1.calls ?? 0) }
+        let callIds = Set(calls.map(\.id))
+        let otherNeeds = entries.filter { entry in
+            guard entry.mark == .needs else { return false }
+            if entry.ask != nil { return true }
+            let id = entry.agent?.turn?.call?.id ?? entry.item?.questionId ?? entry.item?.hold?.id
+            return id.map { !callIds.contains($0) } ?? true
+        }.count
         let counts: [(Rollup, Int)] = [
-            waiting == 0 ? (.mark(.needs), entries.filter { $0.mark == .needs }.count) : (.calls, waiting),
+            (.calls, calls.count),
+            (.mark(.needs), otherNeeds),
             (.mark(.working), view.inbox.working),
             (.subagents, view.inbox.rollup?.subagents ?? 0),
             (.mark(.done), entries.filter { $0.mark == .done || $0.mark == .failed }.count),

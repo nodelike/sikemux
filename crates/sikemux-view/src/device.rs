@@ -44,6 +44,21 @@ pub struct DeviceView {
     /// How this host keeps its core current, on a host that updates itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updates: Option<UpdateStatus>,
+    /// Local project chiefs that accept stashes or shares, folded by the core.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub chief_targets: Vec<ChiefTarget>,
+}
+
+/// A local project chief that accepts stashes or shares, folded by the core so clients do not
+/// re-derive it from chats, recent titles or launchers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChiefTarget {
+    pub project_id: String,
+    pub project: String,
+    pub chat_id: String,
+    pub provider: String,
+    pub active_at: u64,
 }
 
 /// How busy a host is, for the rows clients show it in.

@@ -20,7 +20,7 @@ use tokio::sync::Notify;
 use super::connection::ClientConn;
 use super::{access, display, goals, host_stats, inbox, layout, updates, workspace, Core};
 use sikemux_view::calls::{CallKind, CallState, PersonCall};
-use sikemux_view::device::DeviceView;
+use sikemux_view::device::{ChiefTarget, DeviceView};
 use sikemux_view::turn::{TurnPhase, TurnState};
 use sikemux_view::workspace::{ProjectInfo, ProjectStanding};
 use sikemux_wire::protocol::{encode_device_view, AgentGroup};
@@ -329,6 +329,7 @@ impl DeviceViewCore for Core {
             }),
         );
         let layout = Box::new(layout::view(self, &workspace, &sessions, device));
+        let chief_targets = chief_targets(self, &workspace, &chats, &inbox, &recent);
         let view = DeviceView {
             workspace,
             sessions,
@@ -349,6 +350,7 @@ impl DeviceViewCore for Core {
             }),
             alerts: host_stats::alerts(self),
             updates: updates::host_view(self),
+            chief_targets,
         };
         let frame = encode_device_view(&view).ok()?;
         Some((frame, moving))
@@ -549,4 +551,60 @@ pub(crate) fn title_chief_recents(core: &Core, chats: &mut [sikemux_view::device
             chat.title = sikemux_view::chat::CHIEF_ROLE.to_owned();
         }
     }
+}
+
+fn chief_targets(
+    core: &Core,
+    workspace: &sikemux_view::workspace::Workspace,
+    chats: &[sikemux_wire::protocol::ChatInfo],
+    inbox: &sikemux_view::inbox::Inbox,
+    recent: &[sikemux_view::device::RecentInfo],
+) -> Vec<ChiefTarget> {
+    workspace
+        .projects
+        .iter()
+        .filter_map(|project| {
+            let chat_id = project.chief.as_ref()?;
+            if project.chief_home.is_some() {
+                return None;
+            }
+            let chat = chats.iter().find(|chat| chat.agent_id == *chat_id);
+            let shown = inbox
+                .agents
+                .iter()
+                .chain(&inbox.kept)
+                .find(|agent| agent.agent_id == *chat_id);
+            let ran = core
+                .names()
+                .ran_session(chat_id)
+                .map(|ran| format!("{}:{}", ran.provider, ran.session_id));
+            let rec = recent.iter().find(|entry| {
+                entry.agent_id.as_deref() == Some(chat_id.as_str())
+                    || ran.as_deref() == Some(entry.id.as_str())
+            });
+            let provider = chat
+                .map(|chat| chat.provider.as_str())
+                .or_else(|| shown.map(|agent| agent.cli.as_str()))
+                .or_else(|| {
+                    project
+                        .launcher
+                        .as_deref()
+                        .and_then(|launcher| launcher.split(':').next())
+                })
+                .unwrap_or("agent")
+                .to_owned();
+            let active_at = shown
+                .and_then(|agent| agent.active_at)
+                .or_else(|| chat.and_then(|chat| chat.active_at))
+                .or_else(|| rec.map(|entry| entry.active_at))
+                .unwrap_or(0);
+            Some(ChiefTarget {
+                project_id: project.id.clone(),
+                project: project.name.clone(),
+                chat_id: chat_id.clone(),
+                provider,
+                active_at,
+            })
+        })
+        .collect()
 }

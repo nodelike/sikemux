@@ -1429,6 +1429,15 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         }
     }
     let rolled = rollup(listed.iter().filter(in_main).chain(in_reach));
+    let team_needs_you: Vec<String> = by_project
+        .iter()
+        .filter(|(_, agents)| {
+            agents
+                .iter()
+                .any(|agent| !agent.chief && agent.group == AgentGroup::Blocked)
+        })
+        .map(|(project, _)| project.clone())
+        .collect();
     let projects = by_project
         .into_iter()
         .filter_map(|(project, agents)| Some((project, rollup(agents)?)))
@@ -1479,6 +1488,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         needed,
         agents: listed,
         kept,
+        team_needs_you,
         ..view
     };
     inbox.glance = ActivityGlance::of(&inbox);
@@ -1772,6 +1782,7 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo], turns: &Turn
         rollup: None,
         glance: ActivityGlance::default(),
         moment: moment(core),
+        team_needs_you: Vec::new(),
     }
 }
 

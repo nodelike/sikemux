@@ -46,7 +46,7 @@ let fixture = #"""
      "choices": {"allowOnce": "o1", "allowAlways": "o2", "reject": "o3", "command": "pnpm test --filter core -- --runInBand", "title": "Run tests"}}
   ],
   "faceStyle": {"motion": true},
-  "inbox": {"working": 2, "rollup": {"subagents": 3, "tasks": 2}, "agents": [
+  "inbox": {"working": 2, "remoteAgents": [], "rollup": {"subagents": 3, "tasks": 2}, "agents": [
     {"agentId": "c1", "chief": true, "name": "Chief", "cli": "claude", "project": "p-sikemux", "projectName": "sikemux", "title": "Friendlier welcome screen", "titled": true, "turn": {"state": "working", "since": AGO(40)}, "group": "working", "failed": false, "subagents": 0, "tasks": 0},
     {"agentId": "a1", "name": "Otter", "cli": "claude", "project": "p-sikemux", "projectName": "sikemux", "title": "Fix the login flake", "titled": true, "turn": {"state": "needsYou", "since": AGO(134), "call": {"id": "p1", "question": "Run pnpm test?", "waitingSince": AGO(134), "count": 1}}, "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
     {"agentId": "a9", "name": "Maple", "cli": "codex", "project": "p-server", "projectName": "server", "title": "Move the ledger import", "titled": true, "turn": {"state": "needsYou", "since": AGO(60), "call": {"id": "q1", "question": "Cents or decimals?", "waitingSince": AGO(60), "count": 1}}, "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
@@ -135,7 +135,7 @@ func catalogueFaces() -> [AgentFace] {
 let faces = arguments.contains("--faces") ? catalogueFaces() : []
 let agents = faces.isEmpty ? decoded.inbox.agents : decoded.inbox.agents.enumerated().map { index, agent in
     AgentShown(agentId: agent.agentId, chief: agent.chief, name: agent.name, cli: agent.cli, title: agent.title, titled: agent.titled, session: agent.session, group: agent.group, turn: agent.turn, subagents: agent.subagents, tasks: agent.tasks, failed: agent.failed, nextTrigger: agent.nextTrigger, line: agent.line, calledAt: agent.calledAt,
-               face: faces[index % faces.count], project: agent.project, projectName: agent.projectName, reconnecting: agent.reconnecting,
+               face: faces[index % faces.count], lead: agent.lead, project: agent.project, projectName: agent.projectName, reconnecting: agent.reconnecting,
                snoozedUntil: nil, settledAt: nil)
 }
 /// The new welcome screen as staging shows it, drawn to a file for a call's evidence.
@@ -305,7 +305,7 @@ func standing(_ workspace: Workspace, agents: [AgentShown], calls: [PersonCall])
             : states.contains(where: { $0 == .working || $0 == .waiting }) ? .atWork
             : .atRest
         return ProjectInfo(id: project.id, name: project.name, path: project.path, chief: project.chief,
-                           agents: project.agents, standing: standing, calls: open > 0 ? open : nil)
+                           chiefHome: project.chiefHome, agents: project.agents, standing: standing, calls: open > 0 ? open : nil)
     }
     return Workspace(projects: projects, launchers: workspace.launchers, palette: workspace.palette)
 }
@@ -313,7 +313,7 @@ func standing(_ workspace: Workspace, agents: [AgentShown], calls: [PersonCall])
 let full = DeviceView(
     workspace: standing(decoded.workspace, agents: agents, calls: (decoded.calls ?? []) + demoCalls),
     attentions: decoded.attentions,
-    inbox: Inbox(items: decoded.inbox.items.filter { $0.kind != .hostAlert }, working: decoded.inbox.working, agents: agents, rollup: decoded.inbox.rollup),
+    inbox: Inbox(items: decoded.inbox.items.filter { $0.kind != .hostAlert }, working: decoded.inbox.working, remoteAgents: decoded.inbox.remoteAgents, agents: agents, rollup: decoded.inbox.rollup, teamNeedsYou: decoded.inbox.teamNeedsYou),
     calls: (decoded.calls ?? []) + demoCalls, now: decoded.now, faceStyle: decoded.faceStyle, load: nil
 )
 
@@ -332,8 +332,10 @@ func view(keeping ids: Set<String>?, load: HostLoad? = nil) -> DeviceView {
         attentions: full.attentions.filter { ids.contains($0.agentId) },
         inbox: Inbox(
             items: items, working: items.filter { $0.kind == .working }.count,
+            remoteAgents: full.inbox.remoteAgents.filter { ids.contains($0.agentId) },
             agents: agents,
-            rollup: AgentRollup(subagents: agents.reduce(0) { $0 + $1.subagents }, tasks: agents.reduce(0) { $0 + $1.tasks })
+            rollup: AgentRollup(subagents: agents.reduce(0) { $0 + $1.subagents }, tasks: agents.reduce(0) { $0 + $1.tasks }),
+            teamNeedsYou: full.inbox.teamNeedsYou
         ),
         calls: calls, now: full.now, faceStyle: full.faceStyle, load: load
     )

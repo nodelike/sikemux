@@ -274,6 +274,9 @@ pub struct Inbox {
     /// The latest moment of an agent's work a pane celebrates, as the theme sizes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moment: Option<Celebration>,
+    /// Projects whose non-chief open team has an agent needing the person, by project id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub team_needs_you: Vec<String>,
 }
 
 /// One moment of an agent's work worth a burst of sparks near the top right of its pane, or a

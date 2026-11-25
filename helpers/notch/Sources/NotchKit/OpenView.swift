@@ -292,6 +292,7 @@ struct RowLine: View {
                     AgentLook(entry: entry, size: 20)
                 }
             }
+            .opacity(entry.reachable ? 1 : 0.55)
             .matchedGeometryEffect(id: entry.id, in: marks)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if entry.isChief {
@@ -312,18 +313,31 @@ struct RowLine: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             ProjectLabel(project: entry.project).frame(maxWidth: 150, alignment: .trailing).fixedSize()
-            if entry.name != nil || entry.subagents > 0 || entry.tasks > 0 || entry.inLine != nil || entry.mark != .idle {
+            if entry.host != nil || entry.leadName != nil || entry.name != nil || entry.subagents > 0 || entry.tasks > 0 || entry.inLine != nil || entry.mark != .idle || entry.teamNeedsYou {
                 HStack(spacing: 8) {
+                    if let host = entry.host {
+                        IconView(icon: Icons.server, size: 11)
+                            .foregroundStyle(Theme.inkFaint)
+                            .help(entry.reachable ? "Runs on \(host)" : "Runs on \(host), out of reach")
+                    }
+                    if let leadName = entry.leadName {
+                        Text("@\(leadName) ›").font(Theme.ui(11)).foregroundStyle(Theme.inkFaint).lineLimit(1).fixedSize()
+                    }
                     if let name = entry.name, !entry.isChief {
                         Text("@\(name)").font(Theme.ui(11)).foregroundStyle(Theme.inkFaint).lineLimit(1).fixedSize()
                     }
                     if entry.subagents > 0 { SubagentCount(count: entry.subagents) }
                     if entry.tasks > 0 { ShellCount(count: entry.tasks) }
                     if let line = entry.inLine { LinePlace(line: line) }
-                    TurnMark(mark: entry.mark, turn: entry.agent?.turn)
+                    if entry.isChief, entry.mark == .idle, entry.teamNeedsYou {
+                        Circle().fill(Theme.warn).frame(width: 7, height: 7).frame(width: 16, height: 16)
+                    } else {
+                        TurnMark(mark: entry.mark, turn: entry.agent?.turn)
+                    }
                 }
             }
         }
+        .padding(.leading, CGFloat(entry.depth) * 14)
     }
 }
 

@@ -3,7 +3,7 @@ import Foundation
 extension DeviceView {
     static let empty = DeviceView(
         workspace: Workspace(projects: [], launchers: [], palette: [:]), attentions: [],
-        inbox: Inbox(items: [], working: 0, agents: [], rollup: nil), calls: [], now: nil,
+        inbox: Inbox(items: [], working: 0, remoteAgents: [], agents: [], rollup: nil, teamNeedsYou: nil), calls: [], now: nil,
         faceStyle: FaceStyle(motion: true), load: nil
     )
 }
@@ -78,10 +78,16 @@ struct Entry: Identifiable, Equatable {
     let agent: AgentShown?
     let ask: Ask?
     var question: AgentQuestion? = nil
+    var host: String? = nil
+    var reachable: Bool = true
+    var depth: Int = 0
+    var leadName: String? = nil
+    var teamNeedsYou: Bool = false
 
     var id: String { item?.id ?? "agent:\(agent?.agentId ?? "")" }
     var agentId: String? { agent?.agentId ?? item?.agentId }
     var name: String? { item?.name ?? agent?.name }
+    var lead: String? { agent?.lead }
     var provider: String { item?.cli ?? agent?.cli ?? "" }
     var project: String { item?.projectName ?? agent?.projectName ?? "" }
     /// The workspace project it is in, by id, which tells apart two projects of one name.
@@ -149,30 +155,60 @@ extension DeviceView {
     /// and the question it asks from `questions`. Agents on other hosts the inbox lists follow; items that are not about
     /// an agent are left out.
     func entries(_ questions: [AgentQuestion]) -> [Entry] {
-        let agents = inbox.agents.filter { $0.snoozedUntil == nil && $0.settledAt == nil }
-        let hidden = Set(inbox.agents.map(\.agentId)).subtracting(agents.map(\.agentId))
+        let localAgents = inbox.agents.filter { $0.snoozedUntil == nil && $0.settledAt == nil }
+        let hidden = Set(inbox.agents.map(\.agentId)).subtracting(localAgents.map(\.agentId))
+        let remoteById = Dictionary(
+            inbox.remoteAgents
+                .filter { $0.snoozedUntil == nil && $0.settledAt == nil && !hidden.contains($0.agentId) }
+                .map { ($0.agentId, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let localIds = Set(localAgents.map(\.agentId))
+        let remotes = inbox.remoteAgents
+            .filter { $0.snoozedUntil == nil && $0.settledAt == nil && !localIds.contains($0.agentId) && !hidden.contains($0.agentId) }
+            .map { $0.shown }
+        let agents = localAgents + remotes
         let listed = Set(agents.map(\.agentId))
         var seen = Set<String>()
         let others = inbox.items.compactMap(\.agentId)
             .filter { !listed.contains($0) && !hidden.contains($0) && seen.insert($0).inserted }
+        let teamNeeds = Set(inbox.teamNeedsYou ?? [])
+        let projectsById = Dictionary(workspace.projects.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let entries = (agents.map(\.agentId) + others).map { agentId in
             let item = inbox.items.first { $0.agentId == agentId }
+            let agent = agents.first { $0.agentId == agentId }
+            let remote = remoteById[agentId]
+            let projectId = agent?.project ?? item?.project
+            let chiefHome = (agent?.chief == true) ? projectId.flatMap { projectsById[$0]?.chiefHome } : nil
+            let host = remote?.host ?? item?.host ?? chiefHome?.hostName
+            let reachable = remote?.reachable ?? (chiefHome.map { $0.awaySince == nil } ?? true)
+            let needsTeam = (agent?.chief == true) && projectId.map { teamNeeds.contains($0) } == true
             return Entry(
                 item: item,
-                agent: agents.first { $0.agentId == agentId },
+                agent: agent,
                 ask: attentions.first { $0.id == item?.requestId }.map(Ask.init),
-                question: questions.first { $0.id == item?.questionId }
+                question: questions.first { $0.id == item?.questionId },
+                host: host,
+                reachable: reachable,
+                teamNeedsYou: needsTeam
             )
         }
         return byProject(entries)
     }
 
     /// The entries project by project, each project's @Chief first and its agents after it in
-    /// the order given, projects in the order of how the core says they stand: needs you, then at
+    /// lead-tree order, projects in the order of how the core says they stand: needs you, then at
     /// work, then the rest, each in the order the core lists them. Entries of no listed project
     /// follow, as they were.
     func byProject(_ entries: [Entry]) -> [Entry] {
         let projects = workspace.projects
+        let namesById = Dictionary(
+            entries.compactMap { entry -> (String, String)? in
+                guard let id = entry.agentId, let name = entry.name else { return nil }
+                return (id, name)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         func belongs(_ entry: Entry, _ project: ProjectInfo) -> Bool { entry.projectId == project.id }
         func rank(_ project: ProjectInfo) -> Int {
             switch project.standing {
@@ -188,10 +224,67 @@ extension DeviceView {
         var ordered: [Entry] = []
         for project in ranked {
             let mine = entries.filter { belongs($0, project) }
-            ordered += mine.filter(\.isChief) + mine.filter { !$0.isChief }
+            let chiefs = mine.filter(\.isChief)
+            let workers = Self.withHierarchy(mine.filter { !$0.isChief }, rootDepth: chiefs.isEmpty ? 0 : 1, namesById: namesById)
+            ordered += chiefs + workers
         }
         let placed = Set(ordered.map(\.id))
-        return ordered + entries.filter { !placed.contains($0.id) }
+        let loose = Self.withHierarchy(entries.filter { !placed.contains($0.id) }, rootDepth: 0, namesById: namesById)
+        return ordered + loose
+    }
+
+    private static let maxDepth = 3
+
+    private static func withHierarchy(_ rows: [Entry], rootDepth: Int, namesById: [String: String]) -> [Entry] {
+        let indexById = Dictionary(
+            rows.enumerated().compactMap { ix, row in row.agentId.map { ($0, ix) } },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let parent: [Int?] = rows.enumerated().map { ix, row in
+            guard let lead = row.lead, let parentIx = indexById[lead], parentIx != ix else { return nil }
+            return parentIx
+        }
+        var children = Array(repeating: [Int](), count: rows.count)
+        for (ix, lead) in parent.enumerated() {
+            if let lead { children[lead].append(ix) }
+        }
+        var placed = Array(repeating: false, count: rows.count)
+        var order: [(Int, Int)] = []
+        func walk(_ ix: Int, _ depth: Int) {
+            placed[ix] = true
+            order.append((ix, depth))
+            for child in children[ix] where !placed[child] {
+                walk(child, depth + 1)
+            }
+        }
+        for ix in rows.indices where parent[ix] == nil && !placed[ix] {
+            walk(ix, 0)
+        }
+        for ix in rows.indices where !placed[ix] {
+            walk(ix, 0)
+        }
+        return order.map { ix, depth in
+            var entry = rows[ix]
+            let raw = rootDepth + depth
+            let drawn = min(raw, Self.maxDepth)
+            entry.depth = drawn
+            if let lead = entry.lead, parent[ix] == nil || raw > drawn {
+                entry.leadName = namesById[lead]
+            }
+            return entry
+        }
+    }
+}
+
+private extension RemoteAgent {
+    var shown: AgentShown {
+        AgentShown(
+            agentId: agentId, chief: chief, name: name, cli: cli, title: title, titled: titled,
+            session: session, group: group, turn: turn, subagents: subagents, tasks: tasks,
+            failed: failed, nextTrigger: nextTrigger, line: line, calledAt: calledAt, face: face,
+            lead: lead, project: project, projectName: projectName, reconnecting: reconnecting,
+            snoozedUntil: snoozedUntil, settledAt: settledAt
+        )
     }
 }
 
