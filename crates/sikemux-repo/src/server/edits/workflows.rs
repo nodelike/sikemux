@@ -586,6 +586,7 @@ fn ask_for(core: &Core, dir: &Path, remote: &str, top: &str, agent_id: &str, com
         place: None,
         key: Some(key),
         yes: Some(HOLD_ALLOW.to_owned()),
+        attempt: None,
     };
     if let Err(why) = person_calls::raise(core, raise) {
         eprintln!("sikemux core: a change to CI could not be put to the person: {why}");

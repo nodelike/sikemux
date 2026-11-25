@@ -27,6 +27,7 @@ use sikemux_view::places::{Level, Recognise};
 use sikemux_view::slice::Verdict;
 
 use crate::server::access::Peer;
+use crate::server::part::Part;
 use crate::server::places::place::new_place;
 use crate::server::places::push::tests::git;
 use crate::server::places::*;
@@ -1201,6 +1202,49 @@ fn closed_after_restart(data: &Path, id: &str) -> Option<CallResult> {
         .into_iter()
         .find(|call| call.id == id)?;
     call.outcome.map(|outcome| outcome.result)
+}
+
+/// The gate's call `id` after a restart that has finished what it cut short.
+async fn after_a_restart(data: &Path, id: &str) -> PersonCall {
+    let again = Core::new(Default::default(), Some(data)).unwrap();
+    for finishing in again.person_calls().start(&again) {
+        finishing.await.unwrap();
+    }
+    crate::server::person_calls::shown(&again)
+        .into_iter()
+        .find(|call| call.id == id)
+        .unwrap()
+}
+
+/// A nightly that kept yeses under other keys left its calls open, and a yes tapped on one let
+/// nothing run.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_whose_yes_cannot_count_is_taken_back_at_start() {
+    let dir = repo();
+    let data = tempfile::tempdir().unwrap();
+    let (cwd, project) = work_of(&dir);
+    let core = core_at(Some(data.path()), &project, vec![vercel_place()]);
+    assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
+    let call = open_calls(&core).remove(0);
+    let key = crate::server::person_calls::key_of(&core, &call.id).unwrap();
+    drop(core);
+    let kept = after_a_restart(data.path(), &call.id).await;
+    assert_eq!(kept.state, CallState::Open);
+
+    let logs = std::fs::read_dir(data.path().join("person-calls")).unwrap();
+    let [log] = logs
+        .map(|log| log.unwrap().path())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+    let text = std::fs::read_to_string(&log).unwrap();
+    assert!(text.contains(&key));
+    std::fs::write(&log, text.replace(&key, "place:older")).unwrap();
+    let taken_back = after_a_restart(data.path(), &call.id).await;
+    assert_eq!(
+        taken_back.outcome.map(|outcome| outcome.result),
+        Some(CallResult::Withdrawn)
+    );
 }
 
 async fn answer_on_the_card(core: &Arc<Core>, id: &str) {

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sikemux_view::calls::{CallAnswer, CallAsker, CallClient, CallOutcome, PersonCall};
 
+use super::super::ship::Attempt;
 use super::{Also, Source};
 
 const FOLDER: &str = "person-calls";
@@ -30,6 +31,9 @@ pub enum Entry {
         yes: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         key: Option<String>,
+        /// What the agent tried to run, on a call the gate raised.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        attempt: Option<Box<Attempt>>,
     },
     /// Another agent waits on it, raising it again from `source`.
     #[serde(rename_all = "camelCase")]

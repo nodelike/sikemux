@@ -29,6 +29,7 @@ use super::access::Peer;
 use super::activity_log::ActivityLog;
 use super::changed::What;
 use super::edits::workflows;
+use super::ship::Attempt;
 use super::{ship, Core, CoreError, CoreResult};
 use sikemux_calls::questions::{AnswerParams, AnswersParams};
 
@@ -65,6 +66,8 @@ struct Kept {
     key: Option<String>,
     /// The option that lets what it holds run, on a call where one does.
     yes: Option<String>,
+    /// What the agent tried to run, on a call the gate raised.
+    attempt: Option<Box<Attempt>>,
     /// When what its yes lets run started, so a restart can't say nothing ran.
     started: Option<u64>,
     /// The clients that drew it, and when each first did.
@@ -88,6 +91,8 @@ struct AfterStart {
     interrupted: Vec<String>,
     /// Held actions, which a restart lets go of: their agents hear to run them again.
     dropped: Vec<String>,
+    /// The gate's open calls, which are taken back if a yes to them would no longer count.
+    gated: Vec<String>,
     /// Other calls whose answer may not have reached their askers.
     undelivered: Vec<String>,
 }
@@ -124,10 +129,12 @@ pub struct Raise {
     pub key: Option<String>,
     /// The option that lets what the call holds run, such as a deploy's yes.
     pub yes: Option<String>,
+    /// What the agent tried to run, on a call the gate raises.
+    pub attempt: Option<Box<Attempt>>,
 }
 
 impl Raise {
-    fn into_call(self, id: String) -> (PersonCall, Option<String>, Option<String>) {
+    fn into_entry(self, id: String) -> Entry {
         let call = PersonCall {
             id,
             project: self.project,
@@ -160,7 +167,14 @@ impl Raise {
             answer: None,
             outcome: None,
         };
-        (call, self.key, self.yes)
+        Entry::Raised {
+            call: Box::new(call),
+            source: Source::Raised,
+            also: Vec::new(),
+            key: self.key,
+            yes: self.yes,
+            attempt: self.attempt,
+        }
     }
 }
 
@@ -248,6 +262,7 @@ fn apply_with(book: &mut Book, entry: Entry, prune: bool) {
         also,
         key,
         yes,
+        attempt,
     } = entry
     {
         let now = epoch_ms();
@@ -267,6 +282,7 @@ fn apply_with(book: &mut Book, entry: Entry, prune: bool) {
             also,
             key,
             yes,
+            attempt,
             started: None,
             seen,
         });
@@ -413,6 +429,7 @@ fn still_open(book: &Book, project: &str) -> Vec<Entry> {
             also: kept.also.clone(),
             key: kept.key.clone(),
             yes: kept.yes.clone(),
+            attempt: kept.attempt.clone(),
         };
         let shown = kept.seen.iter().map(|(by, at)| Entry::Shown {
             id: kept.call.id.clone(),
@@ -450,7 +467,12 @@ impl PersonCalls {
                     true
                 }
                 Source::Question(question) => !question_open(question),
-                Source::Raised => false,
+                Source::Raised => {
+                    if kept.call.place.is_some() {
+                        after_start.gated.push(id.clone());
+                    }
+                    false
+                }
             };
             if dead {
                 let outcome = outcome(CallResult::Withdrawn);
@@ -687,6 +709,7 @@ impl PersonCalls {
                         also: Vec::new(),
                         key,
                         yes,
+                        attempt: None,
                     }),
                 },
             }
@@ -832,15 +855,8 @@ pub fn raise(core: &Core, raise: Raise) -> Result<String, String> {
                 id
             }
             None => {
-                let (call, key, yes) = raise.into_call(uuid::Uuid::new_v4().simple().to_string());
-                let id = call.id.clone();
-                let raised = Entry::Raised {
-                    call: Box::new(call),
-                    source: Source::Raised,
-                    also: Vec::new(),
-                    key,
-                    yes,
-                };
+                let id = uuid::Uuid::new_v4().simple().to_string();
+                let raised = raise.into_entry(id.clone());
                 core.person_calls().put(&mut book, raised)?;
                 id
             }
@@ -853,17 +869,10 @@ pub fn raise(core: &Core, raise: Raise) -> Result<String, String> {
 /// Puts a call the person is only told of, already settled with `outcome`: a production change
 /// at a place they asked to hear of, which ran. It never waits on them.
 pub fn told(core: &Core, raise: Raise, outcome: CallOutcome) -> String {
-    let (call, key, yes) = raise.into_call(uuid::Uuid::new_v4().simple().to_string());
-    let id = call.id.clone();
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    let raised = raise.into_entry(id.clone());
     {
         let mut book = core.person_calls().book.locked();
-        let raised = Entry::Raised {
-            call: Box::new(call),
-            source: Source::Raised,
-            also: Vec::new(),
-            key,
-            yes,
-        };
         core.person_calls().write(&mut book, raised);
         core.person_calls().write(
             &mut book,
@@ -1628,6 +1637,7 @@ impl super::part::Part for PersonCalls {
         let nothing = left.lapsed.is_empty()
             && left.interrupted.is_empty()
             && left.dropped.is_empty()
+            && left.gated.is_empty()
             && left.undelivered.is_empty();
         if nothing {
             return Vec::new();
@@ -1641,9 +1651,20 @@ impl super::part::Part for PersonCalls {
 
 /// Finishes what a restart cut short. The agents waiting on a yes hear whether what it let run
 /// never started, or started and may have run; an agent whose action was held hears to run it
-/// again; and each other answer reaches its askers if it had not. A stopped agent hears when it
-/// starts again.
+/// again; a gate's call whose yes would no longer count is taken back; and each other answer
+/// reaches its askers if it had not. A stopped agent hears when it starts again.
 async fn after_restart(core: &Arc<Core>, left: AfterStart) {
+    let lost = {
+        let core = core.clone();
+        let taken_back = move || {
+            (left.gated.into_iter())
+                .filter(|id| !super::ship::yes_counts(&core, id) && take_back_lost(&core, id))
+                .collect::<Vec<String>>()
+        };
+        tokio::task::spawn_blocking(taken_back)
+            .await
+            .unwrap_or_default()
+    };
     let said = [
         (
             left.lapsed,
@@ -1656,6 +1677,10 @@ async fn after_restart(core: &Arc<Core>, left: AfterStart) {
         (
             left.dropped,
             "Sikemux restarted, so your action held for the person's answer to \"{}\" no longer waits. Run it again when you need it; that asks them again.",
+        ),
+        (
+            lost,
+            "Sikemux restarted, and a yes to \"{}\" would no longer count, so it took that call back. Run it again when you need it; that asks them again.",
         ),
     ];
     for (ids, words) in said {
@@ -1670,6 +1695,26 @@ async fn after_restart(core: &Arc<Core>, left: AfterStart) {
         redeliver(core, &id).await;
     }
     core.person_calls().changed(core);
+}
+
+/// Closes the gate's call `id`, unless the person answered it meanwhile.
+fn take_back_lost(core: &Core, id: &str) -> bool {
+    let mut book = core.person_calls().book.locked();
+    let waits = open(&book, id).is_ok();
+    if waits {
+        let came = Entry::Came {
+            id: id.to_owned(),
+            outcome: outcome(CallResult::Withdrawn),
+        };
+        core.person_calls().write(&mut book, came);
+    }
+    waits
+}
+
+/// What the agent of the gate's call `id` tried to run.
+pub fn attempt_of(core: &Core, id: &str) -> Option<Attempt> {
+    let book = core.person_calls().book.locked();
+    kept(&book, id)?.attempt.as_deref().cloned()
 }
 
 fn call_any(core: &Core, id: &str) -> Option<PersonCall> {

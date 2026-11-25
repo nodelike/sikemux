@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_plugin_api::vault::{as_caller, Caller};
 use sikemux_process::clock::epoch_ms;
@@ -306,16 +307,90 @@ pub fn check(
     check_call(core, agent_id, ship, cwd, None, false, None)
 }
 
-/// [`check`] for a Sikemux tool call, which a hold keeps to run once the person allows it.
-fn check_call(
+/// What an agent tried to run when the gate put it to the person, kept with the call so that a
+/// core started later can tell whether a yes to it still counts. A browser's write is not kept:
+/// what decides it, its address in full, may hold secrets.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Attempt {
+    ship: Ship,
+    cwd: PathBuf,
+    /// A Sikemux tool call rather than a command.
+    tool: bool,
+}
+
+/// Whether a yes to the gate's open call `id` would let its agent's action run, were it run again
+/// now. Runs git and may ask GitHub, so it blocks.
+pub fn yes_counts(core: &Core, id: &str) -> bool {
+    let Some(call) = person_calls::open_call(core, id) else {
+        return false;
+    };
+    let Some(Attempt { ship, cwd, tool }) = person_calls::attempt_of(core, id) else {
+        return false;
+    };
+    match read(core, &call.asker.agent_id, ship, &cwd, tool, None) {
+        Ok(Reading::Judged(judged)) if matches!(judged.judged.goes, Goes::Asks) => {
+            let unread = judged.merging && judged.sends.is_none();
+            let key = judged.key().map(|(key, _)| key);
+            unread || (key.is_some() && key == person_calls::key_of(core, id))
+        }
+        _ => false,
+    }
+}
+
+/// What the gate makes of an action before anyone is asked.
+enum Reading {
+    /// Nothing for the gate to ask.
+    Passes,
+    /// A push or merge that lands as the project says, run from `cwd`.
+    Lands {
+        project: String,
+        ship: Ship,
+        cwd: PathBuf,
+    },
+    Judged(Box<Reads>),
+}
+
+/// An action as the gate reads it, and what its project's places make of it.
+struct Reads {
+    project: String,
+    ship: Ship,
+    cwd: PathBuf,
+    merging: bool,
+    /// A push that may do more than send the checkout's commits to its own branch.
+    exact: bool,
+    tool: bool,
+    sends: Option<String>,
+    /// The repository it changes when it is a push or merge through git with nothing else to it.
+    plain: Option<String>,
+    judged: Judged,
+}
+
+impl Reads {
+    /// What its yes is kept under at the place that decided, and whether that covers it once.
+    fn key(&self) -> Option<(String, bool)> {
+        // A pull request's commits needn't be the checkout's, so a yes to a merge is kept for
+        // that merge rather than for the work in the checkout.
+        let work = (!self.merging && !self.exact).then(|| work::of(&self.cwd));
+        Some(key_of(
+            self.judged.place.as_ref()?,
+            &self.ship,
+            work.flatten().as_deref(),
+            self.sends.as_deref(),
+            self.tool,
+        ))
+    }
+}
+
+/// Reads what `ship`, run by `agent_id` from `cwd`, does and where it lands, as [`check`] says,
+/// or why it may not run at all.
+fn read(
     core: &Core,
     agent_id: &str,
     ship: Ship,
     cwd: &Path,
-    call: Option<ToolCall>,
-    follows: bool,
+    tool: bool,
     addresses: Option<&str>,
-) -> Result<Option<Deploy>, String> {
+) -> Result<Reading, String> {
     let mut project = (core.names().get(agent_id).map(|named| named.project))
         .filter(|project| !project.is_empty())
         .unwrap_or_else(|| core.workspaces().project_of(cwd));
@@ -335,7 +410,7 @@ fn check_call(
                 api_lands = Some(lands);
                 ship.kind = ShipKind::Push;
             }
-            None if owned_here(repo, cwd, &project) => return Ok(None),
+            None if owned_here(repo, cwd, &project) => return Ok(Reading::Passes),
             None => {}
         }
     }
@@ -343,12 +418,11 @@ fn check_call(
     let merging = (ship.kind == ShipKind::Merge)
         .then(|| api_merging.unwrap_or_else(|| push::merging(&ship.what)));
     let mut plain = match ship.kind {
-        _ if call.is_some() => None,
+        _ if tool => None,
         ShipKind::Push => push::plain(&ship.what, cwd),
         ShipKind::Publish => push::one_tag(&ship.what, cwd),
         _ => None,
     };
-    // A push that may do more than send the checkout's commits to its own branch.
     let exact = ship.kind == ShipKind::Push && plain.is_none();
     let sent_from_here = match &merging {
         _ if api_lands.is_some() => false,
@@ -357,7 +431,7 @@ fn check_call(
     };
     if sent_from_here && !same_repository(&pushed_in, &project) {
         let Some(top) = sikemux_process::files::repo_root(&pushed_in) else {
-            return Ok(None);
+            return Ok(Reading::Passes);
         };
         project = core.workspaces().project_of(top);
     }
@@ -375,7 +449,7 @@ fn check_call(
         if let Some(deployed) = deployed {
             let (reach, head, repository) = merging.reach(Path::new(&deployed), &pushed_in);
             if reach == Reach::Project {
-                plain = repository.filter(|_| call.is_none());
+                plain = repository.filter(|_| !tool);
                 project = deployed;
                 sends = head;
                 ship = to_vercel(ship);
@@ -404,7 +478,7 @@ fn check_call(
             );
         }
         match reach {
-            Reach::Branches => return Ok(None),
+            Reach::Branches => return Ok(Reading::Passes),
             Reach::Project => {
                 if let Some(deployed) = from_one(&on_vercel) {
                     project = deployed;
@@ -413,11 +487,15 @@ fn check_call(
             }
             Reach::Tags(names) => {
                 if (core.repo_above().board_landing)(core, &project) != Landing::Core {
-                    return hold(core, agent_id, &project, ship, cwd, call, None);
+                    return Ok(Reading::Lands {
+                        project,
+                        ship,
+                        cwd: cwd.to_owned(),
+                    });
                 }
                 sends = push::tag_commits(&names, &pushed_in);
                 let deployed = from_one(&on_vercel);
-                plain = (call.is_none() && !names.is_empty())
+                plain = (!tool && !names.is_empty())
                     .then(|| push::one_tag(&ship.what, cwd))
                     .flatten();
                 let name = match names.as_slice() {
@@ -466,13 +544,14 @@ fn check_call(
     let cwd = pushed_in.as_path();
     if matches!(ship.kind, ShipKind::Push | ShipKind::Merge) {
         if (core.repo_above().board_landing)(core, &project) == Landing::Core {
-            return Ok(None);
+            return Ok(Reading::Passes);
         }
-        return hold(core, agent_id, &project, ship, cwd, call, None);
+        return Ok(Reading::Lands {
+            project,
+            ship,
+            cwd: cwd.to_owned(),
+        });
     }
-    // A pull request's commits needn't be the checkout's, so a yes to a merge is kept for
-    // that merge rather than for the work in the checkout.
-    let work_here = || work::of(cwd).filter(|_| merging.is_none() && !exact);
     if exact {
         let sent = (api_lands.is_none()).then(|| push::sent(&ship.what, cwd));
         let parts = [sends, sent, work::of(cwd), plain.clone()];
@@ -484,12 +563,60 @@ fn check_call(
     }
     let name = core.names().name_or_id(agent_id);
     let judged = places::judge(core, &project, &ship, &name, addresses, plain.as_deref());
+    Ok(Reading::Judged(Box::new(Reads {
+        merging: merging.is_some(),
+        cwd: cwd.to_owned(),
+        project,
+        ship,
+        exact,
+        tool,
+        sends,
+        plain,
+        judged,
+    })))
+}
+
+/// [`check`] for a Sikemux tool call, which a hold keeps to run once the person allows it.
+fn check_call(
+    core: &Core,
+    agent_id: &str,
+    ship: Ship,
+    cwd: &Path,
+    call: Option<ToolCall>,
+    follows: bool,
+    addresses: Option<&str>,
+) -> Result<Option<Deploy>, String> {
+    let attempt = addresses.is_none().then(|| Attempt {
+        ship: ship.clone(),
+        cwd: cwd.to_owned(),
+        tool: call.is_some(),
+    });
+    let reads = match read(core, agent_id, ship, cwd, call.is_some(), addresses)? {
+        Reading::Passes => return Ok(None),
+        Reading::Lands { project, ship, cwd } => {
+            return hold(core, agent_id, &project, ship, &cwd, call, None)
+        }
+        Reading::Judged(reads) => reads,
+    };
+    let keyed = match reads.judged.goes {
+        Goes::Tells | Goes::Asks => reads.key(),
+        Goes::Freely | Goes::Unplaced => None,
+    };
+    let Reads {
+        project,
+        ship,
+        cwd,
+        merging,
+        plain,
+        judged,
+        ..
+    } = *reads;
+    let cwd = cwd.as_path();
     let place = judged.place.as_ref().map(|place| place.name().to_owned());
     let deploy = |call: Option<String>, telling: Option<Telling>| {
         let followed = ship.kind == ShipKind::Deploy || call.is_some() || telling.is_some();
         place.as_ref().filter(|_| followed).map(|name| Deploy {
-            head: (Git::quick(cwd).trimmed(&["rev-parse", "HEAD"]).ok())
-                .filter(|_| merging.is_none()),
+            head: (Git::quick(cwd).trimmed(&["rev-parse", "HEAD"]).ok()).filter(|_| !merging),
             agent_id: agent_id.to_owned(),
             project: project.clone(),
             environment: name.clone(),
@@ -508,15 +635,7 @@ fn check_call(
                 clippy::expect_used,
                 reason = "a judgement that tells always names its place"
             )]
-            let told = judged.place.as_ref().expect("a place tells");
-            let work = work_here();
-            let (key, _) = key_of(
-                told,
-                &ship,
-                work.as_deref(),
-                sends.as_deref(),
-                call.is_some(),
-            );
+            let ((key, _), told) = keyed.zip(judged.place.as_ref()).expect("a place tells");
             let raise = call_for(core, agent_id, &project, &ship, cwd, told, None);
             Ok(deploy(None, Some(Telling { key, raise })))
         }
@@ -525,15 +644,7 @@ fn check_call(
                 clippy::expect_used,
                 reason = "a judgement that asks always names its place"
             )]
-            let gated = judged.place.clone().expect("a place asks");
-            let work = work_here();
-            let (key, once) = key_of(
-                &gated,
-                &ship,
-                work.as_deref(),
-                sends.as_deref(),
-                call.is_some(),
-            );
+            let ((key, once), gated) = keyed.zip(judged.place.clone()).expect("a place asks");
             let yes = person_calls::find_key(core, &project, &key)
                 .filter(|call| passes(core, call, agent_id))
                 .filter(|call| core.ship().claim(&call.id, once, follows));
@@ -563,6 +674,7 @@ fn check_call(
                 place: &gated,
                 key,
                 once,
+                attempt,
                 routine: plain.filter(|_| places::judge::routine(&gated, &ship)),
             };
             gate(core, agent_id, &project, ship, cwd, asking, judged.why)
@@ -695,6 +807,7 @@ struct Asking<'a> {
     key: String,
     once: bool,
     routine: Option<String>,
+    attempt: Option<Attempt>,
 }
 
 /// The call that puts a change of `ship` to the production place `place` to the person, which
@@ -801,6 +914,7 @@ fn call_for(
         }),
         key: asking.map(|asking| asking.key.clone()),
         yes: Some(person_calls::HOLD_ALLOW.to_owned()),
+        attempt: asking.and_then(|asking| asking.attempt.clone().map(Box::new)),
     }
 }
 

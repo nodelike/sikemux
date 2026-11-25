@@ -69,6 +69,7 @@ pub fn settle(core: &Core) {
             place: None,
             key: None,
             yes: None,
+            attempt: None,
         };
         let outcome = CallOutcome {
             result: CallResult::Heard,

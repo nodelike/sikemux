@@ -18,7 +18,7 @@ mod ssh;
 
 /// An action leaving this machine: what it does, and the exact command or
 /// call, which the person is shown and allowing lets run once.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ship {
     pub kind: ShipKind,
     pub what: String,
