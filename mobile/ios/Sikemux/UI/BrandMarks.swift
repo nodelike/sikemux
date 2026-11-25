@@ -45,6 +45,7 @@ enum BrandMarks {
             IconShape(d: "M1 1h9v9H1z", style: .fill(.hex("#F25022")), opacity: 1, evenOdd: false, translate: (0, 0)),
             IconShape(d: "M11 1h9v9h-9z", style: .fill(.hex("#7FBA00")), opacity: 1, evenOdd: false, translate: (0, 0)),
             IconShape(d: "M1 11h9v9H1z", style: .fill(.hex("#00A4EF")), opacity: 1, evenOdd: false, translate: (0, 0)),
-            IconShape(d: "M11 11h9v9h-9z", style: .fill(.hex("#FFB900")), opacity: 1, evenOdd: false, translate: (0, 0)),
+            IconShape(
+                d: "M11 11h9v9h-9z", style: .fill(.hex("#FFB900")), opacity: 1, evenOdd: false, translate: (0, 0)),
         ])
 }
