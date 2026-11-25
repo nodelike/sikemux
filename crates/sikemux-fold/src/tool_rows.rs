@@ -246,17 +246,6 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
-        "browser_switch_tab",
-        Spec {
-            verb: "switch",
-            kind: "move",
-            icon: "tabs",
-            target: &["tab {tabId}"],
-            detail: &[],
-            plugin: None,
-        },
-    ),
-    (
         "browser_close_tab",
         Spec {
             verb: "close",
