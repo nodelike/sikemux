@@ -121,6 +121,16 @@ keeps only sealed entries and wrapped keys. Against a server that lies in what i
   left, and for any older it counts nothing dated before the last it forgot. What it vouched for
   while it was trusted still counts. A holder seals the key, when it hands it out and when it
   replaces it, only for hosts it trusts that the server still lists.
+- **At most 50 computers of one account are trusted.** A host comes to trust only the first 50 of
+  it in the order the server lists them, which is the order they were linked, so hosts that hear
+  of them in another order still keep the same ones. One it trusts makes way for no other, so a
+  host that was offline while a computer was removed and linked again keeps that one and has no
+  room for the computer that took its place. A computer past them shows no code and says why, and
+  pasting its code says the same; removing one from the account frees a place. This holds for
+  owners and admins too, as the list names no role. One past them that already has the key neither
+  hands it on nor replaces it, and keeps it until a host that doesn't trust it replaces it. In all
+  a host trusts at most 3,000 computers in an org, the first it hears of. They are in an item of
+  its secret store for each org, which always takes that many.
 - **A stored wrap stays, and members wrap only for their own hosts.** Adding wraps never
   replaces one a host already has, and the server takes a wrap for another account's host only
   from an owner's or admin's host, so a member's host can neither overwrite another's wrap nor

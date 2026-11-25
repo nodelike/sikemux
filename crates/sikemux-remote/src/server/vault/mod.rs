@@ -386,6 +386,10 @@ pub mod keys {
         org::sync_org(core, org, &Me::of(host)).await
     }
 
+    pub fn org_full(core: &Core, org: &str) -> Option<String> {
+        org::full(core, org)
+    }
+
     pub async fn make_org(core: &Core, org: &str, host: &iroh::SecretKey) -> CoreResult<()> {
         org::make_vault(core, org, &Me::of(host)).await
     }

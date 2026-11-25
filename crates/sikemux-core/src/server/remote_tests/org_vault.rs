@@ -27,6 +27,8 @@ struct Kept {
     generation: i64,
     rotate: bool,
     hosts: BTreeMap<String, String>,
+    /// The hosts in the order it lists them.
+    linked: Vec<String>,
     wraps: BTreeMap<String, String>,
     vouches: Vec<Value>,
     entries: Vec<Value>,
@@ -54,7 +56,8 @@ impl Kept {
     fn state(&self, asker: &str) -> Value {
         let (holders, waiting): (Vec<&String>, Vec<&String>) =
             (self.hosts.keys()).partition(|host| self.wraps.contains_key(*host));
-        let hosts: Vec<Value> = (self.hosts.iter())
+        let hosts: Vec<Value> = (self.linked.iter())
+            .filter_map(|host| Some((host, self.hosts.get(host)?)))
             .map(|(host, member)| {
                 json!({ "hostKey": host, "member": member, "computer": format!("{member}'s Mac") })
             })
@@ -76,6 +79,12 @@ impl Kept {
             "waiting": waiting, "rotate": self.rotate, "remadeAt": null,
             "entries": self.entries, "ended": self.ended, "changes": 0, "since": null, "hosts": hosts, "vouches": vouches,
         }})
+    }
+
+    fn link(&mut self, host: &str, member: &str) {
+        self.linked.retain(|linked| linked != host);
+        self.linked.push(host.to_owned());
+        self.hosts.insert(host.to_owned(), member.to_owned());
     }
 
     fn keep(&mut self, request: &str, asker: &str, body: &Value) -> u16 {
@@ -195,7 +204,7 @@ impl Host {
 
     async fn known_as(kept: &Shared, secret: SecretKey, member: &str, role: OrgRole) -> Host {
         let me = secret.public().to_string();
-        kept.locked().hosts.insert(me.clone(), member.to_owned());
+        kept.locked().link(&me, member);
         let base = serve(kept.clone(), me).await;
         let core = Core::new(BuildIdentity::default(), None).unwrap();
         core.remote()
@@ -265,6 +274,10 @@ impl Host {
         self.core.vault().orgs().seen(&self.org.id).1.unwrap()
     }
 
+    fn full(&self) -> Option<String> {
+        keys::org_full(&self.core, &self.org.id)
+    }
+
     async fn let_in(&self, code: &str) -> CoreResult<OrgLetInAnswer> {
         keys::let_in_to_org(&self.core, &self.org, &self.secret, code).await
     }
@@ -279,7 +292,7 @@ fn hold(kept: &Shared, from: &SecretKey, to: &str) {
 
 fn list(kept: &Shared, member: &str) -> SecretKey {
     let host = SecretKey::generate();
-    (kept.locked().hosts).insert(host.public().to_string(), member.to_owned());
+    (kept.locked()).link(&host.public().to_string(), member);
     host
 }
 
@@ -610,6 +623,7 @@ async fn an_introduction_made_with_another_code_counts_for_nothing() {
     {
         let (mut kept, forged) = (kept.locked(), forged.locked());
         kept.hosts.extend(forged.hosts.clone());
+        kept.linked.extend(forged.linked.clone());
         kept.wraps = forged.wraps.clone();
         kept.vouches = forged.vouches.clone();
     }
@@ -801,4 +815,70 @@ async fn a_let_in_the_server_did_not_take_trusts_no_host() {
 
     let answer = founder.let_in(&code).await.unwrap();
     assert_eq!(answer.computer, Some(format!("{MEMBER}'s Mac")));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_computer_past_fifty_of_its_account_waits_for_a_place_and_says_so() {
+    let kept = server();
+    let founder = Host::founder(&kept).await;
+    let late = Host::new(&kept, MEMBER, OrgRole::User).await;
+    let code = late.code().await;
+    let earlier: Vec<SecretKey> = (0..52).map(|_| list(&kept, MEMBER)).collect();
+    kept.locked().link(&late.me(), MEMBER);
+
+    late.read().await;
+    let (status, shown) = late.core.vault().orgs().seen(&late.org.id);
+    assert_eq!((status, shown), (OrgVaultStatus::Waiting, None));
+    let says = late.full().unwrap();
+    assert!(says.contains("yours has 52 linked earlier. Once you remove 3 "));
+    let refused = founder.let_in(&code).await.unwrap_err().to_string();
+    assert!(refused.contains("at most 50 computers of one account"));
+
+    for removed in &earlier[..3] {
+        kept.locked().hosts.remove(&removed.public().to_string());
+    }
+    assert_eq!(late.code().await, code);
+    assert_eq!(late.full(), None);
+    founder.let_in(&code).await.unwrap();
+    late.read().await;
+    assert!(late.open());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_computer_past_fifty_of_its_account_hands_nothing_on() {
+    let kept = server();
+    let founder = Host::founder(&kept).await;
+    let second = Host::new(&kept, MEMBER, OrgRole::User).await;
+    let code = second.code().await;
+    founder.let_in(&code).await.unwrap();
+    second.read().await;
+    let waits = Host::new(&kept, MEMBER, OrgRole::User).await;
+    let code = waits.code().await;
+    for _ in 0..50 {
+        list(&kept, OWNER);
+    }
+    kept.locked().link(&founder.me(), OWNER);
+    kept.locked().rotate = true;
+
+    founder.read().await;
+    assert!(founder.open());
+    assert_eq!(kept.locked().generation, 1);
+    let refused = founder.let_in(&code).await.unwrap_err().to_string();
+    assert_eq!(Some(refused), founder.full());
+    assert!(!holders(&kept).contains(&waits.me()));
+    second.read().await;
+    assert!(second.open());
+
+    let owners = kept.locked().linked.clone();
+    let freed = (owners.iter())
+        .find(|host| kept.locked().hosts.get(*host).map(String::as_str) == Some(OWNER))
+        .cloned()
+        .unwrap();
+    assert_ne!(freed, founder.me());
+    kept.locked().hosts.remove(&freed);
+    founder.read().await;
+    assert_eq!(kept.locked().generation, 2);
+    second.read().await;
+    assert!(second.open());
+    founder.let_in(&code).await.unwrap();
 }

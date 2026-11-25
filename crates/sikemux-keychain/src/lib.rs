@@ -113,7 +113,7 @@ fn name_like(raw: &str, what: &str) -> KeychainResult<String> {
 }
 
 /// Room for a list kept as one secret, such as the hosts an org's vault trusts.
-const SECRET: usize = 1024 * 1024;
+pub const SECRET: usize = 1024 * 1024;
 
 fn secret_like(raw: &str) -> KeychainResult<String> {
     let secret = raw.trim();

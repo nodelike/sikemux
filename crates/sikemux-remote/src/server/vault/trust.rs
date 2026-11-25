@@ -46,6 +46,37 @@ pub fn listed(vault: &OrgVault) -> Option<BTreeMap<&str, &str>> {
     )
 }
 
+/// The most computers of one account trusted in an org.
+pub const COMPUTERS: usize = 50;
+/// The most computers trusted in an org. With the longest names taken, the secret store's item
+/// holds this many and the most remembered dropped.
+const ROOM: usize = 3000;
+/// The longest host key or membership trusted.
+const NAME: usize = 64;
+
+fn takes_name(name: &str) -> bool {
+    let plain = |byte: u8| byte.is_ascii_alphanumeric() || b"_-".contains(&byte);
+    name.len() <= NAME && name.bytes().all(plain)
+}
+
+/// The hosts that may come to be trusted: the first of each account's, in the order they were linked,
+/// which is how the vault lists them. So every host keeps the same ones, and a host linked later
+/// never takes an earlier one's place.
+pub fn placed(vault: &OrgVault) -> Option<BTreeMap<&str, &str>> {
+    let listed = listed(vault)?;
+    let mut placed = BTreeMap::new();
+    let mut of: BTreeMap<&str, usize> = BTreeMap::new();
+    for host in vault.hosts.as_ref()? {
+        let (key, member) = (host.host_key.as_str(), host.member.as_str());
+        let of = of.entry(member).or_default();
+        let counts = listed.get(key) == Some(&member) && takes_name(key) && takes_name(member);
+        if counts && *of < COMPUTERS && placed.insert(key, member).is_none() {
+            *of += 1;
+        }
+    }
+    Some(placed)
+}
+
 /// How far past this host's clock another's may be before what it dates counts for nothing.
 const AHEAD: i64 = 24 * 60 * 60 * 1000;
 /// The most dropped hosts remembered, the latest of them.
@@ -83,6 +114,21 @@ fn under(host: &str, member: &str) -> String {
 impl Pins {
     pub fn hold(&self, host: &str) -> bool {
         self.hosts.contains_key(host)
+    }
+
+    /// Whether there is room to trust `host` under `member`.
+    pub fn takes(&self, host: &str, member: &str) -> bool {
+        let of = || self.hosts.values().filter(|pin| pin.member == member);
+        self.holds(host, member) || (self.hosts.len() < ROOM && of().count() < COMPUTERS)
+    }
+
+    /// As the secret store keeps it.
+    pub fn text(&self) -> serde_json::Result<String> {
+        Ok(URL_SAFE_NO_PAD.encode(serde_json::to_vec(self)?))
+    }
+
+    pub fn read(text: &str) -> Option<Pins> {
+        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(text.trim()).ok()?).ok()
     }
 
     fn holds(&self, host: &str, member: &str) -> bool {
@@ -138,13 +184,17 @@ impl Pins {
     }
 
     /// Takes in the hosts that those trusted so far vouch for, then drops each the vault no
-    /// longer lists under the membership it was trusted under. A host that left meanwhile still
-    /// vouches for what it signed before, as nothing here heard it leave. A list without this
-    /// host itself says nothing of the others.
+    /// longer lists under the membership it was trusted under. A host that left
+    /// meanwhile still vouches for what it signed before, as nothing here heard it leave. A list
+    /// without this host itself says nothing of the others. None trusted so far makes way for
+    /// another.
     pub fn refresh(&mut self, org: &str, me: &str, vault: &OrgVault, now: i64) {
-        let Some(listed) = listed(vault).filter(|listed| listed.contains_key(me)) else {
+        let (Some(listed), Some(placed)) = (listed(vault), placed(vault)) else {
             return;
         };
+        if !listed.contains_key(me) {
+            return;
+        }
         let before = self.clone();
         let (dropped, hosts) = (&mut self.dropped, &mut self.hosts);
         hosts.retain(|host, pin| {
@@ -161,11 +211,12 @@ impl Pins {
             let reached: Vec<&OrgVaultVouch> = (vouches.iter())
                 .filter(|vouch| {
                     vouch.host_key != me
-                        && listed.get(vouch.host_key.as_str()) == Some(&vouch.member.as_str())
+                        && placed.get(vouch.host_key.as_str()) == Some(&vouch.member.as_str())
                         && (self.hosts.get(&vouch.host_key)).is_none_or(|pin| pin.at < vouch.at)
                         && (self.holds(&vouch.by, &vouch.by_member)
                             || before.holds(&vouch.by, &vouch.by_member))
                         && vouch.at > before.floor
+                        && self.takes(&vouch.host_key, &vouch.member)
                         && before.counts(org, vouch, now)
                 })
                 .collect();
@@ -177,7 +228,9 @@ impl Pins {
                     .hosts
                     .get(&vouch.host_key)
                     .map_or(vouch.at, |pin| pin.at.max(vouch.at));
-                self.pin(&vouch.host_key, &vouch.member, at);
+                if self.takes(&vouch.host_key, &vouch.member) {
+                    self.pin(&vouch.host_key, &vouch.member, at);
+                }
             }
         }
     }
@@ -232,8 +285,17 @@ impl Pins {
             .collect()
     }
 
-    /// With what each host that was given this one's code told it.
+    /// With what each host that was given this one's code told it. What is told counts once
+    /// `refresh` has read the same list, so a list without this host is passed over.
     pub fn introduced(&mut self, org: &str, me: &Me, vault: &OrgVault, secret: &Secret, now: i64) {
+        let (Some(mut unplaced), Some(placed)) = (listed(vault), placed(vault)) else {
+            return;
+        };
+        if !unplaced.contains_key(me.key.as_str()) {
+            return;
+        }
+        // One the vault lists no longer is still taken in, for `refresh` to drop.
+        unplaced.retain(|host, _| !placed.contains_key(host));
         let told: Vec<Pins> = (vault.vouches.iter().flatten())
             .filter(|vouch| vouch.host_key == me.key)
             .filter_map(|vouch| {
@@ -248,22 +310,41 @@ impl Pins {
             self.floor = floor;
             self.hosts.retain(|_, pin| pin.at > floor);
         }
-        for theirs in told {
-            self.join(theirs, &me.key, now);
+        for mut theirs in told {
+            let (first, rest): (BTreeMap<_, _>, _) = std::mem::take(&mut theirs.hosts)
+                .into_iter()
+                .filter(|(host, _)| !unplaced.contains_key(host.as_str()))
+                .partition(|(host, _)| placed.contains_key(host.as_str()));
+            self.join(theirs.dropped, first.into_iter().chain(rest), &me.key, now);
         }
     }
 
-    fn join(&mut self, theirs: Pins, me: &str, now: i64) {
-        for (place, at) in theirs.dropped {
-            if at <= now + AHEAD {
+    fn join(
+        &mut self,
+        dropped: BTreeMap<String, i64>,
+        hosts: impl Iterator<Item = (String, Pin)>,
+        me: &str,
+        now: i64,
+    ) {
+        for (place, at) in dropped {
+            let names = place.split_once('|');
+            let names = names.is_some_and(|(host, of)| takes_name(host) && takes_name(of));
+            if at <= now + AHEAD && names {
                 let dropped = self.dropped.entry(place).or_default();
                 *dropped = at.max(*dropped);
             }
         }
         self.forget_oldest_dropped();
-        for (host, pin) in theirs.hosts {
+        for (host, pin) in hosts {
             let held = self.hosts.get(&host);
-            if host != me && pin.at <= now + AHEAD && held.is_none_or(|held| held.at < pin.at) {
+            let newer = held.is_none_or(|held| held.at < pin.at);
+            let names = takes_name(&host) && takes_name(&pin.member);
+            if host != me
+                && pin.at <= now + AHEAD
+                && newer
+                && names
+                && self.takes(&host, &pin.member)
+            {
                 self.hosts.insert(host, pin);
             }
         }
@@ -461,5 +542,128 @@ mod tests {
         pins.refresh("org", "me", &vault, slow);
         assert_eq!(pins.floor, now);
         assert_eq!(pins.cleared(slow).floor, now);
+    }
+
+    const NOW: i64 = 1_800_000_000_000;
+
+    /// The vault as it lists `hosts` in order, with a vouch by `by` for each of `vouched`.
+    fn vault(hosts: &[(&Me, &str)], by: (&Me, &str), vouched: &[(&Me, &str)]) -> OrgVault {
+        let hosts: Vec<_> = (hosts.iter())
+            .map(|(host, member)| json!({ "hostKey": host.key, "member": member }))
+            .collect();
+        let vouches: Vec<_> = (vouched.iter().enumerate())
+            .map(|(at, (host, member))| {
+                // The later linked, the earlier dated.
+                let at = NOW - i64::try_from(at).unwrap();
+                let put = vouch("org", by, (&host.key, member), at).unwrap();
+                json!({
+                    "hostKey": host.key, "member": member, "by": by.0.key, "byMember": by.1,
+                    "at": at, "signature": put.signature, "introduction": null,
+                })
+            })
+            .collect();
+        serde_json::from_value(json!({
+            "generation": 1, "key": null, "holders": [], "waiting": [], "rotate": false,
+            "remadeAt": null, "entries": [], "ended": [], "changes": 0, "since": null,
+            "hosts": hosts, "vouches": vouches,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn every_host_trusts_the_same_fifty_computers_of_an_account() {
+        let host = || Me::of(&iroh::SecretKey::generate());
+        let (me, other) = (host(), host());
+        let theirs: Vec<Me> = (0..COMPUTERS + 20).map(|_| host()).collect();
+        let mut hosts = vec![(&me, "manager"), (&other, "manager")];
+        hosts.extend(theirs.iter().map(|host| (host, "member")));
+        let (by, all) = ((&theirs[0], "member"), &hosts[3..]);
+        let reads = |pins: &mut Pins, me: &Me, hosts: &[(&Me, &str)], vouched: &[(&Me, &str)]| {
+            pins.refresh("org", &me.key, &vault(hosts, by, vouched), NOW);
+        };
+        let first = |pins: &Pins, from: usize, to: usize| {
+            theirs
+                .iter()
+                .enumerate()
+                .all(|(at, host)| pins.hold(&host.key) == (from..to).contains(&at))
+        };
+
+        let (mut mine, mut others) = (Pins::default(), Pins::default());
+        mine.let_in(&theirs[0].key, "member", 1);
+        others.let_in(&theirs[0].key, "member", 1);
+        reads(&mut mine, &me, &hosts, &all[..10]);
+        reads(&mut mine, &me, &hosts, all);
+        for at in (0..all.len()).rev() {
+            reads(&mut others, &other, &hosts, &all[at..]);
+        }
+        assert!(first(&mine, 0, COMPUTERS));
+        assert!(first(&others, 0, COMPUTERS));
+
+        let gone: Vec<(&Me, &str)> = [&hosts[..4], &hosts[6..]].concat();
+        reads(&mut mine, &me, &gone, all);
+        assert!((2..4).all(|at| !mine.hold(&theirs[at].key)));
+        assert!((4..COMPUTERS + 2).all(|at| mine.hold(&theirs[at].key)));
+        assert!(!mine.hold(&theirs[COMPUTERS + 2].key));
+
+        let mut told = Pins::default();
+        for at in [0, COMPUTERS - 1, COMPUTERS] {
+            told.let_in(&theirs[at].key, "member", 1);
+        }
+        let (secret, seen) = ([7; 8], vault(&hosts, by, &[]));
+        let to = (me.key.as_str(), "manager");
+        let word = introduce("org", &other, &seen, &told, to, NOW, &secret).unwrap();
+        let mut listing = vault(&hosts, by, &[]);
+        listing.vouches = Some(vec![OrgVaultVouch {
+            host_key: me.key.clone(),
+            member: "manager".to_owned(),
+            by: other.key.clone(),
+            by_member: "manager".to_owned(),
+            at: word.at,
+            signature: word.signature,
+            introduction: word.introduction,
+        }]);
+        let mut new = Pins::default();
+        new.introduced("org", &me, &listing, &secret, NOW);
+        assert!(new.hold(&other.key));
+        assert!(new.hold(&theirs[COMPUTERS - 1].key));
+        assert!(!new.hold(&theirs[COMPUTERS].key));
+    }
+
+    #[test]
+    fn what_a_host_trusts_always_fits_its_secret_store() {
+        let host = || Me::of(&iroh::SecretKey::generate());
+        let (me, by) = (host(), host());
+        let hosts = |count: usize| -> Vec<(Me, String)> {
+            (0..count)
+                .map(|at| (host(), format!("{:0>1$}", at / COMPUTERS, NAME)))
+                .collect()
+        };
+        let mut pins = Pins::default();
+        pins.let_in(&by.key, "by", NOW);
+        let mut read = |of: &[(Me, String)]| {
+            let mut hosts = vec![(&me, "me"), (&by, "by")];
+            hosts.extend(of.iter().map(|(host, member)| (host, member.as_str())));
+            pins.refresh(
+                "org",
+                &me.key,
+                &vault(&hosts, (&by, "by"), &hosts[2..]),
+                NOW,
+            );
+            pins.clone()
+        };
+
+        read(&hosts(DROPPED));
+        let some = hosts(ROOM / 2);
+        read(&some);
+        let mut more = hosts(ROOM);
+        more.insert(0, (host(), "\u{1}".repeat(NAME)));
+        more.splice(0..0, some);
+        let pins = read(&more);
+        assert_eq!((pins.hosts.len(), pins.dropped.len()), (ROOM, DROPPED));
+        assert!(more[..ROOM / 2]
+            .iter()
+            .all(|(host, _)| pins.hold(&host.key)));
+        assert!(!pins.hold(&more[ROOM / 2].0.key));
+        assert!(pins.text().unwrap().len() <= sikemux_keychain::SECRET);
     }
 }

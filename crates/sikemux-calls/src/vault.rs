@@ -91,6 +91,10 @@ pub struct ShownOrgVault {
     pub unreadable: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed: Option<String>,
+    /// Why this host is past the most computers of one account the vault opens on, and what frees
+    /// a place for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full: Option<String>,
     /// While it waits, to an owner or admin: the computers that hold the key and would let this
     /// one in, its own account's and the org's owners' and admins'.
     pub openers: Vec<ShownOrgOpener>,

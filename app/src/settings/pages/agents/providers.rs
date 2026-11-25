@@ -1211,10 +1211,12 @@ fn org_group(
     let adds = vault.writes && vault.status != OrgVaultStatus::Waiting;
     let remade =
         (vault.remade_at).filter(|at| states && !waiting && now_ms().saturating_sub(*at) < WEEK_MS);
-    let lets_in = states && vault.active && vault.status == OrgVaultStatus::Open;
+    let full = vault.full.clone().filter(|_| states);
+    let failed = vault.failed.clone().filter(|_| full.is_none());
+    let lets_in = states && vault.active && vault.status == OrgVaultStatus::Open && full.is_none();
     let unreadable = (vault.unreadable.iter()).filter(|_| states);
     let removes = unreadable.clone().next().is_some();
-    if keys.is_empty() && !waiting && !adds && !lets_in && !removes {
+    if keys.is_empty() && !waiting && !adds && !lets_in && !removes && full.is_none() {
         return None;
     }
     let sub = match (vault.active, vault.writes) {
@@ -1259,16 +1261,18 @@ fn org_group(
             when = when(at)
         ),
     });
-    let remaking = waiting && vault.writes;
+    let asks = waiting && full.is_none();
+    let remaking = asks && vault.writes;
     let body = div()
-        .when(waiting, |body| body.child(note(vec![shut], false)))
+        .when(asks, |body| body.child(note(vec![shut], false)))
         .children(
             (vault.code.as_deref())
                 .filter(|_| waiting)
                 .map(|code| code_row(vault, code, this, cx)),
         )
         .children(after.map(|after| note(vec![after], false)))
-        .children(vault.failed.clone().map(|failed| note(vec![failed], true)))
+        .children(full.map(|full| note(vec![full], true)))
+        .children(failed.map(|failed| note(vec![failed], true)))
         .when(remaking, |body| {
             body.children(vault.openers.iter().map(|opener| opener_row(opener, cx)))
                 .child(remake_row(fields, vault, this, cx))

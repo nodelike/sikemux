@@ -15,6 +15,7 @@ use base64::Engine;
 use reqwest::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use sikemux_agents::launch::providers::{catalogue, OrgKey, ProviderOrg};
 use sikemux_calls::vault::{
     OrgEntryParams, OrgLetIn, OrgLetInAnswer, OrgModelKeyAdd, OrgParams, OrgVaultStatus,
@@ -54,11 +55,13 @@ const SERVICE: &str = if cfg!(debug_assertions) {
 } else {
     "sikemux-org-vaults"
 };
-const ITEM: &str = "org-keys";
+const ITEM: &str = "org-vaults";
+/// Where builds that keep the trusted hosts in the same item look for it.
+const ITEM_BEFORE: &str = "org-keys";
 /// Where builds that seal the key for hosts nobody let in look for it.
-const ITEM_BEFORE: &str = "orgs";
+const ITEM_FIRST: &str = "orgs";
 const ENTRIES_FOLDER: &str = "org-vault-entries";
-/// Where those builds keep the entries, and clear away what their key does not open.
+/// Where the first builds keep the entries, and clear away what their key does not open.
 const ENTRIES_FOLDER_BEFORE: &str = "org-vaults";
 
 /// What a model-key entry holds.
@@ -183,7 +186,10 @@ struct KeptKey {
     proved: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     made: Option<String>,
-    #[serde(default)]
+    /// Kept in an item of its own, and here only by earlier builds.
+    #[serde(default, rename = "pins", skip_serializing)]
+    moving: Option<Pins>,
+    #[serde(skip)]
     pins: Pins,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     code: Option<trust::Secret>,
@@ -201,7 +207,8 @@ impl Copy {
                         vetted: held.vetted,
                         proved: held.proved,
                         made: held.made.clone(),
-                        pins: held.pins.clone(),
+                        moving: None,
+                        pins: Pins::default(),
                         code: held.code,
                     };
                     (id.clone(), kept)
@@ -308,6 +315,8 @@ struct Org {
     status: OrgVaultStatus,
     holders: usize,
     failed: Option<String>,
+    /// Why this host is past the most computers trusted, and what frees a place.
+    full: Option<String>,
     /// The vault's count of changes when this host last took in its entries, so the next read
     /// asks only for what changed after it.
     changes: Option<i64>,
@@ -514,8 +523,14 @@ pub(super) async fn leave_unlisted(core: &Core, orgs: &[AccountOrg]) {
     }
 }
 
-/// The secret store's copy, moved first from where earlier builds kept it. A key from there may
-/// since have been sealed for any host, so it counts as not vetted whatever its mark says.
+/// The secret store's item of the hosts `account` trusts in `org`.
+fn pins_item(account: &str, org: &str) -> String {
+    let of = json!([account, org]).to_string();
+    format!("org-hosts-{}", hex::encode(Sha256::digest(of.as_bytes())))
+}
+
+/// The secret store's copy, moved first from where earlier builds kept it. The first builds' key
+/// may have been sealed for any host, so it counts as not vetted whatever its mark says.
 fn read_keys(service: &str) -> CoreResult<Option<Keys>> {
     let failed = |error: sikemux_keychain::KeychainError| CoreError::from(error.to_string());
     let read = |item| -> CoreResult<Option<Keys>> {
@@ -524,21 +539,41 @@ fn read_keys(service: &str) -> CoreResult<Option<Keys>> {
             .and_then(|text| URL_SAFE_NO_PAD.decode(text.trim()).ok())
             .and_then(|bytes| serde_json::from_slice(&bytes).ok()))
     };
-    let keys = match read(ITEM)? {
-        Some(keys) => Some(keys),
-        None => {
-            let mut before = read(ITEM_BEFORE)?;
-            if let Some(keys) = &mut before {
-                for key in keys.orgs.values_mut() {
-                    key.vetted = false;
-                }
-                let text = URL_SAFE_NO_PAD.encode(serde_json::to_vec(keys)?);
-                sikemux_keychain::write(service, ITEM, &text).map_err(failed)?;
-            }
-            before
+    let mut keys = read(ITEM)?;
+    let moved = keys.is_none();
+    if moved {
+        keys = read(ITEM_BEFORE)?;
+    }
+    if keys.is_none() {
+        keys = read(ITEM_FIRST)?;
+        for key in keys.iter_mut().flat_map(|keys| keys.orgs.values_mut()) {
+            key.vetted = false;
         }
-    };
-    sikemux_keychain::delete(service, ITEM_BEFORE).map_err(failed)?;
+    }
+    if let Some(keys) = &mut keys {
+        for (org, key) in &mut keys.orgs {
+            let item = pins_item(&keys.account, org);
+            if moved {
+                key.pins = key.moving.take().unwrap_or_default();
+                sikemux_keychain::write(service, &item, &key.pins.text()?).map_err(failed)?;
+                continue;
+            }
+            let pins = (sikemux_keychain::read(service, &item).map_err(failed)?)
+                .and_then(|text| Pins::read(&text));
+            // Without the hosts it trusted, the key is read again only from a sealed copy.
+            if pins.is_none() {
+                key.key = None;
+            }
+            key.pins = pins.unwrap_or_default();
+        }
+    }
+    if let Some(keys) = keys.as_ref().filter(|_| moved) {
+        let text = URL_SAFE_NO_PAD.encode(serde_json::to_vec(keys)?);
+        sikemux_keychain::write(service, ITEM, &text).map_err(failed)?;
+    }
+    for item in [ITEM_BEFORE, ITEM_FIRST] {
+        sikemux_keychain::delete(service, item).map_err(failed)?;
+    }
     Ok(keys)
 }
 
@@ -619,15 +654,31 @@ async fn keep(core: &Core, account: Option<&str>) -> CoreResult<()> {
             .transpose()
     };
     let (text, kept_text) = (text(copy.as_ref())?, text(was.as_ref())?);
+    let pins = |copy: Option<&Copy>| -> serde_json::Result<BTreeMap<String, String>> {
+        (copy.iter())
+            .flat_map(|copy| copy.orgs.iter().map(move |org| (&copy.account, org)))
+            .map(|(account, (org, held))| Ok((pins_item(account, org), held.pins.text()?)))
+            .collect()
+    };
+    let (pins, kept_pins) = (pins(copy.as_ref())?, pins(was.as_ref())?);
     let data_dir = core.data_dir().clone();
     let now = copy.clone();
     blocking(move || {
+        let failed = |error: sikemux_keychain::KeychainError| CoreError::from(error.to_string());
+        for (item, text) in &pins {
+            if kept_pins.get(item) != Some(text) {
+                sikemux_keychain::write(SERVICE, item, text).map_err(failed)?;
+            }
+        }
         if text != kept_text {
             match &text {
                 Some(text) => sikemux_keychain::write(SERVICE, ITEM, text),
                 None => sikemux_keychain::delete(SERVICE, ITEM),
             }
-            .map_err(|error| CoreError::from(error.to_string()))?;
+            .map_err(failed)?;
+        }
+        for item in kept_pins.keys().filter(|item| !pins.contains_key(*item)) {
+            sikemux_keychain::delete(SERVICE, item).map_err(failed)?;
         }
         let Some(data_dir) = data_dir else {
             return Ok(());
@@ -820,12 +871,18 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &Me) -> CoreResult<()> {
             .collect()
     });
     let remade_at = vault.remade_at.clone();
+    let member = (trust::listed(&vault)).and_then(|listed| listed.get(me.key.as_str()).copied());
+    let then = match (key.is_some(), manages(org)) {
+        (true, true) => "this one can let others in and replace the key",
+        (true, false) => "this one can let others in",
+        (false, _) => "this one can be let in",
+    };
+    let full = member.and_then(|member| no_place(org, me, &vault, (&me.key, member), then));
     let Some((key, vetted, proved)) = key else {
         let held = held.let_go(vault.generation);
-        let code = held.code.as_ref().and_then(|secret| {
-            let member = *trust::listed(&vault)?.get(me.key.as_str())?;
-            Some(trust::code(&org.id, &me.key, member, secret))
-        });
+        let code = (held.code.as_ref())
+            .filter(|_| full.is_none())
+            .and_then(|secret| Some(trust::code(&org.id, &me.key, member?, secret)));
         set(
             core,
             &org.id,
@@ -836,6 +893,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &Me) -> CoreResult<()> {
                 openers,
                 remade_at,
                 code,
+                full,
                 ..Org::default()
             },
         );
@@ -844,13 +902,18 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &Me) -> CoreResult<()> {
     held.code = None;
     held.proved = proved || opens_any(&key, &org.id, &vault);
     keep_pins(core, &org.id, &held.pins);
-    add_vouches(core, org, me, &vault, &held.pins).await;
+    // Past the most computers trusted, no other host takes this one's word or a key from it.
+    let hands_on = full.is_none();
+    if hands_on {
+        add_vouches(core, org, me, &vault, &held.pins).await;
+    }
     let sealable = sealable(&vault, &held.pins);
     // A rotation reseals every entry, so an answer at a new generation lists them all.
     let partial = vault.since.is_some() && held.generation == vault.generation;
     let mut ended = held.ended_after(&vault, partial);
-    let replaces = replaces(org, &vault, vetted);
-    let mut failed = None;
+    let wants = replaces(org, &vault, vetted);
+    let replaces = hands_on && wants;
+    let mut failed = full.clone().filter(|_| wants);
     if replaces {
         let change = Change {
             org: &org.id,
@@ -884,7 +947,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &Me) -> CoreResult<()> {
                 failed = Some(error.to_string());
             }
         }
-    } else if vetted {
+    } else if vetted && hands_on {
         if let Err(error) = add_keys(core, org, me, &vault, &key, &sealable).await {
             eprintln!("sikemux core: an org vault's key was not handed on: {error}");
         }
@@ -953,6 +1016,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &Me) -> CoreResult<()> {
             holders: vault.holders.len(),
             changes: failed.is_none().then_some(vault.changes),
             failed,
+            full,
             openers,
             remade_at,
             unreadable,
@@ -1001,6 +1065,46 @@ pub(super) fn opened(core: &Core, org: &str) -> BTreeMap<String, (i64, Value)> {
         .collect()
 }
 
+pub(super) fn full(core: &Core, org: &str) -> Option<String> {
+    (core.vault().orgs().state.locked().orgs.get(org)).and_then(|org| org.full.clone())
+}
+
+/// Why `host` can't be let in, and what would change that, when it is past the most computers
+/// trusted. Said on `host` itself, or on one its code was pasted on, with what is `then` next.
+fn no_place(
+    org: &AccountOrg,
+    me: &Me,
+    vault: &Remote,
+    (host, member): (&str, &str),
+    then: &str,
+) -> Option<String> {
+    let placed = trust::placed(vault)?;
+    if placed.contains_key(host) {
+        return None;
+    }
+    let earlier = (vault.hosts.iter().flatten())
+        .take_while(|listed| listed.host_key != host)
+        .filter(|listed| listed.member == member)
+        .count();
+    let over = (earlier + 1).saturating_sub(trust::COMPUTERS);
+    let some = match over {
+        0 => return None,
+        1 => "one".to_owned(),
+        over => over.to_string(),
+    };
+    let mine = trust::listed(vault)?.get(me.key.as_str()) == Some(&member);
+    let (name, most) = (&org.name, trust::COMPUTERS);
+    let why = match mine {
+        true => format!("yours has {earlier} linked earlier. Once you remove {some} you don't use"),
+        false => {
+            format!("that member's has {earlier} linked earlier. Once they remove {some} they don't use")
+        }
+    };
+    Some(format!(
+        "{name}'s vault opens on at most {most} computers of one account, and {why} at app.sikemux.com, {then}"
+    ))
+}
+
 fn now() -> i64 {
     epoch_ms().cast_signed()
 }
@@ -1042,6 +1146,7 @@ fn set(core: &Core, org: &str, value: Org) {
             org.code.clone(),
             org.unreadable.clone(),
             org.failed.clone(),
+            org.full.clone(),
             org.left,
         )
     };
@@ -1371,6 +1476,9 @@ pub(super) async fn let_in_to(
     ) else {
         return Err(format!("This computer does not hold {}'s key", org.name).into());
     };
+    if let Some(why) = full(core, &org.id) {
+        return Err(why.into());
+    }
     if !held.vetted {
         let why = (core.vault().orgs().state.locked().orgs.get(&org.id))
             .and_then(|org| org.failed.clone())
@@ -1396,9 +1504,21 @@ pub(super) async fn let_in_to(
     if host == me.key {
         return Err("That is this computer's own code".into());
     }
-    if !manages(org) && listed.get(me.key.as_str()) != Some(&member) {
+    let mine = listed.get(me.key.as_str()) == Some(&member);
+    if !manages(org) && !mine {
         return Err(format!(
             "That computer is another member's. Ask one of {}'s owners or admins to let it in",
+            org.name
+        )
+        .into());
+    }
+    if let Some(why) = no_place(org, me, &vault, (host, member), "paste the code again") {
+        return Err(why.into());
+    }
+    let placed = trust::placed(&vault).unwrap_or_default();
+    if placed.get(host) != Some(&member) || !held.pins.takes(host, member) {
+        return Err(format!(
+            "{}'s vault is open on as many computers as it can be, of that account or in all. Once some that aren't used are removed at app.sikemux.com, paste the code again",
             org.name
         )
         .into());
@@ -1407,7 +1527,7 @@ pub(super) async fn let_in_to(
         computer: (vault.hosts.iter().flatten())
             .find(|listed| listed.host_key == host)
             .and_then(|listed| listed.computer.clone()),
-        member: match listed.get(me.key.as_str()) == Some(&member) {
+        member: match mine {
             true => None,
             false => member_name(core, &org.id, member).await,
         },
@@ -1672,6 +1792,9 @@ pub async fn remake(core: &Arc<Core>, params: OrgParams) -> CoreResult<()> {
         )
         .into());
     }
+    if let Some(why) = held.full {
+        return Err(why.into());
+    }
     let Some(openers) = &held.openers else {
         return Err(format!(
             "The accounts server does not say yet which computers hold {}'s key, so it cannot make the vault again",
@@ -1786,7 +1909,9 @@ pub fn shown(core: &Core) -> Vec<ShownOrgVault> {
                     .filter(|_| manages(org))
                     .collect(),
                 failed: held.failed,
+                full: held.full.clone(),
                 remakes: writes
+                    && held.full.is_none()
                     && held.status == OrgVaultStatus::Waiting
                     && held.openers.is_some()
                     && !openers.iter().any(|opener| opener.online),
@@ -2023,7 +2148,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_key_kept_where_earlier_builds_read_it_moves_and_is_not_vetted() {
+    fn a_key_kept_where_earlier_builds_read_it_moves_with_the_hosts_trusted() {
         let service = format!("sikemux-org-vaults-test-{}", std::process::id());
         let keys = Keys {
             account: "account".to_owned(),
@@ -2035,22 +2160,34 @@ mod tests {
                     vetted: true,
                     proved: true,
                     made: None,
+                    moving: None,
                     pins: Pins::default(),
                     code: None,
                 },
             )]),
         };
-        let text = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&keys).unwrap());
-        sikemux_keychain::write(&service, ITEM_BEFORE, &text).unwrap();
-
-        for _ in 0..2 {
-            let moved = read_keys(&service).unwrap().unwrap();
-            assert_eq!(moved.orgs["org"].key, Some([7; 32]));
-            assert!(!moved.orgs["org"].vetted);
-            assert!(sikemux_keychain::read(&service, ITEM_BEFORE)
-                .unwrap()
-                .is_none());
+        let mut pins = Pins::default();
+        pins.let_in("host", "member", 1);
+        let mut kept = serde_json::to_value(&keys).unwrap();
+        kept["orgs"]["org"]["pins"] = serde_json::to_value(&pins).unwrap();
+        let text = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&kept).unwrap());
+        let first = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&keys).unwrap());
+        for (item, text, vetted, pins) in [
+            (ITEM_BEFORE, text, true, pins),
+            (ITEM_FIRST, first, false, Pins::default()),
+        ] {
+            sikemux_keychain::write(&service, item, &text).unwrap();
+            for _ in 0..2 {
+                let moved = read_keys(&service).unwrap().unwrap();
+                assert_eq!(moved.orgs["org"].key, Some([7; 32]));
+                assert_eq!(moved.orgs["org"].vetted, vetted);
+                assert!(moved.orgs["org"].pins == pins);
+                assert!(sikemux_keychain::read(&service, item).unwrap().is_none());
+            }
+            sikemux_keychain::delete(&service, &pins_item("account", "org")).unwrap();
+            let without = read_keys(&service).unwrap().unwrap();
+            assert_eq!(without.orgs["org"].key, None);
+            sikemux_keychain::delete(&service, ITEM).unwrap();
         }
-        sikemux_keychain::delete(&service, ITEM).unwrap();
     }
 }
