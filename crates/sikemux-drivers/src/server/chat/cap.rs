@@ -20,9 +20,6 @@ pub const TOOL_HOOK: &str = "sikemux-tool";
 /// The callback Claude calls before each shell command, so what leaves this machine by a
 /// program run by its path, past the shim on PATH, is still held for the person.
 pub const SHIP_HOOK: &str = "sikemux-ship";
-/// The callback Claude calls after each tool, so parallel bursts and huge reads stay within
-/// one turn's output budget while spilling full text to a file.
-pub const POST_TOOL_HOOK: &str = "sikemux-post-tool";
 
 /// What the core asks for when it compacts an idle chat itself.
 pub const IDLE_FOCUS: &str = "Keep what the person asked for and decided, and the work still open.";
@@ -55,6 +52,5 @@ pub fn claude_hooks(rotates: bool) -> Value {
         "PreCompact": [{ "hookCallbackIds": [KEEP_HOOK] }],
         "SessionStart": [{ "matcher": "compact", "hookCallbackIds": [AFTER_COMPACT_HOOK] }],
         "PreToolUse": before_tool,
-        "PostToolUse": [{ "hookCallbackIds": [POST_TOOL_HOOK] }],
     })
 }

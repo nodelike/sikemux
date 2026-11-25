@@ -32,7 +32,6 @@ use super::failure;
 use super::messages::{
     CompactMetadata, Delta, Message, StreamEvent, System, SystemEvent, TurnResult,
 };
-use super::output_cap;
 use super::permission;
 use super::tools::{self, TaskPlan};
 
@@ -191,8 +190,6 @@ pub(crate) struct ReaderState {
     /// compaction cost cannot be told apart from what they did.
     #[serde(default)]
     others_called: bool,
-    #[serde(default)]
-    turn_tool_chars: usize,
 }
 
 /// The answer to the hook before a tool that has Claude not run it, and tells it `reason`.
@@ -504,7 +501,6 @@ impl Reader {
                 calls: Vec::new(),
                 compactions: Vec::new(),
                 others_called: false,
-                turn_tool_chars: 0,
             },
         )
     }
@@ -693,19 +689,6 @@ impl Reader {
                         let input = request.get("input").unwrap_or(&Value::Null);
                         return self.check_ships(request_id, input);
                     }
-                    Some(cap::POST_TOOL_HOOK) => {
-                        let input = request.get("input").unwrap_or(&Value::Null);
-                        match output_cap::cap_tool_output(&mut self.data.turn_tool_chars, input) {
-                            Some(updated) => json!({
-                                "continue": true,
-                                "hookSpecificOutput": {
-                                    "hookEventName": "PostToolUse",
-                                    "updatedToolOutput": updated,
-                                },
-                            }),
-                            None => json!({ "continue": true }),
-                        }
-                    }
                     _ => json!({ "continue": true }),
                 };
                 self.control.respond(&request_id, answer)
@@ -828,7 +811,6 @@ impl Reader {
                 self.data.stream_message_id = message.id;
                 if parent.is_none() {
                     self.data.streamed.clear();
-                    self.data.turn_tool_chars = 0;
                     if let Some(model) = message.model {
                         self.note_model(&model);
                         self.data.model = Some(model);
@@ -1201,7 +1183,6 @@ impl Reader {
     }
 
     fn result(&mut self, result: &TurnResult) {
-        self.data.turn_tool_chars = 0;
         if let Some(usage) = result.model_usage.as_ref() {
             self.learn_windows(usage);
             if let Some(size) = self.window_of(usage) {
