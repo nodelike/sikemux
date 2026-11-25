@@ -426,8 +426,14 @@ export function Dialog({
   const heading = useId();
   useLayoutEffect(() => {
     const element = dialog.current;
-    element?.showModal();
-    return () => element?.close();
+    if (!element) return;
+    element.showModal();
+    (
+      element.querySelector<HTMLElement>(
+        ".db :is(input, textarea, [aria-checked='true'])",
+      ) ?? element.querySelector<HTMLElement>("footer button:not(:disabled)")
+    )?.focus();
+    return () => element.close();
   }, []);
   const leave = () => {
     if (!busy) onClose();

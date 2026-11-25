@@ -373,6 +373,24 @@ canvas.dots {
   display: flex;
   flex-direction: column;
 }
+.row > .end .named {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.row > .end .named .field {
+  width: 200px;
+  height: var(--ctl);
+  text-align: left;
+}
+.details .lead {
+  width: 40px;
+  display: grid;
+  place-items: center;
+}
+.details .lead .orgm {
+  background: var(--raise);
+}
 .row .more {
   grid-column: 1/-1;
   margin-top: 10px;
@@ -795,6 +813,17 @@ canvas.dots {
   }
 }
 @media (max-width: 640px) {
+  .row.wrap > .end:has(.named),
+  .row > .end .named {
+    justify-self: stretch;
+    width: 100%;
+  }
+  .row > .end .named .field {
+    flex: 1;
+  }
+  .drops {
+    display: none;
+  }
   .sc:not([aria-current="true"]):not(.add) span:not(.av, .orgm) {
     display: none;
   }
