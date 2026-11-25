@@ -229,3 +229,26 @@
     border-top: 1px solid var(--line);
   }
 }
+
+.host-code input {
+  text-transform: uppercase;
+}
+
+.host-code input:focus-visible {
+  box-shadow:
+    inset 0 0 0 1.5px var(--acc),
+    0 0 0 3px var(--acc-ring);
+}
+
+.host-code.bad input:focus,
+.host-code.bad input:focus-visible {
+  box-shadow:
+    inset 0 0 0 1.5px var(--bad),
+    0 0 0 3px var(--bad-bg);
+}
+
+.host-code input::placeholder {
+  color: color-mix(in srgb, var(--meta) 40%, transparent);
+  font-weight: 400;
+  text-transform: none;
+}

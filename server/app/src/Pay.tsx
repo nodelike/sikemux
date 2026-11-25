@@ -3,11 +3,10 @@ import { useEffect, useState } from "react";
 
 import { problemText } from "./api.ts";
 import { config } from "./config.ts";
-import { Foot } from "./Frame.tsx";
+import { Gate, GateActions } from "./Frame.tsx";
 import { iconMark } from "./marks.ts";
 import { BILLING } from "./navigation.ts";
-import { Btn, btnClass, Hero, Problem } from "./ui.tsx";
-import "./billing.css";
+import { Btn, btnClass, Problem } from "./ui.tsx";
 
 const PADDLE_JS = "https://cdn.paddle.com/paddle/v2/paddle.js";
 
@@ -77,7 +76,7 @@ export function Pay() {
   }, [back]);
 
   return (
-    <Hero
+    <Gate
       title="Checkout"
       lede={
         problem
@@ -85,21 +84,20 @@ export function Pay() {
           : "Opening Paddle's checkout…"
       }
       mark={iconMark("card")}
-      scene="plan"
-      tone={problem ? "failed" : "waiting"}
-      foot={<Foot />}
+      scene={problem ? "plan" : "amber"}
+      tone={problem ? "failed" : undefined}
     >
       {problem ? (
         <>
           <Problem>{problem}</Problem>
-          <div className="pay-do">
+          <GateActions>
             <Btn onClick={() => location.reload()}>Try again</Btn>
             <a className={btnClass({ quiet: true })} href={back}>
               Back to billing
             </a>
-          </div>
+          </GateActions>
         </>
       ) : null}
-    </Hero>
+    </Gate>
   );
 }

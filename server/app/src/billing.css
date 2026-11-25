@@ -115,13 +115,6 @@
   }
 }
 
-.pay-do {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 20px;
-}
-
 .bill-hero {
   padding: 6px 0 10px;
 }

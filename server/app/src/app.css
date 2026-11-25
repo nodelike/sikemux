@@ -1784,17 +1784,6 @@ dialog.dlg::backdrop {
   color: var(--two);
   font-size: var(--t2);
 }
-.hero .big-code {
-  margin-top: 20px;
-  font-family: var(--mono);
-  font-size: clamp(26px, 2cqw, 44px);
-  letter-spacing: 0.14em;
-  color: var(--lit);
-}
-.hero .code-field {
-  font-family: var(--mono);
-  letter-spacing: 0.08em;
-}
 @media (max-width: 860px) {
   .hero .markbox {
     order: -1;
