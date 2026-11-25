@@ -177,6 +177,11 @@ impl TwoRepos {
         git_in(&self.folder.join(repo), args).trim().to_owned()
     }
 
+    /// The checkout's path as git writes it, which on Windows has forward slashes.
+    fn top(&self, repo: &str) -> String {
+        self.git(repo, &["rev-parse", "--show-toplevel"])
+    }
+
     /// `agent` commits `line` at the end of `file` in api's worktree, and the file's path.
     fn adds(&self, agent: &str, file: &str, line: &str) -> String {
         let api = self.folder.join("api.worktrees/feat-api");
@@ -221,7 +226,7 @@ async fn a_push_that_sends_nothing_is_refused_and_one_naming_paths_goes_from_the
 
     let refused = repos.git_commit(serde_json::json!({ "push": true })).await;
     let refused = refused.unwrap_err();
-    let web = repos.folder.join("web").to_string_lossy().into_owned();
+    let web = repos.top("web");
     assert!(
         refused.contains("main") && refused.contains(&web),
         "{refused}"
@@ -229,9 +234,11 @@ async fn a_push_that_sends_nothing_is_refused_and_one_naming_paths_goes_from_the
 
     let asked = serde_json::json!({ "push": true, "paths": [file] });
     let pushed = repos.git_commit(asked.clone()).await.unwrap();
-    let api = repos.folder.join("api.worktrees/feat-api");
     assert_eq!(pushed["pushed"]["branch"], "feat/api");
-    assert_eq!(pushed["pushed"]["checkout"], api.to_string_lossy().as_ref());
+    assert_eq!(
+        pushed["pushed"]["checkout"],
+        repos.top("api.worktrees/feat-api")
+    );
     assert_eq!(
         repos.git("api.git", &["rev-parse", "feat/api"]),
         repos.git("api.worktrees/feat-api", &["rev-parse", "HEAD"])
@@ -255,9 +262,9 @@ async fn sync_and_land_act_on_the_checkout_of_the_paths_or_refuse() {
 
     let asked = serde_json::json!({ "sync": true, "paths": [file] });
     let synced = repos.git_commit(asked).await.unwrap();
-    let api = repos.folder.join("api.worktrees/feat-api");
-    assert_eq!(synced["synced"]["checkout"], api.to_string_lossy().as_ref());
-    assert!(api.join("later.txt").exists());
+    let api = repos.top("api.worktrees/feat-api");
+    assert_eq!(synced["synced"]["checkout"], api);
+    assert!(Path::new(&api).join("later.txt").exists());
     assert_eq!(
         repos.git("web.worktrees/feat-web", &["rev-parse", "HEAD"]),
         web_was
@@ -265,9 +272,9 @@ async fn sync_and_land_act_on_the_checkout_of_the_paths_or_refuse() {
 
     let asked = serde_json::json!({ "land": true, "paths": [file] });
     let refused = repos.git_commit(asked).await.unwrap_err();
-    let web = repos.folder.join("web.worktrees/feat-web");
+    let web = repos.top("web.worktrees/feat-web");
     for named in [&api, &web] {
-        assert!(refused.contains(&*named.to_string_lossy()), "{refused}");
+        assert!(refused.contains(named), "{refused}");
     }
 }
 
@@ -284,11 +291,11 @@ async fn interleaved_commits_go_whole_with_the_lead_every_refusal_names() {
             file = repos.adds(author, "shared.txt", &line);
         }
     }
-    let api = repos.folder.join("api.worktrees/feat-api");
+    let api = repos.top("api.worktrees/feat-api");
     for author in authors {
         let refused = repos.pushes(author, &file).await.unwrap_err();
         assert!(refused.contains("(lead)"), "{refused}");
-        assert!(refused.contains(&*api.to_string_lossy()), "{refused}");
+        assert!(refused.contains(&api), "{refused}");
         assert!(!refused.contains("Ask them"), "{refused}");
     }
     let above = repos.pushes("second", &file).await.unwrap_err();
