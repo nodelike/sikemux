@@ -3,6 +3,7 @@
 //! checkout, only when it has no changes, no untracked files, no commits of its own and no
 //! merge or rebase under way, and no agent is at work in it. Anything else, it leaves alone.
 
+use crate::server::agent_now::AgentNowCore;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -153,7 +154,11 @@ pub(super) fn under_way(checkout: &Path) -> bool {
 /// it, and no merge or rebase under way.
 fn untouched(core: &Core, checkout: &Path) -> bool {
     let agents_busy = (core.workspaces().agent_ids().into_iter())
-        .filter(|id| super::worktree::removal::busy(core, id))
+        .filter(|id| {
+            core.agent_now(id)
+                .chat_state()
+                .is_some_and(|state| state.busy())
+        })
         .filter_map(|id| core.workspaces().agent(&id))
         .any(|agent| agent.cwd.starts_with(checkout));
     if agents_busy {
