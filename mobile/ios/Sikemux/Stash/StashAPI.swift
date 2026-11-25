@@ -22,11 +22,14 @@ enum StashAPI {
     }
 
     static func take(_ id: String) async throws {
-        _ = try await AccountAPI.send("PATCH", "/v1/stash/\(id)", body: StashUpdate(taken: true), as: StashItem.self)
+        let safeId = try safePathSegment(id)
+        _ = try await AccountAPI.send(
+            "PATCH", "/v1/stash/\(safeId)", body: StashUpdate(taken: true), as: StashItem.self)
     }
 
     static func delete(_ id: String) async throws {
-        try await AccountAPI.send("DELETE", "/v1/stash/\(id)")
+        let safeId = try safePathSegment(id)
+        try await AccountAPI.send("DELETE", "/v1/stash/\(safeId)")
     }
 
     static func seen(at: String) async throws -> String {
@@ -57,12 +60,48 @@ enum StashAPI {
 
     /// Brings a stashed file down to this phone, once.
     static func download(_ item: StashItem) async throws -> URL {
-        let folder = URL.cachesDirectory.appending(path: "stash/\(item.id)")
-        let destination = folder.appending(path: item.name ?? "file")
+        let safeId = try safePathSegment(item.id)
+        let safeName = safeFileName(item.name)
+        let root = URL.cachesDirectory.appending(path: "stash", directoryHint: .isDirectory).standardizedFileURL
+        let folder = root.appending(component: safeId, directoryHint: .isDirectory).standardizedFileURL
+        let destination = folder.appending(component: safeName).standardizedFileURL
+        guard folder.path.hasPrefix(root.path + "/"), destination.path.hasPrefix(folder.path + "/") else {
+            throw ApiProblem(status: nil, code: nil, message: String(localized: "Invalid stash file path."))
+        }
         if FileManager.default.fileExists(atPath: destination.path) { return destination }
-        let file = try await AccountAPI.download("/v1/stash/\(item.id)/file")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try FileManager.default.moveItem(at: file, to: destination)
-        return destination
+        let file = try await AccountAPI.download("/v1/stash/\(safeId)/file")
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                try? FileManager.default.removeItem(at: file)
+                return destination
+            }
+            try FileManager.default.moveItem(at: file, to: destination)
+            return destination
+        } catch {
+            try? FileManager.default.removeItem(at: file)
+            throw error
+        }
+    }
+
+    private static func safePathSegment(_ raw: String) throws -> String {
+        guard !raw.isEmpty, raw != ".", raw != "..",
+            !raw.contains("/"), !raw.contains("\\"), !raw.contains("\0")
+        else {
+            throw ApiProblem(status: nil, code: nil, message: String(localized: "Invalid stash item."))
+        }
+        return raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? raw
+    }
+
+    private static func safeFileName(_ raw: String?) -> String {
+        let base =
+            (raw ?? "")
+            .split(whereSeparator: { $0 == "/" || $0 == "\\" })
+            .last
+            .map(String.init)?
+            .replacingOccurrences(of: "\0", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if base.isEmpty || base == "." || base == ".." { return "file" }
+        return base
     }
 }

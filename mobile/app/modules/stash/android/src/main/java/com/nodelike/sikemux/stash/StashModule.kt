@@ -7,6 +7,7 @@ import android.provider.OpenableColumns
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 
 /** The most of one shared file kept; the stash takes no more. */
@@ -77,34 +78,67 @@ class StashModule : Module() {
     val resolver = context.contentResolver
     var name = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
     var size = -1L
-    resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
-      if (cursor.moveToFirst()) {
-        cursor.getString(0)?.let { name = it }
-        if (!cursor.isNull(1)) size = cursor.getLong(1)
-      }
-    }
-    val mime = resolver.getType(uri) ?: shared?.takeUnless { it.endsWith("/*") } ?: "application/octet-stream"
-    if (size > MOST_BYTES) return mapOf("name" to name, "mime" to mime, "size" to size, "uri" to null)
-    val folder = File(context.cacheDir, "shared/${UUID.randomUUID()}").apply { mkdirs() }
-    val target = File(folder, name.replace('/', '_'))
-    var copied = 0L
-    val input = resolver.openInputStream(uri) ?: return null
-    input.use { source ->
-      target.outputStream().use { sink ->
-        val buffer = ByteArray(64 * 1024)
-        while (true) {
-          val read = source.read(buffer)
-          if (read < 0) break
-          copied += read
-          if (copied > MOST_BYTES) break
-          sink.write(buffer, 0, read)
+    try {
+      resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) {
+          cursor.getString(0)?.let { name = it }
+          if (!cursor.isNull(1)) size = cursor.getLong(1)
         }
       }
+    } catch (_: SecurityException) {
+      return null
+    } catch (_: RuntimeException) {
+      return null
     }
-    if (copied > MOST_BYTES) {
-      target.delete()
-      return mapOf("name" to name, "mime" to mime, "size" to copied, "uri" to null)
+    val mime = try {
+      resolver.getType(uri)
+    } catch (_: SecurityException) {
+      return null
+    } ?: shared?.takeUnless { it.endsWith("/*") } ?: "application/octet-stream"
+    if (size > MOST_BYTES) return mapOf("name" to name, "mime" to mime, "size" to size, "uri" to null)
+    val safeName = name
+      .substringAfterLast('/')
+      .substringAfterLast('\\')
+      .replace('\u0000', '_')
+      .trim()
+      .takeIf { it.isNotEmpty() && it != "." && it != ".." }
+      ?: "file"
+    val folder = File(context.cacheDir, "shared/${UUID.randomUUID()}").apply { mkdirs() }
+    val target = File(folder, safeName)
+    try {
+      if (!target.canonicalPath.startsWith(folder.canonicalPath + File.separator)) {
+        folder.deleteRecursively()
+        return null
+      }
+      var copied = 0L
+      val input = resolver.openInputStream(uri)
+      if (input == null) {
+        folder.deleteRecursively()
+        return null
+      }
+      input.use { source ->
+        target.outputStream().use { sink ->
+          val buffer = ByteArray(64 * 1024)
+          while (true) {
+            val read = source.read(buffer)
+            if (read < 0) break
+            copied += read
+            if (copied > MOST_BYTES) break
+            sink.write(buffer, 0, read)
+          }
+        }
+      }
+      if (copied > MOST_BYTES) {
+        folder.deleteRecursively()
+        return mapOf("name" to name, "mime" to mime, "size" to copied, "uri" to null)
+      }
+      return mapOf("name" to name, "mime" to mime, "size" to copied, "uri" to Uri.fromFile(target).toString())
+    } catch (_: SecurityException) {
+      folder.deleteRecursively()
+      return null
+    } catch (_: IOException) {
+      folder.deleteRecursively()
+      return null
     }
-    return mapOf("name" to name, "mime" to mime, "size" to copied, "uri" to Uri.fromFile(target).toString())
   }
 }
