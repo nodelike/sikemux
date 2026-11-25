@@ -4,7 +4,7 @@ const FIELD_AREA_EACH = 64;
 const MOST_QUIET = 8;
 const PLAYS_FOR = 12;
 const PLAYS_ON_AFTER_POINTER = 5;
-const POINTER_FELT_FOR = 1.6;
+const POINTER_FELT_FOR = 1.2;
 export const SETTLES_FOR = 1.8;
 const RING_LASTS = 1.8;
 const MORPHS_FOR = 1.2;
@@ -117,13 +117,21 @@ void main() {
   vec2 page = onPage(at), path = before - pointer;
   vec2 off = page - pointer - path * clamp(dot(page - pointer, path) / max(dot(path, path), 1.), 0., 1.);
 #ifdef FIELD
-  float felt = mix(60., 110., chance.y), spring = mix(5., 11., chance.x), give = .3;
+  float felt = mix(45., 95., chance.y), spring = mix(5., 11., chance.x), most = 500., leash = 150., give = .3, calm = 1.;
 #else
-  float felt = clamp(span * .3, 24., 80.) * mix(.8, 1.1, chance.y), spring = mix(16., 34., chance.x), give = .2;
+  float felt = clamp(span * .3, 26., 70.) * mix(.8, 1.1, chance.y), spring = mix(16., 34., chance.x), give = .2, calm = turning();
+  float most = clamp(span * 3.2, 260., 520.), leash = clamp(span * .46, 40., 120.);
 #endif
-  float far = length(off) + .01, near = seen * exp(-far * far / (felt * felt));
-  belongs += off / far * near * felt * give + sweep * near * .012;
-  float drag = 2. * sqrt(spring);
+  float far = length(off) + .01, near = seen * exp(-far * far / (felt * felt)), quick = length(sweep);
+  float own = hash(chance + .71), turn = (hash(chance * 3.1 + .13) - .5) * 3.;
+  vec2 fling = mat2(cos(turn), sin(turn), -sin(turn), cos(turn)) * sweep * mix(1., 9., own * own) + off / far * quick * mix(-1., 4., chance.x);
+  float was = length(speed), cap = max(was, most * mix(.2, 1., own) * min(1., .25 + quick / 1100.));
+  speed += fling * near * calm * seconds * max(0., 1. - length(at - belongs) / leash);
+  speed *= min(1., cap / max(length(speed), 1.));
+  float spin = calm * seconds * ((chance.x - .5) * 14. + 5. * sin(page.x / 37. + page.y / 53. + time * 1.7));
+  speed = mat2(cos(spin), sin(spin), -sin(spin), cos(spin)) * speed;
+  belongs += off / far * near * felt * give;
+  float drag = mix(2., 1.2, calm) * sqrt(spring);
   speed = (speed + (belongs - at) * spring * seconds) / (1. + drag * seconds);
   nextState = vec4(at + speed * seconds, speed);
 }`;
@@ -152,7 +160,7 @@ void main() {
   float warmth = noise(page / 330. + vec2(time * .011, -time * .008) + .12 * chance.x), other = noise(page / 210. - vec2(time * .008, time * .01) + 17.);
   tone += core * .5 * step(clearing, away) * rich;
   radius = .46 + .75 * pow(chance.y, 5.) + .28 * clamp(tone, 0., 1.);
-  alpha = shown * (.24 + .46 * clamp(tone, 0., 1.)) * (1. + .5 * lit);
+  alpha = shown * (.24 + .46 * clamp(tone, 0., 1.)) * (1. + .8 * lit + .5 * min(length(state.zw) / 160., 1.));
   alpha *= .84 + .16 * sin(time * (.2 + chance.x * .5) + chance.y * 60.) * (1. - still);
   shade = mix(deep, tint, smoothstep(.18, .62, warmth + .5 * core + .22 * (chance.x - .5)));
   shade = mix(shade, alt, smoothstep(.5, .74, other + .18 * (chance.y - .5)) * (1. - .6 * core));
@@ -564,7 +572,7 @@ export function pointerOf() {
         here: false,
         moved: -1e9,
         move(at, now) {
-            if (this.here && this.seen > 0.05) {
+            if (this.here && now - this.moved < 200) {
                 const seconds = Math.max(0.004, (now - this.moved) / 1000);
                 const speed = at.map((value, axis) => (value - this.at[axis]) / seconds);
                 const most = Math.min(1, 1500 / Math.max(1, Math.hypot(...speed)));
@@ -573,7 +581,8 @@ export function pointerOf() {
             Object.assign(this, { at, here: true, moved: now });
         },
         pass(now, seconds) {
-            this.seen = toward(this.seen, this.here && now - this.moved < POINTER_FELT_FOR * 1000 ? 1 : 0, 4, seconds);
+            const felt = this.here && now - this.moved < POINTER_FELT_FOR * 1000;
+            this.seen = toward(this.seen, +felt, felt ? 24 : 4, seconds);
             this.sweep = this.sweep.map((speed) => speed * Math.exp(-seconds * 9));
         },
     };
