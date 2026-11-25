@@ -72,6 +72,125 @@ impl Kind {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct CodeMetrics {
+    pub(crate) starts: Vec<usize>,
+    pub(crate) widest: usize,
+    last_line_chars: usize,
+    trimmed_len: usize,
+}
+
+impl CodeMetrics {
+    fn from_text(text: &str) -> Self {
+        let trimmed = text.trim_end_matches('\n');
+        let mut metrics = Self {
+            starts: vec![0],
+            widest: 0,
+            last_line_chars: 0,
+            trimmed_len: 0,
+        };
+        metrics.extend_trimmed(trimmed);
+        metrics
+    }
+
+    fn extend_trimmed(&mut self, trimmed: &str) {
+        let tail = trimmed.get(self.trimmed_len..).unwrap_or_default();
+        let base = self.trimmed_len;
+        if tail.is_ascii() {
+            let mut line_start = 0;
+            for (at, &byte) in tail.as_bytes().iter().enumerate() {
+                if byte == b'\n' {
+                    self.last_line_chars += at - line_start;
+                    self.widest = self.widest.max(self.last_line_chars);
+                    self.last_line_chars = 0;
+                    self.starts.push(base + at + 1);
+                    line_start = at + 1;
+                }
+            }
+            self.last_line_chars += tail.len() - line_start;
+            self.widest = self.widest.max(self.last_line_chars);
+        } else {
+            for (at, ch) in tail.char_indices() {
+                if ch == '\n' {
+                    self.widest = self.widest.max(self.last_line_chars);
+                    self.last_line_chars = 0;
+                    self.starts.push(base + at + 1);
+                } else {
+                    self.last_line_chars += 1;
+                }
+            }
+            self.widest = self.widest.max(self.last_line_chars);
+        }
+        self.trimmed_len = trimmed.len();
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Prefixes {
+    pub(crate) tasks_before: Vec<usize>,
+    pub(crate) parts_before: Vec<usize>,
+    pub(crate) h2_before: Vec<usize>,
+}
+
+impl Prefixes {
+    pub(crate) fn from_blocks(blocks: &[Rc<Node>]) -> Self {
+        let mut prefixes = Self {
+            tasks_before: Vec::with_capacity(blocks.len() + 1),
+            parts_before: Vec::with_capacity(blocks.len() + 1),
+            h2_before: Vec::with_capacity(blocks.len() + 1),
+        };
+        prefixes.tasks_before.push(0);
+        prefixes.parts_before.push(0);
+        prefixes.h2_before.push(0);
+        prefixes.extend(blocks);
+        prefixes
+    }
+
+    fn extend(&mut self, blocks: &[Rc<Node>]) {
+        let mut tasks = self.tasks_before.last().copied().unwrap_or(0);
+        let mut parts = self.parts_before.last().copied().unwrap_or(0);
+        let mut h2 = self.h2_before.last().copied().unwrap_or(0);
+        for block in blocks {
+            tasks += block.tasks_count();
+            parts += block.parts_count();
+            h2 += usize::from(matches!(block.kind, Kind::Heading(2)));
+            self.tasks_before.push(tasks);
+            self.parts_before.push(parts);
+            self.h2_before.push(h2);
+        }
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.tasks_before.truncate(len + 1);
+        self.parts_before.truncate(len + 1);
+        self.h2_before.truncate(len + 1);
+    }
+
+    fn update_at(&mut self, at: usize, block: &Node) {
+        let shift = |vec: &mut Vec<usize>, new_count: usize| {
+            let Some((&before, &after)) = vec.get(at).zip(vec.get(at + 1)) else {
+                return;
+            };
+            let old_count = after - before;
+            if new_count == old_count {
+                return;
+            }
+            let delta = new_count as isize - old_count as isize;
+            if let Some(tail) = vec.get_mut(at + 1..) {
+                for slot in tail {
+                    *slot = slot.wrapping_add_signed(delta);
+                }
+            }
+        };
+        shift(&mut self.tasks_before, block.tasks_count());
+        shift(&mut self.parts_before, block.parts_count());
+        shift(
+            &mut self.h2_before,
+            usize::from(matches!(block.kind, Kind::Heading(2))),
+        );
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(from = "Wire")]
 pub struct Node {
@@ -80,6 +199,7 @@ pub struct Node {
     pub text: String,
     pub children: Vec<Node>,
     flow: OnceCell<Vec<Piece>>,
+    code_metrics: OnceCell<Rc<CodeMetrics>>,
     /// A top-level block's size when last laid out, at the width it had then.
     pub(crate) size: Cell<Option<Size<Pixels>>>,
 }
@@ -225,6 +345,49 @@ impl Node {
 }
 
 impl Node {
+    pub fn is_only_pictures(&self) -> bool {
+        if !matches!(self.kind, Kind::Paragraph) {
+            return false;
+        }
+        let mut any = false;
+        for child in &self.children {
+            match &child.kind {
+                Kind::Image { .. } => any = true,
+                Kind::Link(_) => {
+                    for inner in &child.children {
+                        if !matches!(inner.kind, Kind::Image { .. }) {
+                            return false;
+                        }
+                        any = true;
+                    }
+                }
+                Kind::Text if child.text.trim().is_empty() => {}
+                Kind::Break => {}
+                _ => return false,
+            }
+        }
+        any
+    }
+
+    pub(crate) fn tasks_count(&self) -> usize {
+        let own = usize::from(matches!(self.kind, Kind::Item(Some(_))));
+        own + self.children.iter().map(Node::tasks_count).sum::<usize>()
+    }
+
+    pub(crate) fn parts_count(&self) -> usize {
+        match self.kind {
+            Kind::Paragraph => usize::from(!self.is_only_pictures()),
+            Kind::Bullets | Kind::Numbers(_) => self.children.len(),
+            _ => self.children.iter().map(Node::parts_count).sum(),
+        }
+    }
+
+    pub(crate) fn code_metrics(&self) -> Rc<CodeMetrics> {
+        self.code_metrics
+            .get_or_init(|| Rc::new(CodeMetrics::from_text(&self.text)))
+            .clone()
+    }
+
     /// The pictures of a paragraph that holds only pictures, linked or not, with nothing but
     /// space between them, as a README's row of badges does; none for one with words.
     pub fn pictures(&self) -> Option<Vec<Picture>> {
@@ -296,7 +459,7 @@ impl Node {
                 }
             }
             Kind::Details { open: written, .. } if !open(*written) => {}
-            Kind::Paragraph if self.pictures().is_some() => {}
+            Kind::Paragraph if self.is_only_pictures() => {}
             _ => {
                 for piece in self.flow() {
                     match piece {
@@ -337,7 +500,7 @@ impl Node {
         into: &mut Vec<Passage>,
     ) {
         match &self.kind {
-            Kind::Paragraph if self.pictures().is_none() => {
+            Kind::Paragraph if !self.is_only_pictures() => {
                 into.push(self.passage(block, texts, open));
             }
             Kind::Bullets | Kind::Numbers(_) => {
@@ -408,7 +571,22 @@ impl Node {
 
     fn touched(&mut self) {
         self.flow = OnceCell::new();
+        self.code_metrics = OnceCell::new();
         self.size.set(None);
+    }
+
+    fn update_code_metrics(&mut self, cut: usize) {
+        self.flow = OnceCell::new();
+        self.size.set(None);
+        let Some(metrics) = self.code_metrics.get_mut() else {
+            return;
+        };
+        let trimmed = self.text.trim_end_matches('\n');
+        if cut >= metrics.trimmed_len && trimmed.len() >= metrics.trimmed_len {
+            Rc::make_mut(metrics).extend_trimmed(trimmed);
+        } else {
+            self.code_metrics = OnceCell::new();
+        }
     }
 }
 
@@ -619,6 +797,9 @@ struct Op {
 
 /// The byte in `text` where its first `units` UTF-16 units end.
 fn byte_at_units(text: &str, units: usize) -> usize {
+    if text.is_ascii() {
+        return units.min(text.len());
+    }
     let mut counted = 0;
     for (at, ch) in text.char_indices() {
         if counted >= units {
@@ -643,6 +824,7 @@ pub struct Passage {
 #[derive(Default)]
 pub struct Markdown {
     blocks: Vec<Rc<Node>>,
+    prefixes: RefCell<Option<Rc<Prefixes>>>,
     /// The text's length the tree matches, or `None` once a patch did not fit
     /// and the tree waits for a whole one.
     units: Option<usize>,
@@ -674,6 +856,13 @@ impl Markdown {
 
     pub fn blocks(&self) -> &[Rc<Node>] {
         &self.blocks
+    }
+
+    pub(crate) fn prefixes(&self) -> Rc<Prefixes> {
+        let mut cache = self.prefixes.borrow_mut();
+        cache
+            .get_or_insert_with(|| Rc::new(Prefixes::from_blocks(&self.blocks)))
+            .clone()
     }
 
     /// The texts of block `ix` a reader can select, in the order they are drawn.
@@ -770,13 +959,24 @@ impl Markdown {
         let Some((first, rest)) = op.p.split_first() else {
             self.blocks.truncate(op.at);
             self.blocks.extend(op.c.into_iter().flatten().map(Rc::new));
+            if let Some(prefixes) = self.prefixes.get_mut().as_mut() {
+                let prefixes = Rc::make_mut(prefixes);
+                prefixes.truncate(op.at);
+                if let Some(added) = self.blocks.get(op.at..) {
+                    prefixes.extend(added);
+                }
+            }
             return;
         };
-        let Some(block) = self.blocks.get_mut(*first) else {
+        let first = *first;
+        let Some(block) = self.blocks.get_mut(first) else {
             return;
         };
         let mut node = Rc::make_mut(block);
-        node.touched();
+        let text_in_place = rest.is_empty() && op.c.is_none() && op.s.is_some();
+        if !text_in_place {
+            node.touched();
+        }
         for &ix in rest {
             let Some(child) = node.children.get_mut(ix) else {
                 return;
@@ -787,9 +987,22 @@ impl Markdown {
         if let Some(added) = op.c {
             node.children.truncate(op.at);
             node.children.extend(added);
+            if let Some(prefixes) = self.prefixes.get_mut().as_mut() {
+                if let Some(block) = self.blocks.get(first) {
+                    Rc::make_mut(prefixes).update_at(first, block);
+                }
+            }
         } else if let Some(added) = op.s {
-            node.text.truncate(byte_at_units(&node.text, op.at));
+            let cut = byte_at_units(&node.text, op.at);
+            node.text.truncate(cut);
             node.text.push_str(&added);
+            if text_in_place {
+                node.update_code_metrics(cut);
+            } else if let Some(prefixes) = self.prefixes.get_mut().as_mut() {
+                if let Some(block) = self.blocks.get(first) {
+                    Rc::make_mut(prefixes).update_at(first, block);
+                }
+            }
         }
     }
 }

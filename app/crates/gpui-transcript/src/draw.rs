@@ -18,7 +18,9 @@ use gpui::{
     UnderlineStyle, Window,
 };
 
-use crate::markdown::{superscript, Kind, Markdown, Marks, Node, Picture, Piece, Rich};
+use crate::markdown::{
+    superscript, CodeMetrics, Kind, Markdown, Marks, Node, Picture, Piece, Prefixes, Rich,
+};
 use crate::select::{Key, Mark, Selecting, Shown};
 
 /// Where a long code block is scrolled to, and whose the gesture under way is.
@@ -352,7 +354,15 @@ impl Pen {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        self.blocks_with(style, id, doc, doc.blocks().to_vec(), window, cx)
+        self.draw_blocks(
+            style,
+            id.into(),
+            doc,
+            doc.blocks().to_vec(),
+            doc.prefixes(),
+            window,
+            cx,
+        )
     }
 
     /// Draws only `blocks` of `doc`, such as the ones `Markdown::cut` keeps of a long text.
@@ -365,10 +375,34 @@ impl Pen {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        let id = id.into();
+        let same_prefix = blocks.len() <= doc.blocks().len()
+            && blocks
+                .iter()
+                .zip(doc.blocks())
+                .all(|(a, b)| Rc::ptr_eq(a, b));
+        let prefixes = if same_prefix {
+            doc.prefixes()
+        } else {
+            Rc::new(Prefixes::from_blocks(&blocks))
+        };
+        self.draw_blocks(style, id.into(), doc, blocks, prefixes, window, cx)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_blocks(
+        &self,
+        style: &Rc<Style>,
+        id: ElementId,
+        doc: &Markdown,
+        blocks: Vec<Rc<Node>>,
+        prefixes: Rc<Prefixes>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> AnyElement {
         let blocks = Blocks {
             scope: Arc::new(id.clone()),
             blocks,
+            prefixes,
             style: style.clone(),
             selecting: self.selecting.clone(),
             doc: self
@@ -419,6 +453,7 @@ impl Pen {
 struct Blocks {
     scope: Arc<ElementId>,
     blocks: Vec<Rc<Node>>,
+    prefixes: Rc<Prefixes>,
     style: Rc<Style>,
     selecting: Option<Rc<Selecting>>,
     doc: usize,
@@ -431,21 +466,11 @@ struct Blocks {
 impl Blocks {
     fn draw(&self, ix: usize, block: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
         let tasks = match self.style.on_task {
-            Some(_) => self
-                .blocks
-                .iter()
-                .take(ix)
-                .map(|block| tasks_in(block))
-                .sum(),
+            Some(_) => self.prefixes.tasks_before.get(ix).copied().unwrap_or(0),
             None => 0,
         };
         let parts = match self.style.reply {
-            Some(_) => self
-                .blocks
-                .iter()
-                .take(ix)
-                .map(|block| parts_in(block))
-                .sum(),
+            Some(_) => self.prefixes.parts_before.get(ix).copied().unwrap_or(0),
             None => 0,
         };
         let mut draw = Draw {
@@ -627,9 +652,8 @@ impl LayoutBudget {
 struct Code {
     id: ElementId,
     text: SharedString,
-    /// Where each line starts.
-    starts: Vec<usize>,
-    looks: Looks,
+    metrics: Rc<CodeMetrics>,
+    looks: CodeRuns,
     shown: Option<(Key, Rc<RefCell<Vec<Shown>>>)>,
     /// A transcript's frame budget for new parts; without one every part is laid out at once.
     budget: Option<Rc<LayoutBudget>>,
@@ -638,16 +662,23 @@ struct Code {
 impl Code {
     /// Part `chunk` as text to lay out, with the lines it holds and where it starts in the block.
     fn part(&self, chunk: usize) -> Option<(StyledText, std::ops::Range<usize>, usize, usize)> {
-        let lines = chunk * CODE_CHUNK..((chunk + 1) * CODE_CHUNK).min(self.starts.len());
-        let start = *self.starts.get(lines.start)?;
-        let end = self
-            .starts
+        let starts = &self.metrics.starts;
+        let lines = chunk * CODE_CHUNK..((chunk + 1) * CODE_CHUNK).min(starts.len());
+        let start = *starts.get(lines.start)?;
+        let end = starts
             .get(lines.end)
             .map_or(self.text.len(), |next| next - 1);
-        let looks = self.looks.iter().filter_map(|(range, look)| {
-            let (from, to) = (range.start.max(start), range.end.min(end));
-            (from < to).then(|| (from - start..to - start, *look))
-        });
+        let first = self.looks.partition_point(|(range, _)| range.end <= start);
+        let looks = self
+            .looks
+            .get(first..)
+            .unwrap_or_default()
+            .iter()
+            .take_while(|(range, _)| range.start < end)
+            .filter_map(|(range, look)| {
+                let (from, to) = (range.start.max(start), range.end.min(end));
+                (from < to).then(|| (from - start..to - start, *look))
+            });
         let text = StyledText::new(SharedString::from(self.text.get(start..end)?.to_owned()))
             .with_highlights(looks);
         Some((text, lines, start, end))
@@ -709,22 +740,23 @@ impl Code {
         };
         let (first, last) = (*visible.start(), *visible.end());
         let reach = last - first + 1;
-        let parts = self.starts.len().div_ceil(CODE_CHUNK);
+        let parts = self.metrics.starts.len().div_ceil(CODE_CHUNK);
         laid.retain(|chunk| *chunk + reach >= first && *chunk <= last + reach);
         let near = (1..=reach).flat_map(|away| [last.checked_add(away), first.checked_sub(away)]);
         for chunk in near.flatten().filter(|chunk| *chunk < parts) {
-            let warm = laid.contains(&chunk);
-            if !warm && !budget.has_room() {
+            if !budget.has_room() {
+                laid.remove(&chunk);
                 continue;
             }
+            let warm = laid.contains(&chunk);
             let began = Instant::now();
             let Some((text, _lines, ..)) = self.part(chunk) else {
                 continue;
             };
             text.into_any_element().layout_as_root(space, window, cx);
+            budget.spend(began.elapsed());
             if !warm {
                 laid.insert(chunk);
-                budget.spend(began.elapsed());
                 #[cfg(feature = "counts")]
                 {
                     crate::counts::add(&crate::counts::NEW_CODE_LINES, _lines.len() as u64);
@@ -776,9 +808,8 @@ impl Element for Code {
         let font = window.text_system().resolve_font(&style.font());
         let advance = (window.text_system().advance(font, font_size, 'm'))
             .map_or(font_size * 0.6, |advance| advance.width);
-        let widest = self.text.split('\n').map(|line| line.chars().count()).max();
-        let width = advance * widest.unwrap_or(0) as f32;
-        let height = line_height * self.starts.len() as f32;
+        let width = advance * self.metrics.widest as f32;
+        let height = line_height * self.metrics.starts.len() as f32;
         let layout =
             window.request_measured_layout(gpui::Style::default(), move |known, _, _, _| {
                 size(known.width.unwrap_or(width), known.height.unwrap_or(height))
@@ -796,7 +827,7 @@ impl Element for Code {
         cx: &mut App,
     ) -> Vec<AnyElement> {
         let line_height = *line_height;
-        let starts = &self.starts;
+        let starts = &self.metrics.starts;
         let view = window.content_mask().bounds;
         let line_at = |y: Pixels| {
             let line = ((y - bounds.top()) / line_height).max(0.) as usize;
@@ -888,11 +919,7 @@ impl Draw<'_> {
                     .get(ix)
                     .is_some_and(|block| std::ptr::eq(&**block, node));
                 let number = (style.numbered_sections && *level == 2 && top_level).then(|| {
-                    let before = blocks
-                        .iter()
-                        .take(ix)
-                        .filter(|block| matches!(block.kind, Kind::Heading(2)))
-                        .count();
+                    let before = self.on.prefixes.h2_before.get(ix).copied().unwrap_or(0);
                     format!("{:02}", before + 1)
                 });
                 let room = match (style.editorial, *level) {
@@ -1158,17 +1185,25 @@ impl Draw<'_> {
         &mut self,
         rich: &Rich,
         colours: Option<CodeRuns>,
-    ) -> ((usize, usize, u32), Looks) {
+    ) -> ((usize, usize, u32), CodeRuns) {
         let (place, own) = self.marked(rich);
         let looks = match colours {
-            Some(colours) => combine_highlights(colours.iter().cloned(), own).collect(),
-            None => own,
+            Some(colours) if own.is_empty() => colours,
+            Some(colours) => combine_highlights(colours.iter().cloned(), own)
+                .collect::<Vec<_>>()
+                .into(),
+            None => own.into(),
         };
         (place, looks)
     }
 
     /// A code block's text, its lines drawn as they show.
-    fn code(&mut self, rich: &Rich, colours: Option<CodeRuns>) -> AnyElement {
+    fn code(
+        &mut self,
+        rich: &Rich,
+        metrics: Rc<CodeMetrics>,
+        colours: Option<CodeRuns>,
+    ) -> AnyElement {
         let (place, looks) = self.code_looks(rich, colours);
         let selecting = self.on.selecting.as_ref();
         let shown = selecting.map(|selecting| {
@@ -1177,9 +1212,7 @@ impl Draw<'_> {
         });
         Code {
             id: self.id("lines"),
-            starts: std::iter::once(0)
-                .chain(rich.text.match_indices('\n').map(|(at, _)| at + 1))
-                .collect(),
+            metrics,
             text: rich.text.clone(),
             looks,
             shown,
@@ -1191,7 +1224,7 @@ impl Draw<'_> {
     /// A code block's text wrapped to the block's width, laid out whole.
     fn wrapped(&mut self, rich: &Rich, colours: Option<CodeRuns>) -> AnyElement {
         let (place, looks) = self.code_looks(rich, colours);
-        let text = StyledText::new(rich.text.clone()).with_highlights(looks);
+        let text = StyledText::new(rich.text.clone()).with_highlights(looks.iter().cloned());
         let layout = text.layout().clone();
         self.recorded(place, layout, rich.text.len(), text.into_any_element())
     }
@@ -1555,6 +1588,7 @@ impl Draw<'_> {
         let [Piece::Text(code)] = node.flow() else {
             return div().into_any_element();
         };
+        let metrics = node.code_metrics();
         let id = self.id("code");
         let colours = style
             .code
@@ -1571,7 +1605,15 @@ impl Draw<'_> {
                     .any(|known| lang.eq_ignore_ascii_case(known))
             });
         if let Some((fences, lang)) = fences {
-            let lines = self.lines(id.clone(), code, colours, (false, false), window, cx);
+            let lines = self.lines(
+                id.clone(),
+                code,
+                metrics,
+                colours,
+                (false, false),
+                window,
+                cx,
+            );
             let copy = self.copy_button(code.text.clone(), window, cx);
             return (fences.draw)(
                 Fence {
@@ -1614,7 +1656,7 @@ impl Draw<'_> {
             Some((folder, file)) if name.is_some() => (Some(folder.to_owned()), file.to_owned()),
             _ => (None, title.to_string()),
         };
-        let numbered = numbered && !wrapped && code.text.contains('\n');
+        let numbered = numbered && !wrapped && metrics.starts.len() > 1;
         let card = &style.card;
         let head = div()
             .h(px(38.))
@@ -1650,16 +1692,18 @@ impl Draw<'_> {
             .border_color(card.edge)
             .overflow_hidden()
             .child(head)
-            .child(self.lines(id, code, colours, (wrapped, numbered), window, cx))
+            .child(self.lines(id, code, metrics, colours, (wrapped, numbered), window, cx))
             .into_any_element()
     }
 
     /// A code block's text in its colours, scrolling once it is long. It scrolls only by a
     /// gesture that starts over it, so a chat scrolled past it keeps moving.
+    #[allow(clippy::too_many_arguments)]
     fn lines(
         &mut self,
         id: ElementId,
         code: &Rich,
+        metrics: Rc<CodeMetrics>,
         colours: Option<CodeRuns>,
         (wrapped, numbered): (bool, bool),
         window: &mut Window,
@@ -1667,7 +1711,11 @@ impl Draw<'_> {
     ) -> AnyElement {
         let style = self.on.style.clone();
         let gutter = numbered.then(|| {
-            let count = code.text.lines().count();
+            let count = if code.text.is_empty() {
+                0
+            } else {
+                metrics.starts.len()
+            };
             let key = ElementId::NamedChild(Arc::new(id.clone()), "gutter".into());
             let numbers = window.use_keyed_state(key, cx, |_, _| (0, SharedString::default()));
             if numbers.read(cx).0 != count {
@@ -1693,7 +1741,7 @@ impl Draw<'_> {
         }
         let text = match wrapped {
             true => self.wrapped(code, colours),
-            false => self.code(code, colours),
+            false => self.code(code, metrics, colours),
         };
         let lines = div()
             .id(id)
@@ -2210,20 +2258,6 @@ fn highlight(marks: Marks, style: &Style) -> HighlightStyle {
 
 fn spaced(row: Div) -> Div {
     row.letter_spacing(0.06)
-}
-
-/// The parts of `node` a reply can quote: its paragraphs of words and its lists' items.
-fn parts_in(node: &Node) -> usize {
-    match node.kind {
-        Kind::Paragraph => usize::from(node.pictures().is_none()),
-        Kind::Bullets | Kind::Numbers(_) => node.children.len(),
-        _ => node.children.iter().map(parts_in).sum(),
-    }
-}
-
-fn tasks_in(node: &Node) -> usize {
-    let own = usize::from(matches!(node.kind, Kind::Item(Some(_))));
-    own + node.children.iter().map(tasks_in).sum::<usize>()
 }
 
 /// A task's words, without those of any list under it.
