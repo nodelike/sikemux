@@ -145,3 +145,83 @@
     display: none;
   }
 }
+
+.host-ic {
+  color: var(--two);
+  flex: none;
+}
+
+.host-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 500 12.5px var(--mono);
+  color: var(--two);
+  white-space: nowrap;
+}
+
+.shed-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 6px;
+}
+
+.shed-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: flex-start;
+  font-size: 13.5px;
+  color: var(--two);
+}
+
+.shed-grid > div + div {
+  border-left: 1px solid var(--line);
+  padding-left: 28px;
+}
+
+.shed-grid > div:not(:last-child) {
+  padding-right: 20px;
+}
+
+.shed-grid b {
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.shed-grid strong {
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 8px 0 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.shed-grid strong small {
+  font-size: var(--t);
+  color: var(--two);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+@media (max-width: 860px) {
+  .shed-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .shed-grid > div {
+    padding: 16px 0;
+  }
+
+  .shed-grid > div:not(:last-child) {
+    padding-right: 0;
+  }
+
+  .shed-grid > div + div {
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}

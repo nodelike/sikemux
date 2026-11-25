@@ -5,6 +5,7 @@ import type {
   BillingProduct,
   Subscription,
 } from "@sikemux/protocol";
+import { formatDay } from "@shared/lib/format";
 import { IconCube, IconLock } from "@shared/ui/Icons";
 import { useEffect, useState, type MouseEvent } from "react";
 
@@ -236,47 +237,115 @@ function Buy({
   );
 }
 
-/** On Hosts: a bought box that is not a host yet. */
+/** On Hosts (staff only): bought Shed boxes, or the sizes for sale. */
 export function ShedNotHost({
   follow,
 }: {
   follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const load = useShed();
+  const checkout = useCheckout();
+  const [buyingId, setBuyingId] = useState<string>();
   if (!load) return null;
-  const boxes = boxesOf(load);
-  const first = boxes[0];
-  if (!first) return null;
-  const one = boxes.length === 1 && first.quantity === 1;
-  const name = one
-    ? `Your ${productOf(load.catalog, first.product)?.name ?? "Shed"} box is`
-    : "Your Shed boxes are";
+  const bought = boxesOf(load);
+  const aside = (
+    <span className="note">Staff only until boxes are provisioned</span>
+  );
+  if (bought.length > 0) {
+    const one = bought.length === 1 && bought[0]?.quantity === 1;
+    return (
+      <Section
+        label="Shed"
+        count={bought.length}
+        aside={aside}
+        foot={`Nothing is provisioned behind ${one ? "this box" : "these boxes"} yet. ${one ? "It joins" : "They join"} this list once boxes ship.`}
+      >
+        <Rows>
+          {bought.map((sub) => {
+            const product = productOf(load.catalog, sub.product);
+            const words = SHED_WORDS[sub.product];
+            const unit = priceOf(product, sub.interval);
+            const cost = unit
+              ? `${money(times(unit, sub.quantity), { cents: false })} a ${sub.interval}`
+              : undefined;
+            const detail = [
+              words?.line,
+              sub.quantity > 1 ? `${sub.quantity} boxes` : undefined,
+              cost,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <Row
+                key={sub.id}
+                lead={<IconCube size={22} className="host-ic" />}
+                name={product?.name ?? sub.product}
+                detail={detail || undefined}
+                end={
+                  <>
+                    <span className="note">
+                      Next bill {formatDay(sub.currentPeriodEnd, "long")}
+                    </span>
+                    <a
+                      className={btnClass({ small: true, quiet: true })}
+                      href={BILLING}
+                      onClick={follow(BILLING)}
+                    >
+                      Change size
+                    </a>
+                  </>
+                }
+              />
+            );
+          })}
+        </Rows>
+      </Section>
+    );
+  }
+  const boxes = load.catalog.products.filter(
+    (product) => product.kind === "shed",
+  );
+  if (boxes.length === 0) return null;
   return (
-    <Section label="Shed">
-      <Rows>
-        <Row
-          lead={
-            <Tile>
-              <IconCube size={14} />
-            </Tile>
-          }
-          name={`${name} not a host yet`}
-          detail={
-            one
-              ? "Nothing is provisioned behind it. It joins this list once boxes ship."
-              : "Nothing is provisioned behind them. They join this list once boxes ship."
-          }
-          end={
-            <a
-              className={btnClass({ small: true, quiet: true })}
-              href={BILLING}
-              onClick={follow(BILLING)}
-            >
-              Plan and billing
-            </a>
-          }
-        />
-      </Rows>
+    <Section label="Shed" aside={aside}>
+      <div className="shed-grid">
+        {boxes.map((product, index) => {
+          const price = priceOf(product, "month");
+          const words = SHED_WORDS[product.id];
+          return (
+            <div key={product.id}>
+              <b>{product.name}</b>
+              {words ? <span>{words.tag}</span> : null}
+              {words ? <span>{words.line}</span> : null}
+              {price ? (
+                <strong>
+                  {money(price, { cents: false })}
+                  <small> a month</small>
+                </strong>
+              ) : null}
+              <Btn
+                small
+                quiet={index !== 1}
+                disabled={!load.overview.canBuy || !price}
+                busy={buyingId === product.id && checkout.busy}
+                onClick={() => {
+                  setBuyingId(product.id);
+                  void checkout.go((routes) =>
+                    routes.startCheckout({
+                      product: product.id,
+                      interval: "month",
+                      quantity: 1,
+                    }),
+                  );
+                }}
+              >
+                {load.overview.canBuy ? "Buy" : NOT_OPEN}
+              </Btn>
+            </div>
+          );
+        })}
+      </div>
+      <Problem>{checkout.problem}</Problem>
     </Section>
   );
 }

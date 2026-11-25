@@ -1,5 +1,14 @@
 import { useAuth } from "@clerk/react";
+import { formatDay } from "@shared/lib/format";
 import { platformName } from "@shared/remote/access";
+import {
+  IconDownload,
+  IconKey,
+  IconLaptop,
+  IconMore,
+  IconRefresh,
+  IconServer,
+} from "@shared/ui/Icons";
 import type { AccountEvent, Device } from "@sikemux/protocol";
 import {
   useCallback,
@@ -9,25 +18,31 @@ import {
   type MouseEvent,
 } from "react";
 
-import { formatDay } from "@shared/lib/format";
 import { api, problemText, signedInToken } from "./api.ts";
-import { IconDownload, IconLaptop, IconPhone } from "@shared/ui/Icons";
-import { brandMark, iconMark } from "./marks.ts";
+import { iconMark } from "./marks.ts";
+import { HOST } from "./navigation.ts";
 import { ShedNotHost } from "./Shed.tsx";
 import {
   Btn,
   btnClass,
-  Section,
   Confirm,
   Empty,
+  Nothing,
   Page,
+  Popover,
   Problem,
   Row,
   Rows,
-  Tile,
+  Section,
+  Table,
+  Td,
+  Tr,
   Txt,
+  useAction,
   useToast,
+  Who,
 } from "./ui.tsx";
+import "./hosts.css";
 
 export type Load =
   | { state: "loading" }
@@ -103,6 +118,17 @@ const DOWNLOAD = "https://sikemux.com";
 const counted = (count: number, one: string) =>
   `${count} ${one}${count === 1 ? "" : "s"}`;
 
+const shortKey = (key: string) => {
+  const head = key.slice(0, 8).toUpperCase();
+  return head.length > 4 ? `${head.slice(0, 4)} ${head.slice(4)}` : head;
+};
+
+const CONSEQUENCE: Record<Device["role"], string> = {
+  host: "It leaves your account and stops hearing about it. The phones paired to it keep working.",
+  client:
+    "It is signed out and removed from every host, so it can't connect to them until it signs in and is allowed again.",
+};
+
 export function HostsPage({
   load,
   remove,
@@ -115,24 +141,41 @@ export function HostsPage({
   follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const say = useToast();
+  const removeAction = useAction();
+  const [removing, setRemoving] = useState<Device | null>(null);
+
   if (load.state === "failed")
     return (
       <Page
-        title="Hosts didn't load"
-        lede="They still work with each other."
+        title="Hosts"
+        lede="Computers your agents run on."
         mark={iconMark("laptop")}
-        scene="teal"
+        scene="you"
         tone="failed"
-        actions={<Btn onClick={() => location.reload()}>Try again</Btn>}
       >
-        <div className="full-err">
-          <Problem>{load.message}</Problem>
-        </div>
+        <Nothing
+          title="Hosts didn't load"
+          actions={
+            <Btn quiet onClick={() => location.reload()}>
+              <IconRefresh size={14} />
+              Try again
+            </Btn>
+          }
+        >
+          They still work with each other.
+        </Nothing>
+        <Problem>{load.message}</Problem>
       </Page>
     );
+
   if (load.state === "loading")
     return (
-      <Page title="Hosts" mark={iconMark("laptop")} scene="teal">
+      <Page
+        title="Hosts"
+        lede="Computers your agents run on."
+        mark={iconMark("laptop")}
+        scene="you"
+      >
         <Section label="Hosts" busy />
         <Section label="Phones" busy />
       </Page>
@@ -141,16 +184,60 @@ export function HostsPage({
   const hosts = load.devices.filter((device) => device.role === "host");
   const phones = load.devices.filter((device) => device.role === "client");
   const shed = staff ? <ShedNotHost follow={follow} /> : null;
-  const phonesCard = (
+
+  const askRemove = (device: Device) => {
+    removeAction.clear();
+    setRemoving(device);
+  };
+
+  const closeConfirm = () => {
+    removeAction.clear();
+    setRemoving(null);
+  };
+
+  const confirmDialog = removing ? (
+    <Confirm
+      title={`Remove ${removing.name}?`}
+      problem={removeAction.problem}
+      busy={removeAction.busy}
+      label={removing.role === "host" ? "Remove host" : "Remove phone"}
+      danger
+      onCancel={closeConfirm}
+      onConfirm={() =>
+        void removeAction.run(async () => {
+          const target = removing;
+          await remove(target.key);
+          setRemoving(null);
+          say(`Removed ${target.name}.`);
+        }, problemText)
+      }
+    >
+      <p>{CONSEQUENCE[removing.role]}</p>
+    </Confirm>
+  ) : null;
+
+  const phonesSection = (
     <Section label="Phones" count={phones.length || undefined}>
       {phones.length > 0 ? (
         <Rows>
           {phones.map((device) => (
-            <DeviceRow key={device.key} device={device} remove={remove} />
+            <Row
+              key={device.key}
+              name={device.name}
+              detail={`${platformName(device.platform)} · added ${formatDay(device.createdAt, "short")}`}
+              end={
+                <Txt
+                  aria-label={`Remove ${device.name}`}
+                  onClick={() => askRemove(device)}
+                >
+                  Remove
+                </Txt>
+              }
+            />
           ))}
         </Rows>
       ) : (
-        <p className="note">No phones yet. Sign in to Sikemux on yours.</p>
+        <Empty>No phones yet. Sign in to Sikemux on yours.</Empty>
       )}
     </Section>
   );
@@ -158,142 +245,101 @@ export function HostsPage({
   if (hosts.length === 0)
     return (
       <Page
-        title="Add your first host"
-        lede="Get Sikemux on your computer and sign in. It appears here by itself."
-        mark={brandMark}
-        scene="teal"
-        actions={
-          <a className={btnClass({})} href={DOWNLOAD}>
-            <IconDownload size={16} />
-            Get Sikemux for Mac
-          </a>
-        }
+        title="Hosts"
+        lede="Computers your agents run on."
+        mark={iconMark("laptop")}
+        scene="you"
       >
-        <Section label="Hosts">
-          <Empty>Windows and Linux are ready too, at sikemux.com.</Empty>
-        </Section>
-        {phonesCard}
+        <Nothing
+          title="Add your first host"
+          actions={
+            <>
+              <a className={btnClass({})} href={DOWNLOAD}>
+                <IconDownload size={14} />
+                Get Sikemux for Mac
+              </a>
+              <a
+                className={btnClass({ quiet: true })}
+                href={HOST}
+                onClick={follow(HOST)}
+              >
+                Enter a code
+              </a>
+            </>
+          }
+        >
+          Open Sikemux on a computer and sign in, and it shows here. A Linux
+          server signs in with <code className="mono">sikemux login</code>.
+        </Nothing>
+        {phones.length > 0 ? phonesSection : null}
         {shed}
+        {confirmDialog}
       </Page>
     );
 
   return (
     <Page
-      title={
-        phones.length > 0
-          ? `${counted(hosts.length, "host")}, ${counted(phones.length, "phone")}`
-          : counted(hosts.length, "host")
-      }
+      title="Hosts"
       lede={
-        hosts.length + phones.length > 1
-          ? "They find each other because they share this account."
-          : "Sign in on another and they find each other."
+        phones.length > 0
+          ? `${counted(hosts.length, "host")}, ${counted(phones.length, "phone")}.`
+          : `${counted(hosts.length, "host")}.`
       }
       mark={iconMark("laptop")}
-      scene="teal"
-      actions={
-        <Btn onClick={() => say("Sign in on it and it appears here.")}>
-          Add a host
-        </Btn>
-      }
+      scene="you"
     >
-      <Section label="Hosts" count={hosts.length}>
-        <Rows>
-          {hosts.map((device) => (
-            <DeviceRow key={device.key} device={device} remove={remove} />
-          ))}
-        </Rows>
-      </Section>
-      {phonesCard}
+      <Table
+        label="Hosts"
+        cols="minmax(0, 1fr) auto 36px"
+        heads={["Host", "Key", ""]}
+      >
+        {hosts.map((device) => (
+          <Tr key={device.key}>
+            <Td>
+              <Who
+                lead={
+                  device.platform === "linux" ? (
+                    <IconServer size={22} className="host-ic" />
+                  ) : (
+                    <IconLaptop size={22} className="host-ic" />
+                  )
+                }
+                name={device.name}
+                detail={
+                  platformName(device.platform) +
+                  (device.channel ? ` · ${device.channel}` : "") +
+                  ` · added ${formatDay(device.createdAt, "short")}`
+                }
+              />
+            </Td>
+            <Td wide>
+              <span className="host-key" title={device.key}>
+                <IconKey size={13} />
+                {shortKey(device.key)}
+              </span>
+            </Td>
+            <Td end>
+              <Popover
+                look="icon"
+                label={`More for ${device.name}`}
+                trigger={<IconMore size={16} />}
+                options={[
+                  {
+                    key: "remove",
+                    name: "Remove host",
+                    detail: "It leaves your account",
+                    bad: true,
+                    choose: () => askRemove(device),
+                  },
+                ]}
+              />
+            </Td>
+          </Tr>
+        ))}
+      </Table>
+      {phonesSection}
       {shed}
+      {confirmDialog}
     </Page>
-  );
-}
-
-const CONSEQUENCE: Record<Device["role"], string> = {
-  host: "It leaves your account and stops hearing about it. The phones paired to it keep working.",
-  client:
-    "It is signed out and removed from every host, so it can't connect to them until it signs in and is allowed again.",
-};
-
-function DeviceRow({
-  device,
-  remove,
-}: {
-  device: Device;
-  remove: (key: string) => Promise<void>;
-}) {
-  const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string>();
-  const removeButton = useRef<HTMLDivElement>(null);
-  const say = useToast();
-  const confirmId = `remove-${device.key}`;
-  const host = device.role === "host";
-
-  const cancel = () => {
-    setConfirming(false);
-    setProblem(undefined);
-    removeButton.current?.querySelector("button")?.focus();
-  };
-
-  const confirm = async () => {
-    setBusy(true);
-    setProblem(undefined);
-    try {
-      await remove(device.key);
-      say(`Removed ${device.name}.`);
-    } catch (error) {
-      setProblem(problemText(error));
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Row
-      wrap
-      lead={
-        <Tile>{host ? <IconLaptop size={16} /> : <IconPhone size={16} />}</Tile>
-      }
-      name={device.name}
-      detail={
-        platformName(device.platform) +
-        (device.channel ? ` · ${device.channel}` : "") +
-        ` · added ${formatDay(device.createdAt, "short")}`
-      }
-      end={
-        <div className="ends" ref={removeButton}>
-          <code className="mono" title={device.key}>
-            {device.key.slice(0, 8)}
-          </code>
-          <Txt
-            bad
-            aria-label={`Remove ${device.name}`}
-            aria-expanded={confirming}
-            aria-controls={confirming ? confirmId : undefined}
-            onClick={() => (confirming ? cancel() : setConfirming(true))}
-            disabled={busy}
-          >
-            Remove
-          </Txt>
-        </div>
-      }
-    >
-      {confirming ? (
-        <Confirm
-          id={confirmId}
-          problem={problem}
-          busy={busy}
-          label="Remove"
-          danger
-          onCancel={cancel}
-          onConfirm={() => void confirm()}
-        >
-          <p>
-            Remove <b>{device.name}</b>? {CONSEQUENCE[device.role]}
-          </p>
-        </Confirm>
-      ) : null}
-    </Row>
   );
 }

@@ -2185,11 +2185,6 @@ dialog.dlg::backdrop {
   color: var(--lit);
   font-weight: 600;
 }
-.ends {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
 .form.below {
   align-items: center;
 }
