@@ -90,6 +90,7 @@ export function AgentFace({
   size,
   logoSize = size,
   still,
+  gone,
 }: {
   agentId?: string | null;
   provider: string;
@@ -101,9 +102,12 @@ export function AgentFace({
   logoSize?: number;
   /** It keeps still, as a mark inside a line of words does. */
   still?: boolean;
+  /** What an agent the host no longer lists wore, or null for its logo. */
+  gone?: Face | null;
 }) {
   const faces = useFaces();
-  const face = agentId ? faces?.faces[agentId] : undefined;
+  const listed = agentId ? faces?.faces[agentId] : undefined;
+  const face = listed === undefined ? gone : listed;
   const wears = face === undefined ? !!faces?.style.on : face !== null;
   const look = useMemo(
     () => (faces && agentId && wears ? drawnFace({ id: agentId }, face, faces.style) : null),

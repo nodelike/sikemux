@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A host's open agents as the transcript names them: each one's `@name`, and the mark its chip wears, as the Mac draws
+/// A host's agents as the transcript names them: each one's `@name`, and the mark its chip wears, as the Mac draws
 /// an agent its prose names.
 struct Crew: Equatable {
     struct Named: Hashable, Sendable {
@@ -43,6 +43,20 @@ struct Crew: Equatable {
             return ownA != ownB ? ownA : a.offset < b.offset
         }
         return Crew(named: ranked.map(\.element))
+    }
+
+    /// The crew with the agents a reply named that it no longer lists.
+    func naming(_ agents: [NamedAgent]) -> Crew {
+        var written = Set(named.map(\.written))
+        let closed = agents.compactMap { agent -> Named? in
+            let name = "@\(agent.name)"
+            guard written.insert(name).inserted else { return nil }
+            return Named(
+                id: agent.agentId, written: name, chief: agent.name == "Chief", provider: agent.cli ?? "",
+                face: agent.face, project: nil)
+        }
+        guard !closed.isEmpty else { return self }
+        return Crew(named: (named + closed).sorted { $0.written.count > $1.written.count })
     }
 
     /// `text` cut where it names an agent: the words between, and each agent it names.
@@ -149,6 +163,27 @@ enum AgentChip {
     }
 }
 
+@MainActor
+enum AgentChat {
+    /// Opens an agent's chat, which its host takes up again first when the agent has closed.
+    static func open(core: String, agent: String, failed: @escaping (Failure) -> Void) {
+        let live = Hub.shared.live(core)
+        guard let view = live.view, let connection = live.connection,
+            !view.inbox.agents.contains(where: { $0.agentId == agent }),
+            !view.chats.contains(where: { $0.agentId == agent })
+        else { return Router.shared.push(.chat(core: core, agent: agent)) }
+        Task {
+            do {
+                let taken = try await connection.call(PhoneCall.ReopenAgent.self, AgentParams(agentId: agent))
+                Router.shared.push(.chat(core: core, agent: taken.agentId))
+            } catch {
+                Haptics.failure()
+                failed(Failure("The chat didn't open", error))
+            }
+        }
+    }
+}
+
 extension Crew {
     func agent(_ id: String?) -> Named? { id.flatMap { id in named.first { $0.id == id } } }
 }
@@ -160,11 +195,12 @@ struct AgentPill: View {
     @Environment(\.hostCore) private var core
     let agent: Crew.Named
     let size: CGFloat
+    @State private var failure: Failure?
 
     var body: some View {
         Button {
             Haptics.select()
-            Router.shared.push(.chat(core: core, agent: agent.id))
+            AgentChat.open(core: core, agent: agent.id) { failure = $0 }
         } label: {
             HStack(spacing: 5) {
                 NamedMark(agent: agent, accent: palette.accent, size: size + 1)

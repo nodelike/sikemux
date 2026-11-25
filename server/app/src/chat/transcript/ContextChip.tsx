@@ -1,16 +1,22 @@
-import { IconFile, IconIssue, IconPullRequest } from "@shared/ui/Icons";
-import { contextChip } from "@shared/chat/promptContext";
+import {
+  IconFile,
+  IconIssue,
+  IconPresentation,
+  IconPullRequest,
+} from "@shared/ui/Icons";
+import { contextChip, type ContextChip } from "@shared/chat/promptContext";
 import type { SentContext } from "@shared/wire.generated";
 
 function ContextMark({
   kind,
   size,
 }: {
-  kind: "issue" | "pull" | null;
+  kind: ContextChip["kind"];
   size: number;
 }) {
   if (kind === "issue") return <IconIssue size={size} />;
   if (kind === "pull") return <IconPullRequest size={size} />;
+  if (kind === "artifact") return <IconPresentation size={size} />;
   return <IconFile size={size} />;
 }
 

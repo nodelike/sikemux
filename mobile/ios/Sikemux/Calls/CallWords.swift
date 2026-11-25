@@ -261,10 +261,11 @@ enum CallWords {
         return title.isEmpty ? "@\(call.asker.name)" : title
     }
     /// What the empty composer on a call's page says its words will be.
-    static func composerHint(_ call: PersonCall, chosen: Bool) -> String {
-        if call.secret == true { return chosen ? addNote : secretField }
-        if call.options.isEmpty { return String(localized: "Answer in your own words…") }
-        if !chosen { return String(localized: "Pick one above, or answer in your own words…") }
+    static func composerHint(_ call: PersonCall, chosen: [String]) -> String {
+        if call.secret == true { return chosen.isEmpty ? secretField : addNote }
+        if chosen.contains(notDoingId) { return whyNotDoing }
+        if call.options.isEmpty || call.kind == .look { return String(localized: "Answer in your own words…") }
+        if chosen.isEmpty { return String(localized: "Pick one above, or answer in your own words…") }
         return call.kind == .production ? String(localized: "Add a note, then tap Go…") : addNote
     }
     static let whatRuns = String(localized: "What runs")
@@ -280,18 +281,22 @@ enum CallWords {
     /// A do call's Go before an answer is chosen, and a look call's.
     static let done = String(localized: "Done")
     static let seen = String(localized: "Seen")
-    /// The field under Not doing on a do call.
+    /// What the composer asks for once Not doing is chosen on a do call.
     static let whyNotDoing = String(localized: "Say why you're not doing it…")
     static func waiting(_ count: Int) -> String { String(localized: "\(count) asks") }
     static func newest(_ question: String) -> String { String(localized: "Newest: \(question)") }
-    /// A do or look call goes by its kind and short title, `Do · Test purchase`; any other by its question.
+    /// The question where one line shows.
     static func headline(_ call: PersonCall) -> String {
-        guard let title = call.title?.trimmingCharacters(in: .whitespaces), !title.isEmpty else { return call.question }
-        switch call.kind {
-        case .do: return String(localized: "Do · \(title)")
-        case .look: return String(localized: "Look · \(title)")
-        default: return call.question
-        }
+        guard let headline = call.headline, !headline.isEmpty else { return call.question }
+        return headline
+    }
+    /// The line that says what a call asks, and the lines under it; a do or look call's title stands over all of them.
+    static func questionLines(_ call: PersonCall) -> (first: String, rest: [String]) {
+        let lines = call.question.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if call.kind == .do || call.kind == .look, let title = call.title { return (title, lines) }
+        return (lines.first ?? "", Array(lines.dropFirst()))
     }
     /// On the card when the answer sent from its notification did not go.
     static func pushFailed(_ why: String) -> String {
@@ -420,7 +425,9 @@ enum CallWords {
         case .failed: return String(localized: "it failed")
         case .mayHaveRun: return String(localized: "may have run, Sikemux restarted")
         case .handedBack: return String(localized: "handed back")
-        case .withdrawn: return String(localized: "went on without you")
+        case .withdrawn:
+            return call.outcome?.why == .takenBack
+                ? String(localized: "took it back") : String(localized: "went on without you")
         case .heard, .unknown, nil: break
         }
         guard let answer = call.answer else { return String(localized: "closed") }

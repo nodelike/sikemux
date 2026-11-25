@@ -11,14 +11,11 @@ struct CallBody: View {
     let canAnswer: Bool
     let next: PersonCall?
     let report: (String) -> Void
-    @FocusState private var noteFocused: Bool
-    @State private var secretFocused = false
+    @State private var failure: Failure?
 
     private var calls: HostCalls { HostCalls.of(core) }
     private var chosen: [String] { draft.chosen(in: call) }
-    private var typed: Bool { !draft.typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var pictured: Bool { call.secret != true && call.options.contains { $0.picture != nil } }
-    private var notDoing: Bool { call.kind == .do && chosen.contains(CallWords.notDoingId) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -27,30 +24,31 @@ struct CallBody: View {
                 Spacer(minLength: 8)
                 Button {
                     Haptics.tap()
-                    Router.shared.push(.chat(core: core, agent: call.asker.agentId))
+                    AgentChat.open(core: core, agent: call.asker.agentId) { failure = $0 }
                 } label: {
                     Text(CallWords.openChat).font(Theme.ui(13.5)).foregroundStyle(palette.secondary)
                         .frame(minHeight: 32).contentShape(Rectangle())
                 }
                 .buttonStyle(PressFade())
             }
-            let headline = CallWords.headline(call)
-            Text(headline)
+            let asked = CallWords.questionLines(call)
+            Text(asked.first)
                 .font(Theme.ui(21, .semibold))
                 .tracking(-0.3)
                 .foregroundStyle(palette.ink)
                 .textSelection(.enabled)
                 .padding(.top, 10)
-            if headline != call.question {
-                Text(call.question).font(Theme.ui(15)).foregroundStyle(palette.secondary).textSelection(.enabled)
-                    .padding(.top, 8)
+            ForEach(Array(asked.rest.enumerated()), id: \.offset) { _, line in
+                Text(line).font(Theme.ui(15)).foregroundStyle(palette.secondary).textSelection(.enabled)
+                    .padding(.top, 10)
             }
             if let link = call.link {
                 CallLinkTile(link: link) { if call.kind == .look, canAnswer, !draft.sending { seenLook() } }
                     .padding(.top, 14)
             }
             if let page = call.page {
-                PageCard(pages: [PageRef(id: page.id, title: page.title)]).padding(.top, 6)
+                PageCard(pages: ([page] + (call.morePages ?? [])).map { PageRef(id: $0.id, title: $0.title) })
+                    .padding(.top, 6)
             }
             pictures
             why
@@ -69,6 +67,7 @@ struct CallBody: View {
             }
             goRow.padding(.top, 14)
         }
+        .failureAlert($failure)
         .task(id: "\(call.id)|\(Hub.shared.live(core).isOpen)") { await calls.see(call) }
     }
 
@@ -119,7 +118,7 @@ struct CallBody: View {
         .padding(.top, 16)
     }
 
-    /// One choice as a full-width row; Not doing on a do call holds the field that says why.
+    /// One choice as a full-width row.
     private func tile(_ option: CallOption) -> some View {
         let on = chosen.contains(option.id)
         let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -154,27 +153,9 @@ struct CallBody: View {
             .buttonStyle(.plain)
             .disabled(!canAnswer || draft.sending)
             .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
-            if on && option.id == CallWords.notDoingId && call.kind == .do { note }
         }
         .background(shape.fill(on ? palette.active : palette.overlay))
         .overlay(shape.strokeBorder(on ? palette.borderStrong : palette.border, lineWidth: 1))
-    }
-
-    private var note: some View {
-        HStack(spacing: 10) {
-            IconView(icon: Icons.pencil, size: 13)
-                .foregroundStyle(noteFocused || typed ? palette.tertiary : palette.inkFaint)
-            TextField(CallWords.whyNotDoing, text: $draft.typed)
-                .font(Theme.ui(15))
-                .foregroundStyle(palette.ink)
-                .focused($noteFocused)
-                .submitLabel(.send)
-                .onSubmit(goWithThis)
-                .disabled(!canAnswer)
-        }
-        .padding(.horizontal, 14)
-        .frame(minHeight: 44)
-        .overlay(alignment: .top) { palette.border.frame(height: 1).padding(.horizontal, 14) }
     }
 
     @ViewBuilder
@@ -230,17 +211,18 @@ struct CallBody: View {
 
     private var hasGo: Bool { call.kind == .look || call.kind == .do || !call.options.isEmpty }
 
-    var ready: Bool { CallBody.ready(call, draft, canAnswer: canAnswer, seen: seen) }
+    private var ready: Bool {
+        if call.kind == .look { return canAnswer && !draft.sending }
+        if call.kind == .do, chosen.isEmpty { return false }
+        return CallBody.ready(call, draft, canAnswer: canAnswer, seen: seen)
+    }
 
+    /// Whether a call's composer can send: something chosen or typed, and words when it is not being done, while
+    /// nothing is on its way.
     static func ready(_ call: PersonCall, _ draft: CallDraft, canAnswer: Bool, seen: Bool) -> Bool {
         let chosen = draft.chosen(in: call)
         let typed = !draft.typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let answered: Bool =
-            switch call.kind {
-            case .look: true
-            case .do: !chosen.isEmpty && (!chosen.contains(CallWords.notDoingId) || typed)
-            default: !chosen.isEmpty || typed
-            }
+        let answered = typed || (!chosen.isEmpty && !chosen.contains(CallWords.notDoingId))
         return answered && !draft.sending && canAnswer && seen
     }
 
@@ -292,14 +274,16 @@ struct CallBody: View {
         if call.kind == .look { return seenLook() }
         guard let params = draft.answer(call) else { return }
         Haptics.select()
-        noteFocused = false
         Keyboard.dismiss()
         calls.answer(call, params, report: report)
     }
 
     private func seenLook() {
         Haptics.select()
-        calls.answer(call, AnswerCallParams(id: call.id, option: CallWords.seenId), report: report)
+        Keyboard.dismiss()
+        let note = draft.typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        let params = AnswerCallParams(id: call.id, option: CallWords.seenId, note: note.isEmpty ? nil : note)
+        calls.answer(call, params, report: report)
     }
 }
 

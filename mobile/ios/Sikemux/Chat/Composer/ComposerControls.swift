@@ -218,6 +218,7 @@ struct WorktreeSwitch: View {
 /// An issue, pull request or other item handed over with a message, by its number and title rather than its whole
 /// text.
 struct ContextChips: View {
+    private static let artifactUri = "sikemux://artifact/"
     @Environment(\.palette) private var palette
     let items: [SentContext]
 
@@ -226,8 +227,9 @@ struct ContextChips: View {
             ForEach(items, id: \.uri) { item in
                 let tracked = item.tracked
                 let issue = tracked?.kind == .issue
+                let artifact = item.uri.hasPrefix(Self.artifactUri)
                 HStack(spacing: 6) {
-                    IconView(icon: tracked == nil ? Icons.file : issue ? Icons.issue : Icons.pullRequest, size: 14)
+                    IconView(icon: icon(tracked, artifact: artifact), size: 14)
                         .foregroundStyle(tracked == nil ? palette.inkFaint : palette.live)
                     if let number = tracked?.number {
                         Text("#\(number)").font(Theme.ui(12, .medium)).foregroundStyle(palette.ink)
@@ -247,10 +249,17 @@ struct ContextChips: View {
                         issue
                             ? String(localized: "Issue #\($0.number) \($0.title)")
                             : String(localized: "Pull request #\($0.number) \($0.title)")
-                    } ?? String(localized: "Context \(item.title)"))
+                    }
+                        ?? (artifact
+                            ? String(localized: "Artifact \(item.title)") : String(localized: "Context \(item.title)")))
             }
         }
         .padding(.bottom, 6)
+    }
+
+    private func icon(_ tracked: Tracked?, artifact: Bool) -> IconDef {
+        guard let tracked else { return artifact ? Icons.presentation : Icons.file }
+        return tracked.kind == .issue ? Icons.issue : Icons.pullRequest
     }
 }
 

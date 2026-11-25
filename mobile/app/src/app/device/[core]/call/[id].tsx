@@ -86,7 +86,7 @@ export default function CallScreen() {
 
 /**
  * The chat's composer box at the bottom of a call's page, holding the note that goes with the choice made or, with none
- * made, the person's own answer. A call for a secret takes it hidden; a do or look call is answered from its page alone.
+ * made, the person's own answer. A call for a secret takes it hidden.
  */
 function CallComposer({
   core,
@@ -112,10 +112,9 @@ function CallComposer({
   const store = draftOf(calls, call);
   const draft = useExternalValue(store);
   const [focused, setFocused] = useState(false);
-  if (call.kind === 'do' || call.kind === 'look') return null;
   const seen = call.kind !== 'production' || held.seen.has(call.id);
   const ready = readyOf(call, draft, canAnswer, seen);
-  const hint = composerHint(call, chosenIn(draft, call).length > 0, t);
+  const hint = composerHint(call, chosenIn(draft, call), t);
   const secret = !!call.secret;
 
   const send = () => {

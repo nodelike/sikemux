@@ -41,7 +41,7 @@ import { AgentPills, ToolGroup } from './Tools';
 import { AnsweredQuestions } from './Question';
 import { Bubble, From, makeBubbleStyles, TheirBubble } from './Bubble';
 import { AgentContext, ChiefContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
-import { OwnMark } from '@/devices/Crew';
+import { CrewContext, crewNaming, OwnMark, useCrew } from '@/devices/Crew';
 import { AccountLine, AgentNoticeLine, ContextHandoffLine, PageCard, type PageRef, TaskNotice, WorkerPageLine } from '@/chat/Notices';
 import { EndedTasksLine } from '@/chat/EndedTasks';
 import { ContextChips } from '@/chat/ContextChips';
@@ -447,6 +447,8 @@ export function Message({
         onTap(message);
       }
     : undefined;
+  const open = useCrew();
+  const crew = useMemo(() => (message.named?.length ? crewNaming(open, message.named) : open), [open, message.named]);
   const apart = useMemo(() => {
     const shown = message.team ? null : message.fold?.shown;
     return shown ? new Set(shownParts(message.parts, shown).map((part) => part.id)) : undefined;
@@ -566,7 +568,9 @@ export function Message({
     <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? t('Tap for copy and how long it took') : undefined}>
       <Grow id={message.id} live={live}>
         <WhyChipsContext.Provider value={message.chips}>
-          <Parts id={message.id} parts={shownParts(message.parts, kept)} apart={apart} live={live} restored={restored} />
+          <CrewContext value={crew}>
+            <Parts id={message.id} parts={shownParts(message.parts, kept)} apart={apart} live={live} restored={restored} />
+          </CrewContext>
         </WhyChipsContext.Provider>
         {live ? null : <LeftOut message={message} />}
         {strip ? <Strip meta={strip} mine={false} /> : null}

@@ -62,8 +62,7 @@ struct CallScreen: View {
 }
 
 /// What a call is answered with at the bottom of its page: the chat's composer box, holding the note that goes with
-/// the choice made or, with none made, the person's own answer. A call for a secret takes it in a hidden field; a do
-/// or look call is answered from its page alone.
+/// the choice made or, with none made, the person's own answer. A call for a secret takes it in a hidden field.
 struct CallComposer: View {
     @Environment(\.palette) private var palette
     let core: String
@@ -78,21 +77,19 @@ struct CallComposer: View {
     private var ready: Bool { CallBody.ready(call, draft, canAnswer: canAnswer, seen: seen) }
 
     var body: some View {
-        if call.kind != .do && call.kind != .look {
-            let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .bottom, spacing: 4) {
-                    field
-                    Button(action: send) { SendCircle(busy: draft.sending, dim: !ready) }
-                        .buttonStyle(PressFade())
-                        .disabled(!ready)
-                        .padding(.bottom, 4)
-                        .accessibilityLabel(String(localized: "Send"))
-                }
-                if call.secret == true, !draft.typed.isEmpty {
-                    Text(CallWords.hidden(draft.typed)).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim)
-                        .padding(.horizontal, 10).padding(.bottom, 4)
-                }
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .bottom, spacing: 4) {
+                field
+                Button(action: send) { SendCircle(busy: draft.sending, dim: !ready) }
+                    .buttonStyle(PressFade())
+                    .disabled(!ready)
+                    .padding(.bottom, 4)
+                    .accessibilityLabel(String(localized: "Send"))
+            }
+            if call.secret == true, !draft.typed.isEmpty {
+                Text(CallWords.hidden(draft.typed)).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim)
+                    .padding(.horizontal, 10).padding(.bottom, 4)
             }
             .padding(6)
             .background(shape.fill(palette.composer))
@@ -102,11 +99,18 @@ struct CallComposer: View {
             .padding(.bottom, 6)
             .disabled(!canAnswer)
         }
+        .padding(6)
+        .background(shape.fill(palette.composer))
+        .overlay(shape.strokeBorder(focused ? palette.borderSelected : palette.border, lineWidth: 1))
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .disabled(!canAnswer)
     }
 
     @ViewBuilder
     private var field: some View {
-        let hint = CallWords.composerHint(call, chosen: !draft.chosen(in: call).isEmpty)
+        let hint = CallWords.composerHint(call, chosen: draft.chosen(in: call))
         if call.secret == true {
             SecretField(
                 text: $draft.typed, focused: $focused, accent: UIColor(palette.accent), dark: !palette.isLight,

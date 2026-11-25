@@ -33,7 +33,7 @@ export function CallsTab({ core, snapshot, scope }: { core: string; snapshot: Sn
     <Row
       key={call.id}
       mark={<AskerMark agentId={call.asker.agentId} provider={call.asker.cli} chief={call.asker.chief} asking={call.state === 'open'} />}
-      title={headline(call, t)}
+      title={headline(call)}
       end={end}
       onPress={
         call.state === 'open'

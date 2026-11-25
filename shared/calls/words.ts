@@ -365,7 +365,7 @@ export const LOOK_SEEN = "seen";
 /** A do call's Go before an answer is chosen, and a look call's. */
 export const DONE = "Done";
 export const SEEN = "Seen";
-/** The field under Not doing on a do call. */
+/** What the composer asks for once Not doing is chosen on a do call. */
 export const WHY_NOT_DOING = "Say why you're not doing it…";
 /** A call's page title: its short title, else who asked it. */
 export function pageTitle(call: PersonCall): string {
@@ -373,10 +373,11 @@ export function pageTitle(call: PersonCall): string {
 }
 
 /** What the composer under a call's page says while it is empty. */
-export function composerHint(call: PersonCall, chosen: boolean, say: Say = english): string {
-    if (call.secret) return say(chosen ? ADD_NOTE : SECRET_FIELD);
-    if (!call.options.length) return say("Answer in your own words…");
-    if (!chosen) return say("Pick one above, or answer in your own words…");
+export function composerHint(call: PersonCall, chosen: string[], say: Say = english): string {
+    if (call.secret) return say(chosen.length ? ADD_NOTE : SECRET_FIELD);
+    if (chosen.includes(DO_NOT_DOING)) return say(WHY_NOT_DOING);
+    if (!call.options.length || call.kind === "look") return say("Answer in your own words…");
+    if (!chosen.length) return say("Pick one above, or answer in your own words…");
     return say(call.kind === "production" ? "Add a note, then tap Go…" : ADD_NOTE);
 }
 
@@ -384,13 +385,17 @@ export function composerHint(call: PersonCall, chosen: boolean, say: Say = engli
 export const waitingCalls = (count: number, say: Say = english) => say("{count} asks", { count });
 export const newest = (question: string, say: Say = english) => say("Newest: {question}", { question });
 
-/** A do or look call goes by its kind and short title, `Do · Test purchase`; any other by its question. */
-export function headline(call: PersonCall, say: Say = english): string {
-    const title = call.title?.trim();
-    if (!title) return call.question;
-    if (call.kind === "do") return say("Do · {title}", { title });
-    if (call.kind === "look") return say("Look · {title}", { title });
-    return call.question;
+/** The question where one line shows. */
+export const headline = (call: PersonCall) => call.headline || call.question;
+
+/** The line that says what a call asks, and the lines under it; a do or look call's title stands over all of them. */
+export function questionLines(call: PersonCall): { first: string; rest: string[] } {
+    const lines = call.question
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line);
+    const title = call.kind === "do" || call.kind === "look" ? call.title : undefined;
+    return title != null ? { first: title, rest: lines } : { first: lines[0] ?? "", rest: lines.slice(1) };
 }
 
 /** On the card when the answer sent from its notification did not go. */
@@ -433,7 +438,7 @@ export function cameOf(call: PersonCall, say: Say = english): string {
         case "mayHaveRun":
             return say("may have run, Sikemux restarted");
         case "withdrawn":
-            return say("went on without you");
+            return say(call.outcome.why === "takenBack" ? "took it back" : "went on without you");
     }
     const answer = call.answer;
     if (!answer) return say("closed");

@@ -5,6 +5,7 @@ import SwiftUI
 struct Transcript<Footer: View>: View {
     @Environment(\.palette) private var palette
     @Environment(\.crew) private var crew
+    @State private var failure: Failure?
     let rows: ChatRows
     /// Counts each change to the rows, so a redraw that changed nothing is skipped.
     let drawn: Int
@@ -36,11 +37,12 @@ struct Transcript<Footer: View>: View {
         )
         .environment(\.openURL, OpenURLAction { url in opened(url) })
         .sheet(item: Bindable(context).picture) { picture in ImageViewer(picture: picture) }
+        .failureAlert($failure)
     }
 
     private func opened(_ url: URL) -> OpenURLAction.Result {
         if let agent = WhyLink.agent(url) ?? AgentChip.agent(url) {
-            if let core = context.core { Router.shared.push(.chat(core: core, agent: agent)) }
+            if let core = context.core { AgentChat.open(core: core, agent: agent) { failure = $0 } }
             return .handled
         }
         guard let path = TranscriptLink.filePath(url) else { return .systemAction }

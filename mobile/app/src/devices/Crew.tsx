@@ -2,20 +2,26 @@ import { createContext, Fragment, useContext, useState, type ReactNode } from 'r
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
-import type { DeviceView, TurnState } from '@shared/wire.generated';
+import type { AgentFace as Face, DeviceView, NamedAgent, TurnState } from '@shared/wire.generated';
+import { callHost } from '@/core/hostCalls';
 import { AgentFace } from '@/devices/Buddy';
+import { connectionOf, liveOf } from '@/devices/hub';
 import { HostContext } from '@/chat/hostFiles';
+import { translate } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
+import { alertFailure } from '@/ui/prompt';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
-/** One of the host's open agents as the transcript names it. */
+/** An agent as the transcript names it: one the host has open, or one a reply named that has since closed. */
 export interface Named {
   id: string;
   /** What prose writes for it, such as `@Otter`. */
   written: string;
   chief: boolean;
   provider: string;
+  /** The face a closed agent wore, or null for its logo. */
+  face?: Face | null;
 }
 
 /** The host's open agents, longest name first so `@Otterly` is not read as `@Otter`. */
@@ -32,7 +38,20 @@ export function crewOf(view: DeviceView | undefined): Crew {
       const name = agent.chief ? 'Chief' : agent.name;
       return name ? [{ id: agent.agentId, written: `@${name}`, chief: agent.chief === true, provider: agent.cli }] : [];
     })
-    .sort((a, b) => b.written.length - a.written.length);
+    .sort(longestFirst);
+}
+
+const longestFirst = (a: Named, b: Named) => b.written.length - a.written.length;
+
+/** The crew with the agents a reply named that it no longer lists. */
+export function crewNaming(crew: Crew, named: readonly NamedAgent[]): Crew {
+  const closed: Named[] = [];
+  for (const { agentId, name, cli, face } of named) {
+    const written = `@${name}`;
+    if (crew.some((agent) => agent.written === written) || closed.some((agent) => agent.written === written)) continue;
+    closed.push({ id: agentId, written, chief: name === 'Chief', provider: cli ?? '', face: face ?? null });
+  }
+  return closed.length ? [...crew, ...closed].sort(longestFirst) : crew;
 }
 
 const crewKey = (crew: Crew) => crew.map((agent) => `${agent.id}|${agent.written}|${agent.provider}|${agent.chief}`).join('\n');
@@ -105,6 +124,7 @@ export function OwnMark({
   turn,
   size,
   still,
+  face,
 }: {
   agentId?: string | null;
   provider: string;
@@ -112,14 +132,29 @@ export function OwnMark({
   turn?: TurnState;
   size: number;
   still?: boolean;
+  face?: Face | null;
 }) {
-  return chief ? <ChiefMark size={size} /> : <AgentFace agentId={agentId} provider={provider} turn={turn} size={size} still={still} />;
+  return chief ? (
+    <ChiefMark size={size} />
+  ) : (
+    <AgentFace agentId={agentId} provider={provider} turn={turn} size={size} still={still} gone={face} />
+  );
 }
 
-export const openChat = (core: string, agent: string) => {
+/** Opens an agent's chat, which its host takes up again first when the agent has closed. */
+export function openChat(core: string, agent: string) {
   haptics.select();
-  router.push(`/device/${core}/chat/${agent}`);
-};
+  const open = (id: string) => router.push(`/device/${core}/chat/${id}`);
+  const live = liveOf(core);
+  const view = live.snapshot;
+  const connection = connectionOf(live);
+  const listed = view?.inbox.agents.some((shown) => shown.agentId === agent) || view?.chats.some((chat) => chat.agentId === agent);
+  if (listed || !view || !connection) return open(agent);
+  callHost(connection, 'reopenAgent', { agentId: agent }).then(
+    (taken) => open(taken.agentId),
+    alertFailure(translate("The chat didn't open")),
+  );
+}
 
 /** An agent named in prose, drawn in the line as the Mac's chip: its mark and name on a grey lift, opening its chat. */
 export function NamedChip({ agent, size }: { agent: Named; size: number }) {
@@ -132,7 +167,7 @@ export function NamedChip({ agent, size }: { agent: Named; size: number }) {
       accessibilityRole={core ? 'link' : 'text'}
       accessibilityLabel={agent.written}>
       <View style={styles.inlineMark}>
-        <OwnMark agentId={agent.id} provider={agent.provider} chief={agent.chief} size={size} still />
+        <OwnMark agentId={agent.id} provider={agent.provider} chief={agent.chief} face={agent.face} size={size} still />
       </View>
       {` ${agent.written} `}
     </Text>
@@ -161,7 +196,7 @@ export function AgentPill({ agent, size }: { agent: Named; size: number }) {
       style={({ pressed }) => [styles.pill, { height: size + 8 }, pressed && { backgroundColor: colors.borderStrong }]}
       accessibilityRole="button"
       accessibilityLabel={agent.written}>
-      <OwnMark agentId={agent.id} provider={agent.provider} chief={agent.chief} size={size + 1} still />
+      <OwnMark agentId={agent.id} provider={agent.provider} chief={agent.chief} face={agent.face} size={size + 1} still />
       <Text style={[styles.pillName, { fontSize: size }]} numberOfLines={1}>
         {agent.written}
       </Text>

@@ -10,6 +10,7 @@ import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 const CHIP_LOOKS: Record<NonNullable<ContextChip['kind']> | 'other', { label: string; icon: IconName }> = {
   issue: { label: 'Issue', icon: 'IconIssue' },
   pull: { label: 'Pull request', icon: 'IconPullRequest' },
+  artifact: { label: 'Artifact', icon: 'IconPresentation' },
   other: { label: 'Context', icon: 'IconFile' },
 };
 
@@ -30,7 +31,7 @@ export function ContextChips({ items }: { items: SentContext[] }) {
             style={styles.contextChip}
             accessible
             accessibilityLabel={`${label} ${chip.number ? `#${chip.number} ` : ''}${chip.title}`}>
-            <Icon name={look.icon} size={14} color={chip.kind ? colors.live : colors.inkFaint} />
+            <Icon name={look.icon} size={14} color={item.tracked ? colors.live : colors.inkFaint} />
             {chip.number ? <Text style={styles.contextNumber}>#{chip.number}</Text> : null}
             <Text style={styles.contextTitle} numberOfLines={1}>
               {chip.title}

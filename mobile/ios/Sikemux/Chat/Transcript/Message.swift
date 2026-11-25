@@ -82,6 +82,7 @@ struct TranscriptRow: View {
 struct TranscriptMessage: View {
     @Environment(\.palette) private var palette
     @Environment(TranscriptContext.self) private var context
+    @Environment(\.crew) private var crew
     let message: ChatMessage
     var look = RowLook()
 
@@ -99,6 +100,7 @@ struct TranscriptMessage: View {
                     restored: context.leftOut[message.id]
                 )
                 .environment(\.whyChips, WhyLink.chips(message.chips ?? [], here: context.agentId))
+                .environment(\.crew, crew?.naming(message.named ?? []))
                 if !look.live { LeftOutLine(message: message) }
                 if let strip = look.strip { StripView(strip: strip, mine: false) }
             }

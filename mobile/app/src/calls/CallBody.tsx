@@ -1,5 +1,5 @@
-import { memo, type ReactNode, useEffect, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { memo, useEffect } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import type { ConnectionLike } from '@sikemux/native';
 
@@ -12,7 +12,6 @@ import {
   DO_NOT_DOING,
   DONE,
   GO_WITH_THIS,
-  headline as headlineOf,
   kept,
   LOOK_SEEN,
   NEXT_CALL,
@@ -20,10 +19,10 @@ import {
   PICK,
   pictureLabel,
   pushFailed,
+  questionLines,
   SEEN,
   WHAT_RUNS,
   WHY_IT_CAME_UP,
-  WHY_NOT_DOING,
 } from '@shared/calls/words';
 import { useT } from '@/i18n';
 import type { CallAsker, CallLink, CallOption, PersonCall } from '@shared/wire.generated';
@@ -39,16 +38,11 @@ import { useMinute } from '@/ui/motion';
 import { openLink } from '@/ui/prompt';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
-/** Whether a call's answer can go: something chosen or typed, as its kind asks, while nothing is on its way. */
+/** Whether a call's composer can send: something chosen or typed, and words when it is not being done, while nothing is on its way. */
 export function readyOf(call: PersonCall, draft: Draft, canAnswer: boolean, seen: boolean): boolean {
   const chosen = chosenIn(draft, call);
   const typed = draft.typed.trim().length > 0;
-  const answered =
-    call.kind === 'look'
-      ? true
-      : call.kind === 'do'
-        ? chosen.length > 0 && (!chosen.includes(DO_NOT_DOING) || typed)
-        : chosen.length > 0 || typed;
+  const answered = typed || (chosen.length > 0 && !chosen.includes(DO_NOT_DOING));
   return answered && !draft.sending && canAnswer && seen;
 }
 
@@ -88,9 +82,9 @@ export const CallBody = memo(function CallBody({
   const failed = held.failed[call.id];
   // The core asks only a production call to have been drawn before its answer counts.
   const seen = call.kind !== 'production' || held.seen.has(call.id);
-  const notDoing = call.kind === 'do' && chosen.includes(DO_NOT_DOING);
-  const ready = readyOf(call, draft, canAnswer, seen);
-  const headline = headlineOf(call, t);
+  const ready =
+    call.kind === 'look' ? canAnswer && !draft.sending : (call.kind !== 'do' || chosen.length > 0) && readyOf(call, draft, canAnswer, seen);
+  const asked = questionLines(call);
   const hasGo = call.kind === 'look' || call.kind === 'do' || call.options.length > 0;
   const goWords =
     call.kind === 'look'
@@ -104,8 +98,9 @@ export const CallBody = memo(function CallBody({
     if (connection) void see(core, () => connection, call);
   }, [core, connection, call]);
 
+  const looked = () => ({ id: call.id, option: LOOK_SEEN, note: draft.typed.trim() || undefined });
   const go = () => {
-    const params = call.kind === 'look' ? { id: call.id, option: LOOK_SEEN } : answerOf(store.get(), call);
+    const params = call.kind === 'look' ? looked() : answerOf(store.get(), call);
     if (!params || !ready) return;
     haptics.select();
     void answer(core, connection, call, store, params, report);
@@ -132,25 +127,25 @@ export const CallBody = memo(function CallBody({
         </Pressable>
       </View>
       <Text style={styles.question} selectable>
-        {headline}
+        {asked.first}
       </Text>
-      {headline !== call.question ? (
-        <Text style={styles.prose} selectable>
-          {call.question}
+      {asked.rest.map((line, index) => (
+        <Text key={index} style={styles.prose} selectable>
+          {line}
         </Text>
-      ) : null}
+      ))}
       {call.link ? (
         <LinkTile
           link={call.link}
           onOpen={() => {
             if (call.kind === 'look' && canAnswer && !draft.sending) {
               haptics.select();
-              void answer(core, connection, call, store, { id: call.id, option: LOOK_SEEN }, report);
+              void answer(core, connection, call, store, looked(), report);
             }
           }}
         />
       ) : null}
-      {call.page ? <PageCard pages={[call.page]} /> : null}
+      {call.page ? <PageCard pages={[call.page, ...(call.morePages ?? [])]} /> : null}
       {pictured ? <Strip call={call} chosen={chosen} onChoose={(option) => choose(store, call, option)} /> : <Evidence call={call} />}
       <Why call={call} />
       {call.kind === 'look' ? null : (
@@ -165,11 +160,8 @@ export const CallBody = memo(function CallBody({
               onPress={() => {
                 haptics.select();
                 choose(store, call, option.id);
-              }}>
-              {notDoing && option.id === DO_NOT_DOING ? (
-                <NotDoingNote value={draft.typed} onChange={(text) => edit(store, { typed: text })} onSubmit={go} editable={canAnswer} />
-              ) : null}
-            </Tile>
+              }}
+            />
           ))}
         </View>
       )}
@@ -262,14 +254,12 @@ function Tile({
   pick,
   disabled,
   onPress,
-  children,
 }: {
   option: CallOption;
   on: boolean;
   pick: boolean;
   disabled: boolean;
   onPress: () => void;
-  children?: ReactNode;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -300,42 +290,6 @@ function Tile({
           </View>
         ) : null}
       </Pressable>
-      {children}
-    </View>
-  );
-}
-
-/** Why a do call is not being done, typed inside its Not doing tile. */
-function NotDoingNote({
-  value,
-  onChange,
-  onSubmit,
-  editable,
-}: {
-  value: string;
-  onChange: (text: string) => void;
-  onSubmit: () => void;
-  editable: boolean;
-}) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const t = useT();
-  const [focused, setFocused] = useState(false);
-  return (
-    <View style={styles.note}>
-      <Icon name="IconPencil" size={13} color={focused || value.trim() ? colors.tertiary : colors.inkFaint} />
-      <TextInput
-        value={value}
-        onChangeText={onChange}
-        placeholder={t(WHY_NOT_DOING)}
-        placeholderTextColor={colors.tertiary}
-        style={styles.input}
-        returnKeyType="send"
-        onSubmitEditing={onSubmit}
-        editable={editable}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-      />
     </View>
   );
 }
@@ -475,7 +429,7 @@ const makeStyles = (colors: Palette) => {
     age: { fontFamily: fonts.ui, fontSize: 14, color: colors.tertiary },
     openChat: { fontFamily: fonts.ui, fontSize: 14, color: colors.secondary },
     question: { marginTop: 14, fontFamily: fonts.uiSemibold, fontSize: 21, lineHeight: 27, color: colors.ink },
-    prose: { marginTop: 6, fontFamily: fonts.ui, fontSize: 15, lineHeight: 21, color: colors.secondary },
+    prose: { marginTop: 10, fontFamily: fonts.ui, fontSize: 15, lineHeight: 21, color: colors.secondary },
     link: {
       marginTop: 12,
       flexDirection: 'row',
@@ -498,16 +452,6 @@ const makeStyles = (colors: Palette) => {
     optionDetail: { fontFamily: fonts.ui, fontSize: 13, color: colors.tertiary },
     pick: { flexDirection: 'row', alignItems: 'center', gap: 5 },
     pickText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
-    note: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      minHeight: 44,
-      paddingHorizontal: 14,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-    },
-    input: { flex: 1, fontFamily: fonts.ui, fontSize: 15, color: colors.ink, paddingVertical: 10 },
     against: { marginTop: 12, fontFamily: fonts.ui, fontSize: 13.5, color: colors.secondary },
     extras: { marginTop: 6, flexDirection: 'row', alignItems: 'center', minHeight: 32 },
     runs: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32 },

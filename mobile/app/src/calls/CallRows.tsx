@@ -55,7 +55,7 @@ export function CallRows({
           <Text style={styles.text} numberOfLines={1}>
             <Text style={{ color: colors.ink }}>{counted(calls.length)}</Text>
             <Text style={{ color: colors.inkFaint }}> · </Text>
-            {newestOf(headline(newest, t), t)}
+            {newestOf(headline(newest), t)}
           </Text>
           {age(newest)}
           <View style={{ transform: [{ rotate: open ? '90deg' : '0deg' }] }}>
@@ -75,7 +75,7 @@ export function CallRows({
               accessibilityRole="button">
               {mark(call)}
               <Text style={[styles.text, opens && { color: colors.ink }]} numberOfLines={1}>
-                {headline(call, t)}
+                {headline(call)}
               </Text>
               {age(call)}
               {opens ? <Icon name="IconChevron" size={11} color={colors.tertiary} /> : null}
