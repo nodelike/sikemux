@@ -4,6 +4,7 @@
 //! merge or rebase under way, and no agent is at work in it. Anything else, it leaves alone.
 
 use crate::server::agent_now::AgentNowCore;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -186,6 +187,9 @@ fn untouched(core: &Core, checkout: &Path) -> Result<(), String> {
         .any(|agent| agent.cwd.starts_with(checkout));
     if agents_busy {
         return Err("an agent is at work or starting in it".into());
+    }
+    if let Some(process) = (core.repo_above().harness_running_in)(core, checkout) {
+        return Err(format!("{process}, started in Sikemux, runs in it"));
     }
     if under_way(checkout) {
         return Err("git is partway through a merge or rebase there".into());

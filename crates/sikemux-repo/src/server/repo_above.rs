@@ -110,6 +110,8 @@ pub struct RepoAbove {
     pub launching_start_agent: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, CoreResult<()>>,
     /// How many terminals run now, the spare ones aside.
     pub running_sessions: fn(&Core) -> usize,
+    /// The process Sikemux started that runs in the folder, as `label` and its command.
+    pub harness_running_in: fn(&Core, &Path) -> Option<String>,
     /// Notes an event in the host's history.
     pub host_note: fn(&Core, HostEventKind),
     /// What the person must trust before the project's file runs its commands, if anything.

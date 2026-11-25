@@ -353,6 +353,25 @@ impl Harness {
         self.read(|state| state.runs.by_pty(pty_id).cloned())
     }
 
+    /// The run still going whose working folder is `folder` or inside it, by `label` and command.
+    pub(crate) fn running_in(&self, folder: &Path) -> Option<String> {
+        let real = sikemux_process::files::real_path(folder).unwrap_or_else(|_| folder.to_owned());
+        self.read(|state| {
+            let run = state.runs.all().iter().find(|run| {
+                run.status.is_active()
+                    && run.cwd.as_deref().is_some_and(|cwd| {
+                        let cwd = Path::new(cwd);
+                        cwd.starts_with(folder) || cwd.starts_with(&real)
+                    })
+            })?;
+            let command = run.command.as_deref().unwrap_or_default();
+            Some(match &run.label {
+                Some(label) => format!("{label} ({command})"),
+                None => command.to_owned(),
+            })
+        })
+    }
+
     pub(crate) fn all_runs(&self) -> Vec<Run> {
         self.read(|state| state.runs.all().to_vec())
     }

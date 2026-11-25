@@ -8,6 +8,7 @@
 //! branch's tip in that way too, its commits made again on it. A branch here
 //! that is only behind origin's is taken at origin's tip.
 
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -235,7 +236,10 @@ fn worktree_at(core: &Core, dir: &Path) -> Result<AgentWorktree, String> {
     let top = top(dir)?;
     let shown = top.display();
     if is_main_checkout(&top) {
-        return Err(format!("{shown} is its repository's own checkout. Sync is for an agent's own checkout; Sikemux fast-forwards this one by itself every ten minutes while it is clean, on its default branch and has no commits of its own. To sync a worktree, name a path in it in paths."));
+        let held = (core.repo_above().harness_running_in)(core, &top).map_or_else(String::new, |process| {
+            format!(" It is held back now: {process} runs in it. Stop that process, or pull by hand.")
+        });
+        return Err(format!("{shown} is its repository's own checkout. Sync is for an agent's own checkout; Sikemux fast-forwards this one by itself every ten minutes while it is clean, on its default branch and has no commits of its own, and no process started in Sikemux runs in it.{held} To sync a worktree, name a path in it in paths."));
     }
     let agents = core.workspaces().view().agents;
     let owner = agents.iter().find(|agent| {

@@ -451,6 +451,7 @@ pub(super) fn repo_above() -> RepoAbove {
                     .map(drop)
             })
         },
+        harness_running_in: |core, folder| core.harness().running_in(folder),
         host_note: |core, what| core.host_watch().note(what),
         running_sessions: |core| core.running_sessions(),
         tasks_config_needs: tasks::config_needs,
