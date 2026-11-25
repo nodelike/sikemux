@@ -22,7 +22,8 @@ release="$(gh release view "v$VERSION" --json isPrerelease,name,publishedAt)"
 staff="$(gh release download staff -p latest.json -O - 2>/dev/null | jq -r .version || true)"
 [[ "$staff" == "$VERSION" ]] || problems+=("the staff feed serves ${staff:+v$staff}${staff:-nothing}, not the candidate")
 published="$(jq -r .publishedAt <<<"$release")"
-minutes=$((($(date +%s) - $(date -d "$published" +%s)) / 60))
+published_epoch="$(jq -r '.publishedAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601' <<<"$release")"
+minutes=$((($(date +%s) - published_epoch) / 60))
 ((minutes >= MINUTES)) || waiting+=("the candidate has been on staff for $minutes min, under $MINUTES")
 
 run="$(gh run list --workflow release.yml --event push --branch "v$VERSION" --limit 1 --json databaseId,conclusion,url --jq '.[0]')"

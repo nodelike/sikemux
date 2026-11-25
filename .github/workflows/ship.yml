@@ -3,10 +3,12 @@ run-name: Ship ${{ inputs.version && format('v{0}', inputs.version) || 'the wait
 
 # Makes a stable candidate that soaked on the staff feed the latest release, which is the stable
 # feed, the site's download and the pacman repository, then moves the apt suites and Homebrew to
-# it. Release starts it when it publishes a candidate; it waits out the soak, and while the
-# candidate is still short of its Macs it starts itself again 10 minutes later, so it ships as soon
-# as the gate passes, with nobody asked. It publishes the candidate's own files and builds nothing.
+# it. Release starts it when it publishes a candidate, and a 30-minute schedule rechecks until
+# the soak and Mac gate pass, so it ships with nobody asked and without holding a live runner.
+# It publishes the candidate's own files and builds nothing.
 on:
+  schedule:
+    - cron: "*/30 * * * *"
   workflow_dispatch:
     inputs:
       version:
@@ -20,6 +22,10 @@ on:
         description: The most Macs it waits for; fewer when fewer follow the staff feed
         type: number
         default: 2
+      attempt:
+        description: Retry count for workflow_dispatch checks
+        type: number
+        default: 1
 
 permissions:
   contents: read
@@ -54,26 +60,9 @@ jobs:
           echo "version=$VERSION" >>"$GITHUB_OUTPUT"
           echo "Candidate: v$VERSION" >>"$GITHUB_STEP_SUMMARY"
 
-  soak:
-    name: Wait out the soak
-    needs: find
-    if: needs.find.outputs.version
-    runs-on: ubuntu-latest
-    timeout-minutes: 300
-    steps:
-      - name: Wait until it has been on staff long enough
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.find.outputs.version }}
-          MINUTES: ${{ inputs.minutes || 30 }}
-        run: |
-          published="$(gh release view "v$VERSION" -R "$GITHUB_REPOSITORY" --json publishedAt --jq .publishedAt)"
-          left=$(($(date -d "$published" +%s) + MINUTES * 60 - $(date +%s)))
-          ((left <= 0)) || sleep "$left"
-
   gate:
     name: Check the candidate is ready
-    needs: [find, soak]
+    needs: find
     if: needs.find.outputs.version
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -101,11 +90,12 @@ jobs:
           MACS: ${{ inputs.macs || 2 }}
         run: scripts/ship-gate.sh "$VERSION" "$MINUTES" "$MACS"
 
-  # A candidate still short of its Macs is looked at again in 10 minutes; a red gate ends the chain.
+  # A candidate still short of its soak or Macs is rechecked on schedule, plus up to 6 quick
+  # retries after a manual/release dispatch; a red gate ends the chain.
   again:
     name: Look again in 10 minutes
     needs: [find, gate]
-    if: needs.gate.result == 'success' && needs.gate.outputs.ready != 'true'
+    if: github.event_name == 'workflow_dispatch' && needs.gate.result == 'success' && needs.gate.outputs.ready != 'true' && (inputs.attempt || 1) < 6
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -117,9 +107,10 @@ jobs:
           VERSION: ${{ needs.find.outputs.version }}
           MINUTES: ${{ inputs.minutes || 30 }}
           MACS: ${{ inputs.macs || 2 }}
+          ATTEMPT: ${{ inputs.attempt || 1 }}
         run: |
           sleep 600
-          gh workflow run ship.yml -R "$GITHUB_REPOSITORY" -f "version=$VERSION" -f "minutes=$MINUTES" -f "macs=$MACS"
+          gh workflow run ship.yml -R "$GITHUB_REPOSITORY" -f "version=$VERSION" -f "minutes=$MINUTES" -f "macs=$MACS" -f "attempt=$((ATTEMPT + 1))"
 
   ship:
     name: Make it the stable release

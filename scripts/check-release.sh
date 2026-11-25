@@ -243,7 +243,14 @@ CARGO_VERSION="$(node -e '
 }
 
 # 0.6.4-nightly.239 was published with an empty list of changes.
-if [[ -z "$(node scripts/release-notes.mjs app 461f55a4a2157013874d8edb92a4d0c5bb94b9fc cf09df49f1723297f5867a00bcf0e9f9f8ae17b4)" ]]; then
+NOTES_REPO="$TMP/notes-repo"
+mkdir -p "$NOTES_REPO/crates/sikemux-repo/src/server"
+git -C "$NOTES_REPO" init --quiet
+git -C "$NOTES_REPO" -c user.name=check -c user.email=check@localhost commit --quiet --allow-empty -m "base"
+printf '// fixture\n' >"$NOTES_REPO/crates/sikemux-repo/src/server/who_wrote.rs"
+git -C "$NOTES_REPO" add crates/sikemux-repo/src/server/who_wrote.rs
+git -C "$NOTES_REPO" -c user.name=check -c user.email=check@localhost commit --quiet -m "who_wrote: a file's path in a checkout uses slashes on Windows"
+if [[ -z "$(cd "$NOTES_REPO" && node "$OLDPWD/scripts/release-notes.mjs" app HEAD~1 HEAD)" ]]; then
   echo "0.6.4-nightly.239's notes list nothing" >&2
   exit 1
 fi

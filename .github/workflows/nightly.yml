@@ -164,9 +164,15 @@ jobs:
             [[ "$(gh api "repos/$GH_REPO/compare/$2...$1" --jq .status)" == ahead ]]
           }
 
-          release_runs="$(gh api "repos/$GH_REPO/actions/workflows/release.yml/runs?event=workflow_dispatch&per_page=20")"
-          building_row="$(jq -r '[.workflow_runs[] | select(.status != "completed")][0] // empty |
-            "\(.display_title | sub("^Release nightly from "; "")) \(.run_started_at // .created_at)"' <<<"$release_runs")"
+          release_runs="$(gh api "repos/$GH_REPO/actions/workflows/release.yml/runs?per_page=20")"
+          stable_building="$(jq -r '[.workflow_runs[] | select(.event == "push" and .status != "completed")][0] // empty | "\(.id) \(.head_sha)"' <<<"$release_runs")"
+          if [[ -n "$stable_building" ]]; then
+            read -r stable_id stable_sha <<<"$stable_building"
+            echo "Letting stable release run $stable_id ($stable_sha) finish" >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          building_row="$(jq -r '[.workflow_runs[] | select(.event == "workflow_dispatch" and .status != "completed")][0] // empty |
+            "\((.display_title | try (capture("(?<sha>[0-9a-f]{40})").sha) catch null) // .head_sha) \(.run_started_at // .created_at)"' <<<"$release_runs")"
           building_sha=""
           building_since=""
           if [[ -n "$building_row" ]]; then
@@ -178,13 +184,14 @@ jobs:
             fi
           else
             failed_row="$(jq -r '.workflow_runs[0] // empty | select(.conclusion == "failure") |
-              "\(.id) \(.run_attempt) \(.path) \(.head_sha) \(.display_title | sub("^Release nightly from "; ""))"' <<<"$release_runs")"
+              "\(.event) \(.id) \(.run_attempt) \(.path) \(.head_sha) \(if .event == "push" then .head_sha else ((.display_title | try (capture("(?<sha>[0-9a-f]{40})").sha) catch null) // .head_sha) end)"' <<<"$release_runs")"
             if [[ -n "$failed_row" ]]; then
-              read -r failed_id failed_attempt failed_path failed_wf_sha failed_sha <<<"$failed_row"
-              if (( failed_attempt < MAX_ATTEMPTS )) && is_newer "$failed_sha" "$last" &&
+              read -r failed_event failed_id failed_attempt failed_path failed_wf_sha failed_sha <<<"$failed_row"
+              if (( failed_attempt < MAX_ATTEMPTS )) &&
+                { [[ "$failed_event" == push ]] || is_newer "$failed_sha" "$last"; } &&
                 shortage_only "$failed_id" "$failed_attempt" "$failed_path" "$failed_wf_sha"; then
                 gh api -X POST "repos/$GH_REPO/actions/runs/$failed_id/rerun-failed-jobs"
-                echo "Reran failed jobs of Release run $failed_id from $failed_sha (attempt $((failed_attempt + 1))/$MAX_ATTEMPTS) after runner shortage" >>"$GITHUB_STEP_SUMMARY"
+                echo "Reran failed jobs of Release run $failed_id ($failed_event from $failed_sha, attempt $((failed_attempt + 1))/$MAX_ATTEMPTS) after runner shortage" >>"$GITHUB_STEP_SUMMARY"
                 exit 0
               fi
             fi

@@ -57,28 +57,38 @@ fi
 # shellcheck source=scripts/release-shape.sh
 source "$ROOT/scripts/release-shape.sh"
 SIGNING_VARS=("${SIGNING_SECRETS[@]}" APPLE_SIGNING_IDENTITY)
-# Load local signing configuration without printing it. Explicit environment
-# values win over .env values.
+# Load only allowlisted local signing configuration without executing .env.
+# Explicit environment values win over .env values.
 for name in "${SIGNING_VARS[@]}"; do
-  if [[ -n "${!name+x}" ]]; then printf -v "EXPLICIT_$name" '%s' "${!name}"; fi
+  if [[ -n "${!name+x}" ]]; then printf -v "SIGNING_$name" '%s' "${!name}"; fi
+  unset "$name"
 done
 if [[ -f "$ROOT/.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$ROOT/.env"
-  set +a
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+    line="${line#export }"
+    [[ "$line" == *=* ]] || continue
+    key="${line%%=*}"
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    value="${line#*=}"
+    if [[ "$value" == \"*\" && ${#value} -ge 2 ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "$value" == \'*\' && ${#value} -ge 2 ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+    for name in "${SIGNING_VARS[@]}"; do
+      if [[ "$key" == "$name" ]]; then
+        signing_var="SIGNING_$name"
+        if [[ -z "${!signing_var+x}" ]]; then
+          printf -v "$signing_var" '%s' "$value"
+        fi
+        break
+      fi
+    done
+  done <"$ROOT/.env"
 fi
-# The signing material leaves the environment here, so dependency installs and
-# build tools never see it; only the signing steps get it back.
-for name in "${SIGNING_VARS[@]}"; do
-  explicit="EXPLICIT_$name"
-  if [[ -n "${!explicit+x}" ]]; then
-    printf -v "SIGNING_$name" '%s' "${!explicit}"
-  elif [[ -n "${!name+x}" ]]; then
-    printf -v "SIGNING_$name" '%s' "${!name}"
-  fi
-  unset "$explicit" "$name"
-done
 signing() (
   for name in "${SIGNING_VARS[@]}"; do
     value="SIGNING_$name"
