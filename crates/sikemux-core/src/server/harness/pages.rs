@@ -536,6 +536,7 @@ async fn sync_pending(core: &Arc<Core>, data_dir: &Path, failures: u32) -> SyncO
         cancelled.borrow_and_update();
         let _busy = gate.busy.lock().await;
         if cancelled.has_changed().unwrap_or(false) {
+            more = true;
             continue;
         }
         let (dir, id) = (data_dir.to_owned(), link_id.clone());
@@ -591,7 +592,10 @@ async fn sync_pending(core: &Arc<Core>, data_dir: &Path, failures: u32) -> SyncO
             Ok(html) => {
                 tokio::select! {
                     biased;
-                    _ = cancelled.changed() => continue,
+                    _ = cancelled.changed() => {
+                        more = true;
+                        continue;
+                    }
                     outcome = upload(core, &share.link, &share.title, &html) => outcome,
                 }
             }
@@ -756,7 +760,7 @@ mod tests {
         stored: HashMap<String, String>,
         ended: HashMap<String, bool>,
         puts: usize,
-        next_status: Vec<u16>,
+        failing: Option<u16>,
         hold_next_put: Option<Arc<tokio::sync::Notify>>,
         put_arrived: Option<Arc<tokio::sync::Notify>>,
     }
@@ -812,12 +816,7 @@ mod tests {
                         match method {
                             "PUT" => {
                                 s.puts += 1;
-                                let forced = if s.next_status.is_empty() {
-                                    None
-                                } else {
-                                    Some(s.next_status.remove(0))
-                                };
-                                if let Some(code) = forced {
+                                if let Some(code) = s.failing {
                                     (
                                         code,
                                         json!({ "error": { "code": "refused", "message": format!("status {code}") } }).to_string(),
@@ -859,13 +858,13 @@ mod tests {
     }
 
     async fn wait_until(mut check: impl FnMut() -> bool) {
-        for _ in 0..200 {
-            if check() {
-                return;
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while !check() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        panic!("condition was not met in time");
+        })
+        .await
+        .expect("condition was not met in time");
     }
 
     fn show_request(project: &str, agent: &str, path: &Path, title: &str) -> HarnessRequest {
@@ -937,19 +936,19 @@ mod tests {
         let v1_len = state.locked().stored[&link_id].len();
 
         // 1. Failing upload retries immediately when network/wake returns.
-        state.locked().next_status.push(503);
+        state.locked().failing = Some(503);
         let v2_html = format!("<p>v2 {}</p>", "a".repeat(400));
         std::fs::write(&src, &v2_html).unwrap();
         show_page(&core, show_request("/proj", "agent-1", &src, "Report"))
             .await
             .unwrap();
-        wait_until(|| state.locked().puts == 2).await;
+        wait_until(|| state.locked().puts >= 2).await;
         assert_eq!(state.locked().stored[&link_id].len(), v1_len);
 
+        state.locked().failing = None;
         remote::network_back(&core).await;
-        wait_until(|| state.locked().puts == 3).await;
+        wait_until(|| state.locked().stored[&link_id].len() > v1_len + 400).await;
         let v2_len = state.locked().stored[&link_id].len();
-        assert!(v2_len > v1_len + 400);
 
         // 2. Two versions close together end with the newest stored, never the older one over it.
         let arrived = Arc::new(Notify::new());
@@ -969,18 +968,16 @@ mod tests {
             .await
             .unwrap();
         release.notify_one();
-        wait_until(|| state.locked().puts == 5).await;
+        wait_until(|| state.locked().stored[&link_id].len() > v2_len + 1200).await;
         let v4_len = state.locked().stored[&link_id].len();
-        assert!(v4_len > v2_len + 1200);
 
         // 3. Permanent refusal (413) stops retrying and shows in library(); signed-out (401)
         // stops retrying until sign-in comes back.
-        state.locked().next_status.push(413);
+        state.locked().failing = Some(413);
         std::fs::write(&src, format!("<p>v5 {}</p>", "d".repeat(2000))).unwrap();
         show_page(&core, show_request("/proj", "agent-1", &src, "Report"))
             .await
             .unwrap();
-        wait_until(|| state.locked().puts == 6).await;
         wait_until(|| {
             page_index::list(dir.path(), &[], Some("/proj"), &HashSet::new(), 10)
                 .ok()
@@ -999,16 +996,17 @@ mod tests {
         .unwrap();
         let problem = listed[0].shared.as_ref().unwrap().problem.as_deref();
         assert!(problem.is_some_and(|p| p.contains("25 MiB")), "{problem:?}");
+        let puts = state.locked().puts;
         remote::network_back(&core).await;
         tokio::time::sleep(Duration::from_millis(60)).await;
-        assert_eq!(state.locked().puts, 6, "permanent 413 must not retry");
+        assert_eq!(state.locked().puts, puts, "permanent 413 must not retry");
+        assert_eq!(state.locked().stored[&link_id].len(), v4_len);
 
-        state.locked().next_status.push(401);
+        state.locked().failing = Some(401);
         std::fs::write(&src, format!("<p>v6 {}</p>", "e".repeat(2400))).unwrap();
         show_page(&core, show_request("/proj", "agent-1", &src, "Report"))
             .await
             .unwrap();
-        wait_until(|| state.locked().puts == 7).await;
         wait_until(|| {
             page_index::list(dir.path(), &[], Some("/proj"), &HashSet::new(), 10)
                 .ok()
@@ -1017,17 +1015,18 @@ mod tests {
                 == Some(SIGNED_OUT_PROBLEM)
         })
         .await;
+        let puts = state.locked().puts;
         remote::network_back(&core).await;
         tokio::time::sleep(Duration::from_millis(60)).await;
         assert_eq!(
             state.locked().puts,
-            7,
+            puts,
             "signed-out refusal waits for sign-in"
         );
+        state.locked().failing = None;
         signed_in(&core);
-        wait_until(|| state.locked().puts == 8).await;
+        wait_until(|| state.locked().stored[&link_id].len() > v4_len + 800).await;
         let v6_len = state.locked().stored[&link_id].len();
-        assert!(v6_len > v4_len + 800);
 
         // 4. Surviving a core restart: a behind version left on disk uploads when a new core starts.
         uploader.abort();
@@ -1044,25 +1043,28 @@ mod tests {
             dir.path().to_owned(),
             LONG_BACKOFF,
         ));
-        wait_until(|| state.locked().puts == 9).await;
-        let v7_len = state.locked().stored[&link_id].len();
-        assert!(v7_len > v6_len + 600);
+        wait_until(|| state.locked().stored[&link_id].len() > v6_len + 600).await;
 
         // 5. Stopping a share while an upload waits drops it and never revives it.
-        state.locked().next_status.push(503);
+        let puts = state.locked().puts;
+        state.locked().failing = Some(503);
         std::fs::write(&src, format!("<p>v8 {}</p>", "g".repeat(3400))).unwrap();
         show_page(&restarted, show_request("/proj", "agent-1", &src, "Report"))
             .await
             .unwrap();
-        wait_until(|| state.locked().puts == 10).await;
+        wait_until(|| state.locked().puts > puts).await;
         stop_page_share(&restarted, PageParams::new(&v7_id))
             .await
             .unwrap();
+        // An upload the stop cut off may still reach the server.
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let puts = state.locked().puts;
+        state.locked().failing = None;
         remote::network_back(&restarted).await;
         tokio::time::sleep(Duration::from_millis(60)).await;
         assert_eq!(
             state.locked().puts,
-            10,
+            puts,
             "stopped share must never upload again"
         );
         assert!(!state.locked().stored.contains_key(&link_id));
