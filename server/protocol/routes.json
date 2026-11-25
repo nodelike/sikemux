@@ -1687,6 +1687,10 @@
           "description": "The id, a header or the body is not valid, or the expiry is past or more than 30 days ahead.",
           "body": "ApiError"
         },
+        "404": {
+          "description": "The share has ended or expired.",
+          "body": "ApiError"
+        },
         "409": {
           "description": "Another account shares a page under that id, or this account already shares 50 pages.",
           "body": "ApiError"
@@ -1748,7 +1752,10 @@
       "bytes": "response",
       "responses": {
         "200": {
-          "description": "The sealed page, as unpadded base64url text."
+          "description": "The sealed page, as unpadded base64url text, with an ETag for its current version."
+        },
+        "304": {
+          "description": "The page has not changed since the ETag in If-None-Match; no view is counted."
         },
         "401": {
           "description": "The page is only for people signed in to Sikemux.",

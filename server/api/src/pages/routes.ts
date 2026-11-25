@@ -60,6 +60,19 @@ function readSettings(c: Context): PageSettings {
   };
 }
 
+function matchesEtag(header: string | undefined, etag: string): boolean {
+  if (!header) return false;
+  return header
+    .split(",")
+    .map((part) => part.trim())
+    .some(
+      (part) =>
+        part === "*" ||
+        part === etag ||
+        (part.startsWith("W/") && part.slice(2) === etag),
+    );
+}
+
 /**
  * Pages hosts share: each one sealed with the key in its link, kept in the stash's encrypted file
  * store until the host stops it or it expires. A viewer proves it holds the link to read it.
@@ -128,6 +141,13 @@ export function pageRoutes({
           throw notFound("No page is shared under that link.");
         const page = await shownPage(db, id, proof);
         if (!page.anyone) await signedIn(c, async () => {});
+        const etag = `"${page.storedAs}"`;
+        if (matchesEtag(c.req.header("if-none-match"), etag)) {
+          return c.body(null, 304, {
+            etag,
+            "cache-control": "private, no-store",
+          });
+        }
         const stream = await stored().read(page.storedAs, c.get("log"));
         if (!stream) {
           log.error({ id }, "a shared page's file is missing");
@@ -135,6 +155,7 @@ export function pageRoutes({
         }
         await countView(db, id);
         return c.body(stream, 200, {
+          etag,
           "content-type": "text/plain; charset=utf-8",
           "x-content-type-options": "nosniff",
           "content-security-policy": "sandbox; default-src 'none'",

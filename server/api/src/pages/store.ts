@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { PageShare, PageShareState } from "@sikemux/protocol";
-import { sql, type Kysely } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 
 import { holdStanding } from "../auth.ts";
 import type { Tables } from "../db.ts";
@@ -38,6 +38,21 @@ function state(row: PageRow): PageShareState {
   return { ...share(row), ended: row.ended_at !== null };
 }
 
+/** Fields cleared whenever a page's stored copy is removed (stopped, expired or account deleted). */
+function clearedFields() {
+  return {
+    stored_as: null,
+  };
+}
+
+function endedFields() {
+  return {
+    ...clearedFields(),
+    ended_at: sql<Date>`coalesce(ended_at, now())`,
+    updated_at: new Date(),
+  };
+}
+
 /**
  * Keeps the sealed page under a new name in the stash's file store, then points the page at it,
  * so a viewer reads the old version or the new one whole. The old version's file goes after.
@@ -68,12 +83,17 @@ export async function putPage(
       await signInOf(trx, userId, hostKey);
       const before = await trx
         .selectFrom("pages")
-        .select(["user_id", "stored_as"])
+        .select(["user_id", "stored_as", "ended_at", "expires_at"])
         .where("id", "=", id)
         .forUpdate()
         .executeTakeFirst();
       if (before && before.user_id !== userId)
         throw conflict("Another account shares a page under that id.");
+      if (
+        before &&
+        (before.ended_at !== null || before.expires_at <= new Date())
+      )
+        throw notFound("That share has ended.");
       const { live } = await trx
         .selectFrom("pages")
         .select((eb) => eb.fn.countAll<string>().as("live"))
@@ -97,7 +117,7 @@ export async function putPage(
       const row = before
         ? await trx
             .updateTable("pages")
-            .set({ ...values, ended_at: null, updated_at: new Date() })
+            .set({ ...values, updated_at: new Date() })
             .where("id", "=", id)
             .returning(["id", "views", "ended_at", "expires_at"])
             .executeTakeFirstOrThrow()
@@ -137,11 +157,7 @@ export async function stopPage(
     if (!before) throw notFound("The account shares no page with that id.");
     const row = await trx
       .updateTable("pages")
-      .set({
-        stored_as: null,
-        ended_at: sql<Date>`coalesce(ended_at, now())`,
-        updated_at: new Date(),
-      })
+      .set(endedFields())
       .where("id", "=", id)
       .returning(["id", "views", "ended_at", "expires_at"])
       .executeTakeFirstOrThrow();
@@ -149,6 +165,34 @@ export async function stopPage(
   });
   if (stored && store) await removeStashFiles(store.dir, [stored]);
   return state(row);
+}
+
+/**
+ * Ends every shared page of `userId` inside the caller's transaction and returns the stored file
+ * names to remove from disk once the transaction commits.
+ */
+export async function endAccountPages(
+  trx: Transaction<Tables>,
+  userId: string,
+): Promise<string[]> {
+  const stopped = await trx
+    .with("live", (qb) =>
+      qb
+        .selectFrom("pages")
+        .select(["id", "stored_as"])
+        .where("user_id", "=", userId)
+        .where((eb) =>
+          eb.or([eb("ended_at", "is", null), eb("stored_as", "is not", null)]),
+        )
+        .forUpdate(),
+    )
+    .updateTable("pages")
+    .set(endedFields())
+    .from("live")
+    .whereRef("pages.id", "=", "live.id")
+    .returning("live.stored_as as stored")
+    .execute();
+  return stopped.flatMap((row) => (row.stored ? [row.stored] : []));
 }
 
 export async function pageState(
@@ -227,7 +271,7 @@ export async function purgePages(
         .forUpdate(),
     )
     .updateTable("pages")
-    .set({ stored_as: null })
+    .set(clearedFields())
     .from("old")
     .whereRef("pages.id", "=", "old.id")
     .returning("old.stored_as as stored")

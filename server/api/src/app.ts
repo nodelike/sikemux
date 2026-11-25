@@ -131,11 +131,12 @@ export function createApp(services: Services) {
       allowHeaders: [
         "authorization",
         "content-type",
+        "if-none-match",
         "sentry-trace",
         "baggage",
         "x-page-proof",
       ],
-      exposeHeaders: ["x-request-id"],
+      exposeHeaders: ["etag", "x-request-id"],
       maxAge: 600,
     }),
   );
@@ -179,6 +180,7 @@ export function createApp(services: Services) {
       services.clerk,
       services.addressProofKey,
       services.review,
+      services.stash,
     ),
   );
   app.route("/v1/hooks", hookRoutes(services));

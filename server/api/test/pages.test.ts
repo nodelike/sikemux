@@ -1,10 +1,11 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import vector from "../../protocol/vectors/share-viewer.json" with { type: "json" };
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { markDeleted } from "../src/account/deletion.ts";
 import type { Database } from "../src/db.ts";
 import { removeDevice } from "../src/devices/removal.ts";
 import { bodySha256 } from "../src/devices/signature.ts";
@@ -26,6 +27,7 @@ const DAY = 86_400_000;
 let database: Database;
 let drop: () => Promise<void>;
 let app: ReturnType<typeof testApp>;
+let stash: StashFiles;
 let host: TestDevice;
 
 beforeAll(async () => {
@@ -34,7 +36,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await emptyTables(database);
-  const stash = new StashFiles({
+  stash = new StashFiles({
     dir: mkdtempSync(join(tmpdir(), "sikemux-pages-")),
     key: randomBytes(32),
   });
@@ -214,5 +216,82 @@ describe("shared pages", () => {
     await share(page);
     await share(page, { sealed: "bmV3ZXI" });
     expect(await (await view(page.id, page.proof)).text()).toBe("bmV3ZXI");
+  });
+
+  it("refuses a put on a stopped or expired share instead of reviving it", async () => {
+    const stopped = link();
+    await share(stopped);
+    expect((await asHost(`/v1/pages/${stopped.id}`, "DELETE")).status).toBe(
+      200,
+    );
+    expect((await share(stopped, { sealed: "cmV2aXZlZA" })).status).toBe(404);
+    expect((await view(stopped.id, stopped.proof)).status).toBe(404);
+
+    const expired = link();
+    await share(expired);
+    await database.db
+      .updateTable("pages")
+      .set({ expires_at: new Date(Date.now() - 1000) })
+      .where("id", "=", expired.id)
+      .execute();
+    expect((await share(expired, { sealed: "cmV2aXZlZA" })).status).toBe(404);
+    expect((await view(expired.id, expired.proof)).status).toBe(404);
+  });
+
+  it("stops shared pages and deletes their stored files when the account is deleted", async () => {
+    const page = link();
+    expect((await share(page)).status).toBe(200);
+    expect(readdirSync(stash.dir).length).toBe(1);
+
+    await markDeleted(
+      database.db,
+      {
+        userId: ARJUN,
+        actor: `user:${ARJUN}`,
+        via: "web",
+        deletedInClerk: false,
+      },
+      stash,
+    );
+
+    expect((await view(page.id, page.proof)).status).toBe(404);
+    expect(readdirSync(stash.dir)).toEqual([]);
+  });
+
+  it("answers 304 on a matching ETag without counting a view, and 200 on a new version", async () => {
+    const page = link();
+    expect((await share(page, { sealed: "djE" })).status).toBe(200);
+
+    const first = await view(page.id, page.proof);
+    expect(first.status).toBe(200);
+    const etag = first.headers.get("etag");
+    expect(etag).toBeTruthy();
+    if (!etag) throw new Error("expected an ETag");
+
+    const unchanged = await app.request(`/v1/pages/${page.id}`, {
+      headers: {
+        "x-page-proof": page.proof,
+        "if-none-match": etag,
+      },
+    });
+    expect(unchanged.status).toBe(304);
+    expect(unchanged.headers.get("etag")).toBe(etag);
+
+    const stateAfter304 = await asHost(`/v1/pages/${page.id}/state`, "GET");
+    expect(await stateAfter304.json()).toMatchObject({ views: 1 });
+
+    expect((await share(page, { sealed: "djI" })).status).toBe(200);
+    const updated = await app.request(`/v1/pages/${page.id}`, {
+      headers: {
+        "x-page-proof": page.proof,
+        "if-none-match": etag,
+      },
+    });
+    expect(updated.status).toBe(200);
+    expect(await updated.text()).toBe("djI");
+    expect(updated.headers.get("etag")).not.toBe(etag);
+
+    const stateAfterUpdate = await asHost(`/v1/pages/${page.id}/state`, "GET");
+    expect(await stateAfterUpdate.json()).toMatchObject({ views: 2 });
   });
 });

@@ -5,6 +5,7 @@ import { signsIn, type ClerkBackend } from "../account/clerk.ts";
 import type { ReviewAccount } from "../account/review-sign-in.ts";
 import { noteAddresses, stripWorkSignIns } from "../account/sign-ins.ts";
 import { markDeleted } from "../account/deletion.ts";
+import type { StashFiles } from "../stash/files.ts";
 import { audit } from "../audit.ts";
 import { followAddress } from "../billing/customers.ts";
 import { endDeletedBilling } from "../billing/deleted.ts";
@@ -113,6 +114,7 @@ export function clerkWebhookRoutes(
   clerk: ClerkBackend | null,
   proofKey: Buffer | null,
   review: ReviewAccount | null,
+  stash: StashFiles | null = null,
 ) {
   const seen = new SeenIds();
   return new Hono<Env>().post("/clerk", async (c) => {
@@ -174,12 +176,16 @@ export function clerkWebhookRoutes(
       return c.body(null, 204);
     }
 
-    await markDeleted(db, {
-      userId,
-      actor: "clerk",
-      via: "webhook",
-      deletedInClerk: true,
-    });
+    await markDeleted(
+      db,
+      {
+        userId,
+        actor: "clerk",
+        via: "webhook",
+        deletedInClerk: true,
+      },
+      stash,
+    );
     await endDeletedBilling(db, provider, c.get("log"), userId);
     await audit(db, {
       userId,

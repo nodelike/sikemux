@@ -34,6 +34,7 @@ export function accountRoutes({
   push: { app },
   billing: { provider, live },
   addressProofKey,
+  stash,
 }: Pick<
   Services,
   | "database"
@@ -45,6 +46,7 @@ export function accountRoutes({
   | "push"
   | "billing"
   | "addressProofKey"
+  | "stash"
 >) {
   const admitted = requireIdentity(verifier, db, { allowDeleted: true });
   const anyAccount = requireIdentity(signInVerifier, db, {
@@ -142,12 +144,16 @@ export function accountRoutes({
       async (c) => {
         const identity = c.get("identity");
         const request = await readOptionalBody(c, "AccountDeletionRequest");
-        const deletion = await markDeleted(db, {
-          userId: identity.userId,
-          actor: `user:${identity.userId}`,
-          via: isWeb(identity) ? "web" : "phone",
-          deletedInClerk: false,
-        });
+        const deletion = await markDeleted(
+          db,
+          {
+            userId: identity.userId,
+            actor: `user:${identity.userId}`,
+            via: isWeb(identity) ? "web" : "phone",
+            deletedInClerk: false,
+          },
+          stash,
+        );
         const log = c.get("log");
         log.info({ at: deletion.requestedAt }, "deleted an account");
         await endDeletedBilling(db, provider, log, identity.userId);

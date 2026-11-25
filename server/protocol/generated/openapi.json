@@ -3889,6 +3889,14 @@
               }
             }
           },
+          "404": {
+            "description": "The share has ended or expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
           "409": {
             "description": "Another account shares a page under that id, or this account already shares 50 pages.",
             "content": {
@@ -3985,12 +3993,15 @@
         ],
         "responses": {
           "200": {
-            "description": "The sealed page, as unpadded base64url text.",
+            "description": "The sealed page, as unpadded base64url text, with an ETag for its current version.",
             "content": {
               "application/octet-stream": {
                 "schema": { "type": "string", "format": "binary" }
               }
             }
+          },
+          "304": {
+            "description": "The page has not changed since the ETag in If-None-Match; no view is counted."
           },
           "401": {
             "description": "The page is only for people signed in to Sikemux.",

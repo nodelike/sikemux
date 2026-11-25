@@ -12,7 +12,9 @@ import { conflict } from "../http.ts";
 import type { Logger } from "../log.ts";
 import { membersOf, orgsChanged } from "../orgs/shared.ts";
 import { dropUnshared } from "../orgvault/projects.ts";
+import { endAccountPages } from "../pages/store.ts";
 import { retryLater } from "../retry.ts";
+import { removeStashFiles, type StashFiles } from "../stash/files.ts";
 import { endSessionInClerk, type ClerkBackend } from "./clerk.ts";
 import { dropSeatProofs } from "./proofs.ts";
 
@@ -58,78 +60,91 @@ function clerkFailed(
 export async function markDeleted(
   db: Kysely<Tables>,
   { userId, actor, via, deletedInClerk }: DeletionRequest,
+  stash: StashFiles | null = null,
 ): Promise<Deletion> {
-  return db.transaction().execute(async (trx) => {
-    await trx
-      .insertInto("users")
-      .values({ id: userId })
-      .onConflict((oc) => oc.column("id").doNothing())
-      .execute();
-    const user = await trx
-      .selectFrom("users")
-      .select(["deleted_at", "purge_after", "clerk_deleted_at"])
-      .where("id", "=", userId)
-      .forNoKeyUpdate()
-      .executeTakeFirstOrThrow();
+  const { deletion, storedPages } = await db
+    .transaction()
+    .execute(async (trx) => {
+      await trx
+        .insertInto("users")
+        .values({ id: userId })
+        .onConflict((oc) => oc.column("id").doNothing())
+        .execute();
+      const user = await trx
+        .selectFrom("users")
+        .select(["deleted_at", "purge_after", "clerk_deleted_at"])
+        .where("id", "=", userId)
+        .forNoKeyUpdate()
+        .executeTakeFirstOrThrow();
 
-    if (user.deleted_at) {
-      if (deletedInClerk && !user.clerk_deleted_at)
-        await recordClerkDeletion(trx, userId, actor);
-      return {
-        requestedAt: user.deleted_at,
-        deletesAt: user.purge_after ?? user.deleted_at,
-        deletedInClerk: deletedInClerk || user.clerk_deleted_at !== null,
-      };
-    }
+      if (user.deleted_at) {
+        if (deletedInClerk && !user.clerk_deleted_at)
+          await recordClerkDeletion(trx, userId, actor);
+        return {
+          deletion: {
+            requestedAt: user.deleted_at,
+            deletesAt: user.purge_after ?? user.deleted_at,
+            deletedInClerk: deletedInClerk || user.clerk_deleted_at !== null,
+          },
+          storedPages: [] as string[],
+        };
+      }
 
-    const orgs = await leaveOrgs(trx, userId, actor, {
-      handOver: deletedInClerk,
-    });
-    const marked = await trx
-      .updateTable("users")
-      .set({
-        billing_attempts: 0,
-        billing_retry_at: (await holdsOpenSubscriptions(trx, userId))
-          ? sql<Date>`now()`
-          : null,
-        deleted_at: sql<Date>`now()`,
-        purge_after: sql<Date>`now() + make_interval(days => ${PURGE_AFTER_DAYS})`,
-        clerk_deleted_at: deletedInClerk ? sql<Date>`now()` : null,
-        clerk_attempts: 0,
-        clerk_retry_at: deletedInClerk
-          ? null
-          : sql<Date>`now() + make_interval(days => ${PURGE_AFTER_DAYS})`,
-      })
-      .where("id", "=", userId)
-      .returning(["deleted_at", "purge_after"])
-      .executeTakeFirstOrThrow();
-    const devices = await trx
-      .selectFrom("devices")
-      .select("key")
-      .where("user_id", "=", userId)
-      .orderBy("created_at")
-      .execute();
-    for (const { key } of devices)
-      await removeDevice(trx, {
-        userId,
-        key,
-        reason: "account_deleted",
-        actor,
+      const orgs = await leaveOrgs(trx, userId, actor, {
+        handOver: deletedInClerk,
       });
-    await appendEvent(trx, { userId, type: "account.deleted" });
-    await audit(trx, {
-      userId,
-      actor,
-      action: "account.deletion_requested",
-      detail: { via, devices: devices.length, ...orgs },
+      const marked = await trx
+        .updateTable("users")
+        .set({
+          billing_attempts: 0,
+          billing_retry_at: (await holdsOpenSubscriptions(trx, userId))
+            ? sql<Date>`now()`
+            : null,
+          deleted_at: sql<Date>`now()`,
+          purge_after: sql<Date>`now() + make_interval(days => ${PURGE_AFTER_DAYS})`,
+          clerk_deleted_at: deletedInClerk ? sql<Date>`now()` : null,
+          clerk_attempts: 0,
+          clerk_retry_at: deletedInClerk
+            ? null
+            : sql<Date>`now() + make_interval(days => ${PURGE_AFTER_DAYS})`,
+        })
+        .where("id", "=", userId)
+        .returning(["deleted_at", "purge_after"])
+        .executeTakeFirstOrThrow();
+      const storedPages = await endAccountPages(trx, userId);
+      const devices = await trx
+        .selectFrom("devices")
+        .select("key")
+        .where("user_id", "=", userId)
+        .orderBy("created_at")
+        .execute();
+      for (const { key } of devices)
+        await removeDevice(trx, {
+          userId,
+          key,
+          reason: "account_deleted",
+          actor,
+        });
+      await appendEvent(trx, { userId, type: "account.deleted" });
+      await audit(trx, {
+        userId,
+        actor,
+        action: "account.deletion_requested",
+        detail: { via, devices: devices.length, ...orgs },
+      });
+      if (deletedInClerk) await auditClerkDeletion(trx, userId, actor);
+      return {
+        deletion: {
+          requestedAt: marked.deleted_at ?? new Date(),
+          deletesAt: marked.purge_after ?? new Date(),
+          deletedInClerk,
+        },
+        storedPages,
+      };
     });
-    if (deletedInClerk) await auditClerkDeletion(trx, userId, actor);
-    return {
-      requestedAt: marked.deleted_at ?? new Date(),
-      deletesAt: marked.purge_after ?? new Date(),
-      deletedInClerk,
-    };
-  });
+  if (storedPages.length && stash)
+    await removeStashFiles(stash.dir, storedPages);
+  return deletion;
 }
 
 /**
