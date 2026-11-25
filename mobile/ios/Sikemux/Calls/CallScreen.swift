@@ -91,13 +91,6 @@ struct CallComposer: View {
                 Text(CallWords.hidden(draft.typed)).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim)
                     .padding(.horizontal, 10).padding(.bottom, 4)
             }
-            .padding(6)
-            .background(shape.fill(palette.composer))
-            .overlay(shape.strokeBorder(focused ? palette.borderSelected : palette.border, lineWidth: 1))
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-            .disabled(!canAnswer)
         }
         .padding(6)
         .background(shape.fill(palette.composer))
