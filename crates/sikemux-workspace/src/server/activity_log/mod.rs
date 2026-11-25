@@ -207,27 +207,41 @@ impl ActivityLog {
         let log = self.clone();
         let at_ms = epoch_ms() as i64;
         in_background(move || {
-            log.with_database(|db| {
-                db.execute(
-                    "INSERT INTO launches (at_ms, agent, project, transport, resumed) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![at_ms, place.agent, project_at(&place.cwd), transport, resumed],
-                )
-            });
-            let Some(transcript) = place.transcript.as_ref().filter(|_| resumed) else {
-                return;
-            };
-            let Ok(len) = fs::metadata(&transcript.path).map(|meta| meta.len()) else {
-                return;
-            };
-            let key = transcript_key(transcript.kind, &transcript.session);
-            log.with_database(|db| {
-                db.execute(
-                    "INSERT INTO transcripts (session, path, offset, mark) VALUES (?1, ?2, ?3, '')
-                     ON CONFLICT(session) DO UPDATE SET path = excluded.path, offset = excluded.offset, mark = '',
-                         model = '', speed = 'standard'",
-                    params![key, transcript.path.to_string_lossy(), len as i64],
-                )
-            });
+            log.record_launched(&place, transport, resumed, at_ms);
+        });
+    }
+
+    fn record_launched(&self, place: &Place, transport: &'static str, resumed: bool, at_ms: i64) {
+        self.with_database(|db| {
+            db.execute(
+                "INSERT INTO launches (at_ms, agent, project, transport, resumed) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![at_ms, place.agent, project_at(&place.cwd), transport, resumed],
+            )
+        });
+        let Some(transcript) = place.transcript.as_ref().filter(|_| resumed) else {
+            return;
+        };
+        let Ok(len) = fs::metadata(&transcript.path).map(|meta| meta.len()) else {
+            return;
+        };
+        let key = transcript_key(transcript.kind, &transcript.session);
+        let (model, speed) = match transcript
+            .kind
+            .ops()
+            .transcript_state_before(&transcript.path, len)
+        {
+            Some(state) => (state.model, state.speed),
+            None => (String::new(), String::new()),
+        };
+        self.with_database(|db| {
+            db.execute(
+                "INSERT INTO transcripts (session, path, offset, mark, model, speed)
+                 VALUES (?1, ?2, ?3, '', ?4, CASE WHEN ?5 = '' THEN 'standard' ELSE ?5 END)
+                 ON CONFLICT(session) DO UPDATE SET path = excluded.path, offset = excluded.offset, mark = '',
+                     model = CASE WHEN excluded.model = '' THEN transcripts.model ELSE excluded.model END,
+                     speed = CASE WHEN ?5 = '' THEN transcripts.speed ELSE excluded.speed END",
+                params![key, transcript.path.to_string_lossy(), len as i64, model, speed],
+            )
         });
     }
 
@@ -458,6 +472,8 @@ const MIGRATIONS: &[&str] = &[
      UPDATE turns SET project = substr(project, 1, instr(project, '.worktrees/') - 1) WHERE instr(project, '.worktrees/') > 0;
      UPDATE commits SET project = substr(project, 1, instr(project, '.worktrees/') - 1) WHERE instr(project, '.worktrees/') > 0;
      UPDATE tokens SET project = substr(project, 1, instr(project, '.worktrees/') - 1) WHERE instr(project, '.worktrees/') > 0;",
+    "UPDATE tokens SET model = substr(model, instr(model, '/') + 1)
+     WHERE model GLOB 'sikemux-*/*' AND instr(model, '/') > 9 AND length(model) > instr(model, '/');",
 ];
 
 fn migrate(connection: &Connection) -> rusqlite::Result<()> {
@@ -517,7 +533,7 @@ impl ActivityLog {
             })
             .flatten()
             .filter(|(path, _, _)| path.is_file());
-        let (path, offset, state) =
+        let (path, offset, mut state) =
             known.unwrap_or_else(|| (transcript.path.clone(), 0, ReadState::default()));
         let Some((text, next_offset)) = read_complete_lines(&path, offset) else {
             return;
@@ -525,6 +541,14 @@ impl ActivityLog {
         let Some(count) = transcript.kind.ops().transcript_tokens() else {
             return;
         };
+        if !text.is_empty() && offset > 0 && state.model.is_empty() {
+            if let Some(seeded) = transcript.kind.ops().transcript_state_before(&path, offset) {
+                state.model = seeded.model;
+                if state.speed.is_empty() || state.speed == "standard" {
+                    state.speed = seeded.speed;
+                }
+            }
+        }
         let (tally, next) = count(&text, state);
         self.with_database(|db| {
             db.execute(
@@ -597,7 +621,12 @@ impl ActivityLog {
         }
         let agent = kind.map_or_else(|| launch.provider.clone(), |kind| kind.as_str().to_owned());
         let cwd = launch.cwd.clone();
-        let model = launch.model.clone().unwrap_or_default();
+        let model = launch
+            .model
+            .as_deref()
+            .map(crate::launch::providers::unrouted_model)
+            .unwrap_or_default()
+            .to_owned();
         let account = (launch.account.as_ref())
             .map(|account| account.id.clone())
             .unwrap_or_default();
@@ -1099,5 +1128,146 @@ mod tests {
         let run = streaks(&active(&[90, 91, 92, 98, 99]), 100);
         assert_eq!((run.active_days, run.current, run.longest), (5, 2, 3));
         assert_eq!(streaks(&active(&[97, 98]), 100).current, 0);
+    }
+
+    #[test]
+    fn migration_strips_sikemux_routing_prefix_from_existing_token_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join(DATABASE);
+        let db = open(&db_path).unwrap();
+        let day = 20_000 * DAY_MS;
+        db.execute_batch(&format!(
+            "PRAGMA user_version = {};
+             INSERT INTO tokens (at_ms, agent, project, input, output, cache_read, cache_write, model)
+                 VALUES ({day}, 'omp', '/repo', 10, 5, 0, 0, 'sikemux-local-3425/workbuddy/hy4flash-free'),
+                        ({day}, 'omp', '/repo', 20, 10, 0, 0, 'workbuddy/hy4flash-free'),
+                        ({day}, 'omp', '/repo', 30, 15, 0, 0, 'anthropic/claude-sonnet-4');",
+            MIGRATIONS.len() - 1
+        ))
+        .unwrap();
+        drop(db);
+
+        let log = ActivityLog::new(Some(dir.path()));
+        let days = log.reported_days(20_000, 20_001);
+        assert_eq!(days.len(), 1);
+        let rows: Vec<(&str, i64, i64)> = days[0]
+            .tokens
+            .iter()
+            .map(|entry| (entry.model.as_str(), entry.input, entry.output))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("workbuddy/hy4flash-free", 30, 15),
+                ("anthropic/claude-sonnet-4", 30, 15),
+            ]
+        );
+    }
+
+    #[test]
+    fn codex_resume_keeps_and_seeds_transcript_model_before_next_turn_context() {
+        use std::io::Write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout-codex.jsonl");
+        let turn_context =
+            r#"{"type":"turn_context","payload":{"model":"gpt-5.4","service_tier":"priority"}}"#;
+        let token_count = |total: u64, input: u64, output: u64| {
+            format!(
+                r#"{{"type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{{"total_tokens":{total}}},"last_token_usage":{{"input_tokens":{input},"cached_input_tokens":0,"output_tokens":{output}}}}}}}}}"#
+            )
+        };
+        let mut file = fs::File::create(&path).unwrap();
+        writeln!(file, "{turn_context}").unwrap();
+        writeln!(file, "{}", token_count(100, 80, 20)).unwrap();
+        file.flush().unwrap();
+
+        let log = ActivityLog::new(Some(dir.path()));
+        let place = Place {
+            agent: "codex".into(),
+            cwd: "/repo".into(),
+            transcript: Some(Transcript {
+                kind: AgentKind::Codex,
+                session: "s-codex".into(),
+                path: path.clone(),
+            }),
+            chat: "chat-1".into(),
+            account: String::new(),
+        };
+        let day = 20_000 * DAY_MS;
+        log.record_new_tokens(&place, "/repo", day);
+
+        // Resume on a transcript whose tail lacks turn_context must keep the stored model/speed.
+        let empty_path = dir.path().join("rollout-empty.jsonl");
+        fs::write(&empty_path, "{\"type\":\"session_meta\"}\n").unwrap();
+        let resumed_empty = Place {
+            agent: "codex".into(),
+            cwd: "/repo".into(),
+            transcript: Some(Transcript {
+                kind: AgentKind::Codex,
+                session: "s-codex".into(),
+                path: empty_path,
+            }),
+            chat: "chat-1".into(),
+            account: String::new(),
+        };
+        log.record_launched(&resumed_empty, "chat", true, day + 1);
+        let kept: (String, String) = log
+            .with_database(|db| {
+                db.query_row(
+                    "SELECT model, speed FROM transcripts WHERE session = 'codex:s-codex'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+            })
+            .unwrap();
+        assert_eq!(kept, ("gpt-5.4".into(), "fast".into()));
+
+        // Resuming an untracked Codex transcript seeds model/speed from prior turn_context
+        // so a token_count emitted before the next turn_context does not log model = "".
+        let resumed = Place {
+            agent: "codex".into(),
+            cwd: "/repo".into(),
+            transcript: Some(Transcript {
+                kind: AgentKind::Codex,
+                session: "s-resumed".into(),
+                path: path.clone(),
+            }),
+            chat: "chat-2".into(),
+            account: String::new(),
+        };
+        log.record_launched(&resumed, "chat", true, day + 2);
+        let mut append = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(append, "{}", token_count(250, 120, 30)).unwrap();
+        append.flush().unwrap();
+        log.record_new_tokens(&resumed, "/repo", day + 3);
+
+        let days = log.reported_days(20_000, 20_001);
+        assert_eq!(days.len(), 1);
+        assert_eq!(days[0].tokens.len(), 1);
+        assert_eq!(days[0].tokens[0].agent, "codex");
+        assert_eq!(days[0].tokens[0].model, "gpt-5.4");
+        assert_eq!(days[0].tokens[0].speed, "fast");
+        assert_eq!(days[0].tokens[0].input, 200);
+        assert_eq!(days[0].tokens[0].output, 50);
+
+        // A tracked Codex row already at a non-zero offset with blank model also heals on read.
+        let offset = fs::metadata(&path).unwrap().len() as i64;
+        log.with_database(|db| {
+            db.execute(
+                "UPDATE transcripts SET offset = ?1, model = '', speed = 'standard' WHERE session = 'codex:s-resumed'",
+                params![offset],
+            )
+        });
+        writeln!(append, "{}", token_count(300, 40, 10)).unwrap();
+        append.flush().unwrap();
+        log.record_new_tokens(&resumed, "/repo", day + 4);
+
+        let days = log.reported_days(20_000, 20_001);
+        assert_eq!(days[0].tokens.len(), 1);
+        assert_eq!(days[0].tokens[0].model, "gpt-5.4");
+        assert_eq!(days[0].tokens[0].speed, "fast");
+        assert_eq!(days[0].tokens[0].input, 240);
+        assert_eq!(days[0].tokens[0].output, 60);
     }
 }

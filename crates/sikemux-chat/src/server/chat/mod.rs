@@ -67,6 +67,8 @@ use super::model_proxy::{Grant as ModelGrant, KeptGrant};
 use super::{Core, CoreError, CoreResult};
 use feed::{Feed, FeedState, Standing};
 use kept::{Keeper, KeptAgent, KeptChat};
+#[cfg(any(test, feature = "testing"))]
+pub use native::complete_turn_for_test;
 pub use native::kill_and_reap;
 pub use native::terminal_cache_env;
 use native::Begin;

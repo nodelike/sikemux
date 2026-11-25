@@ -225,6 +225,22 @@ impl std::ops::Deref for ChatSink {
     }
 }
 
+#[cfg(any(test, feature = "testing"))]
+pub fn complete_turn_for_test(chat: Arc<Chat>, answer: Value) {
+    let (failed, _) = mpsc::unbounded_channel();
+    let (broken, _) = mpsc::unbounded_channel();
+    let (settled, _) = mpsc::unbounded_channel();
+    let sink = ChatSink {
+        telling: ChatTelling::new(chat),
+        failed,
+        broken,
+        settled,
+        account: None,
+        tool_instructions: None,
+    };
+    sink.end_turn(1, TurnEnd::Completed(answer));
+}
+
 impl SinkPort for ChatSink {
     fn has_answered(&self) -> bool {
         self.chat.has_answered()
@@ -273,7 +289,7 @@ impl SinkPort for ChatSink {
         };
         if let (Some(answer), Some(core)) = (answer, chat.core.upgrade()) {
             core.activity_log()
-                .turn_answered(&chat.current_launch(), answer);
+                .turn_answered(&chat.current_now(), answer);
         }
         match end {
             TurnEnd::Completed(payload) => {

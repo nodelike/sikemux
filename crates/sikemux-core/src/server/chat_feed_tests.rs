@@ -315,3 +315,75 @@ async fn a_listening_client_learns_of_turns_read_before_its_rows() {
     }
     assert!(older.is_some(), "the client is told it can page back");
 }
+
+#[tokio::test]
+async fn end_turn_logs_live_model_and_strips_sikemux_routing_prefix() {
+    use sikemux_chat::server::chat::{complete_turn_for_test, idle};
+    use sikemux_workspace::server::activity_log::ReportedTokens;
+    use sikemux_workspace::server::workspace_state::WorkspaceParts;
+    use std::time::Duration;
+
+    let dir = tempfile::tempdir().unwrap();
+    let core = crate::server::Core::new(Default::default(), Some(dir.path())).unwrap();
+    let chat = idle(&core, "agent-1", "omp", "/repo");
+    chat.mark_ready(ChatStart {
+        session_id: "s1".into(),
+        capabilities: json!({}),
+        setup: json!({
+            "configOptions": [{
+                "id": "model",
+                "currentValue": "sikemux-local-3425/workbuddy/hy4flash-free"
+            }]
+        }),
+    });
+    complete_turn_for_test(
+        chat.clone(),
+        json!({
+            "stopReason": "end_turn",
+            "usage": { "inputTokens": 100, "outputTokens": 20 }
+        }),
+    );
+    chat.feed.set_start(ChatStart {
+        session_id: "s1".into(),
+        capabilities: json!({}),
+        setup: json!({
+            "configOptions": [{
+                "id": "model",
+                "currentValue": "anthropic/claude-sonnet-4"
+            }]
+        }),
+    });
+    complete_turn_for_test(
+        chat.clone(),
+        json!({
+            "stopReason": "end_turn",
+            "usage": { "inputTokens": 50, "outputTokens": 10 }
+        }),
+    );
+
+    let today = (sikemux_process::clock::epoch_ms() as i64).div_euclid(86_400_000);
+    let mut tokens: Vec<ReportedTokens> = Vec::new();
+    for _ in 0..100 {
+        tokens = core
+            .activity_log()
+            .reported_days(today, today + 1)
+            .into_iter()
+            .flat_map(|day| day.tokens)
+            .collect();
+        if tokens.len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let models: Vec<(&str, i64, i64)> = tokens
+        .iter()
+        .map(|entry| (entry.model.as_str(), entry.input, entry.output))
+        .collect();
+    assert_eq!(
+        models,
+        vec![
+            ("workbuddy/hy4flash-free", 100, 20),
+            ("anthropic/claude-sonnet-4", 50, 10),
+        ]
+    );
+}

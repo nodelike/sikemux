@@ -24,6 +24,8 @@ use super::{Chat, ChatCommand};
 
 pub use claude::{saved_window, terminal_cache_env};
 pub use process::{kill_and_reap, kill_group, AgentRecord, Released};
+#[cfg(any(test, feature = "testing"))]
+pub use session::complete_turn_for_test;
 #[cfg(unix)]
 pub use session::Adopted;
 pub use session::{Begin, Handed, SessionState, Steered};

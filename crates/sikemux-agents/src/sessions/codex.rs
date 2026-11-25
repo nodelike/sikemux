@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -558,6 +558,10 @@ impl AgentOps for Codex {
         Some(count_tokens)
     }
 
+    fn transcript_state_before(&self, path: &Path, before: u64) -> Option<ReadState> {
+        transcript_state_before(path, before)
+    }
+
     fn transcript_said(&self) -> Option<SaidReader> {
         Some(said)
     }
@@ -699,6 +703,86 @@ fn codex_speed(tier: &str) -> &'static str {
     }
 }
 
+fn applied_settings(value: &Value) -> Option<&Value> {
+    if value.get("type").and_then(Value::as_str) == Some("turn_context") {
+        return value.get("payload");
+    }
+    if value.pointer("/payload/type").and_then(Value::as_str) == Some("thread_settings_applied")
+        || value.get("type").and_then(Value::as_str) == Some("thread_settings_applied")
+    {
+        return value.pointer("/payload/thread_settings");
+    }
+    None
+}
+
+pub(crate) fn transcript_state_before(path: &Path, before: u64) -> Option<ReadState> {
+    const FIRST_WINDOW: u64 = 256 * 1024;
+    const LAST_WINDOW: u64 = 32 * 1024 * 1024;
+    if before == 0 || is_compressed(path) {
+        return None;
+    }
+    let mut file = fs::File::open(path).ok()?;
+    let end = file.metadata().ok()?.len().min(before);
+    if end == 0 {
+        return None;
+    }
+    let mut model: Option<String> = None;
+    let mut speed: Option<String> = None;
+    let mut window = FIRST_WINDOW;
+    loop {
+        let start = end.saturating_sub(window);
+        file.seek(SeekFrom::Start(start)).ok()?;
+        let mut bytes = Vec::with_capacity((end - start) as usize);
+        file.by_ref()
+            .take(end - start)
+            .read_to_end(&mut bytes)
+            .ok()?;
+        let text = String::from_utf8_lossy(&bytes);
+        let mut lines = text.lines().rev().peekable();
+        while let Some(line) = lines.next() {
+            let partial = start > 0 && lines.peek().is_none();
+            if partial {
+                break;
+            }
+            if !line.contains("\"turn_context\"") && !line.contains("\"thread_settings_applied\"") {
+                continue;
+            }
+            let Ok(value) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            let Some(applied) = applied_settings(&value) else {
+                continue;
+            };
+            if model.is_none() {
+                model = applied
+                    .get("model")
+                    .and_then(Value::as_str)
+                    .filter(|model| !model.is_empty())
+                    .map(str::to_owned);
+            }
+            if speed.is_none() {
+                speed = applied
+                    .get("service_tier")
+                    .and_then(Value::as_str)
+                    .map(|tier| codex_speed(tier).to_owned());
+            }
+            if model.is_some() && speed.is_some() {
+                break;
+            }
+        }
+        if model.is_some() || start == 0 || window >= LAST_WINDOW {
+            break;
+        }
+        window = (window * 4).min(LAST_WINDOW);
+    }
+    let model = model?;
+    Some(ReadState {
+        mark: String::new(),
+        model,
+        speed: speed.unwrap_or_else(|| "standard".to_owned()),
+    })
+}
+
 /// Codex reports each turn's usage beside a running total, and sometimes
 /// repeats a report. The mark is the running total last counted.
 pub(crate) fn count_tokens(text: &str, state: ReadState) -> (ModelTally, ReadState) {
@@ -713,19 +797,16 @@ pub(crate) fn count_tokens(text: &str, state: ReadState) -> (ModelTally, ReadSta
         let Ok(value) = serde_json::from_str::<Value>(line) else {
             continue;
         };
-        if context || settings {
-            let applied = if settings {
-                value.pointer("/payload/thread_settings")
-            } else {
-                value.get("payload")
-            };
-            if let Some(applied) = applied {
-                if let Some(model) = applied.get("model").and_then(Value::as_str) {
-                    state.model = model.to_string();
-                }
-                if let Some(tier) = applied.get("service_tier").and_then(Value::as_str) {
-                    state.speed = codex_speed(tier).to_string();
-                }
+        if let Some(applied) = applied_settings(&value) {
+            if let Some(model) = applied
+                .get("model")
+                .and_then(Value::as_str)
+                .filter(|model| !model.is_empty())
+            {
+                state.model = model.to_string();
+            }
+            if let Some(tier) = applied.get("service_tier").and_then(Value::as_str) {
+                state.speed = codex_speed(tier).to_string();
             }
             continue;
         }
@@ -770,6 +851,7 @@ pub(crate) fn count_tokens(text: &str, state: ReadState) -> (ModelTally, ReadSta
 #[cfg(test)]
 mod tests {
     use super::count_tokens;
+    use super::transcript_state_before;
     use super::{codex_indexed_titles, codex_sessions, file_stamp, indexed, read_rollout};
     use crate::agent_catalog::AgentKind;
     use crate::sessions::index::Indexed;
@@ -928,5 +1010,46 @@ mod tests {
             }
         );
         assert_eq!(state.mark, "150");
+    }
+
+    #[test]
+    fn transcript_state_before_reads_last_settings_before_offset() {
+        let mut transcript = tempfile::NamedTempFile::new().unwrap();
+        writeln!(
+            transcript,
+            r#"{{"type":"turn_context","payload":{{"model":"gpt-5.3"}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            transcript,
+            r#"{{"type":"event_msg","payload":{{"type":"thread_settings_applied","thread_settings":{{"service_tier":"priority"}}}}}}"#
+        )
+        .unwrap();
+        transcript.flush().unwrap();
+        let before = transcript.as_file().metadata().unwrap().len();
+        writeln!(
+            transcript,
+            r#"{{"type":"turn_context","payload":{{"model":"gpt-5.4","service_tier":"standard"}}}}"#
+        )
+        .unwrap();
+        transcript.flush().unwrap();
+
+        assert_eq!(
+            transcript_state_before(transcript.path(), before),
+            Some(ReadState {
+                mark: String::new(),
+                model: "gpt-5.3".into(),
+                speed: "fast".into(),
+            })
+        );
+        let after = transcript.as_file().metadata().unwrap().len();
+        assert_eq!(
+            transcript_state_before(transcript.path(), after),
+            Some(ReadState {
+                mark: String::new(),
+                model: "gpt-5.4".into(),
+                speed: "standard".into(),
+            })
+        );
     }
 }

@@ -304,6 +304,12 @@ pub trait AgentOps: Sync {
         None
     }
 
+    /// Model and speed active just before byte `before` in `path`, for agents
+    /// whose transcripts state them on earlier lines rather than on each token report.
+    fn transcript_state_before(&self, _path: &Path, _before: u64) -> Option<ReadState> {
+        None
+    }
+
     fn transcript_said(&self) -> Option<SaidReader> {
         None
     }

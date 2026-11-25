@@ -77,10 +77,23 @@ pub fn routed_agents() -> impl Iterator<Item = &'static str> {
     routed.into_iter().map(|(_, kind)| kind)
 }
 
+fn routed_parts(model: &str) -> Option<(&str, &str)> {
+    let (provider, rest) = model.split_once('/')?;
+    let id = provider
+        .strip_prefix(AGENT_ID_PREFIX)
+        .filter(|id| !id.is_empty())?;
+    (!rest.is_empty()).then_some((id, rest))
+}
+
 /// An agent's model id that reaches a provider Sikemux routed it to, not one of its own.
 /// The provider id in a model OMP or OpenCode names `sikemux-<id>/<model>`.
 pub fn routed_id(model: &str) -> Option<&str> {
-    model.split_once('/')?.0.strip_prefix(AGENT_ID_PREFIX)
+    routed_parts(model).map(|(id, _)| id)
+}
+
+/// The model name without Sikemux's `sikemux-<id>/` routing prefix, when it carries one.
+pub fn unrouted_model(model: &str) -> &str {
+    routed_parts(model).map_or(model, |(_, rest)| rest)
 }
 
 pub fn routed_model(model: &str) -> bool {
@@ -1187,5 +1200,30 @@ mod tests {
                 assert!(!spec.env.is_empty(), "{}", provider.id);
             }
         }
+    }
+
+    #[test]
+    fn unrouted_model_strips_only_sikemux_routing_prefixes() {
+        assert_eq!(
+            routed_id("sikemux-local-3425/workbuddy/hy4flash-free"),
+            Some("local-3425")
+        );
+        assert_eq!(
+            unrouted_model("sikemux-local-3425/workbuddy/hy4flash-free"),
+            "workbuddy/hy4flash-free"
+        );
+        assert_eq!(
+            unrouted_model("sikemux-groq/llama-3.3-70b"),
+            "llama-3.3-70b"
+        );
+        assert_eq!(
+            unrouted_model("anthropic/claude-sonnet-4"),
+            "anthropic/claude-sonnet-4"
+        );
+        assert_eq!(unrouted_model("gpt-5.4"), "gpt-5.4");
+        assert_eq!(routed_id("sikemux-/foo"), None);
+        assert_eq!(unrouted_model("sikemux-/foo"), "sikemux-/foo");
+        assert_eq!(routed_id("sikemux-groq/"), None);
+        assert_eq!(unrouted_model("sikemux-groq/"), "sikemux-groq/");
     }
 }
