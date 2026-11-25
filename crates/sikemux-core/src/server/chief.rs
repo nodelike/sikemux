@@ -108,6 +108,8 @@ struct Saved {
     last_opened: HashMap<String, Vec<(CallOpened, u64)>>,
 }
 
+type QuotaSnapshot = std::collections::BTreeMap<String, Vec<Vec<Option<u32>>>>;
+
 /// What the core keeps for one chief.
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,6 +143,12 @@ struct Seat {
     /// What it was last told it can start workers on, and when.
     #[serde(default)]
     can_start: Option<(String, u64)>,
+    /// Last-told plan quota readings per CLI, and when.
+    #[serde(default)]
+    quota_told: Option<(QuotaSnapshot, u64)>,
+    /// Standing roles it was last told of, and when.
+    #[serde(default)]
+    standing_roles: Option<(String, u64)>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -617,8 +625,9 @@ pub(crate) async fn digest(core: &Arc<Core>, chief: &str) -> Vec<ChatContext> {
     let (core, chief) = (core.clone(), chief.to_owned());
     super::connection::blocking(move || {
         let digest = digest_now(&core, &chief);
-        Ok((can_start_untold(&core, &chief).into_iter().flatten())
-            .chain(standing_roles(&core, &chief))
+        Ok(can_start_untold(&core, &chief)
+            .into_iter()
+            .chain(standing_roles_untold(&core, &chief))
             .chain(digest)
             .collect())
     })
@@ -626,31 +635,62 @@ pub(crate) async fn digest(core: &Arc<Core>, chief: &str) -> Vec<ChatContext> {
     .unwrap_or_default()
 }
 
-/// [`can_start`], unless the chief's session was told the same since it last lost what it was
-/// told, to a compaction or a fresh session.
-fn can_start_untold(core: &Core, chief: &str) -> Option<Vec<ChatContext>> {
+/// Static model/provider catalog (deduped against `forgot_at`) plus a concise 1-line plan room
+/// update only when quota crosses a threshold or shifts meaningfully.
+fn can_start_untold(core: &Core, chief: &str) -> Vec<ChatContext> {
     let project = project_of_chief(core, chief).map(|project| project.path);
-    let contexts = can_start(core, project.as_deref().unwrap_or(Path::new("")));
-    let text: String = contexts
+    let catalog = super::can_start::for_chief(core, project.as_deref().unwrap_or(Path::new("")));
+    let static_text: String = catalog
+        .static_contexts
         .iter()
         .map(|context| context.text.as_str())
         .collect();
     let forgot = (core.chats().get(chief)).map_or(0, |chat| chat.meter.forgot_at());
     let now = epoch_ms();
-    let told = core.chiefs().seat(chief, |seat| {
-        let told = (seat.can_start.as_ref()).is_some_and(|(was, at)| *was == text && *at > forgot);
-        seat.can_start = Some((text, now));
-        told
+    let outcome = core.chiefs().seat(chief, |seat| {
+        let catalog_told =
+            (seat.can_start.as_ref()).is_some_and(|(was, at)| *was == static_text && *at > forgot);
+        if !catalog_told {
+            seat.can_start = Some((static_text.clone(), now));
+        }
+        let fresh_quota = seat.quota_told.as_ref().is_none_or(|(_, at)| *at <= forgot);
+        let mut told_map = match &seat.quota_told {
+            Some((map, at)) if *at > forgot => map.clone(),
+            _ => std::collections::BTreeMap::new(),
+        };
+        let mut changed = Vec::new();
+        for (idx, room) in catalog.rooms.iter().enumerate() {
+            let prev = told_map.get(&room.cli).map(Vec::as_slice);
+            if super::can_start::quota_changed(prev, &room.accounts) {
+                changed.push(idx);
+                told_map.insert(room.cli.clone(), room.accounts.clone());
+            }
+        }
+        told_map.retain(|cli, _| catalog.rooms.iter().any(|room| room.cli == *cli));
+        if !changed.is_empty() || fresh_quota {
+            seat.quota_told = Some((told_map, now));
+        }
+        (catalog_told, changed)
     });
-    (told != Some(true)).then_some(contexts)
+    let (catalog_told, changed) = match outcome {
+        Some(outcome) => outcome,
+        None => (false, (0..catalog.rooms.len()).collect()),
+    };
+    let mut contexts = if catalog_told {
+        Vec::new()
+    } else {
+        catalog.static_contexts
+    };
+    let changed_rooms: Vec<&super::can_start::AgentRoom> = changed
+        .into_iter()
+        .filter_map(|idx| catalog.rooms.get(idx))
+        .collect();
+    contexts.extend(super::can_start::room_context(&changed_rooms));
+    contexts
 }
 
-pub(crate) fn can_start(core: &Core, project: &Path) -> Vec<ChatContext> {
-    super::can_start::contexts(core, project)
-}
-
-/// The agents of the chief's project hired for a standing role, each with what it covers.
-fn standing_roles(core: &Core, chief: &str) -> Option<ChatContext> {
+/// The agents of the chief's project hired for a standing role, deduped against `forgot_at`.
+fn standing_roles_untold(core: &Core, chief: &str) -> Option<ChatContext> {
     const STANDING_ROLES_CHARS: usize = 600;
     let project = core.names().get(chief)?.project;
     let open = core.open_agents();
@@ -659,13 +699,25 @@ fn standing_roles(core: &Core, chief: &str) -> Option<ChatContext> {
         .map(|(_, name, role)| format!("@{name}: {role}"))
         .collect();
     if roles.is_empty() {
+        core.chiefs().seat(chief, |seat| {
+            seat.standing_roles = None;
+        });
         return None;
     }
-    Some(crate::sessions::for_agent::sikemux_context(
-        "standing-roles",
-        "Standing roles",
-        &crate::text::clipped(&roles.join("; "), STANDING_ROLES_CHARS),
-    ))
+    let text = crate::text::clipped(&roles.join("; "), STANDING_ROLES_CHARS);
+    let forgot = (core.chats().get(chief)).map_or(0, |chat| chat.meter.forgot_at());
+    let now = epoch_ms();
+    let told = core.chiefs().seat(chief, |seat| {
+        let told =
+            (seat.standing_roles.as_ref()).is_some_and(|(was, at)| *was == text && *at > forgot);
+        if !told {
+            seat.standing_roles = Some((text.clone(), now));
+        }
+        told
+    });
+    (told != Some(true)).then(|| {
+        crate::sessions::for_agent::sikemux_context("standing-roles", "Standing roles", &text)
+    })
 }
 
 fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {

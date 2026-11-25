@@ -924,9 +924,18 @@ pub(crate) fn listed_line(
     })
 }
 
-/// The agent's own line, sent with the person's next message so it knows where its work stands
-/// as the person sees it.
+/// The agent's own line, sent with the person's next message when its last turn needs attention.
 pub(crate) fn told(turn: &TurnState) -> Option<ChatContext> {
+    if turn.state == TurnPhase::Done
+        && turn.done.as_ref().is_none_or(|done| {
+            matches!(
+                done.changes,
+                WorkAt::None | WorkAt::Landed | WorkAt::Staged | WorkAt::Shipped
+            ) && done.checks != ChecksStand::Failed
+        })
+    {
+        return None;
+    }
     Some(ChatContext {
         uri: format!("{FOR_AGENT_URI}turn"),
         title: "Your last turn".to_owned(),
@@ -1194,5 +1203,32 @@ mod tests {
         let done = done.expect("where the work is");
         assert_eq!(done.changes, WorkAt::Uncommitted);
         assert!(done.next.iter().any(|next| next.step == TurnStep::Commit));
+    }
+
+    #[test]
+    fn told_omits_routine_done_turns_and_keeps_actionable_ones() {
+        let make = |changes: WorkAt, checks: ChecksStand| TurnState {
+            state: TurnPhase::Done,
+            since: 1,
+            on: None,
+            done: Some(TurnDone {
+                changes,
+                checks,
+                tests: None,
+                healthy: None,
+                next: Vec::new(),
+            }),
+            wait: None,
+            call: None,
+            stopped: None,
+            failed: None,
+            seen: false,
+        };
+        assert!(told(&make(WorkAt::None, ChecksStand::NotChecked)).is_none());
+        assert!(told(&make(WorkAt::Landed, ChecksStand::Pass)).is_none());
+        assert!(told(&make(WorkAt::Shipped, ChecksStand::Pass)).is_none());
+        assert!(told(&make(WorkAt::Uncommitted, ChecksStand::NotChecked)).is_some());
+        assert!(told(&make(WorkAt::Committed, ChecksStand::Pass)).is_some());
+        assert!(told(&make(WorkAt::None, ChecksStand::Failed)).is_some());
     }
 }

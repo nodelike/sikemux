@@ -26,11 +26,24 @@ struct Catalog {
     providers: Vec<StartableProvider>,
 }
 
+#[derive(Clone)]
 struct StartableAgent {
     cli: String,
     billing: Billing,
     room: Option<String>,
+    room_levels: Vec<Vec<Option<u32>>>,
     models: Vec<String>,
+}
+
+pub(crate) struct AgentRoom {
+    pub(crate) cli: String,
+    pub(crate) summary: String,
+    pub(crate) accounts: Vec<Vec<Option<u32>>>,
+}
+
+pub(crate) struct ChiefCatalog {
+    pub(crate) static_contexts: Vec<ChatContext>,
+    pub(crate) rooms: Vec<AgentRoom>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -73,7 +86,7 @@ impl StartableProvider {
     }
 }
 
-pub(crate) fn contexts(core: &Core, project: &Path) -> Vec<ChatContext> {
+pub(crate) fn for_chief(core: &Core, project: &Path) -> ChiefCatalog {
     let catalog = collect(core, project, epoch_ms());
     let providers = providers_text(&catalog.providers).map(|text| {
         crate::sessions::for_agent::sikemux_context(
@@ -82,14 +95,84 @@ pub(crate) fn contexts(core: &Core, project: &Path) -> Vec<ChatContext> {
             &text,
         )
     });
-    let agents = agents_text(&catalog.agents).map(|text| {
+    let agents = agents_text_with_room(&catalog.agents, false).map(|text| {
         crate::sessions::for_agent::sikemux_context(
             "can-start",
             "What you can start workers on",
             &text,
         )
     });
-    providers.into_iter().chain(agents).collect()
+    let rooms = catalog
+        .agents
+        .into_iter()
+        .filter_map(|agent| {
+            let summary = agent.room?;
+            Some(AgentRoom {
+                cli: agent.cli,
+                summary,
+                accounts: agent.room_levels,
+            })
+        })
+        .collect();
+    ChiefCatalog {
+        static_contexts: providers.into_iter().chain(agents).collect(),
+        rooms,
+    }
+}
+
+pub(crate) fn quota_changed(
+    previous: Option<&[Vec<Option<u32>>]>,
+    current: &[Vec<Option<u32>>],
+) -> bool {
+    const SHIFT_THRESHOLD: u32 = 15;
+    let Some(previous) = previous else {
+        return true;
+    };
+    if previous.len() != current.len() {
+        return true;
+    }
+    previous
+        .iter()
+        .zip(current.iter())
+        .any(|(prev_acct, cur_acct)| {
+            prev_acct.len() != cur_acct.len()
+                || prev_acct
+                    .iter()
+                    .zip(cur_acct.iter())
+                    .any(|(a, b)| match (a, b) {
+                        (None, None) => false,
+                        (Some(prev), Some(now)) => {
+                            quota_band(*prev) != quota_band(*now)
+                                || prev.abs_diff(*now) >= SHIFT_THRESHOLD
+                        }
+                        _ => true,
+                    })
+        })
+}
+
+fn quota_band(left: u32) -> u8 {
+    match left {
+        0 => 0,
+        1..10 => 1,
+        10..25 => 2,
+        _ => 3,
+    }
+}
+
+pub(crate) fn room_context(rooms: &[&AgentRoom]) -> Option<ChatContext> {
+    if rooms.is_empty() {
+        return None;
+    }
+    let text = rooms
+        .iter()
+        .map(|room| format!("{}: {}", room.cli, room.summary))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    Some(crate::sessions::for_agent::sikemux_context(
+        "quota-room",
+        "Plan room",
+        &text,
+    ))
 }
 
 pub(crate) fn for_tool(core: &Core, project: &Path, filter: &str) -> Result<Value, String> {
@@ -225,12 +308,13 @@ fn collect(core: &Core, project: &Path, now: u64) -> Catalog {
     let agents = grouped
         .into_iter()
         .map(|(cli, launchers)| {
-            let (billing, room) = billing_and_room(&cli, &launchers, now);
+            let (billing, room, room_levels) = billing_and_room(&cli, &launchers, now);
             let models = offered_models(core, &cli, billing.priced_models(), &prices);
             StartableAgent {
                 cli,
                 billing,
                 room,
+                room_levels,
                 models,
             }
         })
@@ -250,7 +334,11 @@ fn is_signed_in(launcher: &Launcher) -> bool {
     }
 }
 
-fn billing_and_room(cli: &str, launchers: &[Launcher], now: u64) -> (Billing, Option<String>) {
+fn billing_and_room(
+    cli: &str,
+    launchers: &[Launcher],
+    now: u64,
+) -> (Billing, Option<String>, Vec<Vec<Option<u32>>>) {
     let mut plan_readings: Vec<Option<Reading>> = Vec::new();
     let mut any_free = false;
     let mut any_per_token = false;
@@ -291,7 +379,28 @@ fn billing_and_room(cli: &str, launchers: &[Launcher], now: u64) -> (Billing, Op
         (false, _, _) => Billing::PerToken,
     };
     let room = (!plan_readings.is_empty()).then(|| format_accounts_room(&plan_readings, now));
-    (billing, room)
+    let room_levels = plan_readings
+        .iter()
+        .map(|reading| reading_levels(reading.as_ref(), now))
+        .collect();
+    (billing, room, room_levels)
+}
+
+fn reading_levels(reading: Option<&Reading>, now: u64) -> Vec<Option<u32>> {
+    let Some(reading) = reading else {
+        return vec![None];
+    };
+    let windows = ordered_windows(&reading.usage.windows);
+    if windows.is_empty() {
+        return vec![None];
+    }
+    windows
+        .into_iter()
+        .map(|window| {
+            let left = (100.0 - window.used_at(now)).clamp(0.0, 100.0).round() as u32;
+            Some(left)
+        })
+        .collect()
 }
 
 fn format_accounts_room(readings: &[Option<Reading>], now: u64) -> String {
@@ -381,7 +490,12 @@ fn format_window(window: &UsageWindow, now: u64) -> String {
     text
 }
 
+#[cfg(test)]
 fn agents_text(agents: &[StartableAgent]) -> Option<String> {
+    agents_text_with_room(agents, true)
+}
+
+fn agents_text_with_room(agents: &[StartableAgent], include_room: bool) -> Option<String> {
     if agents.is_empty() {
         return None;
     }
@@ -401,9 +515,9 @@ fn agents_text(agents: &[StartableAgent]) -> Option<String> {
         hints.join("; ")
     )];
     for agent in agents {
-        let meta = match &agent.room {
-            Some(room) => format!("{}; left: {room}", agent.billing.label()),
-            None => agent.billing.label().to_owned(),
+        let meta = match (&agent.room, include_room) {
+            (Some(room), true) => format!("{}; left: {room}", agent.billing.label()),
+            _ => agent.billing.label().to_owned(),
         };
         let models = format_inline_models(&agent.models);
         lines.push(format!("- {} ({meta}): {models}", agent.cli));
@@ -525,6 +639,7 @@ mod tests {
                 cli: "claude".into(),
                 billing: Billing::Plan,
                 room: Some("acct 1: Ultra: 7d 0% (resets 3h); acct 2: Ultra: 7d 20%".into()),
+                room_levels: vec![vec![Some(0)], vec![Some(20)]],
                 models: vec![
                     "default (Opus 5.5)".into(),
                     "fable (Fable 5.2)".into(),
@@ -536,12 +651,14 @@ mod tests {
                 cli: "codex".into(),
                 billing: Billing::Plan,
                 room: Some("Free: 30d 100%".into()),
+                room_levels: vec![vec![Some(100)]],
                 models: (0..29).map(|i| format!("gpt-model-{i}")).collect(),
             },
             StartableAgent {
                 cli: "opencode".into(),
                 billing: Billing::PerToken,
                 room: None,
+                room_levels: Vec::new(),
                 models: (0..137)
                     .map(|i| format!("vendor/model-{i} $0.1/$0.5"))
                     .collect(),
@@ -552,6 +669,7 @@ mod tests {
                 room: Some(
                     "5h 100%, 7d 100%, Claude and GPT · 5h 100%, Claude and GPT · 7d 100%".into(),
                 ),
+                room_levels: vec![vec![Some(100), Some(100), Some(100), Some(100)]],
                 models: vec![
                     "gemini-4-neon".into(),
                     "gemini-4-carbon".into(),
@@ -619,5 +737,35 @@ mod tests {
             format_reading(Some(&reading), now),
             "5h 100%, 7d 5% (resets 3h), Claude and GPT · 5h 90%, Claude and GPT · 7d 100% (stale)"
         );
+    }
+
+    #[test]
+    fn static_catalog_omits_volatile_room_and_quota_ticks_ignore_small_shifts() {
+        let mut a = StartableAgent {
+            cli: "claude".into(),
+            billing: Billing::Plan,
+            room: Some("Ultra: 7d 80%".into()),
+            room_levels: vec![vec![Some(80)]],
+            models: vec!["default (Opus 5.5)".into()],
+        };
+        let text_a = agents_text_with_room(&[a.clone()], false).unwrap();
+        a.room = Some("Ultra: 7d 79%".into());
+        let text_b = agents_text_with_room(&[a], false).unwrap();
+        assert_eq!(text_a, text_b);
+        assert!(!text_a.contains("left:"));
+
+        let prev = vec![vec![Some(80)]];
+        assert!(!quota_changed(Some(&prev), &[vec![Some(79)]]));
+        assert!(!quota_changed(Some(&prev), &[vec![Some(66)]]));
+        assert!(quota_changed(Some(&prev), &[vec![Some(65)]]));
+
+        let near_25 = vec![vec![Some(26)]];
+        assert!(quota_changed(Some(&near_25), &[vec![Some(24)]]));
+
+        let near_10 = vec![vec![Some(11)]];
+        assert!(quota_changed(Some(&near_10), &[vec![Some(9)]]));
+
+        let near_zero = vec![vec![Some(2)]];
+        assert!(quota_changed(Some(&near_zero), &[vec![Some(0)]]));
     }
 }
