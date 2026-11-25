@@ -255,7 +255,7 @@ impl Parts for Core {
 
 /// Walking every part of the core.
 pub(crate) trait PartCore {
-    fn parts(&self) -> [&dyn Part; 37];
+    fn parts(&self) -> [&dyn Part; 41];
 
     /// Every feature's tasks, to end when the core stops.
     fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>>;
@@ -267,7 +267,7 @@ pub(crate) trait PartCore {
 }
 
 impl PartCore for Core {
-    fn parts(&self) -> [&dyn Part; 37] {
+    fn parts(&self) -> [&dyn Part; 41] {
         [
             self.harness(),
             self.outside(),
@@ -276,6 +276,10 @@ impl PartCore for Core {
             self.boards(),
             self.memory(),
             self.triggers(),
+            self.pictures(),
+            self.peer(),
+            self.waits(),
+            self.inbox(),
             self.collisions(),
             self.checks(),
             self.workspaces(),
@@ -325,6 +329,44 @@ impl PartCore for Core {
     fn tell_parts_client_gone(self: &Arc<Self>, client: GoneClient) {
         for part in self.parts() {
             part.client_gone(self, client);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PartCore, Parts};
+    use crate::server::serving::ServeParts;
+    use crate::server::{pictures, Core, ServerCore};
+
+    #[test]
+    fn flush_parts_persists_pictures_peer_waits_and_inbox_immediately() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let data = dir.path().join("data");
+        std::fs::create_dir_all(&data).expect("data dir");
+        let core = Core::new(
+            sikemux_wire::protocol::BuildIdentity::default(),
+            Some(&data),
+        )
+        .expect("core");
+
+        pictures::tidy(&core, false);
+        core.peer().save_soon_for_test();
+        core.waits().took("ci:test", 1_250);
+        core.inbox().started("agent-1");
+
+        core.flush_parts();
+
+        for file in [
+            "pictures.json",
+            "teammate-boards.json",
+            "waits.json",
+            "turns.json",
+        ] {
+            assert!(
+                data.join(file).is_file(),
+                "{file} must be flushed to disk by core.flush_parts()"
+            );
         }
     }
 }

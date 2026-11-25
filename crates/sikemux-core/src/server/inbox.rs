@@ -339,6 +339,12 @@ fn turn<'a>(turns: &'a mut HashMap<String, Turn>, agent_id: &str) -> &'a mut Tur
     turns.entry(agent_id.to_owned()).or_default()
 }
 
+impl super::part::Part for Turns {
+    fn flush(&self) {
+        self.flush();
+    }
+}
+
 impl Turns {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let kept = Kept::new(data_dir, TURNS_FILE);
@@ -398,7 +404,6 @@ impl Turns {
         });
     }
 
-    #[cfg(test)]
     pub(crate) fn flush(&self) {
         self.kept.flush();
     }

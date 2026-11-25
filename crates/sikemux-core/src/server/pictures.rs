@@ -199,6 +199,12 @@ impl Pictures {
     }
 }
 
+impl super::part::Part for Pictures {
+    fn flush(&self) {
+        self.kept.flush();
+    }
+}
+
 /// Whether a set of the same page was taken after `old`.
 fn newer_of_page(sets: &[Set], old: &Set) -> bool {
     (sets.iter())

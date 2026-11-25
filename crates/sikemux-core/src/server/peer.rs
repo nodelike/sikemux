@@ -68,6 +68,18 @@ impl Peer {
             shares: shares::Reconciling::new(data_dir),
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn save_soon_for_test(&self) {
+        let copies = self.copies.locked();
+        self.kept.save_soon(&*copies);
+    }
+}
+
+impl super::part::Part for Peer {
+    fn flush(&self) {
+        self.kept.flush();
+    }
 }
 
 /// A teammate's project this host reads, from the host that keeps its record.

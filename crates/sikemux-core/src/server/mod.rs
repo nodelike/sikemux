@@ -913,19 +913,15 @@ pub(crate) async fn run_core(
         }
         skill_library::watch_global(&core);
         account::start(&core);
-        tokio::spawn(usage::serve(core.clone(), data_dir.to_owned()));
-        tokio::spawn(harness::page_index::serve(
-            core.clone(),
-            data_dir.to_owned(),
-        ));
     }
     let mut stopping = socket::Stopping::new()?;
     let mut background = core.start_parts();
     if let Some(data_dir) = config.data_dir.clone() {
-        background.push(tokio::spawn(harness::pages::serve_uploads(
-            core.clone(),
-            data_dir,
-        )));
+        background.extend([
+            tokio::spawn(usage::serve(core.clone(), data_dir.clone())),
+            tokio::spawn(harness::page_index::serve(core.clone(), data_dir.clone())),
+            tokio::spawn(harness::pages::serve_uploads(core.clone(), data_dir)),
+        ]);
     }
     background.extend([
         tokio::spawn(poll_sessions(core.clone())),

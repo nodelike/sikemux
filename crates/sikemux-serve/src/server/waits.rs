@@ -70,3 +70,9 @@ impl Waits {
         sorted.get(sorted.len() / 2).copied()
     }
 }
+
+impl super::part::Part for Waits {
+    fn flush(&self) {
+        self.kept.flush();
+    }
+}
