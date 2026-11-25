@@ -594,3 +594,76 @@ async fn hand_over(app: &CoreClient, id: &str, profile: &str) {
     .await
     .expect("handed over");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_handed_off_from_claude_to_acp_stays_live_across_sleep_and_wake() {
+    let root = tempfile::Builder::new()
+        .prefix("handoff-sleep-wake")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
+    let (project, claude) = (root.join("project"), root.join("claude"));
+    for dir in [root.join("home"), claude.clone(), project.clone()] {
+        std::fs::create_dir_all(dir).expect("dir");
+    }
+    std::fs::write(
+        claude.join("fake-account.json"),
+        json!({ "loggedIn": true, "authMethod": "claude.ai", "email": "qa@example.com", "subscriptionType": "max" }).to_string(),
+    )
+    .expect("an account");
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [
+        { "id": "builtin-claude", "name": "Claude", "provider": "claude", "accent": "#d97757",
+          "executablePath": FAKE_CLAUDE, "configPath": claude },
+        { "id": "fake", "name": "Fake", "provider": "omp", "accent": "#a277ff",
+          "executablePath": FAKE_AGENT },
+    ] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let (id, _) = app
+        .start_chat("claude:builtin-claude".into(), "widget".into(), None)
+        .await
+        .expect("a chat");
+    say(&app, &socket, &id, "first on claude").await;
+
+    switch(&app, &id, "omp").await;
+    let (_watching, mut chat) = open(&socket, &id).await;
+    app.ask(ask::AcpPrompt {
+        agent_id: id.clone(),
+        message_id: Some(uuid::Uuid::new_v4().to_string()),
+        text: "before sleep on acp".into(),
+        paths: Vec::new(),
+        context: Vec::new(),
+    })
+    .await
+    .expect("first acp prompt");
+    chat.until(|chat| chat.text().contains("echo: before sleep on acp") && !chat.head().running)
+        .await;
+
+    let slept = app
+        .call("stopChatIfIdle", json!({ "agentId": id }))
+        .await
+        .expect("sleep");
+    assert_eq!(slept["stopped"], true);
+
+    app.ask(ask::AcpPrompt {
+        agent_id: id.clone(),
+        message_id: Some(uuid::Uuid::new_v4().to_string()),
+        text: "after wake on acp".into(),
+        paths: Vec::new(),
+        context: Vec::new(),
+    })
+    .await
+    .expect("prompt after sleep");
+    chat.until(|chat| chat.text().contains("echo: after wake on acp") && !chat.head().running)
+        .await;
+}

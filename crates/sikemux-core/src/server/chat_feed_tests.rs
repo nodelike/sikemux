@@ -387,3 +387,35 @@ async fn end_turn_logs_live_model_and_strips_sikemux_routing_prefix() {
         ]
     );
 }
+
+#[tokio::test]
+async fn replacing_a_feed_tells_listening_clients_to_reattach() {
+    let core = crate::server::Core::new(Default::default(), None).unwrap();
+    let (client, mut frames) = ClientConn::inside(&core, crate::server::access::Peer::Local);
+    let feed = Feed::new("agent".into(), PermissionMode::WorkspaceWrite, None);
+    feed.set_start(ChatStart {
+        session_id: "s".into(),
+        capabilities: json!({}),
+        setup: json!({}),
+    });
+    said_turn(&feed, 0);
+    let mark = mark_of(&attached(&feed, &client, &mut frames, None));
+    assert!(feed.has_subscriber(client.id));
+
+    feed.reattach_subscribers();
+    assert!(!feed.has_subscriber(client.id));
+
+    let mut gap = None;
+    while let Ok(frame) = frames.try_recv() {
+        let frame = sikemux_wire::protocol::read_frame_sync(&mut &frame[..])
+            .unwrap()
+            .unwrap();
+        if let Ok(ServerMessage::Event {
+            event: Event::Chat { seq, changes, .. },
+        }) = serde_json::from_slice(&frame.payload)
+        {
+            gap = Some((seq, changes));
+        }
+    }
+    assert_eq!(gap, Some((mark.seq + 2, json!([]))));
+}

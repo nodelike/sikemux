@@ -1011,6 +1011,13 @@ impl Feed {
 
     pub fn set_start(&self, start: ChatStart) {
         let mut inner = self.inner.locked();
+        if inner
+            .reach
+            .as_ref()
+            .is_some_and(|(followed, _)| *followed != start.session_id)
+        {
+            inner.reach = None;
+        }
         inner.start = Some(start);
     }
 
@@ -1019,6 +1026,7 @@ impl Feed {
         {
             let mut inner = self.inner.locked();
             inner.start = None;
+            inner.reach = None;
             inner.offers_effort = false;
             if let Some(fold) = inner.fold.as_mut() {
                 fold.leave_agent();

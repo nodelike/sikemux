@@ -255,6 +255,22 @@ impl Feed {
         self.let_go(&mut inner);
     }
 
+    /// Tells clients still watching this feed that the chat moved to another, so each
+    /// attaches to the new one.
+    pub fn reattach_subscribers(&self) {
+        let mut inner = self.inner.locked();
+        inner.closed = true;
+        if inner.subscribers.is_empty() {
+            return;
+        }
+        let frame = self.frame(inner.replay.seq.saturating_add(2), &[]);
+        for (_, subscriber) in inner.subscribers.drain() {
+            if let Some(frame) = &frame {
+                subscriber.client.send(frame.clone());
+            }
+        }
+    }
+
     /// Answers the client with the chat as it stands, or what changed since
     /// `since`, and adds it to the listeners in the same step, so it hears
     /// every later change exactly once.

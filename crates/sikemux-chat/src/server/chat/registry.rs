@@ -42,6 +42,18 @@ pub struct Resting {
     pub provider: String,
 }
 
+pub struct Inserted {
+    pub chat: Arc<Chat>,
+    pub queue: mpsc::UnboundedReceiver<ChatCommand>,
+    pub replaced: Vec<Arc<Feed>>,
+}
+
+enum TakenRest {
+    Same(Resting),
+    Other(Arc<Feed>),
+    None,
+}
+
 /// The most history kept for chats asleep or closed in all; past it, the one read least lately
 /// goes.
 const SHELF_BYTES: u64 = 2 * 1024 * 1024 * 1024;
@@ -164,9 +176,9 @@ impl Chats {
         let launch = chat.current_now();
         let start = chat.feed.start();
         let follows = chat.feed.followed();
-        let session = (follows.as_ref().map(|(session, _)| session.clone()))
-            .or_else(|| start.as_ref().map(|start| start.session_id.clone()))
+        let session = (start.as_ref().map(|start| start.session_id.clone()))
             .or_else(|| launch.resume_id.clone())
+            .or_else(|| follows.as_ref().map(|(session, _)| session.clone()))
             .or_else(|| {
                 (self.shelf.get(chat.agent_id()))
                     .filter(|shelved| shelved.feed == chat.feed.id())
@@ -277,19 +289,29 @@ impl Chats {
     /// `session` if one is named. One that follows another session is let go of here, and
     /// stays on disk.
     pub fn take_rest(&self, agent_id: &str, session: Option<&str>) -> Option<Resting> {
+        match self.take_rest_for(agent_id, session) {
+            TakenRest::Same(rested) => Some(rested),
+            TakenRest::Other(_) | TakenRest::None => None,
+        }
+    }
+
+    fn take_rest_for(&self, agent_id: &str, session: Option<&str>) -> TakenRest {
         let mut resting = self.resting.locked();
-        let at = resting
+        let Some(at) = resting
             .iter()
-            .position(|resting| resting.agent_id == agent_id)?;
+            .position(|resting| resting.agent_id == agent_id)
+        else {
+            return TakenRest::None;
+        };
         let rested = resting.remove(at);
         let other = (self.shelf.get(agent_id))
             .is_some_and(|shelved| session.is_some_and(|session| session != shelved.session));
         if other {
-            return None;
+            return TakenRest::Other(rested.feed);
         }
         self.shelf.woke(agent_id);
         rested.feed.woke();
-        Some(rested)
+        TakenRest::Same(rested)
     }
 
     /// The sleeping chats' feeds, each with its meter and provider.
@@ -523,7 +545,7 @@ impl Chats {
         launch: ChatLaunch,
         origin: Origin,
         kept: Option<(Arc<Feed>, TurnProgress)>,
-    ) -> CoreResult<(Arc<Chat>, mpsc::UnboundedReceiver<ChatCommand>)> {
+    ) -> CoreResult<Inserted> {
         let mut chats = self.chats.locked();
         if chats.contains_key(&launch.agent_id) {
             return Err("This chat is already running".into());
@@ -531,10 +553,19 @@ impl Chats {
         let (commands, queue) = mpsc::unbounded_channel();
         // A chat waking from sleep goes on in the feed it slept with, so a client reading
         // that feed hears it wake, and the history its start replays is already there.
-        let rested = kept
-            .is_none()
-            .then(|| self.take_rest(&launch.agent_id, launch.resume_id.as_deref()))
-            .flatten();
+        let mut replaced = Vec::new();
+        let rested = if kept.is_none() {
+            match self.take_rest_for(&launch.agent_id, launch.resume_id.as_deref()) {
+                TakenRest::Same(rested) => Some(rested),
+                TakenRest::Other(feed) => {
+                    replaced.push(feed);
+                    None
+                }
+                TakenRest::None => None,
+            }
+        } else {
+            None
+        };
         let history_shown = rested.is_some();
         let rested_meter = rested.as_ref().map(|rested| rested.meter);
         let (feed, flags) = kept.unwrap_or_else(|| {
@@ -629,13 +660,22 @@ impl Chats {
         if let Some(hold) = held {
             chat.end_held_after(SUBAGENT_WAIT, hold, true);
         }
-        self.resting
-            .locked()
-            .retain(|resting| resting.agent_id != chat.agent_id());
+        let mut resting = self.resting.locked();
+        while let Some(pos) = resting
+            .iter()
+            .position(|item| item.agent_id == chat.agent_id())
+        {
+            replaced.push(resting.remove(pos).feed);
+        }
+        drop(resting);
         chats.insert(chat.agent_id().to_owned(), chat.clone());
         // A goal that ended while it slept gets its line in the chat now.
         (core.chat_above().board_wake)(core);
-        Ok((chat, queue))
+        Ok(Inserted {
+            chat,
+            queue,
+            replaced,
+        })
     }
 }
 

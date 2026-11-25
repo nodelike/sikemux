@@ -41,10 +41,11 @@ pub fn idle(core: &Arc<Core>, agent_id: &str, provider: &str, cwd: &str) -> Arc<
         clippy::panic,
         reason = "a chat a test cannot list is meant to stop the test"
     )]
-    let (chat, _) = core
+    let chat = core
         .chats()
         .insert(core, launch, Origin::default(), None)
-        .unwrap_or_else(|error| panic!("{error}"));
+        .unwrap_or_else(|error| panic!("{error}"))
+        .chat;
     chat
 }
 
@@ -266,7 +267,11 @@ pub fn start(
     validate(&launch_spec)?;
     let resume_id = launch_spec.resume_id.clone();
     let waking = core.workspaces().agent(&launch_spec.agent_id).is_some();
-    let (chat, queue) = core.chats().insert(core, launch_spec, origin, None)?;
+    let registry::Inserted {
+        chat,
+        queue,
+        replaced,
+    } = core.chats().insert(core, launch_spec, origin, None)?;
     if resume_id.is_none() && !briefed {
         *chat.brief.locked() = (core.chat_above().memory_for_chat)(core, &chat.launch.cwd);
     }
@@ -303,6 +308,9 @@ pub fn start(
     }
     if waits_for_person {
         wait_for_person(&chat);
+    }
+    for old in replaced {
+        old.reattach_subscribers();
     }
     let notice = match notice {
         Some(update) if waits_for_person => {
@@ -358,9 +366,16 @@ pub fn resume(core: &Arc<Core>, record: ChatRecord) {
         .chats()
         .insert(core, record.launch, record.origin, None)
     {
-        Ok((chat, queue)) => {
+        Ok(registry::Inserted {
+            chat,
+            queue,
+            replaced,
+        }) => {
             if record.unstarted {
                 wait_for_person(&chat);
+            }
+            for old in replaced {
+                old.reattach_subscribers();
             }
             chat.keep(kept::Progress::STARTING);
             bring_up(
@@ -460,7 +475,11 @@ pub fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -> CoreR
     (core.chat_above().feed_moved)(core, &launch_spec.agent_id, &kept.feed, feed.id());
     let saved = launch_spec.resume_id.is_some();
     let flags = TurnProgress::saved(saved);
-    let (chat, queue) = core.chats().insert(
+    let registry::Inserted {
+        chat,
+        queue,
+        replaced,
+    } = core.chats().insert(
         core,
         launch_spec.clone(),
         kept.origin.clone(),
@@ -468,6 +487,9 @@ pub fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -> CoreR
     )?;
     if kept.unstarted {
         wait_for_person(&chat);
+    }
+    for old in replaced {
+        old.reattach_subscribers();
     }
     chat.saved_reading.send_replace(true);
     let core = core.clone();
@@ -591,10 +613,17 @@ pub fn adopt(
     // Known before the tool endpoint is taken up, so the agent's next call is not refused.
     sikemux_agents::callers::started(live.agent.pid, &live.launch.agent_id);
     let feed = Feed::restored(live.launch.agent_id.clone(), live.feed);
-    let (chat, queue) = core
+    let registry::Inserted {
+        chat,
+        queue,
+        replaced,
+    } = core
         .chats()
         .insert(core, live.launch, live.origin, Some((feed, live.flags)))
         .map_err(|error| error.to_string())?;
+    for old in replaced {
+        old.reattach_subscribers();
+    }
     chat.set_current(live.current);
     if let Some(kept) = live.model_grant {
         chat.hold_model_grant(core.model_proxy().restore(kept));
