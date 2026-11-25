@@ -333,16 +333,22 @@ fn check_call(
     }
     let mut sends = None;
     if ship.kind == ShipKind::Push {
+        let from = [project.clone(), checkout_of(&pushed_in, &project)];
+        let from_one =
+            |deploys: &dyn Fn(&str) -> bool| from.iter().find(|root| deploys(root)).cloned();
         match push::reach(&ship.what, cwd) {
             Reach::Branches => return Ok(None),
-            Reach::Project if places::found::vercel_deploys_pushes(Path::new(&project)) => {
-                ship = Ship {
-                    kind: ShipKind::Deploy,
-                    target: Some(Target::Vercel { production: true }),
-                    what: ship.what,
-                };
+            Reach::Project => {
+                let on_vercel = |root: &str| places::found::vercel_deploys_pushes(Path::new(root));
+                if let Some(deployed) = from_one(&on_vercel) {
+                    project = deployed;
+                    ship = Ship {
+                        kind: ShipKind::Deploy,
+                        target: Some(Target::Vercel { production: true }),
+                        what: ship.what,
+                    };
+                }
             }
-            Reach::Project => {}
             Reach::Tags(names) => {
                 if (core.repo_above().board_landing)(core, &project) != Landing::Core {
                     return hold(core, agent_id, &project, ship, cwd, call, None);
@@ -352,6 +358,8 @@ fn check_call(
                     [name] => name.clone(),
                     _ => String::new(),
                 };
+                let published = |root: &str| tag_places(core, root) || releases_on_tags(core, root);
+                project = from_one(&published).unwrap_or(project);
                 let target = match (tag_places(core, &project), releases_on_tags(core, &project)) {
                     (true, _) => Some(Target::Tag { name }),
                     (false, true) => Some(Target::Package {
@@ -954,6 +962,20 @@ fn same_repository(dir: &Path, project: &str) -> bool {
         (Some((pushed, theirs)), Some((own, ours))) => pushed == own || !theirs.is_disjoint(&ours),
         _ => true,
     }
+}
+
+/// The main checkout of the repository a push from `dir` sends, which can sit inside a
+/// `project` that is only a folder holding repositories, such as the home folder.
+fn checkout_of(dir: &Path, project: &str) -> String {
+    (crate::git::main_checkout(dir))
+        .or_else(|| sikemux_process::files::repo_root(dir).map(Path::to_path_buf))
+        .map_or_else(
+            || project.to_owned(),
+            |root| {
+                let root = sikemux_process::files::real_path(&root).unwrap_or(root);
+                root.to_string_lossy().into_owned()
+            },
+        )
 }
 
 /// Whether the GitHub repository `repo` belongs to whoever owns the remotes of the checkout at

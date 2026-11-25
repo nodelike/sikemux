@@ -804,6 +804,39 @@ async fn a_push_that_deploys_another_repositorys_vercel_is_held() {
     assert_eq!(open_calls(&core).len(), 1);
 }
 
+/// An agent in Sikemux's project ran `cd ~/projects/personal/sikemux-front && git push origin
+/// main` on 2026-11-24, which deploys sikemux.com, and nobody was asked: the home folder was
+/// itself a project, so the push was read as the home folder's, which has no Vercel config.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_that_deploys_a_repository_inside_a_folder_project_is_held() {
+    let (ours, home) = (repo(), repo());
+    let (cwd, project) = work_of(&ours);
+    let site = home.path().join("work");
+    std::fs::write(site.join("vercel.json"), "{}").unwrap();
+    let push = || Ship {
+        kind: ShipKind::Push,
+        what: "git push origin main".to_owned(),
+        target: None,
+    };
+    let from_elsewhere = core_at(None, &project, Vec::new());
+    from_elsewhere
+        .workspaces()
+        .project_for(home.path())
+        .unwrap();
+    assert!(run(&from_elsewhere, push(), &site).is_err());
+    let raised = open_calls(&from_elsewhere);
+    assert_eq!(raised.len(), 1);
+    assert_eq!(
+        Path::new(&raised[0].project),
+        sikemux_process::files::real_path(&site).unwrap()
+    );
+    assert!(run(&from_elsewhere, push(), &cwd).is_ok_and(|deploy| deploy.is_none()));
+    let folder = home.path().to_string_lossy().into_owned();
+    let from_the_folder = core_at(None, &folder, Vec::new());
+    assert!(run(&from_the_folder, push(), &site).is_err());
+    assert_eq!(open_calls(&from_the_folder).len(), 1);
+}
+
 /// An agent pushed a scratch clone to its local bare remote with
 /// `S=…; cd $S/r/w && /usr/bin/git push …` and was asked whether to change Sikemux's releases
 /// on GitHub, shown the push without its `cd`.
