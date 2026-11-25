@@ -3,7 +3,7 @@
 export PATH := $(CURDIR)/scripts/bin:$(PATH)
 
 dev:
-	@node scripts/prune-target.mjs --throttled >/dev/null 2>&1
+	@test -x target/debug/sikemux-host && target/debug/sikemux-host prune-target --throttled >/dev/null 2>&1 || true
 	node scripts/dev-gpui.mjs
 
 # Stops the dev build's core, the terminals and agents it runs, and its notch.
@@ -38,7 +38,7 @@ clean:
 
 # Drops Rust build copies no recent build has used; `make dev` runs it hourly.
 prune:
-	node scripts/prune-target.mjs
+	@if [ -x target/debug/sikemux-host ]; then target/debug/sikemux-host prune-target; else cargo run -q -p sikemux-host --bin sikemux-host -- prune-target; fi
 
 clean-dev:
 	cargo clean --profile dev

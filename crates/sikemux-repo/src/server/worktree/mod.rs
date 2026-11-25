@@ -16,7 +16,7 @@ mod left;
 mod own;
 pub mod published;
 pub mod removal;
-mod stale_builds;
+pub mod stale_builds;
 mod warm;
 
 pub use warm::seed_in_background;

@@ -69,6 +69,7 @@ fn run_inner() -> Result<i32, String> {
         "chat" => return chat::chat(rest),
         "doctor" => return doctor(),
         "triage" => return triage::triage(rest),
+        "prune-target" => return prune_target(rest),
         _ if crate::headless::COMMANDS.contains(&command) => {
             return Ok(crate::headless::run(command, rest));
         }
@@ -159,6 +160,36 @@ fn unknown_word(word: &str) -> String {
 
 fn unknown(word: &str) -> String {
     format!("no command named {word}; run `sikemux help` for the list")
+}
+
+fn prune_target(args: &[String]) -> Result<i32, String> {
+    let mut throttled = false;
+    let mut dry_run = false;
+    let mut target: Option<PathBuf> = None;
+    for arg in args {
+        match arg.as_str() {
+            "--throttled" => throttled = true,
+            "--dry-run" => dry_run = true,
+            value if value.starts_with("--") => {
+                return Err(format!("unknown option for prune-target: {value}"));
+            }
+            value if target.is_none() => target = Some(PathBuf::from(value)),
+            value => return Err(format!("unexpected argument for prune-target: {value}")),
+        }
+    }
+    let target = target.unwrap_or_else(|| PathBuf::from("target"));
+    let Some(freed) =
+        sikemux_core::server::worktree::stale_builds::prune_target(&target, throttled, dry_run)
+    else {
+        return Ok(0);
+    };
+    let verb = if dry_run { "Would free" } else { "Freed" };
+    println!(
+        "{verb} {:.1} GB from {}",
+        freed as f64 / (1024.0 * 1024.0 * 1024.0),
+        target.display()
+    );
+    Ok(0)
 }
 
 fn execute_tool(args: &[String]) -> Result<i32, String> {

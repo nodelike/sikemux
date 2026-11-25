@@ -20,7 +20,32 @@ COMPILING = {"b", "build", "c", "check", "clippy", "d", "doc", "fix", "ndk", "ru
 COMPILING_THEN_RUNNING = {"bench", "nextest", "r", "run", "t", "test"}
 GLOBAL_OPTIONS_WITH_VALUE = {"--color", "--config", "--explain", "-C", "-Z"}
 COMPILER_CACHES = ("kache", "sccache")
-BUILD_STEPS = {"bash", "clippy-driver", "git", "kache", "rustc", "rustdoc", "sccache", "sh"}
+BUILD_STEPS = {
+    "ar",
+    "bash",
+    "cargo-nextest",
+    "cc",
+    "clang",
+    "clang++",
+    "clippy-driver",
+    "dsymutil",
+    "git",
+    "kache",
+    "ld",
+    "ld64",
+    "ld64.lld",
+    "libtool",
+    "lipo",
+    "lld",
+    "nextest",
+    "rust-lld",
+    "rustc",
+    "rustdoc",
+    "sccache",
+    "sh",
+    "swift-frontend",
+    "swiftc",
+}
 
 
 def subcommand(args):
@@ -57,9 +82,14 @@ def limit_override():
 def available_memory():
     try:
         if sys.platform == "darwin":
+            pressure = subprocess.run(["memory_pressure", "-Q"], capture_output=True, text=True).stdout
+            total = re.search(r"The system has (\d+)", pressure)
+            free_pct = re.search(r"System-wide memory free percentage:\s*(\d+)%", pressure)
+            if total and free_pct:
+                return int(total.group(1)) * int(free_pct.group(1)) // 100
             report = subprocess.run(["vm_stat"], capture_output=True, text=True).stdout
             page = int(re.search(r"page size of (\d+)", report).group(1))
-            kinds = ("free", "inactive", "speculative", "purgeable")
+            kinds = ("free", "purgeable")
             pages = sum(int(re.search(rf"Pages {kind}:\s+(\d+)", report).group(1)) for kind in kinds)
             return pages * page
         with open("/proc/meminfo") as meminfo:
@@ -165,7 +195,7 @@ def take_slot(final):
             if slot:
                 if told:
                     print(f"cargo: started after {time.monotonic() - since:.0f}s in the queue.", file=sys.stderr)
-                return slot
+                return slot, running + 1
             if not told and ahead:
                 print(f"cargo: queued behind {ahead} waiting cargo runs; it starts by itself when its turn comes.", file=sys.stderr)
             elif not told:
@@ -198,11 +228,21 @@ def program_started(root):
     return False
 
 
+def has_jobs_flag(args):
+    return any(arg in ("-j", "--jobs") or arg.startswith(("-j", "--jobs=")) for arg in args)
+
+
 def run(command, env, slot, runs_programs):
-    child = subprocess.Popen(command, env=env)
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-    for signum in (signal.SIGTERM, signal.SIGHUP):
-        signal.signal(signum, lambda signum, _: child.send_signal(signum))
+    child = subprocess.Popen(command, env=env, start_new_session=True)
+
+    def forward(signum, _):
+        try:
+            os.killpg(child.pid, signum)
+        except ProcessLookupError:
+            pass
+
+    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, forward)
     while True:
         try:
             code = child.wait(timeout=1)
@@ -243,9 +283,12 @@ def main():
     if {"-h", "--help", "-V", "--version"} & set(args) or name not in COMPILING | COMPILING_THEN_RUNNING:
         os.execve(command[0], command, env)
     try:
-        slot = take_slot(run_is_final(name))
+        slot, active = take_slot(run_is_final(name))
     except KeyboardInterrupt:
         return 130
+    if "CARGO_BUILD_JOBS" not in env and not has_jobs_flag(args):
+        cores = os.cpu_count() or 1
+        env["CARGO_BUILD_JOBS"] = str(max(1, cores // max(1, active)))
     # Sikemux's own cargo, which this one stands in front of, marks its runs the same way, so
     # the git a build or its tests start is the build's own and not the agent's to guard.
     env["SIKEMUX_BUILD_TURN"] = "1"
