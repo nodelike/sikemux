@@ -17,6 +17,7 @@ use super::worktree::git_folder;
 use super::Core;
 use crate::git::Git;
 use sikemux_process::procs::lowest_priority;
+use sikemux_process::sync::Locked;
 
 /// How long after the core starts it first looks, then how often it looks again.
 const FIRST_LOOK: Duration = Duration::from_secs(2 * 60);
@@ -75,7 +76,7 @@ async fn serve(core: Arc<Core>) {
 fn bring_up_to_date(core: &Core, checkout: &Path) {
     static LAST_REASON: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
     let outcome = try_bring_up_to_date(core, checkout);
-    let mut last = LAST_REASON.get_or_init(Default::default).lock().unwrap();
+    let mut last = LAST_REASON.get_or_init(Default::default).locked();
     match outcome {
         Ok(()) => {
             last.remove(checkout);
