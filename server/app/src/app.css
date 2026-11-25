@@ -485,16 +485,6 @@ canvas.dots {
 .box > .rows {
   margin-block: calc(-1 * var(--pad));
 }
-.kv {
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) auto;
-  gap: 4px 10px;
-  align-items: center;
-}
-.kv .mono {
-  color: var(--lit);
-  overflow-wrap: anywhere;
-}
 .why {
   border-radius: var(--r);
   background: var(--why-bg);

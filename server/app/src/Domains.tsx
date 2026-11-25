@@ -5,30 +5,35 @@ import type {
   TeamAccess,
 } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
-import { IconGlobe } from "@shared/ui/Icons";
+import {
+  IconCheck,
+  IconCopy,
+  IconHourglass,
+  IconMore,
+  IconPause,
+} from "@shared/ui/Icons";
 import { useState } from "react";
 
 import { problemText } from "./api.ts";
 import { useClient } from "./Billing.tsx";
 import { useCheer } from "./Field.tsx";
 import { iconMark } from "./marks.ts";
+import "./members.css";
 import { changeable, frozen, possessive, renewable, useLoad } from "./orgs.ts";
 import { orgScene } from "./scenes.ts";
+import { copyText } from "./Seats.tsx";
 import {
   Btn,
-  Section,
-  Chip,
   Confirm,
-  Empty,
-  Field,
+  Nothing,
+  Notice,
   Page,
+  Popover,
   Problem,
-  Row,
-  Rows,
+  Seal,
+  Section,
   Seg,
   Switch,
-  Tile,
-  Txt,
   useAction,
   useToast,
 } from "./ui.tsx";
@@ -43,236 +48,214 @@ const JOINING = (["open", "offered"] as const).map((value) => ({
   name: JOINING_WORDS[value],
 }));
 
-const either = (words: string[]) =>
-  words.length < 2
-    ? words.join("")
-    : `${words.slice(0, -1).join(", ")} or ${words[words.length - 1]}`;
-
 export function DomainsPage({ org, team }: { org: Org; team: TeamAccess }) {
   const client = useClient();
   const say = useToast();
-  const [adding, setAdding] = useState(false);
-  const [missing, setMissing] = useState<{
-    domain: OrgDomain;
-    words: string;
-  }>();
+  const [missingId, setMissingId] = useState<string>();
   const loaded = useLoad(
     async () => (await client("see your domains")).listOrgDomains(org.id),
     org.role,
   );
   const open = changeable(org, team);
+  const ended = renewable(org, team);
   const scene = orgScene(org.id);
   const mark = iconMark("at");
   const domains = loaded.data?.domains;
   const verified = domains?.filter((each) => each.verifiedAt) ?? [];
   const waiting = domains?.filter((each) => !each.verifiedAt) ?? [];
+
   const changed = (text: string) => {
     say(text);
-    setMissing(undefined);
+    setMissingId(undefined);
     loaded.again();
   };
 
   if (loaded.problem)
     return (
       <Page
-        title="Domains didn't load"
-        lede="Nothing in the org has changed."
-        actions={<Btn onClick={loaded.again}>Try again</Btn>}
+        title="Domains"
+        lede="Who can find the org by their address."
         mark={mark}
         scene={scene}
         tone="failed"
       >
-        <Section label="Domains">
-          <Problem>{loaded.problem}</Problem>
-        </Section>
+        <Nothing
+          title="Domains didn't load"
+          actions={<Btn onClick={loaded.again}>Try again</Btn>}
+        >
+          {loaded.problem} Nothing in the org has changed.
+        </Nothing>
       </Page>
     );
 
-  const form =
-    adding && open ? (
-      <NewDomain
-        org={org}
-        onAdded={(text) => {
-          setAdding(false);
-          changed(text);
-        }}
-        onCancel={() => setAdding(false)}
-      />
-    ) : null;
-  const add =
-    form ??
-    (domains && open ? (
-      <Btn onClick={() => setAdding(true)}>Add a domain</Btn>
-    ) : domains?.length ? (
-      <p className="note">
-        {renewable(org, team)
-          ? "The org is frozen. You can still remove a domain."
-          : `${frozen(org) ? `${org.name} is paused. ` : ""}Team isn't open to your account now. You can still remove a domain.`}
-      </p>
-    ) : undefined);
+  const notice = frozen(org) ? (
+    ended ? (
+      <Notice
+        icon={<IconHourglass size={17} />}
+        tone="cold"
+        title={`${org.name} is frozen`}
+      >
+        Its Team plan ended. You can still remove a domain.
+      </Notice>
+    ) : (
+      <Notice icon={<IconPause size={17} />} title={`${org.name} is paused`}>
+        Team isn't open to your account now. You can still remove a domain.
+      </Notice>
+    )
+  ) : !open && domains ? (
+    <Notice
+      icon={<IconPause size={17} />}
+      title="Team isn't open to your account now"
+    >
+      You can still remove a domain.
+    </Notice>
+  ) : null;
 
-  if (domains?.length === 0)
-    return (
-      <Page
-        title={open ? "Let colleagues in" : "Domains"}
-        lede={
-          open
+  return (
+    <Page
+      title="Domains"
+      lede="Who can find the org by their address."
+      notice={notice}
+      mark={mark}
+      scene={scene}
+      tone={missingId ? "failed" : frozen(org) ? "waiting" : undefined}
+    >
+      {!domains ? (
+        <DomainsSkeleton />
+      ) : domains.length === 0 ? (
+        <Nothing
+          title={open ? "Let colleagues in" : "No domains"}
+          actions={
+            open ? (
+              <div className="m-empty-add">
+                <AddDomain org={org} onAdded={changed} />
+              </div>
+            ) : undefined
+          }
+        >
+          {open
             ? "Prove your domain and people with an address there find the org by themselves."
-            : renewable(org, team)
+            : ended
               ? "The org is frozen. Domains come back when an owner renews Team."
               : frozen(org)
                 ? `${org.name} is paused. Team isn't open to your account now. Nothing is deleted.`
-                : "Team isn't open to your account now."
-        }
-        actions={add}
-        mark={mark}
-        scene={scene}
-      >
-        <Section label="Domains">
-          <Empty>
-            {open
-              ? "No domains yet. Invite links work without one."
-              : "No domains."}
-          </Empty>
-        </Section>
-      </Page>
-    );
-
-  const joins = verified.filter((each) => each.joining === "open");
-  return (
-    <Page
-      title={missing ? "No record yet" : "Domains"}
-      lede={
-        missing
-          ? missing.words
-          : !domains
-            ? "Loading the domains…"
-            : joins.length > 0
-              ? `People with a ${either(joins.map((each) => each.domain))} address join by themselves.`
-              : verified.length > 0
-                ? `People with a ${either(verified.map((each) => each.domain))} address are offered ${org.name} when they sign in.`
-                : "Nobody can join through a domain until its record is found."
-      }
-      actions={add}
-      mark={mark}
-      scene={scene}
-      tone={missing ? "failed" : undefined}
-    >
-      {!domains ? (
-        <Section label="Domains" busy />
+                : "Team isn't open to your account now."}
+        </Nothing>
       ) : (
-        <>
-          {verified.length > 0 ? (
-            <Section
-              label="Verified"
-              count={verified.length}
-            >
-              <Rows>
-                {verified.map((domain) => (
-                  <Verified
-                    key={domain.id}
-                    org={org}
-                    domain={domain}
-                    open={open}
-                    onChanged={changed}
-                  />
-                ))}
-              </Rows>
+        <div className="m-doms">
+          {waiting.map((domain) => (
+            <WaitingDomain
+              key={domain.id}
+              org={org}
+              domain={domain}
+              open={open}
+              missing={missingId === domain.id}
+              onChanged={changed}
+              onMissing={(failed) =>
+                setMissingId(failed ? domain.id : undefined)
+              }
+            />
+          ))}
+          {verified.map((domain) => (
+            <VerifiedDomain
+              key={domain.id}
+              org={org}
+              domain={domain}
+              open={open}
+              onChanged={changed}
+            />
+          ))}
+          {open ? (
+            <Section label="Another domain" className="m-dom-another">
+              <AddDomain org={org} onAdded={changed} />
             </Section>
           ) : null}
-          {waiting.length > 0 ? (
-            <Section
-              label="Waiting for a record"
-              count={waiting.length}
-              foot="Add this TXT record where your domain lives."
-            >
-              <Rows>
-                {waiting.map((domain) => (
-                  <Waiting
-                    key={domain.id}
-                    org={org}
-                    domain={domain}
-                    open={open}
-                    missing={missing?.domain.id === domain.id}
-                    onChanged={changed}
-                    onMissing={(words) =>
-                      setMissing(words ? { domain, words } : undefined)
-                    }
-                  />
-                ))}
-              </Rows>
-            </Section>
-          ) : null}
-        </>
+        </div>
       )}
     </Page>
   );
 }
 
-function NewDomain({
+function DomainsSkeleton() {
+  return (
+    <div className="m-sklist m-dom-sk" aria-busy="true">
+      {Array.from({ length: 2 }, (_, at) => (
+        <div key={at}>
+          <span className="skel m-skel-av" />
+          <span>
+            <span
+              className="skel m-skel-bar"
+              style={{ width: 160 + at * 50 }}
+            />
+            <span
+              className="skel m-skel-bar"
+              style={{ width: 260 + at * 30 }}
+            />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AddDomain({
   org,
   onAdded,
-  onCancel,
 }: {
   org: Org;
   onAdded: (text: string) => void;
-  onCancel: () => void;
 }) {
   const client = useClient();
   const action = useAction();
   const [domain, setDomain] = useState("");
   const [joining, setJoining] = useState<OrgDomainJoining>("offered");
+
   return (
-    <>
-      <form
-        className="form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!domain.trim()) return;
-          void action.run(
-            async () => {
-              const added = await (
-                await client("add a domain")
-              ).addOrgDomain(org.id, { domain: domain.trim(), joining });
-              onAdded(`Added ${added.domain}. Put its TXT record in DNS next.`);
-            },
-            (error) => `${problemText(error)} No domain was added.`,
-          );
-        }}
-      >
-        <Field
-          placeholder="example.com"
+    <form
+      className="m-add-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const wanted = domain.trim();
+        if (!wanted) return;
+        void action.run(
+          async () => {
+            const added = await (
+              await client("add a domain")
+            ).addOrgDomain(org.id, { domain: wanted, joining });
+            setDomain("");
+            onAdded(`Added ${added.domain}. Put its TXT record in DNS next.`);
+          },
+          (error) => `${problemText(error)} No domain was added.`,
+        );
+      }}
+    >
+      <Problem>{action.problem}</Problem>
+      <div className="m-add">
+        <input
+          className="field"
+          placeholder="yourcompany.com"
           aria-label="Email domain"
           value={domain}
           maxLength={253}
-          autoFocus
+          disabled={action.busy}
           onChange={(event) => setDomain(event.target.value)}
         />
         <Seg
-          label="How people join"
+          label="How they come in"
           value={joining}
+          disabled={action.busy}
           onChange={setJoining}
           options={JOINING}
         />
         <Btn type="submit" busy={action.busy} disabled={!domain.trim()}>
-          Add
+          Add domain
         </Btn>
-        <Btn quiet disabled={action.busy} onClick={onCancel}>
-          Cancel
-        </Btn>
-      </form>
-      <Problem>{action.problem}</Problem>
-    </>
+      </div>
+    </form>
   );
 }
 
-const lead = (
-  <Tile>
-    <IconGlobe size={14} />
-  </Tile>
-);
-
-function Verified({
+function VerifiedDomain({
   org,
   domain,
   open,
@@ -297,6 +280,7 @@ function Verified({
       },
       (error) => `${problemText(error)} It is unchanged.`,
     );
+
   const setOurs = (ours: boolean) =>
     void action.run(
       async () => {
@@ -311,95 +295,95 @@ function Verified({
     );
 
   return (
-    <Row
-      lead={lead}
-      name={
-        <>
-          {domain.domain}
-          <Chip tone="ok">Verified</Chip>
-        </>
-      }
-      detail={`Since ${formatDay(domain.verifiedAt ?? domain.createdAt, "short")}`}
-      end={
-        removing ? null : (
-          <Txt
-            bad
-            onClick={() => {
-              action.clear();
-              setRemoving(true);
+    <section className="m-dom">
+      <div className="m-dh">
+        <div className="m-dh-main">
+          <h2>{domain.domain}</h2>
+          <Seal tone="ok">
+            Since {formatDay(domain.verifiedAt ?? domain.createdAt, "long")}
+          </Seal>
+        </div>
+        <Popover
+          look="icon"
+          label={`More for ${domain.domain}`}
+          trigger={<IconMore size={16} />}
+          options={[
+            {
+              key: "remove",
+              name: "Remove domain",
+              bad: true,
+              choose: () => setRemoving(true),
+            },
+          ]}
+        />
+      </div>
+
+      <p>
+        {domain.joining === "open"
+          ? `People with a ${domain.domain} address join by themselves.`
+          : `People with a ${domain.domain} address are offered ${org.name} when they sign in.`}
+      </p>
+
+      <Problem>{action.problem}</Problem>
+
+      <div className="m-opt">
+        <span>
+          <b>How they come in</b>
+          <small>
+            {domain.joining === "open"
+              ? "They join on a free seat, as Member."
+              : "They are asked when they sign in, and join as Member."}
+          </small>
+        </span>
+        {open ? (
+          <Seg
+            label="How they come in"
+            value={domain.joining}
+            disabled={action.busy}
+            onChange={(joining) => {
+              if (joining !== domain.joining) setJoining(joining);
             }}
-          >
-            Remove
-          </Txt>
-        )
-      }
-    >
+            options={JOINING}
+          />
+        ) : (
+          <span className="m-dim">{JOINING_WORDS[domain.joining]}</span>
+        )}
+      </div>
+
+      <div className="m-opt">
+        <span>
+          <b>These addresses are ours</b>
+          <small>
+            {domain.oursSince
+              ? `Since ${formatDay(domain.oursSince, "short")}, an address at ${domain.domain} can't sign up for its own Sikemux account or be added as a sign-in. People verify it under Work addresses instead. Accounts and sign-ins from before then stay.`
+              : `Turn this on to stop new Sikemux accounts and sign-ins at ${domain.domain}. People then sign in with their own account and verify their ${domain.domain} address under Work addresses. Accounts and sign-ins that already exist stay.`}
+          </small>
+        </span>
+        {open && org.role === "owner" ? (
+          <Switch
+            label="These addresses are ours"
+            on={domain.oursSince !== null}
+            disabled={action.busy}
+            onChange={setOurs}
+          />
+        ) : (
+          <span className="m-dim">{domain.oursSince ? "On" : "Off"}</span>
+        )}
+      </div>
+
       {removing ? (
-        <RemoveDomain
+        <RemoveDomainConfirm
           org={org}
           domain={domain}
           onChanged={onChanged}
           onCancel={() => setRemoving(false)}
         />
-      ) : (
-        <div className="box">
-          <Rows>
-            <Row
-              wrap
-              name="People with an address"
-              detail={
-                domain.joining === "open"
-                  ? "They join on a free seat, as Member."
-                  : "They are asked when they sign in, and join as Member."
-              }
-              end={
-                open ? (
-                  <Seg
-                    label="How people join"
-                    value={domain.joining}
-                    disabled={action.busy}
-                    onChange={(joining) => {
-                      if (joining !== domain.joining) setJoining(joining);
-                    }}
-                    options={JOINING}
-                  />
-                ) : (
-                  JOINING_WORDS[domain.joining]
-                )
-              }
-            />
-            <Row
-              wrap
-              name="These addresses are ours"
-              detail={
-                domain.oursSince
-                  ? `Since ${formatDay(domain.oursSince, "short")}, an address at ${domain.domain} can't sign up for its own Sikemux account or be added as a sign-in. People verify it under Work addresses instead. Accounts and sign-ins from before then stay.`
-                  : `Turn this on to stop new Sikemux accounts and sign-ins at ${domain.domain}. People then sign in with their own account and verify their ${domain.domain} address under Work addresses. Accounts and sign-ins that already exist stay.`
-              }
-              end={
-                open && org.role === "owner" ? (
-                  <Switch
-                    label="These addresses are ours"
-                    on={domain.oursSince !== null}
-                    disabled={action.busy}
-                    onChange={setOurs}
-                  />
-                ) : domain.oursSince ? (
-                  "On"
-                ) : (
-                  "Off"
-                )
-              }
-            />
-          </Rows>
-          <Problem>{action.problem}</Problem>
-        </div>
-      )}
-    </Row>
+      ) : null}
+    </section>
   );
 }
 
-function Waiting({
+function WaitingDomain({
   org,
   domain,
   open,
@@ -412,14 +396,15 @@ function Waiting({
   open: boolean;
   missing: boolean;
   onChanged: (text: string) => void;
-  onMissing: (words?: string) => void;
+  onMissing: (failed: boolean) => void;
 }) {
   const client = useClient();
   const cheer = useCheer();
   const action = useAction();
   const [removing, setRemoving] = useState(false);
+
   const verify = () => {
-    onMissing();
+    onMissing(false);
     void action.run(
       async () => {
         await (
@@ -429,84 +414,104 @@ function Waiting({
         onChanged(`${domain.domain} is verified`);
       },
       (error) => {
-        const words = problemText(error);
-        onMissing(words);
-        return words;
+        onMissing(true);
+        return problemText(error);
       },
     );
   };
+
   return (
-    <Row
-      wrap
-      lead={lead}
-      name={
-        <>
-          {domain.domain}
-          {missing ? (
-            <Chip tone="bad">Not found</Chip>
+    <section className="m-dom">
+      <div className="m-dh">
+        <div className="m-dh-main">
+          <h2>{domain.domain}</h2>
+          <Seal tone={missing ? "bad" : "wait"}>
+            {missing ? "No record yet" : "Waiting for its record"}
+          </Seal>
+        </div>
+        <Popover
+          look="icon"
+          label={`More for ${domain.domain}`}
+          trigger={<IconMore size={16} />}
+          options={[
+            {
+              key: "remove",
+              name: "Remove domain",
+              bad: true,
+              choose: () => setRemoving(true),
+            },
+          ]}
+        />
+      </div>
+
+      <p>Nobody can join through it yet.</p>
+
+      <ol className="m-steps">
+        <li>
+          <b>Add this TXT record where your domain lives</b>
+          <dl>
+            <RecordLine label="Name" value={domain.record.name} />
+            <RecordLine label="Value" value={domain.record.value} />
+          </dl>
+        </li>
+        <li>
+          <b>Check for it</b>
+          {action.problem ? (
+            <div className="m-step-err">
+              <Problem>{action.problem}</Problem>
+            </div>
           ) : (
-            <Chip tone="warn">Not verified</Chip>
+            <small>It can take up to an hour to show.</small>
           )}
-        </>
-      }
-      detail="Nobody can join through it yet."
-      end={
-        removing ? null : (
-          <>
-            {open ? (
-              <Btn small busy={action.busy} onClick={verify}>
-                {missing ? "Check again" : "Verify"}
+          {open ? (
+            <div className="m-act">
+              <Btn busy={action.busy} onClick={verify}>
+                {action.busy ? "Looking" : missing ? "Check again" : "Verify"}
               </Btn>
-            ) : null}
-            <Txt bad onClick={() => setRemoving(true)}>
-              Remove
-            </Txt>
-          </>
-        )
-      }
-    >
+            </div>
+          ) : null}
+        </li>
+      </ol>
+
       {removing ? (
-        <RemoveDomain
+        <RemoveDomainConfirm
           org={org}
           domain={domain}
           onChanged={onChanged}
           onCancel={() => setRemoving(false)}
         />
-      ) : (
-        <>
-          <dl className="kv">
-            <Line label="Name" value={domain.record.name} />
-            <Line label="Value" value={domain.record.value} />
-          </dl>
-          <Problem>{missing ? undefined : action.problem}</Problem>
-        </>
-      )}
-    </Row>
+      ) : null}
+    </section>
   );
 }
 
-function Line({ label, value }: { label: string; value: string }) {
+function RecordLine({ label, value }: { label: string; value: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <>
+    <div>
       <dt>{label}</dt>
-      <dd className="mono">{value}</dd>
-      <Txt
+      <dd>{value}</dd>
+      <Btn
+        small
+        quiet
+        className={copied ? "m-did" : undefined}
         aria-label={`Copy the record's ${label.toLowerCase()}`}
         onClick={() =>
-          void navigator.clipboard.writeText(value).then(
-            () => setCopied(true),
-            () => setCopied(false),
-          )
+          void copyText(value).then((ok) => {
+            if (!ok) return;
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1600);
+          })
         }
       >
+        {copied ? <IconCheck size={13} /> : <IconCopy size={13} />}
         {copied ? "Copied" : "Copy"}
-      </Txt>
-    </>
+      </Btn>
+    </div>
   );
 }
 
-function RemoveDomain({
+function RemoveDomainConfirm({
   org,
   domain,
   onChanged,
@@ -522,9 +527,10 @@ function RemoveDomain({
   return (
     <Confirm
       danger
+      title={`Remove ${domain.domain}?`}
       busy={action.busy}
       problem={action.problem}
-      label={`Remove ${domain.domain}`}
+      label="Remove domain"
       onCancel={onCancel}
       onConfirm={() =>
         void action.run(

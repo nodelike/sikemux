@@ -257,7 +257,9 @@ export function GroupsPage({
                 <button
                   type="button"
                   key={group.id}
-                  aria-current={selected?.id === group.id ? "true" : undefined}
+                  aria-current={
+                    !phone && selected?.id === group.id ? "true" : undefined
+                  }
                   onClick={() => {
                     setSelectedId(group.id);
                     setPhoneList(false);

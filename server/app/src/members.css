@@ -442,6 +442,187 @@ a.m-seats:hover {
   gap: 8px;
 }
 
+/* Domains. */
+.m-doms {
+  max-width: 880px;
+}
+
+.m-dom-sk > div {
+  height: 112px;
+}
+
+.m-empty-add {
+  width: min(760px, 78vw);
+}
+
+.m-dom {
+  padding: 18px 0 34px;
+}
+
+.m-dom + .m-dom {
+  border-top: 1px solid var(--line2);
+  padding-top: 34px;
+}
+
+.m-dom-another {
+  margin-top: 10px;
+}
+
+.m-dh {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.m-dh-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-width: 0;
+}
+
+.m-dh h2 {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.m-dom > p {
+  margin: 6px 0 16px;
+  color: var(--two);
+  font-size: 14.5px;
+}
+
+.m-opt {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  min-height: 74px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.m-opt > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.m-opt b {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.m-opt small {
+  display: block;
+  margin-top: 2px;
+  color: var(--two);
+  font-size: var(--t);
+  line-height: 1.5;
+  max-width: 520px;
+}
+
+.m-steps {
+  counter-reset: domstep;
+  margin-top: 22px;
+}
+
+.m-steps li {
+  counter-increment: domstep;
+  position: relative;
+  padding: 0 0 26px 48px;
+}
+
+.m-steps li:last-child {
+  padding-bottom: 0;
+}
+
+.m-steps li::before {
+  content: counter(domstep);
+  position: absolute;
+  left: 0;
+  top: -3px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--acc-bg);
+  color: var(--acc);
+  font-size: var(--t);
+  font-weight: 600;
+}
+
+.m-steps b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.m-steps small {
+  display: block;
+  margin-top: 4px;
+  color: var(--two);
+  font-size: var(--t);
+}
+
+.m-steps dl {
+  margin-top: 12px;
+}
+
+.m-steps dl > div {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 48px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.m-steps dt {
+  color: var(--two);
+  font-size: var(--t);
+}
+
+.m-steps dd {
+  font: 500 13.5px/1.4 var(--mono);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.m-step-err {
+  margin-top: 10px;
+}
+
+.m-act {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.m-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.m-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.m-add .field {
+  flex: 1 1 240px;
+  max-width: 360px;
+}
+
 @media (max-width: 860px) {
   .tools .m-seats {
     order: 5;
@@ -485,6 +666,39 @@ a.m-seats:hover {
   }
 
   .m-gh > .txt {
+    flex-basis: 100%;
+  }
+
+  .m-empty-add {
+    width: 100%;
+  }
+
+  .m-dh h2 {
+    font-size: 24px;
+  }
+
+  .m-opt {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 0;
+  }
+
+  .m-steps li {
+    padding-left: 40px;
+  }
+
+  .m-steps dl > div {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 10px 0;
+  }
+
+  .m-steps dt {
+    grid-column: 1 / -1;
+  }
+
+  .m-add .field {
+    max-width: none;
     flex-basis: 100%;
   }
 }
