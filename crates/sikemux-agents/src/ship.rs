@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_view::inbox::ShipKind;
 
 use crate::git_guard::{
-    base_name, command_words, env_folder, git_args, pieces, shell_script, Piece,
+    base_name, command_words, env_folder, git_args, pieces, shell_script, Piece, Unwrapped,
 };
 
 mod ssh;
@@ -314,7 +314,7 @@ pub(crate) fn target_of(
             let target = named(&["--target"]);
             let preview = target
                 .as_deref()
-                .is_some_and(|target| target != "production");
+                .is_some_and(|target| !target.eq_ignore_ascii_case("production"));
             Some(Target::Vercel {
                 production: !preview,
             })
@@ -1337,16 +1337,44 @@ pub(crate) fn of_program(
     alias: &dyn Fn(&str) -> Option<String>,
 ) -> Option<ShipKind> {
     let program = program_name(program);
-    if dry_run(args) {
-        return None;
-    }
     if program == "git" {
-        let subcommand = git_args(args).first()?;
+        if git_global_help(args) {
+            return None;
+        }
+        let sub = git_args(args);
+        let (subcommand, sub_args) = sub.split_first()?;
         return match subcommand.as_str() {
-            "push" if git_args(args).iter().any(|arg| arg == "-n") => None,
+            "push"
+                if has_program_flag(
+                    sub_args,
+                    &["-n", "--dry-run", "--help"],
+                    GIT_PUSH_SWITCHES,
+                    false,
+                ) =>
+            {
+                None
+            }
+            "send-pack"
+                if has_program_flag(
+                    sub_args,
+                    &["--dry-run", "--help"],
+                    GIT_PUSH_SWITCHES,
+                    false,
+                ) =>
+            {
+                None
+            }
             "push" | "send-pack" => Some(ShipKind::Push),
-            "subtree" if git_args(args).iter().any(|arg| arg == "push") => Some(ShipKind::Push),
+            "subtree"
+                if !has_program_flag(sub_args, &["--help"], GIT_PUSH_SWITCHES, false)
+                    && sub_args.iter().any(|arg| arg == "push") =>
+            {
+                Some(ShipKind::Push)
+            }
             sub if !GIT_COMMANDS.contains(&sub) => {
+                if has_program_flag(sub_args, &["--help"], GIT_PUSH_SWITCHES, false) {
+                    return None;
+                }
                 let stands_for = alias(sub)?;
                 match stands_for.strip_prefix('!') {
                     Some(shell) => (of_command(shell, &[], Looks::Every, cwd, &|_| None).first())
@@ -1369,6 +1397,9 @@ pub(crate) fn of_program(
     }
     if let Some((program, args)) = wrapped(program, args) {
         return of_program(program, args, cwd, alias);
+    }
+    if program_skips_action(program, args) {
+        return None;
     }
     let first = args
         .iter()
@@ -1744,10 +1775,11 @@ pub fn vercel_takes_away(args: &[impl AsRef<str>]) -> bool {
     let words: Vec<&str> = (args.iter().map(AsRef::as_ref))
         .filter(|arg| !arg.starts_with('-'))
         .collect();
-    let preview = words
+    let preview = words.iter().any(|word| {
+        word.eq_ignore_ascii_case("preview") || word.eq_ignore_ascii_case("development")
+    }) && !words
         .iter()
-        .any(|word| matches!(*word, "preview" | "development"))
-        && !words.contains(&"production");
+        .any(|word| word.eq_ignore_ascii_case("production"));
     VERCEL_TAKES_AWAY.iter().any(|[group, command]| {
         (words.iter())
             .position(|word| word == group)
@@ -1795,50 +1827,217 @@ const SWITCHES: [&str; 33] = [
     "--draft",
 ];
 
-/// Whether a command says it only tries: `--dry-run` in any form but kubectl's `none`, aws
-/// s3's `--dryrun`, or a request for its help, given as a flag of its own: after a word that
-/// isn't an option, an option that carries its own value, or a switch known to take none.
-/// After any other option it is that option's value, and the action is real.
-fn dry_run(args: &[String]) -> bool {
-    args.iter().enumerate().any(|(at, arg)| {
-        let flag = arg == "--dry-run"
-            || arg == "--dryrun"
-            || arg == "--help"
-            || (arg.strip_prefix("--dry-run=")).is_some_and(|value| value != "none");
-        let value_of_another =
-            (at.checked_sub(1).and_then(|before| args.get(before))).is_some_and(|before| {
-                before.starts_with('-')
-                    && !before.contains('=')
-                    && !SWITCHES.contains(&before.as_str())
-            });
-        flag && !value_of_another
-    })
+const GIT_PUSH_SWITCHES: &[&str] = &[
+    "--all",
+    "--mirror",
+    "--tags",
+    "--follow-tags",
+    "--atomic",
+    "--no-atomic",
+    "--force",
+    "-f",
+    "--force-with-lease",
+    "--no-force-with-lease",
+    "--force-if-includes",
+    "--no-force-if-includes",
+    "--delete",
+    "-d",
+    "--prune",
+    "--verbose",
+    "-v",
+    "--quiet",
+    "-q",
+    "--progress",
+    "--no-verify",
+    "--verify",
+    "--set-upstream",
+    "-u",
+    "--thin",
+    "--no-thin",
+    "--porcelain",
+    "--ipv4",
+    "-4",
+    "--ipv6",
+    "-6",
+];
+
+fn git_global_help(args: &[String]) -> bool {
+    let sub = git_args(args);
+    let global = args.get(..args.len() - sub.len()).unwrap_or_default();
+    let mut words = global.iter();
+    while let Some(arg) = words.next() {
+        if arg == "--help" {
+            return true;
+        }
+        if matches!(
+            arg.as_str(),
+            "-C" | "-c"
+                | "--git-dir"
+                | "--work-tree"
+                | "--namespace"
+                | "--config-env"
+                | "--exec-path"
+                | "--super-prefix"
+        ) {
+            words.next();
+        }
+    }
+    false
+}
+
+fn has_program_flag(
+    args: &[String],
+    flags: &[&str],
+    switches: &[&str],
+    allow_dry_run_value: bool,
+) -> bool {
+    let mut words = args.iter();
+    while let Some(arg) = words.next() {
+        if arg == "--" {
+            break;
+        }
+        if flags.contains(&arg.as_str())
+            || (allow_dry_run_value
+                && arg
+                    .strip_prefix("--dry-run=")
+                    .is_some_and(|value| value != "none"))
+        {
+            return true;
+        }
+        if arg.starts_with('-') && !arg.contains('=') && !switches.contains(&arg.as_str()) {
+            words.next();
+        }
+    }
+    false
+}
+
+fn program_skips_action(program: &str, args: &[String]) -> bool {
+    match program {
+        "psql" | "mysql" => matches!(args, [only] if only == "--help" || only == "--version"),
+        "kubectl" | "helm" => has_program_flag(args, &["--dry-run", "--help"], &SWITCHES, true),
+        "aws" => {
+            if has_program_flag(args, &["--help"], &SWITCHES, false) {
+                return true;
+            }
+            let is_s3 = args.iter().any(|arg| arg == "s3");
+            is_s3 && has_program_flag(args, &["--dryrun"], &SWITCHES, false)
+        }
+        "npm" | "pnpm" | "yarn" | "cargo" | "uv" | "poetry" | "changeset" | "wrangler"
+        | "supabase" => has_program_flag(args, &["--dry-run", "--help"], &SWITCHES, false),
+        _ => has_program_flag(args, &["--help"], &SWITCHES, false),
+    }
 }
 
 /// Whether a database client is given only statements that read: each passed with `-c`,
-/// `--command`, `-e` or `--execute`, attached or not, starts with SELECT, SHOW, EXPLAIN or
-/// DESCRIBE, or is one of psql's listing commands.
+/// `--command`, `-e` or `--execute`, attached or not, with no script file or stdin redirect.
 fn only_queries(args: &[String]) -> bool {
-    let given: Vec<&str> = (args.iter().enumerate())
-        .filter_map(|(at, arg)| {
-            let next = || args.get(at + 1).map(String::as_str);
-            if arg.starts_with("--") {
-                return match arg.split_once('=') {
-                    Some((flag, statement)) => {
-                        matches!(flag, "--command" | "--execute").then_some(statement)
-                    }
-                    None => matches!(arg.as_str(), "--command" | "--execute")
-                        .then(next)
-                        .flatten(),
+    const DB_VALUED_LONG: &[&str] = &[
+        "--host",
+        "--port",
+        "--username",
+        "--user",
+        "--dbname",
+        "--database",
+        "--password",
+        "--set",
+        "--variable",
+        "--pset",
+        "--field-separator",
+        "--record-separator",
+        "--table-attr",
+        "--protocol",
+        "--socket",
+        "--ssl-mode",
+        "--defaults-file",
+        "--defaults-extra-file",
+        "--defaults-group-suffix",
+        "--connect-timeout",
+        "--default-character-set",
+    ];
+    const DB_VALUED_SHORT: &str = "hpUduPDSvFRT";
+    const DB_FORBIDDEN_LONG: &[&str] = &[
+        "--file",
+        "--output",
+        "--log-file",
+        "--init-command",
+        "--source",
+    ];
+
+    let mut given: Vec<&str> = Vec::new();
+    let mut positional: Vec<&str> = Vec::new();
+    let mut after_double_dash = false;
+    let mut words = args.iter();
+    while let Some(arg) = words.next() {
+        let operator = arg.trim_start_matches(|c: char| c.is_ascii_digit());
+        if operator.starts_with('<') {
+            return false;
+        }
+        if after_double_dash {
+            positional.push(arg.as_str());
+            continue;
+        }
+        if arg == "--" {
+            after_double_dash = true;
+            continue;
+        }
+        if arg.starts_with("--") {
+            let (flag, value) = match arg.split_once('=') {
+                Some((flag, val)) => (flag, Some(val)),
+                None => (arg.as_str(), None),
+            };
+            if DB_FORBIDDEN_LONG.contains(&flag) {
+                return false;
+            }
+            if matches!(flag, "--command" | "--execute") {
+                let Some(statement) = value.or_else(|| words.next().map(String::as_str)) else {
+                    return false;
                 };
+                given.push(statement);
+                continue;
             }
-            let short = arg.strip_prefix('-')?;
-            match packed_value(short, &['c', 'e'], DB_SWITCHES)? {
-                "" => next(),
-                attached => Some(attached),
+            if value.is_none() && DB_VALUED_LONG.contains(&flag) {
+                words.next();
             }
-        })
-        .collect();
+            continue;
+        }
+        if let Some(short) = arg.strip_prefix('-').filter(|rest| !rest.is_empty()) {
+            for (at, letter) in short.char_indices() {
+                if matches!(letter, 'c' | 'e') {
+                    let attached = short.get(at + letter.len_utf8()..).unwrap_or_default();
+                    let statement = match attached.is_empty() {
+                        true => match words.next() {
+                            Some(next) => next.as_str(),
+                            None => return false,
+                        },
+                        false => attached,
+                    };
+                    given.push(statement);
+                    break;
+                }
+                if matches!(letter, 'f' | 'o' | 'L') {
+                    return false;
+                }
+                if DB_VALUED_SHORT.contains(letter) {
+                    if at + letter.len_utf8() == short.len() {
+                        words.next();
+                    }
+                    break;
+                }
+                if !DB_SWITCHES.contains(letter) {
+                    return false;
+                }
+            }
+            continue;
+        }
+        positional.push(arg.as_str());
+    }
+    if positional.len() > 2
+        || positional
+            .iter()
+            .any(|arg| arg.to_ascii_lowercase().ends_with(".sql"))
+    {
+        return false;
+    }
     !given.is_empty() && given.iter().all(|text| statements_read(text))
 }
 
@@ -1861,19 +2060,217 @@ fn packed_value<'a>(short: &'a str, flags: &[char], switches: &str) -> Option<&'
     None
 }
 
+fn is_psql_listing(text: &str) -> bool {
+    let trimmed = text.trim();
+    let Some(rest) = trimmed.strip_prefix('\\') else {
+        return false;
+    };
+    let starts_listing = rest.starts_with('d')
+        || rest == "l"
+        || rest == "l+"
+        || rest.starts_with("l ")
+        || rest.starts_with("l+ ");
+    starts_listing && !rest.contains(['\\', ';', '|', '`', '\n', '\r'])
+}
+
+fn is_forbidden_sql_word(word: &str) -> bool {
+    const FORBIDDEN: &[&str] = &[
+        "insert",
+        "update",
+        "delete",
+        "merge",
+        "replace",
+        "drop",
+        "alter",
+        "create",
+        "truncate",
+        "grant",
+        "revoke",
+        "copy",
+        "vacuum",
+        "call",
+        "do",
+        "lock",
+        "load",
+        "handler",
+        "prepare",
+        "execute",
+        "deallocate",
+        "set",
+        "reset",
+        "discard",
+        "checkpoint",
+        "reindex",
+        "cluster",
+        "refresh",
+        "import",
+        "attach",
+        "detach",
+        "into",
+        "outfile",
+        "dumpfile",
+        "with",
+        "set_config",
+        "setval",
+        "nextval",
+        "dblink",
+        "dblink_exec",
+        "dblink_connect",
+        "dblink_send_query",
+        "load_file",
+    ];
+    const FORBIDDEN_PREFIXES: &[&str] = &[
+        "pg_terminate_",
+        "pg_cancel_",
+        "pg_reload_",
+        "pg_rotate_",
+        "pg_switch_",
+        "pg_create_",
+        "pg_drop_",
+        "pg_advisory_",
+        "pg_try_advisory_",
+        "pg_write_",
+        "pg_file_",
+        "pg_export_",
+        "pg_import_",
+        "pg_stat_reset",
+        "pg_reset_",
+        "pg_replication_origin_",
+        "pg_logical_slot_",
+        "pg_backup_",
+        "pg_start_backup",
+        "pg_stop_backup",
+        "pg_promote",
+        "pg_sleep",
+        "lo_",
+        "query_to_xml",
+        "table_to_xml",
+        "cursor_to_xml",
+    ];
+    FORBIDDEN.contains(&word)
+        || FORBIDDEN_PREFIXES
+            .iter()
+            .any(|prefix| word.starts_with(prefix))
+}
+
 /// Whether every statement of `text` only reads.
 fn statements_read(text: &str) -> bool {
-    let reads = |statement: &str| {
-        let first = statement.split_whitespace().next().unwrap_or_default();
-        ["select", "show", "explain", "describe", "desc"]
-            .iter()
-            .any(|read| first.eq_ignore_ascii_case(read))
-            || (first.starts_with("\\d") || first == "\\l")
-    };
-    (text.split(';'))
-        .map(|statement| statement.trim().trim_matches(['\'', '"']).trim())
-        .filter(|statement| !statement.is_empty())
-        .all(reads)
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if is_psql_listing(trimmed) {
+        return true;
+    }
+    let bytes = trimmed.as_bytes();
+    let mut at = 0;
+    let mut statements: Vec<Vec<String>> = vec![Vec::new()];
+    while let Some(rest) = trimmed.get(at..).filter(|rest| !rest.is_empty()) {
+        if rest.starts_with("--") {
+            match rest.find('\n') {
+                Some(nl) => at += nl + 1,
+                None => break,
+            }
+            continue;
+        }
+        if let Some(after_open) = rest.strip_prefix("/*") {
+            let Some(end) = after_open.find("*/") else {
+                return false;
+            };
+            at += 2 + end + 2;
+            continue;
+        }
+        let Some(&b) = bytes.get(at) else {
+            break;
+        };
+        if b == b'\'' {
+            at += 1;
+            let mut closed = false;
+            while let Some(&ch) = bytes.get(at) {
+                if ch == b'\\' {
+                    return false;
+                }
+                if ch == b'\'' {
+                    if bytes.get(at + 1) == Some(&b'\'') {
+                        at += 2;
+                        continue;
+                    }
+                    at += 1;
+                    closed = true;
+                    break;
+                }
+                at += 1;
+            }
+            if !closed {
+                return false;
+            }
+            continue;
+        }
+        if b == b'"' {
+            at += 1;
+            let mut closed = false;
+            while let Some(&ch) = bytes.get(at) {
+                if ch == b'"' {
+                    if bytes.get(at + 1) == Some(&b'"') {
+                        at += 2;
+                        continue;
+                    }
+                    at += 1;
+                    closed = true;
+                    break;
+                }
+                at += 1;
+            }
+            if !closed {
+                return false;
+            }
+            continue;
+        }
+        if b == b'\\' || b == b'$' {
+            return false;
+        }
+        if b == b';' {
+            statements.push(Vec::new());
+            at += 1;
+            continue;
+        }
+        if b.is_ascii_alphabetic() || b == b'_' {
+            let start = at;
+            while bytes
+                .get(at)
+                .is_some_and(|ch| ch.is_ascii_alphanumeric() || *ch == b'_')
+            {
+                at += 1;
+            }
+            if let (Some(stmt), Some(word)) = (statements.last_mut(), trimmed.get(start..at)) {
+                stmt.push(word.to_ascii_lowercase());
+            }
+            continue;
+        }
+        at += rest.chars().next().map_or(1, char::len_utf8);
+    }
+    let non_empty: Vec<&Vec<String>> = statements.iter().filter(|stmt| !stmt.is_empty()).collect();
+    if non_empty.is_empty() {
+        return false;
+    }
+    non_empty.into_iter().all(|words| {
+        let Some(first) = words.first().map(String::as_str) else {
+            return false;
+        };
+        if !matches!(first, "select" | "show" | "describe" | "desc") {
+            return false;
+        }
+        if words.iter().any(|word| is_forbidden_sql_word(word)) {
+            return false;
+        }
+        let has_for_lock = words.windows(2).any(|pair| {
+            matches!(
+                pair,
+                [a, b] if a == "for" && matches!(b.as_str(), "update" | "share" | "no" | "key")
+            )
+        });
+        !has_for_lock
+    })
 }
 
 /// The Supabase project whose database a web request runs SQL on, by its ref: one sent to the
@@ -2061,6 +2458,7 @@ pub fn of_command(
 ) -> Vec<Ship> {
     let mut folder = Folder::new(cwd);
     let mut selected: Vec<String> = Vec::new();
+    let mut shim_bypassed = false;
     let mut ships = Vec::new();
     for piece in pieces(line) {
         let all = match piece {
@@ -2074,6 +2472,9 @@ pub fn of_command(
             }
             Piece::Words(all) => all,
         };
+        if tampers_with_shim(&all) {
+            shim_bypassed = true;
+        }
         if selects(&all) {
             selected.push(all.join(" "));
             continue;
@@ -2088,78 +2489,95 @@ pub fn of_command(
         if folder.moves(&all, &set_on_line) {
             continue;
         }
-        let Some(words) = command_words(&all) else {
-            continue;
+        let (words, prefix_len, unknown_flag) = match command_words(&all) {
+            Unwrapped::None => continue,
+            Unwrapped::Command { words, prefix_len } => (words, prefix_len, false),
+            Unwrapped::UnknownWrapperFlag { prefix_len, rest } => (rest, prefix_len, true),
         };
+        let set_before = all.get(..prefix_len).unwrap_or_default();
+        let bypassed = shim_bypassed || unknown_flag || prefix_bypasses_shim(set_before);
         let here = match env_folder(&all) {
             Some(to) => folder.after(to, &set_on_line),
             None => folder.here.clone(),
         };
-        if let Some(script) = shell_script(words) {
-            let at = here.clone().unwrap_or_else(|| cwd.to_owned());
-            ships.extend(of_command(script, extra, looks, &at, env));
-            continue;
-        }
-        let Some((program, args)) = words.split_first() else {
-            continue;
-        };
-        let shimmed =
-            !program.contains('/') && (program == "git" || PROGRAMS.contains(&program.as_str()));
-        let known = match looks == Looks::PastTheShim && shimmed {
-            true => None,
-            false => of_program(program, args, here.as_deref().unwrap_or(cwd), &|_| None),
-        };
-        let Some(kind) = known.or_else(|| {
-            extra
+        let candidates: Vec<&[String]> = if unknown_flag {
+            words
                 .iter()
-                .any(|listed| leads(listed, words))
-                .then_some(ShipKind::Deploy)
-        }) else {
-            continue;
+                .enumerate()
+                .filter(|(_, word)| !word.starts_with('-'))
+                .filter_map(|(at, _)| words.get(at..))
+                .collect()
+        } else {
+            vec![words.as_ref()]
         };
-        let set_before = all.get(..all.len() - words.len()).unwrap_or_default();
-        let set = |name: &str| {
-            let said = (set_before.iter())
-                .filter_map(|word| word.strip_prefix(name)?.strip_prefix('='))
-                .next_back();
-            said.map(str::to_owned).or_else(|| env(name))
-        };
-        let at = here.clone().filter(|_| selected.is_empty());
-        let names_its_host = matches!(base_name(program), "curl" | "wget")
-            || ssh::PROGRAMS.contains(&base_name(program));
-        let target = match (at, names_its_host) {
-            (Some(at), _) => target_of(program, args, &set, &at),
-            (None, true) => target_of(program, args, &set, cwd),
-            (None, false) => None,
-        };
-        if !leaves_machine(program, args, target.as_ref()) {
-            continue;
+        for candidate in candidates {
+            if let Some(script) = shell_script(candidate) {
+                let at = here.clone().unwrap_or_else(|| cwd.to_owned());
+                let inner_looks = if bypassed { Looks::Every } else { looks };
+                ships.extend(of_command(script, extra, inner_looks, &at, env));
+                break;
+            }
+            let Some((program, args)) = candidate.split_first() else {
+                continue;
+            };
+            let shimmed = !program.contains('/')
+                && (program == "git" || PROGRAMS.contains(&program.as_str()));
+            let known = match looks == Looks::PastTheShim && !bypassed && shimmed {
+                true => None,
+                false => of_program(program, args, here.as_deref().unwrap_or(cwd), &|_| None),
+            };
+            let Some(kind) = known.or_else(|| {
+                extra
+                    .iter()
+                    .any(|listed| leads(listed, candidate))
+                    .then_some(ShipKind::Deploy)
+            }) else {
+                continue;
+            };
+            let set = |name: &str| {
+                let said = (set_before.iter())
+                    .filter_map(|word| word.strip_prefix(name)?.strip_prefix('='))
+                    .next_back();
+                said.map(str::to_owned).or_else(|| env(name))
+            };
+            let at = here.clone().filter(|_| selected.is_empty());
+            let names_its_host = matches!(base_name(program), "curl" | "wget")
+                || ssh::PROGRAMS.contains(&base_name(program));
+            let target = match (at, names_its_host) {
+                (Some(at), _) => target_of(program, args, &set, &at),
+                (None, true) => target_of(program, args, &set, cwd),
+                (None, false) => None,
+            };
+            if !leaves_machine(program, args, target.as_ref()) {
+                continue;
+            }
+            let git = base_name(program) == "git";
+            let moved: Vec<String> = (here.iter())
+                .filter(|here| git && *here != cwd)
+                .flat_map(|here| ["-C".to_owned(), here.to_string_lossy().into_owned()])
+                .chain(args.iter().cloned())
+                .collect();
+            let command = match moved.len() == args.len() {
+                true => candidate.join(" "),
+                false => format!("{program} {}", moved.join(" ")),
+            };
+            let configured = configured(program, &moved, &set);
+            let what: Vec<String> = (configured.into_iter())
+                .chain(
+                    (selected.iter())
+                        .filter(|said| !git || said.contains("GIT_"))
+                        .cloned(),
+                )
+                .chain(here.is_none().then(|| folder.unread.join(" && ")))
+                .chain(std::iter::once(command))
+                .collect();
+            ships.push(Ship {
+                kind,
+                what: what.join(" && "),
+                target,
+            });
+            break;
         }
-        let git = base_name(program) == "git";
-        let moved: Vec<String> = (here.iter())
-            .filter(|here| git && *here != cwd)
-            .flat_map(|here| ["-C".to_owned(), here.to_string_lossy().into_owned()])
-            .chain(args.iter().cloned())
-            .collect();
-        let command = match moved.len() == args.len() {
-            true => words.join(" "),
-            false => format!("{program} {}", moved.join(" ")),
-        };
-        let configured = configured(program, &moved, &set);
-        let what: Vec<String> = (configured.into_iter())
-            .chain(
-                (selected.iter())
-                    .filter(|said| !git || said.contains("GIT_"))
-                    .cloned(),
-            )
-            .chain(here.is_none().then(|| folder.unread.join(" && ")))
-            .chain(std::iter::once(command))
-            .collect();
-        ships.push(Ship {
-            kind,
-            what: what.join(" && "),
-            target,
-        });
     }
     ships
 }
@@ -2262,6 +2680,87 @@ fn expanded(text: &str, set: &dyn Fn(&str) -> Option<String>) -> Option<String> 
     }
     out.push_str(rest);
     Some(out)
+}
+
+fn is_shim_var(name: &str) -> bool {
+    matches!(
+        name,
+        "PATH"
+            | "SIKEMUX_CLI_ENDPOINT"
+            | "SIKEMUX_CONFIG_DIR"
+            | "SIKEMUX_CLI_ENDPOINT_PUBLISH"
+            | "SIKEMUX_REAL_GIT"
+    )
+}
+
+fn assigns_shim_var(word: &str) -> bool {
+    word.split_once('=')
+        .is_some_and(|(name, _)| is_shim_var(name.trim_end_matches('+')))
+}
+
+fn tampers_with_shim(words: &[String]) -> bool {
+    let Some((first, rest)) = words.split_first() else {
+        return false;
+    };
+    if matches!(first.as_str(), "unset" | "hash" | "alias") {
+        return true;
+    }
+    if matches!(first.as_str(), "export" | "declare" | "typeset" | "local") {
+        return rest.iter().any(|word| {
+            assigns_shim_var(word)
+                || is_shim_var(word)
+                || (word.starts_with('-') && !word.starts_with("--") && word.contains('n'))
+        });
+    }
+    words
+        .iter()
+        .take_while(|word| word.contains('=') && !word.starts_with('-'))
+        .any(|word| assigns_shim_var(word))
+}
+
+fn prefix_bypasses_shim(prefix: &[String]) -> bool {
+    let mut runner: Option<&str> = None;
+    for word in prefix {
+        if assigns_shim_var(word) {
+            return true;
+        }
+        let base = base_name(word);
+        match base {
+            "sudo" => return true,
+            "env" | "command" | "exec" | "nice" | "time" | "nohup" | "builtin" => {
+                runner = Some(base);
+                continue;
+            }
+            _ => {}
+        }
+        match runner {
+            Some("env")
+                if word == "-"
+                    || word == "--ignore-environment"
+                    || word == "--unset"
+                    || word.starts_with("--unset=")
+                    || word == "--split-string"
+                    || word.starts_with("--split-string=")
+                    || (word.starts_with('-')
+                        && !word.starts_with("--")
+                        && word.contains(['i', 'u', 'S', 'P'])) =>
+            {
+                return true;
+            }
+            Some("command")
+                if word.starts_with('-') && !word.starts_with("--") && word.contains('p') =>
+            {
+                return true;
+            }
+            Some("exec")
+                if word.starts_with('-') && !word.starts_with("--") && word.contains('c') =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Whether a command of a line changes where later commands of that line land: a variable
@@ -2837,20 +3336,206 @@ mod environment_tests {
             "ssh -o BatchMode=yes citadel 'date; whoami; hostname; systemctl list-timers \
              --no-pager; ls -la /etc/sikemux 2>&1 | grep -i -E \"leader|sikemux\"; cat \
              /usr/local/lib/sikemux/deploy.hash'",
-            "ssh citadel 'for f in a b; do cat $f; done; [ \"$(cat a)\" = \"$(cat b)\" ] && echo same'",
+            "ssh citadel 'for f in a b; do cat $f; done'",
             "ssh citadel 'curl -fsS -m5 http://127.0.0.1:4000/v1/health >/dev/null 2>&1 || echo down'",
             "ssh citadel \"sudo -u postgres psql -Atc 'select count(*) from users where id > 5'\"",
             "ssh citadel 'journalctl -u web -n 50; docker compose logs web; find / -name x 2>/dev/null'",
+            "ssh citadel 'git -C /srv/app status; git log -n 5'",
             "ssh citadel uptime > up.txt",
             "ssh -fNL 8080:localhost:80 citadel",
             "ssh -G citadel",
-            "ssh -T git@github.com",
+            "ssh git@github.com 'git-upload-pack org/repo.git'",
             "ssh localhost reboot",
             "scp citadel:/var/log/web.log .",
             "rsync -avn dist/ citadel:/srv/web/",
+            "rsync --dry-run -av dist/ citadel:/srv/web/",
             "rsync -a citadel:/srv/web/ backup/",
         ] {
             assert_eq!(over_ssh(line), [], "{line}");
+        }
+    }
+
+    #[test]
+    fn past_the_shim_does_not_skip_env_or_path_bypasses() {
+        let cwd = Path::new("/nowhere");
+        let past = |line: &str| of_command(line, &[], Looks::PastTheShim, cwd, &|_| None);
+        assert_eq!(past("vercel --prod"), []);
+        assert_eq!(past("FOO=bar vercel --prod"), []);
+        for line in [
+            "env -u SIKEMUX_CLI_ENDPOINT vercel --prod",
+            "env -i vercel --prod",
+            "env - vercel --prod",
+            "env -S 'vercel --prod'",
+            "env -S '-u SIKEMUX_CLI_ENDPOINT vercel --prod'",
+            "PATH=/usr/bin:/bin vercel --prod",
+            "export PATH=/usr/bin:/bin; vercel --prod",
+            "PATH=/usr/bin:/bin; vercel --prod",
+            "unset SIKEMUX_CLI_ENDPOINT && vercel --prod",
+            "unset PATH; vercel --prod",
+            "command -p vercel --prod",
+            "command -p git push origin main",
+            "sudo -u root vercel --prod",
+            "exec -c vercel --prod",
+            "PATH=/usr/bin:/bin sh -c 'vercel --prod'",
+            "unset SIKEMUX_CLI_ENDPOINT; bash -c 'git push origin main'",
+        ] {
+            assert!(
+                !past(line).is_empty(),
+                "expected held under PastTheShim: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrapper_flags_and_dry_run_smuggling_do_not_bypass_gate() {
+        let cwd = Path::new("/nowhere");
+        let every = |line: &str| of_command(line, &[], Looks::Every, cwd, &|_| None);
+        for line in [
+            "command -p vercel --prod",
+            "sudo -u root vercel --prod",
+            "sudo -Eu root -g wheel vercel --prod",
+            "sudo -C 3 -h prod vercel --prod",
+            "nice -n 10 vercel --prod",
+            "nice -10 vercel --prod",
+            "time -p vercel --prod",
+            "env -S 'vercel --prod'",
+            "env --split-string='vercel --prod'",
+            "sudo --unknown-flag vercel --prod",
+            "ssh prod 'rm -rf / #' --dry-run",
+            "ssh prod 'rm -rf /' --help",
+            "curl -d '--dry-run' -X DELETE https://api.example.com/prod",
+            "curl -X DELETE https://api.example.com/prod --dry-run",
+            "curl -X DELETE https://api.example.com/prod --help",
+            "psql -h prod.example.com -c 'DROP TABLE users' --dry-run",
+            "psql -h prod.example.com -c 'DROP TABLE users' --help",
+            "vercel --prod --dry-run",
+            "kubectl delete pod web -- --dry-run",
+            "kubectl apply -f --dry-run",
+            "git push origin -- -n",
+            "git push -o --dry-run origin main",
+            "rsync -e 'ssh -n' -av dist/ citadel:/srv/web/",
+            "rsync -av dist/ citadel:/srv/web/ -- -n",
+        ] {
+            assert!(!every(line).is_empty(), "expected held: {line}");
+        }
+        for line in [
+            "git push --dry-run origin main",
+            "git push -n origin main",
+            "git push --force-with-lease --dry-run origin main",
+            "git --help push",
+            "kubectl apply -f pod.yaml --dry-run=client",
+            "helm upgrade app ./chart --dry-run",
+            "aws s3 sync dist/ s3://prod-bucket --dryrun",
+            "npm publish --dry-run",
+            "cargo publish --allow-dirty --dry-run",
+            "vercel --help",
+            "command -v vercel",
+            "psql --help",
+        ] {
+            assert_eq!(every(line), [], "expected allowed: {line}");
+        }
+        let upper = of_invocation(
+            "vercel",
+            &words("deploy --target PRODUCTION"),
+            &|_| None,
+            cwd,
+        )
+        .expect("held");
+        assert_eq!(upper.target, Some(Target::Vercel { production: true }));
+    }
+
+    #[test]
+    fn ssh_read_only_classifier_blocks_rce_bypasses() {
+        for line in [
+            "ssh git@prod.example.com 'rm -rf /'",
+            "ssh -T git@prod.example.com",
+            "ssh git@prod.example.com 'git-receive-pack org/repo.git'",
+            "ssh prod 'echo \"$( (echo ok); rm -rf / )\"'",
+            "ssh prod 'echo $(rm -rf /)'",
+            "ssh prod 'echo `rm -rf /`'",
+            "ssh prod 'cat <(rm -rf /)'",
+            "ssh prod 'tee >(sh)'",
+            "ssh prod 'sed -n 1e /etc/passwd'",
+            "ssh prod 'sed \"w /tmp/pwn\" /etc/passwd'",
+            "ssh prod 'awk \"BEGIN { system (\\\"rm -rf /\\\") }\"'",
+            "ssh prod 'awk \"BEGIN { print 1 > \\\"/tmp/pwn\\\" }\"'",
+            "ssh prod 'awk \"BEGIN { \\\"id\\\" | getline }\"'",
+            "ssh prod 'git -c core.fsmonitor=/tmp/pwn status'",
+            "ssh prod 'git -ccore.fsmonitor=/tmp/pwn status'",
+            "ssh prod 'git --config-env=core.fsmonitor=X status'",
+            "ssh prod 'git --exec-path=/tmp status'",
+            "ssh prod 'git --upload-pack=/tmp/pwn status'",
+            "ssh prod 'git diff --ext-diff'",
+            "ssh prod 'xxd -r dump /tmp/pwn'",
+            "ssh prod 'echo pwn >\"/tmp/a b\"'",
+            "ssh prod 'echo pwn >>\"/tmp/a b\"'",
+            "ssh prod 'echo pwn >/dev/null.evil'",
+            "ssh prod 'sudo --unknown-flag id'",
+            "ssh prod 'sudo -i'",
+            "ssh prod 'sudo -s id'",
+        ] {
+            assert!(!over_ssh(line).is_empty(), "expected SSH held: {line}");
+        }
+    }
+
+    #[test]
+    fn sql_read_only_gate_blocks_dml_and_script_bypasses() {
+        let cwd = Path::new("/nowhere");
+        let env = |_: &str| None;
+        let query = "https://api.supabase.com/v1/projects/abcdefghijklmnopqrst/database/query";
+        for line in [
+            "psql -h prod.example.com -c 'EXPLAIN ANALYZE DELETE FROM users'",
+            "psql -h prod.example.com -c 'EXPLAIN (ANALYZE) UPDATE users SET a = 1'",
+            "psql -h prod.example.com -c 'EXPLAIN SELECT 1'",
+            "psql -h prod.example.com -c \"SELECT 'DROP TABLE users' \\gexec\"",
+            "psql -h prod.example.com -c 'SELECT 1 \\! rm -rf /'",
+            "psql -h prod.example.com -c 'SELECT 1 \\o /tmp/pwn'",
+            "psql -h prod.example.com -c 'SELECT 1 \\copy users TO PROGRAM id'",
+            "psql -h prod.example.com -c \"SELECT * INTO OUTFILE '/tmp/pwn' FROM users\"",
+            "psql -h prod.example.com -c 'SELECT * FROM users FOR UPDATE'",
+            "psql -h prod.example.com -c 'SELECT * FROM users FOR SHARE'",
+            "psql -h prod.example.com -c 'WITH d AS (DELETE FROM users RETURNING *) SELECT * FROM d'",
+            "psql -h prod.example.com -c 'SELECT * FROM (WITH d AS (DELETE FROM users RETURNING *) SELECT * FROM d) t'",
+            "psql -h prod.example.com -c 'SELECT pg_terminate_backend(123)'",
+            "psql -h prod.example.com -c \"SELECT set_config('a', 'b', false)\"",
+            "psql -h prod.example.com -c \"SELECT lo_export(1, '/tmp/pwn')\"",
+            "psql -h prod.example.com -c 'SELECT 1' -f drop_prod.sql",
+            "psql -h prod.example.com -c 'SELECT 1' --file=drop_prod.sql",
+            "psql -h prod.example.com -c 'SELECT 1' -tf drop_prod.sql",
+            "psql -h prod.example.com -c 'SELECT 1' < drop_prod.sql",
+            "psql -h prod.example.com -c '\\dt; \\gexec'",
+            "psql -h prod.example.com -c ''",
+            "mysql -h prod.example.com -e 'SELECT 1' --init-command='DROP TABLE users'",
+        ] {
+            let ships = of_command(line, &[], Looks::Every, cwd, &env);
+            assert!(!ships.is_empty(), "expected SQL held: {line}");
+        }
+        for sql in [
+            "EXPLAIN ANALYZE DELETE FROM users",
+            "SELECT * FROM users FOR UPDATE",
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity",
+            "SELECT 'DROP TABLE users' \\gexec",
+        ] {
+            let body = serde_json::json!({ "query": sql }).to_string();
+            let args = vec![
+                "-X".to_owned(),
+                "POST".to_owned(),
+                query.to_owned(),
+                "--data".to_owned(),
+                body,
+            ];
+            let held = of_invocation("curl", &args, &env, cwd);
+            assert!(held.is_some(), "expected Supabase SQL held: {sql}");
+        }
+        for line in [
+            "psql -h prod.example.com -Atc \"SELECT id, name FROM users WHERE status = 'deleted' LIMIT 5\"",
+            "psql -h prod.example.com -c '\\dt'",
+            "psql -h prod.example.com -c '\\l'",
+            "mysql -h prod.example.com -e 'SHOW TABLES'",
+            "mysql -h prod.example.com -e 'DESCRIBE users'",
+        ] {
+            let ships = of_command(line, &[], Looks::Every, cwd, &env);
+            assert_eq!(ships, [], "expected read-only SQL allowed: {line}");
         }
     }
 

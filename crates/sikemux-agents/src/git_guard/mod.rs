@@ -11,6 +11,7 @@ mod in_line;
 pub mod shim;
 
 use sikemux_process::command::{Command, Stdio};
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 /// The other agents whose work a git command run in a folder would touch:
@@ -34,12 +35,14 @@ struct Sweep {
 /// Whether `command`, a shell command line run in `cwd`, runs a heavy command, which waits
 /// for its turn on the host.
 pub fn waits_in_line(command: &str, cwd: &Path) -> bool {
-    segments(command).iter().any(|words| {
-        let Some((first, args)) = command_words(words).and_then(<[String]>::split_first) else {
-            return false;
-        };
-        heavy::of_program(base_name(first), args, cwd).is_some()
-    })
+    segments(command)
+        .iter()
+        .any(|words| match command_words(words) {
+            Unwrapped::Command { words, .. } => words.split_first().is_some_and(|(first, args)| {
+                heavy::of_program(base_name(first), args, cwd).is_some()
+            }),
+            Unwrapped::None | Unwrapped::UnknownWrapperFlag { .. } => false,
+        })
 }
 
 /// Whether a heavy command started under `root` still waits for its turn on the host: a heavy
@@ -66,8 +69,7 @@ pub fn refusal(
     others: &Others,
     in_project: &InProject,
 ) -> Option<String> {
-    segments(command).iter().find_map(|words| {
-        let words = command_words(words)?;
+    let check = |words: &[String]| {
         if let Some(script) = shell_script(words) {
             return refusal(script, cwd, others, in_project);
         }
@@ -77,7 +79,18 @@ pub fn refusal(
         }
         let git = || crate::git::git_command(cwd);
         refused(args, false, &git, others, in_project)
-    })
+    };
+    segments(command)
+        .iter()
+        .find_map(|words| match command_words(words) {
+            Unwrapped::None => None,
+            Unwrapped::Command { words, .. } => check(&words),
+            Unwrapped::UnknownWrapperFlag { rest, .. } => rest
+                .iter()
+                .enumerate()
+                .filter(|(_, word)| !word.starts_with('-'))
+                .find_map(|(at, _)| rest.get(at..).and_then(check)),
+        })
 }
 
 /// The script of `sh -c script`, or of a shell given other options first.
@@ -602,44 +615,508 @@ pub(crate) fn git_args(args: &[String]) -> &[String] {
     args.get(at..).unwrap_or_default()
 }
 
-/// A command's words without what runs it, such as `env X=1` or `sudo`.
-pub(crate) fn command_words(words: &[String]) -> Option<&[String]> {
-    let runner = |word: &str| {
-        matches!(
-            word,
-            "env" | "command" | "exec" | "sudo" | "time" | "nice" | "nohup" | "builtin"
-        ) || word.split_once('=').is_some_and(|(name, _)| {
-            !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-        })
-    };
-    let mut at = 0;
-    let mut in_env = false;
-    while let Some(word) = words.get(at) {
-        match word.as_str() {
-            "-C" | "--chdir" | "-u" | "--unset" if in_env => at += 2,
-            option if in_env && option.starts_with('-') => at += 1,
-            word if runner(word) => {
-                in_env = word == "env";
-                at += 1;
+pub(crate) enum Unwrapped<'a> {
+    None,
+    Command {
+        words: Cow<'a, [String]>,
+        prefix_len: usize,
+    },
+    UnknownWrapperFlag {
+        prefix_len: usize,
+        rest: Cow<'a, [String]>,
+    },
+}
+
+fn is_env_assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(name, _)| {
+        !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
+}
+
+fn split_env_string(text: &str) -> Option<Vec<String>> {
+    let mut words = Vec::new();
+    let mut current: Option<String> = None;
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => {
+                let buf = current.get_or_insert_with(String::new);
+                let mut closed = false;
+                for ch in chars.by_ref() {
+                    if ch == '\'' {
+                        closed = true;
+                        break;
+                    }
+                    buf.push(ch);
+                }
+                if !closed {
+                    return None;
+                }
             }
-            _ => return words.get(at..),
+            '"' => {
+                let buf = current.get_or_insert_with(String::new);
+                let mut closed = false;
+                while let Some(ch) = chars.next() {
+                    match ch {
+                        '"' => {
+                            closed = true;
+                            break;
+                        }
+                        '\\' => buf.push(chars.next()?),
+                        ch => buf.push(ch),
+                    }
+                }
+                if !closed {
+                    return None;
+                }
+            }
+            '\\' => current.get_or_insert_with(String::new).push(chars.next()?),
+            c if c.is_whitespace() => {
+                if let Some(word) = current.take() {
+                    words.push(word);
+                }
+            }
+            c => current.get_or_insert_with(String::new).push(c),
         }
     }
-    None
+    if let Some(word) = current.take() {
+        words.push(word);
+    }
+    Some(words)
+}
+
+fn consume_short_cluster(
+    word: &str,
+    booleans: &str,
+    valued: &str,
+    at: &mut usize,
+    len: usize,
+) -> bool {
+    let Some(short) = word
+        .strip_prefix('-')
+        .filter(|rest| !rest.is_empty() && !rest.starts_with('-'))
+    else {
+        return false;
+    };
+    for (idx, ch) in short.char_indices() {
+        if valued.contains(ch) {
+            if idx + ch.len_utf8() == short.len() {
+                *at = (*at + 2).min(len);
+            } else {
+                *at += 1;
+            }
+            return true;
+        }
+        if !booleans.contains(ch) {
+            return false;
+        }
+    }
+    *at += 1;
+    true
+}
+
+fn cow_tail<'a>(owned: Option<Vec<String>>, words: &'a [String], at: usize) -> Cow<'a, [String]> {
+    match owned {
+        Some(buf) => Cow::Owned(buf.get(at..).unwrap_or_default().to_vec()),
+        None => Cow::Borrowed(words.get(at..).unwrap_or_default()),
+    }
+}
+
+/// A command's words without what runs it, such as `env X=1`, `command -p`, `sudo -u`, `nice -n`, or `time -p`.
+pub(crate) fn command_words(words: &[String]) -> Unwrapped<'_> {
+    let mut owned: Option<Vec<String>> = None;
+    let mut at = 0;
+    let mut prefix_len = 0;
+    let mut split_depth = 0;
+
+    loop {
+        let current: &[String] = owned.as_deref().unwrap_or(words);
+        let Some(word) = current.get(at) else {
+            return Unwrapped::None;
+        };
+        let sync_prefix = |at: usize, owned: &Option<Vec<String>>, prefix_len: &mut usize| {
+            if owned.is_none() {
+                *prefix_len = at;
+            }
+        };
+        if is_env_assignment(word) {
+            at += 1;
+            sync_prefix(at, &owned, &mut prefix_len);
+            continue;
+        }
+        let runner = match word.as_str() {
+            "command" | "exec" | "builtin" => Some(word.as_str()),
+            _ => match base_name(word) {
+                name @ ("env" | "sudo" | "time" | "nice" | "nohup") => Some(name),
+                _ => None,
+            },
+        };
+        let Some(runner) = runner else {
+            return Unwrapped::Command {
+                words: cow_tail(owned, words, at),
+                prefix_len,
+            };
+        };
+        at += 1;
+        sync_prefix(at, &owned, &mut prefix_len);
+
+        match runner {
+            "env" => loop {
+                let current: &[String] = owned.as_deref().unwrap_or(words);
+                let Some(arg) = current.get(at) else {
+                    return Unwrapped::None;
+                };
+                if arg == "--" {
+                    at += 1;
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    break;
+                }
+                if arg == "-" {
+                    at += 1;
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if let Some((split_raw, consumed)) = arg
+                    .strip_prefix("--split-string=")
+                    .map(|raw| (raw, 1))
+                    .or_else(|| {
+                        (arg == "-S" || arg == "--split-string")
+                            .then(|| current.get(at + 1).map(|raw| (raw.as_str(), 2)))
+                            .flatten()
+                    })
+                    .or_else(|| {
+                        let short = arg
+                            .strip_prefix('-')
+                            .filter(|rest| !rest.starts_with('-'))?;
+                        let (before, after) = short.split_once('S')?;
+                        if !before.chars().all(|c| "i0v".contains(c)) {
+                            return None;
+                        }
+                        if after.is_empty() {
+                            current.get(at + 1).map(|raw| (raw.as_str(), 2))
+                        } else {
+                            Some((after, 1))
+                        }
+                    })
+                {
+                    let split_raw = split_raw.to_owned();
+                    let next_at = at + consumed;
+                    if owned.is_none() {
+                        prefix_len = next_at.min(words.len());
+                    }
+                    if split_depth >= 4 {
+                        return Unwrapped::UnknownWrapperFlag {
+                            prefix_len,
+                            rest: cow_tail(owned, words, at),
+                        };
+                    }
+                    split_depth += 1;
+                    let Some(mut spliced) = split_env_string(&split_raw) else {
+                        return Unwrapped::UnknownWrapperFlag {
+                            prefix_len,
+                            rest: cow_tail(owned, words, at),
+                        };
+                    };
+                    if let Some(tail) = current.get(next_at..) {
+                        spliced.extend_from_slice(tail);
+                    }
+                    owned = Some(spliced);
+                    at = 0;
+                    continue;
+                }
+                if arg == "-S" || arg == "--split-string" {
+                    return Unwrapped::None;
+                }
+                if matches!(
+                    arg.as_str(),
+                    "-i" | "--ignore-environment"
+                        | "-0"
+                        | "--null"
+                        | "-v"
+                        | "--debug"
+                        | "--default-signal"
+                        | "--ignore-signal"
+                        | "--block-signal"
+                ) || arg.starts_with("--default-signal=")
+                    || arg.starts_with("--ignore-signal=")
+                    || arg.starts_with("--block-signal=")
+                    || arg.starts_with("--unset=")
+                    || arg.starts_with("--chdir=")
+                    || arg.starts_with("--argv0=")
+                {
+                    at += 1;
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if matches!(
+                    arg.as_str(),
+                    "-u" | "--unset" | "-C" | "--chdir" | "-a" | "--argv0" | "-P"
+                ) {
+                    at = (at + 2).min(current.len());
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if consume_short_cluster(arg, "i0v", "uCaP", &mut at, current.len()) {
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if arg.starts_with('-') {
+                    return Unwrapped::UnknownWrapperFlag {
+                        prefix_len,
+                        rest: cow_tail(owned, words, at),
+                    };
+                }
+                break;
+            },
+            "command" => {
+                let mut inspect_only = false;
+                loop {
+                    let current: &[String] = owned.as_deref().unwrap_or(words);
+                    let Some(arg) = current.get(at) else {
+                        return Unwrapped::None;
+                    };
+                    if arg == "--" {
+                        at += 1;
+                        sync_prefix(at, &owned, &mut prefix_len);
+                        break;
+                    }
+                    if let Some(short) = arg
+                        .strip_prefix('-')
+                        .filter(|rest| !rest.is_empty() && !rest.starts_with('-'))
+                    {
+                        if short.chars().all(|c| matches!(c, 'p' | 'v' | 'V')) {
+                            if short.contains(['v', 'V']) {
+                                inspect_only = true;
+                            }
+                            at += 1;
+                            sync_prefix(at, &owned, &mut prefix_len);
+                            continue;
+                        }
+                    }
+                    if arg.starts_with('-') {
+                        return Unwrapped::UnknownWrapperFlag {
+                            prefix_len,
+                            rest: cow_tail(owned, words, at),
+                        };
+                    }
+                    break;
+                }
+                if inspect_only {
+                    return Unwrapped::None;
+                }
+            }
+            "sudo" => loop {
+                let current: &[String] = owned.as_deref().unwrap_or(words);
+                let Some(arg) = current.get(at) else {
+                    return Unwrapped::None;
+                };
+                if arg == "--" {
+                    at += 1;
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    break;
+                }
+                const SUDO_VALUED_LONG: &[&str] = &[
+                    "--user",
+                    "--group",
+                    "--close-from",
+                    "--host",
+                    "--prompt",
+                    "--role",
+                    "--type",
+                    "--command-timeout",
+                    "--other-user",
+                    "--chdir",
+                    "--chroot",
+                ];
+                const SUDO_BOOL_LONG: &[&str] = &[
+                    "--askpass",
+                    "--background",
+                    "--bell",
+                    "--preserve-env",
+                    "--set-home",
+                    "--reset-timestamp",
+                    "--remove-timestamp",
+                    "--list",
+                    "--non-interactive",
+                    "--no-update",
+                    "--preserve-groups",
+                    "--stdin",
+                    "--validate",
+                    "--version",
+                ];
+                if SUDO_VALUED_LONG.contains(&arg.as_str()) {
+                    at = (at + 2).min(current.len());
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if SUDO_BOOL_LONG.contains(&arg.as_str())
+                    || arg.starts_with("--preserve-env=")
+                    || SUDO_VALUED_LONG.iter().any(|flag| {
+                        arg.strip_prefix(flag)
+                            .is_some_and(|rest| rest.starts_with('='))
+                    })
+                {
+                    at += 1;
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if consume_short_cluster(
+                    arg,
+                    "AbBEHkKlnNPSvV",
+                    "ugChprtTUDR",
+                    &mut at,
+                    current.len(),
+                ) {
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if arg.starts_with('-') {
+                    return Unwrapped::UnknownWrapperFlag {
+                        prefix_len,
+                        rest: cow_tail(owned, words, at),
+                    };
+                }
+                break;
+            },
+            "nice" => loop {
+                let current: &[String] = owned.as_deref().unwrap_or(words);
+                let Some(arg) = current.get(at) else {
+                    return Unwrapped::None;
+                };
+                if arg == "--" {
+                    at += 1;
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    break;
+                }
+                if matches!(arg.as_str(), "-n" | "--adjustment") {
+                    at = (at + 2).min(current.len());
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if arg.starts_with("--adjustment=")
+                    || arg.strip_prefix("-n").is_some_and(|rest| !rest.is_empty())
+                    || arg
+                        .strip_prefix("--")
+                        .or_else(|| arg.strip_prefix('-'))
+                        .or_else(|| arg.strip_prefix('+'))
+                        .is_some_and(|rest| {
+                            !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
+                        })
+                {
+                    at += 1;
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if arg.starts_with('-') {
+                    return Unwrapped::UnknownWrapperFlag {
+                        prefix_len,
+                        rest: cow_tail(owned, words, at),
+                    };
+                }
+                break;
+            },
+            "time" => loop {
+                let current: &[String] = owned.as_deref().unwrap_or(words);
+                let Some(arg) = current.get(at) else {
+                    return Unwrapped::None;
+                };
+                if arg == "--" {
+                    at += 1;
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    break;
+                }
+                if matches!(arg.as_str(), "-f" | "--format" | "-o" | "--output") {
+                    at = (at + 2).min(current.len());
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if matches!(
+                    arg.as_str(),
+                    "--portability" | "--append" | "--verbose" | "--quiet"
+                ) || arg.starts_with("--format=")
+                    || arg.starts_with("--output=")
+                {
+                    at += 1;
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if consume_short_cluster(arg, "plhavq", "fo", &mut at, current.len()) {
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if arg.starts_with('-') {
+                    return Unwrapped::UnknownWrapperFlag {
+                        prefix_len,
+                        rest: cow_tail(owned, words, at),
+                    };
+                }
+                break;
+            },
+            "exec" => loop {
+                let current: &[String] = owned.as_deref().unwrap_or(words);
+                let Some(arg) = current.get(at) else {
+                    return Unwrapped::None;
+                };
+                if arg == "--" {
+                    at += 1;
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    break;
+                }
+                if arg == "-a" {
+                    at = (at + 2).min(current.len());
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if consume_short_cluster(arg, "cl", "a", &mut at, current.len()) {
+                    sync_prefix(at, &owned, &mut prefix_len);
+                    continue;
+                }
+                if arg.starts_with('-') {
+                    return Unwrapped::UnknownWrapperFlag {
+                        prefix_len,
+                        rest: cow_tail(owned, words, at),
+                    };
+                }
+                break;
+            },
+            "nohup" | "builtin" => {
+                let current: &[String] = owned.as_deref().unwrap_or(words);
+                if let Some(arg) = current.get(at) {
+                    if arg == "--" {
+                        at += 1;
+                        sync_prefix(at, &owned, &mut prefix_len);
+                    } else if arg.starts_with('-') {
+                        return Unwrapped::UnknownWrapperFlag {
+                            prefix_len,
+                            rest: cow_tail(owned, words, at),
+                        };
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The folder an `env -C` among the words that start `words`' command moves it to.
 pub(crate) fn env_folder(words: &[String]) -> Option<&str> {
-    let command = command_words(words).map_or(words.len(), |command| words.len() - command.len());
+    let command = match command_words(words) {
+        Unwrapped::Command { prefix_len, .. }
+        | Unwrapped::UnknownWrapperFlag { prefix_len, .. } => prefix_len,
+        Unwrapped::None => words.len(),
+    };
     let starting = words.get(..command)?;
-    let env = starting.iter().position(|word| word == "env")?;
+    let env = starting.iter().position(|word| base_name(word) == "env")?;
     let mut options = starting.get(env + 1..)?.iter();
     let mut folder = None;
     while let Some(option) = options.next() {
         match option.as_str() {
             "-C" | "--chdir" => folder = options.next().map(String::as_str),
             option => {
-                if let Some(to) = option.strip_prefix("--chdir=") {
+                if let Some(to) = option
+                    .strip_prefix("--chdir=")
+                    .or_else(|| option.strip_prefix("-C").filter(|rest| !rest.is_empty()))
+                {
                     folder = Some(to);
                 }
             }
@@ -700,7 +1177,15 @@ pub fn pieces(line: &str) -> Vec<Piece> {
                 while let Some(c) = chars.next() {
                     match c {
                         '"' => break,
-                        '\\' => text.extend(chars.next()),
+                        '\\' => match chars.next() {
+                            Some(escaped @ ('"' | '\\' | '$' | '`')) => text.push(escaped),
+                            Some('\n') => {}
+                            Some(other) => {
+                                text.push('\\');
+                                text.push(other);
+                            }
+                            None => text.push('\\'),
+                        },
                         c => text.push(c),
                     }
                 }
@@ -844,5 +1329,39 @@ mod tests {
         let unsure = |_: &Path| None;
         assert!(refusal(push, &clone, &others, &project).is_some());
         assert!(refusal(push, &clone, &others, &unsure).is_some());
+    }
+
+    #[test]
+    fn wrapper_flags_do_not_bypass_git_guard() {
+        let top = tempfile::tempdir().unwrap();
+        let top = top.path();
+        let git = |args: &[&str]| {
+            let mut git = sikemux_process::user_environment::command("git");
+            git.args(["-c", "user.name=t", "-c", "user.email=t@t"]);
+            assert!(git.args(args).current_dir(top).status().unwrap().success());
+        };
+        git(&["init", "-q"]);
+        std::fs::write(top.join("store.ts"), "x\n").unwrap();
+        git(&["add", "store.ts"]);
+        git(&["commit", "-qm", "store"]);
+        std::fs::write(top.join("store.ts"), "y\n").unwrap();
+        let others = |_: &Path, _: &[String]| Some(vec!["Cowslip".to_owned()]);
+        let in_project = |_: &Path| Some(true);
+        let refused = |command: &str| refusal(command, top, &others, &in_project).is_some();
+        for line in [
+            "command -p git reset --hard HEAD",
+            "sudo -u root git reset --hard HEAD",
+            "sudo -Eu root -C 3 git reset --hard HEAD",
+            "nice -n 10 git reset --hard HEAD",
+            "nice -10 git reset --hard HEAD",
+            "time -p git reset --hard HEAD",
+            "env -S 'git reset --hard HEAD'",
+            "env -iS 'git reset --hard HEAD'",
+            "sudo --unknown-flag git reset --hard HEAD",
+            "exec -c git reset --hard HEAD",
+        ] {
+            assert!(refused(line), "expected refused: {line}");
+        }
+        assert!(!refused("command -v git reset --hard HEAD"));
     }
 }

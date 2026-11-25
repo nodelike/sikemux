@@ -1,7 +1,9 @@
 //! What `ssh`, `scp`, `sftp` and `rsync` change on another computer.
 
 use super::{changes_cluster, flag_value, has_flag, only_queries, CURL_DATA};
-use crate::git_guard::{base_name, command_words, git_args, pieces, shell_script, Piece};
+use crate::git_guard::{
+    base_name, command_words, git_args, pieces, shell_script, Piece, Unwrapped,
+};
 
 pub(super) const PROGRAMS: [&str; 4] = ["ssh", "scp", "sftp", "rsync"];
 
@@ -102,8 +104,7 @@ fn ssh_changes<'a>(args: &[&'a str]) -> Option<&'a str> {
     }
     let host = host?;
     let reads = !remote.is_empty() && script_reads(&remote.join(" "));
-    let git_server = host.trim_start_matches("ssh://").starts_with("git@");
-    (!reads && !git_server).then(|| host_of(host))
+    (!reads).then(|| host_of(host))
 }
 
 fn past_options<'a>(args: &[&'a str], values: &[&str]) -> Vec<&'a str> {
@@ -132,10 +133,33 @@ fn copied_to<'a>(args: &[&'a str], values: &[&str]) -> Option<&'a str> {
 }
 
 fn rsync_only_tries(args: &[&str]) -> bool {
-    args.iter().any(|arg| {
-        arg.strip_prefix('-')
-            .is_some_and(|letters| !letters.starts_with(['-', 'e']) && letters.contains('n'))
-    })
+    let mut words = args.iter().copied();
+    while let Some(arg) = words.next() {
+        if arg == "--" {
+            break;
+        }
+        if arg == "--dry-run" || arg == "--help" {
+            return true;
+        }
+        if RSYNC_VALUES.contains(&arg) {
+            words.next();
+            continue;
+        }
+        if arg.starts_with("--") {
+            continue;
+        }
+        if let Some(letters) = arg.strip_prefix('-') {
+            for letter in letters.chars() {
+                if matches!(letter, 'B' | 'e' | 'f' | 'M' | 'T') {
+                    break;
+                }
+                if letter == 'n' {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// The host of a path on another computer, such as `me@host:folder` or `rsync://host/folder`.
@@ -160,15 +184,118 @@ fn host_of(address: &str) -> &str {
 
 /// Whether every command of a shell script is known to only read.
 fn script_reads(script: &str) -> bool {
-    let script = ["2>&1", "1>&2", ">&2", "&>/dev/null", "&> /dev/null"]
-        .iter()
-        .fold(script.to_owned(), |script, quiet| {
-            script.replace(quiet, " ")
-        });
-    pieces(&script).iter().all(|piece| match piece {
+    let Some(cleaned) = clean_read_script(script) else {
+        return false;
+    };
+    pieces(&cleaned).iter().all(|piece| match piece {
         Piece::Words(words) => command_reads(words),
         Piece::Open | Piece::Close => true,
     })
+}
+
+fn clean_read_script(script: &str) -> Option<String> {
+    const SAFE_REDIRECTS: &[&str] = &[
+        "2>&1",
+        "1>&2",
+        ">&2",
+        "&>/dev/null",
+        "&> /dev/null",
+        "2>/dev/null",
+        "2> /dev/null",
+        "1>/dev/null",
+        "1> /dev/null",
+        ">/dev/null",
+        "> /dev/null",
+    ];
+    let bytes = script.as_bytes();
+    let mut out = String::with_capacity(script.len());
+    let mut at = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    while let Some(rest) = script.get(at..).filter(|rest| !rest.is_empty()) {
+        if in_single {
+            let ch = rest.chars().next()?;
+            out.push(ch);
+            at += ch.len_utf8();
+            if ch == '\'' {
+                in_single = false;
+            }
+            continue;
+        }
+        if in_double {
+            if rest.starts_with('\\') {
+                let mut chars = rest.chars();
+                out.push(chars.next()?);
+                let escaped = chars.next()?;
+                out.push(escaped);
+                at += 1 + escaped.len_utf8();
+                continue;
+            }
+            if rest.starts_with("$(") || rest.starts_with('`') {
+                return None;
+            }
+            let ch = rest.chars().next()?;
+            out.push(ch);
+            at += ch.len_utf8();
+            if ch == '"' {
+                in_double = false;
+            }
+            continue;
+        }
+        if rest.starts_with('\\') {
+            let mut chars = rest.chars();
+            out.push(chars.next()?);
+            let escaped = chars.next()?;
+            out.push(escaped);
+            at += 1 + escaped.len_utf8();
+            continue;
+        }
+        if rest.starts_with("$(")
+            || rest.starts_with('`')
+            || rest.starts_with("<(")
+            || rest.starts_with(">(")
+        {
+            return None;
+        }
+        if let Some(matched) = SAFE_REDIRECTS.iter().find(|&&safe| {
+            rest.strip_prefix(safe).is_some_and(|after| {
+                after.is_empty()
+                    || after.starts_with(|c: char| {
+                        c.is_whitespace() || matches!(c, ';' | '|' | '&' | ')' | '\n')
+                    })
+            })
+        }) {
+            let preceded_by_word = at
+                .checked_sub(1)
+                .and_then(|prev| bytes.get(prev))
+                .is_some_and(|prev| {
+                    !matches!(
+                        prev,
+                        b' ' | b'\t' | b'\n' | b';' | b'|' | b'&' | b'(' | b')'
+                    )
+                });
+            if !preceded_by_word || matched.starts_with(['>', '&']) {
+                out.push(' ');
+                at += matched.len();
+                continue;
+            }
+        }
+        if rest.starts_with('>') {
+            return None;
+        }
+        let ch = rest.chars().next()?;
+        if ch == '\'' {
+            in_single = true;
+        } else if ch == '"' {
+            in_double = true;
+        }
+        out.push(ch);
+        at += ch.len_utf8();
+    }
+    if in_single || in_double {
+        return None;
+    }
+    Some(out)
 }
 
 fn command_reads(words: &[String]) -> bool {
@@ -181,58 +308,18 @@ fn command_reads(words: &[String]) -> bool {
         })
         .count();
     let words = words.get(starts..).unwrap_or_default();
-    if writes_a_file(words) || !substitutions_read(words) {
-        return false;
-    }
-    let Some(words) = command_words(words) else {
-        return true;
+    let words = match command_words(words) {
+        Unwrapped::None => return true,
+        Unwrapped::UnknownWrapperFlag { .. } => return false,
+        Unwrapped::Command { words, .. } => words,
     };
-    let words = past_sudo_options(words);
-    if let Some(script) = shell_script(words) {
+    if let Some(script) = shell_script(&words) {
         return script_reads(script);
     }
     let Some((program, args)) = words.split_first() else {
         return true;
     };
     program.starts_with('#') || program_reads(base_name(program), args)
-}
-
-fn past_sudo_options(words: &[String]) -> &[String] {
-    let mut at = 0;
-    while let Some(option) = words.get(at).filter(|word| word.starts_with('-')) {
-        at += match option.as_str() {
-            "-u" | "-g" | "--user" | "--group" => 2,
-            _ => 1,
-        };
-    }
-    words.get(at..).unwrap_or_default()
-}
-
-/// Whether a command's output goes to a file. A word with spaces was quoted, so a `>` in it is
-/// text.
-fn writes_a_file(words: &[String]) -> bool {
-    words.iter().enumerate().any(|(at, word)| {
-        let to = match word.rsplit_once('>') {
-            Some((_, to)) if !word.contains(char::is_whitespace) => to,
-            _ => return false,
-        };
-        let to = match to.is_empty() {
-            true => words.get(at + 1).map_or("", String::as_str),
-            false => to,
-        };
-        to != "/dev/null"
-    })
-}
-
-/// Whether the commands quoted inside `words`, as `"$(…)"`, only read.
-fn substitutions_read(words: &[String]) -> bool {
-    words.iter().all(|word| {
-        let inner = word.split("$(").skip(1);
-        let reads = inner
-            .map(|text| text.split(')').next().unwrap_or(text))
-            .all(script_reads);
-        reads && !word.contains('`')
-    })
 }
 
 /// Programs that only read, whatever they are given.
@@ -317,10 +404,43 @@ const READS: &[&str] = &[
     "which",
     "who",
     "whoami",
-    "xxd",
     "zcat",
     "zgrep",
 ];
+
+fn git_reads(args: &[String]) -> bool {
+    let sub = git_args(args);
+    let global = args.get(..args.len() - sub.len()).unwrap_or_default();
+    let unsafe_global = global.iter().any(|arg| {
+        arg == "-c"
+            || (arg.starts_with("-c") && !arg.starts_with("--"))
+            || arg == "--config-env"
+            || arg.starts_with("--config-env=")
+            || arg == "--exec-path"
+            || arg.starts_with("--exec-path=")
+            || arg == "--upload-pack"
+            || arg.starts_with("--upload-pack=")
+    });
+    if unsafe_global {
+        return false;
+    }
+    let unsafe_sub = sub.iter().take_while(|arg| *arg != "--").any(|arg| {
+        arg == "--ext-diff"
+            || arg == "--upload-pack"
+            || arg.starts_with("--upload-pack=")
+            || arg == "--exec-path"
+            || arg.starts_with("--exec-path=")
+    });
+    if unsafe_sub {
+        return false;
+    }
+    sub.first().is_some_and(|does| {
+        matches!(
+            does.as_str(),
+            "status" | "log" | "diff" | "show" | "rev-parse" | "describe" | "ls-files"
+        )
+    })
+}
 
 fn program_reads(program: &str, args: &[String]) -> bool {
     let first = (args.iter())
@@ -333,11 +453,6 @@ fn program_reads(program: &str, args: &[String]) -> bool {
                 .iter()
                 .any(|writes| arg.starts_with(writes))
         }),
-        "sed" => !args.iter().any(|arg| {
-            arg.starts_with("--in-place")
-                || (arg.starts_with('-') && !arg.starts_with("--") && arg.contains('i'))
-        }),
-        "awk" => !args.iter().any(|arg| arg.contains("system(")),
         "sort" => !args
             .iter()
             .any(|arg| arg.starts_with("-o") || arg.starts_with("--output")),
@@ -384,12 +499,8 @@ fn program_reads(program: &str, args: &[String]) -> bool {
                     | "history"
             ),
         },
-        "git" => git_args(args).first().is_some_and(|does| {
-            matches!(
-                does.as_str(),
-                "status" | "log" | "diff" | "show" | "rev-parse" | "describe" | "ls-files"
-            )
-        }),
+        "git" => git_reads(args),
+        "git-upload-pack" => true,
         "kubectl" | "helm" => !changes_cluster(program, args),
         "psql" | "mysql" => only_queries(args),
         "curl" => curl_reads(args),
