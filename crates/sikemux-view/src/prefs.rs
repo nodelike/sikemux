@@ -109,7 +109,7 @@ pub struct Preferences {
     /// The desktop app installs an update by itself once the person is idle; none
     /// follows the channel, on for nightly and staff and off for stable.
     pub update_when_idle: Option<bool>,
-    /// Anonymous usage is reported.
+    /// Usage is reported.
     pub share_usage_data: bool,
     /// The person went through the first-run introduction.
     pub onboarding_complete: bool,

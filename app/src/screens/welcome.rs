@@ -993,7 +993,7 @@ fn tell_what_is_shared(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     }
     let this = cx.weak_entity();
     let note = crate::toast::acting(
-        t!("Sikemux shares anonymous usage and crash reports, and reads plan limits with each agent's own sign-in."),
+        t!("Sikemux shares usage and crash reports, and reads plan limits with each agent's own sign-in."),
         t!("Turn off sharing"),
         move |_, cx| {
             let _ = this.update(cx, |bench, _| share(bench, false));
@@ -1279,7 +1279,7 @@ fn privacy(
                 .child(
                     div()
                         .text_color(if on { t.text_primary } else { t.text_secondary })
-                        .child(t!("Share anonymous usage and crash reports")),
+                        .child(t!("Share usage and crash reports")),
                 )
                 .child(t!("Plan limits are read with each agent's own sign-in.")),
         )

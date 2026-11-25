@@ -1,5 +1,5 @@
-//! Which releases updates come from and when they were last checked, and whether anonymous
-//! usage is shared.
+//! Which releases updates come from and when they were last checked, and whether usage
+//! is shared.
 
 use crate::core::Target;
 use gpui_kit::{
@@ -44,7 +44,7 @@ pub(in crate::settings) const ENTRIES: &[Entry] = &[
     row(
         About,
         "Privacy",
-        "Share anonymous usage and crash reports",
+        "Share usage and crash reports",
         "analytics telemetry tracking opt out posthog crash reports sentry do_not_track",
     ),
     section(
@@ -243,7 +243,7 @@ pub fn render(
         }
     };
     let privacy = rows::row(
-        t!("Share anonymous usage and crash reports"),
+        t!("Share usage and crash reports"),
         Some(t!(
             "Sends daily totals and first-run steps to PostHog EU, and crashes, sessions and some startup traces to Sentry EU (code addresses, image names and builds, recent warning and error logs with paths stripped, device and OS, never memory), with a random install ID and a hash of your account that we can match to it. Never your files, prompts, commands or projects. Turning this off or setting DO_NOT_TRACK stops both at once."
         )),

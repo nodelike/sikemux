@@ -50,7 +50,7 @@ CloseApplications=no
 RestartApplications=no
 
 [Tasks]
-Name: shareusage; Description: "Share anonymous usage data and crash reports (read the privacy policy: {#PrivacyUrl})"
+Name: shareusage; Description: "Share usage data and crash reports (read the privacy policy: {#PrivacyUrl})"
 
 [Files]
 Source: "{#Exe}"; DestDir: "{app}"; Flags: ignoreversion
@@ -119,9 +119,9 @@ procedure InitializeWizard();
 begin
   PrivacyPage := CreateOutputMsgPage(wpWelcome, 'Privacy',
     'What Sikemux sends, and how to turn it off',
-    'Sikemux can send anonymous usage data and crash reports, and nothing you write or open. ' +
+    'Sikemux can send usage data and crash reports, and nothing you write or open. ' +
     'The privacy policy is at {#PrivacyUrl}.' + #13#10#13#10 +
-    'Untick "Share anonymous usage data and crash reports" on the next page to turn both off. ' +
+    'Untick "Share usage data and crash reports" on the next page to turn both off. ' +
     'You can change it later in Settings.');
 end;
 

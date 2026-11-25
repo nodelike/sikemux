@@ -1,4 +1,4 @@
-//! One anonymous `app_active` event a day for each install, and once a UTC day
+//! One `app_active` event a day for each install, and once a UTC day
 //! is over, how much its agents did that day: tokens by agent and model,
 //! turns, sessions and commits, never which projects or what was said. A new
 //! install also sends each first-run step once, so its funnel can be followed.

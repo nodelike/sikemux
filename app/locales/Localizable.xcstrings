@@ -68797,58 +68797,6 @@
         }
       }
     },
-    "Once a day, sends a random install ID and a one-way hash of your account with the app version, update channel and system version, and the day before's totals: tokens by agent and model, turns, sessions, commits and how often each feature was used. When Sikemux crashes, sends where in its code and what it had just logged, with no paths. Never your files, prompts, commands or projects.": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Une fois par jour, envoie un identifiant d'installation aléatoire et une empreinte à sens unique de votre compte avec la version de l'app, le canal de mise à jour et la version du système, ainsi que les totaux de la veille : tokens par agent et par modèle, tours, sessions, commits et fréquence d'utilisation de chaque fonction. Quand Sikemux plante, envoie l'endroit du code concerné et ce qu'il venait de journaliser, sans chemins. Jamais vos fichiers, prompts, commandes ou projets."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Una vez al día, envía un ID de instalación aleatorio y un hash unidireccional de tu cuenta con la versión de la app, el canal de actualización y la versión del sistema, y los totales del día anterior: tokens por agente y modelo, turnos, sesiones, commits y cuánto se usó cada función. Cuando Sikemux falla, envía en qué parte de su código y lo último que había registrado, sin rutas. Nunca tus archivos, prompts, comandos ni proyectos."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Einmal am Tag werden eine zufällige Installations-ID und ein Einweg-Hash deines Accounts mit App-Version, Update-Kanal und Systemversion gesendet, dazu die Summen des Vortags: Tokens nach Agent und Modell, Züge, Sitzungen, Commits und wie oft jede Funktion genutzt wurde. Wenn Sikemux abstürzt, wird gesendet, wo im Code das passierte und was es zuletzt protokolliert hat, ohne Pfade. Nie deine Dateien, Prompts, Befehle oder Projekte."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "每天一次，发送一个随机安装 ID 和你账户的单向哈希，连同应用版本、更新渠道和系统版本，以及前一天的汇总：按智能体和模型统计的 token、轮次、会话、提交以及每项功能的使用次数。Sikemux 崩溃时，会发送崩溃在代码中的位置及其刚记录的日志，不含路径。绝不发送你的文件、提示词、命令或项目。"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1日1回、ランダムなインストール ID とアカウントの一方向ハッシュを、アプリのバージョン、アップデートチャネル、システムバージョン、前日の合計（エージェントとモデル別のトークン、ターン、セッション、コミット、各機能の使用回数）とともに送信します。Sikemux がクラッシュしたときは、コード内の場所と直前に記録したログをパスを除いて送信します。ファイル、プロンプト、コマンド、プロジェクトは決して送信しません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "하루에 한 번 무작위 설치 ID, 계정의 단방향 해시, 앱 버전, 업데이트 채널, 시스템 버전과 함께 전날의 합계(에이전트 및 모델별 토큰, 턴, 세션, 커밋, 각 기능의 사용 횟수)를 보냅니다. Sikemux가 충돌하면 코드의 충돌 위치와 직전에 기록한 로그를 경로 없이 보냅니다. 파일, 프롬프트, 명령, 프로젝트는 절대 보내지 않습니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Раз в день отправляет случайный ID установки и необратимый хеш вашей учётной записи вместе с версией приложения, каналом обновлений и версией системы, а также итоги предыдущего дня: токены по агентам и моделям, ходы, сеансы, коммиты и частоту использования каждой функции. При сбое Sikemux отправляет место в коде и последние записи журнала, без путей. Ваши файлы, промпты, команды и проекты не отправляются никогда."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uma vez por dia, envia um ID de instalação aleatório e um hash irreversível da sua conta com a versão do app, o canal de atualização e a versão do sistema, e os totais do dia anterior: tokens por agente e modelo, turnos, sessões, commits e com que frequência cada recurso foi usado. Quando o Sikemux trava, envia em que parte do código e o que ele tinha acabado de registrar, sem caminhos. Nunca seus arquivos, prompts, comandos ou projetos."
-          }
-        }
-      }
-    },
     "One at a time": {
       "localizations": {
         "fr": {
@@ -95157,58 +95105,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Compartilhe um link, uma imagem ou um arquivo com o Sikemux a partir de qualquer app do seu celular. Ele espera aqui até você adicioná-lo a um chat."
-          }
-        }
-      }
-    },
-    "Share anonymous usage": {
-      "localizations": {
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Partager des données d'utilisation anonymes"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compartir uso anónimo"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anonyme Nutzungsdaten teilen"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "共享匿名使用数据"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "匿名の使用状況を共有"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "익명 사용 정보 공유"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Отправлять анонимную статистику"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compartilhar uso anônimo"
           }
         }
       }
@@ -185173,54 +185069,54 @@
         }
       }
     },
-    "Share anonymous usage and crash reports": {
+    "Share usage and crash reports": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Partager des données d'utilisation et des rapports de plantage anonymes"
+            "value": "Partager des données d'utilisation et des rapports de plantage"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compartir uso anónimo e informes de fallos"
+            "value": "Compartir datos de uso e informes de fallos"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Anonyme Nutzungsdaten und Absturzberichte teilen"
+            "value": "Nutzungsdaten und Absturzberichte teilen"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "共享匿名使用数据和崩溃报告"
+            "value": "共享使用数据和崩溃报告"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "匿名の使用状況とクラッシュレポートを共有"
+            "value": "使用状況とクラッシュレポートを共有"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "익명 사용 정보와 비정상 종료 보고서 공유"
+            "value": "사용 정보와 비정상 종료 보고서 공유"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отправлять анонимную статистику и отчёты о сбоях"
+            "value": "Отправлять статистику и отчёты о сбоях"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compartilhar uso anônimo e relatórios de falhas"
+            "value": "Compartilhar dados de uso e relatórios de falhas"
           }
         }
       }
@@ -185277,54 +185173,54 @@
         }
       }
     },
-    "Sikemux shares anonymous usage and crash reports, and reads plan limits with each agent's own sign-in.": {
+    "Sikemux shares usage and crash reports, and reads plan limits with each agent's own sign-in.": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sikemux partage des données d'utilisation et des rapports de plantage anonymes, et lit les limites du forfait avec la connexion de chaque agent."
+            "value": "Sikemux partage des données d'utilisation et des rapports de plantage, et lit les limites du forfait avec la connexion de chaque agent."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sikemux comparte uso anónimo e informes de fallos, y lee los límites del plan con la sesión de cada agente."
+            "value": "Sikemux comparte datos de uso e informes de fallos, y lee los límites del plan con la sesión de cada agente."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sikemux teilt anonyme Nutzungsdaten und Absturzberichte und liest Tarif-Limits mit der Anmeldung des jeweiligen Agents."
+            "value": "Sikemux teilt Nutzungsdaten und Absturzberichte und liest Tarif-Limits mit der Anmeldung des jeweiligen Agents."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sikemux 会共享匿名使用数据和崩溃报告，并通过各智能体自己的登录读取套餐额度。"
+            "value": "Sikemux 会共享使用数据和崩溃报告，并通过各智能体自己的登录读取套餐额度。"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sikemux は匿名の使用状況とクラッシュレポートを共有し、プランの上限を各エージェント自身のサインインで読み取ります。"
+            "value": "Sikemux は使用状況とクラッシュレポートを共有し、プランの上限を各エージェント自身のサインインで読み取ります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sikemux는 익명 사용 정보와 비정상 종료 보고서를 공유하고, 각 에이전트의 로그인으로 요금제 한도를 읽습니다."
+            "value": "Sikemux는 사용 정보와 비정상 종료 보고서를 공유하고, 각 에이전트의 로그인으로 요금제 한도를 읽습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sikemux отправляет анонимную статистику и отчёты о сбоях и читает лимиты тарифа через вход каждого агента."
+            "value": "Sikemux отправляет статистику и отчёты о сбоях и читает лимиты тарифа через вход каждого агента."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Sikemux compartilha uso anônimo e relatórios de falhas e lê os limites do plano com o login de cada agente."
+            "value": "O Sikemux compartilha dados de uso e relatórios de falhas e lê os limites do plano com o login de cada agente."
           }
         }
       }

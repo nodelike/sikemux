@@ -1,4 +1,4 @@
-//! A whole UTC day of this host's activity in totals, for the anonymous usage
+//! A whole UTC day of this host's activity in totals, for the usage
 //! report. Never which projects, prompts or commits: only how much.
 
 use crate::server::activity_log::pricing::ModelRateExt;
