@@ -37,8 +37,10 @@ pub struct ChatLaunch {
 }
 
 /// Whether a chat agent asks before it acts outside its workspace, has its own reviewer approve
-/// what is safe and ask the rest, or never asks.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// what is safe and ask the rest, or never asks, from the least it does unasked to the most.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum PermissionMode {
     #[default]

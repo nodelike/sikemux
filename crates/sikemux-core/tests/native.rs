@@ -1077,6 +1077,33 @@ async fn an_opencode_command_waits_for_the_persons_answer() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_command_opencode_starts_through_sikemux_waits_for_the_persons_answer() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect("opencode-k").await;
+    client
+        .acp_start(ChatLaunch {
+            permission_mode: PermissionMode::WorkspaceWrite,
+            ..opencode_launch("opencode-k", home.path())
+        })
+        .await
+        .expect("start");
+
+    prompt(&client, "opencode-k", &message_id(), "start").await;
+    let (request, allow) = allow_once(&until_asked(&mut chat).await);
+    client
+        .ask(ask::AcpPermissionReply {
+            agent_id: "opencode-k".into(),
+            request_id: request,
+            option_id: Some(allow),
+        })
+        .await
+        .expect("reply");
+    chat.turn_ended().await;
+    assert!(chat.text().ends_with("allowed"), "{}", chat.text());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_stopped_opencode_turn_ends_cancelled() {
     let home = tempfile::tempdir().expect("home");
     let core = TestCore::start();

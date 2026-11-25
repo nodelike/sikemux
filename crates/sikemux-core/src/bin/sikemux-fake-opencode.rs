@@ -7,6 +7,7 @@
 //! - `stream N` sends N pieces of text;
 //! - `ask` asks to run `echo hi` and says which answer it got, or `allowed` at once when the
 //!   rules allow it;
+//! - `start` does the same for Sikemux's `process_start` tool;
 //! - `push` does the same for `git push`, which the person's own config denies;
 //! - `count` says how many messages came before it;
 //! - `hold MS` says `holding`, waits, then says `held`, or stops early on an interrupt;
@@ -401,9 +402,9 @@ impl Fake {
         self.emit("session.execution.succeeded", json!({ "sessionID": child }));
     }
 
-    /// What OpenCode's rules say to running `command`: the build agent's, then the session's,
+    /// What OpenCode's rules say to `action` on `resource`: the build agent's, then the session's,
     /// the last match winning.
-    fn effect(&self, session: &str, command: &str) -> String {
+    fn effect(&self, session: &str, action: &str, resource: &str) -> String {
         let sessions = self.sessions.locked();
         let session_rules = sessions
             .get(session)
@@ -413,20 +414,19 @@ impl Fake {
             .unwrap_or_default();
         let matches = |pattern: &str| {
             pattern == "*"
-                || pattern == command
-                || pattern
-                    .strip_suffix(" *")
-                    .is_some_and(|stem| command == stem || command.starts_with(&format!("{stem} ")))
+                || pattern == resource
+                || pattern.strip_suffix(" *").is_some_and(|stem| {
+                    resource == stem || resource.starts_with(&format!("{stem} "))
+                })
         };
         let agent_rules = build_rules().as_array().cloned().unwrap_or_default();
         agent_rules
             .into_iter()
             .chain(session_rules)
             .filter(|rule| {
-                matches!(
-                    rule.get("action").and_then(Value::as_str),
-                    Some("*" | "shell")
-                )
+                rule.get("action")
+                    .and_then(Value::as_str)
+                    .is_some_and(|ruled| ruled == "*" || ruled == action)
             })
             .rfind(|rule| {
                 matches(
@@ -439,15 +439,22 @@ impl Fake {
             .unwrap_or_default()
     }
 
-    fn ask(&self, session: &str, message: &str, call: &str, command: &str) -> String {
+    fn ask(
+        &self,
+        session: &str,
+        message: &str,
+        call: &str,
+        action: &str,
+        resource: &str,
+    ) -> String {
         let asked = format!("per_{}", uuid());
         let (answered, heard) = channel();
         self.answers.locked().insert(asked.clone(), answered);
         self.emit(
             "permission.asked",
             json!({
-                "sessionID": session, "id": asked, "action": "shell",
-                "resources": [command], "source": { "messageID": message, "id": call },
+                "sessionID": session, "id": asked, "action": action,
+                "resources": [resource], "source": { "messageID": message, "id": call },
             }),
         );
         let decision = heard.recv().unwrap_or_default();
@@ -491,26 +498,34 @@ impl Fake {
                 drop(sessions);
                 say(&format!("{} earlier", sent.saturating_sub(1)));
             }
-            "ask" | "push" => {
+            "ask" | "push" | "start" => {
                 let command = if verb == "push" {
                     "git push"
                 } else {
                     "echo hi"
                 };
+                let (tool, action, resource) = match verb {
+                    "start" => (
+                        "sikemux-tools_process_start",
+                        "sikemux-tools_process_start",
+                        "*",
+                    ),
+                    _ => ("bash", "shell", command),
+                };
                 let call = format!("call_{}", uuid());
                 self.emit(
                     "session.tool.input.started",
-                    json!({ "sessionID": session, "id": call, "name": "bash" }),
+                    json!({ "sessionID": session, "id": call, "name": tool }),
                 );
                 let input = json!({ "command": command });
                 self.emit(
                     "session.tool.called",
                     json!({ "sessionID": session, "id": call, "input": input }),
                 );
-                let decision = match self.effect(session, command).as_str() {
+                let decision = match self.effect(session, action, resource).as_str() {
                     "allow" => "once".to_owned(),
                     "deny" => "deny".to_owned(),
-                    _ => self.ask(session, &message, &call, command),
+                    _ => self.ask(session, &message, &call, action, resource),
                 };
                 self.emit(
                     "session.tool.success",

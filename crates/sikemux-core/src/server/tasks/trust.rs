@@ -1,7 +1,9 @@
 //! Whether the person trusts a project's stated tasks and checks, and asking when not.
 
 use super::*;
+use crate::agent_catalog;
 use crate::server::changed::ChangedCore;
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 
@@ -78,11 +80,67 @@ pub(super) fn personal_ask(project: &Path, task: &Definition) -> TrustAsk {
     }
 }
 
+fn command_ask(
+    core: &Core,
+    agent_id: &str,
+    project: &str,
+    cwd: &str,
+    label: &str,
+    command: &str,
+) -> TrustAsk {
+    let who = (core.names().name(agent_id))
+        .map_or_else(|| "this agent".to_owned(), |name| format!("@{name}"));
+    TrustAsk {
+        title: format!("Let {who} run this command?"),
+        body: "The agent's chat asks before commands. Allowing one covers it in this project from now on.".into(),
+        commands: vec![TrustCommand {
+            label: label.to_owned(),
+            command: command.to_owned(),
+        }],
+        confirm_label: "Run command".into(),
+        grant: Grant::Personal(TrustedTask {
+            project: project.to_owned(),
+            cwd: cwd.to_owned(),
+            command: command.to_owned(),
+        }),
+    }
+}
+
+/// The mode the agent runs in now; its chat knows of a change first.
+fn mode_of(core: &Core, agent_id: &str) -> Option<PermissionMode> {
+    match core.chats().get(agent_id) {
+        Some(chat) => Some(chat.current_now().permission_mode),
+        None => (core.workspaces().run_of(agent_id)).map(|run| run.permission_mode),
+    }
+}
+
 /// The person let this agent run anything, so its tasks skip the trust question.
 pub(super) fn bypasses(core: &Core, agent_id: Option<&str>) -> bool {
-    agent_id
-        .and_then(|agent_id| core.workspaces().run_of(agent_id))
-        .is_some_and(|run| run.permission_mode == PermissionMode::Bypass)
+    agent_id.and_then(|agent_id| mode_of(core, agent_id)) == Some(PermissionMode::Bypass)
+}
+
+/// The agent when its chat asks before commands but its CLI lets Sikemux's tools run one unasked.
+fn unasked<'a>(core: &Core, agent_id: Option<&'a str>) -> Option<&'a str> {
+    let agent_id = agent_id?;
+    let chat = core.chats().get(agent_id)?;
+    let driver = agent_catalog::agent(chat.provider())?.chat.as_ref()?;
+    (!driver.asks_before_tools() && !bypasses(core, Some(agent_id))).then_some(agent_id)
+}
+
+/// Whether `agent_id` may have the core run `command` in `dir`, asking the person when its
+/// own CLI would not.
+pub(crate) async fn command_allowed(
+    core: &Arc<Core>,
+    agent_id: &str,
+    project: &str,
+    dir: &str,
+    command: &str,
+) -> bool {
+    let Some(agent_id) = unasked(core, Some(agent_id)) else {
+        return true;
+    };
+    let ask = command_ask(core, agent_id, project, dir, "Check", command);
+    core.tasks().trusts(&ask.grant) || ask_person(core, project, ask, None).await
 }
 
 pub(super) fn trust_for(
@@ -90,6 +148,7 @@ pub(super) fn trust_for(
     project: &Path,
     task: &Definition,
     config: &ConfigLoad,
+    agent_id: Option<&str>,
 ) -> Option<TrustAsk> {
     match task.source {
         Source::Project => config_needs(core, config),
@@ -97,7 +156,17 @@ pub(super) fn trust_for(
             let ask = personal_ask(project, task);
             (!core.tasks().trusts(&ask.grant)).then_some(ask)
         }
-        Source::Detected | Source::Rerun | Source::Command => None,
+        Source::Detected | Source::Rerun | Source::Command => {
+            let ask = command_ask(
+                core,
+                unasked(core, agent_id)?,
+                &project.to_string_lossy(),
+                &task.cwd.to_string_lossy(),
+                &task.label,
+                &task.command,
+            );
+            (!core.tasks().trusts(&ask.grant)).then_some(ask)
+        }
     }
 }
 

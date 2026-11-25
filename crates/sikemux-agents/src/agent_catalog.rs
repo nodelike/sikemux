@@ -58,6 +58,8 @@ pub enum ChatDriver {
         modes: Option<AcpModes>,
         /// The agent's own name for the command that compacts its session.
         compact: &'static str,
+        /// Whether it is known to ask the person before a tool server's tool runs.
+        asks_before_tools: bool,
     },
 }
 
@@ -65,6 +67,17 @@ impl ChatDriver {
     /// Whether a chat of it picks a reasoning effort, even on a model that names none.
     pub fn offers_effort(&self) -> bool {
         !matches!(self, Self::Acp { .. } | Self::Opencode)
+    }
+
+    /// Whether the agent itself asks the person before a tool of Sikemux's runs a command, in
+    /// a mode where it asks before its own.
+    pub fn asks_before_tools(&self) -> bool {
+        match self {
+            Self::Acp {
+                asks_before_tools, ..
+            } => *asks_before_tools,
+            _ => true,
+        }
     }
 }
 
@@ -448,6 +461,7 @@ pub const AGENTS: &[AgentEntry] = &[
                 bypass: "dont_ask",
             }),
             compact: "compress",
+            asks_before_tools: false,
         }),
         providers: None,
         routed: None,
@@ -585,6 +599,7 @@ pub const AGENTS: &[AgentEntry] = &[
             args: &["acp"],
             modes: None,
             compact: "compact",
+            asks_before_tools: false,
         }),
         providers: Some(ProviderUse::Reads),
         routed: Some(Routed {
@@ -649,6 +664,7 @@ pub const AGENTS: &[AgentEntry] = &[
             args: &["agent", "--no-leader", "stdio"],
             modes: None,
             compact: "compact",
+            asks_before_tools: true,
         }),
         providers: None,
         routed: None,
@@ -694,6 +710,7 @@ pub const AGENTS: &[AgentEntry] = &[
             args: &["acp"],
             modes: None,
             compact: "compact",
+            asks_before_tools: false,
         }),
         providers: Some(ProviderUse::Routed),
         routed: Some(Routed {

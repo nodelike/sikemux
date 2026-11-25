@@ -26,7 +26,7 @@ use serde_json::{json, Value};
 use sikemux_client::client::CoreClient;
 use sikemux_core::client::probe;
 use sikemux_view::chat::{ChatMessage, ChatRole};
-use sikemux_wire::protocol::ask;
+use sikemux_wire::protocol::{ask, ChatLaunch, PermissionMode};
 
 const CORE: &str = env!("CARGO_BIN_EXE_sikemux-core");
 const FAKE_CLAUDE: &str = env!("CARGO_BIN_EXE_sikemux-fake-claude");
@@ -461,6 +461,184 @@ async fn a_worker_that_ends_waiting_on_nothing_is_sent_back_and_its_lead_not_tol
             .any(|prompt| prompt.contains(waits)),
         "{heard:#?}"
     );
+}
+
+/// A worker's session was resumed in the mode it once ran in, YOLO, by a lead now in Normal.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resumed_worker_starts_in_no_stronger_mode_than_its_lead() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({
+        "profiles": [{
+            "id": "fake",
+            "name": "Fake",
+            "provider": "grok",
+            "accent": "#a277ff",
+            "executablePath": FAKE_AGENT,
+        }],
+    });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    let added = json!({ "id": "widget", "name": "widget", "path": project });
+    app.call("addProject", added).await.expect("the project");
+    app.call("setAgentDefaults", json!({ "permissionMode": "bypass" }))
+        .await
+        .expect("the defaults");
+    let (lead, _) = app
+        .start_chat("grok:fake".into(), "widget".into(), None)
+        .await
+        .expect("the lead starts");
+    let mut lead = Agent::open(&socket, &lead).await;
+    let spawned = lead
+        .tool(
+            "agent.spawn",
+            json!({ "cli": "grok", "title": "Say hello", "prompt": "hello" }),
+        )
+        .await
+        .expect("a worker");
+    let worker_id = spawned["agentId"].as_str().expect("its id");
+    let mut worker = Agent::open(&socket, worker_id).await;
+    worker.chat.until_said("hello").await;
+    worker.chat.until(|chat| !chat.view.head.running).await;
+    assert_eq!(
+        worker.chat.view.head.permission_mode,
+        PermissionMode::Bypass
+    );
+    let session = (worker.chat.view.head.session_id.clone()).expect("the worker's session");
+
+    let group = root.join("home/.grok/sessions/project");
+    let kept = group.join(&session);
+    std::fs::create_dir_all(&kept).expect("the session's folder");
+    std::fs::write(group.join(".cwd"), project.to_string_lossy().as_bytes()).expect("its project");
+    let summary = json!({ "info": { "id": session, "cwd": project } });
+    std::fs::write(kept.join("summary.json"), summary.to_string()).expect("its summary");
+    let said = json!({ "type": "user", "content": "hello" });
+    std::fs::write(kept.join("chat_history.jsonl"), format!("{said}\n")).expect("its history");
+
+    lead.tool("agent.close", json!({ "agents": [spawned["name"]] }))
+        .await
+        .expect("the worker closes");
+    app.ask(ask::AcpSetPermissionMode {
+        agent_id: lead.id.clone(),
+        mode: PermissionMode::WorkspaceWrite,
+    })
+    .await
+    .expect("the lead asks from now on");
+    let resumed = lead
+        .tool(
+            "agent.spawn",
+            json!({ "resume": session, "title": "Say hello", "prompt": "hello again" }),
+        )
+        .await
+        .expect("the worker again");
+    let worker = Agent::open(&socket, resumed["agentId"].as_str().expect("its id")).await;
+    assert_eq!(
+        worker.chat.view.head.permission_mode,
+        PermissionMode::WorkspaceWrite
+    );
+}
+
+/// An OMP chat in Normal ran commands through Sikemux's tools with nobody asked, since OMP asks
+/// before its own shell only.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_command_an_omp_chat_starts_follows_the_chats_mode() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let added = json!({ "id": "widget", "name": "widget", "path": project });
+    app.call("addProject", added).await.expect("the project");
+    let launch: ChatLaunch = serde_json::from_value(json!({
+        "agentId": "agent-1",
+        "provider": "omp",
+        "cwd": project,
+        "program": FAKE_AGENT,
+        "args": ["acp"],
+        "env": {},
+        "mcpServers": [],
+        "resumeId": null,
+        "permissionMode": "workspace-write",
+        "model": null,
+        "modelProvider": null,
+        "effort": null,
+        "account": null,
+        "fallbacks": [],
+    }))
+    .expect("launch");
+    app.acp_start(launch).await.expect("the chat");
+    let mut agent = Agent::open(&socket, "agent-1").await;
+
+    let start = |command: &str| json!({ "command": command, "idempotencyKey": command });
+    let waiting = agent
+        .tool("process.start", start("touch started"))
+        .await
+        .expect("a run");
+    assert_eq!(waiting["status"], "awaiting-trust", "{waiting}");
+    assert!(!project.join("started").exists());
+    let ask = trust_ask(&app).await;
+    assert_eq!(ask["commands"][0]["command"], "touch started", "{ask}");
+    answer_trust(&app, &ask, true).await;
+    exists(&project.join("started")).await;
+
+    let check = json!({ "title": "t", "prompt": "p", "every": 3600, "check": "touch checked" });
+    let (refused, ()) = tokio::join!(agent.tool("trigger.add", check.clone()), async {
+        let ask = trust_ask(&app).await;
+        assert_eq!(ask["commands"][0]["command"], "touch checked", "{ask}");
+        answer_trust(&app, &ask, false).await;
+    });
+    let refused = refused.expect_err("a refusal");
+    assert!(refused.contains("did not approve"), "{refused}");
+    assert!(!project.join("checked").exists());
+
+    app.ask(ask::AcpSetPermissionMode {
+        agent_id: "agent-1".into(),
+        mode: PermissionMode::Bypass,
+    })
+    .await
+    .expect("YOLO");
+    agent
+        .tool("process.start", start("touch freely"))
+        .await
+        .expect("a run");
+    exists(&project.join("freely")).await;
+    agent.tool("trigger.add", check).await.expect("a trigger");
+    assert!(project.join("checked").exists());
+}
+
+async fn trust_ask(app: &CoreClient) -> Value {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let asks = app.call("trustAsks", Value::Null).await.expect("asks");
+        if let Some(ask) = asks.get(0) {
+            return ask.clone();
+        }
+        assert!(Instant::now() < deadline, "nobody was asked");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn answer_trust(app: &CoreClient, ask: &Value, trust: bool) {
+    let answer = json!({ "id": ask["id"], "trust": trust });
+    app.call("answerTrust", answer).await.expect("answered");
+}
+
+async fn exists(path: &Path) {
+    let deadline = Instant::now() + WAIT;
+    while !path.exists() {
+        assert!(Instant::now() < deadline, "{} never came", path.display());
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 /// A worker ended its turn on a build left running in the background, which wakes it as it ends,

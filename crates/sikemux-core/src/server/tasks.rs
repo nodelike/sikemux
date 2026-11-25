@@ -53,7 +53,9 @@ mod writing;
 pub(crate) use test_results::module_tests;
 use test_results::*;
 use trust::*;
-pub(crate) use trust::{answer_trust, ask_person, asks, config_needs, config_trusted};
+pub(crate) use trust::{
+    answer_trust, ask_person, asks, command_allowed, config_needs, config_trusted,
+};
 pub use writing::*;
 
 const TRUST_FILE: &str = "task-trust.json";
@@ -685,9 +687,9 @@ pub(crate) async fn launch(
     };
     let (mut task, config) = resolved;
     if !bypasses(core, run.agent_id.as_deref()) {
-        if let Some(ask) = trust_for(core, &project, &task, &config) {
+        if let Some(ask) = trust_for(core, &project, &task, &config, run.agent_id.as_deref()) {
             if !ask_person(core, &run.project, ask, Some(execution_id)).await {
-                return Err("Project configuration was not approved".into());
+                return Err("The person did not approve it".into());
             }
             if let ConfigLoad::Valid { fingerprint, .. } = &config {
                 let now = config::load(&project);

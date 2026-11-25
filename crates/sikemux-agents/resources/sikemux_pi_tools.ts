@@ -162,6 +162,17 @@ const TOOL_PERMISSION = "sikemux-tool-permission";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "tool_search"]);
 const SIKEMUX_TOOL_PREFIX = "mcp__sikemux-tools__";
 
+function runsCommand(tool: string, input: Record<string, unknown>): boolean {
+  switch (tool.slice(SIKEMUX_TOOL_PREFIX.length)) {
+    case "process_start":
+      return true;
+    case "trigger_add":
+      return typeof input.check === "string";
+    default:
+      return false;
+  }
+}
+
 /**
  * Pi leaves permissions to its extensions. A chat starts Pi with the mode in
  * its environment, which a terminal does not, where Pi runs as it always has.
@@ -178,7 +189,8 @@ function askBeforeTools(pi: ExtensionAPI, initial: string): void {
     if (
       mode === "bypass" ||
       READ_ONLY_TOOLS.has(event.toolName) ||
-      event.toolName.startsWith(SIKEMUX_TOOL_PREFIX)
+      (event.toolName.startsWith(SIKEMUX_TOOL_PREFIX) &&
+        !runsCommand(event.toolName, event.input))
     )
       return;
     const allowed = await ctx.ui.confirm(

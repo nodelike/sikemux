@@ -492,7 +492,7 @@ fn start(
     }
     if let Some(was) = &was {
         launch.effort = was.effort.clone();
-        launch.permission_mode = was.permission_mode;
+        launch.permission_mode = was.permission_mode.min(launch.permission_mode);
     }
     if let Some(effort) = effort_param(params, &provider)? {
         launch.effort = Some(effort);

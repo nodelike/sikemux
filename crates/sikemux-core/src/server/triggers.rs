@@ -11,6 +11,7 @@ use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
+use crate::server::tasks::command_allowed;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::triggers::{
     AddTriggerParams, HoldTriggerParams, TriggerOn, TriggerParams, TriggerWakes,
@@ -1010,7 +1011,11 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
                 return Err("A check runs each time a repeating trigger comes due, so give it every or daily".into());
             }
             let dir = board.clone().unwrap_or_else(|| request.project.clone());
-            Some(check::Check::first(command.trim().to_owned(), dir).await?)
+            let command = command.trim();
+            if !command_allowed(core, &agent_id, &request.project, &dir, command).await {
+                return Err("The person did not approve the check's command".into());
+            }
+            Some(check::Check::first(command.to_owned(), dir).await?)
         }
         Some(_) => return Err("check must be a shell command".into()),
     };
