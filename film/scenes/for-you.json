@@ -1,0 +1,11 @@
+[
+  {
+    "when": "returns to the checkout",
+    "steps": [
+      { "tool": "mcp__sikemux-tools__ask", "call": "agent.ask", "input": { "kind": "taste", "title": "Returns policy", "question": "Which returns policy should the checkout show?", "choices": [{ "label": "14 days" }, { "label": "30 days" }, { "label": "60 days" }], "blocked": false }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__ask", "call": "agent.ask", "input": { "kind": "taste", "question": "Show the returns policy on every page?\n\nNo longer needed: nothing waits on this, so it can be dismissed. The footer already links it.", "choices": [{ "label": "Every page" }, { "label": "Checkout only" }], "blocked": false }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__ask", "call": "agent.ask", "input": { "kind": "taste", "title": "Refund button", "question": "Where should the refund button sit?", "choices": [{ "label": "Order page" }, { "label": "Receipt" }], "blocked": false }, "ms": 400 },
+      { "say": "I asked about the returns policy." }
+    ]
+  }
+]

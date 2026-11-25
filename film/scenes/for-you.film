@@ -1,0 +1,19 @@
+# The For you rows of the chief's Tasks view: two asks with titles, and one with none whose
+# question has a second paragraph.
+stage 1760 1000
+window 1760 1000
+prefer themeId aura-noir
+prefer starAsked true
+replies for-you.json
+project storefront shop-site
+chat Wren
+title "Returns policy"
+say "Add returns to the checkout"
+settle 8
+core openChief {"project":"storefront"}
+settle 6
+key cmd-alt-7
+settle 4
+zoom 1060,200 1.8
+settle 1
+snap for-you
