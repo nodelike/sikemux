@@ -10,7 +10,7 @@ testing = []
 
 [dependencies]
 libc = "0.2"
-base64 = "0.22"
+base64.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 globset = "0.4"
 hex = "0.4"

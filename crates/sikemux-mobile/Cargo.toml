@@ -9,7 +9,7 @@ description = "The core's client, pairing and connection, as the phone app calls
 crate-type = ["lib", "staticlib"]
 
 [dependencies]
-base64 = "0.22"
+base64.workspace = true
 hex = "0.4"
 iroh = { version = "1.3", default-features = false, features = ["tls-ring"] }
 serde = "1"

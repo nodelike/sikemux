@@ -8,7 +8,7 @@ publish = false
 sikemux-plugin-api = { path = "../../crates/sikemux-plugin-api" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-base64 = "0.23"
+base64.workspace = true
 futures = "0.3"
 ring = "0.17"
 sikemux-process = { path = "../../crates/sikemux-process" }

@@ -15,7 +15,7 @@ sikemux-pty = { path = "../sikemux-pty" }
 sikemux-view = { path = "../sikemux-view" }
 sikemux-wire = { path = "../sikemux-wire" }
 agent-client-protocol = { version = "2.0.0", features = ["unstable_session_notices"] }
-base64 = "0.22"
+base64.workspace = true
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tempfile = "3"

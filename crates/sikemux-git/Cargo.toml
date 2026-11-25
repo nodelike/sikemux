@@ -14,7 +14,7 @@ sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-process = { path = "../sikemux-process" }
 sikemux-view = { path = "../sikemux-view" }
 sikemux-wire = { path = "../sikemux-wire" }
-base64 = "0.22"
+base64.workspace = true
 git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }
 hashlink = "0.12"
 hex = "0.4"

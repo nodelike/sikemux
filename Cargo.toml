@@ -8,6 +8,9 @@ resolver = "2"
 [workspace.package]
 version = "0.6.2"
 
+[workspace.dependencies]
+base64 = "0.22"
+
 # Every crate sets `lints.workspace = true`, and a new one must too: a panic in
 # any of them takes the app or the core down.
 [workspace.lints.clippy]
@@ -59,9 +62,10 @@ strip = "symbols"
 
 # The two largest crates by far. In one piece each compiles on a single processor and outgrows a
 # release runner's memory, which was most of a release build. The link's LTO still joins them.
+# Cargo drops the profile's strip from any package with an override, so both name it again.
 [profile.release.package.sikemux-core]
 codegen-units = 16
-# Cargo drops the profile's strip from a package with an override, so the app's names it again.
+strip = "symbols"
 [profile.release.package.sikemux-gpui]
 codegen-units = 16
 strip = "symbols"
@@ -258,70 +262,40 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.crossbeam-utils]
 opt-level = 3
-[profile.release.package.rusqlite]
-opt-level = "s"
+# Config parsers, signing, DNS discovery, and database drivers never sit on a hot path, so they
+# are built for the smallest size; network/TLS/SQLite stay on the profile's default "s".
 [profile.release.package.plist]
-opt-level = "s"
-[profile.release.package.agent-client-protocol-schema]
-opt-level = "s"
-[profile.release.package.reqwest]
-opt-level = "s"
-[profile.release.package.rustls]
-opt-level = "s"
-[profile.release.package.rustls-webpki]
-opt-level = "s"
-[profile.release.package.agent-client-protocol]
-opt-level = "s"
-[profile.release.package.serde_with]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.minisign-verify]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.quick-xml]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.toml]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.toml_parser]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.time]
-opt-level = "s"
-[profile.release.package.hyper]
-opt-level = "s"
-[profile.release.package.hyper-util]
-opt-level = "s"
-[profile.release.package.regex-syntax]
-opt-level = "s"
-# The phone link carries terminal text and chat, and the database drivers wait
-# on the network; neither is bound by CPU.
-[profile.release.package.iroh]
-opt-level = "s"
-[profile.release.package.iroh-base]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.iroh-dns]
-opt-level = "s"
-[profile.release.package.iroh-relay]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.n0-dns-resolver]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.netwatch]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.netdev]
-opt-level = "s"
-[profile.release.package.noq]
-opt-level = "s"
-[profile.release.package.noq-proto]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.simple-dns]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.mysql_async]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.mysql_common]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.tokio-postgres]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.postgres-protocol]
-opt-level = "s"
+opt-level = "z"
 [profile.release.package.postgres-types]
-opt-level = "s"
+opt-level = "z"
 
 # GPUI from our fork of sonorahq/gpui, published under the gpui-pre names GPUI Kit pins.
 [patch.crates-io]

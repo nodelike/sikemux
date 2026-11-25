@@ -42,7 +42,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
 # What the examples use themselves.
 [dev-dependencies]
 anyhow = "1"
-base64 = "0.22"
+base64.workspace = true
 film-frame = { path = "crates/film-frame" }
 gpui = { package = "gpui-pre", version = "=0.3.10", features = ["test-support"] }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.10", features = ["test-support", "bench-support"] }

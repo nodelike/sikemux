@@ -6,7 +6,7 @@ publish = false
 description = "The iOS Simulator and Android emulators for agents and the desk: the device helpers, who holds which device, and the agents' tools, with no UI toolkit"
 
 [dependencies]
-base64 = "0.22"
+base64.workspace = true
 bytes = "1"
 h2 = "0.4"
 http = "1"

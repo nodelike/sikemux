@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }
-resvg = "0.45"
+resvg = { version = "0.46", default-features = false }
 
 [lints]
 workspace = true

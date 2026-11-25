@@ -6,7 +6,7 @@ publish = false
 description = "What the core shares with the browser, simulator and voice crates: HTTP clients, pinned downloads, the async runtime, page building and the CLI endpoint's protocol"
 
 [dependencies]
-base64 = "0.22"
+base64.workspace = true
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 hex = "0.4"
 regex = "1"

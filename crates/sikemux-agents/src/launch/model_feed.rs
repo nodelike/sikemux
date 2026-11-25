@@ -207,7 +207,11 @@ fn wanted(id: &str) -> bool {
 }
 
 fn embedded() -> Snapshot {
-    Snapshot::parse(include_bytes!("../../models-dev.json")).unwrap_or_default()
+    let raw = zstd::stream::decode_all(
+        include_bytes!(concat!(env!("OUT_DIR"), "/models-dev.json.zst")).as_slice(),
+    )
+    .unwrap_or_default();
+    Snapshot::parse(&raw).unwrap_or_default()
 }
 
 #[derive(Default)]

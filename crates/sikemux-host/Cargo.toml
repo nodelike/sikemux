@@ -31,7 +31,7 @@ vercel = ["dep:sikemux-plugin-vercel"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-base64 = "0.22"
+base64.workspace = true
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 semver = "1"

@@ -6,7 +6,7 @@ publish = false
 description = "What a release's signature must say before anything installs it as an update"
 
 [dependencies]
-base64 = "0.22"
+base64.workspace = true
 minisign-verify = "0.2"
 semver = "1"
 
