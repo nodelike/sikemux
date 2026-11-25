@@ -67,7 +67,7 @@ pub enum OrgVaultStatus {
     /// No owner or admin has written to it yet.
     #[default]
     Unmade,
-    /// A host of a member that holds the key has not let this one in yet.
+    /// This host has not been let in yet.
     Waiting,
     Open,
 }
@@ -95,6 +95,9 @@ pub struct ShownOrgVault {
     pub remakes: bool,
     /// When an owner's or admin's computer last made the vault again, in ms since the epoch.
     pub remade_at: Option<u64>,
+    /// While it waits: what the person pastes on a computer that holds the key to let this one in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 /// A computer that holds an org's key and would let this host in.
@@ -134,6 +137,13 @@ pub struct OrgModelKeyAdd {
 #[derive(Serialize, Deserialize)]
 pub struct OrgParams {
     pub org: String,
+}
+
+/// Lets in the computer that shows `code`.
+#[derive(Serialize, Deserialize)]
+pub struct OrgLetIn {
+    pub org: String,
+    pub code: String,
 }
 
 #[derive(Serialize, Deserialize)]

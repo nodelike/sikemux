@@ -3,4 +3,5 @@
 mod approval;
 mod join;
 mod notify;
+mod org_vault;
 mod remote;

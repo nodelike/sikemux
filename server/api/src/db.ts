@@ -382,6 +382,16 @@ export interface Tables {
     wrapped_by: string;
     created_at: ColumnType<Date, never, Date>;
   };
+  org_vault_vouches: {
+    org_id: string;
+    host_key: string;
+    member: string;
+    by_key: string;
+    by_member: string;
+    at: ColumnType<string, number, number>;
+    signature: string;
+    introduction: string | null;
+  };
   org_vault_entries: {
     id: string;
     org_id: string;

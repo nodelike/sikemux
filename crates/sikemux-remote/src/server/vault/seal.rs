@@ -126,9 +126,21 @@ pub fn unwrap(wrapped: &str, secret: &Key, context: &str) -> Option<Key> {
     open_with(&key, context, sealed)?.try_into().ok()
 }
 
-/// The vault key sealed for `to` so that only the holder of `from`'s secret could have sealed
-/// it: the sealer's public key leads the wrap, and its own key is mixed into the sealing key.
+/// The vault key sealed for `to` as [`seal_from`] does.
 pub fn wrap_from(vault: &Key, from: &Key, to: &MontgomeryPoint, context: &str) -> Option<String> {
+    seal_from(vault, from, to, context)
+}
+
+/// Opens a wrap made by [`wrap_from`], with the public key of whoever sealed it, which the
+/// caller decides whether to trust.
+pub fn unwrap_from(wrapped: &str, secret: &Key, context: &str) -> Option<(Key, MontgomeryPoint)> {
+    let (vault, sender) = open_from(wrapped, secret, context)?;
+    Some((vault.try_into().ok()?, sender))
+}
+
+/// `plain` sealed for `to` so that only the holder of `from`'s secret could have sealed it: the
+/// sealer's public key leads, and its own key is mixed into the sealing key.
+pub fn seal_from(plain: &[u8], from: &Key, to: &MontgomeryPoint, context: &str) -> Option<String> {
     let sender = public_of(from);
     let ephemeral = random_key()?;
     let ephemeral_public = public_of(&ephemeral);
@@ -140,14 +152,13 @@ pub fn wrap_from(vault: &Key, from: &Key, to: &MontgomeryPoint, context: &str) -
     )?;
     let mut out = sender.as_bytes().to_vec();
     out.extend_from_slice(ephemeral_public.as_bytes());
-    out.extend(seal_with(&key, context, vault)?);
+    out.extend(seal_with(&key, context, plain)?);
     Some(URL_SAFE_NO_PAD.encode(out))
 }
 
-/// Opens a wrap made by [`wrap_from`], with the public key of whoever sealed it, which the
-/// caller decides whether to trust.
-pub fn unwrap_from(wrapped: &str, secret: &Key, context: &str) -> Option<(Key, MontgomeryPoint)> {
-    let bytes = URL_SAFE_NO_PAD.decode(wrapped).ok()?;
+/// Opens what [`seal_from`] sealed, with the public key of whoever sealed it.
+pub fn open_from(sealed: &str, secret: &Key, context: &str) -> Option<(Vec<u8>, MontgomeryPoint)> {
+    let bytes = URL_SAFE_NO_PAD.decode(sealed).ok()?;
     if bytes.len() < 2 * KEY_LEN {
         return None;
     }
@@ -161,8 +172,7 @@ pub fn unwrap_from(wrapped: &str, secret: &Key, context: &str) -> Option<(Key, M
     ]
     .concat();
     let key = aead_key(&shared, context, &[sender.as_bytes(), ephemeral.as_bytes()])?;
-    let vault = open_with(&key, context, sealed)?.try_into().ok()?;
-    Some((vault, sender))
+    Some((open_with(&key, context, sealed)?, sender))
 }
 
 /// Opens a wrap made by [`wrap_from`] only if one of `holders`, hosts by their Ed25519 key in
@@ -235,24 +245,35 @@ pub fn open_bytes(key: &Key, context: &str, sealed: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// Crockford's base32, which leaves out letters that read like digits.
-const RECOVERY_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-/// The recovery key as the person writes it down: its 256 bits in base32, four characters a
-/// group.
+/// The recovery key as the person writes it down.
 pub fn recovery_text(secret: &Key) -> String {
+    digits(secret)
+}
+
+/// Reads a recovery key as the person typed it, in any case and with any separators.
+pub fn recovery_secret(typed: &str) -> Option<Key> {
+    let mut out = digit_bytes(typed)?;
+    out.truncate(KEY_LEN);
+    out.try_into().ok()
+}
+
+/// Bytes as a person copies them: in base32, four characters a group.
+pub fn digits(bytes: &[u8]) -> String {
     let mut digits: Vec<u8> = Vec::new();
     let mut buffer: u32 = 0;
     let mut bits = 0;
-    for byte in secret {
+    for byte in bytes {
         buffer = (buffer << 8) | u32::from(*byte);
         bits += 8;
         while bits >= 5 {
             bits -= 5;
-            digits.extend(RECOVERY_ALPHABET.get(((buffer >> bits) & 31) as usize));
+            digits.extend(ALPHABET.get(((buffer >> bits) & 31) as usize));
         }
     }
     if bits > 0 {
-        digits.extend(RECOVERY_ALPHABET.get(((buffer << (5 - bits)) & 31) as usize));
+        digits.extend(ALPHABET.get(((buffer << (5 - bits)) & 31) as usize));
     }
     digits
         .chunks(4)
@@ -261,8 +282,8 @@ pub fn recovery_text(secret: &Key) -> String {
         .join("-")
 }
 
-/// Reads a recovery key as the person typed it, in any case and with any separators.
-pub fn recovery_secret(typed: &str) -> Option<Key> {
+/// Reads [`digits`] back, in any case and with any separators.
+pub fn digit_bytes(typed: &str) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(KEY_LEN);
     let mut buffer: u32 = 0;
     let mut bits = 0;
@@ -272,7 +293,7 @@ pub fn recovery_secret(typed: &str) -> Option<Key> {
             'I' | 'L' => '1',
             other => other,
         };
-        let value = RECOVERY_ALPHABET.iter().position(|&d| d == c as u8)? as u32;
+        let value = ALPHABET.iter().position(|&d| d == c as u8)? as u32;
         buffer = (buffer << 5) | value;
         bits += 5;
         if bits >= 8 {
@@ -280,6 +301,5 @@ pub fn recovery_secret(typed: &str) -> Option<Key> {
             out.push(((buffer >> bits) & 0xff) as u8);
         }
     }
-    out.truncate(KEY_LEN);
-    out.try_into().ok()
+    Some(out)
 }

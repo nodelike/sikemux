@@ -489,6 +489,7 @@ calls! { core, client, method, params;
     "orgModelKeyAdd" = OrgModelKeyAdd: Owner, counted => super::vault::org::add_model_key(&core, params).await?,
     "orgModelKeyRemove" = OrgModelKeyRemove: Owner => super::vault::org::remove_entry(&core, params).await?,
     "orgVaultRemake" = OrgVaultRemake: Owner, counted => super::vault::org::remake(&core, params).await?,
+    "orgVaultLetIn" = OrgVaultLetIn: Owner, counted => super::vault::org::let_in(&core, params).await?,
     "vaultRecoverySaved" = VaultRecoverySaved: Owner => super::vault::shown::recovery_saved(&core).await?,
     "vaultShowRecovery" = VaultShowRecovery: Owner => super::vault::shown::show_recovery(&core).await?,
     "vaultRecover" = VaultRecover: Owner => super::vault::shown::recover(&core, params).await?,

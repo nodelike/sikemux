@@ -17,24 +17,26 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_agents::launch::providers::{catalogue, OrgKey, ProviderOrg};
 use sikemux_calls::vault::{
-    OrgEntryParams, OrgModelKeyAdd, OrgParams, OrgVaultStatus, ShownOrgModelKey, ShownOrgOpener,
-    ShownOrgVault,
+    OrgEntryParams, OrgLetIn, OrgModelKeyAdd, OrgParams, OrgVaultStatus, ShownOrgModelKey,
+    ShownOrgOpener, ShownOrgVault,
 };
+use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::device::{AccountOrg, OrgRole};
 use tokio::sync::Notify;
 
 use crate::accounts::orgvault::{
     OrgVault as Remote, OrgVaultCreate, OrgVaultEntry, OrgVaultEntryPut, OrgVaultEntryRead,
-    OrgVaultHolder, OrgVaultKeysAdd, OrgVaultRemake, OrgVaultRotate, OrgVaultState, OrgWrappedKey,
+    OrgVaultHolder, OrgVaultKeysAdd, OrgVaultRemake, OrgVaultRotate, OrgVaultState,
+    OrgVaultVouchPut, OrgVaultVouches, OrgWrappedKey,
 };
-use crate::accounts::protocol::DeviceList;
 use crate::accounts::vault::VaultEntryReseal;
 
-use super::super::account::api::{as_host, host_request, host_send_any};
+use super::super::account::api::{host_request, host_send_any};
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
 use super::floor;
 use super::seal::{self, Key};
+use super::trust::{self, wrap_context, Me, Pins};
 
 const TICK: Duration = Duration::from_secs(60);
 /// How often a vault this host waits on is read while computers that could let it in are listed,
@@ -86,6 +88,9 @@ pub(super) struct Held {
     /// When the vault these entries came from was last made again, as the accounts server said.
     /// An entry read before a different one began anew, under the same id.
     made: Option<String>,
+    pins: Pins,
+    /// This host's half of the code it shows while it waits for the key.
+    code: Option<trust::Secret>,
 }
 
 impl Held {
@@ -94,7 +99,8 @@ impl Held {
     }
 
     /// What this host holds once it cannot open the vault at `generation`: no key and no
-    /// entries, only the generation, below which the server is refused anything it hands back.
+    /// entries, only the hosts it trusts, the code that lets it in, and the generation, below
+    /// which the server is refused anything it hands back.
     fn let_go(self, generation: i64) -> Held {
         Held {
             generation: generation.max(self.generation),
@@ -102,6 +108,8 @@ impl Held {
             entries: BTreeMap::new(),
             ended: BTreeMap::new(),
             made: self.made,
+            pins: self.pins,
+            code: self.code.or_else(trust::new_secret),
         }
     }
 
@@ -144,13 +152,17 @@ struct Keys {
 }
 
 /// An org's key at its generation. Once this host can no longer open the vault, only the
-/// generation, as the entries file is sealed under the key let go.
+/// rest, as the entries file is sealed under the key let go.
 #[derive(Serialize, Deserialize)]
 struct KeptKey {
     generation: i64,
     key: Option<Key>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     made: Option<String>,
+    #[serde(default)]
+    pins: Pins,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    code: Option<trust::Secret>,
 }
 
 impl Copy {
@@ -163,6 +175,8 @@ impl Copy {
                         generation: held.generation,
                         key: held.key,
                         made: held.made.clone(),
+                        pins: held.pins.clone(),
+                        code: held.code,
                     };
                     (id.clone(), kept)
                 })
@@ -185,10 +199,10 @@ fn read_entries(data_dir: Option<&Path>, account: &str, org: &str, kept: &KeptKe
     let Some(key) = kept.key else {
         return Held {
             generation: kept.generation,
-            key: None,
-            entries: BTreeMap::new(),
-            ended: BTreeMap::new(),
             made: kept.made.clone(),
+            pins: kept.pins.clone(),
+            code: kept.code,
+            ..Held::default()
         };
     };
     let (entries, ended) = data_dir
@@ -205,6 +219,8 @@ fn read_entries(data_dir: Option<&Path>, account: &str, org: &str, kept: &KeptKe
         entries,
         ended,
         made: kept.made.clone(),
+        pins: kept.pins.clone(),
+        code: kept.code,
     }
 }
 
@@ -260,6 +276,8 @@ struct Org {
     /// or admin's host.
     openers: Option<Vec<OrgVaultHolder>>,
     remade_at: Option<String>,
+    /// What the person pastes on a computer that holds the key to let this one in.
+    code: Option<String>,
 }
 
 #[derive(Default)]
@@ -284,6 +302,15 @@ pub struct OrgVaults {
 }
 
 impl OrgVaults {
+    /// Whether this host can open the org's vault, and the code it shows while it waits.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn seen(&self, org: &str) -> (OrgVaultStatus, Option<String>) {
+        let state = self.state.locked();
+        (state.orgs.get(org)).map_or((OrgVaultStatus::Waiting, None), |org| {
+            (org.status, org.code.clone())
+        })
+    }
+
     pub fn wake(&self) {
         self.wake.notify_one();
     }
@@ -297,10 +324,6 @@ impl OrgVaults {
                     .is_some_and(|openers| !openers.is_empty())
         })
     }
-}
-
-fn wrap_context(org: &str, generation: i64, holder: &str) -> String {
-    format!("sikemux-org-vault-key|v1|{org}|{generation}|{holder}")
 }
 
 /// What a sealed entry is bound to, so the server cannot move it to another org, entry or kind,
@@ -374,15 +397,14 @@ async fn round(core: &Arc<Core>) -> CoreResult<()> {
     let Some(orgs) = account_orgs(core) else {
         return Ok(());
     };
-    let me = host.public().to_string();
-    let secret = seal::host_secret(&host);
+    let me = Me::of(&host);
     {
         let listed: BTreeSet<&str> = orgs.iter().map(|org| org.id.as_str()).collect();
         let mut state = core.vault().orgs().state.locked();
         state.orgs.retain(|id, _| listed.contains(id.as_str()));
     }
     for org in &orgs {
-        if let Err(error) = sync_org(core, org, &me, &secret).await {
+        if let Err(error) = sync_org(core, org, &me).await {
             core.vault()
                 .orgs()
                 .state
@@ -540,8 +562,8 @@ fn model_keys(held: &Held) -> impl Iterator<Item = (&String, ModelKey)> {
         .filter_map(|(id, entry)| Some((id, serde_json::from_value(entry.body.clone()).ok()?)))
 }
 
-async fn sync_org(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreResult<()> {
-    take_in(core, org, me, secret).await?;
+pub(super) async fn sync_org(core: &Core, org: &AccountOrg, me: &Me) -> CoreResult<()> {
+    take_in(core, org, me).await?;
     let orgs = core.vault().orgs();
     if (orgs.state.locked().heard).insert(org.id.clone()) {
         orgs.changed.notify_one();
@@ -585,9 +607,9 @@ async fn fetch(core: &Core, org: &str, after: Option<i64>) -> CoreResult<Option<
     Ok(Some(serde_json::from_slice(&bytes)?))
 }
 
-/// Reads one org's vault and takes in what it holds: opens its key, lets waiting hosts in,
-/// replaces the key when a host left, and opens every entry.
-async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreResult<()> {
+/// Reads one org's vault and takes in what it holds: the hosts trusted with its key and the key
+/// itself, sealed for each of them that waits and replaced when a host left, and every entry.
+async fn take_in(core: &Core, org: &AccountOrg, me: &Me) -> CoreResult<()> {
     let after = (core.vault().orgs().state.locked().orgs.get(&org.id))
         .filter(|held| held.held.key.is_some())
         .and_then(|held| held.changes);
@@ -601,7 +623,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
         core.vault().orgs().state.locked().orgs.remove(&org.id);
         return Ok(());
     };
-    let held = held(core, &org.id);
+    let mut held = held(core, &org.id);
     let Some(vault) = read.vault else {
         if held.generation > 0 {
             return Err(
@@ -618,16 +640,18 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
         )
         .into());
     }
+    held.pins.refresh(&org.id, &me.key, &vault, now());
+    if let Some(secret) = &held.code {
+        held.pins.introduced(&org.id, me, &vault, secret, now());
+        held.pins.refresh(&org.id, &me.key, &vault, now());
+    }
     let (key, failed) = match (held.key, &vault.key) {
         (Some(key), _) if held.generation == vault.generation => (Some(key), None),
-        (_, Some(wrapped)) => match open_wrap(wrapped, secret, &org.id, &vault, me) {
+        (_, Some(wrapped)) => match open_wrap(wrapped, &org.id, me, &vault, &held.pins) {
             Some(key) => (Some(key), None),
             None => (
                 None,
-                Some(
-                    "the org's key handed to this host was not sealed by one of its holders"
-                        .to_owned(),
-                ),
+                Some("a computer this one does not trust handed it the org's key".to_owned()),
             ),
         },
         (_, None) => (None, None),
@@ -635,31 +659,48 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
     let openers = (vault.holding.clone()).map(|openers| {
         openers
             .into_iter()
-            .filter(|opener| opener.host_key != me)
+            .filter(|opener| opener.host_key != me.key)
             .collect()
     });
     let remade_at = vault.remade_at.clone();
     let Some(key) = key else {
+        let held = held.let_go(vault.generation);
+        let code = held.code.as_ref().and_then(|secret| {
+            let member = *trust::listed(&vault)?.get(me.key.as_str())?;
+            Some(trust::code(&org.id, &me.key, member, secret))
+        });
         set(
             core,
             &org.id,
             Org {
-                held: held.let_go(vault.generation),
+                held,
                 status: OrgVaultStatus::Waiting,
                 holders: vault.holders.len(),
                 failed,
                 changes: None,
                 openers,
                 remade_at,
+                code,
             },
         );
         return Ok(());
     };
+    held.code = None;
+    keep_pins(core, &org.id, &held.pins);
+    add_vouches(core, org, me, &vault, &held.pins).await;
+    let sealable = sealable(&vault, &held.pins);
     // A rotation reseals every entry, so an answer at a new generation lists them all.
     let partial = vault.since.is_some() && held.generation == vault.generation;
     let mut ended = held.ended_after(&vault, partial);
     if vault.rotate && manages(org) {
-        let next = rotate(core, &org.id, me, secret, &vault, &key, ended).await?;
+        let change = Change {
+            org: &org.id,
+            me,
+            vault: &vault,
+            key: &key,
+            held: &held,
+        };
+        let next = rotate(core, &change, &sealable, ended, Vec::new()).await?;
         set(
             core,
             &org.id,
@@ -674,14 +715,13 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 changes: None,
                 openers,
                 remade_at,
+                code: None,
             },
         );
         core.vault().orgs().wake();
         return Ok(());
     }
-    if !vault.waiting.is_empty() {
-        add_keys(core, org, secret, &vault, &key).await?;
-    }
+    add_keys(core, org, me, &vault, &key, &sealable).await?;
     let mut entries = match partial {
         true => held.entries.clone(),
         false => BTreeMap::new(),
@@ -731,6 +771,8 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
                 entries,
                 ended,
                 made: remade_at.clone(),
+                pins: held.pins,
+                code: None,
             },
             status: OrgVaultStatus::Open,
             holders: vault.holders.len(),
@@ -738,6 +780,7 @@ async fn take_in(core: &Core, org: &AccountOrg, me: &str, secret: &Key) -> CoreR
             changes: Some(vault.changes),
             openers,
             remade_at,
+            code: None,
         },
     );
     Ok(())
@@ -754,18 +797,47 @@ fn held(core: &Core, org: &str) -> Held {
         .unwrap_or_default()
 }
 
-/// Opens the key wrapped for this host, taking it only from itself or a host the vault lists as
-/// holding it, so the server cannot hand over a key of its own making.
-fn open_wrap(wrapped: &str, secret: &Key, org: &str, vault: &Remote, me: &str) -> Option<Key> {
-    let context = wrap_context(org, vault.generation, me);
-    let holders = std::iter::once(me).chain(vault.holders.iter().map(String::as_str));
-    seal::unwrap_from_holder(wrapped, secret, &context, holders)
+fn now() -> i64 {
+    epoch_ms().cast_signed()
+}
+
+/// Keeps the hosts this host trusts with the org's key, before anything is sealed for them.
+fn keep_pins(core: &Core, org: &str, pins: &Pins) {
+    if let Some(org) = core.vault().orgs().state.locked().orgs.get_mut(org) {
+        org.held.pins = pins.clone();
+    }
+}
+
+/// The same, in the secret store too, so a core that stops halfway still knows.
+async fn store_pins(core: &Core, org: &str, pins: &Pins) -> CoreResult<()> {
+    keep_pins(core, org, pins);
+    let account = core.vault().orgs().state.locked().account.clone();
+    match account {
+        Some(account) => keep(core, Some(&account)).await,
+        None => Ok(()),
+    }
+}
+
+/// Opens the key wrapped for this host, taking it only from itself or a holder it trusts, so no
+/// server can hand over a key of its own making.
+fn open_wrap(wrapped: &str, org: &str, me: &Me, vault: &Remote, pins: &Pins) -> Option<Key> {
+    let context = wrap_context(org, vault.generation, &me.key);
+    let trusted = (vault.holders.iter().map(String::as_str)).filter(|host| pins.hold(host));
+    let from = std::iter::once(me.key.as_str()).chain(trusted);
+    seal::unwrap_from_holder(wrapped, &me.secret, &context, from)
 }
 
 fn set(core: &Core, org: &str, value: Org) {
     let orgs = core.vault().orgs();
     let seen = |org: &Org| (org.held.key.is_some(), org.held.entries.clone());
-    let shown = |org: &Org| (org.status, org.openers.clone(), org.remade_at.clone());
+    let shown = |org: &Org| {
+        (
+            org.status,
+            org.openers.clone(),
+            org.remade_at.clone(),
+            org.code.clone(),
+        )
+    };
     let (now, now_shown) = (seen(&value), shown(&value));
     let before = orgs.state.locked().orgs.insert(org.to_owned(), value);
     if before.as_ref().map(seen) != Some(now) {
@@ -804,83 +876,101 @@ fn seal_entry(
         .ok_or_else(|| CoreError::from("an org vault entry could not be sealed"))
 }
 
-fn wrap_for(
-    key: &Key,
-    secret: &Key,
-    org: &str,
-    generation: i64,
-    host: &str,
-) -> Option<OrgWrappedKey> {
+fn wrap_for(key: &Key, from: &Me, host: &str, context: &str) -> Option<OrgWrappedKey> {
     let public = seal::host_public(host)?;
     Some(OrgWrappedKey {
         host_key: host.to_owned(),
-        wrapped: seal::wrap_from(key, secret, &public, &wrap_context(org, generation, host))?,
+        wrapped: seal::wrap_from(key, &from.secret, &public, context)?,
     })
 }
 
-/// The account's own hosts the key is not sealed for, since the person asked this host to have
-/// each new one approved. What other members' hosts may open is the org's to say.
-async fn withheld(core: &Core) -> CoreResult<BTreeSet<String>> {
-    if !core.remote().requires_approval() {
-        return Ok(BTreeSet::new());
-    }
-    let own: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
-    Ok((own.devices.into_iter())
-        .map(|host| host.key)
-        .filter(|host| !core.remote().vault_open_to(host))
-        .collect())
+/// The hosts this host may seal the key for besides itself: those it trusts that are listed.
+fn sealable(vault: &Remote, pins: &Pins) -> BTreeSet<String> {
+    (trust::listed(vault).iter().flatten())
+        .map(|(host, _)| (*host).to_owned())
+        .filter(|host| pins.hold(host))
+        .collect()
 }
 
-/// Every host of every member gets the key: the org taking the person in is its admins
-/// letting their hosts in. A member's host lets in only its own account's hosts.
-pub(super) async fn add_keys(
+/// Signs for the hosts this host trusts where the server holds no one's vouch that counts here.
+async fn add_vouches(core: &Core, org: &AccountOrg, me: &Me, vault: &Remote, pins: &Pins) {
+    if !org.active {
+        return;
+    }
+    let missing = pins.unvouched(&org.id, me, vault, manages(org), now());
+    let path = format!("{}/vouches", vault_path(&org.id));
+    for vouches in missing.chunks(WRAPS) {
+        let put = json!(OrgVaultVouches {
+            vouches: vouches.to_vec(),
+        });
+        if let Err(error) = host_request(core, Method::PUT, &path, Some(put)).await {
+            eprintln!(
+                "sikemux core: what this host says of an org's other hosts was not kept: {error}"
+            );
+        }
+    }
+}
+
+/// Seals the key for each waiting host in `sealable`. A member's host seals it only for its own
+/// account's hosts.
+async fn add_keys(
     core: &Core,
     org: &AccountOrg,
-    secret: &Key,
+    me: &Me,
     vault: &Remote,
     key: &Key,
+    sealable: &BTreeSet<String>,
 ) -> CoreResult<()> {
-    let own = (!manages(org)).then(|| core.vault().state.locked().hosts.clone());
-    let withheld = match own {
-        Some(_) => BTreeSet::new(),
-        None => withheld(core).await?,
-    };
-    let keys: Vec<OrgWrappedKey> = vault
-        .waiting
-        .iter()
-        .filter(|host| match &own {
-            Some(own) => own.contains_key(*host) && core.remote().vault_open_to(host),
-            None => !withheld.contains(*host),
-        })
-        .filter_map(|host| wrap_for(key, secret, &org.id, vault.generation, host))
-        .collect();
-    if keys.is_empty() {
+    let Some(listed) = trust::listed(vault) else {
         return Ok(());
-    }
+    };
+    let mine = listed.get(me.key.as_str());
+    let keys: Vec<OrgWrappedKey> = (vault.waiting.iter())
+        .filter(|host| sealable.contains(*host))
+        .filter(|host| manages(org) || listed.get(host.as_str()) == mine)
+        .filter_map(|host| {
+            let context = wrap_context(&org.id, vault.generation, host);
+            wrap_for(key, me, host, &context)
+        })
+        .collect();
     let path = format!("{}/keys", vault_path(&org.id));
     for keys in keys.chunks(WRAPS) {
         let add = OrgVaultKeysAdd {
             generation: vault.generation,
             keys: keys.to_vec(),
+            vouches: None,
         };
         host_request(core, Method::PUT, &path, Some(json!(add))).await?;
     }
     Ok(())
 }
 
-/// A host that held the key left the org, so the key is replaced for the members' hosts that
-/// are left, and every entry sealed again under the new one. Past the most one request takes,
-/// the other hosts wait, and the next round lets them in.
-pub(super) async fn rotate(
+/// An org's vault as this host read it and may change it.
+struct Change<'a> {
+    org: &'a str,
+    me: &'a Me,
+    vault: &'a Remote,
+    key: &'a Key,
+    held: &'a Held,
+}
+
+/// Replaces the key for this host, those in `sealable`, and one let in with it, sealing every
+/// entry again under the new one. Past the most one request takes, the other hosts wait, and the
+/// next round seals it for them.
+async fn rotate(
     core: &Core,
-    org: &str,
-    me: &str,
-    secret: &Key,
-    vault: &Remote,
-    key: &Key,
+    change: &Change<'_>,
+    sealable: &BTreeSet<String>,
     mut ended: BTreeMap<String, i64>,
+    let_in: Vec<OrgVaultVouchPut>,
 ) -> CoreResult<Held> {
-    let held = held(core, org);
+    let Change {
+        org,
+        me,
+        vault,
+        key,
+        held,
+    } = *change;
     if let Some(stale) = vault.entries.iter().find(|entry| {
         entry.generation != vault.generation || !held.takes_entry(&ended, &entry.id, entry.revision)
     }) {
@@ -892,22 +982,13 @@ pub(super) async fn rotate(
     }
     let next = seal::random_key().ok_or_else(|| CoreError::from("no randomness for the key"))?;
     let generation = vault.generation + 1;
-    let withheld = withheld(core).await?;
-    let mut hosts: Vec<&str> = Vec::new();
-    for host in std::iter::once(me).chain(
-        vault
-            .holders
-            .iter()
-            .chain(&vault.waiting)
-            .map(String::as_str),
-    ) {
-        if !hosts.contains(&host) && !withheld.contains(host) {
-            hosts.push(host);
-        }
-    }
-    let keys = hosts
-        .iter()
-        .filter_map(|host| wrap_for(&next, secret, org, generation, host))
+    let own = std::iter::once(&me.key);
+    let first = let_in.iter().map(|vouch| &vouch.host_key);
+    let holders = vault.holders.iter().filter(|host| sealable.contains(*host));
+    let mut given = BTreeSet::new();
+    let keys = (own.chain(first).chain(holders).chain(sealable))
+        .filter(|host| given.insert(*host))
+        .filter_map(|host| wrap_for(&next, me, host, &wrap_context(org, generation, host)))
         .take(WRAPS)
         .collect();
     let mut entries = Vec::new();
@@ -942,6 +1023,7 @@ pub(super) async fn rotate(
         from: vault.generation,
         keys,
         entries,
+        vouches: Some(let_in).filter(|vouches| !vouches.is_empty()),
     };
     let path = format!("{}/rotate", vault_path(org));
     host_request(core, Method::POST, &path, Some(json!(rotate))).await?;
@@ -951,21 +1033,19 @@ pub(super) async fn rotate(
         key: Some(next),
         entries: opened,
         ended,
-        made: held.made,
+        made: held.made.clone(),
+        pins: held.pins.clone(),
+        code: None,
     })
 }
 
-/// The org, when this host's account is an owner or admin there and its plan is paid, with this
-/// host's key and secret.
-fn managed(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, String, Key)> {
+/// The org, while its plan is paid, and this host.
+fn joined(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Me)> {
     let org = account_orgs(core)
         .unwrap_or_default()
         .into_iter()
         .find(|org| org.id == org_id)
         .ok_or_else(|| CoreError::from("The account is not in that org"))?;
-    if !manages(&org) {
-        return Err(format!("Only {}'s owners and admins change its vault", org.name).into());
-    }
     if !org.active {
         return Err(format!(
             "{}'s Team plan has lapsed, so its vault is frozen",
@@ -977,25 +1057,135 @@ fn managed(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, String, Key)> {
         .remote()
         .host_key()
         .ok_or_else(|| CoreError::from("this host is not signed in"))?;
-    Ok((org, host.public().to_string(), seal::host_secret(&host)))
+    Ok((org, Me::of(&host)))
+}
+
+/// The same, when this host's account is an owner or admin there.
+fn managed(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Me)> {
+    let (org, me) = joined(core, org_id)?;
+    match manages(&org) {
+        true => Ok((org, me)),
+        false => Err(format!("Only {}'s owners and admins change its vault", org.name).into()),
+    }
+}
+
+/// Lets in the host that shows `code`: seals the key for it, and vouches for it to every other.
+pub async fn let_in(core: &Arc<Core>, params: OrgLetIn) -> CoreResult<()> {
+    let _busy = core.vault().orgs().busy.lock().await;
+    let (org, me) = joined(core, &params.org)?;
+    let_in_to(core, &org, &me, &params.code).await?;
+    settle(core).await
+}
+
+pub(super) async fn let_in_to(
+    core: &Core,
+    org: &AccountOrg,
+    me: &Me,
+    code: &str,
+) -> CoreResult<()> {
+    let code = trust::Code::read(code)
+        .ok_or_else(|| CoreError::from("That is not a whole code. Copy it again"))?;
+    sync_org(core, org, me).await?;
+    let mut held = held(core, &org.id);
+    let vault = (fetch(core, &org.id, None).await?).and_then(|read| read.vault);
+    let (Some(key), Some(vault)) = (
+        held.key,
+        vault.filter(|vault| vault.generation == held.generation),
+    ) else {
+        return Err(format!("This computer does not hold {}'s key", org.name).into());
+    };
+    held.pins.refresh(&org.id, &me.key, &vault, now());
+    let listed = trust::listed(&vault).unwrap_or_default();
+    let (host, member) = listed
+        .iter()
+        .map(|(host, member)| (*host, *member))
+        .find(|(host, member)| code.names(&org.id, host, member))
+        .ok_or_else(|| {
+            CoreError::from(format!(
+                "No computer of {}'s members shows that code now. Copy it again",
+                org.name
+            ))
+        })?;
+    if host == me.key {
+        return Err("That is this computer's own code".into());
+    }
+    if !manages(org) && listed.get(me.key.as_str()) != Some(&member) {
+        return Err(format!(
+            "That computer is another member's. Ask one of {}'s owners or admins to let it in",
+            org.name
+        )
+        .into());
+    }
+    let sealed = vault.holders.iter().any(|holder| holder == host);
+    let at = held.pins.let_in(host, member, now());
+    let introduction = trust::introduce(
+        &org.id,
+        me,
+        &vault,
+        &held.pins,
+        (host, member),
+        at,
+        &code.secret,
+    )
+    .ok_or_else(|| CoreError::from("this host's word could not be signed"))?;
+    store_pins(core, &org.id, &held.pins).await?;
+    if sealed && manages(org) {
+        let sealable = sealable(&vault, &held.pins);
+        let change = Change {
+            org: &org.id,
+            me,
+            vault: &vault,
+            key: &key,
+            held: &held,
+        };
+        let ended = held.ended_after(&vault, false);
+        let next = rotate(core, &change, &sealable, ended, vec![introduction]).await?;
+        set(
+            core,
+            &org.id,
+            Org {
+                held: next,
+                status: OrgVaultStatus::Open,
+                holders: vault.holders.len(),
+                remade_at: vault.remade_at.clone(),
+                ..Org::default()
+            },
+        );
+        return Ok(());
+    }
+    if sealed {
+        let path = format!("{}/vouches", vault_path(&org.id));
+        let put = json!(OrgVaultVouches {
+            vouches: vec![introduction],
+        });
+        host_request(core, Method::PUT, &path, Some(put)).await?;
+        return Ok(());
+    }
+    let context = wrap_context(&org.id, vault.generation, host);
+    let wrap = wrap_for(&key, me, host, &context)
+        .ok_or_else(|| CoreError::from("the org's key could not be sealed for that computer"))?;
+    let add = OrgVaultKeysAdd {
+        generation: vault.generation,
+        keys: vec![wrap],
+        vouches: Some(vec![introduction]),
+    };
+    let path = format!("{}/keys", vault_path(&org.id));
+    host_request(core, Method::PUT, &path, Some(json!(add))).await?;
+    Ok(())
 }
 
 /// The org's vault open on this host, made first when it has none, for an owner or admin to
 /// write to.
 async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
-    let (org, me, secret) = managed(core, org_id)?;
-    sync_org(core, &org, &me, &secret).await?;
+    let (org, me) = managed(core, org_id)?;
+    sync_org(core, &org, &me).await?;
     let status = org_status(core, org_id);
     if status == OrgVaultStatus::Unmade {
         let key = seal::random_key().ok_or_else(|| CoreError::from("no randomness for the key"))?;
         let create = OrgVaultCreate {
-            key: seal::wrap_from(
-                &key,
-                &secret,
-                &seal::public_of(&secret),
-                &wrap_context(org_id, 1, &me),
-            )
-            .ok_or_else(|| CoreError::from("the org's key could not be wrapped"))?,
+            key: wrap_for(&key, &me, &me.key, &wrap_context(org_id, 1, &me.key))
+                .map(|wrap| wrap.wrapped)
+                .ok_or_else(|| CoreError::from("the org's key could not be wrapped"))?,
         };
         host_request(core, Method::POST, &vault_path(org_id), Some(json!(create))).await?;
         set(
@@ -1005,9 +1195,7 @@ async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
                 held: Held {
                     generation: 1,
                     key: Some(key),
-                    entries: BTreeMap::new(),
-                    ended: BTreeMap::new(),
-                    made: None,
+                    ..Held::default()
                 },
                 status: OrgVaultStatus::Open,
                 holders: 1,
@@ -1026,7 +1214,7 @@ async fn writable(core: &Core, org_id: &str) -> CoreResult<(AccountOrg, Held)> {
         .map(|held| held.held.clone())
         .ok_or_else(|| {
             CoreError::from(format!(
-                "This computer does not hold {}'s key yet; another of its admins' computers lets it in when it next runs",
+                "This computer does not hold {}'s key yet. Paste its code on a computer that does",
                 org.name
             ))
         })?;
@@ -1128,8 +1316,8 @@ pub async fn remove_entry(core: &Arc<Core>, params: OrgEntryParams) -> CoreResul
 /// can open it: none holds the key, or none that would let this one in is online.
 pub async fn remake(core: &Arc<Core>, params: OrgParams) -> CoreResult<()> {
     let _busy = core.vault().orgs().busy.lock().await;
-    let (org, me, secret) = managed(core, &params.org)?;
-    sync_org(core, &org, &me, &secret).await?;
+    let (org, me) = managed(core, &params.org)?;
+    sync_org(core, &org, &me).await?;
     let held = core
         .vault()
         .orgs()
@@ -1155,7 +1343,7 @@ pub async fn remake(core: &Arc<Core>, params: OrgParams) -> CoreResult<()> {
     };
     if let Some(opener) = openers.iter().find(|opener| opener.online) {
         return Err(format!(
-            "{} holds {}'s key and is online now. It lets this computer in by itself; make the vault again only once no computer that holds it is left",
+            "{} holds {}'s key and is online now. Paste this computer's code there; make the vault again only once no computer that holds it is left",
             opener.computer, org.name
         )
         .into());
@@ -1164,15 +1352,18 @@ pub async fn remake(core: &Arc<Core>, params: OrgParams) -> CoreResult<()> {
     let generation = held.held.generation + 1;
     let remake = OrgVaultRemake {
         from: held.held.generation,
-        key: seal::wrap_from(
+        key: wrap_for(
             &key,
-            &secret,
-            &seal::public_of(&secret),
-            &wrap_context(&org.id, generation, &me),
+            &me,
+            &me.key,
+            &wrap_context(&org.id, generation, &me.key),
         )
+        .map(|wrap| wrap.wrapped)
         .ok_or_else(|| CoreError::from("the org's key could not be wrapped"))?,
     };
     let path = format!("{}/remake", vault_path(&org.id));
+    let pins = held.held.pins.cleared(now());
+    store_pins(core, &org.id, &pins).await?;
     let answer = host_request(core, Method::POST, &path, Some(json!(remake))).await?;
     let made = (answer.json::<OrgVaultState>().await.ok())
         .and_then(|state| state.vault)
@@ -1185,9 +1376,9 @@ pub async fn remake(core: &Arc<Core>, params: OrgParams) -> CoreResult<()> {
                 held: Held {
                     generation,
                     key: Some(key),
-                    entries: BTreeMap::new(),
-                    ended: BTreeMap::new(),
                     made,
+                    pins,
+                    ..Held::default()
                 },
                 status: OrgVaultStatus::Open,
                 holders: 1,
@@ -1257,6 +1448,7 @@ pub fn shown(core: &Core) -> Vec<ShownOrgVault> {
                 openers,
                 remade_at: (held.remade_at.as_deref())
                     .and_then(crate::accounts::live::parse_rfc3339),
+                code: held.code,
             }
         })
         .collect()
@@ -1450,8 +1642,7 @@ pub async fn put_project(
         .find(|known| known.id == org)
     {
         if let Some(host) = core.remote().host_key() {
-            let me = host.public().to_string();
-            sync_org(core, &known, &me, &seal::host_secret(&host)).await?;
+            sync_org(core, &known, &Me::of(&host)).await?;
         }
     }
     Ok(outcome)

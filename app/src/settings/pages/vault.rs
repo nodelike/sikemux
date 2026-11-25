@@ -173,7 +173,7 @@ fn recover(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbenc
     .detach();
 }
 
-fn key_box(text: &str, cx: &App) -> AnyElement {
+pub(super) fn key_box(text: &str, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     div()
         .px(SPACE_3)

@@ -109,7 +109,10 @@ async function holdsKey(db: Kysely<Tables>, orgId: string, userId: string) {
   );
 }
 
-/** The members' hosts that may hold the org's key, or already do, so closing vaults ends no one's. */
+/**
+ * The members' hosts that may hold the org's key, hold it, or were let in, so closing vaults ends
+ * no one's.
+ */
 export function memberHosts(db: Kysely<Tables>, orgId: string) {
   return db
     .selectFrom("devices")
@@ -119,6 +122,7 @@ export function memberHosts(db: Kysely<Tables>, orgId: string) {
       "devices.key",
       "devices.name",
       "devices.user_id",
+      "org_users.id as member",
       "devices.last_seen_at",
       "org_users.role",
     ])
@@ -134,12 +138,20 @@ export function memberHosts(db: Kysely<Tables>, orgId: string) {
             .where("org_id", "=", orgId)
             .whereRef("host_key", "=", "devices.key"),
         ),
+        eb.exists(
+          eb
+            .selectFrom("org_vault_vouches")
+            .select("host_key")
+            .where("org_id", "=", orgId)
+            .whereRef("host_key", "=", "devices.key")
+            .whereRef("member", "=", "org_users.id"),
+        ),
       ]),
     );
 }
 
-/** Whether `hostKey`'s wrap among `wraps` opens: sealed by itself, or by another holder. */
-export function opensOwnWrap(
+/** Whether `hostKey`'s wrap among `wraps` may open: sealed by itself, or by another holder. */
+function mayOpenOwnWrap(
   hostKey: string,
   wraps: { host_key: string; wrapped_by: string }[],
 ): boolean {
@@ -177,7 +189,7 @@ export async function orgVaultState(
   if (!vault) return { vault: null };
   const changes = Number(vault.changes);
   const since = after !== undefined && after <= changes ? after : null;
-  const [keys, hosts, entries, ended] = await Promise.all([
+  const [keys, hosts, vouches, entries, ended] = await Promise.all([
     db
       .selectFrom("org_vault_keys")
       .select(["host_key", "generation", "wrapped", "wrapped_by"])
@@ -188,6 +200,22 @@ export async function orgVaultState(
     memberHosts(db, orgId)
       .orderBy("devices.created_at")
       .orderBy("devices.key")
+      .execute(),
+    db
+      .selectFrom("org_vault_vouches")
+      .select(["host_key", "member", "by_key", "by_member", "at", "signature"])
+      .select((eb) =>
+        eb
+          .case()
+          .when("host_key", "=", hostKey)
+          .then(eb.ref("introduction"))
+          .else(null)
+          .end()
+          .as("introduction"),
+      )
+      .where("org_id", "=", orgId)
+      .orderBy("host_key")
+      .orderBy("by_key")
       .execute(),
     db
       .selectFrom("org_vault_entries")
@@ -205,15 +233,21 @@ export async function orgVaultState(
       .orderBy("id")
       .execute(),
   ]);
-  const members = new Set(hosts.map((host) => host.key));
+  const members = new Map(hosts.map((host) => [host.key, host.member]));
   const current = keys.filter(
     (key) => key.generation === vault.generation && members.has(key.host_key),
   );
   const holders = new Set(current.map((key) => key.host_key));
   const own = current.find((key) => key.host_key === hostKey);
   const key = own?.wrapped ?? null;
+  // A host that opened the key reads only what changed. A full read is from one that may not have,
+  // as a host takes the key only from hosts it trusts, which nothing here says.
+  const opens =
+    since === null
+      ? own?.wrapped_by === hostKey
+      : mayOpenOwnWrap(hostKey, current);
   const holding =
-    role === "user" || opensOwnWrap(hostKey, current)
+    role === "user" || opens
       ? null
       : hosts.filter(
           (host) =>
@@ -229,7 +263,7 @@ export async function orgVaultState(
     generation: vault.generation,
     key,
     holders: [...holders],
-    waiting: [...members].filter((key) => !holders.has(key)),
+    waiting: [...members.keys()].filter((key) => !holders.has(key)),
     rotate: keys.some((key) => !members.has(key.host_key)),
     ...(holding && {
       holding: holding.map((host) => ({
@@ -247,6 +281,20 @@ export async function orgVaultState(
     ended,
     changes,
     since,
+    hosts: hosts.map((host) => ({ hostKey: host.key, member: host.member })),
+    vouches: vouches
+      .filter((vouch) => members.get(vouch.host_key) === vouch.member)
+      .map((vouch) => ({
+        hostKey: vouch.host_key,
+        member: vouch.member,
+        by: vouch.by_key,
+        byMember: vouch.by_member,
+        at: Number(vouch.at),
+        signature: vouch.signature,
+        ...(vouch.introduction !== null && {
+          introduction: vouch.introduction,
+        }),
+      })),
   };
   return { vault: state };
 }

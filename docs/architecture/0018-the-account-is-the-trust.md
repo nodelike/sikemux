@@ -50,7 +50,9 @@ for whoever is signed in to the GitHub account.
   and four at a time, and after a no it does not ask by itself again. Their yes is kept on the
   host, beside its links, and goes when the host is removed or this one leaves the account. Hosts
   already linked when the lock goes on count as let in. The lock is each host's own: a vault key
-  can still reach a new host from another host on the account that has no lock.
+  can still reach a new host from another host on the account that has no lock. An org's vault
+  takes no notice of it and always asks
+  ([ADR 0026](./0026-an-org-has-a-vault-of-its-own.md)).
 - **Hosts are one group in the rail.** The rail's SSH group becomes Hosts: this host, every host
   on the account, and each SSH host while the person has it open, one row each, with its state,
   and the account's host matched to its SSH entry when one installed the other. Any host in

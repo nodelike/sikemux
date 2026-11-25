@@ -84,6 +84,7 @@ import type {
   OrgVaultRemake,
   OrgVaultRotate,
   OrgVaultState,
+  OrgVaultVouches,
   PaddleCheckout,
   PageShareState,
   PeerTicket,
@@ -544,6 +545,13 @@ export function apiClient(send: Send) {
       send<OrgVaultState>(
         "PUT",
         `/v1/orgs/${encodeURIComponent(orgId)}/vault/keys`,
+        body,
+      ),
+    /** Vouch for other members' hosts, as a host holding the org's key. */
+    putOrgVaultVouches: (orgId: string, body: OrgVaultVouches) =>
+      send<OrgVaultState>(
+        "PUT",
+        `/v1/orgs/${encodeURIComponent(orgId)}/vault/vouches`,
         body,
       ),
     /** Replace the org's key, as an owner's or admin's host, sealing every entry again under the new one. */

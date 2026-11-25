@@ -23,6 +23,7 @@ import {
   type Asker,
 } from "./change.ts";
 import { allowPut } from "./projects.ts";
+import { putOrgVouches } from "./vouches.ts";
 import { memberOf, NOT_IN_ORG, orgVaultState, type Member } from "./state.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -34,6 +35,8 @@ const CHANGES = /^(0|[1-9][0-9]{0,14})$/;
 const SEALED_BYTES = 87_400 + 256;
 /** The most one wrapped key takes in a body, with its host's key and the field names. */
 const WRAP_BYTES = 256 + 128;
+/** The most one vouch takes in a body. */
+const VOUCH_BYTES = 180_000 + 512;
 
 type Need = "member" | "paid member" | "manager" | "paid manager";
 
@@ -154,28 +157,44 @@ export function orgVaultRoutes({
     )
     .put(
       "/keys",
-      limitBody<AuthEnv>(501 * WRAP_BYTES),
+      limitBody<AuthEnv>(501 * WRAP_BYTES + 8 * VOUCH_BYTES),
       asHost,
       perUser(limiter, "org-vault-keys", 60),
       async (c) => {
         const body = await readBody(c, "OrgVaultKeysAdd");
         return c.json(
           await changed(c, "member", (trx, who, member) =>
-            addOrgKeys(trx, who, member.role, body),
+            addOrgKeys(trx, who, member, body),
+          ),
+        );
+      },
+    )
+    .put(
+      "/vouches",
+      limitBody<AuthEnv>(16 * VOUCH_BYTES),
+      asHost,
+      perUser(limiter, "org-vault-vouches", 60),
+      async (c) => {
+        const body = await readBody(c, "OrgVaultVouches");
+        return c.json(
+          await changed(c, "member", (trx, who, member) =>
+            putOrgVouches(trx, who, member, body),
           ),
         );
       },
     )
     .post(
       "/rotate",
-      limitBody<AuthEnv>(501 * WRAP_BYTES + 501 * SEALED_BYTES),
+      limitBody<AuthEnv>(
+        501 * WRAP_BYTES + 501 * SEALED_BYTES + 8 * VOUCH_BYTES,
+      ),
       asHost,
       perUser(limiter, "org-vault-rotate", 10),
       async (c) => {
         const body = await readBody(c, "OrgVaultRotate");
         return c.json(
-          await changed(c, "manager", (trx, who) =>
-            rotateOrgVault(trx, who, body),
+          await changed(c, "manager", (trx, who, member) =>
+            rotateOrgVault(trx, who, member, body),
           ),
         );
       },

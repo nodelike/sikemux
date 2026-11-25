@@ -5,8 +5,8 @@
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, AppContext, Context, Entity, IntoElement, ParentElement,
-    SharedString, Styled, Subscription, Window,
+    div, px, AnyElement, App, AppContext, ClipboardItem, Context, Entity, IntoElement,
+    ParentElement, SharedString, Styled, Subscription, Window,
 };
 
 use serde::de::DeserializeOwned;
@@ -22,8 +22,8 @@ use sikemux_calls::model_providers::ModelProvider;
 use sikemux_calls::model_providers::ProviderParams;
 use sikemux_calls::params::NoParams;
 use sikemux_calls::vault::{
-    OrgEntryParams, OrgModelKeyAdd, OrgParams, OrgVaultStatus, ShownOrgModelKey, ShownOrgOpener,
-    ShownOrgVault,
+    OrgEntryParams, OrgLetIn, OrgModelKeyAdd, OrgParams, OrgVaultStatus, ShownOrgModelKey,
+    ShownOrgOpener, ShownOrgVault,
 };
 use sikemux_calls::Call;
 
@@ -66,6 +66,9 @@ pub struct Fields {
     orgs: Vec<ShownOrgVault>,
     /// The org a key is being added for, while its provider and key are being chosen.
     org_adding: Option<OrgAdding>,
+    /// The org a host is being let in to, while its code is being pasted into `code`.
+    org_letting: Option<String>,
+    code: Entity<InputState>,
     helper: Option<Helper>,
     /// The provider whose key is being typed into `key`.
     editing: Option<String>,
@@ -93,6 +96,9 @@ impl Fields {
                 .placeholder(t!("Paste the API key or its op:// reference"))
                 .masked(true)
         });
+        let code = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(t!("Paste the code the other host shows"))
+        });
         let helper_model = cx.new(|cx| InputState::new(window, cx));
         let entering = vec![
             super::super::follow_typing(bench, &key, cx),
@@ -102,6 +108,12 @@ impl Fields {
                         true => add_org_key(bench, cx),
                         false => connect(bench, cx),
                     }
+                }
+            }),
+            super::super::follow_typing(bench, &code, cx),
+            cx.subscribe(&code, |bench, _, event: &InputEvent, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    let_host_in(bench, cx);
                 }
             }),
             cx.subscribe(&helper_model, |bench, model, event: &InputEvent, cx| {
@@ -115,6 +127,8 @@ impl Fields {
             providers: Vec::new(),
             orgs: Vec::new(),
             org_adding: None,
+            org_letting: None,
+            code,
             helper: None,
             editing: None,
             key,
@@ -174,6 +188,20 @@ fn change<C: Call + 'static>(
     C::Params: Serialize,
     C::Answer: DeserializeOwned + 'static,
 {
+    change_then::<C>(bench, id, params, cx, |_, _| ());
+}
+
+/// As `change`, running `then` once it went through.
+fn change_then<C: Call + 'static>(
+    bench: &mut Workbench,
+    id: String,
+    params: C::Params,
+    cx: &mut Context<Workbench>,
+    then: impl FnOnce(&mut Workbench, &mut Context<Workbench>) + 'static,
+) where
+    C::Params: Serialize,
+    C::Answer: DeserializeOwned + 'static,
+{
     change_fields(bench, cx, |fields, _| {
         fields.busy = Some(id.clone());
         fields.failure = None;
@@ -182,16 +210,21 @@ fn change<C: Call + 'static>(
     cx.spawn(async move |bench, cx| {
         let answer = asked.await;
         let _ = bench.update(cx, |bench, cx| {
+            let went = answer.is_ok();
             change_fields(bench, cx, |fields, _| {
                 fields.busy = None;
                 match answer {
                     Ok(_) => {
                         fields.editing = None;
                         fields.org_adding = None;
+                        fields.org_letting = None;
                     }
                     Err(message) => fields.failure = Some((id, message)),
                 }
             });
+            if went {
+                then(bench, cx);
+            }
             read(bench, cx);
         });
     })
@@ -217,6 +250,7 @@ fn edit(
     change_fields(bench, cx, |fields, cx| {
         fields.editing = id;
         fields.org_adding = None;
+        fields.org_letting = None;
         fields.failure = None;
         fields.key.update(cx, |key, cx| {
             key.set_value("", window, cx);
@@ -690,6 +724,7 @@ fn start_org_add(
     change_fields(bench, cx, |fields, cx| {
         fields.editing = None;
         fields.failure = None;
+        fields.org_letting = None;
         fields.org_adding = Some(OrgAdding {
             org,
             picked: offered
@@ -817,19 +852,190 @@ fn org_add_row(vault: &ShownOrgVault, kind: Kind, this: &Entity<Workbench>) -> A
         .into_any_element()
 }
 
-fn close_org_add(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+fn start_let_in(
+    bench: &mut Workbench,
+    org: String,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    change_fields(bench, cx, |fields, cx| {
+        fields.editing = None;
+        fields.failure = None;
+        fields.org_adding = None;
+        fields.org_letting = Some(org);
+        fields.code.update(cx, |code, cx| {
+            code.set_value("", window, cx);
+            code.focus(window, cx);
+        });
+    });
+}
+
+fn let_host_in(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let Some((params, name)) = fields(bench, cx).and_then(|fields| {
+        let org = fields.org_letting.clone()?;
+        let code = fields.code.read(cx).value().trim().to_owned();
+        let vault = fields.orgs.iter().find(|vault| vault.org == org)?;
+        let name = vault.name.clone();
+        Some((OrgLetIn { org, code }, name)).filter(|(params, _)| !params.code.is_empty())
+    }) else {
+        return;
+    };
+    let id = let_in_id(&params.org);
+    change_then::<call::OrgVaultLetIn>(bench, id, params, cx, move |bench, cx| {
+        let said = t!("Let in. {org}'s vault opens there shortly.", org = name);
+        bench.notify(crate::toast::success(said), cx);
+    });
+}
+
+fn let_in_id(org: &str) -> String {
+    format!("org-let-in-{org}")
+}
+
+/// Lets another host in to an org's vault from this one, which holds it.
+fn let_in_row(vault: &ShownOrgVault, this: &Entity<Workbench>, cx: &App) -> AnyElement {
+    let about = match vault.writes {
+        true => t!(
+            "Paste the code that a host waiting for {org}'s vault shows.",
+            org = vault.name
+        ),
+        false => t!(
+            "Paste the code that another of your hosts shows while it waits for {org}'s vault.",
+            org = vault.name
+        ),
+    };
+    let org = vault.org.clone();
+    let controls = button(
+        let_in_id(&vault.org),
+        t!("Let in…"),
+        ui::Variant::Outline,
+        false,
+        this,
+        move |bench, window, cx| start_let_in(bench, org.clone(), window, cx),
+    );
+    row(
+        t!("Let a host in").to_owned(),
+        Some(lines(vec![about], false, cx)),
+        controls,
+        Tokens::get(cx),
+    )
+}
+
+/// What this host shows while it waits, to be pasted on a host that holds the vault.
+fn code_row(vault: &ShownOrgVault, code: &str, this: &Entity<Workbench>, cx: &App) -> AnyElement {
+    let copied = code.to_owned();
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .px(SPACE_4)
+        .pb(SPACE_2H)
+        .child(super::super::vault::key_box(code, cx))
+        .child(button(
+            format!("org-code-copy-{}", vault.org),
+            t!("Copy"),
+            ui::Variant::Outline,
+            false,
+            this,
+            move |bench, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
+                bench.notify(crate::toast::success(t!("Copied")), cx);
+            },
+        ))
+        .into_any_element()
+}
+
+fn close_org_dialog(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     change_fields(bench, cx, |fields, _| {
         fields.org_adding = None;
+        fields.org_letting = None;
         fields.failure = None;
     });
 }
 
-/// The box that adds a key to an org's vault, while one is being added.
+/// The box that adds a key to an org's vault or lets a host in to it, while either is under way.
 pub(super) fn org_dialog(
     bench: &Workbench,
     this: &Entity<Workbench>,
     cx: &mut App,
 ) -> Option<AnyElement> {
+    let (screen, answer) = match let_in_screen(bench, this, cx) {
+        Some(screen) => (
+            screen,
+            let_host_in as fn(&mut Workbench, &mut Context<Workbench>),
+        ),
+        None => (key_add_screen(bench, this, cx)?, add_org_key as _),
+    };
+    let screen = screen.child(sign_in::links().child(
+        sign_in::link("org-dialog-cancel", t!("Cancel"), cx).clicks({
+            let this = this.clone();
+            move |_, _, cx| this.update(cx, close_org_dialog)
+        }),
+    ));
+    let (answering, closing) = (this.clone(), this.clone());
+    let yes: ui::dialog::Answer = std::rc::Rc::new(move |_, cx| answering.update(cx, answer));
+    let no: ui::dialog::Answer =
+        std::rc::Rc::new(move |_, cx| closing.update(cx, close_org_dialog));
+    let body = div().px(px(4.)).pt(px(4.)).child(screen);
+    Some(ui::dialog::floating(px(440.), body, yes, no).into_any_element())
+}
+
+fn let_in_screen(
+    bench: &Workbench,
+    this: &Entity<Workbench>,
+    cx: &mut App,
+) -> Option<sign_in::Screen> {
+    let fields = fields(bench, cx)?;
+    let org = fields.org_letting.as_ref()?;
+    let vault = fields.orgs.iter().find(|vault| vault.org == *org)?;
+    let id = let_in_id(org);
+    let busy = fields.busy.as_deref() == Some(id.as_str());
+    let failed = (fields.failure.as_ref())
+        .filter(|(at, _)| *at == id)
+        .map(|(_, message)| sign_in::error(message.clone(), cx));
+    let empty = fields.code.read(cx).value().trim().is_empty();
+    let lede = match vault.writes {
+        true => t!(
+            "Only paste a code you copied yourself, or that a member of {org} gave you directly. The host it names can then read every key in the vault.",
+            org = vault.name
+        ),
+        false => t!(
+            "Only paste a code you copied from another of your hosts. The host it names can then read every key in {org}'s vault.",
+            org = vault.name
+        ),
+    };
+    let screen = sign_in::Screen::new(
+        "org-let-in",
+        ui::org_mark(&vault.name, &vault.org, 26.).into_any_element(),
+        t!("Let a host in to {org}'s vault", org = vault.name),
+    )
+    .lede(lede)
+    .child(sign_in::Field::new(t!("Code"), &fields.code).mono())
+    .children(failed)
+    .child(
+        ui::Button::new(
+            "org-let-in-go",
+            if busy {
+                t!("Letting in…")
+            } else {
+                t!("Let in")
+            },
+            ui::Variant::Primary,
+        )
+        .wide()
+        .disabled(busy || empty)
+        .on_click({
+            let this = this.clone();
+            move |_, _, cx| this.update(cx, let_host_in)
+        }),
+    );
+    Some(screen)
+}
+
+fn key_add_screen(
+    bench: &Workbench,
+    this: &Entity<Workbench>,
+    cx: &mut App,
+) -> Option<sign_in::Screen> {
     let fields = fields(bench, cx)?;
     let adding = fields.org_adding.as_ref()?;
     let vault = (fields.orgs.iter()).find(|vault| vault.org == adding.org)?;
@@ -897,18 +1103,8 @@ pub(super) fn org_dialog(
             let this = this.clone();
             move |_, _, cx| this.update(cx, add_org_key)
         }),
-    )
-    .child(
-        sign_in::links().child(sign_in::link("org-key-cancel", t!("Cancel"), cx).clicks({
-            let this = this.clone();
-            move |_, _, cx| this.update(cx, close_org_add)
-        })),
     );
-    let (adds, closing) = (this.clone(), this.clone());
-    let yes: ui::dialog::Answer = std::rc::Rc::new(move |_, cx| adds.update(cx, add_org_key));
-    let no: ui::dialog::Answer = std::rc::Rc::new(move |_, cx| closing.update(cx, close_org_add));
-    let body = div().px(px(4.)).pt(px(4.)).child(screen);
-    Some(ui::dialog::floating(px(440.), body, yes, no).into_any_element())
+    Some(screen)
 }
 
 /// A group's name in spaced capitals over its card, after the org's mark when it is an org's.
@@ -937,8 +1133,8 @@ fn grouped(
         .into_any_element()
 }
 
-/// An org's keys of `kind`, while there are any to show or its admin may add one. Its API
-/// group also says when the vault is shut here or was just made again, and who could open it.
+/// An org's keys of `kind`, while there are any to show or its admin may add one. Its API group
+/// also says when the vault is shut here or was just made again, and lets another host in.
 fn org_group(
     bench: &Workbench,
     fields: &Fields,
@@ -955,7 +1151,8 @@ fn org_group(
     let adds = vault.writes && vault.status != OrgVaultStatus::Waiting;
     let remade =
         (vault.remade_at).filter(|at| states && !waiting && now_ms().saturating_sub(*at) < WEEK_MS);
-    if keys.is_empty() && !waiting && !adds {
+    let lets_in = states && vault.active && vault.status == OrgVaultStatus::Open;
+    if keys.is_empty() && !waiting && !adds && !lets_in {
         return None;
     }
     let sub = match (vault.active, vault.writes) {
@@ -978,14 +1175,14 @@ fn org_group(
             .py(SPACE_2H)
             .child(lines(words, failed, cx))
     };
-    let shut = match vault.writes && !vault.openers.is_empty() {
-        true => t!("Not open on this host yet. It opens with every key kept once one of these hosts is online.").to_owned(),
-        false if vault.writes => t!(
-            "Not open on this host yet. It opens once one of your hosts that has it, or a host of one of {org}'s owners or admins, is online.",
+    let shut = match vault.writes {
+        true if vault.openers.is_empty() => t!(
+            "Not open on this host yet. Paste this code under Let a host in on one of your hosts that has it, or give it privately to another of {org}'s owners or admins to paste.",
             org = vault.name
         ),
+        true => t!("Not open on this host yet. Paste this code under Let a host in on one of these hosts, and it opens with every key kept. If that's someone else's, give them the code privately.").to_owned(),
         false => t!(
-            "Not open on this host yet. It opens by itself once a host of one of {org}'s owners or admins is online. There's nothing to do here. If it stays shut, an owner or admin can make it again.",
+            "Not open on this host yet. Paste this code under Let a host in on another of your hosts that has it, or give it privately to one of {org}'s owners or admins to paste.",
             org = vault.name
         ),
     };
@@ -1003,6 +1200,11 @@ fn org_group(
     let remaking = waiting && vault.writes;
     let body = div()
         .when(waiting, |body| body.child(note(vec![shut], false)))
+        .children(
+            (vault.code.as_deref())
+                .filter(|_| waiting)
+                .map(|code| code_row(vault, code, this, cx)),
+        )
         .children(after.map(|after| note(vec![after], false)))
         .children(vault.failed.clone().map(|failed| note(vec![failed], true)))
         .when(remaking, |body| {
@@ -1013,6 +1215,7 @@ fn org_group(
             keys.iter()
                 .map(|key| org_key_row(bench, fields, vault, key, this, cx)),
         )
+        .when(lets_in, |body| body.child(let_in_row(vault, this, cx)))
         .when(adds, |body| body.child(org_add_row(vault, kind, this)));
     let card = rows::section("", None, Some(sub.into()), false, body, cx);
     let mark = ui::org_mark(&vault.name, &vault.org, 14.).into_any_element();
@@ -1051,8 +1254,8 @@ fn opener_row(opener: &ShownOrgOpener, cx: &App) -> AnyElement {
         (false, None, _) => None,
     };
     let seen = match (opener.online, opener.last_online, whose.is_some()) {
-        (true, _, true) => t!("online now, the vault opens here shortly").to_owned(),
-        (true, _, false) => t!("Online now, the vault opens here shortly").to_owned(),
+        (true, _, true) => t!("online now").to_owned(),
+        (true, _, false) => t!("Online now").to_owned(),
         (false, Some(at), true) => t!("last online {ago}", ago = when(at)),
         (false, Some(at), false) => t!("Last online {ago}", ago = when(at)),
         (false, None, true) => t!("not online since it was linked").to_owned(),
@@ -1091,7 +1294,7 @@ fn remake_row(
     let online = vault.openers.iter().find(|opener| opener.online);
     let about = vec![match (online, vault.openers.is_empty()) {
         (Some(opener), _) => t!(
-            "{host} is online, so the vault opens here shortly with nothing lost.",
+            "{host} is online. Paste this host's code there and nothing is lost.",
             host = opener.host
         ),
         (None, false) => t!("Only if none of these hosts is coming back.").to_owned(),
@@ -1151,16 +1354,16 @@ fn remake_row(
     )
 }
 
-/// What making the vault again costs, naming the host whose waking would spare it.
+/// What making the vault again costs, naming the host that could spare it.
 fn remake_said(wake: Option<&(String, Option<u64>)>, hosts: &[String]) -> String {
     let wake = wake.map(|(host, seen)| match seen {
         Some(at) => t!(
-            "Do this only if no host that has it is coming back. Waking {host}, last online {ago}, opens the vault here with nothing lost.",
+            "Do this only if no host that has it is coming back. Pasting this host's code on {host}, last online {ago}, opens the vault here with nothing lost.",
             host = host,
             ago = when(*at)
         ),
         None => t!(
-            "Do this only if no host that has it is coming back. Waking {host} opens the vault here with nothing lost.",
+            "Do this only if no host that has it is coming back. Pasting this host's code on {host} opens the vault here with nothing lost.",
             host = host
         ),
     });

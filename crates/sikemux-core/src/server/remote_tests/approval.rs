@@ -7,11 +7,9 @@ use std::time::Duration;
 use iroh::SecretKey;
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
-use sikemux_view::device::{AccountOrg, OrgRole};
 use sikemux_wire::protocol::{BuildIdentity, DeviceAccess, PendingDevice};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
-use crate::accounts::orgvault::OrgVault;
 use crate::accounts::vault::Vault;
 use crate::server::hosts::account::relink;
 use crate::server::parts::Parts;
@@ -189,33 +187,6 @@ impl Host {
             .unwrap());
         [handed, self.sealed_for()]
     }
-
-    /// The same for an org the account is an admin of.
-    async fn org_keys(&self, waiting: &[&str], holders: &[&str]) -> [Vec<String>; 2] {
-        let key = random_key().unwrap();
-        let org = AccountOrg {
-            id: "org_2approval".into(),
-            name: "Team".into(),
-            role: OrgRole::Admin,
-            active: true,
-            preview: false,
-            hidden: false,
-        };
-        let vault: OrgVault = serde_json::from_value(json!({
-            "generation": 1, "key": null, "holders": holders, "waiting": waiting,
-            "rotate": true, "remadeAt": null, "entries": [], "ended": [], "changes": 0,
-            "since": null,
-        }))
-        .unwrap();
-        keys::hand_out_in_org(&self.core, &org, &self.secret, &vault, &key)
-            .await
-            .unwrap();
-        let handed = self.sealed_for();
-        keys::replace_in_org(&self.core, &org, &self.secret, &vault, &key)
-            .await
-            .unwrap();
-        [handed, self.sealed_for()]
-    }
 }
 
 async fn until(what: &str, done: impl Fn() -> bool) {
@@ -323,19 +294,4 @@ async fn an_unlocked_host_seals_the_vault_key_for_every_host_on_the_account() {
     let [handed, replaced] = host.vault_keys(&[&new], &[&me, &held]).await;
     assert_eq!(handed, sorted(&[&new]));
     assert_eq!(replaced, sorted(&[&me, &new, &held]));
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_locked_host_seals_an_orgs_key_for_none_of_its_own_hosts_the_person_has_not_allowed() {
-    let (new, held, member) = (made_up(), made_up(), made_up());
-    let host = Host::new(&[&new, &held], true).await;
-    let me = host.me();
-    let [handed, replaced] = host.org_keys(&[&new, &member], &[&me, &held]).await;
-    assert_eq!(handed, sorted(&[&member]));
-    assert_eq!(replaced, sorted(&[&me, &member]));
-
-    host.core.remote().approve_host(&new).unwrap();
-    let [handed, replaced] = host.org_keys(&[&new, &member], &[&me, &held]).await;
-    assert_eq!(handed, sorted(&[&new, &member]));
-    assert_eq!(replaced, sorted(&[&me, &new, &member]));
 }

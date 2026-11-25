@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::protocol::OrgRole;
+use super::protocol::{OrgMemberId, OrgRole};
 use super::vault::*;
 use sikemux_wire::accounts::protocol::*;
 
@@ -32,6 +32,12 @@ pub struct OrgVault {
     pub changes: OrgVaultChanges,
     /// The after this answer starts from: entries and ended hold only what changed since then. Null when they hold everything.
     pub since: Option<OrgVaultChanges>,
+    /// Every host in holders and waiting, with its membership.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hosts: Option<Vec<OrgVaultHost>>,
+    /// What the members' hosts signed of each other.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vouches: Option<Vec<OrgVaultVouch>>,
 }
 
 /// A count of the changes to an org vault's entries.
@@ -114,12 +120,26 @@ pub struct OrgVaultHolder {
     pub last_seen_at: Option<String>,
 }
 
-/// A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one.
+/// A member's host and the membership its account has in the org.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgVaultHost {
+    pub host_key: DeviceKey,
+    pub member: OrgMemberId,
+}
+
+/// The hosts the signing host trusts, sealed for the host it lets in and bound to the code that host showed, in URL-safe base64.
+pub type OrgVaultIntroduction = String;
+
+/// A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one. One for a host that no host vouched for is left out.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgVaultKeysAdd {
     pub generation: VaultGeneration,
     pub keys: Vec<OrgWrappedKey>,
+    /// What the asking host signed of the hosts it lets in with this, added first.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vouches: Option<Vec<OrgVaultVouchPut>>,
 }
 
 /// An owner's or admin's host whose computer cannot open the org's vault makes it again: every entry and every wrap is dropped, and the generation goes up with a new key held by the asking host alone.
@@ -138,10 +158,13 @@ pub struct OrgVaultRemake {
 pub struct OrgVaultRotate {
     /// The current generation.
     pub from: VaultGeneration,
-    /// The new key sealed for each member's host that keeps it, the asking host among them. Every other wrap is dropped.
+    /// The new key sealed for each member's host that keeps it, the asking host among them. One for a host that neither held the key nor was vouched for is left out. Every other wrap is dropped.
     pub keys: Vec<OrgWrappedKey>,
     /// Every entry in the vault, each once.
     pub entries: Vec<VaultEntryReseal>,
+    /// What the asking host signed of the hosts it lets in with this, added first.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vouches: Option<Vec<OrgVaultVouchPut>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,6 +172,45 @@ pub struct OrgVaultRotate {
 pub struct OrgVaultState {
     /// Null until an owner's or admin's host makes the vault.
     pub vault: Option<OrgVault>,
+}
+
+/// What one member's host signed of another, kept after the signer leaves. Hosts seal the org's key only for hosts they let in themselves or reach through these, and check each signature: the server only passes them on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgVaultVouch {
+    pub host_key: DeviceKey,
+    /// The membership hostKey's account had when it was signed, and has now.
+    pub member: OrgMemberId,
+    pub by: DeviceKey,
+    /// The membership by's account had when it was signed. It may have left since.
+    pub by_member: OrgMemberId,
+    /// When it was signed, in milliseconds since 1970 by the signing host's clock.
+    pub at: i64,
+    /// The signing host's Ed25519 signature, in URL-safe base64, over the org, both hosts, the membership of each and the time.
+    pub signature: String,
+    /// Given to hostKey alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub introduction: Option<OrgVaultIntroduction>,
+}
+
+/// A host that holds the org's key adds what it signed of other members' hosts: an owner's or admin's host of any, any other member's only of its own account's and of a host that vouched for it. Each replaces what it signed of that host before, though an introduction stays until another comes. One it may not sign is left out.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgVaultVouches {
+    pub vouches: Vec<OrgVaultVouchPut>,
+}
+
+/// A host that holds the org's key says it trusts another member's host with it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrgVaultVouchPut {
+    pub host_key: DeviceKey,
+    /// When it was signed, in milliseconds since 1970 by the signing host's clock.
+    pub at: i64,
+    /// The signing host's Ed25519 signature, in URL-safe base64, over the org, both hosts, the membership of each and the time.
+    pub signature: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub introduction: Option<OrgVaultIntroduction>,
 }
 
 /// The org's key sealed for one host, in URL-safe base64.
@@ -177,10 +239,15 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgVaultEntryPut" => through::<OrgVaultEntryPut>(json),
         "OrgVaultEntryRead" => through::<OrgVaultEntryRead>(json),
         "OrgVaultHolder" => through::<OrgVaultHolder>(json),
+        "OrgVaultHost" => through::<OrgVaultHost>(json),
+        "OrgVaultIntroduction" => through::<OrgVaultIntroduction>(json),
         "OrgVaultKeysAdd" => through::<OrgVaultKeysAdd>(json),
         "OrgVaultRemake" => through::<OrgVaultRemake>(json),
         "OrgVaultRotate" => through::<OrgVaultRotate>(json),
         "OrgVaultState" => through::<OrgVaultState>(json),
+        "OrgVaultVouch" => through::<OrgVaultVouch>(json),
+        "OrgVaultVouches" => through::<OrgVaultVouches>(json),
+        "OrgVaultVouchPut" => through::<OrgVaultVouchPut>(json),
         "OrgVaultWrapped" => through::<OrgVaultWrapped>(json),
         "OrgWrappedKey" => through::<OrgWrappedKey>(json),
         _ => return None,

@@ -2632,6 +2632,17 @@ export const schema = {
             "The after this answer starts from: entries and ended hold only what changed since then. Null when they hold everything.",
           anyOf: [{ $ref: "#/$defs/OrgVaultChanges" }, { type: "null" }],
         },
+        hosts: {
+          description:
+            "Every host in holders and waiting, with its membership.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgVaultHost" },
+        },
+        vouches: {
+          description: "What the members' hosts signed of each other.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgVaultVouch" },
+        },
       },
       required: [
         "generation",
@@ -2796,9 +2807,28 @@ export const schema = {
       ],
       additionalProperties: false,
     },
+    OrgVaultHost: {
+      description:
+        "A member's host and the membership its account has in the org.",
+      type: "object",
+      properties: {
+        hostKey: { $ref: "#/$defs/DeviceKey" },
+        member: { $ref: "#/$defs/OrgMemberId" },
+      },
+      required: ["hostKey", "member"],
+      additionalProperties: false,
+    },
+    OrgVaultIntroduction: {
+      description:
+        "The hosts the signing host trusts, sealed for the host it lets in and bound to the code that host showed, in URL-safe base64.",
+      type: "string",
+      minLength: 1,
+      maxLength: 180000,
+      pattern: "^[A-Za-z0-9_-]+$",
+    },
     OrgVaultKeysAdd: {
       description:
-        "A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one.",
+        "A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one. One for a host that no host vouched for is left out.",
       type: "object",
       properties: {
         generation: { $ref: "#/$defs/VaultGeneration" },
@@ -2807,6 +2837,13 @@ export const schema = {
           items: { $ref: "#/$defs/OrgWrappedKey" },
           minItems: 1,
           maxItems: 500,
+        },
+        vouches: {
+          description:
+            "What the asking host signed of the hosts it lets in with this, added first.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgVaultVouchPut" },
+          maxItems: 8,
         },
       },
       required: ["generation", "keys"],
@@ -2841,7 +2878,7 @@ export const schema = {
         },
         keys: {
           description:
-            "The new key sealed for each member's host that keeps it, the asking host among them. Every other wrap is dropped.",
+            "The new key sealed for each member's host that keeps it, the asking host among them. One for a host that neither held the key nor was vouched for is left out. Every other wrap is dropped.",
           type: "array",
           items: { $ref: "#/$defs/OrgWrappedKey" },
           minItems: 1,
@@ -2852,6 +2889,13 @@ export const schema = {
           type: "array",
           items: { $ref: "#/$defs/VaultEntryReseal" },
           maxItems: 500,
+        },
+        vouches: {
+          description:
+            "What the asking host signed of the hosts it lets in with this, added first.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgVaultVouchPut" },
+          maxItems: 8,
         },
       },
       required: ["from", "keys", "entries"],
@@ -2866,6 +2910,83 @@ export const schema = {
         },
       },
       required: ["vault"],
+      additionalProperties: false,
+    },
+    OrgVaultVouch: {
+      description:
+        "What one member's host signed of another, kept after the signer leaves. Hosts seal the org's key only for hosts they let in themselves or reach through these, and check each signature: the server only passes them on.",
+      type: "object",
+      properties: {
+        hostKey: { $ref: "#/$defs/DeviceKey" },
+        member: {
+          $ref: "#/$defs/OrgMemberId",
+          description:
+            "The membership hostKey's account had when it was signed, and has now.",
+        },
+        by: { $ref: "#/$defs/DeviceKey" },
+        byMember: {
+          $ref: "#/$defs/OrgMemberId",
+          description:
+            "The membership by's account had when it was signed. It may have left since.",
+        },
+        at: {
+          description:
+            "When it was signed, in milliseconds since 1970 by the signing host's clock.",
+          type: "integer",
+          minimum: 1,
+          maximum: 9007199254740991,
+        },
+        signature: {
+          description:
+            "The signing host's Ed25519 signature, in URL-safe base64, over the org, both hosts, the membership of each and the time.",
+          type: "string",
+          pattern: "^[A-Za-z0-9_-]{86}$",
+        },
+        introduction: {
+          $ref: "#/$defs/OrgVaultIntroduction",
+          description: "Given to hostKey alone.",
+        },
+      },
+      required: ["hostKey", "member", "by", "byMember", "at", "signature"],
+      additionalProperties: false,
+    },
+    OrgVaultVouches: {
+      description:
+        "A host that holds the org's key adds what it signed of other members' hosts: an owner's or admin's host of any, any other member's only of its own account's and of a host that vouched for it. Each replaces what it signed of that host before, though an introduction stays until another comes. One it may not sign is left out.",
+      type: "object",
+      properties: {
+        vouches: {
+          type: "array",
+          items: { $ref: "#/$defs/OrgVaultVouchPut" },
+          minItems: 1,
+          maxItems: 500,
+        },
+      },
+      required: ["vouches"],
+      additionalProperties: false,
+    },
+    OrgVaultVouchPut: {
+      description:
+        "A host that holds the org's key says it trusts another member's host with it.",
+      type: "object",
+      properties: {
+        hostKey: { $ref: "#/$defs/DeviceKey" },
+        at: {
+          description:
+            "When it was signed, in milliseconds since 1970 by the signing host's clock.",
+          type: "integer",
+          minimum: 1,
+          maximum: 9007199254740991,
+        },
+        signature: {
+          description:
+            "The signing host's Ed25519 signature, in URL-safe base64, over the org, both hosts, the membership of each and the time.",
+          type: "string",
+          pattern: "^[A-Za-z0-9_-]{86}$",
+        },
+        introduction: { $ref: "#/$defs/OrgVaultIntroduction" },
+      },
+      required: ["hostKey", "at", "signature"],
       additionalProperties: false,
     },
     OrgVaultWrapped: {

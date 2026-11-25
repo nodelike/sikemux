@@ -1,5 +1,4 @@
 import type {
-  OrgRole,
   OrgVaultCreate,
   OrgVaultEntry,
   OrgVaultEntryPut,
@@ -19,13 +18,14 @@ import { ApiFailure, badRequest, forbidden, notFound } from "../http.ts";
 import {
   ENTRY_COLUMNS,
   memberHosts,
-  opensOwnWrap,
   PROJECT_KINDS,
   PROJECT_MEMORY,
   PROJECT_MEMORY_DROPS,
   PROJECT_MEMORY_WAITING,
   toEntry,
+  type Member,
 } from "./state.ts";
+import { letIn, vouchedKeys } from "./vouches.ts";
 
 /**
  * The most entries of each project kind an org's vault holds, so they never crowd out the rest.
@@ -62,7 +62,7 @@ function conflict(message: string): ApiFailure {
 }
 
 /** The org's vault, locked until the transaction ends so its changes happen one at a time. */
-async function lockedVault(trx: Transaction<Tables>, orgId: string) {
+export async function lockedVault(trx: Transaction<Tables>, orgId: string) {
   const vault = await trx
     .selectFrom("org_vaults")
     .select("generation")
@@ -80,7 +80,7 @@ function atCurrent(current: number, generation: number) {
     );
 }
 
-async function requireHolder(
+export async function requireHolder(
   trx: Transaction<Tables>,
   { orgId, hostKey }: Asker,
   generation: number,
@@ -168,7 +168,7 @@ export async function keepEnded(
     .execute();
 }
 
-function auditOrg(
+export function auditOrg(
   trx: Transaction<Tables>,
   { orgId, userId, hostKey }: Asker,
   action: AuditAction,
@@ -227,26 +227,31 @@ async function requireOwnHosts(
 
 /**
  * A member's host holding the key seals it for other members' hosts: an owner's or admin's for
- * any, anyone else's only for its own account's. A host that has a wrap keeps it.
+ * any, anyone else's only for its own account's. A host that no host vouched for is left out, and
+ * one that has a wrap keeps it.
  */
 export async function addOrgKeys(
   trx: Transaction<Tables>,
   asker: Asker,
-  role: OrgRole,
-  { generation, keys }: OrgVaultKeysAdd,
+  member: Member,
+  { generation, keys, vouches }: OrgVaultKeysAdd,
 ): Promise<void> {
   atCurrent((await lockedVault(trx, asker.orgId)).generation, generation);
   await requireHolder(trx, asker, generation);
   await requireMemberHosts(trx, asker.orgId, keys);
-  if (role === "user") await requireOwnHosts(trx, asker, keys);
-  const added = await trx
-    .insertInto("org_vault_keys")
-    .values(wrapRows(asker, generation, keys))
-    .onConflict((oc) => oc.columns(["org_id", "host_key"]).doNothing())
-    .returning("host_key")
-    .execute();
+  if (member.role === "user") await requireOwnHosts(trx, asker, keys);
+  await letIn(trx, asker, member, vouches ?? []);
+  const vouched = await vouchedKeys(trx, asker.orgId, keys);
+  const added = vouched.length
+    ? await trx
+        .insertInto("org_vault_keys")
+        .values(wrapRows(asker, generation, vouched))
+        .onConflict((oc) => oc.columns(["org_id", "host_key"]).doNothing())
+        .returning("host_key")
+        .execute()
+    : [];
+  if (added.length || vouches?.length) await vaultChanged(trx, asker.orgId);
   if (!added.length) return;
-  await vaultChanged(trx, asker.orgId);
   const given = await trx
     .selectFrom("devices")
     .select(["key", "user_id", "name"])
@@ -265,11 +270,15 @@ export async function addOrgKeys(
     });
 }
 
-/** Every wrap is replaced by the new key's, so a host that left keeps only a key nothing is sealed under. */
+/**
+ * Every wrap is replaced by the new key's, so a host that left keeps only a key nothing is sealed
+ * under. A host that neither held the key nor was vouched for is left out.
+ */
 export async function rotateOrgVault(
   trx: Transaction<Tables>,
   asker: Asker,
-  { from, keys, entries }: OrgVaultRotate,
+  member: Member,
+  { from, keys, entries, vouches }: OrgVaultRotate,
 ): Promise<void> {
   const { orgId, hostKey } = asker;
   if (!keys.some((key) => key.hostKey === hostKey))
@@ -277,6 +286,16 @@ export async function rotateOrgVault(
   atCurrent((await lockedVault(trx, orgId)).generation, from);
   await requireHolder(trx, asker, from);
   await requireMemberHosts(trx, orgId, keys);
+  await letIn(trx, asker, member, vouches ?? []);
+  const holders = await trx
+    .selectFrom("org_vault_keys")
+    .select("host_key")
+    .where("org_id", "=", orgId)
+    .where("generation", "=", from)
+    .execute();
+  const held = new Set(holders.map((holder) => holder.host_key));
+  const vouched = new Set(await vouchedKeys(trx, orgId, keys));
+  const kept = keys.filter((key) => held.has(key.hostKey) || vouched.has(key));
   const current = await trx
     .selectFrom("org_vault_entries")
     .select(["id", "revision"])
@@ -301,7 +320,7 @@ export async function rotateOrgVault(
   await trx.deleteFrom("org_vault_keys").where("org_id", "=", orgId).execute();
   await trx
     .insertInto("org_vault_keys")
-    .values(wrapRows(asker, next, keys))
+    .values(wrapRows(asker, next, kept))
     .execute();
   if (entries.length)
     await sql`
@@ -316,15 +335,16 @@ export async function rotateOrgVault(
   await vaultChanged(trx, orgId);
   await auditOrg(trx, asker, "org_vault.rotated", {
     generation: next,
-    hosts: keys.length,
+    hosts: kept.length,
     entries: entries.length,
   });
 }
 
 /**
  * For when no computer can open the vault any more: everything sealed under the old key is
- * dropped, and the asking host's key at the next generation is the only one. Refused when the
- * vault opens on the asking host, or while a computer that would seal the key for it may be online.
+ * dropped, with what any host vouched for, and the asking host's key at the next generation is the
+ * only one. Refused when the asking host sealed the key for itself, or while a computer that could
+ * let it in may be online.
  */
 export async function remakeOrgVault(
   trx: Transaction<Tables>,
@@ -341,10 +361,12 @@ export async function remakeOrgVault(
         .on("org_vault_keys.org_id", "=", orgId)
         .on("org_vault_keys.generation", "=", from),
     )
-    .select(["org_vault_keys.host_key", "org_vault_keys.wrapped_by"])
+    .select("org_vault_keys.wrapped_by")
     .orderBy("devices.created_at")
     .execute();
-  if (opensOwnWrap(hostKey, holders))
+  if (
+    holders.some((host) => host.key === hostKey && host.wrapped_by === hostKey)
+  )
     throw conflict(
       "The vault already opens on this host, so there is nothing to make again.",
     );
@@ -356,7 +378,7 @@ export async function remakeOrgVault(
   );
   if (awake)
     throw conflict(
-      `${awake.name} may be online, so the vault opens here shortly with nothing lost. Keep ${awake.name} awake and wait a moment.`,
+      `${awake.name} may be online and has the vault. Paste this host's code there and nothing is lost.`,
     );
   const dropped = await trx
     .deleteFrom("org_vault_entries")
@@ -368,6 +390,10 @@ export async function remakeOrgVault(
     .deleteFrom("org_vault_keys")
     .where("org_id", "=", orgId)
     .returning("host_key")
+    .execute();
+  await trx
+    .deleteFrom("org_vault_vouches")
+    .where("org_id", "=", orgId)
     .execute();
   const next = from + 1;
   await trx

@@ -1468,6 +1468,10 @@ export interface OrgVault {
   changes: OrgVaultChanges;
   /** The after this answer starts from: entries and ended hold only what changed since then. Null when they hold everything. */
   since: OrgVaultChanges | null;
+  /** Every host in holders and waiting, with its membership. */
+  hosts?: OrgVaultHost[];
+  /** What the members' hosts signed of each other. */
+  vouches?: OrgVaultVouch[];
 }
 
 /** A count of the changes to an org vault's entries. */
@@ -1537,10 +1541,21 @@ export interface OrgVaultHolder {
   lastSeenAt: string | null;
 }
 
-/** A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one. */
+/** A member's host and the membership its account has in the org. */
+export interface OrgVaultHost {
+  hostKey: DeviceKey;
+  member: OrgMemberId;
+}
+
+/** The hosts the signing host trusts, sealed for the host it lets in and bound to the code that host showed, in URL-safe base64. */
+export type OrgVaultIntroduction = string;
+
+/** A member's host holding the org's key at the current generation seals it for other members' hosts: an owner's or admin's host for any, any other member's only for its own account's. A host that already has the key sealed for it keeps that one. One for a host that no host vouched for is left out. */
 export interface OrgVaultKeysAdd {
   generation: VaultGeneration;
   keys: OrgWrappedKey[];
+  /** What the asking host signed of the hosts it lets in with this, added first. */
+  vouches?: OrgVaultVouchPut[];
 }
 
 /** An owner's or admin's host whose computer cannot open the org's vault makes it again: every entry and every wrap is dropped, and the generation goes up with a new key held by the asking host alone. */
@@ -1555,15 +1570,48 @@ export interface OrgVaultRemake {
 export interface OrgVaultRotate {
   /** The current generation. */
   from: VaultGeneration;
-  /** The new key sealed for each member's host that keeps it, the asking host among them. Every other wrap is dropped. */
+  /** The new key sealed for each member's host that keeps it, the asking host among them. One for a host that neither held the key nor was vouched for is left out. Every other wrap is dropped. */
   keys: OrgWrappedKey[];
   /** Every entry in the vault, each once. */
   entries: VaultEntryReseal[];
+  /** What the asking host signed of the hosts it lets in with this, added first. */
+  vouches?: OrgVaultVouchPut[];
 }
 
 export interface OrgVaultState {
   /** Null until an owner's or admin's host makes the vault. */
   vault: OrgVault | null;
+}
+
+/** What one member's host signed of another, kept after the signer leaves. Hosts seal the org's key only for hosts they let in themselves or reach through these, and check each signature: the server only passes them on. */
+export interface OrgVaultVouch {
+  hostKey: DeviceKey;
+  /** The membership hostKey's account had when it was signed, and has now. */
+  member: OrgMemberId;
+  by: DeviceKey;
+  /** The membership by's account had when it was signed. It may have left since. */
+  byMember: OrgMemberId;
+  /** When it was signed, in milliseconds since 1970 by the signing host's clock. */
+  at: number;
+  /** The signing host's Ed25519 signature, in URL-safe base64, over the org, both hosts, the membership of each and the time. */
+  signature: string;
+  /** Given to hostKey alone. */
+  introduction?: OrgVaultIntroduction;
+}
+
+/** A host that holds the org's key adds what it signed of other members' hosts: an owner's or admin's host of any, any other member's only of its own account's and of a host that vouched for it. Each replaces what it signed of that host before, though an introduction stays until another comes. One it may not sign is left out. */
+export interface OrgVaultVouches {
+  vouches: OrgVaultVouchPut[];
+}
+
+/** A host that holds the org's key says it trusts another member's host with it. */
+export interface OrgVaultVouchPut {
+  hostKey: DeviceKey;
+  /** When it was signed, in milliseconds since 1970 by the signing host's clock. */
+  at: number;
+  /** The signing host's Ed25519 signature, in URL-safe base64, over the org, both hosts, the membership of each and the time. */
+  signature: string;
+  introduction?: OrgVaultIntroduction;
 }
 
 /** The org's key sealed for one host, in URL-safe base64. */
@@ -2697,10 +2745,15 @@ export interface Definitions {
   OrgVaultEntryPut: OrgVaultEntryPut;
   OrgVaultEntryRead: OrgVaultEntryRead;
   OrgVaultHolder: OrgVaultHolder;
+  OrgVaultHost: OrgVaultHost;
+  OrgVaultIntroduction: OrgVaultIntroduction;
   OrgVaultKeysAdd: OrgVaultKeysAdd;
   OrgVaultRemake: OrgVaultRemake;
   OrgVaultRotate: OrgVaultRotate;
   OrgVaultState: OrgVaultState;
+  OrgVaultVouch: OrgVaultVouch;
+  OrgVaultVouches: OrgVaultVouches;
+  OrgVaultVouchPut: OrgVaultVouchPut;
   OrgVaultWrapped: OrgVaultWrapped;
   OrgWrappedKey: OrgWrappedKey;
   PaddleCheckout: PaddleCheckout;

@@ -883,6 +883,24 @@ Table org_logos {
   bytes bytea [not null, note: '(length(bytes) >= 1) AND (length(bytes) <= 1000000)']
 }
 
+Table org_vault_vouches {
+  org_id uuid [not null]
+  host_key text [not null]
+  member uuid [not null]
+  by_key text [not null]
+  by_member uuid [not null]
+  at bigint [not null, note: 'at > 0']
+  signature text [not null, note: 'signature ~ \'^[A-Za-z0-9_-]{86}$\'']
+  introduction text [note: '(introduction ~ \'^[A-Za-z0-9_-]+$\') AND (length(introduction) <= 180000)']
+
+  indexes {
+    (org_id, host_key, by_key) [pk]
+    host_key [name: 'org_vault_vouches_by_host']
+  }
+
+  Note: 'host_key <> by_key'
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -941,3 +959,5 @@ Ref: vault_ended.user_id > vaults.user_id [delete: cascade]
 Ref: pages.user_id > users.id [delete: cascade]
 Ref: host_removal_sign_outs.user_id > users.id [delete: cascade]
 Ref: org_logos.org_id - orgs.id [delete: cascade]
+Ref: org_vault_vouches.host_key > devices.key [delete: cascade]
+Ref: org_vault_vouches.org_id > org_vaults.org_id [delete: cascade]

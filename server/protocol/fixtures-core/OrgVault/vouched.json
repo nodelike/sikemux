@@ -1,0 +1,48 @@
+{
+  "generation": 1,
+  "key": null,
+  "holders": [
+    "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a7988"
+  ],
+  "waiting": [
+    "aa2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a7988"
+  ],
+  "rotate": false,
+  "holding": [
+    {
+      "hostKey": "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a7988",
+      "computer": "Studio",
+      "member": "Maren Holt",
+      "role": "admin",
+      "yours": false,
+      "online": false,
+      "lastSeenAt": "2026-11-20T09:30:00.000Z"
+    }
+  ],
+  "remadeAt": "2026-11-14T08:00:00.000Z",
+  "entries": [],
+  "ended": [],
+  "changes": 0,
+  "since": null,
+  "hosts": [
+    {
+      "hostKey": "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a7988",
+      "member": "7d9e2c1a-4b3f-4a6d-9c8e-1f2a3b4c5d6e"
+    },
+    {
+      "hostKey": "aa2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a7988",
+      "member": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+    }
+  ],
+  "vouches": [
+    {
+      "hostKey": "aa2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a7988",
+      "member": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "by": "1f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a79881f2e3d4c5b6a7988",
+      "byMember": "7d9e2c1a-4b3f-4a6d-9c8e-1f2a3b4c5d6e",
+      "at": 1795564800000,
+      "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "introduction": "c2VhbGVkLWludHJvZHVjdGlvbg"
+    }
+  ]
+}

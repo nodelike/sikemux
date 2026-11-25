@@ -2281,15 +2281,15 @@
       "request": "OrgVaultKeysAdd",
       "responses": {
         "200": {
-          "description": "The vault with the new holders. Every member's host hears orgs.changed.",
+          "description": "The vault with the new holders. A key for a host that no host vouched for is left out. Every member's host hears orgs.changed.",
           "body": "OrgVaultState"
         },
         "400": {
-          "description": "A key is for a device that is not a host of one of the org's members.",
+          "description": "A key is for a device that is not a host of one of the org's members. A vouch sent along is for a device that is not a host of one of the org's members or for this host itself, or two are for one host.",
           "body": "ApiError"
         },
         "403": {
-          "description": "This host does not hold the key at that generation.",
+          "description": "This host does not hold the key at that generation, or seals it for another account's host without being an owner's or admin's. A vouch sent along is for a host this account may not let in or that vaults are not open to, or the org's Team plan has lapsed.",
           "body": "ApiError"
         },
         "404": {
@@ -2303,6 +2303,32 @@
       }
     },
     {
+      "method": "put",
+      "path": "/v1/orgs/{orgId}/vault/vouches",
+      "operationId": "putOrgVaultVouches",
+      "summary": "Vouch for other members' hosts, as a host holding the org's key",
+      "auth": "host",
+      "request": "OrgVaultVouches",
+      "responses": {
+        "200": {
+          "description": "The vault with the new vouches. A vouch for a host this one may not vouch for is left out. Every member's host hears orgs.changed.",
+          "body": "OrgVaultState"
+        },
+        "400": {
+          "description": "A vouch is for this host itself, or two are for one host.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "This host does not hold the key now, or the org's Team plan has lapsed or is not open to its account now.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Your account is in no org with that id, or plans are not open to it yet.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
       "method": "post",
       "path": "/v1/orgs/{orgId}/vault/rotate",
       "operationId": "rotateOrgVault",
@@ -2311,15 +2337,15 @@
       "request": "OrgVaultRotate",
       "responses": {
         "200": {
-          "description": "The vault at the next generation. Every member's host hears orgs.changed.",
+          "description": "The vault at the next generation. A key for a host that neither held the key nor was vouched for is left out. Every member's host hears orgs.changed.",
           "body": "OrgVaultState"
         },
         "400": {
-          "description": "A key is for a device that is not a host of one of the org's members, or leaves out this host.",
+          "description": "A key is for a device that is not a host of one of the org's members, or leaves out this host. A vouch sent along is for a device that is not a host of one of the org's members or for this host itself, or two are for one host.",
           "body": "ApiError"
         },
         "403": {
-          "description": "The account is not the org's owner or admin, or this host does not hold the key at that generation.",
+          "description": "The account is not the org's owner or admin, or this host does not hold the key at that generation. A vouch sent along is for a host this account may not let in or that vaults are not open to, or the org's Team plan has lapsed.",
           "body": "ApiError"
         },
         "404": {

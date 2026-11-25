@@ -24,6 +24,7 @@ pub mod org;
 mod seal;
 pub mod shown;
 mod sync;
+mod trust;
 
 pub use seal::{open_bound, open_bytes, random_key, seal_bound, seal_bytes, Key};
 
@@ -351,13 +352,12 @@ pub fn waits(core: &Core) -> Vec<Wait> {
 /// reads.
 #[cfg(any(test, feature = "testing"))]
 pub mod keys {
-    use std::collections::BTreeMap;
     use std::sync::Arc;
 
     use sikemux_view::device::AccountOrg;
 
+    use super::trust::{self, Me};
     use super::{org, seal, sync, Core, Key};
-    use crate::accounts::orgvault::OrgVault;
     use crate::accounts::vault::Vault;
     use crate::server::CoreResult;
 
@@ -380,25 +380,30 @@ pub mod keys {
         sync::rotate(core, account, me, vault, key, Default::default()).await
     }
 
-    pub async fn hand_out_in_org(
-        core: &Core,
-        org: &AccountOrg,
-        host: &iroh::SecretKey,
-        vault: &OrgVault,
-        key: &Key,
-    ) -> CoreResult<()> {
-        org::add_keys(core, org, &seal::host_secret(host), vault, key).await
+    pub async fn read_org(core: &Core, org: &AccountOrg, host: &iroh::SecretKey) -> CoreResult<()> {
+        org::sync_org(core, org, &Me::of(host)).await
     }
 
-    pub async fn replace_in_org(
+    pub async fn let_in_to_org(
         core: &Core,
         org: &AccountOrg,
         host: &iroh::SecretKey,
-        vault: &OrgVault,
-        key: &Key,
+        code: &str,
     ) -> CoreResult<()> {
-        let (me, secret) = (host.public().to_string(), seal::host_secret(host));
-        org::rotate(core, &org.id, &me, &secret, vault, key, BTreeMap::new()).await?;
-        Ok(())
+        org::let_in_to(core, org, &Me::of(host), code).await
+    }
+
+    /// The org's key as `from` seals it for `to`.
+    pub fn org_wrap(
+        key: &Key,
+        from: &iroh::SecretKey,
+        to: &str,
+        org: &str,
+        generation: i64,
+    ) -> String {
+        let context = trust::wrap_context(org, generation, to);
+        seal::host_public(to)
+            .and_then(|to| seal::wrap_from(key, &seal::host_secret(from), &to, &context))
+            .unwrap_or_default()
     }
 }
