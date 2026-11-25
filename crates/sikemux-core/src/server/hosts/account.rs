@@ -112,7 +112,7 @@ async fn link_all(core: &Arc<Core>) -> CoreResult<()> {
             continue;
         }
         if !core.remote().admits(&host.key, Joining::Host) {
-            match core.remote().may_ask_about(&host.key) {
+            match core.remote().may_ask_about(&host.key, now) {
                 Some(at) if at > now => next = sooner(next, at),
                 Some(_) => ask_about(core, &host),
                 None => {}

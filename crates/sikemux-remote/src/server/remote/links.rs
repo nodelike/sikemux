@@ -108,9 +108,9 @@ impl Remote {
             || inner.stored.approved(id, Joining::Host)
     }
 
-    /// When the person may next be asked about a host the account lists: at most once a day for
+    /// When, from `now` on, the person may be asked about a host the account lists: once a day for
     /// each. None while they are being asked about it, or about as many as they are at once.
-    pub fn may_ask_about(&self, id: &str) -> Option<u64> {
+    pub fn may_ask_about(&self, id: &str, now: u64) -> Option<u64> {
         const AGAIN_MS: u64 = 24 * 60 * 60 * 1000;
         const AT_ONCE: usize = 4;
         let inner = self.inner.locked();
@@ -122,8 +122,8 @@ impl Remote {
             listed += usize::from(matches!(pending.asking, Asking::Listed));
         }
         match inner.asked_about.get(id) {
-            Some(at) if at + AGAIN_MS > epoch_ms() => Some(at + AGAIN_MS),
-            _ => (listed < AT_ONCE).then(epoch_ms),
+            Some(at) if at + AGAIN_MS > now => Some(at + AGAIN_MS),
+            _ => (listed < AT_ONCE).then_some(now),
         }
     }
 
