@@ -1,8 +1,9 @@
-import { useAuth } from "@clerk/react";
+import { useAuth, useClerk } from "@clerk/react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { TeamAccess } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
+import "./account.css";
 import { api, problemText, signedInToken } from "./api.ts";
 import { Foot } from "./Frame.tsx";
 import { iconMark } from "./marks.ts";
@@ -63,6 +64,7 @@ export function RestoreAccount({
   onRestored: (restorableDays: number) => void;
 }) {
   const { getToken } = useAuth();
+  const { signOut } = useClerk();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
   const day = formatDay(deletesAt);
@@ -92,15 +94,22 @@ export function RestoreAccount({
           each one signs in again.
         </>
       }
-      mark={iconMark("user")}
+      mark={iconMark("warning")}
       scene="sign"
-      tone={problem ? "failed" : "waiting"}
+      tone="failed"
       foot={<Foot />}
     >
-      <div className="do">
-        <Problem>{problem}</Problem>
+      <Problem>{problem}</Problem>
+      <div className="acc-gate-do">
         <Btn onClick={() => void restore()} busy={busy}>
           Restore account
+        </Btn>
+        <Btn
+          quiet
+          disabled={busy}
+          onClick={() => void signOut({ redirectUrl: "/" })}
+        >
+          Sign out
         </Btn>
       </div>
     </Hero>

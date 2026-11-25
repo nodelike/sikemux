@@ -1,9 +1,10 @@
 import type { TeamAccess } from "@sikemux/protocol";
 import { useClerk, useSession, useUser } from "@clerk/react";
 import { formatDay } from "@shared/lib/format";
-import { IconLogOut, IconMail, IconShield, IconTrash } from "@shared/ui/Icons";
+import { IconMail } from "@shared/ui/Icons";
 import { useState, type MouseEvent } from "react";
 
+import "./account.css";
 import { personSvg } from "./avatarSvg.ts";
 import { DELETE_ACCOUNT } from "./navigation.ts";
 import {
@@ -12,7 +13,16 @@ import {
   useCrashReportsShared,
 } from "./reporting.ts";
 import { PROVIDERS, SignInWaysCard, waysOf } from "./SignInWays.tsx";
-import { Section, Page, Row, Rows, Switch, Tile, Txt } from "./ui.tsx";
+import {
+  Btn,
+  btnClass,
+  Ending,
+  Page,
+  Row,
+  Rows,
+  Section,
+  Switch,
+} from "./ui.tsx";
 import { WorkAddressesCard } from "./WorkAddresses.tsx";
 
 /** The ways the signed-in account can sign in, as the person knows them. */
@@ -26,8 +36,6 @@ export function useSignInWays() {
     ? providers
     : [{ name: "Email code", mark: <IconMail size={16} /> }];
 }
-
-const COUNTED = ["No", "One", "Two", "Three", "Four", "Five", "Six"];
 
 export function AccountPage({
   team,
@@ -43,29 +51,43 @@ export function AccountPage({
 
   return (
     <Page
-      title={user.fullName || user.username || "Your account"}
+      title="Account"
       lede={
         byCodeOnly
           ? "One way in: a code by email. Add another so you never get locked out."
           : ways.length === 1
             ? "One way to sign in. Add another so you never get locked out."
-            : `${COUNTED[ways.length] ?? ways.length} ways to sign in, all to this account.`
+            : "How you sign in."
       }
       mark={{ svg: personSvg(user.id) }}
       scene="you"
     >
-      <SignInWaysCard />
-      <WorkAddressesCard team={team} />
-      <ThisBrowser onDelete={onDelete} />
+      <div className="acc-stack">
+        <SignInWaysCard />
+        <WorkAddressesCard team={team} />
+        <ThisBrowser />
+        <div className="acc-end">
+          <Ending
+            title="Delete your account"
+            actions={
+              <a
+                className={btnClass({ bad: true })}
+                href={DELETE_ACCOUNT}
+                onClick={onDelete}
+              >
+                Delete account
+              </a>
+            }
+          >
+            Every device is signed out. Your hosts keep their files.
+          </Ending>
+        </div>
+      </div>
     </Page>
   );
 }
 
-function ThisBrowser({
-  onDelete,
-}: {
-  onDelete: (event: MouseEvent<HTMLAnchorElement>) => void;
-}) {
+function ThisBrowser() {
   const { signOut } = useClerk();
   const { session } = useSession();
   const sharing = useCrashReportsShared();
@@ -77,35 +99,13 @@ function ThisBrowser({
   return (
     <Section label="This browser">
       <Rows>
-        <Row
-          lead={
-            <Tile>
-              <IconLogOut size={16} />
-            </Tile>
-          }
-          name={
-            session
-              ? `Signed in since ${formatDay(session.createdAt.toISOString(), "short")}`
-              : "Signed in"
-          }
-          end={
-            <Txt onClick={leave} disabled={leaving}>
-              {leaving ? "Signing out" : "Sign out"}
-            </Txt>
-          }
-        />
         {reporting ? (
           <Row
-            lead={
-              <Tile>
-                <IconShield size={16} />
-              </Tile>
-            }
-            name="Share crash reports"
+            name="Send crash reports"
             detail="Errors and page speed, without what you typed."
             end={
               <Switch
-                label="Share crash reports"
+                label="Send crash reports"
                 on={sharing}
                 onChange={shareCrashReports}
               />
@@ -113,17 +113,16 @@ function ThisBrowser({
           />
         ) : null}
         <Row
-          lead={
-            <Tile>
-              <IconTrash size={16} />
-            </Tile>
+          name="Sign out"
+          detail={
+            session
+              ? `Signed in since ${formatDay(session.createdAt.toISOString(), "short")}. Of this browser only.`
+              : "Of this browser only."
           }
-          name="Delete account"
-          detail="Your hosts keep their files."
           end={
-            <a className="txt bad" href={DELETE_ACCOUNT} onClick={onDelete}>
-              Delete
-            </a>
+            <Btn small quiet onClick={leave} disabled={leaving} busy={leaving}>
+              {leaving ? "Signing out" : "Sign out"}
+            </Btn>
           }
         />
       </Rows>

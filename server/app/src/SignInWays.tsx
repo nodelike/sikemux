@@ -1,25 +1,22 @@
 import { useAuth, useUser } from "@clerk/react";
 import type { SignInRemoval } from "@sikemux/protocol";
 import { IconMail, IconPlus } from "@shared/ui/Icons";
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-  type SubmitEvent,
-} from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import "./account.css";
 import { api, problemText, signedInToken } from "./api.ts";
 import { AppleMark, GitHubMark, GoogleMark } from "./icons.tsx";
 import { useReverified } from "./Reverify.tsx";
 import { CodeEntry } from "./SignIn.tsx";
 import {
   Btn,
-  Section,
+  Confirm,
+  Dialog,
   Field,
   Problem,
   Row,
   Rows,
+  Section,
   Tile,
   Txt,
   useAction,
@@ -97,6 +94,7 @@ export function SignInWaysCard() {
   const action = useAction();
   const [working, setWorking] = useState<string>();
   const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<Way>();
   const { run, confirm } = useReverified(async (step: () => Promise<unknown>) =>
     step(),
   );
@@ -118,17 +116,17 @@ export function SignInWaysCard() {
       .catch(() => undefined);
   });
 
-  if (confirm) return <Section label="Signs in with">{confirm}</Section>;
   if (!user) return null;
 
   const ways = waysOf(user);
   const onlyOne = ways.length === 1;
 
-  const remove = (way: Way, removing: () => Promise<unknown>) => {
+  const remove = (way: Way, step: () => Promise<unknown>) => {
     setWorking(way.id);
     return action.run(async () => {
-      await run(removing);
+      await run(step);
       await user.reload();
+      setRemoving(undefined);
       say(
         way.kind === "email"
           ? `${way.detail} no longer signs in to your account.`
@@ -155,127 +153,133 @@ export function SignInWaysCard() {
   };
 
   return (
-    <Section label="Signs in with">
-      {removals.map((removal) => (
-        <p key={removal.removedAt + removal.domain} className="note">
-          {removalWords(removal)}
-        </p>
-      ))}
-      <Rows>
-        {ways.map((way) => (
-          <Row
-            key={way.id}
-            lead={
-              <Tile>
-                <span className="br">{way.mark}</span>
-              </Tile>
-            }
-            name={way.name}
-            detail={
-              onlyOne ? `${way.detail}, and your only way in` : way.detail
-            }
-            end={
-              way.remove ? (
-                <Txt
-                  disabled={onlyOne || action.busy}
-                  title={
-                    onlyOne
-                      ? "Your account needs one way to sign in."
-                      : undefined
-                  }
-                  onClick={() => {
-                    if (way.remove) void remove(way, way.remove);
-                  }}
+    <>
+      <Section
+        label="You sign in with"
+        aside={
+          <Btn
+            small
+            quiet
+            disabled={action.busy}
+            onClick={() => setAdding(true)}
+          >
+            <IconPlus size={14} />
+            Add an address
+          </Btn>
+        }
+      >
+        {removals.map((removal) => (
+          <p key={removal.removedAt + removal.domain} className="note">
+            {removalWords(removal)}
+          </p>
+        ))}
+        <Rows>
+          {ways.map((way) => (
+            <Row
+              key={way.id}
+              lead={
+                <Tile>
+                  <span className="br">{way.mark}</span>
+                </Tile>
+              }
+              name={way.name}
+              detail={way.detail}
+              end={
+                onlyOne ? (
+                  <span className="acc-only">Your only way in</span>
+                ) : way.remove ? (
+                  <Txt
+                    disabled={action.busy}
+                    onClick={() => {
+                      action.clear();
+                      setRemoving(way);
+                    }}
+                  >
+                    Remove
+                  </Txt>
+                ) : null
+              }
+            />
+          ))}
+          {CONNECTABLE.filter(
+            (strategy) => !ways.some((way) => way.kind === strategy),
+          ).map((strategy) => (
+            <Row
+              key={strategy}
+              lead={
+                <Tile>
+                  <span className="br">{PROVIDERS[strategy].mark}</span>
+                </Tile>
+              }
+              name={PROVIDERS[strategy].name}
+              detail="Not added"
+              end={
+                <Btn
+                  small
+                  quiet
+                  aria-label={`Add ${PROVIDERS[strategy].name}`}
+                  disabled={action.busy}
+                  busy={action.busy && working === strategy}
+                  onClick={() => void connect(strategy)}
                 >
-                  {action.busy && working === way.id ? "Removing" : "Remove"}
-                </Txt>
-              ) : null
-            }
-          />
-        ))}
-        {CONNECTABLE.filter(
-          (strategy) => !ways.some((way) => way.kind === strategy),
-        ).map((strategy) => (
-          <Row
-            key={strategy}
-            lead={
-              <Tile>
-                <span className="br">{PROVIDERS[strategy].mark}</span>
-              </Tile>
-            }
-            name={PROVIDERS[strategy].name}
-            detail="Not added"
-            end={
-              <Btn
-                small
-                quiet
-                aria-label={`Add ${PROVIDERS[strategy].name}`}
-                disabled={action.busy}
-                busy={action.busy && working === strategy}
-                onClick={() => void connect(strategy)}
-              >
-                Add
-              </Btn>
-            }
-          />
-        ))}
-        {adding ? (
-          <AddAddress
-            run={run}
-            onDone={async (email) => {
-              setAdding(false);
-              if (!email) return;
-              const tidiedNow = await tidy().then(
-                () => true,
-                () => false,
-              );
-              const fresh = await user.reload();
-              const kept = fresh.emailAddresses.some(
-                (address) =>
-                  address.emailAddress.toLowerCase() === email.toLowerCase() &&
-                  address.verification.status === "verified",
-              );
-              if (tidiedNow && kept)
-                say(`${masked(email)} now signs in to your account.`);
-            }}
-          />
-        ) : (
-          <Row
-            lead={
-              <Tile>
-                <IconPlus size={16} />
-              </Tile>
-            }
-            name={
-              ways.some((way) => way.kind === "email")
-                ? "Another email address"
-                : "Code by email"
-            }
-            detail={
-              ways.some((way) => way.kind === "email")
-                ? "We send a code to it."
-                : "Not added"
-            }
-            end={
-              <Btn
-                small
-                quiet
-                aria-label="Add an email address"
-                disabled={action.busy}
-                onClick={() => setAdding(true)}
-              >
-                Add
-              </Btn>
-            }
-          />
-        )}
-      </Rows>
-      <Problem>{action.problem}</Problem>
-    </Section>
+                  Add
+                </Btn>
+              }
+            />
+          ))}
+        </Rows>
+        {!removing ? <Problem>{action.problem}</Problem> : null}
+      </Section>
+
+      {removing ? (
+        <Confirm
+          title={`Stop signing in with ${removing.kind === "email" ? removing.detail : removing.name}?`}
+          label="Remove"
+          danger
+          busy={action.busy}
+          problem={action.problem}
+          onCancel={() => {
+            action.clear();
+            setRemoving(undefined);
+          }}
+          onConfirm={() => {
+            if (removing.remove) void remove(removing, removing.remove);
+          }}
+        >
+          <p>
+            You sign in another way from here on. Your account stays as it is.
+          </p>
+        </Confirm>
+      ) : null}
+
+      {adding ? (
+        <AddAddressDialog
+          run={run}
+          onDone={async (email) => {
+            setAdding(false);
+            if (!email) return;
+            const tidiedNow = await tidy().then(
+              () => true,
+              () => false,
+            );
+            const fresh = await user.reload();
+            const kept = fresh.emailAddresses.some(
+              (address) =>
+                address.emailAddress.toLowerCase() === email.toLowerCase() &&
+                address.verification.status === "verified",
+            );
+            if (tidiedNow && kept)
+              say(`${masked(email)} now signs in to your account.`);
+          }}
+        />
+      ) : null}
+
+      {confirm}
+    </>
   );
 }
 
-function AddAddress({
+function AddAddressDialog({
   run,
   onDone,
 }: {
@@ -291,9 +295,8 @@ function AddAddress({
   }>();
   const action = useAction();
 
-  const send = (event: SubmitEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!user) return;
+  const send = () => {
+    if (!user || !email.trim()) return;
     void action.run(async () => {
       const typed = email.trim();
       const token = await signedInToken(getToken, "add an address");
@@ -306,8 +309,7 @@ function AddAddress({
     }, problemText);
   };
 
-  const verify = (event: SubmitEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const verify = () => {
     if (!sent || code.length < 6) return;
     void action.run(async () => {
       await sent.attempt(code);
@@ -316,42 +318,56 @@ function AddAddress({
   };
 
   return (
-    <Row
-      lead={
-        <Tile>
-          <IconMail size={16} />
-        </Tile>
+    <Dialog
+      title={sent ? "Check your email" : "Add an address"}
+      busy={action.busy}
+      onClose={() => onDone()}
+      onSubmit={sent ? verify : send}
+      foot={
+        <>
+          <Btn quiet disabled={action.busy} onClick={() => onDone()}>
+            Cancel
+          </Btn>
+          <Btn
+            type="submit"
+            busy={action.busy}
+            disabled={sent ? code.length < 6 : !email.trim()}
+          >
+            {sent ? "Verify" : "Send a code"}
+          </Btn>
+        </>
       }
-      name={sent ? `Enter the code sent to ${email.trim()}` : "Email address"}
     >
-      <form className="form below" onSubmit={sent ? verify : send}>
-        {sent ? (
+      {sent ? (
+        <>
+          <p>
+            Enter the code sent to <span className="lit">{email.trim()}</span>.
+          </p>
           <CodeEntry
             code={code}
             onChange={setCode}
             disabled={action.busy}
             failed={Boolean(action.problem)}
           />
-        ) : (
-          <Field
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="you@example.com"
-            aria-label="Email address"
-            autoFocus
-            disabled={action.busy}
-          />
-        )}
-        <Btn type="submit" small busy={action.busy}>
-          {sent ? "Verify" : "Send code"}
-        </Btn>
-        <Btn small quiet disabled={action.busy} onClick={() => onDone()}>
-          Cancel
-        </Btn>
-      </form>
+        </>
+      ) : (
+        <>
+          <label className="acc-field">
+            <span>Email address</span>
+            <Field
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@example.com"
+              autoFocus
+              disabled={action.busy}
+            />
+          </label>
+          <p className="note">We mail it a code. Then it signs you in too.</p>
+        </>
+      )}
       <Problem>{action.problem}</Problem>
-    </Row>
+    </Dialog>
   );
 }
 

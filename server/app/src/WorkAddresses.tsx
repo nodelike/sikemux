@@ -5,21 +5,22 @@ import type {
   WorkAddressProven,
 } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
-import { IconBriefcase } from "@shared/ui/Icons";
+import { IconShieldCheck } from "@shared/ui/Icons";
 import { useEffect, useRef, useState } from "react";
 
+import "./account.css";
 import { problemText } from "./api.ts";
-import { useClient } from "./Billing.tsx";
 import { OrgAvatar } from "./Avatar.tsx";
+import { useClient } from "./Billing.tsx";
 import { GoogleMark } from "./icons.tsx";
 import { WORK_ADDRESS } from "./navigation.ts";
 import {
   Btn,
-  Section,
-  Chip,
+  Confirm,
   Problem,
   Row,
   Rows,
+  Section,
   Tile,
   Txt,
   useAction,
@@ -33,6 +34,7 @@ export function WorkAddressesCard({ team }: { team: TeamAccess }) {
   const { run } = action;
   const say = useToast();
   const [working, setWorking] = useState<string>();
+  const [removing, setRemoving] = useState<WorkAddress>();
   const [addresses, setAddresses] = useState<WorkAddress[]>();
   const [verifying, setVerifying] = useState(false);
   const [proven, setProven] = useState<WorkAddressProven>();
@@ -87,6 +89,7 @@ export function WorkAddressesCard({ team }: { team: TeamAccess }) {
       ).removeWorkAddress(address.id);
       setAddresses((now) => now?.filter((each) => each.id !== address.id));
       if (proven?.workAddress.id === address.id) setProven(undefined);
+      setRemoving(undefined);
       say(`Your address at ${address.domain} is no longer verified.`);
     }, problemText);
   };
@@ -95,49 +98,62 @@ export function WorkAddressesCard({ team }: { team: TeamAccess }) {
     return null;
 
   return (
-    <Section
-      label="Work addresses"
-      count={addresses.length || undefined}
-      foot={
-        <p className="note">
-          {addresses.length > 0
-            ? "It never signs in. We keep the domain, not the address."
-            : "Through the Google account at your work domain. We keep the domain, not the address."}
-        </p>
-      }
-    >
-      {addresses.length === 0 ? (
-        <p className="note">None. Verify one to find orgs at your work.</p>
-      ) : null}
-      <Rows>
-        {addresses.map((address) => (
-          <Row
-            key={address.id}
-            lead={
-              <Tile>
-                <IconBriefcase size={16} />
-              </Tile>
-            }
-            name={
-              <>
-                {address.domain}
-                <Chip tone="ok">Verified</Chip>
-              </>
-            }
-            detail={`${address.orgName ? `For ${address.orgName} · ` : ""}${formatDay(address.provenAt)}`}
-            end={
-              <Txt
-                aria-label={`Remove ${address.domain}`}
-                disabled={action.busy}
-                onClick={() => void remove(address)}
-              >
-                {action.busy && working === address.id ? "Removing" : "Remove"}
-              </Txt>
-            }
-          />
-        ))}
+    <>
+      <Section
+        label="Work addresses"
+        count={addresses.length || undefined}
+        aside={
+          open ? (
+            <Btn
+              small
+              quiet
+              busy={action.busy && working === "start"}
+              disabled={action.busy}
+              onClick={() => void start()}
+            >
+              <GoogleMark />
+              Verify a work address
+            </Btn>
+          ) : undefined
+        }
+        foot={
+          addresses.length > 0
+            ? "It never signs you in. We keep the domain, not the address."
+            : "Through the Google account at your work domain. We keep the domain, not the address."
+        }
+      >
+        {addresses.length === 0 ? (
+          <p className="note">None. Verify one to find orgs at your work.</p>
+        ) : (
+          <Rows>
+            {addresses.map((address) => (
+              <Row
+                key={address.id}
+                lead={
+                  <Tile>
+                    <IconShieldCheck size={16} />
+                  </Tile>
+                }
+                name={address.domain}
+                detail={`Verified ${formatDay(address.provenAt)}${address.orgName ? ` · ${address.orgName}` : ""}`}
+                end={
+                  <Txt
+                    aria-label={`Remove ${address.domain}`}
+                    disabled={action.busy}
+                    onClick={() => {
+                      action.clear();
+                      setRemoving(address);
+                    }}
+                  >
+                    Remove
+                  </Txt>
+                }
+              />
+            ))}
+          </Rows>
+        )}
         {open && proven?.offer ? (
-          <OfferRow
+          <OfferBanner
             offer={proven.offer}
             sitting={proven.sitting}
             onJoined={(org) => {
@@ -146,27 +162,33 @@ export function WorkAddressesCard({ team }: { team: TeamAccess }) {
             }}
           />
         ) : null}
-      </Rows>
-      {open ? (
-        <p>
-          <Btn
-            small
-            quiet
-            busy={action.busy && working === "start"}
-            disabled={action.busy}
-            onClick={() => void start()}
-          >
-            <GoogleMark />
-            Verify a work address
-          </Btn>
-        </p>
+        {!removing ? <Problem>{action.problem}</Problem> : null}
+      </Section>
+
+      {removing ? (
+        <Confirm
+          title={`Remove ${removing.domain}?`}
+          label="Remove"
+          danger
+          busy={action.busy}
+          problem={action.problem}
+          onCancel={() => {
+            action.clear();
+            setRemoving(undefined);
+          }}
+          onConfirm={() => void remove(removing)}
+        >
+          <p>
+            You can verify it again any time. Any org you already joined stays
+            as it is.
+          </p>
+        </Confirm>
       ) : null}
-      <Problem>{action.problem}</Problem>
-    </Section>
+    </>
   );
 }
 
-function OfferRow({
+function OfferBanner({
   offer,
   sitting,
   onJoined,
@@ -188,15 +210,19 @@ function OfferRow({
       (error) => `${problemText(error)} You did not join.`,
     );
   return (
-    <Row
-      lead={<OrgAvatar org={{ id: offer.orgId }} size={28} />}
-      name={offer.name}
-      detail={
-        offer.seatFree
-          ? `Open to everyone at ${offer.domain}. You'd join as Member, on one of its free seats.`
-          : `Open to everyone at ${offer.domain}, but every seat is taken. Ask its owner to add one.`
-      }
-      end={
+    <>
+      <div className="acc-offer">
+        <OrgAvatar org={{ id: offer.orgId }} size={34} />
+        <span>
+          <b>
+            {offer.name} uses {offer.domain}
+          </b>
+          <small>
+            {offer.seatFree
+              ? "You can join now, on a free seat."
+              : "Every seat is taken. Ask its owner to add one."}
+          </small>
+        </span>
         <Btn
           small
           busy={action.busy}
@@ -205,9 +231,8 @@ function OfferRow({
         >
           Join
         </Btn>
-      }
-    >
-      {action.problem ? <Problem>{action.problem}</Problem> : null}
-    </Row>
+      </div>
+      <Problem>{action.problem}</Problem>
+    </>
   );
 }

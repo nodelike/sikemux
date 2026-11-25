@@ -1,10 +1,11 @@
-import { useReverification, useSession } from "@clerk/react";
+import { useClerk, useReverification, useSession } from "@clerk/react";
 import { chooseFactor } from "@shared/account/account";
-import { useEffect, useId, useRef, useState, type SubmitEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import "./account.css";
 import { problemText } from "./api.ts";
 import { CodeEntry, PasswordField } from "./SignIn.tsx";
-import { Btn, Problem } from "./ui.tsx";
+import { Btn, Dialog, Problem } from "./ui.tsx";
 
 type Ask = {
   level: "first_factor" | "second_factor" | "multi_factor" | undefined;
@@ -46,14 +47,13 @@ type Step =
 
 function Reverify({ ask }: { ask: Ask }) {
   const { session } = useSession();
+  const { signOut } = useClerk();
   const [step, setStep] = useState<Step>({ kind: "starting" });
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
   const started = useRef<Ask>(undefined);
-  const box = useRef<HTMLDialogElement>(null);
-  const titleId = useId();
 
   useEffect(() => {
     if (!session || started.current === ask) return;
@@ -116,8 +116,7 @@ function Reverify({ ask }: { ask: Ask }) {
     );
   };
 
-  const submitPassword = (event: SubmitEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const submitPassword = () => {
     if (!session || !password) return;
     void attempt(() =>
       session.attemptFirstFactorVerification({
@@ -126,12 +125,6 @@ function Reverify({ ask }: { ask: Ask }) {
       }),
     );
   };
-
-  useEffect(() => {
-    const dialog = box.current;
-    dialog?.showModal();
-    return () => dialog?.close();
-  }, []);
 
   const digits = (
     <CodeEntry
@@ -143,22 +136,40 @@ function Reverify({ ask }: { ask: Ask }) {
   );
 
   return (
-    <dialog
-      ref={box}
-      className="confirm-you"
-      aria-labelledby={titleId}
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!busy) ask.cancel();
-      }}
+    <Dialog
+      title="Confirm it's you"
+      busy={busy}
+      onClose={ask.cancel}
+      onSubmit={step.kind === "password" ? submitPassword : undefined}
+      foot={
+        <>
+          <Btn quiet onClick={ask.cancel} disabled={busy}>
+            Cancel
+          </Btn>
+          {step.kind === "password" ? (
+            <Btn type="submit" disabled={!password} busy={busy}>
+              Confirm
+            </Btn>
+          ) : step.kind === "unsupported" ? (
+            <Btn
+              disabled={busy}
+              onClick={() => void signOut({ redirectUrl: "/" })}
+            >
+              Sign out
+            </Btn>
+          ) : null}
+        </>
+      }
     >
-      <h2 id={titleId}>Confirm it&rsquo;s you</h2>
       {step.kind === "starting" && !problem ? (
-        <p className="note">One moment…</p>
+        <p className="rv-busy">
+          <span className="rv-spin" aria-hidden="true" />
+          One moment…
+        </p>
       ) : null}
       {step.kind === "email" ? (
         <>
-          <p className="note">
+          <p>
             This needs a recent sign-in. Sikemux sent a code to{" "}
             <span className="lit">{step.email}</span>.
           </p>
@@ -167,36 +178,28 @@ function Reverify({ ask }: { ask: Ask }) {
       ) : null}
       {step.kind === "authenticator" ? (
         <>
-          <p className="note">Enter the code from your authenticator app.</p>
+          <p>Enter the code from your authenticator app.</p>
           {digits}
         </>
       ) : null}
       {step.kind === "password" ? (
-        <form onSubmit={submitPassword}>
-          <p className="note">
-            This needs a recent sign-in. Enter your password.
-          </p>
+        <>
+          <p>This needs a recent sign-in. Enter your password.</p>
           <PasswordField
             value={password}
             onChange={setPassword}
             autoComplete="current-password"
           />
-          <Btn type="submit" disabled={!password} busy={busy}>
-            Confirm
-          </Btn>
-        </form>
+        </>
       ) : null}
       {step.kind === "unsupported" ? (
-        <p className="note">
+        <p>
           Your account can&rsquo;t confirm here. Sign out and sign in again,
           then try once more.
         </p>
       ) : null}
       <Problem>{problem}</Problem>
-      <Btn quiet onClick={ask.cancel} disabled={busy}>
-        Cancel
-      </Btn>
-    </dialog>
+    </Dialog>
   );
 }
 

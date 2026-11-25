@@ -6,12 +6,18 @@ import {
   errorCode,
   orReverify,
 } from "@shared/account/account";
+import { formatDay } from "@shared/lib/format";
+import {
+  IconArrowLeft,
+  IconClock,
+  IconLaptop,
+  IconPhone,
+} from "@shared/ui/Icons";
 import { useId, useState, type SubmitEvent } from "react";
 
-import { formatDay } from "@shared/lib/format";
+import "./account.css";
 import { api, problemText, signedInToken } from "./api.ts";
 import type { Load } from "./Devices.tsx";
-import { IconBack } from "@shared/ui/Icons";
 import { Foot } from "./Frame.tsx";
 import { iconMark } from "./marks.ts";
 import { useReverified } from "./Reverify.tsx";
@@ -26,13 +32,12 @@ function count(n: number, one: string, many: string): string {
 
 /** Signed in: what deleting takes with it, and the one button that does it. */
 export function DeleteAccount({
-  email,
   restorableDays,
   load,
   onBack,
   onDeleted,
 }: {
-  email: string | undefined;
+  email?: string;
   restorableDays: number | undefined;
   load: Load;
   onBack: () => void;
@@ -75,8 +80,7 @@ export function DeleteAccount({
       title="Delete your account"
       lede={
         <>
-          This deletes {email ? <span className="lit">{email}</span> : "it"}{" "}
-          from Sikemux. Changed your mind? Sign in again{" "}
+          Changed your mind? Sign in again{" "}
           {restorableDays
             ? `within ${count(restorableDays, "day", "days")}`
             : "soon"}{" "}
@@ -85,40 +89,60 @@ export function DeleteAccount({
       }
       mark={iconMark("warning")}
       scene="sign"
-      tone={problem ? "failed" : busy ? "waiting" : undefined}
+      tone={busy ? "waiting" : "failed"}
       back={
         <Txt onClick={onBack}>
-          <IconBack className="ic" />
+          <IconArrowLeft size={14} />
           Account
         </Txt>
       }
       foot={<Foot />}
     >
       {confirm}
-      <ul className="facts">
+      <ul className="acc-facts">
         <li>
-          <span className="lit">Hosts</span>
-          {devices ? ` (${hosts.length})` : ""} are signed out. The phones
-          paired to them keep working.
+          <IconLaptop size={16} />
+          <span>
+            <b>
+              {devices
+                ? `${count(hosts.length, "host", "hosts")} ${hosts.length === 1 ? "is" : "are"} signed out`
+                : "Hosts are signed out"}
+            </b>
+            <small>
+              The phones paired to them keep working.
+              {hosts.length > 0
+                ? ` ${hosts.map((device) => device.name).join(", ")}.`
+                : ""}
+            </small>
+          </span>
         </li>
         <li>
-          <span className="lit">Clients</span>
-          {devices ? ` (${clients.length})` : ""} are signed out and removed
-          from every host.
+          <IconPhone size={16} />
+          <span>
+            <b>
+              {devices
+                ? `${count(clients.length, "client", "clients")} ${clients.length === 1 ? "is" : "are"} signed out and removed from every host`
+                : "Clients are signed out and removed from every host"}
+            </b>
+            {clients.length > 0 ? (
+              <small>{clients.map((device) => device.name).join(", ")}.</small>
+            ) : null}
+          </span>
         </li>
         <li>
-          {restorableDays
-            ? `After ${count(restorableDays, "day", "days")},`
-            : "Once it can no longer be restored,"}{" "}
-          your sign-in, device keys and the account&rsquo;s history are erased,
-          and backups within {release.account.backupDays} days after that.
+          <IconClock size={16} />
+          <span>
+            <b>
+              {restorableDays
+                ? `After ${count(restorableDays, "day", "days")}, everything is erased`
+                : "Once it can no longer be restored, everything is erased"}
+            </b>
+            <small>
+              Sign-in, device keys and history; backups within{" "}
+              {release.account.backupDays} days after.
+            </small>
+          </span>
         </li>
-        {devices && devices.length > 0 ? (
-          <li>
-            {count(devices.length, "device", "devices")}:{" "}
-            {devices.map((device) => device.name).join(", ")}.
-          </li>
-        ) : null}
       </ul>
 
       <form className="do" onSubmit={(e) => void submit(e)}>
@@ -140,7 +164,7 @@ export function DeleteAccount({
         </Btn>
       </form>
       <p className="fine">
-        You may be asked to confirm it's you first.{" "}
+        You may be asked to confirm it&rsquo;s you first.{" "}
         <a href={POLICY}>How deletion works</a>
       </p>
     </Hero>
@@ -181,8 +205,8 @@ export function AccountDeleted({ deletesAt }: { deletesAt?: string }) {
       scene="sign"
       foot={<Foot />}
     >
-      <div className="do">
-        <a className={btnClass({})} href="https://sikemux.com">
+      <div className="acc-gate-do">
+        <a className={btnClass({ quiet: true })} href="https://sikemux.com">
           Go to sikemux.com
         </a>
       </div>

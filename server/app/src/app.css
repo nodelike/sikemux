@@ -2084,30 +2084,6 @@ dialog.dlg::backdrop {
 .digits:has(input:disabled) .digit {
   opacity: 0.6;
 }
-.confirm-you {
-  width: min(360px, calc(100vw - 32px));
-  margin: auto;
-  padding: 20px;
-  border: 0;
-  border-radius: var(--r-card);
-  background: var(--pop);
-  box-shadow: inset 0 0 0 1px var(--line2);
-  color: var(--ink);
-}
-.confirm-you[open],
-.confirm-you form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.confirm-you::backdrop {
-  background: color-mix(in srgb, var(--ground) 72%, transparent);
-}
-.confirm-you h2 {
-  font-size: 16px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
 @media (max-width: 860px) {
   .hero .markbox {
     order: -1;
@@ -2124,12 +2100,6 @@ dialog.dlg::backdrop {
 .box b {
   color: var(--lit);
   font-weight: 600;
-}
-.form.below {
-  align-items: center;
-}
-.form.below .field {
-  flex: 1 1 200px;
 }
 .soft {
   color: var(--two);
