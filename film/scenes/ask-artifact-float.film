@@ -35,7 +35,7 @@ settle 2
 click 1083,69
 settle 4
 snap ask-artifact-light
-click 1200,846
+click 860,802
 settle 1
 type "The walnut board at 62 is what people buy it for. Keep it there until the new boards come in, and tell me what they cost us first." 200
 settle 2
@@ -43,3 +43,6 @@ snap ask-artifact-draft
 click 1092,63
 settle 3
 snap ask-artifact-light-wide
+click 917,99
+settle 3
+snap ask-artifact-back

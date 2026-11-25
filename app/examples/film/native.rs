@@ -67,7 +67,8 @@ impl StandIn {
     }
 
     /// Lays every WebKit view showing in the stand-in over `shot`, where it sits, under what
-    /// the window drew `above` them, in its own pixels.
+    /// the window drew `above` them, in its own pixels. They keep what it left as
+    /// its ground, as around a rounded corner.
     pub fn lay_over(
         &self,
         shot: &mut image::RgbaImage,
@@ -105,9 +106,19 @@ impl StandIn {
         }
         for bounds in above {
             let (left, top) = (bounds.origin.x.0 as u32, bounds.origin.y.0 as u32);
-            let (width, height) = (bounds.size.width.0 as u32, bounds.size.height.0 as u32);
-            let kept = image::imageops::crop_imm(&drawn, left, top, width, height).to_image();
-            image::imageops::replace(shot, &kept, i64::from(left), i64::from(top));
+            let right = (left + bounds.size.width.0 as u32).min(drawn.width());
+            let bottom = (top + bounds.size.height.0 as u32).min(drawn.height());
+            for y in top..bottom {
+                let ground = *drawn.get_pixel(left.saturating_sub(1), y);
+                let inside = |x: &u32| !alike(drawn.get_pixel(*x, y), &ground);
+                let Some(first) = (left..right).find(inside) else {
+                    continue;
+                };
+                let last = (first..right).rev().find(inside).unwrap_or(first);
+                for x in first..=last {
+                    shot.put_pixel(x, y, *drawn.get_pixel(x, y));
+                }
+            }
         }
         Ok(())
     }
@@ -158,6 +169,10 @@ impl StandIn {
             .context("reading a page's picture")?
             .to_rgba8())
     }
+}
+
+fn alike(one: &image::Rgba<u8>, other: &image::Rgba<u8>) -> bool {
+    (one.0.iter().zip(other.0)).all(|(one, other)| one.abs_diff(other) <= 1)
 }
 
 /// The WebKit views under `view` that are not hidden, front to back as AppKit keeps them.
